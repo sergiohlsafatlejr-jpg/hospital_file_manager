@@ -1601,3 +1601,312 @@ export async function getEstatisticasRecursos(userId: number) {
 
   return stats;
 }
+
+
+// ============ CONCILIAÇÃO AUTOMÁTICA FUNCTIONS ============
+
+export interface ItemConciliacao {
+  guiaNumero: string;
+  dataExecucao: string;
+  codigo: string;
+  descricao: string;
+  pacienteNome: string;
+  valorFaturado: number;
+  valorPago: number;
+  valorGlosado: number;
+  motivoGlosa: string;
+  status: "ok" | "divergente" | "glosado" | "nao_encontrado";
+}
+
+export interface ResumoConciliacao {
+  convenioId: number;
+  convenioNome: string;
+  totalEnviados: number;
+  totalRetornados: number;
+  totalConciliados: number;
+  totalDivergentes: number;
+  totalGlosados: number;
+  valorTotalFaturado: number;
+  valorTotalPago: number;
+  valorTotalGlosado: number;
+  percentualGlosa: number;
+}
+
+export async function getConciliacaoPorConvenio(filters: {
+  convenioId: number;
+  userId: number;
+  dataInicio?: Date;
+  dataFim?: Date;
+}): Promise<{ itens: ItemConciliacao[]; resumo: ResumoConciliacao | null }> {
+  const db = await getDb();
+  if (!db) return { itens: [], resumo: null };
+
+  // Buscar convênio
+  const [convenio] = await db
+    .select()
+    .from(convenios)
+    .where(eq(convenios.id, filters.convenioId))
+    .limit(1);
+
+  if (!convenio) return { itens: [], resumo: null };
+
+  // Buscar arquivos enviados (XMLs)
+  const arquivosEnviadosConditions = [
+    eq(arquivos.convenioId, filters.convenioId),
+    eq(arquivos.direcao, "enviado"),
+    eq(arquivos.status, "processado"),
+    eq(arquivos.userId, filters.userId),
+  ];
+
+  if (filters.dataInicio) {
+    arquivosEnviadosConditions.push(gte(arquivos.createdAt, filters.dataInicio));
+  }
+  if (filters.dataFim) {
+    arquivosEnviadosConditions.push(lte(arquivos.createdAt, filters.dataFim));
+  }
+
+  const arquivosEnviados = await db
+    .select()
+    .from(arquivos)
+    .where(and(...arquivosEnviadosConditions));
+
+  // Buscar arquivos retornados (Excel)
+  const arquivosRetornadosConditions = [
+    eq(arquivos.convenioId, filters.convenioId),
+    eq(arquivos.direcao, "retornado"),
+    eq(arquivos.status, "processado"),
+    eq(arquivos.userId, filters.userId),
+  ];
+
+  if (filters.dataInicio) {
+    arquivosRetornadosConditions.push(gte(arquivos.createdAt, filters.dataInicio));
+  }
+  if (filters.dataFim) {
+    arquivosRetornadosConditions.push(lte(arquivos.createdAt, filters.dataFim));
+  }
+
+  const arquivosRetornados = await db
+    .select()
+    .from(arquivos)
+    .where(and(...arquivosRetornadosConditions));
+
+  // Buscar procedimentos enviados
+  const procedimentosEnviados: any[] = [];
+  for (const arq of arquivosEnviados) {
+    const procs = await db
+      .select()
+      .from(procedimentos)
+      .where(eq(procedimentos.arquivoId, arq.id));
+    procedimentosEnviados.push(...procs);
+  }
+
+  // Buscar procedimentos retornados
+  const procedimentosRetornados: any[] = [];
+  for (const arq of arquivosRetornados) {
+    const procs = await db
+      .select()
+      .from(procedimentos)
+      .where(eq(procedimentos.arquivoId, arq.id));
+    procedimentosRetornados.push(...procs);
+  }
+
+  // Criar mapa de procedimentos retornados por código + guia
+  const retornadosMap = new Map<string, any[]>();
+  for (const proc of procedimentosRetornados) {
+    // Chave: código + guia (normalizado)
+    const chave = `${proc.codigo}|${proc.guiaNumero || ""}`.toLowerCase();
+    if (!retornadosMap.has(chave)) {
+      retornadosMap.set(chave, []);
+    }
+    retornadosMap.get(chave)!.push(proc);
+  }
+
+  // Processar conciliação
+  const itensConciliados: ItemConciliacao[] = [];
+  const chavesProcessadas = new Set<string>();
+
+  let totalEnviados = 0;
+  let totalConciliados = 0;
+  let totalDivergentes = 0;
+  let totalGlosados = 0;
+  let valorTotalFaturado = 0;
+  let valorTotalPago = 0;
+  let valorTotalGlosado = 0;
+
+  for (const env of procedimentosEnviados) {
+    const chave = `${env.codigo}|${env.guiaNumero || ""}`.toLowerCase();
+    const retornados = retornadosMap.get(chave) || [];
+    chavesProcessadas.add(chave);
+    totalEnviados++;
+
+    const valorEnviado = parseFloat(env.valorTotal || "0");
+    valorTotalFaturado += valorEnviado;
+
+    if (retornados.length === 0) {
+      // Não encontrado no retorno - glosado total
+      itensConciliados.push({
+        guiaNumero: env.guiaNumero || "",
+        dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
+        codigo: env.codigo,
+        descricao: env.descricao || "",
+        pacienteNome: env.pacienteNome || "",
+        valorFaturado: valorEnviado,
+        valorPago: 0,
+        valorGlosado: valorEnviado,
+        motivoGlosa: "Procedimento não encontrado no retorno",
+        status: "nao_encontrado",
+      });
+      totalGlosados++;
+      valorTotalGlosado += valorEnviado;
+    } else {
+      // Encontrado - comparar valores
+      const ret = retornados[0];
+      const valorRetornado = parseFloat(ret.valorTotal || "0");
+      const diferenca = valorEnviado - valorRetornado;
+      
+      // Extrair motivo de glosa do dadosExtras se existir
+      let motivoGlosa = "";
+      if (ret.dadosExtras) {
+        const extras = typeof ret.dadosExtras === "string" 
+          ? JSON.parse(ret.dadosExtras) 
+          : ret.dadosExtras;
+        motivoGlosa = extras.motivoGlosa || extras.observacao || extras.glosa || "";
+      }
+
+      valorTotalPago += valorRetornado;
+
+      if (Math.abs(diferenca) < 0.01) {
+        // Valores iguais - OK
+        itensConciliados.push({
+          guiaNumero: env.guiaNumero || "",
+          dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
+          codigo: env.codigo,
+          descricao: env.descricao || "",
+          pacienteNome: env.pacienteNome || "",
+          valorFaturado: valorEnviado,
+          valorPago: valorRetornado,
+          valorGlosado: 0,
+          motivoGlosa: "",
+          status: "ok",
+        });
+        totalConciliados++;
+      } else if (diferenca > 0) {
+        // Glosa parcial
+        itensConciliados.push({
+          guiaNumero: env.guiaNumero || "",
+          dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
+          codigo: env.codigo,
+          descricao: env.descricao || "",
+          pacienteNome: env.pacienteNome || "",
+          valorFaturado: valorEnviado,
+          valorPago: valorRetornado,
+          valorGlosado: diferenca,
+          motivoGlosa: motivoGlosa || "Valor divergente",
+          status: "glosado",
+        });
+        totalGlosados++;
+        valorTotalGlosado += diferenca;
+      } else {
+        // Valor retornado maior que enviado (divergência)
+        itensConciliados.push({
+          guiaNumero: env.guiaNumero || "",
+          dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
+          codigo: env.codigo,
+          descricao: env.descricao || "",
+          pacienteNome: env.pacienteNome || "",
+          valorFaturado: valorEnviado,
+          valorPago: valorRetornado,
+          valorGlosado: 0,
+          motivoGlosa: motivoGlosa || "",
+          status: "divergente",
+        });
+        totalDivergentes++;
+      }
+    }
+  }
+
+  // Adicionar itens extras do retorno (não enviados)
+  for (const [chave, itens] of Array.from(retornadosMap.entries())) {
+    if (!chavesProcessadas.has(chave)) {
+      for (const ret of itens) {
+        const valorRetornado = parseFloat(ret.valorTotal || "0");
+        valorTotalPago += valorRetornado;
+        
+        itensConciliados.push({
+          guiaNumero: ret.guiaNumero || "",
+          dataExecucao: ret.dataExecucao ? new Date(ret.dataExecucao).toLocaleDateString("pt-BR") : "",
+          codigo: ret.codigo,
+          descricao: ret.descricao || "",
+          pacienteNome: ret.pacienteNome || "",
+          valorFaturado: 0,
+          valorPago: valorRetornado,
+          valorGlosado: 0,
+          motivoGlosa: "Procedimento extra no retorno",
+          status: "divergente",
+        });
+        totalDivergentes++;
+      }
+    }
+  }
+
+  // Ordenar por guia e data
+  itensConciliados.sort((a, b) => {
+    if (a.guiaNumero !== b.guiaNumero) {
+      return a.guiaNumero.localeCompare(b.guiaNumero);
+    }
+    return a.dataExecucao.localeCompare(b.dataExecucao);
+  });
+
+  const resumo: ResumoConciliacao = {
+    convenioId: convenio.id,
+    convenioNome: convenio.nome,
+    totalEnviados,
+    totalRetornados: procedimentosRetornados.length,
+    totalConciliados,
+    totalDivergentes,
+    totalGlosados,
+    valorTotalFaturado,
+    valorTotalPago,
+    valorTotalGlosado,
+    percentualGlosa: valorTotalFaturado > 0 ? (valorTotalGlosado / valorTotalFaturado) * 100 : 0,
+  };
+
+  return { itens: itensConciliados, resumo };
+}
+
+export async function getResumoConciliacao(filters: {
+  convenioId?: number;
+  userId: number;
+}): Promise<ResumoConciliacao[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Buscar convênios
+  let convList;
+  if (filters.convenioId) {
+    convList = await db
+      .select()
+      .from(convenios)
+      .where(eq(convenios.id, filters.convenioId));
+  } else {
+    convList = await db
+      .select()
+      .from(convenios)
+      .where(eq(convenios.ativo, "sim"));
+  }
+
+  const resultado: ResumoConciliacao[] = [];
+
+  for (const conv of convList) {
+    const { resumo } = await getConciliacaoPorConvenio({
+      convenioId: conv.id,
+      userId: filters.userId,
+    });
+
+    if (resumo && (resumo.totalEnviados > 0 || resumo.totalRetornados > 0)) {
+      resultado.push(resumo);
+    }
+  }
+
+  return resultado.sort((a, b) => b.valorTotalFaturado - a.valorTotalFaturado);
+}

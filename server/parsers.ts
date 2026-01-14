@@ -15,6 +15,8 @@ export interface ParsedProcedimento {
   guiaNumero?: string;
   nomeMedico?: string;
   crmMedico?: string;
+  motivoGlosa?: string;
+  valorGlosado?: number;
   dadosExtras?: Record<string, unknown>;
 }
 
@@ -439,6 +441,8 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
     crmMedico: ["crm", "crm_medico", "conselho", "prestador_executante", "prestadorexecutante"],
     dataExecucao: ["data_execucao", "dataexecucao", "data_execução", "dt_execucao", "dtexecucao"],
     situacaoItem: ["situacao_item", "situacaoitem", "situação_item", "status", "situacao"],
+    motivoGlosa: ["motivo_glosa", "motivoglosa", "motivo", "glosa", "observacao", "observação", "obs", "justificativa", "descricao_glosa", "descricaoglosa"],
+    valorGlosado: ["valor_glosado", "valorglosado", "vl_glosado", "glosa_valor", "valor_glosa", "valorglosa"],
   };
   
   const normalizeKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -477,6 +481,8 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
   
   // Get situacao for dadosExtras
   const situacaoItem = findValue(columnMappings.situacaoItem) as string | undefined;
+  const motivoGlosa = findValue(columnMappings.motivoGlosa) as string | undefined;
+  const valorGlosado = parseNumber(findValue(columnMappings.valorGlosado));
   
   return {
     codigo: String(codigo),
@@ -490,6 +496,8 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
     guiaNumero: findValue(columnMappings.guiaNumero) as string | undefined,
     nomeMedico: findValue(columnMappings.nomeMedico) as string | undefined,
     crmMedico: findValue(columnMappings.crmMedico) as string | undefined,
+    motivoGlosa,
+    valorGlosado,
     dadosExtras: { ...row, situacaoItem },
   };
 }

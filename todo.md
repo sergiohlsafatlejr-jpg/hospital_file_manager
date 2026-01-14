@@ -75,3 +75,5 @@
 - [x] Corrigir extração de médico e CRM nos arquivos XML (campos não estão sendo preenchidos)
 - [x] Destacar visualmente procedimentos com médico associado na interface
 - [x] Corrigir erro na importação de arquivos Excel (.xlsx)
+- [x] Reformular tela de Conciliação para comparar XMLs enviados vs retornos Excel por convênio/data
+- [x] Exibir na conciliação: guia, data, código, valor faturado, valor pago, valor glosado, motivo de glosa

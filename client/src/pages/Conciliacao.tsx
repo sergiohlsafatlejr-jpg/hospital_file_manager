@@ -2,348 +2,167 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { 
-  Upload, 
-  FileSpreadsheet, 
   GitCompare, 
   AlertTriangle, 
   CheckCircle2, 
   XCircle,
-  ArrowRight,
   Download,
   RefreshCw,
-  Loader2
+  Loader2,
+  TrendingDown,
+  DollarSign,
+  FileText,
+  Search
 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
-interface ConciliacaoResultado {
-  totalEnviados: number;
-  totalRetornados: number;
-  conciliados: number;
-  divergentes: number;
-  naoEncontrados: number;
-  valorTotalEnviado: number;
-  valorTotalRetornado: number;
-  diferencaTotal: number;
-  itens: ItemConciliacao[];
-}
-
 interface ItemConciliacao {
+  guiaNumero: string;
+  dataExecucao: string;
   codigo: string;
   descricao: string;
-  guia: string;
-  dataExecucao: string;
-  qtdEnviada: number;
-  qtdRetornada: number;
-  valorEnviado: number;
-  valorRetornado: number;
-  diferenca: number;
-  status: "ok" | "divergente" | "nao_encontrado" | "extra";
+  pacienteNome: string;
+  valorFaturado: number;
+  valorPago: number;
+  valorGlosado: number;
+  motivoGlosa: string;
+  status: "ok" | "divergente" | "glosado" | "nao_encontrado";
+}
+
+interface ResumoConciliacao {
+  convenioId: number;
+  convenioNome: string;
+  totalEnviados: number;
+  totalRetornados: number;
+  totalConciliados: number;
+  totalDivergentes: number;
+  totalGlosados: number;
+  valorTotalFaturado: number;
+  valorTotalPago: number;
+  valorTotalGlosado: number;
+  percentualGlosa: number;
 }
 
 export default function Conciliacao() {
   const { user } = useAuth();
   const [convenioId, setConvenioId] = useState<string>("");
-  const [arquivoEnviadoId, setArquivoEnviadoId] = useState<string>("");
-  const [arquivoRetorno, setArquivoRetorno] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [resultado, setResultado] = useState<ConciliacaoResultado | null>(null);
+  const [dataInicio, setDataInicio] = useState<string>("");
+  const [dataFim, setDataFim] = useState<string>("");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
+  const [busca, setBusca] = useState<string>("");
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
 
-  // Buscar arquivos enviados do convênio selecionado
-  const { data: arquivosEnviados } = trpc.arquivos.list.useQuery(
+  // Buscar resumo de todos os convênios
+  const { data: resumoGeral, isLoading: isLoadingResumo } = trpc.conciliacao.resumo.useQuery({});
+
+  // Buscar conciliação detalhada do convênio selecionado
+  const { data: conciliacaoData, isLoading: isLoadingConciliacao, refetch } = trpc.conciliacao.porConvenio.useQuery(
     { 
-      convenioId: convenioId ? parseInt(convenioId) : undefined,
-      direcao: "enviado",
-      status: "processado"
+      convenioId: convenioId ? parseInt(convenioId) : 0,
+      dataInicio: dataInicio || undefined,
+      dataFim: dataFim || undefined,
     },
     { enabled: !!convenioId }
   );
 
-  // Buscar procedimentos do arquivo selecionado
-  const { data: procedimentosEnviados } = trpc.procedimentos.list.useQuery(
-    { arquivoId: arquivoEnviadoId ? parseInt(arquivoEnviadoId) : undefined, pageSize: 1000 },
-    { enabled: !!arquivoEnviadoId }
-  );
-
-  // Upload mutation
-  const uploadMutation = trpc.arquivos.upload.useMutation();
-  const utils = trpc.useUtils();
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      const file = files[0];
-      const ext = file.name.split(".").pop()?.toLowerCase();
-      if (["xlsx", "xls", "csv", "xml", "pdf"].includes(ext || "")) {
-        setArquivoRetorno(file);
-      } else {
-        toast.error("Formato não suportado. Use Excel, CSV, XML ou PDF.");
-      }
-    }
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      setArquivoRetorno(files[0]);
-    }
-  };
-
-  const parseRetornoExcel = async (file: File): Promise<ItemConciliacao[]> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: "array" });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-
-          // Encontrar cabeçalhos
-          const headers = jsonData[0] || [];
-          const rows = jsonData.slice(1);
-
-          // Mapear colunas (flexível para diferentes formatos)
-          const findColumn = (names: string[]) => {
-            return headers.findIndex((h: string) => 
-              names.some(n => String(h).toLowerCase().includes(n.toLowerCase()))
-            );
-          };
-
-          const colCodigo = findColumn(["codigo", "código", "cod", "procedimento"]);
-          const colDescricao = findColumn(["descricao", "descrição", "desc", "nome"]);
-          const colGuia = findColumn(["guia", "numero_guia", "nº guia"]);
-          const colQtd = findColumn(["quantidade", "qtd", "qtde"]);
-          const colValor = findColumn(["valor", "total", "valor_total", "vlr"]);
-          const colData = findColumn(["data", "data_execucao", "dt_exec"]);
-
-          const itensRetorno: ItemConciliacao[] = rows
-            .filter(row => row.length > 0 && row[colCodigo])
-            .map(row => ({
-              codigo: String(row[colCodigo] || "").trim(),
-              descricao: colDescricao >= 0 ? String(row[colDescricao] || "") : "",
-              guia: colGuia >= 0 ? String(row[colGuia] || "") : "",
-              dataExecucao: colData >= 0 ? String(row[colData] || "") : "",
-              qtdEnviada: 0,
-              qtdRetornada: colQtd >= 0 ? Number(row[colQtd]) || 1 : 1,
-              valorEnviado: 0,
-              valorRetornado: colValor >= 0 ? parseFloat(String(row[colValor]).replace(",", ".")) || 0 : 0,
-              diferenca: 0,
-              status: "extra" as const,
-            }));
-
-          resolve(itensRetorno);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  };
-
-  const executarConciliacao = async () => {
-    if (!arquivoEnviadoId || !arquivoRetorno) {
-      toast.error("Selecione o arquivo enviado e importe o arquivo de retorno");
-      return;
-    }
-
-    setIsProcessing(true);
-
-    try {
-      // Parse do arquivo de retorno
-      const itensRetorno = await parseRetornoExcel(arquivoRetorno);
-      
-      // Procedimentos enviados
-      const enviados = procedimentosEnviados?.items || [];
-
-      // Criar mapa de retornados por código + guia
-      const retornadosMap = new Map<string, ItemConciliacao[]>();
-      for (const item of itensRetorno) {
-        const chave = `${item.codigo}|${item.guia}`;
-        if (!retornadosMap.has(chave)) {
-          retornadosMap.set(chave, []);
-        }
-        retornadosMap.get(chave)!.push(item);
-      }
-
-      // Processar conciliação
-      const itensConciliados: ItemConciliacao[] = [];
-      const chavesProcessadas = new Set<string>();
-
-      for (const env of enviados) {
-        const chave = `${env.codigo}|${env.guiaNumero || ""}`;
-        const retornados = retornadosMap.get(chave) || [];
-        chavesProcessadas.add(chave);
-
-        if (retornados.length === 0) {
-          // Não encontrado no retorno
-          itensConciliados.push({
-            codigo: env.codigo,
-            descricao: env.descricao || "",
-            guia: env.guiaNumero || "",
-            dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
-            qtdEnviada: env.quantidade || 0,
-            qtdRetornada: 0,
-            valorEnviado: parseFloat(env.valorTotal || "0"),
-            valorRetornado: 0,
-            diferenca: parseFloat(env.valorTotal || "0"),
-            status: "nao_encontrado",
-          });
-        } else {
-          // Encontrado - comparar valores
-          const ret = retornados[0];
-          const valorEnv = parseFloat(env.valorTotal || "0");
-          const valorRet = ret.valorRetornado;
-          const diferenca = valorEnv - valorRet;
-          const status = Math.abs(diferenca) < 0.01 ? "ok" : "divergente";
-
-          itensConciliados.push({
-            codigo: env.codigo,
-            descricao: env.descricao || "",
-            guia: env.guiaNumero || "",
-            dataExecucao: env.dataExecucao ? new Date(env.dataExecucao).toLocaleDateString("pt-BR") : "",
-            qtdEnviada: env.quantidade || 0,
-            qtdRetornada: ret.qtdRetornada,
-            valorEnviado: valorEnv,
-            valorRetornado: valorRet,
-            diferenca,
-            status,
-          });
-        }
-      }
-
-      // Adicionar itens extras do retorno (não enviados)
-      for (const [chave, itens] of Array.from(retornadosMap.entries())) {
-        if (!chavesProcessadas.has(chave)) {
-          for (const item of itens) {
-            itensConciliados.push({
-              ...item,
-              status: "extra",
-              diferenca: -item.valorRetornado,
-            });
-          }
-        }
-      }
-
-      // Calcular totais
-      const valorTotalEnviado = itensConciliados.reduce((sum, i) => sum + i.valorEnviado, 0);
-      const valorTotalRetornado = itensConciliados.reduce((sum, i) => sum + i.valorRetornado, 0);
-
-      setResultado({
-        totalEnviados: enviados.length,
-        totalRetornados: itensRetorno.length,
-        conciliados: itensConciliados.filter(i => i.status === "ok").length,
-        divergentes: itensConciliados.filter(i => i.status === "divergente").length,
-        naoEncontrados: itensConciliados.filter(i => i.status === "nao_encontrado").length,
-        valorTotalEnviado,
-        valorTotalRetornado,
-        diferencaTotal: valorTotalEnviado - valorTotalRetornado,
-        itens: itensConciliados,
-      });
-
-      // Fazer upload do arquivo de retorno para o sistema
-      const fileBuffer = await arquivoRetorno.arrayBuffer();
-      const base64 = btoa(
-        new Uint8Array(fileBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-      );
-
-      await uploadMutation.mutateAsync({
-        nome: arquivoRetorno.name,
-        conteudo: base64,
-        tipoArquivo: arquivoRetorno.name.endsWith(".xml") ? "xml" : "excel",
-        direcao: "retornado",
-        convenioId: parseInt(convenioId),
-      });
-
-      utils.arquivos.list.invalidate();
-      utils.dashboard.resumo.invalidate();
-
-      toast.success("Conciliação realizada com sucesso!");
-    } catch (error: any) {
-      console.error("Erro na conciliação:", error);
-      toast.error(error.message || "Erro ao processar conciliação");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleExportExcel = () => {
-    if (!resultado) return;
-
-    const excelData = resultado.itens.map(item => ({
-      "Código": item.codigo,
-      "Descrição": item.descricao,
-      "Guia": item.guia,
-      "Data Execução": item.dataExecucao,
-      "Qtd Enviada": item.qtdEnviada,
-      "Qtd Retornada": item.qtdRetornada,
-      "Valor Enviado": item.valorEnviado,
-      "Valor Retornado": item.valorRetornado,
-      "Diferença": item.diferenca,
-      "Status": item.status === "ok" ? "OK" : 
-               item.status === "divergente" ? "Divergente" :
-               item.status === "nao_encontrado" ? "Não Encontrado" : "Extra",
-    }));
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    ws["!cols"] = [
-      { wch: 15 }, { wch: 50 }, { wch: 15 }, { wch: 15 },
-      { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
-    ];
-    XLSX.utils.book_append_sheet(wb, ws, "Conciliação");
-    XLSX.writeFile(wb, `conciliacao_${new Date().toISOString().split("T")[0]}.xlsx`);
+  const formatCurrency = (value: number) => {
+    return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "ok":
-        return <Badge className="bg-green-100 text-green-700">OK</Badge>;
+        return <Badge className="bg-green-100 text-green-700 border-green-200">OK</Badge>;
       case "divergente":
-        return <Badge className="bg-amber-100 text-amber-700">Divergente</Badge>;
+        return <Badge className="bg-amber-100 text-amber-700 border-amber-200">Divergente</Badge>;
+      case "glosado":
+        return <Badge className="bg-red-100 text-red-700 border-red-200">Glosado</Badge>;
       case "nao_encontrado":
-        return <Badge className="bg-red-100 text-red-700">Não Encontrado</Badge>;
-      case "extra":
-        return <Badge className="bg-blue-100 text-blue-700">Extra</Badge>;
+        return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Não Encontrado</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
   };
 
-  const itensFiltrados = resultado?.itens.filter(item => {
-    if (filtroStatus === "todos") return true;
-    return item.status === filtroStatus;
-  }) || [];
+  // Filtrar itens
+  const itensFiltrados = useMemo(() => {
+    if (!conciliacaoData?.itens) return [];
+    
+    return conciliacaoData.itens.filter(item => {
+      // Filtro de status
+      if (filtroStatus !== "todos" && item.status !== filtroStatus) return false;
+      
+      // Filtro de busca
+      if (busca) {
+        const termoBusca = busca.toLowerCase();
+        return (
+          item.codigo.toLowerCase().includes(termoBusca) ||
+          item.descricao.toLowerCase().includes(termoBusca) ||
+          item.guiaNumero.toLowerCase().includes(termoBusca) ||
+          item.pacienteNome.toLowerCase().includes(termoBusca) ||
+          item.motivoGlosa.toLowerCase().includes(termoBusca)
+        );
+      }
+      
+      return true;
+    });
+  }, [conciliacaoData?.itens, filtroStatus, busca]);
 
-  const formatCurrency = (value: number) => {
-    return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  // Agrupar por guia
+  const itensAgrupados = useMemo(() => {
+    const grupos: { [key: string]: ItemConciliacao[] } = {};
+    for (const item of itensFiltrados) {
+      const chave = item.guiaNumero || "Sem Guia";
+      if (!grupos[chave]) {
+        grupos[chave] = [];
+      }
+      grupos[chave].push(item);
+    }
+    return grupos;
+  }, [itensFiltrados]);
+
+  const handleExportExcel = () => {
+    if (!conciliacaoData?.itens || conciliacaoData.itens.length === 0) {
+      toast.error("Nenhum dado para exportar");
+      return;
+    }
+
+    const excelData = conciliacaoData.itens.map(item => ({
+      "Guia": item.guiaNumero,
+      "Data Execução": item.dataExecucao,
+      "Código": item.codigo,
+      "Descrição": item.descricao,
+      "Paciente": item.pacienteNome,
+      "Valor Faturado": item.valorFaturado,
+      "Valor Pago": item.valorPago,
+      "Valor Glosado": item.valorGlosado,
+      "Motivo Glosa": item.motivoGlosa,
+      "Status": item.status === "ok" ? "OK" : 
+               item.status === "divergente" ? "Divergente" :
+               item.status === "glosado" ? "Glosado" : "Não Encontrado",
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    ws["!cols"] = [
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 50 }, { wch: 30 },
+      { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 15 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Conciliação");
+    
+    const convenioNome = convenios?.find(c => c.id === parseInt(convenioId))?.nome || "convenio";
+    XLSX.writeFile(wb, `conciliacao_${convenioNome}_${new Date().toISOString().split("T")[0]}.xlsx`);
+    toast.success("Arquivo exportado com sucesso!");
   };
 
   return (
@@ -352,302 +171,353 @@ export default function Conciliacao() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Conciliação Automática</h1>
           <p className="text-muted-foreground">
-            Compare arquivos enviados com retornos dos convênios para identificar divergências
+            Compare automaticamente os arquivos XML enviados com os retornos dos convênios
           </p>
         </div>
 
-        {/* Seleção de arquivos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Arquivo Enviado */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5 text-blue-600" />
-                Arquivo Enviado
-              </CardTitle>
-              <CardDescription>Selecione o arquivo XML que foi enviado ao convênio</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Convênio</label>
-                <Select value={convenioId} onValueChange={(value) => {
-                  setConvenioId(value);
-                  setArquivoEnviadoId("");
-                  setResultado(null);
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o convênio" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {convenios?.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        {/* Cards de resumo geral */}
+        {!convenioId && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">Resumo por Convênio</h2>
+            {isLoadingResumo ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Arquivo</label>
-                <Select 
-                  value={arquivoEnviadoId} 
-                  onValueChange={(value) => {
-                    setArquivoEnviadoId(value);
-                    setResultado(null);
-                  }}
-                  disabled={!convenioId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o arquivo enviado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {arquivosEnviados?.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            ) : resumoGeral && resumoGeral.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {resumoGeral.map((resumo: ResumoConciliacao) => (
+                  <Card 
+                    key={resumo.convenioId} 
+                    className="cursor-pointer hover:border-primary transition-colors"
+                    onClick={() => setConvenioId(String(resumo.convenioId))}
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg">{resumo.convenioNome}</CardTitle>
+                      <CardDescription>
+                        {resumo.totalEnviados} enviados • {resumo.totalRetornados} retornados
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-muted-foreground">Faturado</p>
+                          <p className="font-semibold text-blue-600">{formatCurrency(resumo.valorTotalFaturado)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Pago</p>
+                          <p className="font-semibold text-green-600">{formatCurrency(resumo.valorTotalPago)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Glosado</p>
+                          <p className="font-semibold text-red-600">{formatCurrency(resumo.valorTotalGlosado)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">% Glosa</p>
+                          <p className="font-semibold text-amber-600">{resumo.percentualGlosa.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <Badge variant="outline" className="text-green-600">{resumo.totalConciliados} OK</Badge>
+                        <Badge variant="outline" className="text-red-600">{resumo.totalGlosados} Glosados</Badge>
+                        <Badge variant="outline" className="text-amber-600">{resumo.totalDivergentes} Divergentes</Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-
-              {arquivoEnviadoId && procedimentosEnviados && (
-                <div className="p-3 bg-slate-50 rounded-lg">
-                  <p className="text-sm text-slate-600">
-                    <strong>{procedimentosEnviados.total}</strong> procedimentos encontrados
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Arquivo de Retorno */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-green-600" />
-                Arquivo de Retorno
-              </CardTitle>
-              <CardDescription>Importe o arquivo Excel retornado pelo convênio</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  isDragging ? "border-primary bg-primary/5" : "border-slate-200"
-                } ${arquivoRetorno ? "bg-green-50 border-green-300" : ""}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                {arquivoRetorno ? (
-                  <div className="space-y-2">
-                    <CheckCircle2 className="h-10 w-10 text-green-600 mx-auto" />
-                    <p className="font-medium">{arquivoRetorno.name}</p>
-                    <p className="text-sm text-slate-500">
-                      {(arquivoRetorno.size / 1024).toFixed(1)} KB
-                    </p>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => {
-                        setArquivoRetorno(null);
-                        setResultado(null);
-                      }}
-                    >
-                      Remover
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Upload className="h-10 w-10 text-slate-400 mx-auto" />
-                    <p className="text-slate-600">
-                      Arraste o arquivo aqui ou{" "}
-                      <label className="text-primary cursor-pointer hover:underline">
-                        clique para selecionar
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept=".xlsx,.xls,.csv,.xml,.pdf"
-                          onChange={handleFileSelect}
-                        />
-                      </label>
-                    </p>
-                    <p className="text-xs text-slate-400">Excel, CSV, XML ou PDF</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Botão de Conciliação */}
-        <div className="flex justify-center">
-          <Button 
-            size="lg" 
-            onClick={executarConciliacao}
-            disabled={!arquivoEnviadoId || !arquivoRetorno || isProcessing}
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                Processando...
-              </>
             ) : (
-              <>
-                <GitCompare className="h-5 w-5 mr-2" />
-                Executar Conciliação
-              </>
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  <GitCompare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Nenhum dado de conciliação disponível.</p>
+                  <p className="text-sm mt-2">Importe arquivos XML (enviados) e Excel (retornados) do mesmo convênio para iniciar a conciliação.</p>
+                </CardContent>
+              </Card>
             )}
-          </Button>
-        </div>
+          </div>
+        )}
 
-        {/* Resultado da Conciliação */}
-        {resultado && (
+        {/* Filtros e detalhes quando convênio selecionado */}
+        {convenioId && (
           <>
-            {/* Cards de Resumo */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="bg-green-50 border-green-200">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-700">Conciliados</span>
-                  </div>
-                  <p className="text-2xl font-bold text-green-700 mt-2">{resultado.conciliados}</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-amber-50 border-amber-200">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    <span className="text-sm font-medium text-amber-700">Divergentes</span>
-                  </div>
-                  <p className="text-2xl font-bold text-amber-700 mt-2">{resultado.divergentes}</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-red-50 border-red-200">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <XCircle className="h-5 w-5 text-red-600" />
-                    <span className="text-sm font-medium text-red-700">Não Encontrados</span>
-                  </div>
-                  <p className="text-2xl font-bold text-red-700 mt-2">{resultado.naoEncontrados}</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-slate-50 border-slate-200">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <ArrowRight className="h-5 w-5 text-slate-600" />
-                    <span className="text-sm font-medium text-slate-700">Diferença Total</span>
-                  </div>
-                  <p className={`text-2xl font-bold mt-2 ${resultado.diferencaTotal > 0 ? "text-red-600" : resultado.diferencaTotal < 0 ? "text-green-600" : "text-slate-700"}`}>
-                    {formatCurrency(resultado.diferencaTotal)}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Resumo de Valores */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <p className="text-sm text-slate-500">Valor Total Enviado</p>
-                    <p className="text-xl font-bold">{formatCurrency(resultado.valorTotalEnviado)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">Valor Total Retornado</p>
-                    <p className="text-xl font-bold">{formatCurrency(resultado.valorTotalRetornado)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">Taxa de Conciliação</p>
-                    <div className="flex items-center gap-2">
-                      <Progress 
-                        value={(resultado.conciliados / resultado.totalEnviados) * 100} 
-                        className="h-2 flex-1"
-                      />
-                      <span className="text-sm font-medium">
-                        {((resultado.conciliados / resultado.totalEnviados) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tabela de Itens */}
+            {/* Filtros */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Detalhes da Conciliação</CardTitle>
-                    <CardDescription>
-                      {itensFiltrados.length} item(ns) {filtroStatus !== "todos" ? `com status "${filtroStatus}"` : ""}
-                    </CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <GitCompare className="h-5 w-5" />
+                  Filtros de Conciliação
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Convênio</label>
+                    <Select value={convenioId} onValueChange={setConvenioId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o convênio" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos os convênios</SelectItem>
+                        {convenios?.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex gap-2">
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Data Início</label>
+                    <Input 
+                      type="date" 
+                      value={dataInicio} 
+                      onChange={(e) => setDataInicio(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Data Fim</label>
+                    <Input 
+                      type="date" 
+                      value={dataFim} 
+                      onChange={(e) => setDataFim(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Status</label>
                     <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-                      <SelectTrigger className="w-[150px]">
-                        <SelectValue placeholder="Filtrar status" />
+                      <SelectTrigger>
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
                         <SelectItem value="ok">OK</SelectItem>
-                        <SelectItem value="divergente">Divergentes</SelectItem>
-                        <SelectItem value="nao_encontrado">Não Encontrados</SelectItem>
-                        <SelectItem value="extra">Extras</SelectItem>
+                        <SelectItem value="glosado">Glosado</SelectItem>
+                        <SelectItem value="divergente">Divergente</SelectItem>
+                        <SelectItem value="nao_encontrado">Não Encontrado</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={handleExportExcel}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Exportar
-                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Busca</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Código, guia, paciente..."
+                        value={busca}
+                        onChange={(e) => setBusca(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
                   </div>
                 </div>
+
+                <div className="flex gap-2 mt-4">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setConvenioId("");
+                      setDataInicio("");
+                      setDataFim("");
+                      setFiltroStatus("todos");
+                      setBusca("");
+                    }}
+                  >
+                    Voltar ao Resumo
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => refetch()}
+                    disabled={isLoadingConciliacao}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingConciliacao ? 'animate-spin' : ''}`} />
+                    Atualizar
+                  </Button>
+                  <Button onClick={handleExportExcel} disabled={!conciliacaoData?.itens?.length}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Exportar Excel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Cards de resumo do convênio selecionado */}
+            {conciliacaoData?.resumo && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Enviados</p>
+                        <p className="text-2xl font-bold">{conciliacaoData.resumo.totalEnviados}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Faturado</p>
+                        <p className="text-lg font-bold text-blue-600">{formatCurrency(conciliacaoData.resumo.valorTotalFaturado)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Pago</p>
+                        <p className="text-lg font-bold text-green-600">{formatCurrency(conciliacaoData.resumo.valorTotalPago)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-5 w-5 text-red-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Glosado</p>
+                        <p className="text-lg font-bold text-red-600">{formatCurrency(conciliacaoData.resumo.valorTotalGlosado)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <TrendingDown className="h-5 w-5 text-amber-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">% Glosa</p>
+                        <p className="text-2xl font-bold text-amber-600">{conciliacaoData.resumo.percentualGlosa.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Divergentes</p>
+                        <p className="text-2xl font-bold">{conciliacaoData.resumo.totalDivergentes}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Tabela de itens */}
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Detalhes da Conciliação
+                  {itensFiltrados.length > 0 && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      ({itensFiltrados.length} itens)
+                    </span>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  Comparação item a item entre valores faturados e pagos
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Código</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead>Guia</TableHead>
-                        <TableHead className="text-center">Qtd Env.</TableHead>
-                        <TableHead className="text-center">Qtd Ret.</TableHead>
-                        <TableHead className="text-right">Valor Env.</TableHead>
-                        <TableHead className="text-right">Valor Ret.</TableHead>
-                        <TableHead className="text-right">Diferença</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {itensFiltrados.slice(0, 100).map((item, index) => (
-                        <TableRow key={index} className={item.status !== "ok" ? "bg-amber-50/50" : ""}>
-                          <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
-                          <TableCell className="max-w-[200px] truncate" title={item.descricao}>
-                            {item.descricao || "-"}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">{item.guia || "-"}</TableCell>
-                          <TableCell className="text-center">{item.qtdEnviada}</TableCell>
-                          <TableCell className="text-center">{item.qtdRetornada}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.valorEnviado)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.valorRetornado)}</TableCell>
-                          <TableCell className={`text-right font-medium ${item.diferenca > 0 ? "text-red-600" : item.diferenca < 0 ? "text-green-600" : ""}`}>
-                            {formatCurrency(item.diferenca)}
-                          </TableCell>
-                          <TableCell>{getStatusBadge(item.status)}</TableCell>
+                {isLoadingConciliacao ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : itensFiltrados.length > 0 ? (
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[120px]">Guia</TableHead>
+                          <TableHead className="w-[100px]">Data</TableHead>
+                          <TableHead className="w-[100px]">Código</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead className="w-[150px]">Paciente</TableHead>
+                          <TableHead className="w-[120px] text-right">Faturado</TableHead>
+                          <TableHead className="w-[120px] text-right">Pago</TableHead>
+                          <TableHead className="w-[120px] text-right">Glosado</TableHead>
+                          <TableHead className="w-[200px]">Motivo Glosa</TableHead>
+                          <TableHead className="w-[100px]">Status</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                {itensFiltrados.length > 100 && (
-                  <p className="text-sm text-slate-500 mt-4 text-center">
-                    Mostrando 100 de {itensFiltrados.length} itens. Exporte para ver todos.
-                  </p>
+                      </TableHeader>
+                      <TableBody>
+                        {Object.entries(itensAgrupados).map(([guia, itens]) => (
+                          <>
+                            {/* Cabeçalho do grupo */}
+                            <TableRow key={`header-${guia}`} className="bg-muted/50">
+                              <TableCell colSpan={10} className="font-semibold">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4" />
+                                  Guia: {guia}
+                                  <span className="text-muted-foreground font-normal">
+                                    ({itens.length} procedimentos)
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                            {/* Itens do grupo */}
+                            {itens.map((item, idx) => (
+                              <TableRow 
+                                key={`${guia}-${idx}`}
+                                className={
+                                  item.status === "glosado" ? "bg-red-50" :
+                                  item.status === "nao_encontrado" ? "bg-gray-50" :
+                                  item.status === "divergente" ? "bg-amber-50" :
+                                  ""
+                                }
+                              >
+                                <TableCell className="text-muted-foreground text-sm">{item.guiaNumero}</TableCell>
+                                <TableCell>{item.dataExecucao}</TableCell>
+                                <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
+                                <TableCell className="max-w-[300px] truncate" title={item.descricao}>
+                                  {item.descricao}
+                                </TableCell>
+                                <TableCell className="max-w-[150px] truncate" title={item.pacienteNome}>
+                                  {item.pacienteNome}
+                                </TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {formatCurrency(item.valorFaturado)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-green-600">
+                                  {formatCurrency(item.valorPago)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-red-600">
+                                  {item.valorGlosado > 0 ? formatCurrency(item.valorGlosado) : "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate text-sm" title={item.motivoGlosa}>
+                                  {item.motivoGlosa || "-"}
+                                </TableCell>
+                                <TableCell>{getStatusBadge(item.status)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <GitCompare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Nenhum item encontrado para os filtros selecionados.</p>
+                  </div>
                 )}
               </CardContent>
             </Card>

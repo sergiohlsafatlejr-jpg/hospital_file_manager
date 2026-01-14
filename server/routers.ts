@@ -876,6 +876,41 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ============ CONCILIAÇÃO AUTOMÁTICA ============
+  conciliacao: router({
+    // Buscar dados para conciliação por convênio
+    porConvenio: protectedProcedure
+      .input(
+        z.object({
+          convenioId: z.number(),
+          dataInicio: z.string().optional(),
+          dataFim: z.string().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        return db.getConciliacaoPorConvenio({
+          convenioId: input.convenioId,
+          userId: ctx.user.id,
+          dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
+        });
+      }),
+
+    // Resumo da conciliação por convênio
+    resumo: protectedProcedure
+      .input(
+        z.object({
+          convenioId: z.number().optional(),
+        }).optional()
+      )
+      .query(async ({ input, ctx }) => {
+        return db.getResumoConciliacao({
+          convenioId: input?.convenioId,
+          userId: ctx.user.id,
+        });
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
