@@ -1,0 +1,100 @@
+{
+  "query": "SELECT p.id, p.codigo, LEFT(p.descricao, 30) as descricao, p.nomeMedico, p.crmMedico, p.arquivoId, a.createdAt FROM procedimentos p JOIN arquivos a ON p.arquivoId = a.id ORDER BY p.id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT p.id, p.codigo, LEFT(p.descricao, 30) as descricao, p.nomeMedico, p.crmMedico, p.arquivoId, a.createdAt FROM procedimentos p JOIN arquivos a ON p.arquivoId = a.id ORDER BY p.id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "60112",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60111",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60110",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML ) IS",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60109",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . (",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60108",
+      "codigo": "90580850",
+      "descricao": "AGUA P/ INJECAO SOL. INJ. 10 M",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60107",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ML SO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60106",
+      "codigo": "70705330",
+      "descricao": "SERINGA 10ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60105",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60104",
+      "codigo": "1900407054",
+      "descricao": "AGULHA 40X12 ( UN ) 8002618000",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    },
+    {
+      "id": "60103",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . (",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivoId": "60004",
+      "createdAt": "2026-01-14 16:48:12"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\tarquivoId\tcreatedAt\n60112\t70705356\tSERINGA 20ML S / AG . DESC . /\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60111\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60110\t2094317470\tRIALCOOL 70 % 100 ML ( ML ) IS\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60109\t70014302\tAGULHA 25X8 DESC . / B . D . (\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60108\t90580850\tAGUA P/ INJECAO SOL. INJ. 10 M\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60107\t90096924\tDIPIRONA SODICA 500 MG / ML SO\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60106\t70705330\tSERINGA 10ML S / AG . DESC . /\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60105\t70705356\tSERINGA 20ML S / AG . DESC . /\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60104\t1900407054\tAGULHA 40X12 ( UN ) 8002618000\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n60103\t70014302\tAGULHA 25X8 DESC . / B . D . (\tNULL\tNULL\t60004\t2026-01-14 16:48:12\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

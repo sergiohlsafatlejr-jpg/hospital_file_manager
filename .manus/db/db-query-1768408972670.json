@@ -1,0 +1,130 @@
+{
+  "query": "SELECT p.id, p.codigo, LEFT(p.descricao, 25) as descricao, p.nomeMedico, p.crmMedico, a.nome as arquivo FROM procedimentos p JOIN arquivos a ON p.arquivoId = a.id ORDER BY p.id DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT p.id, p.codigo, LEFT(p.descricao, 25) as descricao, p.nomeMedico, p.crmMedico, a.nome as arquivo FROM procedimentos p JOIN arquivos a ON p.arquivoId = a.id ORDER BY p.id DESC LIMIT 15;",
+  "rows": [
+    {
+      "id": "60084",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DES",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60083",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60082",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60081",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . ",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60080",
+      "codigo": "90580850",
+      "descricao": "AGUA P/ INJECAO SOL. INJ.",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60079",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60078",
+      "codigo": "70705330",
+      "descricao": "SERINGA 10ML S / AG . DES",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60077",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DES",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60076",
+      "codigo": "1900407054",
+      "descricao": "AGULHA 40X12 ( UN ) 80026",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60075",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . ",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60074",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60073",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60072",
+      "codigo": "70799172",
+      "descricao": "ESPARADRAPO 10CM X 4 , 5M",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60071",
+      "codigo": "1900214426",
+      "descricao": "CATETER VENOSO PERIFERICO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    },
+    {
+      "id": "60070",
+      "codigo": "1902967677",
+      "descricao": "EQUIPO MACROGOTAS C / INJ",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL",
+      "arquivo": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\tarquivo\n60084\t70705356\tSERINGA 20ML S / AG . DES\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60083\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60082\t2094317470\tRIALCOOL 70 % 100 ML ( ML\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60081\t70014302\tAGULHA 25X8 DESC . / B . \tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60080\t90580850\tAGUA P/ INJECAO SOL. INJ.\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60079\t90096924\tDIPIRONA SODICA 500 MG / \tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60078\t70705330\tSERINGA 10ML S / AG . DES\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60077\t70705356\tSERINGA 20ML S / AG . DES\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60076\t1900407054\tAGULHA 40X12 ( UN ) 80026\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60075\t70014302\tAGULHA 25X8 DESC . / B . \tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60074\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60073\t2094317470\tRIALCOOL 70 % 100 ML ( ML\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60072\t70799172\tESPARADRAPO 10CM X 4 , 5M\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60071\t1900214426\tCATETER VENOSO PERIFERICO\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n60070\t1902967677\tEQUIPO MACROGOTAS C / INJ\tNULL\tNULL\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

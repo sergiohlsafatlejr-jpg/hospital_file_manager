@@ -1,0 +1,80 @@
+{
+  "query": "SELECT id, codigo, descricao, nomeMedico, crmMedico FROM procedimentos LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, codigo, descricao, nomeMedico, crmMedico FROM procedimentos LIMIT 10;",
+  "rows": [
+    {
+      "id": "60001",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente internado)",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    },
+    {
+      "id": "60002",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente internado)",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    },
+    {
+      "id": "60003",
+      "codigo": "60000651",
+      "descricao": "DIARIA DE APARTAMENTO STANDARD",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60004",
+      "codigo": "60033533",
+      "descricao": "TAXA DE REFEICAO DE ACOMPANHANTE ( ALMOCO OU JANTA",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60005",
+      "codigo": "60033541",
+      "descricao": "TAXA DE REFEICAO DE ACOMPANHANTE ( CAFE DA MANHA O",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60006",
+      "codigo": "2096228377",
+      "descricao": "SORO FISIOLOGICO 0 , 9 % 500ML SF ( FR ) 1004100980226",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60007",
+      "codigo": "90065417",
+      "descricao": "GLICOSE 5 % FRASCO SIST . FECH . 500ML ( FR ) 1177200040219",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60008",
+      "codigo": "90287924",
+      "descricao": "CLORETO DE POTASSIO 15 % SOL . INJ . 10ML (AMP)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60009",
+      "codigo": "2094227977",
+      "descricao": "CLORETO DE SODIO 17 , 55 % SOL . INJ . 10ML ( AMP ) 11772000",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60010",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ML SOL INJ 2 ML ( AMP ) 11343012000",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\n60001\t10102019\tVisita hospitalar (paciente internado)\tGUSTAVO RASSI NADER\t11382\n60002\t10102019\tVisita hospitalar (paciente internado)\tGUSTAVO RASSI NADER\t11382\n60003\t60000651\tDIARIA DE APARTAMENTO STANDARD\tNULL\tNULL\n60004\t60033533\tTAXA DE REFEICAO DE ACOMPANHANTE ( ALMOCO OU JANTA\tNULL\tNULL\n60005\t60033541\tTAXA DE REFEICAO DE ACOMPANHANTE ( CAFE DA MANHA O\tNULL\tNULL\n60006\t2096228377\tSORO FISIOLOGICO 0 , 9 % 500ML SF ( FR ) 1004100980226\tNULL\tNULL\n60007\t90065417\tGLICOSE 5 % FRASCO SIST . FECH . 500ML ( FR ) 1177200040219\tNULL\tNULL\n60008\t90287924\tCLORETO DE POTASSIO 15 % SOL . INJ . 10ML (AMP)\tNULL\tNULL\n60009\t2094227977\tCLORETO DE SODIO 17 , 55 % SOL . INJ . 10ML ( AMP ) 11772000\tNULL\tNULL\n60010\t90096924\tDIPIRONA SODICA 500 MG / ML SOL INJ 2 ML ( AMP ) 11343012000\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 120
+}

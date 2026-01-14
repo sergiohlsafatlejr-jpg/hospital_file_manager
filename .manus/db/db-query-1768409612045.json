@@ -1,0 +1,206 @@
+{
+  "query": "SELECT id, codigo, LEFT(descricao, 40) as descricao, nomeMedico, crmMedico FROM procedimentos ORDER BY id DESC LIMIT 30;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, codigo, LEFT(descricao, 40) as descricao, nomeMedico, crmMedico FROM procedimentos ORDER BY id DESC LIMIT 30;",
+  "rows": [
+    {
+      "id": "60140",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . / B . D ( U",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60139",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60138",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML ) ISENTO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60137",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . ( UN ) 0010",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60136",
+      "codigo": "90580850",
+      "descricao": "AGUA P/ INJECAO SOL. INJ. 10 ML (AMP)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60135",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ML SOL INJ 2 ML",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60134",
+      "codigo": "70705330",
+      "descricao": "SERINGA 10ML S / AG . DESC . / B . D ( U",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60133",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . / B . D ( U",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60132",
+      "codigo": "1900407054",
+      "descricao": "AGULHA 40X12 ( UN ) 80026180009",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60131",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . ( UN ) 0010",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60130",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60129",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML ) ISENTO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60128",
+      "codigo": "70799172",
+      "descricao": "ESPARADRAPO 10CM X 4 , 5MT / CREMER ( CM",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60127",
+      "codigo": "1900214426",
+      "descricao": "CATETER VENOSO PERIFERICO SEM DISP . SEG",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60126",
+      "codigo": "1902967677",
+      "descricao": "EQUIPO MACROGOTAS C / INJ . LAT . FILTRO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60125",
+      "codigo": "70223769",
+      "descricao": "EQUIPO P / INFUSAO MULTIPLA 2VIAS POLIFI",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60124",
+      "codigo": "90135326",
+      "descricao": "AMPICILINA SODICA 1G PO SOL . INJ . + DI",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60123",
+      "codigo": "90580850",
+      "descricao": "AGUA P/ INJECAO SOL. INJ. 10 ML (AMP)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60122",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ML SOL INJ 2 ML",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60121",
+      "codigo": "2094227977",
+      "descricao": "CLORETO DE SODIO 17 , 55 % SOL . INJ . 1",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60120",
+      "codigo": "90287924",
+      "descricao": "CLORETO DE POTASSIO 15 % SOL . INJ . 10M",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60119",
+      "codigo": "90065417",
+      "descricao": "GLICOSE 5 % FRASCO SIST . FECH . 500ML (",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60118",
+      "codigo": "2096228377",
+      "descricao": "SORO FISIOLOGICO 0 , 9 % 500ML SF ( FR )",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60117",
+      "codigo": "60033541",
+      "descricao": "TAXA DE REFEICAO DE ACOMPANHANTE ( CAFE ",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60116",
+      "codigo": "60033533",
+      "descricao": "TAXA DE REFEICAO DE ACOMPANHANTE ( ALMOC",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60115",
+      "codigo": "60000651",
+      "descricao": "DIARIA DE APARTAMENTO STANDARD",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60114",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente internado)",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    },
+    {
+      "id": "60113",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente internado)",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\n60140\t70705356\tSERINGA 20ML S / AG . DESC . / B . D ( U\tNULL\tNULL\n60139\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\n60138\t2094317470\tRIALCOOL 70 % 100 ML ( ML ) ISENTO\tNULL\tNULL\n60137\t70014302\tAGULHA 25X8 DESC . / B . D . ( UN ) 0010\tNULL\tNULL\n60136\t90580850\tAGUA P/ INJECAO SOL. INJ. 10 ML (AMP)\tNULL\tNULL\n60135\t90096924\tDIPIRONA SODICA 500 MG / ML SOL INJ 2 ML\tNULL\tNULL\n60134\t70705330\tSERINGA 10ML S / AG . DESC . / B . D ( U\tNULL\tNULL\n60133\t70705356\tSERINGA 20ML S / AG . DESC . / B . D ( U\tNULL\tNULL\n60132\t1900407054\tAGULHA 40X12 ( UN ) 80026180009\tNULL\tNULL\n60131\t70014302\tAGULHA 25X8 DESC . / B . D . ( UN ) 0010\tNULL\tNULL\n60130\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\n60129\t2094317470\tRIALCOOL 70 % 100 ML ( ML ) ISENTO\tNULL\tNULL\n60128\t70799172\tESPARADRAPO 10CM X 4 , 5MT / CREMER ( CM\tNULL\tNULL\n60127\t1900214426\tCATETER VENOSO PERIFERICO SEM DISP . SEG\tNULL\tNULL\n60126\t1902967677\tEQUIPO MACROGOTAS C / INJ . LAT . FILTRO\tNULL\tNULL\n60125\t70223769\tEQUIPO P / INFUSAO MULTIPLA 2VIAS POLIFI\tNULL\tNULL\n60124\t90135326\tAMPICILINA SODICA 1G PO SOL . INJ . + DI\tNULL\tNULL\n60123\t90580850\tAGUA P/ INJECAO SOL. INJ. 10 ML (AMP)\tNULL\tNULL\n60122\t90096924\tDIPIRONA SODICA 500 MG / ML SOL INJ 2 ML\tNULL\tNULL\n60121\t2094227977\tCLORETO DE SODIO 17 , 55 % SOL . INJ . 1\tNULL\tNULL\n60120\t90287924\tCLORETO DE POTASSIO 15 % SOL . INJ . 10M\tNULL\tNULL\n60119\t90065417\tGLICOSE 5 % FRASCO SIST . FECH . 500ML (\tNULL\tNULL\n60118\t2096228377\tSORO FISIOLOGICO 0 , 9 % 500ML SF ( FR )\tNULL\tNULL\n60117\t60033541\tTAXA DE REFEICAO DE ACOMPANHANTE ( CAFE \tNULL\tNULL\n60116\t60033533\tTAXA DE REFEICAO DE ACOMPANHANTE ( ALMOC\tNULL\tNULL\n60115\t60000651\tDIARIA DE APARTAMENTO STANDARD\tNULL\tNULL\n60114\t10102019\tVisita hospitalar (paciente internado)\tGUSTAVO RASSI NADER\t11382\n60113\t10102019\tVisita hospitalar (paciente internado)\tGUSTAVO RASSI NADER\t11382\n",
+  "stderr": "",
+  "execution_time_ms": 51
+}

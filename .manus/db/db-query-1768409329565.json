@@ -1,0 +1,24 @@
+{
+  "query": "SELECT id, codigo, LEFT(descricao, 30) as descricao, nomeMedico, crmMedico FROM procedimentos WHERE codigo = '10102019' ORDER BY id DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, codigo, LEFT(descricao, 30) as descricao, nomeMedico, crmMedico FROM procedimentos WHERE codigo = '10102019' ORDER BY id DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "60086",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente in",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    },
+    {
+      "id": "60085",
+      "codigo": "10102019",
+      "descricao": "Visita hospitalar (paciente in",
+      "nomeMedico": "GUSTAVO RASSI NADER",
+      "crmMedico": "11382"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\n60086\t10102019\tVisita hospitalar (paciente in\tGUSTAVO RASSI NADER\t11382\n60085\t10102019\tVisita hospitalar (paciente in\tGUSTAVO RASSI NADER\t11382\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

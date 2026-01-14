@@ -395,6 +395,8 @@ export async function getProcedimentosPaginated(filters?: {
       pacienteNome: procedimentos.pacienteNome,
       pacienteCarteirinha: procedimentos.pacienteCarteirinha,
       guiaNumero: procedimentos.guiaNumero,
+      nomeMedico: procedimentos.nomeMedico,
+      crmMedico: procedimentos.crmMedico,
       createdAt: procedimentos.createdAt,
       arquivoNome: arquivos.nome,
       arquivoConvenioId: arquivos.convenioId,

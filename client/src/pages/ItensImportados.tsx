@@ -177,7 +177,10 @@ export default function ItensImportados() {
         </TableHeader>
         <TableBody>
           {items.map((proc: any) => (
-            <TableRow key={proc.id}>
+            <TableRow 
+              key={proc.id} 
+              className={proc.nomeMedico ? "bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-100/50 dark:hover:bg-blue-900/30" : ""}
+            >
               <TableCell className="font-mono text-sm">
                 {proc.codigo}
               </TableCell>
@@ -196,11 +199,24 @@ export default function ItensImportados() {
                   {formatDate(proc.dataExecucao)}
                 </TableCell>
               )}
-              <TableCell className="max-w-[150px] truncate" title={proc.nomeMedico || "-"}>
-                {proc.nomeMedico || "-"}
+              <TableCell className="max-w-[150px]" title={proc.nomeMedico || "-"}>
+                {proc.nomeMedico ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                    <span className="truncate font-medium text-blue-700 dark:text-blue-400">{proc.nomeMedico}</span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
               </TableCell>
               <TableCell className="font-mono text-sm">
-                {proc.crmMedico || "-"}
+                {proc.crmMedico ? (
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
+                    {proc.crmMedico}
+                  </Badge>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                )}
               </TableCell>
               <TableCell className="font-mono text-sm">
                 {proc.guiaNumero || "-"}
@@ -392,15 +408,18 @@ export default function ItensImportados() {
               <p className="text-xs text-muted-foreground">Valor total (página atual)</p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="border-blue-200 dark:border-blue-800">
             <CardContent className="pt-6">
               <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <div className="text-2xl font-bold">
-                  {new Set(procedimentos.filter((p: any) => p.nomeMedico).map((p: any) => p.nomeMedico)).size}
+                <User className="h-4 w-4 text-blue-500" />
+                <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                  {procedimentos.filter((p: any) => p.nomeMedico).length}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Médicos identificados</p>
+              <p className="text-xs text-muted-foreground">Procedimentos com médico</p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                {new Set(procedimentos.filter((p: any) => p.nomeMedico).map((p: any) => p.nomeMedico)).size} médico(s) diferente(s)
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -418,8 +437,12 @@ export default function ItensImportados() {
                 </Badge>
               )}
             </CardTitle>
-            <CardDescription>
-              {totalItems} item(ns) encontrado(s)
+            <CardDescription className="flex items-center gap-4">
+              <span>{totalItems} item(ns) encontrado(s)</span>
+              <span className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                Linhas destacadas = procedimentos com médico associado
+              </span>
             </CardDescription>
           </CardHeader>
           <CardContent>

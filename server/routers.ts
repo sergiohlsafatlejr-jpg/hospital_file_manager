@@ -146,12 +146,31 @@ export const appRouter = router({
         
         // Parse file and extract procedimentos
         try {
-          const parseResult = await parseFile(buffer, input.tipoArquivo);
+          console.log('[Upload] Parsing file:', input.nome);
+          const parseResult = await parseFile(buffer, input.nome);
+          
+          console.log('[Upload] Parse result:', {
+            success: parseResult.success,
+            procedimentosCount: parseResult.procedimentos.length,
+            comMedico: parseResult.procedimentos.filter(p => p.nomeMedico).length
+          });
           
           if (parseResult.success && parseResult.procedimentos.length > 0) {
             const procedimentosToInsert = parseResult.procedimentos.map((p) =>
               toProcedimentoInsert(p, arquivoId)
             );
+            
+            // Log procedimentos com médico
+            const comMedico = procedimentosToInsert.filter(p => p.nomeMedico);
+            console.log('[Upload] Procedimentos com médico a inserir:', comMedico.length);
+            if (comMedico.length > 0) {
+              console.log('[Upload] Primeiro com médico:', {
+                codigo: comMedico[0].codigo,
+                nomeMedico: comMedico[0].nomeMedico,
+                crmMedico: comMedico[0].crmMedico
+              });
+            }
+            
             await db.createProcedimentos(procedimentosToInsert);
             await db.updateArquivoStatus(arquivoId, "processado");
           } else if (!parseResult.success) {

@@ -1,0 +1,14 @@
+{
+  "query": "SELECT id, nome FROM arquivos WHERE nome LIKE '%130086213%' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome FROM arquivos WHERE nome LIKE '%130086213%' LIMIT 5;",
+  "rows": [
+    {
+      "id": "60001",
+      "nome": "00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\n60001\t00000000000130086213_1ec17e35f2dea04f79f8dec13b5cfadf.xml\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

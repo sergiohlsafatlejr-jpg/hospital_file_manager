@@ -1,0 +1,80 @@
+{
+  "query": "SELECT id, codigo, LEFT(descricao, 30) as descricao, nomeMedico, crmMedico FROM procedimentos ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, codigo, LEFT(descricao, 30) as descricao, nomeMedico, crmMedico FROM procedimentos ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "60056",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60055",
+      "codigo": "1900488712",
+      "descricao": "ALGODAO HIDROFILO (G)",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60054",
+      "codigo": "2094317470",
+      "descricao": "RIALCOOL 70 % 100 ML ( ML ) IS",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60053",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . (",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60052",
+      "codigo": "90580850",
+      "descricao": "AGUA P/ INJECAO SOL. INJ. 10 M",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60051",
+      "codigo": "90096924",
+      "descricao": "DIPIRONA SODICA 500 MG / ML SO",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60050",
+      "codigo": "70705330",
+      "descricao": "SERINGA 10ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60049",
+      "codigo": "70705356",
+      "descricao": "SERINGA 20ML S / AG . DESC . /",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60048",
+      "codigo": "1900407054",
+      "descricao": "AGULHA 40X12 ( UN ) 8002618000",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    },
+    {
+      "id": "60047",
+      "codigo": "70014302",
+      "descricao": "AGULHA 25X8 DESC . / B . D . (",
+      "nomeMedico": "NULL",
+      "crmMedico": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcodigo\tdescricao\tnomeMedico\tcrmMedico\n60056\t70705356\tSERINGA 20ML S / AG . DESC . /\tNULL\tNULL\n60055\t1900488712\tALGODAO HIDROFILO (G)\tNULL\tNULL\n60054\t2094317470\tRIALCOOL 70 % 100 ML ( ML ) IS\tNULL\tNULL\n60053\t70014302\tAGULHA 25X8 DESC . / B . D . (\tNULL\tNULL\n60052\t90580850\tAGUA P/ INJECAO SOL. INJ. 10 M\tNULL\tNULL\n60051\t90096924\tDIPIRONA SODICA 500 MG / ML SO\tNULL\tNULL\n60050\t70705330\tSERINGA 10ML S / AG . DESC . /\tNULL\tNULL\n60049\t70705356\tSERINGA 20ML S / AG . DESC . /\tNULL\tNULL\n60048\t1900407054\tAGULHA 40X12 ( UN ) 8002618000\tNULL\tNULL\n60047\t70014302\tAGULHA 25X8 DESC . / B . D . (\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}
