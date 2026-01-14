@@ -54,3 +54,7 @@
 - [x] Filtro de pesquisa por nome do médico na tela de Itens Importados
 - [x] Filtro de pesquisa por CRM na tela de Itens Importados
 - [x] Exportar dados de Itens Importados para arquivo Excel (.xlsx)
+- [x] Importar arquivo de retorno do convênio (Excel, PDF, XML)
+- [x] Conciliação automática entre valores enviados e retornados
+- [x] Identificar divergências de valores na conciliação
+- [x] Interface para visualizar resultado da conciliação

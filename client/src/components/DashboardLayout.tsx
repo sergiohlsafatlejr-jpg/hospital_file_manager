@@ -31,7 +31,8 @@ import {
   AlertTriangle,
   Settings,
   FileText,
-  List
+  List,
+  Scale
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -43,6 +44,7 @@ const menuItems = [
   { icon: Upload, label: "Upload de Arquivos", path: "/upload" },
   { icon: FileSearch, label: "Arquivos", path: "/arquivos" },
   { icon: List, label: "Itens Importados", path: "/itens-importados" },
+  { icon: Scale, label: "Conciliação", path: "/conciliacao" },
   { icon: GitCompare, label: "Comparações", path: "/comparacoes" },
   { icon: AlertTriangle, label: "Divergências", path: "/divergencias" },
   { icon: FileText, label: "Relatórios", path: "/relatorios" },

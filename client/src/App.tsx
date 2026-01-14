@@ -12,6 +12,7 @@ import Divergencias from "./pages/Divergencias";
 import Relatorios from "./pages/Relatorios";
 import Configuracoes from "./pages/Configuracoes";
 import ItensImportados from "./pages/ItensImportados";
+import Conciliacao from "./pages/Conciliacao";
 
 function Router() {
   return (
@@ -24,6 +25,7 @@ function Router() {
       <Route path={"/relatorios"} component={Relatorios} />
       <Route path={"/configuracoes"} component={Configuracoes} />
       <Route path={"/itens-importados"} component={ItensImportados} />
+      <Route path={"/conciliacao"} component={Conciliacao} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
