@@ -19,6 +19,22 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * Estabelecimentos (Hospitals/Clinics)
+ */
+export const estabelecimentos = mysqlTable("estabelecimentos", {
+  id: int("id").autoincrement().primaryKey(),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  endereco: text("endereco"),
+  ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Estabelecimento = typeof estabelecimentos.$inferSelect;
+export type InsertEstabelecimento = typeof estabelecimentos.$inferInsert;
+
+/**
  * Convênios (Insurance/Health Plans)
  */
 export const convenios = mysqlTable("convenios", {
@@ -39,9 +55,10 @@ export type InsertConvenio = typeof convenios.$inferInsert;
 export const arquivos = mysqlTable("arquivos", {
   id: int("id").autoincrement().primaryKey(),
   nome: varchar("nome", { length: 255 }).notNull(),
-  tipoArquivo: mysqlEnum("tipoArquivo", ["xml", "excel", "pdf"]).notNull(),
+  tipoArquivo: mysqlEnum("tipoArquivo", ["xml", "excel", "pdf", "csv"]).notNull(),
   direcao: mysqlEnum("direcao", ["enviado", "retornado"]).notNull(),
   convenioId: int("convenioId").notNull(),
+  estabelecimentoId: int("estabelecimentoId"),
   userId: int("userId").notNull(),
   s3Key: varchar("s3Key", { length: 512 }).notNull(),
   s3Url: text("s3Url").notNull(),

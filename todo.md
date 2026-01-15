@@ -93,3 +93,10 @@
 - [x] Integrar sugestões do dicionário de glosas na tela de criação de recursos
 - [x] Implementar IA para sugerir argumentos baseados no histórico de sucesso
 - [x] Criar interface de histórico de contestações com argumentos usados e resultados
+
+- [x] Corrigir importação de arquivos PDF
+- [x] Adicionar suporte a importação de arquivos CSV
+- [x] Corrigir importação de arquivos XLS (formato antigo Excel)
+- [x] Criar sistema multi-estabelecimento (separar dados por hospital)
+- [x] Melhorar tela de Análise de Glosa - puxar itens glosados automaticamente e criar recursos na mesma tela
+- [x] Ajustar filtro do Demonstrativo para filtrar por convênio em vez de arquivo

@@ -21,7 +21,15 @@ import {
   Target,
   Activity
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
+// import { getGlosaInfo } from "../../shared/glossaryGlosas";
+import { Gavel, Search, CheckCircle2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   BarChart,
@@ -80,6 +88,88 @@ export default function AnaliseGlosa() {
     trpc.glosa.resumo.useQuery();
 
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
+
+  // Buscar itens glosados para a nova aba
+  const [buscaItens, setBuscaItens] = useState("");
+  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+  const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
+  const [dialogRecurso, setDialogRecurso] = useState(false);
+  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "" });
+
+  const { data: itensGlosados, isLoading: loadingItens, refetch: refetchItens } = 
+    trpc.procedimentos.list.useQuery({
+      statusGlosa: statusFiltro === "todos" ? undefined : statusFiltro as "pago" | "glosado" | "parcial",
+      search: buscaItens || undefined,
+      page: 1,
+      pageSize: 100,
+    });
+
+  const criarRecursoMutation = trpc.recursos.create.useMutation({
+    onSuccess: () => {
+      toast.success(`Recurso criado para ${itensSelecionados.size} item(s)!`);
+      setItensSelecionados(new Set());
+      setDialogRecurso(false);
+      setRecursoForm({ motivo: "", argumento: "" });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const toggleItemSelecionado = (id: number) => {
+    const newSet = new Set(itensSelecionados);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setItensSelecionados(newSet);
+  };
+
+  const selecionarTodos = () => {
+    if (!itensGlosados?.items) return;
+    const glosados = itensGlosados.items.filter(i => 
+      (i.dadosExtras as Record<string, unknown>)?.valorGlosado && Number((i.dadosExtras as Record<string, unknown>).valorGlosado) > 0
+    );
+    if (itensSelecionados.size === glosados.length) {
+      setItensSelecionados(new Set());
+    } else {
+      setItensSelecionados(new Set(glosados.map(i => i.id)));
+    }
+  };
+
+  const abrirDialogRecurso = () => {
+    if (itensSelecionados.size === 0) {
+      toast.error("Selecione pelo menos um item para criar recurso");
+      return;
+    }
+    // Pegar o primeiro item selecionado para sugerir argumento
+    const primeiroItem = itensGlosados?.items?.find(i => itensSelecionados.has(i.id));
+    const motivoGlosa = (primeiroItem?.dadosExtras as Record<string, unknown>)?.motivoGlosa as string || "";
+    const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1];
+    // const glosaInfo = codigoGlosa ? getGlosaInfo(codigoGlosa) : null;
+    
+    setRecursoForm({
+      motivo: motivoGlosa,
+      argumento: "",
+    });
+    setDialogRecurso(true);
+  };
+
+  const handleCriarRecurso = () => {
+    if (!recursoForm.argumento.trim()) {
+      toast.error("Informe o argumento do recurso");
+      return;
+    }
+    // Criar recurso para cada item selecionado
+    const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
+    for (const item of itens) {
+      criarRecursoMutation.mutate({
+        convenioId: 1, // TODO: pegar do item
+        codigoProcedimento: item.codigo,
+        descricaoProcedimento: item.descricao || "",
+        justificativaRecurso: `${recursoForm.motivo}\n\n${recursoForm.argumento}`,
+      });
+    }
+  };
 
   const formatCurrency = (value: number) => {
     return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -316,12 +406,131 @@ export default function AnaliseGlosa() {
 
         {/* Tabs de Análise */}
         <Tabs defaultValue="categorias" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="itens">Itens Glosados</TabsTrigger>
             <TabsTrigger value="categorias">Por Categoria</TabsTrigger>
             <TabsTrigger value="convenios">Por Convênio</TabsTrigger>
             <TabsTrigger value="procedimentos">Por Procedimento</TabsTrigger>
             <TabsTrigger value="tendencia">Tendência</TabsTrigger>
           </TabsList>
+
+          {/* Tab: Itens Glosados */}
+          <TabsContent value="itens" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Gavel className="h-5 w-5" />
+                      Itens Glosados
+                    </CardTitle>
+                    <CardDescription>
+                      Selecione os itens para criar recursos de glosa em lote
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={selecionarTodos}>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      {itensSelecionados.size > 0 ? "Desmarcar Todos" : "Selecionar Todos"}
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      onClick={abrirDialogRecurso}
+                      disabled={itensSelecionados.size === 0}
+                    >
+                      <Gavel className="h-4 w-4 mr-2" />
+                      Criar Recurso ({itensSelecionados.size})
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex gap-4 mt-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por código, descrição ou paciente..."
+                      value={buscaItens}
+                      onChange={(e) => setBuscaItens(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="glosado">Glosado Total</SelectItem>
+                      <SelectItem value="parcial">Glosado Parcial</SelectItem>
+                      <SelectItem value="pago">Pago</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingItens ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : itensGlosados?.items && itensGlosados.items.length > 0 ? (
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[50px]"></TableHead>
+                          <TableHead>Código</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Paciente</TableHead>
+                          <TableHead className="text-right">Valor</TableHead>
+                          <TableHead className="text-right">Glosa</TableHead>
+                          <TableHead>Motivo</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {itensGlosados.items
+                          .filter(item => {
+                            const valorGlosado = Number((item.dadosExtras as Record<string, unknown>)?.valorGlosado) || 0;
+                            return valorGlosado > 0;
+                          })
+                          .map((item) => {
+                            const valorGlosado = Number((item.dadosExtras as Record<string, unknown>)?.valorGlosado) || 0;
+                            const motivoGlosa = (item.dadosExtras as Record<string, unknown>)?.motivoGlosa as string || "-";
+                            return (
+                              <TableRow key={item.id} className={itensSelecionados.has(item.id) ? "bg-muted/50" : ""}>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={itensSelecionados.has(item.id)}
+                                    onCheckedChange={() => toggleItemSelecionado(item.id)}
+                                  />
+                                </TableCell>
+                                <TableCell className="font-mono">{item.codigo}</TableCell>
+                                <TableCell className="max-w-[200px] truncate">{item.descricao}</TableCell>
+                                <TableCell className="max-w-[150px] truncate">{(item.dadosExtras as Record<string, unknown>)?.paciente as string || "-"}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(Number(item.valorTotal) || 0)}</TableCell>
+                                <TableCell className="text-right font-medium text-red-600">
+                                  {formatCurrency(valorGlosado)}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate">
+                                  <Badge variant="outline" className="text-xs">
+                                    {motivoGlosa.length > 30 ? motivoGlosa.substring(0, 30) + "..." : motivoGlosa}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <FileWarning className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Nenhum item glosado encontrado</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Tab: Por Categoria */}
           <TabsContent value="categorias" className="space-y-4">
@@ -632,6 +841,49 @@ export default function AnaliseGlosa() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Dialog para criar recurso */}
+      <Dialog open={dialogRecurso} onOpenChange={setDialogRecurso}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Criar Recurso de Glosa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-muted/50 p-4 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Criando recurso para <strong>{itensSelecionados.size}</strong> item(s) selecionado(s)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="motivo">Motivo da Glosa</Label>
+              <Input
+                id="motivo"
+                value={recursoForm.motivo}
+                onChange={(e) => setRecursoForm({ ...recursoForm, motivo: e.target.value })}
+                placeholder="Código ou descrição do motivo de glosa"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="argumento">Argumento do Recurso</Label>
+              <Textarea
+                id="argumento"
+                value={recursoForm.argumento}
+                onChange={(e) => setRecursoForm({ ...recursoForm, argumento: e.target.value })}
+                placeholder="Justificativa para contestação da glosa..."
+                rows={6}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogRecurso(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCriarRecurso} disabled={criarRecursoMutation.isPending}>
+              {criarRecursoMutation.isPending ? "Criando..." : "Criar Recurso"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

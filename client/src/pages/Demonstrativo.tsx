@@ -24,7 +24,7 @@ import * as XLSX from "xlsx";
 
 export default function Demonstrativo() {
   const { user } = useAuth();
-  const [arquivoId, setArquivoId] = useState<string>("");
+  const [convenioId, setConvenioId] = useState<string>("");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [busca, setBusca] = useState<string>("");
   const [buscaDebounced, setBuscaDebounced] = useState<string>("");
@@ -43,24 +43,21 @@ export default function Demonstrativo() {
   // Resetar página quando filtros mudam
   useEffect(() => {
     setPage(1);
-  }, [arquivoId, filtroStatus]);
+  }, [convenioId, filtroStatus]);
 
-  // Buscar arquivos de retorno
-  const { data: arquivosRetorno, isLoading: isLoadingArquivos } = trpc.arquivos.list.useQuery({
-    direcao: "retornado",
-    status: "processado",
-  });
+  // Buscar convênios
+  const { data: convenios, isLoading: isLoadingConvenios } = trpc.convenios.list.useQuery();
 
-  // Buscar procedimentos do arquivo selecionado com filtros no backend
+  // Buscar procedimentos do convênio selecionado com filtros no backend
   const { data: procedimentosData, isLoading: isLoadingProcedimentos } = trpc.procedimentos.list.useQuery(
     { 
-      arquivoId: parseInt(arquivoId), 
+      convenioId: parseInt(convenioId), 
       page, 
       pageSize,
       search: buscaDebounced || undefined,
       statusGlosa: filtroStatus !== "todos" ? filtroStatus as "pago" | "glosado" | "parcial" : undefined,
     },
-    { enabled: !!arquivoId }
+    { enabled: !!convenioId }
   );
 
   const formatCurrency = (value: number) => {
@@ -108,8 +105,8 @@ export default function Demonstrativo() {
     ];
     XLSX.utils.book_append_sheet(wb, ws, "Demonstrativo");
     
-    const arquivo = arquivosRetorno?.find((a: any) => a.id === parseInt(arquivoId));
-    const nomeArquivo = arquivo?.nome?.replace(/\.[^/.]+$/, "") || "demonstrativo";
+    const convenio = convenios?.find((c: any) => c.id === parseInt(convenioId));
+    const nomeArquivo = convenio?.nome || "demonstrativo";
     XLSX.writeFile(wb, `${nomeArquivo}_demonstrativo.xlsx`);
     toast.success("Arquivo exportado com sucesso!");
   };
@@ -152,15 +149,15 @@ export default function Demonstrativo() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-2 space-y-2">
-                <label className="text-sm font-medium">Arquivo</label>
-                <Select value={arquivoId} onValueChange={setArquivoId}>
+                <label className="text-sm font-medium">Convênio</label>
+                <Select value={convenioId} onValueChange={setConvenioId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione um arquivo de retorno" />
+                    <SelectValue placeholder="Selecione um convênio" />
                   </SelectTrigger>
                   <SelectContent>
-                    {arquivosRetorno?.map((arquivo: any) => (
-                      <SelectItem key={arquivo.id} value={String(arquivo.id)}>
-                        {arquivo.nome} - {arquivo.convenioNome}
+                    {convenios?.map((convenio: any) => (
+                      <SelectItem key={convenio.id} value={String(convenio.id)}>
+                        {convenio.nome} ({convenio.codigo})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -196,7 +193,7 @@ export default function Demonstrativo() {
               </div>
             </div>
 
-            {arquivoId && (
+            {convenioId && (
               <div className="flex gap-2 mt-4">
                 <Button onClick={handleExportExcel} disabled={!procedimentosData?.items?.length}>
                   <Download className="h-4 w-4 mr-2" />
@@ -208,7 +205,7 @@ export default function Demonstrativo() {
         </Card>
 
         {/* Cards de resumo */}
-        {arquivoId && resumo && (
+        {convenioId && resumo && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Card>
               <CardContent className="pt-6">
@@ -273,7 +270,7 @@ export default function Demonstrativo() {
         )}
 
         {/* Tabela de procedimentos */}
-        {arquivoId && (
+        {convenioId && (
           <Card>
             <CardHeader>
               <CardTitle>
@@ -394,12 +391,12 @@ export default function Demonstrativo() {
           </Card>
         )}
 
-        {!arquivoId && (
+        {!convenioId && (
           <Card>
             <CardContent className="py-12">
               <div className="text-center text-muted-foreground">
                 <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Selecione um arquivo de retorno para visualizar o demonstrativo.</p>
+                <p>Selecione um convênio para visualizar o demonstrativo.</p>
               </div>
             </CardContent>
           </Card>

@@ -607,19 +607,19 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
   // Map common column names to our fields
   // Includes Unimed format: Item, Item Desc, Número Guia, Nome Beneficiário, Valor Pagamento, etc.
   const columnMappings: Record<string, string[]> = {
-    codigo: ["codigo", "cod", "código", "cod_proc", "codigo_procedimento", "procedimento", "item", "cod_item", "codigo_item"],
-    descricao: ["descricao", "descrição", "desc", "procedimento_nome", "item_desc", "itemdesc", "descricao_item", "descricaoitem"],
-    quantidade: ["quantidade", "qtd", "qtde", "quant"],
+    codigo: ["codigo", "cod", "código", "cod_proc", "codigo_procedimento", "item", "cod_item", "codigo_item", "codigodoprocedimento", "codigoprocedimento"],
+    descricao: ["descricao", "descrição", "desc", "procedimento_nome", "item_desc", "itemdesc", "descricao_item", "descricaoitem", "descricaodoprocedimento", "descricaoprocedimento", "procedimento"],
+    quantidade: ["quantidade", "qtd", "qtde", "quant", "quantidadesolicitada", "quantidadeliberada"],
     valorUnitario: ["valor_unitario", "vl_unitario", "vlunitario", "preco"],
-    valorTotal: ["valor_total", "vl_total", "vltotal", "total", "valor_pagamento", "valorpagamento", "valor"],
-    pacienteNome: ["paciente", "nome_paciente", "nome_beneficiario", "nomebeneficiario"],
+    valorTotal: ["valor_total", "vl_total", "vltotal", "total", "valor_pagamento", "valorpagamento", "valor", "valorprocessado", "valorpago", "valorr"],
+    pacienteNome: ["paciente", "nome_paciente", "nome_beneficiario", "nomebeneficiario", "associado", "nome"],
     pacienteCarteirinha: ["carteirinha", "carteira", "numero_carteira", "matricula", "beneficiario", "beneficiário"],
-    guiaNumero: ["guia", "numero_guia", "num_guia", "guia_numero", "numeroguia", "número_guia"],
-    nomeMedico: ["medico", "nome_medico", "profissional", "executante", "nome_prestador_executante", "nomeprestadorexecutante"],
+    guiaNumero: ["guia", "numero_guia", "num_guia", "guia_numero", "numeroguia", "número_guia", "guiaoperadorasenha", "guiaoperadora", "docoriginal"],
+    nomeMedico: ["medico", "nome_medico", "profissional", "executante", "nome_prestador_executante", "nomeprestadorexecutante", "profissionalexecutante"],
     crmMedico: ["crm", "crm_medico", "conselho", "prestador_executante", "prestadorexecutante"],
-    dataExecucao: ["data_execucao", "dataexecucao", "data_execução", "dt_execucao", "dtexecucao"],
+    dataExecucao: ["data_execucao", "dataexecucao", "data_execução", "dt_execucao", "dtexecucao", "datadoevento", "dataatendimento", "dataevento"],
     situacaoItem: ["situacao_item", "situacaoitem", "situação_item", "status", "situacao"],
-    motivoGlosa: ["motivo_glosa", "motivoglosa", "motivo", "glosa", "observacao", "observação", "obs", "justificativa", "descricao_glosa", "descricaoglosa"],
+    motivoGlosa: ["motivo_glosa", "motivoglosa", "motivo", "glosa", "observacao", "observação", "obs", "justificativa", "descricao_glosa", "descricaoglosa", "codglosa"],
     valorGlosado: ["valor_glosado", "valorglosado", "vl_glosado", "glosa_valor", "valor_glosa", "valorglosa"],
   };
   
@@ -792,6 +792,8 @@ export async function parseFile(content: Buffer, filename: string): Promise<Pars
     case "xlsx":
     case "xls":
       return parseExcel(content);
+    case "csv":
+      return parseCSV(content);
     case "pdf":
       return parsePDF(content);
     default:
@@ -801,4 +803,163 @@ export async function parseFile(content: Buffer, filename: string): Promise<Pars
         error: `Tipo de arquivo não suportado: ${extension}`,
       };
   }
+}
+
+/**
+ * Parse CSV file content
+ */
+export async function parseCSV(content: Buffer): Promise<ParseResult> {
+  try {
+    const text = content.toString("utf-8");
+    const lines = text.split("\n").map(line => line.trim()).filter(line => line.length > 0);
+    
+    if (lines.length < 2) {
+      return {
+        success: false,
+        procedimentos: [],
+        error: "Arquivo CSV vazio ou sem dados",
+      };
+    }
+    
+    // Detect separator (semicolon or comma)
+    const separator = lines[0].includes(";") ? ";" : ",";
+    
+    // Find header row (look for row with column names like "Data do Evento", "Nome", "Código do Procedimento")
+    let headerIndex = -1;
+    const headerPatterns = ["data do evento", "codigo do procedimento", "descrição do procedimento", "quantidade", "valor"];
+    
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+      const lowerLine = lines[i].toLowerCase();
+      const matchCount = headerPatterns.filter(p => lowerLine.includes(p)).length;
+      if (matchCount >= 2) {
+        headerIndex = i;
+        break;
+      }
+    }
+    
+    // Check if this is a hierarchical format (Bradesco extrato)
+    // Hierarchical format has header but data is split across multiple lines
+    if (headerIndex !== -1) {
+      // Check if lines after header have hierarchical structure
+      // (some lines have date in first col, others have code in col 2/3)
+      const testLines = lines.slice(headerIndex + 1, headerIndex + 10);
+      const hasHierarchical = testLines.some(line => {
+        const vals = line.split(separator);
+        // Line with date in first column and empty code column
+        return vals[0]?.match(/\d{2}\/\d{2}\/\d{4}/) && !vals[2]?.match(/^\d{5,}$/);
+      });
+      
+      if (hasHierarchical) {
+        return parseHierarchicalCSV(lines.slice(headerIndex + 1), separator);
+      }
+    }
+    
+    if (headerIndex === -1) {
+      // No header found, try to parse as hierarchical format
+      return parseHierarchicalCSV(lines, separator);
+    }
+    
+    // Parse as standard CSV with headers
+    const headers = lines[headerIndex].split(separator).map(h => h.trim().replace(/"/g, ""));
+    const procedimentos: ParsedProcedimento[] = [];
+    
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      const values = lines[i].split(separator).map(v => v.trim().replace(/"/g, ""));
+      const row: Record<string, unknown> = {};
+      
+      for (let j = 0; j < headers.length; j++) {
+        if (headers[j] && values[j]) {
+          row[headers[j]] = values[j];
+        }
+      }
+      
+      const proc = extractProcedimentoFromRow(row);
+      if (proc) procedimentos.push(proc);
+    }
+    
+    return {
+      success: true,
+      procedimentos,
+      rawData: { lines: lines.length, headers },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      procedimentos: [],
+      error: error instanceof Error ? error.message : "Erro ao processar CSV",
+    };
+  }
+}
+
+/**
+ * Parse hierarchical CSV format (like Bradesco extrato de pagamento)
+ * Where patient info is on one line and procedures follow on subsequent lines
+ */
+function parseHierarchicalCSV(lines: string[], separator: string): ParseResult {
+  const procedimentos: ParsedProcedimento[] = [];
+  
+  let currentPatient: string | undefined;
+  let currentGuia: string | undefined;
+  let currentDate: Date | undefined;
+  let currentProtocolo: string | undefined;
+  let currentValorTotal: number | undefined;
+  
+  for (const line of lines) {
+    const values = line.split(separator).map(v => v.trim().replace(/"/g, ""));
+    
+    // Skip header/metadata lines
+    if (values[0]?.toLowerCase().includes("extrato") || 
+        values[0]?.toLowerCase().includes("cnpj") ||
+        values[0]?.toLowerCase().includes("liberado") ||
+        values[0]?.toLowerCase().includes("data do evento")) {
+      continue;
+    }
+    
+    // Check if this is a patient/guia header line (has date in first column)
+    // Note: date may have leading space, so we trim first
+    const dateMatch = values[0]?.trim().match(/(\d{2}[\/\-]\d{2}[\/\-]\d{4})/);
+    if (dateMatch) {
+      // Parse date (DD/MM/YYYY format)
+      const [day, month, year] = dateMatch[1].split(/[\/\-]/).map(Number);
+      currentDate = new Date(year, month - 1, day);
+      currentPatient = values[1] || undefined;
+      currentGuia = values[6] || values[7] || undefined; // Guia operadora/Senha or Doc Original
+      currentProtocolo = values[8] || undefined;
+      continue;
+    }
+    
+    // Check if this is a procedure line (has code in column 2 or 3)
+    const codeValue = values[2] || values[1];
+    if (codeValue && /^\d{5,}$/.test(codeValue.replace(/\s/g, ""))) {
+      const codigo = codeValue.replace(/\s/g, "");
+      const descricao = values[3] || values[2];
+      const qtdSolicitada = parseFloat(values[4]?.replace(",", ".") || "1") || 1;
+      const qtdLiberada = parseFloat(values[5]?.replace(",", ".") || "1") || 1;
+      const valorStr = values[9] || values[8] || values[7];
+      const valor = valorStr ? parseFloat(valorStr.replace(",", ".")) : undefined;
+      const justificativa = values[10] || values[9];
+      
+      procedimentos.push({
+        codigo,
+        descricao: descricao?.trim(),
+        quantidade: qtdLiberada || qtdSolicitada,
+        valorTotal: valor,
+        dataExecucao: currentDate,
+        pacienteNome: currentPatient,
+        guiaNumero: currentGuia,
+        motivoGlosa: justificativa?.trim() || undefined,
+        dadosExtras: {
+          protocolo: currentProtocolo,
+          qtdSolicitada,
+          qtdLiberada,
+        },
+      });
+    }
+  }
+  
+  return {
+    success: true,
+    procedimentos,
+    rawData: { format: "hierarchical", lines: lines.length },
+  };
 }

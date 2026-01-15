@@ -40,7 +40,8 @@ import {
   FileSpreadsheet,
   Receipt,
   BookOpen,
-  History
+  History,
+  Building2
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -65,6 +66,7 @@ const menuItems = [
   { icon: AlertTriangle, label: "Divergências", path: "/divergencias" },
   { icon: FileText, label: "Relatórios", path: "/relatorios" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
+  { icon: Building2, label: "Estabelecimentos", path: "/estabelecimentos" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

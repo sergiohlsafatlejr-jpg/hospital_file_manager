@@ -43,6 +43,13 @@
       "when": 1768421955819,
       "tag": "0005_chunky_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1768479613002,
+      "tag": "0006_melodic_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

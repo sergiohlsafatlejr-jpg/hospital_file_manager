@@ -66,6 +66,53 @@ export const appRouter = router({
       }),
   }),
 
+  // ============ ESTABELECIMENTOS ============
+  estabelecimentos: router({
+    list: protectedProcedure
+      .input(z.object({ ativo: z.enum(["sim", "nao"]).optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getEstabelecimentos(input?.ativo);
+      }),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getEstabelecimentoById(input.id);
+      }),
+
+    create: protectedProcedure
+      .input(
+        z.object({
+          nome: z.string().min(1),
+          cnpj: z.string().optional(),
+          endereco: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.createEstabelecimento({
+          nome: input.nome,
+          cnpj: input.cnpj || null,
+          endereco: input.endereco || null,
+        });
+      }),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().optional(),
+          cnpj: z.string().optional(),
+          endereco: z.string().optional(),
+          ativo: z.enum(["sim", "nao"]).optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await db.updateEstabelecimento(id, data);
+        return { success: true };
+      }),
+  }),
+
   // ============ ARQUIVOS ============
   arquivos: router({
     list: protectedProcedure

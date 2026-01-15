@@ -21,6 +21,7 @@ import Demonstrativo from "./pages/Demonstrativo";
 import Repasse from "./pages/Repasse";
 import DicionarioGlosas from "./pages/DicionarioGlosas";
 import HistoricoContestacoes from "./pages/HistoricoContestacoes";
+import Estabelecimentos from "./pages/Estabelecimentos";
 
 function Router() {
   return (
@@ -42,6 +43,7 @@ function Router() {
       <Route path={"/repasse"} component={Repasse} />
       <Route path={"/dicionario-glosas"} component={DicionarioGlosas} />
       <Route path={"/historico-contestacoes"} component={HistoricoContestacoes} />
+      <Route path={"/estabelecimentos"} component={Estabelecimentos} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -21,6 +21,7 @@ import {
   InsertItemManual,
   historicoContestacoes,
   argumentosConvenio,
+  estabelecimentos,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -2813,4 +2814,40 @@ Responda APENAS com o texto do argumento, sem explicações adicionais.`;
       erro: "Não foi possível gerar sugestão com IA, usando argumento padrão.",
     };
   }
+}
+
+
+// ============ ESTABELECIMENTOS ============
+
+export async function getEstabelecimentos(ativo?: "sim" | "nao") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ativo) {
+    return db.select().from(estabelecimentos).where(eq(estabelecimentos.ativo, ativo));
+  }
+  return db.select().from(estabelecimentos);
+}
+
+export async function getEstabelecimentoById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.select().from(estabelecimentos).where(eq(estabelecimentos.id, id));
+  return result[0] || null;
+}
+
+export async function createEstabelecimento(data: { nome: string; cnpj?: string | null; endereco?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(estabelecimentos).values({
+    nome: data.nome,
+    cnpj: data.cnpj,
+    endereco: data.endereco,
+  });
+  return { id: Number(result[0].insertId), ...data };
+}
+
+export async function updateEstabelecimento(id: number, data: Partial<{ nome: string; cnpj: string; endereco: string; ativo: "sim" | "nao" }>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(estabelecimentos).set(data).where(eq(estabelecimentos.id, id));
 }
