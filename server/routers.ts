@@ -10,6 +10,44 @@ import { parseFile, toProcedimentoInsert } from "./parsers";
 import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
 import * as db from "./db";
 
+/**
+ * Sanitize filename to remove special characters that can cause issues with S3/URLs
+ * - Removes accents (normalizes to ASCII)
+ * - Replaces + with underscore
+ * - Replaces spaces with underscore
+ * - Removes other special characters
+ * - Ensures only alphanumeric, underscore, hyphen, and dot remain
+ */
+function sanitizeFilename(filename: string): string {
+  // Remove file extension temporarily
+  const lastDotIndex = filename.lastIndexOf('.');
+  const hasExtension = lastDotIndex > 0;
+  const name = hasExtension ? filename.substring(0, lastDotIndex) : filename;
+  const ext = hasExtension ? filename.substring(lastDotIndex) : '';
+  
+  // Normalize unicode characters (remove accents)
+  let sanitized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  // Replace + and spaces with underscore
+  sanitized = sanitized.replace(/[+\s]+/g, '_');
+  
+  // Remove any character that is not alphanumeric, underscore, hyphen, or dot
+  sanitized = sanitized.replace(/[^a-zA-Z0-9_\-]/g, '');
+  
+  // Remove multiple consecutive underscores
+  sanitized = sanitized.replace(/_+/g, '_');
+  
+  // Remove leading/trailing underscores
+  sanitized = sanitized.replace(/^_+|_+$/g, '');
+  
+  // Ensure we have a valid filename
+  if (!sanitized) {
+    sanitized = 'arquivo';
+  }
+  
+  return sanitized + ext;
+}
+
 export const appRouter = router({
   system: systemRouter,
   
@@ -204,9 +242,12 @@ export const appRouter = router({
         // Decode base64 content
         const buffer = Buffer.from(input.conteudo, "base64");
         
-        // Generate unique S3 key
+        // Sanitize filename to remove special characters
+        const sanitizedNome = sanitizeFilename(input.nome);
+        
+        // Generate unique S3 key with sanitized filename
         const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo;
-        const s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${input.nome}.${ext}`;
+        const s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${sanitizedNome}.${ext}`;
         
         // Upload to S3
         const contentType =
