@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Gavel, Search, CheckCircle2 } from "lucide-react";
+import { Gavel, Search, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   BarChart,
@@ -103,7 +103,8 @@ export default function AnaliseGlosa() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
   const [dialogRecurso, setDialogRecurso] = useState(false);
-  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "" });
+  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "", prioridade: "media" as "baixa" | "media" | "alta" | "urgente" });
+  const [carregandoSugestao, setCarregandoSugestao] = useState(false);
 
   // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
@@ -138,14 +139,41 @@ export default function AnaliseGlosa() {
       pageSize: 50,
     });
 
-  const criarRecursoMutation = trpc.recursos.create.useMutation({
-    onSuccess: () => {
-      toast.success(`Recurso criado para ${itensSelecionados.size} item(s)!`);
+  const criarRecursoBatchMutation = trpc.recursos.createBatch.useMutation({
+    onSuccess: (data) => {
+      if (data.sucesso > 0) {
+        toast.success(`${data.sucesso} recurso(s) criado(s) com sucesso!`);
+      }
+      if (data.falhas > 0) {
+        toast.error(`${data.falhas} recurso(s) falharam`);
+      }
       setItensSelecionados(new Set());
       setDialogRecurso(false);
-      setRecursoForm({ motivo: "", argumento: "" });
+      setRecursoForm({ motivo: "", argumento: "", prioridade: "media" });
     },
     onError: (error) => toast.error(error.message),
+  });
+
+  const sugerirArgumentoMutation = trpc.recursos.sugerirArgumentoIA.useMutation({
+    onSuccess: (data) => {
+      if (data.argumento) {
+        // Extrair texto do argumento (pode ser string ou array de content)
+        const argumentoTexto = typeof data.argumento === 'string' 
+          ? data.argumento 
+          : Array.isArray(data.argumento) 
+            ? data.argumento.map((c: any) => c.text || '').join('')
+            : String(data.argumento);
+        setRecursoForm(prev => ({ ...prev, argumento: argumentoTexto }));
+        toast.success("Sugestão de argumento gerada com IA!");
+      } else {
+        toast.info("Não foi possível gerar sugestão. Tente inserir manualmente.");
+      }
+      setCarregandoSugestao(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao gerar sugestão: " + error.message);
+      setCarregandoSugestao(false);
+    },
   });
 
   const toggleItemSelecionado = (id: number) => {
@@ -178,6 +206,7 @@ export default function AnaliseGlosa() {
     setRecursoForm({
       motivo: motivoGlosa,
       argumento: "",
+      prioridade: "media",
     });
     setDialogRecurso(true);
   };
@@ -188,19 +217,37 @@ export default function AnaliseGlosa() {
       return;
     }
     const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
-    for (const item of itens) {
-      criarRecursoMutation.mutate({
+    
+    criarRecursoBatchMutation.mutate({
+      itens: itens.map(item => ({
         convenioId: item.convenioId,
         codigoProcedimento: item.codigo,
         descricaoProcedimento: item.descricao || "",
-        justificativaRecurso: `${recursoForm.motivo}\n\n${recursoForm.argumento}`,
         valorGlosado: item.valorGlosado.toString(),
         valorCobrado: item.valorCobrado.toString(),
         motivoGlosaConvenio: item.motivoGlosa,
         pacienteNome: item.pacienteNome,
         guiaNumero: item.guiaNumero,
-      });
-    }
+      })),
+      justificativaRecurso: `${recursoForm.motivo}\n\n${recursoForm.argumento}`,
+      prioridade: recursoForm.prioridade,
+    });
+  };
+
+  const handleSugerirArgumento = () => {
+    const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
+    if (itens.length === 0) return;
+    
+    const primeiroItem = itens[0];
+    const codigoGlosa = primeiroItem.codigoGlosa || primeiroItem.motivoGlosa?.match(/\d{4}/)?.[0] || "0000";
+    
+    setCarregandoSugestao(true);
+    sugerirArgumentoMutation.mutate({
+      codigoGlosa,
+      convenioId: primeiroItem.convenioId,
+      codigoProcedimento: primeiroItem.codigo,
+      valorGlosado: primeiroItem.valorGlosado.toString(),
+    });
   };
 
   const formatCurrency = (value: number) => {
@@ -1087,19 +1134,26 @@ export default function AnaliseGlosa() {
           </TabsContent>
         </Tabs>
 
-        {/* Dialog para criar recurso */}
+        {/* Dialog para criar recurso em lote */}
         <Dialog open={dialogRecurso} onOpenChange={setDialogRecurso}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Criar Recurso de Glosa</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <FileWarning className="h-5 w-5" />
+                Criar Recursos de Glosa em Lote
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div>
-                <Label>Itens Selecionados</Label>
-                <p className="text-sm text-muted-foreground">
-                  {itensSelecionados.size} item(s) selecionado(s) para recurso
+              <div className="bg-muted p-3 rounded-lg">
+                <Label className="text-sm font-medium">Itens Selecionados</Label>
+                <p className="text-2xl font-bold text-primary">
+                  {itensSelecionados.size} item(s)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Todos os itens receberão o mesmo argumento de recurso
                 </p>
               </div>
+              
               <div>
                 <Label>Motivo da Glosa</Label>
                 <Input
@@ -1108,22 +1162,67 @@ export default function AnaliseGlosa() {
                   placeholder="Código ou descrição do motivo"
                 />
               </div>
+
               <div>
-                <Label>Argumento do Recurso</Label>
+                <Label>Prioridade</Label>
+                <Select 
+                  value={recursoForm.prioridade} 
+                  onValueChange={(v) => setRecursoForm({ ...recursoForm, prioridade: v as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="baixa">Baixa</SelectItem>
+                    <SelectItem value="media">Média</SelectItem>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="urgente">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Argumento do Recurso</Label>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleSugerirArgumento}
+                    disabled={carregandoSugestao || sugerirArgumentoMutation.isPending}
+                    className="gap-1"
+                  >
+                    {carregandoSugestao ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" /> Gerando...</>
+                    ) : (
+                      <><Sparkles className="h-3 w-3" /> Sugerir com IA</>
+                    )}
+                  </Button>
+                </div>
                 <Textarea
                   value={recursoForm.argumento}
                   onChange={(e) => setRecursoForm({ ...recursoForm, argumento: e.target.value })}
                   placeholder="Descreva a justificativa para contestar a glosa..."
-                  rows={5}
+                  rows={6}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Clique em "Sugerir com IA" para gerar um argumento baseado no histórico de contestações bem-sucedidas
+                </p>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDialogRecurso(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleCriarRecurso} disabled={criarRecursoMutation.isPending}>
-                {criarRecursoMutation.isPending ? "Criando..." : "Criar Recurso"}
+              <Button 
+                onClick={handleCriarRecurso} 
+                disabled={criarRecursoBatchMutation.isPending || !recursoForm.argumento.trim()}
+                className="gap-1"
+              >
+                {criarRecursoBatchMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</>
+                ) : (
+                  <>Criar {itensSelecionados.size} Recurso(s)</>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

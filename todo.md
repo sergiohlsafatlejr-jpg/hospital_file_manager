@@ -107,3 +107,6 @@
 - [x] Corrigir lógica Bradesco: itens no XML verificar glosa, itens não listados = pago
 - [x] Renomear automaticamente arquivos no upload removendo caracteres especiais
 - [x] Melhorar tela Análise de Glosa: filtros por convênio e data, identificar tipo (exame, mat-med, procedimento)
+- [x] Corrigir duplicação no Demonstrativo - mostrar apenas arquivos de retorno
+- [x] Adicionar contestações em lote para itens glosados selecionados
+- [x] Criar sugestão automática de motivo de recurso com IA baseada na justificativa da glosa

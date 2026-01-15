@@ -365,6 +365,7 @@ export async function getProcedimentosPaginated(filters?: {
   page?: number;
   pageSize?: number;
   userId?: number;
+  apenasRetornados?: boolean;
 }) {
   const db = await getDb();
   if (!db) return { items: [], total: 0, resumo: null };
@@ -407,6 +408,11 @@ export async function getProcedimentosPaginated(filters?: {
   // Add userId filter (only show procedures from user's files)
   if (filters?.userId) {
     conditions.push(eq(arquivos.userId, filters.userId));
+  }
+
+  // Add filter for only returned files (for Demonstrativo)
+  if (filters?.apenasRetornados) {
+    conditions.push(eq(arquivos.direcao, "retornado"));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

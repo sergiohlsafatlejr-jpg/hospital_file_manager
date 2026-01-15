@@ -49,6 +49,7 @@ export default function Demonstrativo() {
   const { data: convenios, isLoading: isLoadingConvenios } = trpc.convenios.list.useQuery();
 
   // Buscar procedimentos do convênio selecionado com filtros no backend
+  // Apenas arquivos retornados (para evitar duplicação com arquivos enviados)
   const { data: procedimentosData, isLoading: isLoadingProcedimentos } = trpc.procedimentos.list.useQuery(
     { 
       convenioId: parseInt(convenioId), 
@@ -56,6 +57,7 @@ export default function Demonstrativo() {
       pageSize,
       search: buscaDebounced || undefined,
       statusGlosa: filtroStatus !== "todos" ? filtroStatus as "pago" | "glosado" | "parcial" : undefined,
+      apenasRetornados: true,
     },
     { enabled: !!convenioId }
   );

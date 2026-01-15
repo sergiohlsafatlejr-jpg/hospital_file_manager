@@ -699,6 +699,7 @@ export const appRouter = router({
             nomeMedico: z.string().optional(),
             crmMedico: z.string().optional(),
             statusGlosa: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
+            apenasRetornados: z.boolean().optional(),
             page: z.number().default(1),
             pageSize: z.number().default(20),
           })
@@ -712,6 +713,7 @@ export const appRouter = router({
           nomeMedico: input?.nomeMedico,
           crmMedico: input?.crmMedico,
           statusGlosa: input?.statusGlosa,
+          apenasRetornados: input?.apenasRetornados,
           page: input?.page || 1,
           pageSize: input?.pageSize || 20,
           userId: ctx.user.id,
@@ -1128,6 +1130,53 @@ export const appRouter = router({
           userId: ctx.user.id,
           limit: input.limit,
         });
+      }),
+
+    // Criar recursos em lote
+    createBatch: protectedProcedure
+      .input(
+        z.object({
+          itens: z.array(
+            z.object({
+              convenioId: z.number(),
+              codigoProcedimento: z.string().optional(),
+              descricaoProcedimento: z.string().optional(),
+              guiaNumero: z.string().optional(),
+              pacienteNome: z.string().optional(),
+              valorCobrado: z.string().optional(),
+              valorGlosado: z.string().optional(),
+              motivoGlosaConvenio: z.string().optional(),
+            })
+          ),
+          justificativaRecurso: z.string(),
+          prioridade: z.enum(["baixa", "media", "alta", "urgente"]).default("media"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const resultados: { id: number; codigo: string }[] = [];
+        const erros: { codigo: string; erro: string }[] = [];
+
+        for (const item of input.itens) {
+          try {
+            const id = await db.createRecursoGlosa({
+              ...item,
+              justificativaRecurso: input.justificativaRecurso,
+              prioridade: input.prioridade,
+              userId: ctx.user.id,
+              status: "rascunho",
+            });
+            resultados.push({ id, codigo: item.codigoProcedimento || "" });
+          } catch (error: any) {
+            erros.push({ codigo: item.codigoProcedimento || "", erro: error.message });
+          }
+        }
+
+        return { 
+          sucesso: resultados.length, 
+          falhas: erros.length, 
+          resultados, 
+          erros 
+        };
       }),
   }),
 
