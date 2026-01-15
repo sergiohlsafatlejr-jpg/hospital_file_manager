@@ -19,7 +19,16 @@ import {
   PieChart,
   FileWarning,
   Target,
-  Activity
+  Activity,
+  FlaskConical,
+  Pill,
+  Stethoscope,
+  Receipt,
+  BedDouble,
+  HelpCircle,
+  Calendar,
+  Filter,
+  User
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Input } from "@/components/ui/input";
@@ -28,7 +37,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-// import { getGlosaInfo } from "../../shared/glossaryGlosas";
 import { Gavel, Search, CheckCircle2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -63,12 +71,41 @@ const CATEGORIA_COLORS: { [key: string]: string } = {
   "Outros": "#6b7280",
 };
 
+const TIPO_ICONS: { [key: string]: React.ReactNode } = {
+  "Exames": <FlaskConical className="h-4 w-4" />,
+  "Mat/Med": <Pill className="h-4 w-4" />,
+  "Procedimentos": <Stethoscope className="h-4 w-4" />,
+  "Taxas": <Receipt className="h-4 w-4" />,
+  "Diárias": <BedDouble className="h-4 w-4" />,
+  "Outros": <HelpCircle className="h-4 w-4" />,
+};
+
+const TIPO_COLORS: { [key: string]: string } = {
+  "Exames": "#3b82f6",
+  "Mat/Med": "#22c55e",
+  "Procedimentos": "#8b5cf6",
+  "Taxas": "#f97316",
+  "Diárias": "#ec4899",
+  "Outros": "#6b7280",
+};
+
 export default function AnaliseGlosa() {
   const { user } = useAuth();
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
   const [periodoMeses, setPeriodoMeses] = useState<string>("12");
 
-  // Buscar dados
+  // Filtros para itens glosados
+  const [convenioItens, setConvenioItens] = useState<string>("todos");
+  const [tipoFiltro, setTipoFiltro] = useState<string>("todos");
+  const [buscaItens, setBuscaItens] = useState("");
+  const [dataReferenciaInicio, setDataReferenciaInicio] = useState<string>("");
+  const [dataReferenciaFim, setDataReferenciaFim] = useState<string>("");
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
+  const [dialogRecurso, setDialogRecurso] = useState(false);
+  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "" });
+
+  // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
     trpc.glosa.porConvenio.useQuery();
   
@@ -89,19 +126,16 @@ export default function AnaliseGlosa() {
 
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
 
-  // Buscar itens glosados para a nova aba
-  const [buscaItens, setBuscaItens] = useState("");
-  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
-  const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
-  const [dialogRecurso, setDialogRecurso] = useState(false);
-  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "" });
-
+  // Buscar itens glosados com novos filtros
   const { data: itensGlosados, isLoading: loadingItens, refetch: refetchItens } = 
-    trpc.procedimentos.list.useQuery({
-      statusGlosa: statusFiltro === "todos" ? undefined : statusFiltro as "pago" | "glosado" | "parcial",
+    trpc.glosa.itensGlosados.useQuery({
+      convenioId: convenioItens !== "todos" ? parseInt(convenioItens) : undefined,
+      tipo: tipoFiltro !== "todos" ? tipoFiltro : undefined,
       search: buscaItens || undefined,
-      page: 1,
-      pageSize: 100,
+      dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
+      dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
+      page: paginaAtual,
+      pageSize: 50,
     });
 
   const criarRecursoMutation = trpc.recursos.create.useMutation({
@@ -126,13 +160,10 @@ export default function AnaliseGlosa() {
 
   const selecionarTodos = () => {
     if (!itensGlosados?.items) return;
-    const glosados = itensGlosados.items.filter(i => 
-      (i.dadosExtras as Record<string, unknown>)?.valorGlosado && Number((i.dadosExtras as Record<string, unknown>).valorGlosado) > 0
-    );
-    if (itensSelecionados.size === glosados.length) {
+    if (itensSelecionados.size === itensGlosados.items.length) {
       setItensSelecionados(new Set());
     } else {
-      setItensSelecionados(new Set(glosados.map(i => i.id)));
+      setItensSelecionados(new Set(itensGlosados.items.map(i => i.id)));
     }
   };
 
@@ -141,11 +172,8 @@ export default function AnaliseGlosa() {
       toast.error("Selecione pelo menos um item para criar recurso");
       return;
     }
-    // Pegar o primeiro item selecionado para sugerir argumento
     const primeiroItem = itensGlosados?.items?.find(i => itensSelecionados.has(i.id));
-    const motivoGlosa = (primeiroItem?.dadosExtras as Record<string, unknown>)?.motivoGlosa as string || "";
-    const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1];
-    // const glosaInfo = codigoGlosa ? getGlosaInfo(codigoGlosa) : null;
+    const motivoGlosa = primeiroItem?.motivoGlosa || "";
     
     setRecursoForm({
       motivo: motivoGlosa,
@@ -159,14 +187,18 @@ export default function AnaliseGlosa() {
       toast.error("Informe o argumento do recurso");
       return;
     }
-    // Criar recurso para cada item selecionado
     const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
     for (const item of itens) {
       criarRecursoMutation.mutate({
-        convenioId: 1, // TODO: pegar do item
+        convenioId: item.convenioId,
         codigoProcedimento: item.codigo,
         descricaoProcedimento: item.descricao || "",
         justificativaRecurso: `${recursoForm.motivo}\n\n${recursoForm.argumento}`,
+        valorGlosado: item.valorGlosado.toString(),
+        valorCobrado: item.valorCobrado.toString(),
+        motivoGlosaConvenio: item.motivoGlosa,
+        pacienteNome: item.pacienteNome,
+        guiaNumero: item.guiaNumero,
       });
     }
   };
@@ -183,12 +215,34 @@ export default function AnaliseGlosa() {
     refetchConvenio();
     refetchProcedimento();
     refetchTendencia();
+    refetchItens();
   };
 
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
 
-    // Aba 1: Glosa por Convênio
+    // Aba 1: Itens Glosados
+    if (itensGlosados?.items) {
+      const itensData = itensGlosados.items.map(item => ({
+        "Código": item.codigo,
+        "Descrição": item.descricao,
+        "Tipo": item.tipo,
+        "Paciente": item.pacienteNome,
+        "Guia": item.guiaNumero,
+        "Convênio": item.convenioNome,
+        "Data Execução": item.dataExecucao ? new Date(item.dataExecucao).toLocaleDateString("pt-BR") : "-",
+        "Valor Cobrado": item.valorCobrado,
+        "Valor Pago": item.valorPago,
+        "Valor Glosado": item.valorGlosado,
+        "Motivo Glosa": item.motivoGlosa,
+        "Médico": item.nomeMedico,
+        "CRM": item.crmMedico,
+      }));
+      const wsItens = XLSX.utils.json_to_sheet(itensData);
+      XLSX.utils.book_append_sheet(wb, wsItens, "Itens Glosados");
+    }
+
+    // Aba 2: Glosa por Convênio
     if (glosaPorConvenio) {
       const convData = glosaPorConvenio.map(item => ({
         "Convênio": item.convenioNome,
@@ -201,7 +255,7 @@ export default function AnaliseGlosa() {
       XLSX.utils.book_append_sheet(wb, wsConv, "Glosa por Convênio");
     }
 
-    // Aba 2: Procedimentos Mais Glosados
+    // Aba 3: Procedimentos Mais Glosados
     if (glosaPorProcedimento) {
       const procData = glosaPorProcedimento.map(item => ({
         "Código": item.codigo,
@@ -214,7 +268,7 @@ export default function AnaliseGlosa() {
       XLSX.utils.book_append_sheet(wb, wsProc, "Procedimentos Glosados");
     }
 
-    // Aba 3: Tendência Mensal
+    // Aba 4: Tendência Mensal
     if (tendenciaGlosa) {
       const tendData = tendenciaGlosa.map(item => ({
         "Mês/Ano": `${item.mes}/${item.ano}`,
@@ -225,7 +279,7 @@ export default function AnaliseGlosa() {
       XLSX.utils.book_append_sheet(wb, wsTend, "Tendência Mensal");
     }
 
-    // Aba 4: Resumo por Categoria
+    // Aba 5: Resumo por Categoria
     if (resumoGlosa?.categorias) {
       const catData = resumoGlosa.categorias.map(item => ({
         "Categoria": item.categoria,
@@ -259,7 +313,34 @@ export default function AnaliseGlosa() {
     valor: item.valorGlosado,
   })) || [];
 
+  // Dados para gráfico de tipos
+  const tipoData = itensGlosados?.resumo?.porTipo?.map(item => ({
+    name: item.tipo,
+    value: item.quantidade,
+    valor: item.valorGlosado,
+  })) || [];
+
   const isLoading = loadingConvenio || loadingProcedimento || loadingTendencia || loadingResumo;
+
+  // Função para obter ícone e cor do tipo
+  const getTipoInfo = (tipo: string) => {
+    const tipoLabel = {
+      exame: "Exames",
+      mat_med: "Mat/Med",
+      procedimento: "Procedimentos",
+      taxa: "Taxas",
+      diaria: "Diárias",
+      outros: "Outros",
+    }[tipo] || tipo;
+    
+    return {
+      label: tipoLabel,
+      icon: TIPO_ICONS[tipoLabel] || <HelpCircle className="h-4 w-4" />,
+      color: TIPO_COLORS[tipoLabel] || "#6b7280",
+    };
+  };
+
+  const totalPaginas = Math.ceil((itensGlosados?.total || 0) / 50);
 
   return (
     <DashboardLayout>
@@ -287,95 +368,99 @@ export default function AnaliseGlosa() {
         {/* Cards de Resumo */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total de Glosas</p>
-                  {loadingResumo ? (
-                    <Skeleton className="h-8 w-20 mt-1" />
-                  ) : (
-                    <p className="text-2xl font-bold text-red-600">
-                      {resumoGlosa?.totalDivergencias || 0}
-                    </p>
-                  )}
-                </div>
-                <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertTriangle className="h-6 w-6 text-red-600" />
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Glosado</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              {loadingResumo ? (
+                <Skeleton className="h-8 w-32" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold text-red-600">
+                    {formatCurrency(resumoGlosa?.valorTotalGlosado || 0)}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {resumoGlosa?.totalDivergencias || 0} divergências registradas
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Valor Total Glosado</p>
-                  {loadingResumo ? (
-                    <Skeleton className="h-8 w-32 mt-1" />
-                  ) : (
-                    <p className="text-2xl font-bold text-orange-600">
-                      {formatCurrency(resumoGlosa?.valorTotalGlosado || 0)}
-                    </p>
-                  )}
-                </div>
-                <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
-                  <TrendingDown className="h-6 w-6 text-orange-600" />
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Itens Glosados</CardTitle>
+              <FileWarning className="h-4 w-4 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              {loadingItens ? (
+                <Skeleton className="h-8 w-32" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">
+                    {itensGlosados?.resumo?.totalItens || 0}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatPercent(itensGlosados?.resumo?.percentualGlosa || 0)} do valor cobrado
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Motivo Principal</p>
-                  {loadingResumo ? (
-                    <Skeleton className="h-8 w-32 mt-1" />
-                  ) : (
-                    <p className="text-lg font-bold text-amber-600 truncate max-w-[150px]">
-                      {resumoGlosa?.categoriaPrincipal?.nome || "N/A"}
-                    </p>
-                  )}
-                </div>
-                <div className="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center">
-                  <Target className="h-6 w-6 text-amber-600" />
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Categoria Principal</CardTitle>
+              <Target className="h-4 w-4 text-purple-500" />
+            </CardHeader>
+            <CardContent>
+              {loadingResumo ? (
+                <Skeleton className="h-8 w-32" />
+              ) : (
+                <>
+                  <div className="text-lg font-bold truncate">
+                    {resumoGlosa?.categoriaPrincipal?.nome || "-"}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {resumoGlosa?.categoriaPrincipal?.quantidade || 0} ocorrências ({formatPercent(resumoGlosa?.categoriaPrincipal?.percentual || 0)})
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Convênios Afetados</p>
-                  {loadingConvenio ? (
-                    <Skeleton className="h-8 w-16 mt-1" />
-                  ) : (
-                    <p className="text-2xl font-bold text-purple-600">
-                      {glosaPorConvenio?.length || 0}
-                    </p>
-                  )}
-                </div>
-                <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Building2 className="h-6 w-6 text-purple-600" />
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Convênios Afetados</CardTitle>
+              <Building2 className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              {loadingConvenio ? (
+                <Skeleton className="h-8 w-32" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">
+                    {glosaPorConvenio?.length || 0}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    convênios com glosas registradas
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Filtros */}
+        {/* Filtros Gerais */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-wrap gap-4">
-              <div className="flex-1 min-w-[200px]">
-                <label className="text-sm font-medium mb-2 block">Convênio</label>
+              <div className="min-w-[200px]">
+                <label className="text-sm font-medium mb-2 block">Convênio (Gráficos)</label>
                 <Select value={convenioFiltro} onValueChange={setConvenioFiltro}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Todos os convênios" />
+                    <SelectValue placeholder="Selecione o convênio" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos os convênios</SelectItem>
@@ -405,7 +490,7 @@ export default function AnaliseGlosa() {
         </Card>
 
         {/* Tabs de Análise */}
-        <Tabs defaultValue="categorias" className="space-y-4">
+        <Tabs defaultValue="itens" className="space-y-4">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="itens">Itens Glosados</TabsTrigger>
             <TabsTrigger value="categorias">Por Categoria</TabsTrigger>
@@ -414,8 +499,112 @@ export default function AnaliseGlosa() {
             <TabsTrigger value="tendencia">Tendência</TabsTrigger>
           </TabsList>
 
-          {/* Tab: Itens Glosados */}
+          {/* Tab: Itens Glosados - NOVA VERSÃO */}
           <TabsContent value="itens" className="space-y-4">
+            {/* Filtros Específicos */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Filter className="h-5 w-5" />
+                  Filtros
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Convênio</label>
+                    <Select value={convenioItens} onValueChange={(v) => { setConvenioItens(v); setPaginaAtual(1); }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos os convênios</SelectItem>
+                        {convenios?.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Tipo</label>
+                    <Select value={tipoFiltro} onValueChange={(v) => { setTipoFiltro(v); setPaginaAtual(1); }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos os tipos</SelectItem>
+                        <SelectItem value="exame">Exames</SelectItem>
+                        <SelectItem value="mat_med">Mat/Med</SelectItem>
+                        <SelectItem value="procedimento">Procedimentos</SelectItem>
+                        <SelectItem value="taxa">Taxas</SelectItem>
+                        <SelectItem value="diaria">Diárias</SelectItem>
+                        <SelectItem value="outros">Outros</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Data Ref. Início</label>
+                    <Input
+                      type="date"
+                      value={dataReferenciaInicio}
+                      onChange={(e) => { setDataReferenciaInicio(e.target.value); setPaginaAtual(1); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Data Ref. Fim</label>
+                    <Input
+                      type="date"
+                      value={dataReferenciaFim}
+                      onChange={(e) => { setDataReferenciaFim(e.target.value); setPaginaAtual(1); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Buscar</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Código, descrição, paciente..."
+                        value={buscaItens}
+                        onChange={(e) => { setBuscaItens(e.target.value); setPaginaAtual(1); }}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Resumo por Tipo */}
+            {itensGlosados?.resumo && itensGlosados.resumo.totalItens > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {itensGlosados.resumo.porTipo.map((tipo) => (
+                  <Card key={tipo.tipo} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => {
+                    const tipoValue = tipo.tipo === "Exames" ? "exame" : 
+                                      tipo.tipo === "Mat/Med" ? "mat_med" :
+                                      tipo.tipo === "Procedimentos" ? "procedimento" :
+                                      tipo.tipo === "Taxas" ? "taxa" :
+                                      tipo.tipo === "Diárias" ? "diaria" : "outros";
+                    setTipoFiltro(tipoValue);
+                    setPaginaAtual(1);
+                  }}>
+                    <CardContent className="pt-4 pb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div style={{ color: TIPO_COLORS[tipo.tipo] || "#6b7280" }}>
+                          {TIPO_ICONS[tipo.tipo] || <HelpCircle className="h-4 w-4" />}
+                        </div>
+                        <span className="text-sm font-medium">{tipo.tipo}</span>
+                      </div>
+                      <div className="text-lg font-bold">{tipo.quantidade}</div>
+                      <div className="text-xs text-red-600">{formatCurrency(tipo.valorGlosado)}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Tabela de Itens */}
             <Card>
               <CardHeader>
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -423,9 +612,21 @@ export default function AnaliseGlosa() {
                     <CardTitle className="flex items-center gap-2">
                       <Gavel className="h-5 w-5" />
                       Itens Glosados
+                      {itensGlosados?.total ? (
+                        <Badge variant="secondary" className="ml-2">
+                          {itensGlosados.total} itens
+                        </Badge>
+                      ) : null}
                     </CardTitle>
                     <CardDescription>
-                      Selecione os itens para criar recursos de glosa em lote
+                      {itensGlosados?.resumo ? (
+                        <>
+                          Total glosado: <span className="font-semibold text-red-600">{formatCurrency(itensGlosados.resumo.totalValorGlosado)}</span>
+                          {" "}de {formatCurrency(itensGlosados.resumo.totalValorCobrado)} cobrados
+                        </>
+                      ) : (
+                        "Selecione os itens para criar recursos de glosa em lote"
+                      )}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
@@ -443,28 +644,6 @@ export default function AnaliseGlosa() {
                     </Button>
                   </div>
                 </div>
-                <div className="flex gap-4 mt-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Buscar por código, descrição ou paciente..."
-                      value={buscaItens}
-                      onChange={(e) => setBuscaItens(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                  <Select value={statusFiltro} onValueChange={setStatusFiltro}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      <SelectItem value="glosado">Glosado Total</SelectItem>
-                      <SelectItem value="parcial">Glosado Parcial</SelectItem>
-                      <SelectItem value="pago">Pago</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </CardHeader>
               <CardContent>
                 {loadingItens ? (
@@ -474,58 +653,120 @@ export default function AnaliseGlosa() {
                     ))}
                   </div>
                 ) : itensGlosados?.items && itensGlosados.items.length > 0 ? (
-                  <div className="rounded-md border overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[50px]"></TableHead>
-                          <TableHead>Código</TableHead>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Paciente</TableHead>
-                          <TableHead className="text-right">Valor</TableHead>
-                          <TableHead className="text-right">Glosa</TableHead>
-                          <TableHead>Motivo</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {itensGlosados.items
-                          .filter(item => {
-                            const valorGlosado = Number((item.dadosExtras as Record<string, unknown>)?.valorGlosado) || 0;
-                            return valorGlosado > 0;
-                          })
-                          .map((item) => {
-                            const valorGlosado = Number((item.dadosExtras as Record<string, unknown>)?.valorGlosado) || 0;
-                            const motivoGlosa = (item.dadosExtras as Record<string, unknown>)?.motivoGlosa as string || "-";
+                  <>
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[50px]"></TableHead>
+                            <TableHead className="w-[100px]">Tipo</TableHead>
+                            <TableHead>Código</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead>Paciente</TableHead>
+                            <TableHead>Convênio</TableHead>
+                            <TableHead className="text-right">Cobrado</TableHead>
+                            <TableHead className="text-right">Glosa</TableHead>
+                            <TableHead>Motivo</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {itensGlosados.items.map((item) => {
+                            const tipoInfo = getTipoInfo(item.tipo);
                             return (
-                              <TableRow key={item.id} className={itensSelecionados.has(item.id) ? "bg-muted/50" : ""}>
+                              <TableRow 
+                                key={item.id} 
+                                className={`${itensSelecionados.has(item.id) ? "bg-muted/50" : ""} ${item.nomeMedico ? "border-l-2 border-l-blue-500" : ""}`}
+                              >
                                 <TableCell>
                                   <Checkbox
                                     checked={itensSelecionados.has(item.id)}
                                     onCheckedChange={() => toggleItemSelecionado(item.id)}
                                   />
                                 </TableCell>
-                                <TableCell className="font-mono">{item.codigo}</TableCell>
-                                <TableCell className="max-w-[200px] truncate">{item.descricao}</TableCell>
-                                <TableCell className="max-w-[150px] truncate">{(item.dadosExtras as Record<string, unknown>)?.paciente as string || "-"}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(Number(item.valorTotal) || 0)}</TableCell>
-                                <TableCell className="text-right font-medium text-red-600">
-                                  {formatCurrency(valorGlosado)}
+                                <TableCell>
+                                  <Badge 
+                                    variant="outline" 
+                                    className="flex items-center gap-1 w-fit"
+                                    style={{ borderColor: tipoInfo.color, color: tipoInfo.color }}
+                                  >
+                                    {tipoInfo.icon}
+                                    <span className="text-xs">{tipoInfo.label}</span>
+                                  </Badge>
                                 </TableCell>
-                                <TableCell className="max-w-[200px] truncate">
-                                  <Badge variant="outline" className="text-xs">
-                                    {motivoGlosa.length > 30 ? motivoGlosa.substring(0, 30) + "..." : motivoGlosa}
+                                <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
+                                <TableCell className="max-w-[200px]">
+                                  <div className="truncate" title={item.descricao}>{item.descricao}</div>
+                                  {item.nomeMedico && (
+                                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                                      <User className="h-3 w-3" />
+                                      {item.nomeMedico} {item.crmMedico && `(${item.crmMedico})`}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="max-w-[150px]">
+                                  <div className="truncate" title={item.pacienteNome}>{item.pacienteNome || "-"}</div>
+                                  {item.guiaNumero && (
+                                    <div className="text-xs text-muted-foreground">Guia: {item.guiaNumero}</div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="truncate max-w-[120px]" title={item.convenioNome}>{item.convenioNome}</div>
+                                  {item.dataReferencia && (
+                                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <Calendar className="h-3 w-3" />
+                                      {new Date(item.dataReferencia).toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">{formatCurrency(item.valorCobrado)}</TableCell>
+                                <TableCell className="text-right font-medium text-red-600">
+                                  {formatCurrency(item.valorGlosado)}
+                                </TableCell>
+                                <TableCell className="max-w-[200px]">
+                                  <Badge variant="outline" className="text-xs" title={item.motivoGlosa}>
+                                    {item.codigoGlosa && <span className="font-mono mr-1">{item.codigoGlosa}:</span>}
+                                    {item.motivoGlosa.length > 25 ? item.motivoGlosa.substring(0, 25) + "..." : item.motivoGlosa}
                                   </Badge>
                                 </TableCell>
                               </TableRow>
                             );
                           })}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Paginação */}
+                    {totalPaginas > 1 && (
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="text-sm text-muted-foreground">
+                          Página {paginaAtual} de {totalPaginas} ({itensGlosados.total} itens)
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                            disabled={paginaAtual === 1}
+                          >
+                            Anterior
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+                            disabled={paginaAtual === totalPaginas}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-12 text-muted-foreground">
                     <FileWarning className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p>Nenhum item glosado encontrado</p>
+                    <p className="text-sm mt-2">Importe arquivos retornados (PDF/Excel) dos convênios para visualizar as glosas</p>
                   </div>
                 )}
               </CardContent>
@@ -699,19 +940,18 @@ export default function AnaliseGlosa() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="space-y-2">
                             {conv.motivosPrincipais.slice(0, 3).map((motivo, idx) => (
-                              <Badge 
-                                key={idx} 
-                                variant="outline"
-                                className="text-xs"
-                                style={{ 
-                                  borderColor: CATEGORIA_COLORS[motivo.categoriaGlosa] || "#6b7280",
-                                  color: CATEGORIA_COLORS[motivo.categoriaGlosa] || "#6b7280"
-                                }}
-                              >
-                                {motivo.categoriaGlosa}: {formatPercent(motivo.percentual)}
-                              </Badge>
+                              <div key={idx} className="flex items-center gap-2">
+                                <div 
+                                  className="w-2 h-2 rounded-full" 
+                                  style={{ backgroundColor: CATEGORIA_COLORS[motivo.categoriaGlosa] || "#6b7280" }}
+                                />
+                                <span className="text-sm flex-1">{motivo.categoriaGlosa}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {formatPercent(motivo.percentual)}
+                                </span>
+                              </div>
                             ))}
                           </div>
                         </div>
@@ -719,7 +959,7 @@ export default function AnaliseGlosa() {
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Nenhum convênio com glosas
+                      Nenhum convênio com glosas encontrado
                     </div>
                   )}
                 </CardContent>
@@ -728,11 +968,11 @@ export default function AnaliseGlosa() {
           </TabsContent>
 
           {/* Tab: Por Procedimento */}
-          <TabsContent value="procedimentos">
+          <TabsContent value="procedimentos" className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FileWarning className="h-5 w-5" />
+                  <Activity className="h-5 w-5" />
                   Procedimentos Mais Glosados
                 </CardTitle>
                 <CardDescription>
@@ -747,12 +987,11 @@ export default function AnaliseGlosa() {
                     ))}
                   </div>
                 ) : glosaPorProcedimento && glosaPorProcedimento.length > 0 ? (
-                  <div className="rounded-md border overflow-x-auto">
+                  <div className="rounded-md border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[80px]">#</TableHead>
-                          <TableHead>Código</TableHead>
+                          <TableHead className="w-[100px]">Código</TableHead>
                           <TableHead>Descrição</TableHead>
                           <TableHead className="text-center">Qtd Glosas</TableHead>
                           <TableHead className="text-right">Valor Glosado</TableHead>
@@ -762,9 +1001,8 @@ export default function AnaliseGlosa() {
                       <TableBody>
                         {glosaPorProcedimento.map((proc, index) => (
                           <TableRow key={index}>
-                            <TableCell className="font-medium">{index + 1}</TableCell>
                             <TableCell className="font-mono">{proc.codigo}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">{proc.descricao}</TableCell>
+                            <TableCell className="max-w-[300px] truncate">{proc.descricao}</TableCell>
                             <TableCell className="text-center">
                               <Badge variant="destructive">{proc.quantidadeGlosas}</Badge>
                             </TableCell>
@@ -772,14 +1010,8 @@ export default function AnaliseGlosa() {
                               {formatCurrency(proc.valorGlosado)}
                             </TableCell>
                             <TableCell>
-                              <Badge 
-                                variant="outline"
-                                style={{ 
-                                  borderColor: CATEGORIA_COLORS[proc.motivoPrincipal] || "#6b7280",
-                                  color: CATEGORIA_COLORS[proc.motivoPrincipal] || "#6b7280"
-                                }}
-                              >
-                                {proc.motivoPrincipal}
+                              <Badge variant="outline" className="text-xs">
+                                {proc.motivoPrincipal || "-"}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -798,15 +1030,15 @@ export default function AnaliseGlosa() {
           </TabsContent>
 
           {/* Tab: Tendência */}
-          <TabsContent value="tendencia">
+          <TabsContent value="tendencia" className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
+                  <TrendingDown className="h-5 w-5" />
                   Tendência de Glosa
                 </CardTitle>
                 <CardDescription>
-                  Evolução mensal das glosas no período selecionado
+                  Evolução mensal das glosas nos últimos {periodoMeses} meses
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -821,17 +1053,31 @@ export default function AnaliseGlosa() {
                       <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
                       <Tooltip formatter={(value: number, name: string) => [
                         name === "valor" ? formatCurrency(value) : value,
-                        name === "valor" ? "Valor Glosado" : "Quantidade de Glosas"
+                        name === "valor" ? "Valor Glosado" : "Qtd Glosas"
                       ]} />
                       <Legend />
-                      <Area yAxisId="left" type="monotone" dataKey="glosas" name="Quantidade" stroke="#ef4444" fill="#ef4444" fillOpacity={0.3} />
-                      <Area yAxisId="right" type="monotone" dataKey="valor" name="Valor" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                      <Area 
+                        yAxisId="left" 
+                        type="monotone" 
+                        dataKey="glosas" 
+                        name="Qtd Glosas" 
+                        stroke="#ef4444" 
+                        fill="#fecaca" 
+                      />
+                      <Area 
+                        yAxisId="right" 
+                        type="monotone" 
+                        dataKey="valor" 
+                        name="Valor Glosado" 
+                        stroke="#3b82f6" 
+                        fill="#bfdbfe" 
+                      />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-[400px] flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
-                      <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <FileWarning className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>Nenhum dado de tendência disponível</p>
                     </div>
                   </div>
@@ -840,50 +1086,49 @@ export default function AnaliseGlosa() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
 
-      {/* Dialog para criar recurso */}
-      <Dialog open={dialogRecurso} onOpenChange={setDialogRecurso}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Criar Recurso de Glosa</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="bg-muted/50 p-4 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                Criando recurso para <strong>{itensSelecionados.size}</strong> item(s) selecionado(s)
-              </p>
+        {/* Dialog para criar recurso */}
+        <Dialog open={dialogRecurso} onOpenChange={setDialogRecurso}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Criar Recurso de Glosa</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Itens Selecionados</Label>
+                <p className="text-sm text-muted-foreground">
+                  {itensSelecionados.size} item(s) selecionado(s) para recurso
+                </p>
+              </div>
+              <div>
+                <Label>Motivo da Glosa</Label>
+                <Input
+                  value={recursoForm.motivo}
+                  onChange={(e) => setRecursoForm({ ...recursoForm, motivo: e.target.value })}
+                  placeholder="Código ou descrição do motivo"
+                />
+              </div>
+              <div>
+                <Label>Argumento do Recurso</Label>
+                <Textarea
+                  value={recursoForm.argumento}
+                  onChange={(e) => setRecursoForm({ ...recursoForm, argumento: e.target.value })}
+                  placeholder="Descreva a justificativa para contestar a glosa..."
+                  rows={5}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="motivo">Motivo da Glosa</Label>
-              <Input
-                id="motivo"
-                value={recursoForm.motivo}
-                onChange={(e) => setRecursoForm({ ...recursoForm, motivo: e.target.value })}
-                placeholder="Código ou descrição do motivo de glosa"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="argumento">Argumento do Recurso</Label>
-              <Textarea
-                id="argumento"
-                value={recursoForm.argumento}
-                onChange={(e) => setRecursoForm({ ...recursoForm, argumento: e.target.value })}
-                placeholder="Justificativa para contestação da glosa..."
-                rows={6}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogRecurso(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCriarRecurso} disabled={criarRecursoMutation.isPending}>
-              {criarRecursoMutation.isPending ? "Criando..." : "Criar Recurso"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogRecurso(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCriarRecurso} disabled={criarRecursoMutation.isPending}>
+                {criarRecursoMutation.isPending ? "Criando..." : "Criar Recurso"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </DashboardLayout>
   );
 }

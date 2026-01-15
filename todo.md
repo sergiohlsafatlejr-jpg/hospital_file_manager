@@ -106,3 +106,4 @@
 - [x] Criar tela de configuração de regras de conciliação por convênio
 - [x] Corrigir lógica Bradesco: itens no XML verificar glosa, itens não listados = pago
 - [x] Renomear automaticamente arquivos no upload removendo caracteres especiais
+- [x] Melhorar tela Análise de Glosa: filtros por convênio e data, identificar tipo (exame, mat-med, procedimento)

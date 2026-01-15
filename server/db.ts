@@ -3029,3 +3029,327 @@ export async function upsertRegraConciliacao(regra: InsertRegraConciliacao) {
     return { id: result.id, updated: false };
   }
 }
+
+
+// ============ ITENS GLOSADOS COM FILTROS ============
+
+export interface ItemGlosado {
+  id: number;
+  codigo: string;
+  descricao: string;
+  tipo: "exame" | "mat_med" | "procedimento" | "taxa" | "diaria" | "outros";
+  pacienteNome: string;
+  pacienteCarteirinha: string;
+  guiaNumero: string;
+  dataExecucao: Date | null;
+  valorCobrado: number;
+  valorPago: number;
+  valorGlosado: number;
+  motivoGlosa: string;
+  codigoGlosa: string;
+  convenioId: number;
+  convenioNome: string;
+  arquivoId: number;
+  arquivoNome: string;
+  dataReferencia: Date | null;
+  nomeMedico: string;
+  crmMedico: string;
+}
+
+export interface ResumoItensGlosados {
+  totalItens: number;
+  totalValorGlosado: number;
+  totalValorCobrado: number;
+  percentualGlosa: number;
+  porTipo: {
+    tipo: string;
+    quantidade: number;
+    valorGlosado: number;
+  }[];
+  porMotivo: {
+    motivo: string;
+    quantidade: number;
+    valorGlosado: number;
+  }[];
+}
+
+/**
+ * Determina o tipo do procedimento baseado no código TUSS
+ */
+function determinarTipoProcedimento(codigo: string, descricao?: string): "exame" | "mat_med" | "procedimento" | "taxa" | "diaria" | "outros" {
+  // Códigos TUSS:
+  // 1xxxxx - Procedimentos gerais
+  // 2xxxxx - Procedimentos diagnósticos (exames)
+  // 3xxxxx - Procedimentos clínicos
+  // 4xxxxx - Procedimentos cirúrgicos
+  // 5xxxxx - Outros procedimentos
+  // 6xxxxx - Medicamentos
+  // 7xxxxx - Materiais
+  // 8xxxxx - Taxas e diárias
+  // 9xxxxx - Pacotes
+  
+  const codigoNum = codigo.replace(/\D/g, '');
+  const primeiroDigito = codigoNum.charAt(0);
+  const doisPrimeiros = codigoNum.substring(0, 2);
+  
+  // Verificar descrição para mat-med
+  const descLower = (descricao || '').toLowerCase();
+  if (descLower.includes('medicamento') || descLower.includes('droga') || 
+      descLower.includes('ampola') || descLower.includes('frasco') ||
+      descLower.includes('comprimido') || descLower.includes('injetavel') ||
+      descLower.includes('solucao') || descLower.includes('soro')) {
+    return 'mat_med';
+  }
+  
+  if (descLower.includes('material') || descLower.includes('cateter') ||
+      descLower.includes('seringa') || descLower.includes('agulha') ||
+      descLower.includes('equipo') || descLower.includes('luva') ||
+      descLower.includes('opme') || descLower.includes('protese') ||
+      descLower.includes('implante')) {
+    return 'mat_med';
+  }
+  
+  // Verificar por código
+  if (primeiroDigito === '6' || primeiroDigito === '7') {
+    return 'mat_med';
+  }
+  
+  if (primeiroDigito === '2' || doisPrimeiros === '40') {
+    // Exames laboratoriais e de imagem
+    if (descLower.includes('exame') || descLower.includes('dosagem') ||
+        descLower.includes('hemograma') || descLower.includes('raio') ||
+        descLower.includes('tomografia') || descLower.includes('ressonancia') ||
+        descLower.includes('ultrassom') || descLower.includes('ecografia') ||
+        descLower.includes('eletro') || descLower.includes('endoscopia')) {
+      return 'exame';
+    }
+    return 'exame';
+  }
+  
+  if (primeiroDigito === '8') {
+    if (descLower.includes('diaria') || descLower.includes('internacao') ||
+        descLower.includes('acomodacao') || descLower.includes('leito')) {
+      return 'diaria';
+    }
+    return 'taxa';
+  }
+  
+  if (primeiroDigito === '3' || primeiroDigito === '4' || primeiroDigito === '5') {
+    return 'procedimento';
+  }
+  
+  return 'outros';
+}
+
+export async function getItensGlosados(filters: {
+  userId: number;
+  convenioId?: number;
+  dataReferenciaInicio?: Date;
+  dataReferenciaFim?: Date;
+  tipo?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}): Promise<{ items: ItemGlosado[]; total: number; resumo: ResumoItensGlosados }> {
+  const db = await getDb();
+  if (!db) return { 
+    items: [], 
+    total: 0, 
+    resumo: { 
+      totalItens: 0, 
+      totalValorGlosado: 0, 
+      totalValorCobrado: 0,
+      percentualGlosa: 0,
+      porTipo: [], 
+      porMotivo: [] 
+    } 
+  };
+
+  // Buscar arquivos retornados do usuário (que contêm glosas)
+  const arquivosConditions = [
+    eq(arquivos.userId, filters.userId),
+    eq(arquivos.direcao, "retornado"),
+    eq(arquivos.status, "processado"),
+  ];
+
+  if (filters.convenioId) {
+    arquivosConditions.push(eq(arquivos.convenioId, filters.convenioId));
+  }
+
+  if (filters.dataReferenciaInicio) {
+    arquivosConditions.push(gte(arquivos.dataReferencia, filters.dataReferenciaInicio));
+  }
+
+  if (filters.dataReferenciaFim) {
+    arquivosConditions.push(lte(arquivos.dataReferencia, filters.dataReferenciaFim));
+  }
+
+  const arquivosRetornados = await db
+    .select({
+      id: arquivos.id,
+      nome: arquivos.nome,
+      convenioId: arquivos.convenioId,
+      dataReferencia: arquivos.dataReferencia,
+    })
+    .from(arquivos)
+    .where(and(...arquivosConditions));
+
+  if (arquivosRetornados.length === 0) {
+    return { 
+      items: [], 
+      total: 0, 
+      resumo: { 
+        totalItens: 0, 
+        totalValorGlosado: 0, 
+        totalValorCobrado: 0,
+        percentualGlosa: 0,
+        porTipo: [], 
+        porMotivo: [] 
+      } 
+    };
+  }
+
+  // Buscar nomes dos convênios
+  const convenioIds = Array.from(new Set(arquivosRetornados.map(a => a.convenioId)));
+  const conveniosList = await db
+    .select()
+    .from(convenios)
+    .where(inArray(convenios.id, convenioIds));
+  
+  const convenioMap = new Map(conveniosList.map(c => [c.id, c.nome]));
+
+  // Buscar procedimentos dos arquivos retornados
+  const arquivoIds = arquivosRetornados.map(a => a.id);
+  const arquivoMap = new Map(arquivosRetornados.map(a => [a.id, a]));
+
+  const procConditions: any[] = [
+    inArray(procedimentos.arquivoId, arquivoIds),
+  ];
+
+  if (filters.search) {
+    procConditions.push(
+      or(
+        like(procedimentos.codigo, `%${filters.search}%`),
+        like(procedimentos.descricao, `%${filters.search}%`),
+        like(procedimentos.guiaNumero, `%${filters.search}%`),
+        like(procedimentos.pacienteNome, `%${filters.search}%`)
+      )
+    );
+  }
+
+  const allProcs = await db
+    .select()
+    .from(procedimentos)
+    .where(and(...procConditions))
+    .orderBy(desc(procedimentos.dataExecucao));
+
+  // Filtrar apenas itens com glosa
+  const itensGlosados: ItemGlosado[] = [];
+  const resumoPorTipo: { [key: string]: { quantidade: number; valorGlosado: number } } = {};
+  const resumoPorMotivo: { [key: string]: { quantidade: number; valorGlosado: number } } = {};
+  let totalValorGlosado = 0;
+  let totalValorCobrado = 0;
+
+  for (const proc of allProcs) {
+    const extras = proc.dadosExtras ? 
+      (typeof proc.dadosExtras === "string" ? JSON.parse(proc.dadosExtras) : proc.dadosExtras) : {};
+    
+    const valorGlosado = parseFloat(extras.valorGlosado || "0");
+    
+    // Só incluir itens com glosa
+    if (valorGlosado <= 0) continue;
+
+    const valorCobrado = parseFloat(proc.valorTotal || "0");
+    const valorPago = valorCobrado - valorGlosado;
+    const tipo = determinarTipoProcedimento(proc.codigo, proc.descricao || undefined);
+    
+    // Filtrar por tipo se especificado
+    if (filters.tipo && filters.tipo !== "todos" && tipo !== filters.tipo) continue;
+
+    const arquivo = arquivoMap.get(proc.arquivoId);
+    const convenioNome = convenioMap.get(arquivo?.convenioId || 0) || "Desconhecido";
+    const motivoGlosa = extras.motivoGlosa || extras.observacao || "Não informado";
+    const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1] || "";
+
+    itensGlosados.push({
+      id: proc.id,
+      codigo: proc.codigo,
+      descricao: proc.descricao || "",
+      tipo,
+      pacienteNome: proc.pacienteNome || extras.paciente || "",
+      pacienteCarteirinha: proc.pacienteCarteirinha || extras.carteirinha || "",
+      guiaNumero: proc.guiaNumero || extras.guia || "",
+      dataExecucao: proc.dataExecucao,
+      valorCobrado,
+      valorPago,
+      valorGlosado,
+      motivoGlosa,
+      codigoGlosa,
+      convenioId: arquivo?.convenioId || 0,
+      convenioNome,
+      arquivoId: proc.arquivoId,
+      arquivoNome: arquivo?.nome || "",
+      dataReferencia: arquivo?.dataReferencia || null,
+      nomeMedico: proc.nomeMedico || "",
+      crmMedico: proc.crmMedico || "",
+    });
+
+    // Acumular resumo
+    totalValorGlosado += valorGlosado;
+    totalValorCobrado += valorCobrado;
+
+    // Por tipo
+    if (!resumoPorTipo[tipo]) {
+      resumoPorTipo[tipo] = { quantidade: 0, valorGlosado: 0 };
+    }
+    resumoPorTipo[tipo].quantidade++;
+    resumoPorTipo[tipo].valorGlosado += valorGlosado;
+
+    // Por motivo
+    const motivoKey = codigoGlosa || motivoGlosa.substring(0, 50);
+    if (!resumoPorMotivo[motivoKey]) {
+      resumoPorMotivo[motivoKey] = { quantidade: 0, valorGlosado: 0 };
+    }
+    resumoPorMotivo[motivoKey].quantidade++;
+    resumoPorMotivo[motivoKey].valorGlosado += valorGlosado;
+  }
+
+  // Aplicar paginação
+  const total = itensGlosados.length;
+  const offset = (filters.page - 1) * filters.pageSize;
+  const paginatedItems = itensGlosados.slice(offset, offset + filters.pageSize);
+
+  // Montar resumo
+  const tipoLabels: { [key: string]: string } = {
+    exame: "Exames",
+    mat_med: "Mat/Med",
+    procedimento: "Procedimentos",
+    taxa: "Taxas",
+    diaria: "Diárias",
+    outros: "Outros",
+  };
+
+  const resumo: ResumoItensGlosados = {
+    totalItens: total,
+    totalValorGlosado,
+    totalValorCobrado,
+    percentualGlosa: totalValorCobrado > 0 ? (totalValorGlosado / totalValorCobrado) * 100 : 0,
+    porTipo: Object.entries(resumoPorTipo)
+      .map(([tipo, data]) => ({
+        tipo: tipoLabels[tipo] || tipo,
+        quantidade: data.quantidade,
+        valorGlosado: data.valorGlosado,
+      }))
+      .sort((a, b) => b.valorGlosado - a.valorGlosado),
+    porMotivo: Object.entries(resumoPorMotivo)
+      .map(([motivo, data]) => ({
+        motivo,
+        quantidade: data.quantidade,
+        valorGlosado: data.valorGlosado,
+      }))
+      .sort((a, b) => b.valorGlosado - a.valorGlosado)
+      .slice(0, 10), // Top 10 motivos
+  };
+
+  return { items: paginatedItems, total, resumo };
+}

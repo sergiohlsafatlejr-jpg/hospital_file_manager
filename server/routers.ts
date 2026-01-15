@@ -813,6 +813,32 @@ export const appRouter = router({
     resumo: protectedProcedure.query(async ({ ctx }) => {
       return db.getResumoGlosa(ctx.user.id);
     }),
+
+    // Itens glosados com filtros avançados
+    itensGlosados: protectedProcedure
+      .input(
+        z.object({
+          convenioId: z.number().optional(),
+          dataReferenciaInicio: z.date().optional(),
+          dataReferenciaFim: z.date().optional(),
+          tipo: z.string().optional(),
+          search: z.string().optional(),
+          page: z.number().default(1),
+          pageSize: z.number().default(50),
+        }).optional()
+      )
+      .query(async ({ input, ctx }) => {
+        return db.getItensGlosados({
+          userId: ctx.user.id,
+          convenioId: input?.convenioId,
+          dataReferenciaInicio: input?.dataReferenciaInicio,
+          dataReferenciaFim: input?.dataReferenciaFim,
+          tipo: input?.tipo,
+          search: input?.search,
+          page: input?.page || 1,
+          pageSize: input?.pageSize || 50,
+        });
+      }),
   }),
 
   // ============ RECURSOS DE GLOSA ============
