@@ -163,15 +163,36 @@ export default function AnaliseGlosa() {
           : Array.isArray(data.argumento) 
             ? data.argumento.map((c: any) => c.text || '').join('')
             : String(data.argumento);
-        setRecursoForm(prev => ({ ...prev, argumento: argumentoTexto }));
-        toast.success("Sugestão de argumento gerada com IA!");
+        
+        // Verificar se o argumento é válido (não vazio e não genérico)
+        const argumentoLimpo = argumentoTexto.trim();
+        if (argumentoLimpo.length < 20 || argumentoLimpo.toLowerCase().includes('não foi possível')) {
+          toast.warning(
+            "A IA não conseguiu gerar uma sugestão específica para este motivo de glosa. " +
+            "Isso pode ocorrer quando não há histórico de contestações similares ou o código de glosa não está no dicionário. " +
+            "Por favor, insira o argumento manualmente.",
+            { duration: 8000 }
+          );
+        } else {
+          setRecursoForm(prev => ({ ...prev, argumento: argumentoLimpo }));
+          toast.success("Sugestão de argumento gerada com IA!");
+        }
       } else {
-        toast.info("Não foi possível gerar sugestão. Tente inserir manualmente.");
+        toast.warning(
+          "A IA não conseguiu gerar uma sugestão para este item. " +
+          "Possíveis motivos: código de glosa desconhecido, sem histórico de contestações similares, ou dados insuficientes. " +
+          "Por favor, insira o argumento manualmente.",
+          { duration: 8000 }
+        );
       }
       setCarregandoSugestao(false);
     },
     onError: (error) => {
-      toast.error("Erro ao gerar sugestão: " + error.message);
+      toast.error(
+        "Erro ao gerar sugestão com IA: " + error.message + 
+        ". Por favor, tente novamente ou insira o argumento manualmente.",
+        { duration: 6000 }
+      );
       setCarregandoSugestao(false);
     },
   });
