@@ -3301,6 +3301,7 @@ export async function getItensGlosados(filters: {
   dataReferenciaInicio?: Date;
   dataReferenciaFim?: Date;
   tipo?: string;
+  codigoGlosa?: string;
   search?: string;
   page: number;
   pageSize: number;
@@ -3439,6 +3440,9 @@ export async function getItensGlosados(filters: {
     // Vivacom usa 'COD. GLOSA' em maiúsculas com espaço e ponto
     const motivoGlosa = extras.motivoGlosa || extras['Erro TISS'] || extras.cod_glosa || extras['COD. GLOSA'] || extras['Cod. Glosa'] || extras.observacao || "Não informado";
     const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1] || "";
+
+    // Filtrar por código de glosa se especificado
+    if (filters.codigoGlosa && filters.codigoGlosa !== "todos" && codigoGlosa !== filters.codigoGlosa) continue;
 
     itensGlosados.push({
       id: proc.id,

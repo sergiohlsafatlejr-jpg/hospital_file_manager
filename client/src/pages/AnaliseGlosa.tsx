@@ -97,6 +97,7 @@ export default function AnaliseGlosa() {
   // Filtros para itens glosados
   const [convenioItens, setConvenioItens] = useState<string>("todos");
   const [tipoFiltro, setTipoFiltro] = useState<string>("todos");
+  const [codigoGlosaFiltro, setCodigoGlosaFiltro] = useState<string>("todos");
   const [buscaItens, setBuscaItens] = useState("");
   const [dataReferenciaInicio, setDataReferenciaInicio] = useState<string>("");
   const [dataReferenciaFim, setDataReferenciaFim] = useState<string>("");
@@ -132,6 +133,7 @@ export default function AnaliseGlosa() {
     trpc.glosa.itensGlosados.useQuery({
       convenioId: convenioItens !== "todos" ? parseInt(convenioItens) : undefined,
       tipo: tipoFiltro !== "todos" ? tipoFiltro : undefined,
+      codigoGlosa: codigoGlosaFiltro !== "todos" ? codigoGlosaFiltro : undefined,
       search: buscaItens || undefined,
       dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
       dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
@@ -609,6 +611,27 @@ export default function AnaliseGlosa() {
                         <SelectItem value="taxa">Taxas</SelectItem>
                         <SelectItem value="diaria">Diárias</SelectItem>
                         <SelectItem value="outros">Outros</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Cód. Glosa</label>
+                    <Select value={codigoGlosaFiltro} onValueChange={(v) => { setCodigoGlosaFiltro(v); setPaginaAtual(1); }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos os códigos</SelectItem>
+                        {itensGlosados?.resumo?.porMotivo
+                          ?.filter(m => m.motivo.match(/^\d+$/))
+                          ?.sort((a, b) => b.quantidade - a.quantidade)
+                          ?.slice(0, 20)
+                          ?.map((motivo) => (
+                            <SelectItem key={motivo.motivo} value={motivo.motivo}>
+                              {motivo.motivo} ({motivo.quantidade})
+                            </SelectItem>
+                          ))
+                        }
                       </SelectContent>
                     </Select>
                   </div>
