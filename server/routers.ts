@@ -1161,6 +1161,7 @@ export const appRouter = router({
         z.object({
           itens: z.array(
             z.object({
+              procedimentoId: z.number().optional(), // ID do procedimento para marcar como "recurso criado"
               convenioId: z.number(),
               codigoProcedimento: z.string().optional(),
               descricaoProcedimento: z.string().optional(),
@@ -1176,11 +1177,21 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const resultados: { id: number; codigo: string }[] = [];
+        const resultados: { id: number; codigo: string; procedimentoId?: number }[] = [];
         const erros: { codigo: string; erro: string }[] = [];
+        const procedimentosParaAtualizar: number[] = [];
 
         for (const item of input.itens) {
           try {
+            // Verificar se já existe recurso para este procedimento
+            if (item.procedimentoId) {
+              const recursoExistente = await db.verificarRecursoExistente(item.procedimentoId);
+              if (recursoExistente) {
+                erros.push({ codigo: item.codigoProcedimento || "", erro: "Já existe recurso criado para este item" });
+                continue;
+              }
+            }
+
             const id = await db.createRecursoGlosa({
               ...item,
               justificativaRecurso: input.justificativaRecurso,
@@ -1188,10 +1199,21 @@ export const appRouter = router({
               userId: ctx.user.id,
               status: "rascunho",
             });
-            resultados.push({ id, codigo: item.codigoProcedimento || "" });
+            
+            resultados.push({ id, codigo: item.codigoProcedimento || "", procedimentoId: item.procedimentoId });
+            
+            // Marcar procedimento como "recurso criado"
+            if (item.procedimentoId) {
+              procedimentosParaAtualizar.push(item.procedimentoId);
+            }
           } catch (error: any) {
             erros.push({ codigo: item.codigoProcedimento || "", erro: error.message });
           }
+        }
+
+        // Atualizar status dos procedimentos em lote
+        if (procedimentosParaAtualizar.length > 0) {
+          await db.marcarProcedimentosComRecurso(procedimentosParaAtualizar);
         }
 
         return { 

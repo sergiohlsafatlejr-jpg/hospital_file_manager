@@ -1594,6 +1594,50 @@ export async function createRecursoGlosa(recurso: InsertRecursoGlosa) {
   return insertId;
 }
 
+// Verificar se já existe recurso criado para um procedimento
+export async function verificarRecursoExistente(procedimentoId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [procedimento] = await db
+    .select({ recursoStatus: procedimentos.recursoStatus })
+    .from(procedimentos)
+    .where(eq(procedimentos.id, procedimentoId))
+    .limit(1);
+
+  return procedimento?.recursoStatus !== "sem_recurso" && procedimento?.recursoStatus !== null;
+}
+
+// Marcar procedimentos como "recurso criado" em lote
+export async function marcarProcedimentosComRecurso(procedimentoIds: number[], recursoId?: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  if (procedimentoIds.length === 0) return;
+
+  await db
+    .update(procedimentos)
+    .set({ 
+      recursoStatus: "recurso_criado",
+      recursoId: recursoId || null
+    })
+    .where(inArray(procedimentos.id, procedimentoIds));
+}
+
+// Atualizar status de recurso nos procedimentos quando o recurso mudar de status
+export async function atualizarStatusRecursoProcedimentos(
+  recursoId: number, 
+  novoStatus: "recurso_enviado" | "recurso_deferido" | "recurso_indeferido"
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(procedimentos)
+    .set({ recursoStatus: novoStatus })
+    .where(eq(procedimentos.recursoId, recursoId));
+}
+
 export async function updateRecursoGlosa(
   id: number,
   userId: number,
@@ -3208,6 +3252,8 @@ export interface ItemGlosado {
   dataReferencia: Date | null;
   nomeMedico: string;
   crmMedico: string;
+  recursoStatus: "sem_recurso" | "recurso_criado" | "recurso_enviado" | "recurso_deferido" | "recurso_indeferido" | null;
+  recursoId: number | null;
 }
 
 export interface ResumoItensGlosados {
@@ -3465,6 +3511,8 @@ export async function getItensGlosados(filters: {
       dataReferencia: arquivo?.dataReferencia || null,
       nomeMedico: proc.nomeMedico || "",
       crmMedico: proc.crmMedico || "",
+      recursoStatus: proc.recursoStatus || "sem_recurso",
+      recursoId: proc.recursoId || null,
     });
 
     // Acumular resumo

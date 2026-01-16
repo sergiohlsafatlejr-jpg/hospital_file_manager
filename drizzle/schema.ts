@@ -95,6 +95,15 @@ export const procedimentos = mysqlTable("procedimentos", {
   nomeMedico: varchar("nomeMedico", { length: 255 }),
   crmMedico: varchar("crmMedico", { length: 50 }),
   dadosExtras: json("dadosExtras"),
+  // Status de recurso de glosa
+  recursoStatus: mysqlEnum("recursoStatus", [
+    "sem_recurso",      // Nenhum recurso criado
+    "recurso_criado",   // Recurso criado (rascunho ou pendente)
+    "recurso_enviado",  // Recurso enviado ao convênio
+    "recurso_deferido", // Recurso deferido
+    "recurso_indeferido" // Recurso indeferido
+  ]).default("sem_recurso"),
+  recursoId: int("recursoId"), // ID do recurso associado
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

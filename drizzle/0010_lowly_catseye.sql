@@ -1,0 +1,2 @@
+ALTER TABLE `procedimentos` ADD `recursoStatus` enum('sem_recurso','recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido') DEFAULT 'sem_recurso';--> statement-breakpoint
+ALTER TABLE `procedimentos` ADD `recursoId` int;

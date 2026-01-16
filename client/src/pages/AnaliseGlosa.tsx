@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Gavel, Search, CheckCircle2, Loader2, Sparkles, BookOpen } from "lucide-react";
+import { Gavel, Search, CheckCircle2, Loader2, Sparkles, BookOpen, FileText, Send, XCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { GLOSAS_TISS, GlosaInfo } from "../../../shared/glossaryGlosas";
 import {
@@ -210,12 +210,19 @@ export default function AnaliseGlosa() {
     setItensSelecionados(newSet);
   };
 
+  // Filtrar apenas itens sem recurso criado
+  const itensSemRecurso = useMemo(() => {
+    return itensGlosados?.items?.filter(i => !i.recursoStatus || i.recursoStatus === "sem_recurso") || [];
+  }, [itensGlosados?.items]);
+
   const selecionarTodos = () => {
     if (!itensGlosados?.items) return;
-    if (itensSelecionados.size === itensGlosados.items.length) {
+    // Selecionar apenas itens que ainda não têm recurso
+    const itensSelecionaveis = itensSemRecurso;
+    if (itensSelecionados.size === itensSelecionaveis.length && itensSelecionaveis.length > 0) {
       setItensSelecionados(new Set());
     } else {
-      setItensSelecionados(new Set(itensGlosados.items.map(i => i.id)));
+      setItensSelecionados(new Set(itensSelecionaveis.map(i => i.id)));
     }
   };
 
@@ -244,6 +251,7 @@ export default function AnaliseGlosa() {
     
     criarRecursoBatchMutation.mutate({
       itens: itens.map(item => ({
+        procedimentoId: item.id, // ID do procedimento para marcar como "recurso criado"
         convenioId: item.convenioId,
         codigoProcedimento: item.codigo,
         descricaoProcedimento: item.descricao || "",
@@ -847,6 +855,7 @@ export default function AnaliseGlosa() {
                             <TableHead className="text-right">Cobrado</TableHead>
                             <TableHead className="text-right">Glosa</TableHead>
                             <TableHead>Motivo</TableHead>
+                            <TableHead className="text-center">Recurso</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -861,6 +870,8 @@ export default function AnaliseGlosa() {
                                   <Checkbox
                                     checked={itensSelecionados.has(item.id)}
                                     onCheckedChange={() => toggleItemSelecionado(item.id)}
+                                    disabled={!!(item.recursoStatus && item.recursoStatus !== "sem_recurso")}
+                                    title={item.recursoStatus && item.recursoStatus !== "sem_recurso" ? "Já existe recurso para este item" : ""}
                                   />
                                 </TableCell>
                                 <TableCell>
@@ -914,6 +925,33 @@ export default function AnaliseGlosa() {
                                       </span>
                                     )}
                                   </div>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {item.recursoStatus === "sem_recurso" || !item.recursoStatus ? (
+                                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
+                                      Sem recurso
+                                    </Badge>
+                                  ) : item.recursoStatus === "recurso_criado" ? (
+                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
+                                      <FileText className="h-3 w-3 mr-1" />
+                                      Criado
+                                    </Badge>
+                                  ) : item.recursoStatus === "recurso_enviado" ? (
+                                    <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-600 border-yellow-200">
+                                      <Send className="h-3 w-3 mr-1" />
+                                      Enviado
+                                    </Badge>
+                                  ) : item.recursoStatus === "recurso_deferido" ? (
+                                    <Badge variant="outline" className="text-xs bg-green-50 text-green-600 border-green-200">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Deferido
+                                    </Badge>
+                                  ) : item.recursoStatus === "recurso_indeferido" ? (
+                                    <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-200">
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Indeferido
+                                    </Badge>
+                                  ) : null}
                                 </TableCell>
                               </TableRow>
                             );
