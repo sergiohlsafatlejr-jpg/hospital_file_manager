@@ -3409,7 +3409,15 @@ export async function getItensGlosados(filters: {
       (typeof proc.dadosExtras === "string" ? JSON.parse(proc.dadosExtras) : proc.dadosExtras) : {};
     
     // Verificar se é glosado: por valorGlosado > 0 OU por situacaoItem = GLOSADO/NEGADO
-    const valorGlosadoNum = parseFloat(extras.valorGlosado || extras.valor_glosa || "0");
+    // Vivacom usa 'VALOR GLOSA' e 'COD. GLOSA' em maiúsculas com espaço
+    const valorGlosadoNum = parseFloat(
+      proc.valorGlosado || 
+      extras.valorGlosado || 
+      extras.valor_glosa || 
+      extras['VALOR GLOSA'] || 
+      extras['Valor Glosa'] || 
+      "0"
+    );
     const situacaoItem = (extras.situacaoItem || extras['Situação Item'] || extras.situacao || '').toString().toUpperCase();
     const isGlosado = valorGlosadoNum > 0 || situacaoItem === 'GLOSADO' || situacaoItem === 'NEGADO' || situacaoItem.includes('GLOS');
     
@@ -3428,7 +3436,8 @@ export async function getItensGlosados(filters: {
     const arquivo = arquivoMap.get(proc.arquivoId);
     const convenioNome = convenioMap.get(arquivo?.convenioId || 0) || "Desconhecido";
     // Buscar motivo de glosa em vários campos possíveis
-    const motivoGlosa = extras.motivoGlosa || extras['Erro TISS'] || extras.cod_glosa || extras.observacao || "Não informado";
+    // Vivacom usa 'COD. GLOSA' em maiúsculas com espaço e ponto
+    const motivoGlosa = extras.motivoGlosa || extras['Erro TISS'] || extras.cod_glosa || extras['COD. GLOSA'] || extras['Cod. Glosa'] || extras.observacao || "Não informado";
     const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1] || "";
 
     itensGlosados.push({

@@ -1,0 +1,8 @@
+{
+  "query": "SELECT \n  p.id,\n  p.codigo,\n  p.descricao,\n  p.valorTotal,\n  p.valorPago,\n  p.valorGlosado,\n  p.motivoGlosa,\n  JSON_EXTRACT(p.dadosExtras, '$.situacaoItem') as situacaoItem,\n  JSON_EXTRACT(p.dadosExtras, '$.erroTiss') as erroTiss,\n  a.convenioId,\n  c.nome as convenioNome\nFROM procedimentos p\nJOIN arquivos a ON p.arquivoId = a.id\nJOIN convenios c ON a.convenioId = c.id\nWHERE c.nome LIKE '%Vivacom%'\nAND (p.valorGlosado > 0 OR JSON_EXTRACT(p.dadosExtras, '$.situacaoItem') = 'GLOSADO')\nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  p.id,\n  p.codigo,\n  p.descricao,\n  p.valorTotal,\n  p.valorPago,\n  p.valorGlosado,\n  p.motivoGlosa,\n  JSON_EXTRACT(p.dadosExtras, '$.situacaoItem') as situacaoItem,\n  JSON_EXTRACT(p.dadosExtras, '$.erroTiss') as erroTiss,\n  a.convenioId,\n  c.nome as convenioNome\nFROM procedimentos p\nJOIN arquivos a ON p.arquivoId = a.id\nJOIN convenios c ON a.convenioId = c.id\nWHERE c.nome LIKE '%Vivacom%'\nAND (p.valorGlosado > 0 OR JSON_EXTRACT(p.dadosExtras, '$.situacaoItem') = 'GLOSADO')\nLIMIT 20;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'p.valorpago' in 'field list'"
+  ]
+}
