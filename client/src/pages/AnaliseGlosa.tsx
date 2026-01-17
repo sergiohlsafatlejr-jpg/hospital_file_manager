@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -108,6 +108,10 @@ export default function AnaliseGlosa() {
   const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "", prioridade: "media" as "baixa" | "media" | "alta" | "urgente" });
   const [carregandoSugestao, setCarregandoSugestao] = useState(false);
   const [classificandoItem, setClassificandoItem] = useState<number | null>(null);
+  const [dialogAceite, setDialogAceite] = useState(false);
+  const [itemParaAceitar, setItemParaAceitar] = useState<number | null>(null);
+  const [motivoAceiteForm, setMotivoAceiteForm] = useState("");
+  const [paginaAceitos, setPaginaAceitos] = useState(1);
 
   // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
@@ -140,6 +144,17 @@ export default function AnaliseGlosa() {
       dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
       dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
       page: paginaAtual,
+      pageSize: 50,
+    });
+
+  // Buscar itens glosados aceitos (separados)
+  const { data: itensAceitos, isLoading: loadingAceitos, refetch: refetchAceitos } = 
+    trpc.glosa.itensGlosadosAceitos.useQuery({
+      convenioId: convenioItens !== "todos" ? parseInt(convenioItens) : undefined,
+      search: buscaItens || undefined,
+      dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
+      dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
+      page: paginaAceitos,
       pageSize: 50,
     });
 
@@ -206,13 +221,44 @@ export default function AnaliseGlosa() {
     onSuccess: () => {
       toast.success("Glosa classificada com sucesso!");
       setClassificandoItem(null);
+      setDialogAceite(false);
+      setItemParaAceitar(null);
+      setMotivoAceiteForm("");
       refetchItens();
+      refetchAceitos();
     },
     onError: (error) => {
       toast.error("Erro ao classificar glosa: " + error.message);
       setClassificandoItem(null);
     },
   });
+
+  // Função para abrir modal de aceite
+  const abrirModalAceite = (itemId: number) => {
+    setItemParaAceitar(itemId);
+    setMotivoAceiteForm("");
+    setDialogAceite(true);
+  };
+
+  // Função para confirmar aceite com motivo
+  const confirmarAceite = () => {
+    if (!itemParaAceitar) return;
+    setClassificandoItem(itemParaAceitar);
+    classificarGlosaMutation.mutate({
+      procedimentoId: itemParaAceitar,
+      classificacao: "aceitar",
+      motivoAceite: motivoAceiteForm || undefined,
+    });
+  };
+
+  // Função para desfazer aceite (voltar para pendente)
+  const desfazerAceite = (itemId: number) => {
+    setClassificandoItem(itemId);
+    classificarGlosaMutation.mutate({
+      procedimentoId: itemId,
+      classificacao: "recursar", // Volta para recursar para poder ser reavaliado
+    });
+  };
 
   // Buscar sugestão de classificação para o código de glosa selecionado
   const { data: sugestaoClassificacao } = trpc.recursos.sugerirClassificacao.useQuery(
@@ -1185,8 +1231,8 @@ export default function AnaliseGlosa() {
                                         size="sm"
                                         variant="ghost"
                                         className="h-7 w-7 p-0 text-green-600 hover:bg-green-100"
-                                        onClick={() => handleClassificarGlosa(item.id, "aceitar")}
-                                        title="Aceitar glosa (sem recurso)"
+                                        onClick={() => abrirModalAceite(item.id)}
+                                        title="Aceitar glosa (informar motivo)"
                                       >
                                         <ThumbsUp className="h-4 w-4" />
                                       </Button>
@@ -1263,98 +1309,137 @@ export default function AnaliseGlosa() {
                   </div>
                   <div className="flex gap-2">
                     <Badge variant="secondary" className="bg-green-100 text-green-800">
-                      {itensGlosados?.items?.filter(i => i.classificacaoGlosa === "aceitar").length || 0} itens aceitos
+                      {itensAceitos?.total || 0} itens aceitos
                     </Badge>
                     <Badge variant="secondary" className="bg-green-100 text-green-800">
-                      {formatCurrency(
-                        itensGlosados?.items
-                          ?.filter(i => i.classificacaoGlosa === "aceitar")
-                          .reduce((acc, i) => acc + (i.valorGlosado || 0), 0) || 0
-                      )} em glosas aceitas
+                      {formatCurrency(itensAceitos?.totalValorGlosado || 0)} em glosas aceitas
                     </Badge>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {itensGlosados?.items?.filter(i => i.classificacaoGlosa === "aceitar").length === 0 ? (
+                {loadingAceitos ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <Skeleton key={i} className="h-12 w-full" />
+                    ))}
+                  </div>
+                ) : (itensAceitos?.items?.length || 0) === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <ThumbsUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p>Nenhuma glosa aceita ainda</p>
                     <p className="text-sm mt-2">Clique em "Aceitar Glosa" nos itens da aba "Itens Glosados" para movê-los para cá</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Convênio</TableHead>
-                          <TableHead>Código</TableHead>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead>Guia</TableHead>
-                          <TableHead className="text-right">Valor Glosado</TableHead>
-                          <TableHead>Motivo</TableHead>
-                          <TableHead>Data Aceite</TableHead>
-                          <TableHead className="text-right">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {itensGlosados?.items
-                          ?.filter(i => i.classificacaoGlosa === "aceitar")
-                          .map((item) => {
-                            const glosaInfo = item.motivoGlosa ? GLOSAS_TISS[item.motivoGlosa] : null;
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Convênio</TableHead>
+                            <TableHead>Código</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead>Guia</TableHead>
+                            <TableHead className="text-right">Valor Glosado</TableHead>
+                            <TableHead>Motivo Glosa</TableHead>
+                            <TableHead>Motivo Aceite</TableHead>
+                            <TableHead>Data Aceite</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {itensAceitos?.items?.map((item) => {
+                            const glosaInfo = item.codigoGlosa ? GLOSAS_TISS[item.codigoGlosa] : null;
                             return (
                               <TableRow key={item.id}>
                                 <TableCell>
                                   <Badge variant="outline">{item.convenioNome}</Badge>
                                 </TableCell>
                                 <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
-                                <TableCell className="max-w-[200px] truncate">{item.descricao}</TableCell>
-                                <TableCell className="font-mono text-sm">{(item as any).guia || "-"}</TableCell>
+                                <TableCell className="max-w-[200px] truncate" title={item.descricao}>{item.descricao}</TableCell>
+                                <TableCell className="font-mono text-sm">{item.guiaNumero || "-"}</TableCell>
                                 <TableCell className="text-right font-medium text-red-600">
                                   {formatCurrency(item.valorGlosado || 0)}
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex flex-col gap-1">
                                     <Badge variant="secondary" className="w-fit">
-                                      {item.motivoGlosa || "N/A"}
+                                      {item.codigoGlosa || "N/A"}
                                     </Badge>
                                     {glosaInfo && (
-                                      <span className="text-xs text-muted-foreground truncate max-w-[150px]">
+                                      <span className="text-xs text-muted-foreground truncate max-w-[150px]" title={glosaInfo.descricao}>
                                         {glosaInfo.descricao}
                                       </span>
                                     )}
                                   </div>
                                 </TableCell>
+                                <TableCell>
+                                  {item.motivoAceite ? (
+                                    <span className="text-sm text-muted-foreground max-w-[200px] truncate block" title={item.motivoAceite}>
+                                      {item.motivoAceite}
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground italic">Não informado</span>
+                                  )}
+                                </TableCell>
                                 <TableCell className="text-sm text-muted-foreground">
-                                  {(item as any).dataClassificacao ? new Date((item as any).dataClassificacao).toLocaleDateString("pt-BR") : "-"}
+                                  {item.dataAceite ? new Date(item.dataAceite).toLocaleDateString("pt-BR") : "-"}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      classificarGlosaMutation.mutate({
-                                        procedimentoId: item.id,
-                                        classificacao: null as any,
-                                      });
-                                    }}
+                                    onClick={() => desfazerAceite(item.id)}
+                                    disabled={classificandoItem === item.id}
                                     title="Desfazer aceite e voltar para análise"
                                   >
-                                    <XCircle className="h-4 w-4 text-orange-500" />
+                                    {classificandoItem === item.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <XCircle className="h-4 w-4 text-orange-500" />
+                                    )}
                                   </Button>
                                 </TableCell>
                               </TableRow>
                             );
                           })}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Paginação */}
+                    {(itensAceitos?.total || 0) > 50 && (
+                      <div className="flex items-center justify-between mt-4">
+                        <p className="text-sm text-muted-foreground">
+                          Mostrando {((paginaAceitos - 1) * 50) + 1} a {Math.min(paginaAceitos * 50, itensAceitos?.total || 0)} de {itensAceitos?.total || 0} itens
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaginaAceitos(p => Math.max(1, p - 1))}
+                            disabled={paginaAceitos === 1}
+                          >
+                            Anterior
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaginaAceitos(p => p + 1)}
+                            disabled={paginaAceitos * 50 >= (itensAceitos?.total || 0)}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
 
             {/* Resumo por Motivo de Glosa Aceita */}
-            {(itensGlosados?.items?.filter(i => i.classificacaoGlosa === "aceitar").length || 0) > 0 && (
+            {(itensAceitos?.items?.length || 0) > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1368,10 +1453,9 @@ export default function AnaliseGlosa() {
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {Object.entries(
-                      (itensGlosados?.items || [])
-                        .filter(i => i.classificacaoGlosa === "aceitar")
+                      (itensAceitos?.items || [])
                         .reduce((acc: Record<string, { count: number; valor: number }>, item) => {
-                          const motivo = item.motivoGlosa || "Sem motivo";
+                          const motivo = item.codigoGlosa || "Sem motivo";
                           if (!acc[motivo]) {
                             acc[motivo] = { count: 0, valor: 0 };
                           }
@@ -1823,6 +1907,52 @@ export default function AnaliseGlosa() {
                   <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</>
                 ) : (
                   <>Criar {itensSelecionados.size} Recurso(s)</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para aceitar glosa com motivo */}
+        <Dialog open={dialogAceite} onOpenChange={setDialogAceite}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ThumbsUp className="h-5 w-5 text-green-500" />
+                Aceitar Glosa
+              </DialogTitle>
+              <DialogDescription>
+                Informe o motivo pelo qual esta glosa está sendo aceita (sem recurso).
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="motivoAceite">Motivo do Aceite</Label>
+                <Textarea
+                  id="motivoAceite"
+                  placeholder="Ex: Valor cobrado incorretamente, erro de faturamento, procedimento não realizado..."
+                  value={motivoAceiteForm}
+                  onChange={(e) => setMotivoAceiteForm(e.target.value)}
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Este motivo será registrado para análise futura e aprendizado do sistema.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogAceite(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={confirmarAceite}
+                disabled={classificarGlosaMutation.isPending}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {classificarGlosaMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Salvando...</>
+                ) : (
+                  <>Confirmar Aceite</>
                 )}
               </Button>
             </DialogFooter>

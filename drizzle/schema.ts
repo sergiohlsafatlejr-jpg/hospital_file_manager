@@ -114,6 +114,8 @@ export const procedimentos = mysqlTable("procedimentos", {
   ]).default("pendente"),
   classificacaoConfianca: int("classificacaoConfianca"), // Percentual de confiança (0-100) para classificações automáticas
   classificacaoMotivo: text("classificacaoMotivo"), // Motivo da classificação (manual ou automática)
+  motivoAceite: text("motivoAceite"), // Motivo informado pelo funcionário ao aceitar a glosa
+  dataAceite: timestamp("dataAceite"), // Data em que a glosa foi aceita
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

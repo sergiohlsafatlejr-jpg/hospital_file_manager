@@ -3629,18 +3629,31 @@ export async function atualizarClassificacaoProcedimento(
   procedimentoId: number,
   classificacao: "pendente" | "aceitar" | "recursar" | "auto_aceitar" | "auto_recursar",
   confianca?: number,
-  motivo?: string
+  motivo?: string,
+  motivoAceite?: string
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
 
   try {
+    const updateData: any = {
+      classificacaoGlosa: classificacao,
+      classificacaoConfianca: confianca || null,
+      classificacaoMotivo: motivo || null,
+    };
+    
+    // Se for aceitar, registrar o motivo do aceite e a data
+    if (classificacao === "aceitar" || classificacao === "auto_aceitar") {
+      updateData.motivoAceite = motivoAceite || null;
+      updateData.dataAceite = new Date();
+    } else {
+      // Se mudar de aceitar para outro status, limpar os campos
+      updateData.motivoAceite = null;
+      updateData.dataAceite = null;
+    }
+    
     await db.update(procedimentos)
-      .set({
-        classificacaoGlosa: classificacao,
-        classificacaoConfianca: confianca || null,
-        classificacaoMotivo: motivo || null,
-      })
+      .set(updateData)
       .where(eq(procedimentos.id, procedimentoId));
     return true;
   } catch (error) {
@@ -4230,4 +4243,171 @@ export async function contarItensTabelaPreco(convenioId: number) {
     console.error("[Database] Erro ao contar itens da tabela de preço:", error);
     return { diarias: 0, mat_med: 0, taxas: 0, procedimentos: 0 };
   }
+}
+
+
+// ============ ITENS GLOSADOS ACEITOS ============
+
+interface ItemGlosadoAceito {
+  id: number;
+  codigo: string;
+  descricao: string;
+  tipo: string;
+  pacienteNome: string;
+  pacienteCarteirinha: string;
+  guiaNumero: string;
+  dataExecucao: Date | null;
+  valorCobrado: number;
+  valorGlosado: number;
+  motivoGlosa: string;
+  codigoGlosa: string;
+  convenioId: number;
+  convenioNome: string;
+  arquivoId: number;
+  arquivoNome: string;
+  dataReferencia: Date | null;
+  motivoAceite: string | null;
+  dataAceite: Date | null;
+}
+
+/**
+ * Busca itens glosados que foram aceitos (classificacaoGlosa = 'aceitar')
+ */
+export async function getItensGlosadosAceitos(filters: {
+  userId: number;
+  convenioId?: number;
+  dataReferenciaInicio?: Date;
+  dataReferenciaFim?: Date;
+  search?: string;
+  page: number;
+  pageSize: number;
+}): Promise<{ items: ItemGlosadoAceito[]; total: number; totalValorGlosado: number }> {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0, totalValorGlosado: 0 };
+
+  // Buscar arquivos retornados do usuário
+  const arquivosConditions = [
+    eq(arquivos.userId, filters.userId),
+    eq(arquivos.direcao, "retornado"),
+    eq(arquivos.status, "processado"),
+  ];
+
+  if (filters.convenioId) {
+    arquivosConditions.push(eq(arquivos.convenioId, filters.convenioId));
+  }
+
+  if (filters.dataReferenciaInicio) {
+    arquivosConditions.push(gte(arquivos.dataReferencia, filters.dataReferenciaInicio));
+  }
+
+  if (filters.dataReferenciaFim) {
+    arquivosConditions.push(lte(arquivos.dataReferencia, filters.dataReferenciaFim));
+  }
+
+  const arquivosRetornados = await db
+    .select({
+      id: arquivos.id,
+      nome: arquivos.nome,
+      convenioId: arquivos.convenioId,
+      dataReferencia: arquivos.dataReferencia,
+    })
+    .from(arquivos)
+    .where(and(...arquivosConditions));
+
+  if (arquivosRetornados.length === 0) {
+    return { items: [], total: 0, totalValorGlosado: 0 };
+  }
+
+  // Buscar nomes dos convênios
+  const convenioIds = Array.from(new Set(arquivosRetornados.map(a => a.convenioId)));
+  const conveniosList = await db
+    .select()
+    .from(convenios)
+    .where(inArray(convenios.id, convenioIds));
+  
+  const convenioMap = new Map(conveniosList.map(c => [c.id, c.nome]));
+
+  // Buscar procedimentos aceitos dos arquivos retornados
+  const arquivoIds = arquivosRetornados.map(a => a.id);
+  const arquivoMap = new Map(arquivosRetornados.map(a => [a.id, a]));
+
+  const procConditions: any[] = [
+    inArray(procedimentos.arquivoId, arquivoIds),
+    eq(procedimentos.classificacaoGlosa, "aceitar"),
+  ];
+
+  if (filters.search) {
+    procConditions.push(
+      or(
+        like(procedimentos.codigo, `%${filters.search}%`),
+        like(procedimentos.descricao, `%${filters.search}%`),
+        like(procedimentos.guiaNumero, `%${filters.search}%`),
+        like(procedimentos.pacienteNome, `%${filters.search}%`)
+      )
+    );
+  }
+
+  const allProcs = await db
+    .select()
+    .from(procedimentos)
+    .where(and(...procConditions))
+    .orderBy(desc(procedimentos.dataAceite), desc(procedimentos.dataExecucao));
+
+  // Processar itens aceitos
+  const itensAceitos: ItemGlosadoAceito[] = [];
+  let totalValorGlosado = 0;
+
+  for (const proc of allProcs) {
+    const extras = proc.dadosExtras ? 
+      (typeof proc.dadosExtras === "string" ? JSON.parse(proc.dadosExtras) : proc.dadosExtras) : {};
+    
+    const valorGlosadoNum = parseFloat(
+      proc.valorGlosado || 
+      extras.valorGlosado || 
+      extras.valor_glosa || 
+      extras['VALOR GLOSA'] || 
+      extras['Valor Glosa'] || 
+      "0"
+    );
+    
+    const valorCobrado = parseFloat(proc.valorTotal || "0");
+    const valorGlosado = valorGlosadoNum > 0 ? valorGlosadoNum : valorCobrado;
+    const tipo = determinarTipoProcedimento(proc.codigo, proc.descricao || undefined);
+    
+    const arquivo = arquivoMap.get(proc.arquivoId);
+    const convenioNome = convenioMap.get(arquivo?.convenioId || 0) || "Desconhecido";
+    const motivoGlosa = extras.motivoGlosa || extras['Erro TISS'] || extras.cod_glosa || extras['COD. GLOSA'] || extras['Cod. Glosa'] || extras.observacao || "Não informado";
+    const codigoGlosa = motivoGlosa.match(/^(\d+)/)?.[1] || "";
+
+    itensAceitos.push({
+      id: proc.id,
+      codigo: proc.codigo,
+      descricao: proc.descricao || "",
+      tipo,
+      pacienteNome: proc.pacienteNome || extras.paciente || "",
+      pacienteCarteirinha: proc.pacienteCarteirinha || extras.carteirinha || "",
+      guiaNumero: proc.guiaNumero || extras.guia || "",
+      dataExecucao: proc.dataExecucao,
+      valorCobrado,
+      valorGlosado,
+      motivoGlosa,
+      codigoGlosa,
+      convenioId: arquivo?.convenioId || 0,
+      convenioNome,
+      arquivoId: proc.arquivoId,
+      arquivoNome: arquivo?.nome || "",
+      dataReferencia: arquivo?.dataReferencia || null,
+      motivoAceite: proc.motivoAceite || null,
+      dataAceite: proc.dataAceite || null,
+    });
+
+    totalValorGlosado += valorGlosado;
+  }
+
+  // Aplicar paginação
+  const total = itensAceitos.length;
+  const offset = (filters.page - 1) * filters.pageSize;
+  const paginatedItems = itensAceitos.slice(offset, offset + filters.pageSize);
+
+  return { items: paginatedItems, total, totalValorGlosado };
 }

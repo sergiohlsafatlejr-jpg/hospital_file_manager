@@ -864,6 +864,30 @@ export const appRouter = router({
           pageSize: input?.pageSize || 50,
         });
       }),
+
+    // Itens glosados aceitos (separados)
+    itensGlosadosAceitos: protectedProcedure
+      .input(
+        z.object({
+          convenioId: z.number().optional(),
+          dataReferenciaInicio: z.date().optional(),
+          dataReferenciaFim: z.date().optional(),
+          search: z.string().optional(),
+          page: z.number().default(1),
+          pageSize: z.number().default(50),
+        }).optional()
+      )
+      .query(async ({ input, ctx }) => {
+        return db.getItensGlosadosAceitos({
+          userId: ctx.user.id,
+          convenioId: input?.convenioId,
+          dataReferenciaInicio: input?.dataReferenciaInicio,
+          dataReferenciaFim: input?.dataReferenciaFim,
+          search: input?.search,
+          page: input?.page || 1,
+          pageSize: input?.pageSize || 50,
+        });
+      }),
   }),
 
   // ============ RECURSOS DE GLOSA ============
@@ -1241,6 +1265,7 @@ export const appRouter = router({
           procedimentoId: z.number(),
           classificacao: z.enum(["aceitar", "recursar"]),
           motivo: z.string().optional(),
+          motivoAceite: z.string().optional(), // Motivo informado pelo funcionário ao aceitar
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -1273,12 +1298,13 @@ export const appRouter = router({
           userId: ctx.user.id,
         });
 
-        // Atualizar classificação do procedimento
+        // Atualizar classificação do procedimento (incluindo motivoAceite se for aceitar)
         await db.atualizarClassificacaoProcedimento(
           input.procedimentoId,
           input.classificacao,
           100,
-          input.motivo || "Classificado manualmente pelo usuário"
+          input.motivo || "Classificado manualmente pelo usuário",
+          input.classificacao === "aceitar" ? input.motivoAceite : undefined
         );
 
         return { success: true };

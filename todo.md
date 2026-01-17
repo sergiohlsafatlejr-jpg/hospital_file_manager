@@ -151,3 +151,6 @@
 - [x] Remover itens aceitos da aba Itens Glosados (mostrar apenas na aba Glosas Aceitas)
 - [x] Implementar comparação de valores cobrados vs tabela de preços na aba Comparações
 - [x] Alertar automaticamente quando valor cobrado for diferente do valor da tabela vigente
+
+- [x] Corrigir aba de Glosas Aceitas para exibir itens aceitos corretamente
+- [x] Adicionar campo para funcionário inserir motivo do aceite da glosa
