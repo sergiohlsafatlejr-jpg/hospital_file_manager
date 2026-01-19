@@ -828,9 +828,12 @@ export const appRouter = router({
   // ============ ANÁLISE DE GLOSA ============
   glosa: router({
     porConvenio: protectedProcedure
-      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .input(z.object({ 
+        convenioId: z.number().optional(),
+        estabelecimentoId: z.number().optional() 
+      }).optional())
       .query(async ({ ctx, input }) => {
-        return db.getGlosaPorConvenio(ctx.user.id, input?.estabelecimentoId);
+        return db.getGlosaPorConvenio(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
       }),
 
     porProcedimento: protectedProcedure
@@ -868,9 +871,12 @@ export const appRouter = router({
       }),
 
     resumo: protectedProcedure
-      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .input(z.object({ 
+        convenioId: z.number().optional(),
+        estabelecimentoId: z.number().optional() 
+      }).optional())
       .query(async ({ ctx, input }) => {
-        return db.getResumoGlosa(ctx.user.id, input?.estabelecimentoId);
+        return db.getResumoGlosa(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
       }),
 
     // Itens glosados com filtros avançados

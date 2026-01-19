@@ -1317,7 +1317,7 @@ const CATEGORIAS_GLOSA_LABELS: { [key: string]: string } = {
   outros: "Outros",
 };
 
-export async function getGlosaPorConvenio(userId?: number, estabelecimentoId?: number): Promise<GlosaPorConvenio[]> {
+export async function getGlosaPorConvenio(userId?: number, estabelecimentoId?: number, convenioId?: number): Promise<GlosaPorConvenio[]> {
   const db = await getDb();
   if (!db) return [];
 
@@ -1325,6 +1325,9 @@ export async function getGlosaPorConvenio(userId?: number, estabelecimentoId?: n
   const convConditions: any[] = [eq(convenios.ativo, "sim")];
   if (estabelecimentoId) {
     convConditions.push(eq(convenios.estabelecimentoId, estabelecimentoId));
+  }
+  if (convenioId) {
+    convConditions.push(eq(convenios.id, convenioId));
   }
   const convList = await db.select().from(convenios).where(and(...convConditions));
   const resultado: GlosaPorConvenio[] = [];
@@ -1580,7 +1583,7 @@ export async function getTendenciaGlosa(
   return resultado.reverse();
 }
 
-export async function getResumoGlosa(userId?: number, estabelecimentoId?: number) {
+export async function getResumoGlosa(userId?: number, estabelecimentoId?: number, convenioId?: number) {
   const db = await getDb();
   if (!db) return null;
 
@@ -1591,6 +1594,9 @@ export async function getResumoGlosa(userId?: number, estabelecimentoId?: number
   }
   if (estabelecimentoId) {
     compConditions.push(eq(comparacoes.estabelecimentoId, estabelecimentoId));
+  }
+  if (convenioId) {
+    compConditions.push(eq(comparacoes.convenioId, convenioId));
   }
 
   const comps = await db

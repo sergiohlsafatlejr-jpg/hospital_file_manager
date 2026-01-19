@@ -121,6 +121,7 @@ export default function AnaliseGlosa() {
   // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
     trpc.glosa.porConvenio.useQuery({
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
     });
   
@@ -140,6 +141,7 @@ export default function AnaliseGlosa() {
 
   const { data: resumoGlosa, isLoading: loadingResumo } = 
     trpc.glosa.resumo.useQuery({
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
     });
 
