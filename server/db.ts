@@ -945,18 +945,22 @@ export interface FaturamentoPorMes {
   totalGlosado: number;
 }
 
-export async function getFaturamentoPorConvenio(userId?: number): Promise<FaturamentoConvenio[]> {
+export async function getFaturamentoPorConvenio(userId?: number, estabelecimentoId?: number): Promise<FaturamentoConvenio[]> {
   const db = await getDb();
   if (!db) return [];
 
-  // Buscar todos os convênios
-  const convList = await db.select().from(convenios).where(eq(convenios.ativo, "sim"));
+  // Buscar todos os convênios (filtrados por estabelecimento se especificado)
+  const convConditions = [eq(convenios.ativo, "sim")];
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    convConditions.push(eq(convenios.estabelecimentoId, estabelecimentoId));
+  }
+  const convList = await db.select().from(convenios).where(and(...convConditions));
   
   const resultado: FaturamentoConvenio[] = [];
 
   for (const conv of convList) {
     // Buscar arquivos ENVIADOS do convênio (XMLs enviados para o convênio)
-    const conditionsEnviados = [
+    const conditionsEnviados: any[] = [
       eq(arquivos.convenioId, conv.id),
       eq(arquivos.direcao, "enviado"),
       eq(arquivos.status, "processado"),
@@ -965,6 +969,9 @@ export async function getFaturamentoPorConvenio(userId?: number): Promise<Fatura
     if (userId) {
       conditionsEnviados.push(eq(arquivos.userId, userId));
     }
+    if (estabelecimentoId && estabelecimentoId > 0) {
+      conditionsEnviados.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
+    }
 
     const arquivosEnviados = await db
       .select()
@@ -972,7 +979,7 @@ export async function getFaturamentoPorConvenio(userId?: number): Promise<Fatura
       .where(and(...conditionsEnviados));
 
     // Buscar arquivos RETORNADOS do convênio (demonstrativos recebidos)
-    const conditionsRetornados = [
+    const conditionsRetornados: any[] = [
       eq(arquivos.convenioId, conv.id),
       eq(arquivos.direcao, "retornado"),
       eq(arquivos.status, "processado"),
@@ -980,6 +987,9 @@ export async function getFaturamentoPorConvenio(userId?: number): Promise<Fatura
     
     if (userId) {
       conditionsRetornados.push(eq(arquivos.userId, userId));
+    }
+    if (estabelecimentoId && estabelecimentoId > 0) {
+      conditionsRetornados.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
     }
 
     const arquivosRetornados = await db
@@ -1051,7 +1061,8 @@ export async function getFaturamentoPorConvenio(userId?: number): Promise<Fatura
 export async function getFaturamentoPorMes(
   userId?: number,
   convenioId?: number,
-  meses: number = 12
+  meses: number = 12,
+  estabelecimentoId?: number
 ): Promise<FaturamentoPorMes[]> {
   const db = await getDb();
   if (!db) return [];
@@ -1079,6 +1090,9 @@ export async function getFaturamentoPorMes(
     }
     if (convenioId) {
       conditions.push(eq(arquivos.convenioId, convenioId));
+    }
+    if (estabelecimentoId && estabelecimentoId > 0) {
+      conditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
     }
 
     const arquivosMes = await db
@@ -1110,6 +1124,9 @@ export async function getFaturamentoPorMes(
     if (convenioId) {
       compConditions.push(eq(comparacoes.convenioId, convenioId));
     }
+    if (estabelecimentoId && estabelecimentoId > 0) {
+      compConditions.push(eq(comparacoes.estabelecimentoId, estabelecimentoId));
+    }
 
     const compsMes = await db
       .select()
@@ -1138,7 +1155,7 @@ export async function getFaturamentoPorMes(
   return resultado.reverse();
 }
 
-export async function getResumoGeral(userId?: number) {
+export async function getResumoGeral(userId?: number, estabelecimentoId?: number) {
   const db = await getDb();
   if (!db) return null;
 
@@ -1147,6 +1164,9 @@ export async function getResumoGeral(userId?: number) {
   if (userId) {
     arquivosConditions.push(eq(arquivos.userId, userId));
   }
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    arquivosConditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
+  }
 
   const totalArquivos = await db
     .select({ count: sql<number>`count(*)` })
@@ -1154,9 +1174,13 @@ export async function getResumoGeral(userId?: number) {
     .where(arquivosConditions.length > 0 ? and(...arquivosConditions) : undefined);
 
   // Total de procedimentos ENVIADOS (XMLs)
-  const arquivosEnviadosConditions = userId 
-    ? [eq(arquivos.userId, userId), eq(arquivos.direcao, "enviado"), eq(arquivos.status, "processado")]
-    : [eq(arquivos.direcao, "enviado"), eq(arquivos.status, "processado")];
+  const arquivosEnviadosConditions: any[] = [eq(arquivos.direcao, "enviado"), eq(arquivos.status, "processado")];
+  if (userId) {
+    arquivosEnviadosConditions.push(eq(arquivos.userId, userId));
+  }
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    arquivosEnviadosConditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
+  }
 
   const arquivosEnviados = await db
     .select({ id: arquivos.id })
@@ -1181,9 +1205,13 @@ export async function getResumoGeral(userId?: number) {
   }
 
   // Total de procedimentos RETORNADOS (Excel)
-  const arquivosRetornadosConditions = userId 
-    ? [eq(arquivos.userId, userId), eq(arquivos.direcao, "retornado"), eq(arquivos.status, "processado")]
-    : [eq(arquivos.direcao, "retornado"), eq(arquivos.status, "processado")];
+  const arquivosRetornadosConditions: any[] = [eq(arquivos.direcao, "retornado"), eq(arquivos.status, "processado")];
+  if (userId) {
+    arquivosRetornadosConditions.push(eq(arquivos.userId, userId));
+  }
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    arquivosRetornadosConditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
+  }
 
   const arquivosRetornados = await db
     .select({ id: arquivos.id })
@@ -1211,6 +1239,9 @@ export async function getResumoGeral(userId?: number) {
   const compConditions: any[] = [];
   if (userId) {
     compConditions.push(eq(comparacoes.userId, userId));
+  }
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    compConditions.push(eq(comparacoes.estabelecimentoId, estabelecimentoId));
   }
 
   const compStats = await db

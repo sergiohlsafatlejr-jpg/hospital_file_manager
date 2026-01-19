@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -50,6 +51,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Arquivos() {
   const [, setLocation] = useLocation();
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined;
   const [busca, setBusca] = useState("");
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroDirecao, setFiltroDirecao] = useState<string>("todos");
@@ -68,6 +71,7 @@ export default function Arquivos() {
     direcao: filtroDirecao !== "todos" ? filtroDirecao as "enviado" | "retornado" : undefined,
     status: filtroStatus !== "todos" ? filtroStatus as "pendente" | "processado" | "erro" : undefined,
     convenioId: filtroConvenio !== "todos" ? parseInt(filtroConvenio) : undefined,
+    estabelecimentoId,
   }, {
     // Poll every 2 seconds if there are files being processed
     refetchInterval: (query) => {

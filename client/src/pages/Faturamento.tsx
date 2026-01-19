@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,21 +45,24 @@ const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"
 
 export default function Faturamento() {
   const { user } = useAuth();
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined;
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
   const [periodoMeses, setPeriodoMeses] = useState<string>("12");
 
   // Buscar dados
   const { data: faturamentoConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
-    trpc.faturamento.porConvenio.useQuery();
+    trpc.faturamento.porConvenio.useQuery({ estabelecimentoId });
   
   const { data: faturamentoMes, isLoading: loadingMes, refetch: refetchMes } = 
     trpc.faturamento.porMes.useQuery({
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       meses: parseInt(periodoMeses),
+      estabelecimentoId,
     });
 
   const { data: resumoGeral, isLoading: loadingResumo } = 
-    trpc.faturamento.resumoGeral.useQuery();
+    trpc.faturamento.resumoGeral.useQuery({ estabelecimentoId });
 
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
 

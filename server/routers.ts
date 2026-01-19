@@ -205,6 +205,7 @@ export const appRouter = router({
             dataInicio: z.string().optional(),
             dataFim: z.string().optional(),
             busca: z.string().optional(),
+            estabelecimentoId: z.number().optional(),
           })
           .optional()
       )
@@ -212,6 +213,7 @@ export const appRouter = router({
         return db.getArquivos({
           ...input,
           userId: ctx.user.id,
+          estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
@@ -436,6 +438,7 @@ export const appRouter = router({
             status: z.enum(["pendente", "concluida", "erro"]).optional(),
             dataInicio: z.string().optional(),
             dataFim: z.string().optional(),
+            estabelecimentoId: z.number().optional(),
           })
           .optional()
       )
@@ -443,6 +446,7 @@ export const appRouter = router({
         return db.getComparacoes({
           ...input,
           userId: ctx.user.id,
+          estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
@@ -791,28 +795,34 @@ export const appRouter = router({
 
   // ============ FATURAMENTO ============
   faturamento: router({
-    porConvenio: protectedProcedure.query(async ({ ctx }) => {
-      return db.getFaturamentoPorConvenio(ctx.user.id);
-    }),
+    porConvenio: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        return db.getFaturamentoPorConvenio(ctx.user.id, input?.estabelecimentoId);
+      }),
 
     porMes: protectedProcedure
       .input(
         z.object({
           convenioId: z.number().optional(),
           meses: z.number().default(12),
+          estabelecimentoId: z.number().optional(),
         }).optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getFaturamentoPorMes(
           ctx.user.id,
           input?.convenioId,
-          input?.meses || 12
+          input?.meses || 12,
+          input?.estabelecimentoId
         );
       }),
 
-    resumoGeral: protectedProcedure.query(async ({ ctx }) => {
-      return db.getResumoGeral(ctx.user.id);
-    }),
+    resumoGeral: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        return db.getResumoGeral(ctx.user.id, input?.estabelecimentoId);
+      }),
   }),
 
   // ============ ANÁLISE DE GLOSA ============

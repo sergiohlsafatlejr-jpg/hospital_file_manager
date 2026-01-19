@@ -368,6 +368,19 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+            {estabelecimentoAtual && estabelecimentoAtual.id > 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-primary/5 px-3 py-1 rounded-full">
+                <Building2 className="h-3.5 w-3.5 text-primary" />
+                <span className="truncate max-w-[150px] font-medium text-primary">{estabelecimentoAtual.nome}</span>
+              </div>
+            )}
+          </div>
+        )}
+        {!isMobile && estabelecimentoAtual && estabelecimentoAtual.id > 0 && (
+          <div className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b">
+            <Building2 className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Visualizando:</span>
+            <span className="text-sm font-semibold text-slate-700">{estabelecimentoAtual.nome}</span>
           </div>
         )}
         <main className="flex-1 p-6">{children}</main>

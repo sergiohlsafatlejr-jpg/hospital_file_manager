@@ -1,5 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
@@ -49,6 +50,8 @@ import { Input } from "@/components/ui/input";
 
 export default function Comparacoes() {
   const [, setLocation] = useLocation();
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [arquivoEnviadoId, setArquivoEnviadoId] = useState<string>("");
   const [arquivoRetornadoId, setArquivoRetornadoId] = useState<string>("");
@@ -118,21 +121,25 @@ export default function Comparacoes() {
   const { data: comparacoes, isLoading, refetch } = trpc.comparacoes.list.useQuery({
     convenioId: filtroConvenio !== "todos" ? parseInt(filtroConvenio) : undefined,
     status: filtroStatus !== "todos" ? filtroStatus as "pendente" | "concluida" | "erro" : undefined,
+    estabelecimentoId,
   });
 
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
   const { data: arquivosEnviados } = trpc.arquivos.list.useQuery({ 
     direcao: "enviado", 
-    status: "processado" 
+    status: "processado",
+    estabelecimentoId,
   });
   const { data: arquivosRetornados } = trpc.arquivos.list.useQuery({ 
     direcao: "retornado", 
-    status: "processado" 
+    status: "processado",
+    estabelecimentoId,
   });
   
   // Lista de arquivos XML processados para validação
   const { data: arquivosXml } = trpc.arquivos.list.useQuery({ 
-    status: "processado" 
+    status: "processado",
+    estabelecimentoId,
   });
 
   const criarComparacaoMutation = trpc.comparacoes.criar.useMutation();

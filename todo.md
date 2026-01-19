@@ -198,3 +198,7 @@
 - [x] Criar dashboard de produtividade com métricas de itens classificados por dia/usuário
 
 - [x] Corrigir bug: troca de estabelecimento no menu lateral não atualiza os dados das telas
+
+- [x] Aplicar filtro de estabelecimento nas telas de Arquivos, Comparações e Faturamento
+- [x] Adicionar indicador visual do estabelecimento selecionado no header do Dashboard
+- [x] Persistir seleção de estabelecimento no localStorage para manter escolha ao recarregar
