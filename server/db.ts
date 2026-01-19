@@ -5465,6 +5465,58 @@ export async function upsertPermissaoEstabelecimento(data: InsertPermissaoEstabe
 }
 
 /**
+ * Cria permissão de um usuário para um estabelecimento
+ */
+export async function criarPermissaoEstabelecimento(data: {
+  usuarioId: number;
+  estabelecimentoId: number;
+  grupoId?: number;
+  podeVisualizar?: boolean;
+  podeEditar?: boolean;
+  podeExcluir?: boolean;
+  podeGerenciar?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Buscar grupo de serviço se fornecido
+  type GrupoServicoType = "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador";
+  let grupoServico: GrupoServicoType = "visualizador";
+  
+  if (data.grupoId) {
+    const [grupo] = await db
+      .select()
+      .from(gruposServico)
+      .where(eq(gruposServico.id, data.grupoId))
+      .limit(1);
+    if (grupo) {
+      const nomeNormalizado = grupo.nome.toLowerCase().replace(/\s+/g, "_");
+      // Mapear para valores válidos do enum
+      const grupoMap: Record<string, GrupoServicoType> = {
+        "administrador": "administrador",
+        "faturista": "faturista",
+        "recurso_glosa": "recurso_glosa",
+        "recurso_de_glosa": "recurso_glosa",
+        "gestor": "gestor",
+        "visualizador": "visualizador",
+      };
+      grupoServico = grupoMap[nomeNormalizado] || "visualizador";
+    }
+  }
+
+  const result = await db.insert(permissoesEstabelecimento).values({
+    userId: data.usuarioId,
+    estabelecimentoId: data.estabelecimentoId,
+    grupoServico,
+    podeVisualizar: data.podeVisualizar ? "sim" : "nao",
+    podeEditar: data.podeEditar ? "sim" : "nao",
+    podeExcluir: data.podeExcluir ? "sim" : "nao",
+    podeGerenciar: data.podeGerenciar ? "sim" : "nao",
+  });
+  return { id: Number(result[0].insertId) };
+}
+
+/**
  * Remove permissão de um usuário para um estabelecimento
  */
 export async function deletePermissaoEstabelecimento(userId: number, estabelecimentoId: number) {

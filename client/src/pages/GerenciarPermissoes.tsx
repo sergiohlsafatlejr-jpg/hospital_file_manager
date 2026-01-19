@@ -144,6 +144,8 @@ export default function GerenciarPermissoes() {
     name: "",
     email: "",
     role: "user" as "admin" | "user",
+    estabelecimentosIds: [] as number[],
+    grupoServico: "visualizador" as "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador",
   });
   
   // Estado para novo grupo
@@ -244,7 +246,7 @@ export default function GerenciarPermissoes() {
       toast.success("Usuário criado com sucesso!");
       refetchTodosUsuarios();
       setShowCreateUserDialog(false);
-      setNewUser({ name: "", email: "", role: "user" });
+      setNewUser({ name: "", email: "", role: "user", estabelecimentosIds: [], grupoServico: "visualizador" });
     },
     onError: (error) => {
       toast.error("Erro ao criar usuário", {
@@ -409,6 +411,10 @@ export default function GerenciarPermissoes() {
   const handleCreateUser = () => {
     if (!newUser.name || !newUser.email) {
       toast.error("Preencha todos os campos obrigatórios");
+      return;
+    }
+    if (newUser.role === "user" && newUser.estabelecimentosIds.length === 0) {
+      toast.error("Selecione pelo menos um estabelecimento para o usuário");
       return;
     }
     criarUsuario.mutate(newUser);
@@ -971,6 +977,82 @@ export default function GerenciarPermissoes() {
                 Administradores têm acesso total ao sistema, independente das permissões por estabelecimento.
               </p>
             </div>
+
+            {newUser.role === "user" && (
+              <>
+                <div className="space-y-2">
+                  <Label>Estabelecimentos com Acesso *</Label>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Selecione os estabelecimentos que este usuário poderá acessar.
+                  </p>
+                  <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2">
+                    {estabelecimentos?.map((est) => (
+                      <div key={est.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`est-${est.id}`}
+                          checked={newUser.estabelecimentosIds.includes(est.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewUser(prev => ({
+                                ...prev,
+                                estabelecimentosIds: [...prev.estabelecimentosIds, est.id]
+                              }));
+                            } else {
+                              setNewUser(prev => ({
+                                ...prev,
+                                estabelecimentosIds: prev.estabelecimentosIds.filter(id => id !== est.id)
+                              }));
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor={`est-${est.id}`} className="text-sm flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          {est.nome}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  {newUser.estabelecimentosIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {newUser.estabelecimentosIds.length} estabelecimento(s) selecionado(s)
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Grupo de Serviço</Label>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Define as permissões padrão do usuário nos estabelecimentos selecionados.
+                  </p>
+                  <Select
+                    value={newUser.grupoServico}
+                    onValueChange={(value: "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador") => 
+                      setNewUser(prev => ({ ...prev, grupoServico: value }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GRUPOS_SERVICO_PADRAO.map((grupo) => {
+                        const Icon = grupo.icon;
+                        return (
+                          <SelectItem key={grupo.value} value={grupo.value}>
+                            <div className="flex items-center gap-2">
+                              <div className={`h-3 w-3 rounded ${grupo.color}`} />
+                              <Icon className="h-4 w-4" />
+                              {grupo.label}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>

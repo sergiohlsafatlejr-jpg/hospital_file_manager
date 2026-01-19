@@ -2194,6 +2194,8 @@ export const appRouter = router({
         name: z.string().min(2),
         email: z.string().email(),
         role: z.enum(["admin", "user"]).optional(),
+        grupoId: z.number().optional(),
+        estabelecimentosIds: z.array(z.number()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
@@ -2209,15 +2211,39 @@ export const appRouter = router({
         try {
           const userId = await db.criarUsuario(input);
           
+          // Criar permissões para múltiplos estabelecimentos
+          if (input.estabelecimentosIds && input.estabelecimentosIds.length > 0) {
+            for (const estabelecimentoId of input.estabelecimentosIds) {
+              await db.criarPermissaoEstabelecimento({
+                usuarioId: userId,
+                estabelecimentoId,
+                grupoId: input.grupoId,
+                podeVisualizar: true,
+                podeEditar: false,
+                podeExcluir: false,
+                podeGerenciar: false,
+              });
+            }
+          }
+          
           // Registrar no log de auditoria
+          const estabelecimentosNomes = input.estabelecimentosIds && input.estabelecimentosIds.length > 0
+            ? ` com acesso a ${input.estabelecimentosIds.length} estabelecimento(s)`
+            : "";
           await db.registrarLogAuditoria({
             usuarioId: ctx.user.id,
             usuarioNome: ctx.user.name,
             usuarioAfetadoId: userId,
             usuarioAfetadoNome: input.name,
             tipoAcao: "criar_usuario",
-            descricao: `Usuário ${input.name} (${input.email}) criado`,
-            valoresNovos: { name: input.name, email: input.email, role: input.role || "user" },
+            descricao: `Usuário ${input.name} (${input.email}) criado${estabelecimentosNomes}`,
+            valoresNovos: { 
+              name: input.name, 
+              email: input.email, 
+              role: input.role || "user",
+              estabelecimentosIds: input.estabelecimentosIds,
+              grupoId: input.grupoId,
+            },
           });
           
           return { success: true, userId };

@@ -223,3 +223,5 @@
 - [x] Implementar notificação de acesso negado (mensagem amigável quando usuário tentar acessar módulo sem permissão)
 
 - [x] Permitir cópia de permissões de um grupo existente ao criar novos grupos
+
+- [x] Permitir selecionar múltiplos estabelecimentos ao criar usuários e permissões
