@@ -58,6 +58,81 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    
+    // Verificar se usuário tem senha definida
+    hasPassword: protectedProcedure.query(async ({ ctx }) => {
+      return db.hasUserPassword(ctx.user.id);
+    }),
+    
+    // Alterar senha do usuário
+    changePassword: protectedProcedure
+      .input(z.object({
+        currentPassword: z.string().optional(),
+        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+        confirmPassword: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Validar confirmação de senha
+        if (input.newPassword !== input.confirmPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "As senhas não conferem",
+          });
+        }
+        
+        // Verificar se usuário tem senha definida
+        const hasPassword = await db.hasUserPassword(ctx.user.id);
+        
+        if (hasPassword && !input.currentPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Informe a senha atual",
+          });
+        }
+        
+        const result = await db.changeUserPassword(
+          ctx.user.id,
+          input.currentPassword || "",
+          input.newPassword
+        );
+        
+        if (!result.success) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: result.message,
+          });
+        }
+        
+        return { success: true, message: result.message };
+      }),
+      
+    // Definir senha pela primeira vez (para usuários sem senha)
+    setInitialPassword: protectedProcedure
+      .input(z.object({
+        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+        confirmPassword: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Validar confirmação de senha
+        if (input.newPassword !== input.confirmPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "As senhas não conferem",
+          });
+        }
+        
+        // Verificar se usuário já tem senha
+        const hasPassword = await db.hasUserPassword(ctx.user.id);
+        if (hasPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Você já possui uma senha definida. Use a opção de alterar senha.",
+          });
+        }
+        
+        await db.setUserPassword(ctx.user.id, input.newPassword);
+        return { success: true, message: "Senha definida com sucesso" };
+      }),
   }),
 
   // ============ CONVENIOS ============

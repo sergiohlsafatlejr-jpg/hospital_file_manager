@@ -51,7 +51,8 @@ import {
   LayoutGrid,
   Shield,
   Activity,
-  Lock
+  Lock,
+  KeyRound
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -423,6 +424,14 @@ function DashboardLayoutContent({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => setLocation("/alterar-senha")}
+                  className="cursor-pointer"
+                >
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  <span>Alterar Senha</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive focus:text-destructive"

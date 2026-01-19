@@ -6801,3 +6801,94 @@ export async function criarUsuario(dados: {
   
   return result[0].insertId;
 }
+
+
+// ============ PASSWORD FUNCTIONS ============
+import bcrypt from "bcryptjs";
+
+/**
+ * Define ou atualiza a senha de um usuário
+ */
+export async function setUserPassword(userId: number, newPassword: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Hash da senha com bcrypt (10 rounds)
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  
+  await db
+    .update(users)
+    .set({ passwordHash })
+    .where(eq(users.id, userId));
+  
+  return true;
+}
+
+/**
+ * Verifica se a senha atual do usuário está correta
+ */
+export async function verifyUserPassword(userId: number, password: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [user] = await db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  
+  if (!user || !user.passwordHash) {
+    return false;
+  }
+  
+  return bcrypt.compare(password, user.passwordHash);
+}
+
+/**
+ * Verifica se o usuário já tem uma senha definida
+ */
+export async function hasUserPassword(userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const [user] = await db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  
+  return !!user?.passwordHash;
+}
+
+/**
+ * Altera a senha do usuário (requer senha atual)
+ */
+export async function changeUserPassword(
+  userId: number, 
+  currentPassword: string, 
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Verificar se o usuário tem senha definida
+  const hasPassword = await hasUserPassword(userId);
+  
+  if (hasPassword) {
+    // Se tem senha, verificar a senha atual
+    const isValid = await verifyUserPassword(userId, currentPassword);
+    if (!isValid) {
+      return { success: false, message: "Senha atual incorreta" };
+    }
+  }
+  
+  // Validar nova senha
+  if (newPassword.length < 6) {
+    return { success: false, message: "A nova senha deve ter pelo menos 6 caracteres" };
+  }
+  
+  // Definir nova senha
+  await setUserPassword(userId, newPassword);
+  
+  return { success: true, message: "Senha alterada com sucesso" };
+}

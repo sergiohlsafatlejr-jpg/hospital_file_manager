@@ -225,3 +225,7 @@
 - [x] Permitir cópia de permissões de um grupo existente ao criar novos grupos
 
 - [x] Permitir selecionar múltiplos estabelecimentos ao criar usuários e permissões
+
+- [ ] Edição de estabelecimentos de usuários existentes (adicionar/remover estabelecimentos)
+
+- [x] Tela para usuários trocarem suas senhas

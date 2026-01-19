@@ -30,6 +30,7 @@ import RegrasNegocio from "./pages/RegrasNegocio";
 import DashboardConsolidado from "./pages/DashboardConsolidado";
 import GerenciarPermissoes from "./pages/GerenciarPermissoes";
 import DashboardProdutividade from "./pages/DashboardProdutividade";
+import AlterarSenha from "./pages/AlterarSenha";
 
 function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
@@ -68,6 +69,7 @@ function Router() {
       <Route path={"/dashboard-consolidado"} component={DashboardConsolidado} />
       <Route path={"/gerenciar-permissoes"} component={GerenciarPermissoes} />
       <Route path={"/produtividade"} component={DashboardProdutividade} />
+      <Route path={"/alterar-senha"} component={AlterarSenha} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
