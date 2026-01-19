@@ -202,3 +202,5 @@
 - [x] Aplicar filtro de estabelecimento nas telas de Arquivos, Comparações e Faturamento
 - [x] Adicionar indicador visual do estabelecimento selecionado no header do Dashboard
 - [x] Persistir seleção de estabelecimento no localStorage para manter escolha ao recarregar
+
+- [x] Implementar aceite de glosa em lote na tela de Análise de Glosa (botão Selecionar Todos + Aceitar Selecionados)

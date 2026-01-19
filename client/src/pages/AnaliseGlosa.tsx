@@ -113,6 +113,8 @@ export default function AnaliseGlosa() {
   const [itemParaAceitar, setItemParaAceitar] = useState<number | null>(null);
   const [motivoAceiteForm, setMotivoAceiteForm] = useState("");
   const [paginaAceitos, setPaginaAceitos] = useState(1);
+  const [dialogAceiteLote, setDialogAceiteLote] = useState(false);
+  const [aceitandoLote, setAceitandoLote] = useState(false);
 
   // Buscar dados gerais
   const { data: glosaPorConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
@@ -251,6 +253,53 @@ export default function AnaliseGlosa() {
       classificacao: "aceitar",
       motivoAceite: motivoAceiteForm || undefined,
     });
+  };
+
+  // Função para abrir modal de aceite em lote
+  const abrirModalAceiteLote = () => {
+    if (itensSelecionados.size === 0) {
+      toast.error("Selecione pelo menos um item para aceitar em lote");
+      return;
+    }
+    setMotivoAceiteForm("");
+    setDialogAceiteLote(true);
+  };
+
+  // Função para confirmar aceite em lote
+  const confirmarAceiteLote = async () => {
+    if (itensSelecionados.size === 0) return;
+    
+    setAceitandoLote(true);
+    const idsParaAceitar = Array.from(itensSelecionados);
+    let sucessos = 0;
+    let erros = 0;
+    
+    for (const id of idsParaAceitar) {
+      try {
+        await classificarGlosaMutation.mutateAsync({
+          procedimentoId: id,
+          classificacao: "aceitar",
+          motivoAceite: motivoAceiteForm || undefined,
+        });
+        sucessos++;
+      } catch (error) {
+        erros++;
+      }
+    }
+    
+    setAceitandoLote(false);
+    setDialogAceiteLote(false);
+    setItensSelecionados(new Set());
+    setMotivoAceiteForm("");
+    
+    if (erros === 0) {
+      toast.success(`${sucessos} item(s) aceito(s) com sucesso!`);
+    } else {
+      toast.warning(`${sucessos} aceito(s), ${erros} erro(s)`);
+    }
+    
+    refetchItens();
+    refetchAceitos();
   };
 
   // Função para desfazer aceite (voltar para pendente)
@@ -1106,10 +1155,20 @@ export default function AnaliseGlosa() {
                       )}
                     </CardDescription>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Button variant="outline" size="sm" onClick={selecionarTodos}>
                       <CheckCircle2 className="h-4 w-4 mr-2" />
                       {itensSelecionados.size > 0 ? "Desmarcar Todos" : "Selecionar Todos"}
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100 hover:text-green-800"
+                      onClick={abrirModalAceiteLote}
+                      disabled={itensSelecionados.size === 0}
+                    >
+                      <ThumbsUp className="h-4 w-4 mr-2" />
+                      Aceitar Selecionados ({itensSelecionados.size})
                     </Button>
                     <Button 
                       size="sm" 
@@ -1984,6 +2043,61 @@ export default function AnaliseGlosa() {
                   <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Salvando...</>
                 ) : (
                   <>Confirmar Aceite</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para aceitar glosa em lote */}
+        <Dialog open={dialogAceiteLote} onOpenChange={setDialogAceiteLote}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ThumbsUp className="h-5 w-5 text-green-500" />
+                Aceitar Glosas em Lote
+              </DialogTitle>
+              <DialogDescription>
+                Você está prestes a aceitar {itensSelecionados.size} item(s) glosado(s).
+                Informe o motivo que será aplicado a todos os itens.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm font-medium text-green-800">
+                  {itensSelecionados.size} item(s) selecionado(s)
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  Todos receberão o mesmo motivo de aceite
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="motivoAceiteLote">Motivo do Aceite</Label>
+                <Textarea
+                  id="motivoAceiteLote"
+                  placeholder="Ex: Valor cobrado incorretamente, erro de faturamento, procedimento não realizado..."
+                  value={motivoAceiteForm}
+                  onChange={(e) => setMotivoAceiteForm(e.target.value)}
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Este motivo será registrado para análise futura e aprendizado do sistema.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogAceiteLote(false)} disabled={aceitandoLote}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={confirmarAceiteLote}
+                disabled={aceitandoLote}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {aceitandoLote ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Aceitando {itensSelecionados.size} itens...</>
+                ) : (
+                  <>Aceitar {itensSelecionados.size} Item(s)</>
                 )}
               </Button>
             </DialogFooter>
