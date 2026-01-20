@@ -43,6 +43,7 @@ export const convenios = mysqlTable("convenios", {
   nome: varchar("nome", { length: 255 }).notNull(),
   codigo: varchar("codigo", { length: 50 }),
   estabelecimentoId: int("estabelecimentoId"), // Null = convênio disponível para todos os estabelecimentos
+  prazoRecursoGlosa: int("prazoRecursoGlosa").default(30), // Prazo em dias para recurso de glosa
   ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -70,6 +71,7 @@ export const arquivos = mysqlTable("arquivos", {
   totalItens: int("totalItens"), // Total de itens a processar
   itensProcessados: int("itensProcessados").default(0), // Itens já processados
   dataReferencia: timestamp("dataReferencia"),
+  dataPagamento: timestamp("dataPagamento"), // Data de pagamento do convênio (opcional, para calcular prazo de recurso)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -250,10 +252,57 @@ export type InsertItemManual = typeof itensManuals.$inferInsert;
 /**
  * Recursos de Glosa - Contestações enviadas aos convênios
  */
+/**
+ * Lotes de Recursos de Glosa - Agrupamento de recursos enviados juntos
+ */
+export const lotesRecurso = mysqlTable("lotesRecurso", {
+  id: int("id").autoincrement().primaryKey(),
+  convenioId: int("convenioId").notNull(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  userId: int("userId").notNull(),
+  
+  // Identificação do lote
+  numeroLote: varchar("numeroLote", { length: 50 }).notNull(),
+  descricao: text("descricao"),
+  
+  // Valores totalizados
+  valorTotalGlosado: decimal("valorTotalGlosado", { precision: 12, scale: 2 }).default("0"),
+  valorTotalRecursado: decimal("valorTotalRecursado", { precision: 12, scale: 2 }).default("0"),
+  valorTotalRecuperado: decimal("valorTotalRecuperado", { precision: 12, scale: 2 }).default("0"),
+  quantidadeItens: int("quantidadeItens").default(0),
+  
+  // Status e datas
+  status: mysqlEnum("status", [
+    "rascunho",
+    "pendente_envio",
+    "enviado",
+    "em_analise",
+    "respondido",
+    "finalizado"
+  ]).default("rascunho").notNull(),
+  
+  dataEnvio: timestamp("dataEnvio"),
+  dataPrazoPagamento: timestamp("dataPrazoPagamento"),
+  dataResposta: timestamp("dataResposta"),
+  
+  // Protocolo e anexos
+  protocoloEnvio: varchar("protocoloEnvio", { length: 100 }),
+  anexoPdfUrl: text("anexoPdfUrl"), // URL do PDF de envio do recurso
+  anexoPdfKey: varchar("anexoPdfKey", { length: 512 }),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LoteRecurso = typeof lotesRecurso.$inferSelect;
+export type InsertLoteRecurso = typeof lotesRecurso.$inferInsert;
+
 export const recursosGlosa = mysqlTable("recursosGlosa", {
   id: int("id").autoincrement().primaryKey(),
   divergenciaId: int("divergenciaId"),
   convenioId: int("convenioId").notNull(),
+  estabelecimentoId: int("estabelecimentoId"),
+  loteId: int("loteId"), // Referência ao lote de envio
   userId: int("userId").notNull(),
   
   // Dados do procedimento contestado

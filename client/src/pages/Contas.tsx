@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { trpc } from "@/lib/trpc";
 import { 
   FileSearch, 
@@ -26,6 +25,7 @@ import {
   FileText
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 
 // Interface para conta agrupada
@@ -49,8 +49,7 @@ export default function Contas() {
   const [arquivoId, setArquivoId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
-  const [contaSelecionada, setContaSelecionada] = useState<ContaAgrupada | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [, setLocation] = useLocation();
   const pageSize = 50;
 
   // Buscar convênios
@@ -212,8 +211,7 @@ export default function Contas() {
   };
 
   const handleVerDetalhes = (conta: ContaAgrupada) => {
-    setContaSelecionada(conta);
-    setDialogOpen(true);
+    setLocation(`/contas/${encodeURIComponent(conta.guiaNumero)}`);
   };
 
   // Determinar tipo de despesa baseado no codigoDespesa
@@ -503,101 +501,7 @@ export default function Contas() {
         </Card>
       </div>
 
-      {/* Dialog de Detalhes da Conta */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Detalhes da Conta
-            </DialogTitle>
-          </DialogHeader>
-          
-          {contaSelecionada && (
-            <div className="space-y-6">
-              {/* Informações da Conta */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Guia</p>
-                  <p className="font-mono font-medium">{contaSelecionada.guiaNumero}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Senha</p>
-                  <p className="font-mono">{contaSelecionada.senha}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Carteirinha</p>
-                  <p className="font-mono">{contaSelecionada.carteirinha}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Data da Conta</p>
-                  <p>{formatDate(contaSelecionada.dataConta)}</p>
-                </div>
-                <div className="space-y-1 col-span-2">
-                  <p className="text-xs text-muted-foreground">Paciente</p>
-                  <p className="font-medium">{contaSelecionada.pacienteNome}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Valor Total</p>
-                  <p className="font-bold text-green-600 text-lg">{formatCurrency(contaSelecionada.valorTotal)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Quantidade de Itens</p>
-                  <p className="font-medium">{contaSelecionada.quantidadeItens}</p>
-                </div>
-              </div>
 
-              {/* Tabela de Itens */}
-              <div>
-                <h4 className="font-medium mb-3">Itens da Conta</h4>
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Código</TableHead>
-                        <TableHead>Descrição</TableHead>
-                        <TableHead className="text-center">Qtd</TableHead>
-                        <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {contaSelecionada.itens.map((item: any, idx: number) => {
-                        const tipo = getTipoDespesa(item.codigoDespesa);
-                        return (
-                          <TableRow key={idx}>
-                            <TableCell>
-                              <Badge className={tipo.color}>
-                                {tipo.label}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-sm">
-                              {item.codigo}
-                            </TableCell>
-                            <TableCell className="max-w-[250px] truncate" title={item.descricao || "-"}>
-                              {item.descricao || "-"}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {item.quantidade || 1}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.valorUnitario ? formatCurrency(parseFloat(item.valorUnitario)) : "-"}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              {item.valorTotal ? formatCurrency(parseFloat(item.valorTotal)) : "-"}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </DashboardLayout>
   );
 }

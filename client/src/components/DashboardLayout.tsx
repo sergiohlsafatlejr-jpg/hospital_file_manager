@@ -87,13 +87,11 @@ const menuItems: MenuItem[] = [
   { icon: AlertTriangle, label: "Divergências", path: "/divergencias", modulo: "comparacoes" },
   { icon: FileText, label: "Relatórios", path: "/relatorios", modulo: "faturamento" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
-  { icon: Building2, label: "Estabelecimentos", path: "/estabelecimentos", modulo: "estabelecimentos" },
-  { icon: Sliders, label: "Regras de Conciliação", path: "/regras-conciliacao", modulo: "regrasNegocio" },
-  { icon: DollarSign, label: "Tabelas de Preços", path: "/tabelas-preco", modulo: "tabelasPreco" },
-  { icon: Settings2, label: "Regras de Negócio", path: "/regras-negocio", modulo: "regrasNegocio" },
   { icon: LayoutGrid, label: "Dashboard Consolidado", path: "/dashboard-consolidado", adminOnly: true },
   { icon: Shield, label: "Gerenciar Permissões", path: "/gerenciar-permissoes", modulo: "permissoes" },
   { icon: Activity, label: "Produtividade", path: "/produtividade", modulo: "produtividade" },
+  { icon: FileText, label: "Relatório de Contas", path: "/relatorio-contas", modulo: "faturamento" },
+  { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

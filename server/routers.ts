@@ -154,12 +154,14 @@ export const appRouter = router({
         z.object({
           nome: z.string().min(1),
           codigo: z.string().optional(),
+          prazoRecursoGlosa: z.number().optional(),
         })
       )
       .mutation(async ({ input }) => {
         return db.createConvenio({
           nome: input.nome,
           codigo: input.codigo || null,
+          prazoRecursoGlosa: input.prazoRecursoGlosa || 30,
         });
       }),
 
@@ -169,6 +171,7 @@ export const appRouter = router({
           id: z.number(),
           nome: z.string().optional(),
           codigo: z.string().optional(),
+          prazoRecursoGlosa: z.number().optional(),
           ativo: z.enum(["sim", "nao"]).optional(),
         })
       )
@@ -313,6 +316,7 @@ export const appRouter = router({
           convenioId: z.number(),
           conteudo: z.string(), // Base64 encoded
           dataReferencia: z.string().optional(),
+          dataPagamento: z.string().optional(), // Data de pagamento do convênio
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -348,6 +352,7 @@ export const appRouter = router({
           tamanho: buffer.length,
           status: "pendente",
           dataReferencia: input.dataReferencia ? new Date(input.dataReferencia) : null,
+          dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
         });
         
         // Parse file and extract procedimentos
@@ -1475,6 +1480,61 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return db.buscarHistoricoDecisoes(input.codigoGlosa, input.convenioId);
+      }),
+
+    // ============ LOTES DE RECURSOS ============
+    listarLotes: protectedProcedure
+      .input(
+        z.object({
+          estabelecimentoId: z.number().optional(),
+          convenioId: z.number().optional(),
+          status: z.enum(["rascunho", "pendente_envio", "enviado", "em_analise", "respondido", "finalizado"]).optional(),
+          search: z.string().optional(),
+          page: z.number().default(1),
+          limit: z.number().default(20),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        return db.listarLotesRecurso({
+          estabelecimentoId: input?.estabelecimentoId,
+          convenioId: input?.convenioId,
+          status: input?.status,
+          search: input?.search,
+          page: input?.page || 1,
+          limit: input?.limit || 20,
+        });
+      }),
+
+    resumoLotes: protectedProcedure
+      .input(
+        z.object({
+          estabelecimentoId: z.number().optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        return db.getResumoLotesRecurso(input?.estabelecimentoId);
+      }),
+
+    atualizarLote: protectedProcedure
+      .input(
+        z.object({
+          loteId: z.number(),
+          status: z.enum(["rascunho", "pendente_envio", "enviado", "em_analise", "respondido", "finalizado"]).optional(),
+          protocoloEnvio: z.string().optional(),
+          dataEnvio: z.date().optional(),
+          dataPrazoPagamento: z.date().optional(),
+          dataResposta: z.date().optional(),
+          valorTotalRecuperado: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.atualizarLoteRecurso(input);
+      }),
+
+    detalhesLote: protectedProcedure
+      .input(z.object({ loteId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getDetalhesLoteRecurso(input.loteId);
       }),
   }),
 

@@ -32,6 +32,7 @@ export default function Upload() {
   const [direcao, setDirecao] = useState<"enviado" | "retornado">("enviado");
   const [convenioId, setConvenioId] = useState<string>("");
   const [dataReferencia, setDataReferencia] = useState<string>("");
+  const [dataPagamento, setDataPagamento] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [novoConvenioNome, setNovoConvenioNome] = useState("");
@@ -157,6 +158,7 @@ export default function Upload() {
           convenioId: parseInt(convenioId),
           conteudo: base64,
           dataReferencia: dataReferencia || undefined,
+          dataPagamento: dataPagamento || undefined,
         });
 
         // Update status to success
@@ -469,6 +471,22 @@ export default function Upload() {
                   onChange={(e) => setDataReferencia(e.target.value)}
                 />
               </div>
+
+              {/* Campo de Data de Pagamento - aparece apenas para arquivos retornados */}
+              {direcao === "retornado" && (
+                <div className="space-y-2">
+                  <Label htmlFor="dataPagamento">Data de Pagamento (opcional)</Label>
+                  <Input
+                    id="dataPagamento"
+                    type="date"
+                    value={dataPagamento}
+                    onChange={(e) => setDataPagamento(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Informe a data de pagamento para calcular o prazo de recurso de glosa
+                  </p>
+                </div>
+              )}
 
               <Button 
                 className="w-full" 

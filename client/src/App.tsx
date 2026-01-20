@@ -31,6 +31,9 @@ import DashboardConsolidado from "./pages/DashboardConsolidado";
 import GerenciarPermissoes from "./pages/GerenciarPermissoes";
 import DashboardProdutividade from "./pages/DashboardProdutividade";
 import AlterarSenha from "./pages/AlterarSenha";
+import ContaDetalhes from "./pages/ContaDetalhes";
+import RelatorioContas from "./pages/RelatorioContas";
+import AcompanhamentoRecursos from "./pages/AcompanhamentoRecursos";
 
 function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
@@ -53,6 +56,7 @@ function Router() {
       <Route path={"/relatorios"} component={Relatorios} />
       <Route path={"/configuracoes"} component={Configuracoes} />
       <Route path={"/contas"} component={Contas} />
+      <Route path={"/contas/:guiaNumero"} component={ContaDetalhes} />
       <Route path={"/conciliacao"} component={Conciliacao} />
       <Route path={"/faturamento"} component={Faturamento} />
       <Route path={"/analise-glosa"} component={AnaliseGlosa} />
@@ -70,6 +74,8 @@ function Router() {
       <Route path={"/gerenciar-permissoes"} component={GerenciarPermissoes} />
       <Route path={"/produtividade"} component={DashboardProdutividade} />
       <Route path={"/alterar-senha"} component={AlterarSenha} />
+      <Route path={"/relatorio-contas"} component={RelatorioContas} />
+      <Route path={"/acompanhamento-recursos"} component={AcompanhamentoRecursos} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

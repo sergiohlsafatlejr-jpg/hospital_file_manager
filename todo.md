@@ -244,3 +244,13 @@
 - [x] Implementar classificação de itens pelo campo codigoDespesa (medicamento=2, diária=5, material=3, taxa=7, gás=1)
 - [x] Renomear tela "Itens Importados" para "Contas"
 - [x] Reformular tela Contas para exibir: Guia, Senha, Carteirinha, Data da Conta, Valor Total
+
+- [x] Tela de Contas: abrir página inteira ao clicar na conta (não dialog pequeno)
+- [x] Campo Despesas: exibir nome correto (Medicamento=02, Diária=05, Material=03, Taxas=07, Gás=01)
+- [x] Upload: adicionar campo opcional para data de pagamento
+- [x] Configurações: criar tabela de prazo de recurso de glosa por convênio
+- [x] Configurações: mover abas (Regras de Conciliação, Regras de Negócios, Tabelas de Preço, Estabelecimentos) para dentro
+- [x] Análise de Glosa: criar alerta de prazo de recurso baseado na data de pagamento
+- [ ] Recursos de Glosa: criar exportador em XML, PDF e Excel (aguardando formatos dos convênios)
+- [x] Criar tela de acompanhamento de recursos enviados (lotes, prazos, valores, status, anexos)
+- [x] Criar relatório de contas agrupado por tipo de despesa

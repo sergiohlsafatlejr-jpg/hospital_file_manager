@@ -685,6 +685,46 @@ export default function AnaliseGlosa() {
           </Card>
         </div>
 
+        {/* Alerta de Prazo de Recurso */}
+        {itensGlosados?.alertasPrazo && itensGlosados.alertasPrazo.length > 0 && (
+          <Card className="border-red-200 bg-red-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-red-700">
+                <Clock className="h-5 w-5" />
+                Alertas de Prazo de Recurso
+              </CardTitle>
+              <CardDescription className="text-red-600">
+                Itens com prazo de recurso próximo do vencimento
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {itensGlosados.alertasPrazo.map((alerta: any, index: number) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border border-red-200">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className={`h-5 w-5 ${alerta.diasRestantes <= 5 ? 'text-red-600' : 'text-orange-500'}`} />
+                      <div>
+                        <p className="font-medium">{alerta.convenio}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {alerta.quantidade} item(ns) - Valor: {formatCurrency(alerta.valor)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <Badge variant={alerta.diasRestantes <= 5 ? "destructive" : "outline"} className="mb-1">
+                        {alerta.diasRestantes} dia(s) restante(s)
+                      </Badge>
+                      <p className="text-xs text-muted-foreground">
+                        Vence em: {new Date(alerta.dataLimite).toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Filtros Gerais */}
         <Card>
           <CardContent className="pt-6">

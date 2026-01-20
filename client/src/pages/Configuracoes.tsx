@@ -41,9 +41,11 @@ export default function Configuracoes() {
   // Convênios state
   const [novoConvenioNome, setNovoConvenioNome] = useState("");
   const [novoConvenioCodigo, setNovoConvenioCodigo] = useState("");
+  const [novoConvenioPrazoRecurso, setNovoConvenioPrazoRecurso] = useState("30");
   const [editConvenioId, setEditConvenioId] = useState<number | null>(null);
   const [editConvenioNome, setEditConvenioNome] = useState("");
   const [editConvenioCodigo, setEditConvenioCodigo] = useState("");
+  const [editConvenioPrazoRecurso, setEditConvenioPrazoRecurso] = useState("30");
 
   // Códigos state
   const [novoCodigoCodigo, setNovoCodigoCodigo] = useState("");
@@ -80,10 +82,12 @@ export default function Configuracoes() {
       await criarConvenioMutation.mutateAsync({
         nome: novoConvenioNome,
         codigo: novoConvenioCodigo || undefined,
+        prazoRecursoGlosa: parseInt(novoConvenioPrazoRecurso) || 30,
       });
       toast.success("Convênio criado com sucesso");
       setNovoConvenioNome("");
       setNovoConvenioCodigo("");
+      setNovoConvenioPrazoRecurso("30");
       refetchConvenios();
     } catch (error) {
       toast.error("Erro ao criar convênio");
@@ -97,6 +101,7 @@ export default function Configuracoes() {
         id: editConvenioId,
         nome: editConvenioNome,
         codigo: editConvenioCodigo || undefined,
+        prazoRecursoGlosa: parseInt(editConvenioPrazoRecurso) || 30,
       });
       toast.success("Convênio atualizado");
       setEditConvenioId(null);
@@ -197,18 +202,34 @@ export default function Configuracoes() {
         </div>
 
         <Tabs defaultValue="convenios" className="space-y-6">
-          <TabsList className="bg-slate-100">
+          <TabsList className="bg-slate-100 flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="convenios" className="gap-2">
               <Building2 className="h-4 w-4" />
               Convênios
             </TabsTrigger>
+            <TabsTrigger value="estabelecimentos" className="gap-2">
+              <Building2 className="h-4 w-4" />
+              Estabelecimentos
+            </TabsTrigger>
+            <TabsTrigger value="regras-conciliacao" className="gap-2">
+              <Settings2 className="h-4 w-4" />
+              Regras de Conciliação
+            </TabsTrigger>
+            <TabsTrigger value="regras-negocio" className="gap-2">
+              <Settings2 className="h-4 w-4" />
+              Regras de Negócio
+            </TabsTrigger>
+            <TabsTrigger value="tabelas-preco" className="gap-2">
+              <Settings2 className="h-4 w-4" />
+              Tabelas de Preço
+            </TabsTrigger>
             <TabsTrigger value="codigos" className="gap-2">
               <Code className="h-4 w-4" />
-              Códigos de Procedimentos
+              Códigos
             </TabsTrigger>
             <TabsTrigger value="campos" className="gap-2">
               <Settings2 className="h-4 w-4" />
-              Campos de Comparação
+              Campos
             </TabsTrigger>
           </TabsList>
 
@@ -237,6 +258,15 @@ export default function Configuracoes() {
                       placeholder="Ex: 001"
                     />
                   </div>
+                  <div className="w-full sm:w-[180px] space-y-2">
+                    <Label>Prazo Recurso (dias)</Label>
+                    <Input
+                      type="number"
+                      value={novoConvenioPrazoRecurso}
+                      onChange={(e) => setNovoConvenioPrazoRecurso(e.target.value)}
+                      placeholder="30"
+                    />
+                  </div>
                   <div className="flex items-end">
                     <Button onClick={handleCriarConvenio} disabled={criarConvenioMutation.isPending}>
                       {criarConvenioMutation.isPending ? (
@@ -263,6 +293,7 @@ export default function Configuracoes() {
                       <TableRow className="bg-slate-50">
                         <TableHead>Nome</TableHead>
                         <TableHead>Código</TableHead>
+                        <TableHead>Prazo Recurso</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
@@ -272,6 +303,7 @@ export default function Configuracoes() {
                         <TableRow key={conv.id}>
                           <TableCell className="font-medium">{conv.nome}</TableCell>
                           <TableCell>{conv.codigo || "-"}</TableCell>
+                          <TableCell>{conv.prazoRecursoGlosa || 30} dias</TableCell>
                           <TableCell>
                             <Switch
                               checked={conv.ativo === "sim"}
@@ -286,6 +318,7 @@ export default function Configuracoes() {
                                 setEditConvenioId(conv.id);
                                 setEditConvenioNome(conv.nome);
                                 setEditConvenioCodigo(conv.codigo || "");
+                                setEditConvenioPrazoRecurso(String(conv.prazoRecursoGlosa || 30));
                               }}
                             >
                               <Edit2 className="h-4 w-4" />
@@ -491,6 +524,58 @@ export default function Configuracoes() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Estabelecimentos Tab */}
+          <TabsContent value="estabelecimentos" className="space-y-6">
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Estabelecimentos</CardTitle>
+                <CardDescription>Gerencie os estabelecimentos do sistema</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">Acesse a página de <a href="/estabelecimentos" className="text-primary underline">Estabelecimentos</a> para gerenciar.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Regras de Conciliação Tab */}
+          <TabsContent value="regras-conciliacao" className="space-y-6">
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Regras de Conciliação</CardTitle>
+                <CardDescription>Configure as regras de conciliação de contas</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">Acesse a página de <a href="/regras-conciliacao" className="text-primary underline">Regras de Conciliação</a> para gerenciar.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Regras de Negócio Tab */}
+          <TabsContent value="regras-negocio" className="space-y-6">
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Regras de Negócio</CardTitle>
+                <CardDescription>Configure as regras de negócio do sistema</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">Acesse a página de <a href="/regras-negocio" className="text-primary underline">Regras de Negócio</a> para gerenciar.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tabelas de Preço Tab */}
+          <TabsContent value="tabelas-preco" className="space-y-6">
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle>Tabelas de Preço</CardTitle>
+                <CardDescription>Gerencie as tabelas de preço do sistema</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">Acesse a página de <a href="/tabelas-preco" className="text-primary underline">Tabelas de Preço</a> para gerenciar.</p>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -515,6 +600,17 @@ export default function Configuracoes() {
                 value={editConvenioCodigo}
                 onChange={(e) => setEditConvenioCodigo(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Prazo de Recurso de Glosa (dias)</Label>
+              <Input
+                type="number"
+                value={editConvenioPrazoRecurso}
+                onChange={(e) => setEditConvenioPrazoRecurso(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Prazo em dias para recurso de glosa após a data de pagamento
+              </p>
             </div>
           </div>
           <DialogFooter>

@@ -1671,7 +1671,7 @@ export async function getResumoGlosa(userId?: number, estabelecimentoId?: number
 
 // ============ RECURSOS DE GLOSA FUNCTIONS ============
 
-import { recursosGlosa, historicoRecursos, InsertRecursoGlosa, InsertHistoricoRecurso } from "../drizzle/schema";
+import { recursosGlosa, historicoRecursos, InsertRecursoGlosa, InsertHistoricoRecurso, lotesRecurso } from "../drizzle/schema";
 
 export async function createRecursoGlosa(recurso: InsertRecursoGlosa) {
   const db = await getDb();
@@ -3455,7 +3455,7 @@ export async function getItensGlosados(filters: {
   search?: string;
   page: number;
   pageSize: number;
-}): Promise<{ items: ItemGlosado[]; total: number; resumo: ResumoItensGlosados }> {
+}): Promise<{ items: ItemGlosado[]; total: number; resumo: ResumoItensGlosados; alertasPrazo: Array<{ convenio: string; convenioId: number; quantidade: number; valor: number; diasRestantes: number; dataLimite: Date }> }> {
   const db = await getDb();
   if (!db) return { 
     items: [], 
@@ -3467,7 +3467,8 @@ export async function getItensGlosados(filters: {
       percentualGlosa: 0,
       porTipo: [], 
       porMotivo: [] 
-    } 
+    },
+    alertasPrazo: []
   };
 
   // Buscar arquivos retornados do usuário (que contêm glosas)
@@ -3513,7 +3514,8 @@ export async function getItensGlosados(filters: {
         percentualGlosa: 0,
         porTipo: [], 
         porMotivo: [] 
-      } 
+      },
+      alertasPrazo: []
     };
   }
 
@@ -3692,7 +3694,88 @@ export async function getItensGlosados(filters: {
       .slice(0, 10), // Top 10 motivos
   };
 
-  return { items: paginatedItems, total, resumo };
+  // Calcular alertas de prazo de recurso
+  const alertasPrazo: Array<{
+    convenio: string;
+    convenioId: number;
+    quantidade: number;
+    valor: number;
+    diasRestantes: number;
+    dataLimite: Date;
+  }> = [];
+
+  // Agrupar itens pendentes por convênio e verificar prazo
+  const itensPendentes = itensGlosados.filter(item => 
+    item.classificacaoGlosa === "pendente" || !item.classificacaoGlosa
+  );
+
+  // Buscar prazos dos convênios
+  const conveniosComPrazo = await db
+    .select()
+    .from(convenios)
+    .where(inArray(convenios.id, convenioIds));
+
+  const conveniosPrazoMap = new Map(conveniosComPrazo.map(c => [c.id, c.prazoRecursoGlosa || 30]));
+
+  // Agrupar por convênio e calcular prazo
+  const alertasPorConvenio = new Map<number, {
+    convenio: string;
+    quantidade: number;
+    valor: number;
+    dataMaisAntiga: Date | null;
+  }>();
+
+  for (const item of itensPendentes) {
+    const arquivo = arquivoMap.get(item.arquivoId);
+    if (!arquivo || !arquivo.convenioId) continue;
+
+    const existente = alertasPorConvenio.get(arquivo.convenioId);
+    const dataRef = arquivo.dataReferencia;
+
+    if (existente) {
+      existente.quantidade++;
+      existente.valor += item.valorGlosado || 0;
+      if (dataRef && (!existente.dataMaisAntiga || dataRef < existente.dataMaisAntiga)) {
+        existente.dataMaisAntiga = dataRef;
+      }
+    } else {
+      alertasPorConvenio.set(arquivo.convenioId, {
+        convenio: convenioMap.get(arquivo.convenioId) || "Desconhecido",
+        quantidade: 1,
+        valor: item.valorGlosado || 0,
+        dataMaisAntiga: dataRef || null,
+      });
+    }
+  }
+
+  // Calcular dias restantes e filtrar alertas relevantes
+  const hoje = new Date();
+  for (const [convenioId, dados] of Array.from(alertasPorConvenio.entries())) {
+    if (!dados.dataMaisAntiga) continue;
+
+    const prazo = conveniosPrazoMap.get(convenioId) || 30;
+    const dataLimite = new Date(dados.dataMaisAntiga);
+    dataLimite.setDate(dataLimite.getDate() + prazo);
+
+    const diasRestantes = Math.ceil((dataLimite.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Mostrar alerta se faltam 15 dias ou menos
+    if (diasRestantes <= 15 && diasRestantes >= 0) {
+      alertasPrazo.push({
+        convenio: dados.convenio,
+        convenioId,
+        quantidade: dados.quantidade,
+        valor: dados.valor,
+        diasRestantes,
+        dataLimite,
+      });
+    }
+  }
+
+  // Ordenar por dias restantes (mais urgentes primeiro)
+  alertasPrazo.sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+  return { items: paginatedItems, total, resumo, alertasPrazo };
 }
 
 
@@ -7035,5 +7118,213 @@ export async function atualizarEstabelecimentosUsuario(
   return {
     adicionados: idsParaAdicionar.length,
     removidos: idsParaRemover.length,
+  };
+}
+
+
+// ============ LOTES DE RECURSOS ============
+
+/**
+ * Lista lotes de recursos com filtros
+ */
+export async function listarLotesRecurso(params: {
+  estabelecimentoId?: number;
+  convenioId?: number;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) return { lotes: [], total: 0 };
+
+  const page = params.page || 1;
+  const limit = params.limit || 20;
+  const offset = (page - 1) * limit;
+
+  const conditions: SQL[] = [];
+
+  if (params.estabelecimentoId) {
+    conditions.push(eq(lotesRecurso.estabelecimentoId, params.estabelecimentoId));
+  }
+
+  if (params.convenioId) {
+    conditions.push(eq(lotesRecurso.convenioId, params.convenioId));
+  }
+
+  if (params.status) {
+    conditions.push(eq(lotesRecurso.status, params.status as any));
+  }
+
+  if (params.search) {
+    conditions.push(
+      or(
+        like(lotesRecurso.numeroLote, `%${params.search}%`),
+        like(lotesRecurso.protocoloEnvio, `%${params.search}%`)
+      )!
+    );
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const lotes = await db
+    .select()
+    .from(lotesRecurso)
+    .where(whereClause)
+    .orderBy(desc(lotesRecurso.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(lotesRecurso)
+    .where(whereClause);
+
+  return {
+    lotes,
+    total: countResult?.count || 0,
+  };
+}
+
+/**
+ * Busca resumo dos lotes de recursos
+ */
+export async function getResumoLotesRecurso(estabelecimentoId?: number) {
+  const db = await getDb();
+  if (!db) return {
+    totalLotes: 0,
+    lotesEnviados: 0,
+    lotesRespondidos: 0,
+    lotesPendentes: 0,
+    valorTotalGlosado: 0,
+    valorTotalRecursado: 0,
+    valorTotalRecuperado: 0,
+    lotesVencendo: 0,
+  };
+
+  const conditions: SQL[] = [];
+  if (estabelecimentoId) {
+    conditions.push(eq(lotesRecurso.estabelecimentoId, estabelecimentoId));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const lotes = await db
+    .select()
+    .from(lotesRecurso)
+    .where(whereClause);
+
+  const hoje = new Date();
+  const em7Dias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  let totalLotes = lotes.length;
+  let lotesEnviados = 0;
+  let lotesRespondidos = 0;
+  let lotesPendentes = 0;
+  let valorTotalGlosado = 0;
+  let valorTotalRecursado = 0;
+  let valorTotalRecuperado = 0;
+  let lotesVencendo = 0;
+
+  for (const lote of lotes) {
+    valorTotalGlosado += parseFloat(lote.valorTotalGlosado || "0");
+    valorTotalRecursado += parseFloat(lote.valorTotalRecursado || "0");
+    valorTotalRecuperado += parseFloat(lote.valorTotalRecuperado || "0");
+
+    if (lote.status === "enviado" || lote.status === "em_analise") {
+      lotesEnviados++;
+      // Verificar se está vencendo
+      if (lote.dataPrazoPagamento && new Date(lote.dataPrazoPagamento) <= em7Dias) {
+        lotesVencendo++;
+      }
+    } else if (lote.status === "respondido" || lote.status === "finalizado") {
+      lotesRespondidos++;
+    } else {
+      lotesPendentes++;
+    }
+  }
+
+  return {
+    totalLotes,
+    lotesEnviados,
+    lotesRespondidos,
+    lotesPendentes,
+    valorTotalGlosado,
+    valorTotalRecursado,
+    valorTotalRecuperado,
+    lotesVencendo,
+  };
+}
+
+/**
+ * Atualiza um lote de recurso
+ */
+export async function atualizarLoteRecurso(params: {
+  loteId: number;
+  status?: string;
+  protocoloEnvio?: string;
+  dataEnvio?: Date;
+  dataPrazoPagamento?: Date;
+  dataResposta?: Date;
+  valorTotalRecuperado?: string;
+}) {
+  const db = await getDb();
+  if (!db) return { success: false };
+
+  const updateData: any = {};
+
+  if (params.status) updateData.status = params.status;
+  if (params.protocoloEnvio) updateData.protocoloEnvio = params.protocoloEnvio;
+  if (params.dataEnvio) updateData.dataEnvio = params.dataEnvio;
+  if (params.dataPrazoPagamento) updateData.dataPrazoPagamento = params.dataPrazoPagamento;
+  if (params.dataResposta) updateData.dataResposta = params.dataResposta;
+  if (params.valorTotalRecuperado) updateData.valorTotalRecuperado = params.valorTotalRecuperado;
+
+  await db
+    .update(lotesRecurso)
+    .set(updateData)
+    .where(eq(lotesRecurso.id, params.loteId));
+
+  return { success: true };
+}
+
+/**
+ * Busca detalhes de um lote de recurso com seus recursos
+ */
+export async function getDetalhesLoteRecurso(loteId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [lote] = await db
+    .select()
+    .from(lotesRecurso)
+    .where(eq(lotesRecurso.id, loteId))
+    .limit(1);
+
+  if (!lote) return null;
+
+  // Buscar recursos do lote
+  const recursosDoLote = await db
+    .select()
+    .from(recursosGlosa)
+    .where(eq(recursosGlosa.loteId, loteId))
+    .orderBy(recursosGlosa.createdAt);
+
+  // Buscar convênio
+  const [convenio] = lote.convenioId
+    ? await db.select().from(convenios).where(eq(convenios.id, lote.convenioId)).limit(1)
+    : [null];
+
+  // Buscar estabelecimento
+  const [estabelecimento] = lote.estabelecimentoId
+    ? await db.select().from(estabelecimentos).where(eq(estabelecimentos.id, lote.estabelecimentoId)).limit(1)
+    : [null];
+
+  return {
+    ...lote,
+    convenioNome: convenio?.nome || "Não informado",
+    estabelecimentoNome: estabelecimento?.nome || "Não informado",
+    recursos: recursosDoLote,
+    totalRecursos: recursosDoLote.length,
   };
 }
