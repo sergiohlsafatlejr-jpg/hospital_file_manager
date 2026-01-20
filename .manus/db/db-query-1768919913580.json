@@ -1,0 +1,26 @@
+{
+  "query": "SELECT id, nome, estabelecimentoId, convenioId, userId, createdAt FROM arquivos WHERE estabelecimentoId IS NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, estabelecimentoId, convenioId, userId, createdAt FROM arquivos WHERE estabelecimentoId IS NULL;",
+  "rows": [
+    {
+      "id": "300001",
+      "nome": "00000000000000100410_3a278abcb7609f15c435b53a013952bb.xml",
+      "estabelecimentoId": "NULL",
+      "convenioId": "1",
+      "userId": "1",
+      "createdAt": "2026-01-20 14:26:48"
+    },
+    {
+      "id": "300002",
+      "nome": "00000000000000100410_3a278abcb7609f15c435b53a013952bb.xml",
+      "estabelecimentoId": "NULL",
+      "convenioId": "1",
+      "userId": "1",
+      "createdAt": "2026-01-20 14:27:57"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\testabelecimentoId\tconvenioId\tuserId\tcreatedAt\n300001\t00000000000000100410_3a278abcb7609f15c435b53a013952bb.xml\tNULL\t1\t1\t2026-01-20 14:26:48\n300002\t00000000000000100410_3a278abcb7609f15c435b53a013952bb.xml\tNULL\t1\t1\t2026-01-20 14:27:57\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

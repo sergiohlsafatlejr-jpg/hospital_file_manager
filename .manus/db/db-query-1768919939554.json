@@ -1,0 +1,58 @@
+{
+  "query": "SELECT id, nome FROM estabelecimentos;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome FROM estabelecimentos;",
+  "rows": [
+    {
+      "id": "1",
+      "nome": "Pronto Socorro Infantil de Campina "
+    },
+    {
+      "id": "2",
+      "nome": "Institudo do Rim "
+    },
+    {
+      "id": "30001",
+      "nome": "Estabelecimento Teste 1 - 1768874053334"
+    },
+    {
+      "id": "30002",
+      "nome": "Estabelecimento Teste 2 - 1768874053334"
+    },
+    {
+      "id": "30003",
+      "nome": "Estabelecimento Teste 1 - 1768874071359"
+    },
+    {
+      "id": "30004",
+      "nome": "Estabelecimento Teste 2 - 1768874071359"
+    },
+    {
+      "id": "60001",
+      "nome": "Estabelecimento Teste 1 - 1768913566561"
+    },
+    {
+      "id": "60002",
+      "nome": "Estabelecimento Teste 2 - 1768913566561"
+    },
+    {
+      "id": "60003",
+      "nome": "Estabelecimento Teste 1 - 1768916984531"
+    },
+    {
+      "id": "60004",
+      "nome": "Estabelecimento Teste 2 - 1768916984531"
+    },
+    {
+      "id": "60005",
+      "nome": "Estabelecimento Teste 1 - 1768918922861"
+    },
+    {
+      "id": "60006",
+      "nome": "Estabelecimento Teste 2 - 1768918922861"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\n1\tPronto Socorro Infantil de Campina \n2\tInstitudo do Rim \n30001\tEstabelecimento Teste 1 - 1768874053334\n30002\tEstabelecimento Teste 2 - 1768874053334\n30003\tEstabelecimento Teste 1 - 1768874071359\n30004\tEstabelecimento Teste 2 - 1768874071359\n60001\tEstabelecimento Teste 1 - 1768913566561\n60002\tEstabelecimento Teste 2 - 1768913566561\n60003\tEstabelecimento Teste 1 - 1768916984531\n60004\tEstabelecimento Teste 2 - 1768916984531\n60005\tEstabelecimento Teste 1 - 1768918922861\n60006\tEstabelecimento Teste 2 - 1768918922861\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

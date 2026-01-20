@@ -3499,6 +3499,7 @@ export async function getItensGlosados(filters: {
       nome: arquivos.nome,
       convenioId: arquivos.convenioId,
       dataReferencia: arquivos.dataReferencia,
+      dataPagamento: arquivos.dataPagamento,
     })
     .from(arquivos)
     .where(and(...arquivosConditions));
@@ -3730,7 +3731,8 @@ export async function getItensGlosados(filters: {
     if (!arquivo || !arquivo.convenioId) continue;
 
     const existente = alertasPorConvenio.get(arquivo.convenioId);
-    const dataRef = arquivo.dataReferencia;
+    // Usar dataPagamento se disponível, senão dataReferencia
+    const dataRef = arquivo.dataPagamento || arquivo.dataReferencia;
 
     if (existente) {
       existente.quantidade++;
@@ -4489,6 +4491,7 @@ export async function getItensGlosadosAceitos(filters: {
       nome: arquivos.nome,
       convenioId: arquivos.convenioId,
       dataReferencia: arquivos.dataReferencia,
+      dataPagamento: arquivos.dataPagamento,
     })
     .from(arquivos)
     .where(and(...arquivosConditions));

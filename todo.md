@@ -259,3 +259,6 @@
 - [x] CORREÇÃO: Relatório de Contas - dados incorretos devido ao problema do tipo de despesa
 - [x] CORREÇÃO: Configurações - links "Acesse a página de X" redirecionando para tela inicial
 - [x] CORREÇÃO: Upload - campo de Data de Pagamento não está aparecendo (aparece apenas para arquivos retornados)
+
+- [x] CORREÇÃO: Problema na importação de arquivos XML - arquivo não aparece na tela de arquivos (estabelecimentoId corrigido)
+- [x] Adicionar alerta visual de prazo de recurso na tela de Análise de Glosa (usa dataPagamento + prazo do convênio)

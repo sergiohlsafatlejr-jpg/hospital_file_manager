@@ -314,6 +314,7 @@ export const appRouter = router({
           tipoArquivo: z.enum(["xml", "excel", "pdf"]),
           direcao: z.enum(["enviado", "retornado"]),
           convenioId: z.number(),
+          estabelecimentoId: z.number(), // Estabelecimento associado ao arquivo
           conteudo: z.string(), // Base64 encoded
           dataReferencia: z.string().optional(),
           dataPagamento: z.string().optional(), // Data de pagamento do convênio
@@ -346,6 +347,7 @@ export const appRouter = router({
           tipoArquivo: input.tipoArquivo,
           direcao: input.direcao,
           convenioId: input.convenioId,
+          estabelecimentoId: input.estabelecimentoId,
           userId: ctx.user.id,
           s3Key,
           s3Url: url,

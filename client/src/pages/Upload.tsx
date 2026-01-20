@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Plus, Loader2, X, Files } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -28,6 +29,7 @@ interface FileItem {
 const MAX_FILES = 30;
 
 export default function Upload() {
+  const { estabelecimentoAtual } = useEstabelecimento();
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [direcao, setDirecao] = useState<"enviado" | "retornado">("enviado");
   const [convenioId, setConvenioId] = useState<string>("");
@@ -156,6 +158,7 @@ export default function Upload() {
           tipoArquivo: detectFileType(fileItem.file),
           direcao,
           convenioId: parseInt(convenioId),
+          estabelecimentoId: estabelecimentoAtual?.id || 0,
           conteudo: base64,
           dataReferencia: dataReferencia || undefined,
           dataPagamento: dataPagamento || undefined,
