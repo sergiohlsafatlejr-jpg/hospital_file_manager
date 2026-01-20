@@ -288,3 +288,5 @@
 
 - [x] Adicionar filtro de data de referência (dataReferencia) na tela de Contas
 - [x] Vincular filtros do Relatório de Contas à coluna dataReferencia
+
+- [x] BUG: Dados importados em um estabelecimento não aparecem para outros usuários com acesso ao mesmo estabelecimento (filtro alterado de userId para estabelecimentoId)

@@ -507,6 +507,7 @@ export async function getProcedimentosPaginated(filters?: {
   page?: number;
   pageSize?: number;
   userId?: number;
+  estabelecimentoId?: number;
   apenasRetornados?: boolean;
   mesReferencia?: number; // 1-12
   anoReferencia?: number; // ex: 2025
@@ -549,9 +550,9 @@ export async function getProcedimentosPaginated(filters?: {
     conditions.push(eq(arquivos.convenioId, filters.convenioId));
   }
 
-  // Add userId filter (only show procedures from user's files)
-  if (filters?.userId) {
-    conditions.push(eq(arquivos.userId, filters.userId));
+  // Add estabelecimentoId filter (show all procedures from the establishment, not just user's files)
+  if (filters?.estabelecimentoId && filters.estabelecimentoId > 0) {
+    conditions.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
   }
 
   // Add filter for only returned files (for Demonstrativo)

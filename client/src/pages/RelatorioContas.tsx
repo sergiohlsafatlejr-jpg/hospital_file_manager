@@ -47,10 +47,11 @@ export default function RelatorioContas() {
 
   const { data: procedimentos, isLoading } = trpc.procedimentos.list.useQuery({
     convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+    estabelecimentoId: estabelecimentoAtual?.id,
     mesReferencia: mesReferencia ? parseInt(mesReferencia) : undefined,
     anoReferencia: anoReferencia ? parseInt(anoReferencia) : undefined,
     pageSize: 10000,
-  });
+  }, { enabled: !!estabelecimentoAtual });
 
   // Agrupar dados por tipo de despesa
   const resumoPorTipo = useMemo(() => {

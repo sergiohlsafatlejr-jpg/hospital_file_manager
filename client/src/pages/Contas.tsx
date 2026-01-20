@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { 
   FileSearch, 
   Download, 
@@ -45,6 +46,7 @@ interface ContaAgrupada {
 
 export default function Contas() {
   const { user } = useAuth();
+  const { estabelecimentoAtual } = useEstabelecimento();
   const [convenioId, setConvenioId] = useState<string>("");
   const [arquivoId, setArquivoId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -68,13 +70,14 @@ export default function Contas() {
     {
       arquivoId: arquivoId ? parseInt(arquivoId) : undefined,
       convenioId: convenioId ? parseInt(convenioId) : undefined,
+      estabelecimentoId: estabelecimentoAtual?.id,
       search: searchTerm || undefined,
       mesReferencia: mesReferencia ? parseInt(mesReferencia) : undefined,
       anoReferencia: anoReferencia ? parseInt(anoReferencia) : undefined,
       page: 1,
       pageSize: 10000, // Buscar todos para agrupar
     },
-    { enabled: true }
+    { enabled: !!estabelecimentoAtual }
   );
 
   const procedimentos = procedimentosData?.items || [];

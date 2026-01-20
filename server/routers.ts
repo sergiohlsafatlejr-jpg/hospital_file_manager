@@ -865,6 +865,7 @@ export const appRouter = router({
           .object({
             arquivoId: z.number().optional(),
             convenioId: z.number().optional(),
+            estabelecimentoId: z.number().optional(),
             search: z.string().optional(),
             nomeMedico: z.string().optional(),
             crmMedico: z.string().optional(),
@@ -881,6 +882,7 @@ export const appRouter = router({
         return db.getProcedimentosPaginated({
           arquivoId: input?.arquivoId,
           convenioId: input?.convenioId,
+          estabelecimentoId: input?.estabelecimentoId,
           search: input?.search,
           nomeMedico: input?.nomeMedico,
           crmMedico: input?.crmMedico,
@@ -890,7 +892,6 @@ export const appRouter = router({
           anoReferencia: input?.anoReferencia,
           page: input?.page || 1,
           pageSize: input?.pageSize || 20,
-          userId: ctx.user.id,
         });
       }),
   }),

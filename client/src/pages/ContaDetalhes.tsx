@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { 
   ArrowLeft, 
   Download, 
@@ -42,6 +43,7 @@ const getTipoDespesa = (codigoDespesa: string | null | undefined) => {
 
 export default function ContaDetalhes() {
   const { user } = useAuth();
+  const { estabelecimentoAtual } = useEstabelecimento();
   const params = useParams<{ guiaNumero: string }>();
   const [, setLocation] = useLocation();
   const guiaNumero = decodeURIComponent(params.guiaNumero || "");
@@ -50,10 +52,11 @@ export default function ContaDetalhes() {
   const { data: procedimentosData, isLoading } = trpc.procedimentos.list.useQuery(
     {
       search: guiaNumero,
+      estabelecimentoId: estabelecimentoAtual?.id,
       page: 1,
       pageSize: 1000,
     },
-    { enabled: !!guiaNumero }
+    { enabled: !!guiaNumero && !!estabelecimentoAtual }
   );
 
   const procedimentos = procedimentosData?.items || [];
