@@ -1,0 +1,94 @@
+{
+  "query": "SELECT u.id, u.email, u.name, u.role FROM users u;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT u.id, u.email, u.name, u.role FROM users u;",
+  "rows": [
+    {
+      "id": "1",
+      "email": "sergiohlsafatlejr@gmail.com",
+      "name": "Sergio Safatle",
+      "role": "admin"
+    },
+    {
+      "id": "840096",
+      "email": "paulo.borges@safatle.com.br",
+      "name": "paulo.borges",
+      "role": "admin"
+    },
+    {
+      "id": "870228",
+      "email": "test-edit-estab-1768925064417@test.com",
+      "name": "Usuário Teste Edição Estabelecimentos",
+      "role": "user"
+    },
+    {
+      "id": "870231",
+      "email": "autoexclusao@test.com",
+      "name": "Usuário Auto-Exclusão",
+      "role": "admin"
+    },
+    {
+      "id": "870302",
+      "email": "test-edit-estab-1768925787488@test.com",
+      "name": "Usuário Teste Edição Estabelecimentos",
+      "role": "user"
+    },
+    {
+      "id": "870303",
+      "email": "autoexclusao@test.com",
+      "name": "Usuário Auto-Exclusão",
+      "role": "admin"
+    },
+    {
+      "id": "870311",
+      "email": "autoexclusao@test.com",
+      "name": "Usuário Auto-Exclusão",
+      "role": "admin"
+    },
+    {
+      "id": "870312",
+      "email": "admin@test.com",
+      "name": "Admin Teste",
+      "role": "admin"
+    },
+    {
+      "id": "960077",
+      "email": "test-edit-estab-1768935009065@test.com",
+      "name": "Usuário Teste Edição Estabelecimentos",
+      "role": "user"
+    },
+    {
+      "id": "960078",
+      "email": "autoexclusao@test.com",
+      "name": "Usuário Auto-Exclusão",
+      "role": "admin"
+    },
+    {
+      "id": "960079",
+      "email": "admin@test.com",
+      "name": "Admin Teste",
+      "role": "admin"
+    },
+    {
+      "id": "960193",
+      "email": "test-edit-estab-1768936015174@test.com",
+      "name": "Usuário Teste Edição Estabelecimentos",
+      "role": "user"
+    },
+    {
+      "id": "960194",
+      "email": "autoexclusao@test.com",
+      "name": "Usuário Auto-Exclusão",
+      "role": "admin"
+    },
+    {
+      "id": "960195",
+      "email": "admin@test.com",
+      "name": "Admin Teste",
+      "role": "admin"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\temail\tname\trole\n1\tsergiohlsafatlejr@gmail.com\tSergio Safatle\tadmin\n840096\tpaulo.borges@safatle.com.br\tpaulo.borges\tadmin\n870228\ttest-edit-estab-1768925064417@test.com\tUsuário Teste Edição Estabelecimentos\tuser\n870231\tautoexclusao@test.com\tUsuário Auto-Exclusão\tadmin\n870302\ttest-edit-estab-1768925787488@test.com\tUsuário Teste Edição Estabelecimentos\tuser\n870303\tautoexclusao@test.com\tUsuário Auto-Exclusão\tadmin\n870311\tautoexclusao@test.com\tUsuário Auto-Exclusão\tadmin\n870312\tadmin@test.com\tAdmin Teste\tadmin\n960077\ttest-edit-estab-1768935009065@test.com\tUsuário Teste Edição Estabelecimentos\tuser\n960078\tautoexclusao@test.com\tUsuário Auto-Exclusão\tadmin\n960079\tadmin@test.com\tAdmin Teste\tadmin\n960193\ttest-edit-estab-1768936015174@test.com\tUsuário Teste Edição Estabelecimentos\tuser\n960194\tautoexclusao@test.com\tUsuário Auto-Exclusão\tadmin\n960195\tadmin@test.com\tAdmin Teste\tadmin\n",
+  "stderr": "",
+  "execution_time_ms": 70
+}

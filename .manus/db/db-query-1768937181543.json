@@ -1,0 +1,24 @@
+{
+  "query": "SELECT u.id, u.email, u.name, u.role, u.createdAt FROM users u WHERE u.email LIKE '%paulo.borges%' OR u.email LIKE '%safatle%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT u.id, u.email, u.name, u.role, u.createdAt FROM users u WHERE u.email LIKE '%paulo.borges%' OR u.email LIKE '%safatle%';",
+  "rows": [
+    {
+      "id": "1",
+      "email": "sergiohlsafatlejr@gmail.com",
+      "name": "Sergio Safatle",
+      "role": "admin",
+      "createdAt": "2026-01-14 13:50:19"
+    },
+    {
+      "id": "840096",
+      "email": "paulo.borges@safatle.com.br",
+      "name": "paulo.borges",
+      "role": "admin",
+      "createdAt": "2026-01-20 11:57:44"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\temail\tname\trole\tcreatedAt\n1\tsergiohlsafatlejr@gmail.com\tSergio Safatle\tadmin\t2026-01-14 13:50:19\n840096\tpaulo.borges@safatle.com.br\tpaulo.borges\tadmin\t2026-01-20 11:57:44\n",
+  "stderr": "",
+  "execution_time_ms": 131
+}

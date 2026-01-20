@@ -1,0 +1,36 @@
+{
+  "query": "SELECT p.*, e.nome as estabelecimento FROM permissoesEstabelecimento p LEFT JOIN estabelecimentos e ON p.estabelecimentoId = e.id WHERE p.userId = 840096;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT p.*, e.nome as estabelecimento FROM permissoesEstabelecimento p LEFT JOIN estabelecimentos e ON p.estabelecimentoId = e.id WHERE p.userId = 840096;",
+  "rows": [
+    {
+      "id": "90008",
+      "userId": "840096",
+      "estabelecimentoId": "90001",
+      "podeVisualizar": "sim",
+      "podeEditar": "sim",
+      "podeExcluir": "sim",
+      "podeGerenciar": "sim",
+      "createdAt": "2026-01-20 15:58:48",
+      "updatedAt": "2026-01-20 19:23:01",
+      "grupoServico": "administrador",
+      "acessoDashboard": "sim",
+      "acessoArquivos": "sim",
+      "acessoComparacoes": "sim",
+      "acessoFaturamento": "sim",
+      "acessoTabelasPreco": "sim",
+      "acessoAnaliseGlosa": "sim",
+      "acessoDicionarioGlosas": "sim",
+      "acessoRecursosGlosa": "sim",
+      "acessoConvenios": "sim",
+      "acessoRegrasNegocio": "sim",
+      "acessoProdutividade": "sim",
+      "acessoEstabelecimentos": "sim",
+      "acessoPermissoes": "sim",
+      "estabelecimento": "Ox Uti "
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tuserId\testabelecimentoId\tpodeVisualizar\tpodeEditar\tpodeExcluir\tpodeGerenciar\tcreatedAt\tupdatedAt\tgrupoServico\tacessoDashboard\tacessoArquivos\tacessoComparacoes\tacessoFaturamento\tacessoTabelasPreco\tacessoAnaliseGlosa\tacessoDicionarioGlosas\tacessoRecursosGlosa\tacessoConvenios\tacessoRegrasNegocio\tacessoProdutividade\tacessoEstabelecimentos\tacessoPermissoes\testabelecimento\n90008\t840096\t90001\tsim\tsim\tsim\tsim\t2026-01-20 15:58:48\t2026-01-20 19:23:01\tadministrador\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tsim\tOx Uti \n",
+  "stderr": "",
+  "execution_time_ms": 50
+}

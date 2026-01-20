@@ -1,0 +1,100 @@
+{
+  "query": "SHOW TABLES;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW TABLES;",
+  "rows": [
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "__drizzle_migrations"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "alertasDivergencia"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "argumentosConvenio"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "arquivos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "camposComparacao"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "codigosProcedimentos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "comparacoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "convenios"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "decisoesGlosa"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "divergencias"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "estabelecimentos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "gruposServico"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "historicoContestacoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "historicoPrecos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "historicoRecursos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "historicoValidacoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "importacoesTabela"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "itensManuals"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "itensRegraNegocio"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "logAuditoriaPermissoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "lotesRecurso"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "motivosGlosa"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "padroesContas"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "permissoesEstabelecimento"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "procedimentos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "recursosGlosa"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "regrasConciliacao"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "regrasNegocio"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "tabelasPreco"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye": "users"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_98MRdVE9Uf2ZRMz25bPSye\n__drizzle_migrations\nalertasDivergencia\nargumentosConvenio\narquivos\ncamposComparacao\ncodigosProcedimentos\ncomparacoes\nconvenios\ndecisoesGlosa\ndivergencias\nestabelecimentos\ngruposServico\nhistoricoContestacoes\nhistoricoPrecos\nhistoricoRecursos\nhistoricoValidacoes\nimportacoesTabela\nitensManuals\nitensRegraNegocio\nlogAuditoriaPermissoes\nlotesRecurso\nmotivosGlosa\npadroesContas\npermissoesEstabelecimento\nprocedimentos\nrecursosGlosa\nregrasConciliacao\nregrasNegocio\ntabelasPreco\nusers\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

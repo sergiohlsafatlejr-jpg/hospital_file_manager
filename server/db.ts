@@ -3607,7 +3607,7 @@ function determinarTipoProcedimento(codigo: string, descricao?: string): "exame"
 }
 
 export async function getItensGlosados(filters: {
-  userId: number;
+  userId?: number;
   convenioId?: number;
   estabelecimentoId?: number;
   dataReferenciaInicio?: Date;
@@ -3634,12 +3634,16 @@ export async function getItensGlosados(filters: {
     alertasPrazo: []
   };
 
-  // Buscar arquivos retornados do usuário (que contêm glosas)
+  // Buscar arquivos retornados (que contêm glosas)
   const arquivosConditions: any[] = [
-    eq(arquivos.userId, filters.userId),
     eq(arquivos.direcao, "retornado"),
     eq(arquivos.status, "processado"),
   ];
+
+  // Filtrar por usuário apenas se especificado
+  if (filters.userId) {
+    arquivosConditions.push(eq(arquivos.userId, filters.userId));
+  }
 
   if (filters.convenioId) {
     arquivosConditions.push(eq(arquivos.convenioId, filters.convenioId));
@@ -4798,7 +4802,7 @@ interface ItemGlosadoAceito {
  * Busca itens glosados que foram aceitos (classificacaoGlosa = 'aceitar')
  */
 export async function getItensGlosadosAceitos(filters: {
-  userId: number;
+  userId?: number;
   convenioId?: number;
   estabelecimentoId?: number;
   dataReferenciaInicio?: Date;
@@ -4810,13 +4814,16 @@ export async function getItensGlosadosAceitos(filters: {
   const db = await getDb();
   if (!db) return { items: [], total: 0, totalValorGlosado: 0 };
 
-  // Buscar arquivos retornados do usuário
+  // Buscar arquivos retornados
   const arquivosConditions: any[] = [
-    eq(arquivos.userId, filters.userId),
     eq(arquivos.direcao, "retornado"),
     eq(arquivos.status, "processado"),
   ];
 
+  // Filtrar por usuário apenas se especificado
+  if (filters.userId) {
+    arquivosConditions.push(eq(arquivos.userId, filters.userId));
+  }
   if (filters.convenioId) {
     arquivosConditions.push(eq(arquivos.convenioId, filters.convenioId));
   }

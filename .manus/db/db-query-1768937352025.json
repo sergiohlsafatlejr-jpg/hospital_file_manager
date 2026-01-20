@@ -1,0 +1,18 @@
+{
+  "query": "SELECT userId, estabelecimentoId, podeVisualizar, podeEditar, podeGerenciar, grupoServico FROM permissoesEstabelecimento WHERE userId = 840096;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT userId, estabelecimentoId, podeVisualizar, podeEditar, podeGerenciar, grupoServico FROM permissoesEstabelecimento WHERE userId = 840096;",
+  "rows": [
+    {
+      "userId": "840096",
+      "estabelecimentoId": "90001",
+      "podeVisualizar": "sim",
+      "podeEditar": "sim",
+      "podeGerenciar": "sim",
+      "grupoServico": "administrador"
+    }
+  ],
+  "messages": [],
+  "stdout": "userId\testabelecimentoId\tpodeVisualizar\tpodeEditar\tpodeGerenciar\tgrupoServico\n840096\t90001\tsim\tsim\tsim\tadministrador\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

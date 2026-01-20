@@ -1,0 +1,14 @@
+{
+  "query": "SELECT \n  (SELECT estabelecimentoId FROM permissoesEstabelecimento WHERE userId = 840096) as paulo_estabelecimento,\n  (SELECT DISTINCT estabelecimentoId FROM arquivos LIMIT 1) as arquivos_estabelecimento;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  (SELECT estabelecimentoId FROM permissoesEstabelecimento WHERE userId = 840096) as paulo_estabelecimento,\n  (SELECT DISTINCT estabelecimentoId FROM arquivos LIMIT 1) as arquivos_estabelecimento;",
+  "rows": [
+    {
+      "paulo_estabelecimento": "90001",
+      "arquivos_estabelecimento": "90001"
+    }
+  ],
+  "messages": [],
+  "stdout": "paulo_estabelecimento\tarquivos_estabelecimento\n90001\t90001\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

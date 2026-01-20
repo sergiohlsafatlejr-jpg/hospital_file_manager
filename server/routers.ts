@@ -300,7 +300,6 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         return db.getArquivos({
           ...input,
-          userId: ctx.user.id,
           estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
@@ -591,7 +590,6 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         return db.getComparacoes({
           ...input,
-          userId: ctx.user.id,
           estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
@@ -920,7 +918,6 @@ export const appRouter = router({
       }).optional())
       .query(async ({ input, ctx }) => {
         const comparacoes = await db.getComparacoes({ 
-          userId: ctx.user.id,
           estabelecimentoId: input?.estabelecimentoId 
         });
         return comparacoes.slice(0, input?.limit || 5);
@@ -933,7 +930,6 @@ export const appRouter = router({
       }).optional())
       .query(async ({ input, ctx }) => {
         const arquivos = await db.getArquivos({ 
-          userId: ctx.user.id,
           estabelecimentoId: input?.estabelecimentoId 
         });
         return arquivos.slice(0, input?.limit || 10);
@@ -1044,7 +1040,6 @@ export const appRouter = router({
       )
       .query(async ({ input, ctx }) => {
         return db.getItensGlosados({
-          userId: ctx.user.id,
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
           dataReferenciaInicio: input?.dataReferenciaInicio,
@@ -1073,7 +1068,6 @@ export const appRouter = router({
       )
       .query(async ({ input, ctx }) => {
         return db.getItensGlosadosAceitos({
-          userId: ctx.user.id,
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
           dataReferenciaInicio: input?.dataReferenciaInicio,

@@ -1,0 +1,22 @@
+{
+  "query": "SELECT p.userId, p.estabelecimentoId, e.nome as estabelecimento, u.email FROM permissoesEstabelecimento p JOIN estabelecimentos e ON p.estabelecimentoId = e.id JOIN users u ON p.userId = u.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT p.userId, p.estabelecimentoId, e.nome as estabelecimento, u.email FROM permissoesEstabelecimento p JOIN estabelecimentos e ON p.estabelecimentoId = e.id JOIN users u ON p.userId = u.id;",
+  "rows": [
+    {
+      "userId": "1",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "email": "sergiohlsafatlejr@gmail.com"
+    },
+    {
+      "userId": "840096",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "email": "paulo.borges@safatle.com.br"
+    }
+  ],
+  "messages": [],
+  "stdout": "userId\testabelecimentoId\testabelecimento\temail\n1\t90001\tOx Uti \tsergiohlsafatlejr@gmail.com\n840096\t90001\tOx Uti \tpaulo.borges@safatle.com.br\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

@@ -1,0 +1,14 @@
+{
+  "query": "SELECT estabelecimentoId, COUNT(*) as total FROM arquivos GROUP BY estabelecimentoId;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT estabelecimentoId, COUNT(*) as total FROM arquivos GROUP BY estabelecimentoId;",
+  "rows": [
+    {
+      "estabelecimentoId": "90001",
+      "total": "52"
+    }
+  ],
+  "messages": [],
+  "stdout": "estabelecimentoId\ttotal\n90001\t52\n",
+  "stderr": "",
+  "execution_time_ms": 48
+}

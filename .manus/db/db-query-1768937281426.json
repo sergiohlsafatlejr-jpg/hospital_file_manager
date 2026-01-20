@@ -1,0 +1,374 @@
+{
+  "query": "SELECT a.id, a.nome, a.estabelecimentoId, e.nome as estabelecimento, a.userId FROM arquivos a LEFT JOIN estabelecimentos e ON a.estabelecimentoId = e.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT a.id, a.nome, a.estabelecimentoId, e.nome as estabelecimento, a.userId FROM arquivos a LEFT JOIN estabelecimentos e ON a.estabelecimentoId = e.id;",
+  "rows": [
+    {
+      "id": "330001",
+      "nome": "00000000000000085914_ecd09b88cf469b50ad8c158606689f60.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330002",
+      "nome": "00000000000000085916_ef4899119dff26319bd5c8605616980a.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330003",
+      "nome": "00000000000000085918_8b20e9344ff0e19af5af1d965cfb9965.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330004",
+      "nome": "00000000000000085919_b713e0ac8d142a53fc35bf395a52b239.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330005",
+      "nome": "00000000000000085920_01eabea89f9b560102eb0416a246e210.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330006",
+      "nome": "00000000000000086037_b59442f24d53d4831d1e5d260a28d753.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330007",
+      "nome": "00000000000000086057_7aef5a5c4319bc55d56c051864c7348d.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330008",
+      "nome": "00000000000000086059_3e113706534b7e183fbd0932bdda2c07.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330009",
+      "nome": "00000000000000086060_b2f4f1ddd67239f904275b44d2c97d92.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330010",
+      "nome": "00000000000000085661_3b8dd31b10b97f3f2e2af54c6ab622d6.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330011",
+      "nome": "00000000000000085665_6c71e81acb60bb2c54b6bd72733f9dda.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330012",
+      "nome": "00000000000000085666_8eb6e7ade8c091547383aae44354ccdb.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330013",
+      "nome": "00000000000000085683_4f9f2536d49016b3c8e8f6d1f23c79d7.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330014",
+      "nome": "00000000000000085686_4b10ed73ee355309e1000fb958dcaac7.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330015",
+      "nome": "00000000000000085686_ebcde657d26c7669cacd2c956deb9540.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330016",
+      "nome": "00000000000000085700_76805f8b855dc67cbded326d2d1fcb51.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330017",
+      "nome": "00000000000000085725_b10c8449037e65f10441b5762a0021f9.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330018",
+      "nome": "00000000000000085732_bd16cc4b5fd74f972a05055af42ef323.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330019",
+      "nome": "00000000000000085734_a5260f83a03792f31a79ac0b51ca1a3f.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330020",
+      "nome": "00000000000000085756_a57def78e977a93963bbf1ded24fe2ce.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330021",
+      "nome": "00000000000000085762_cc0ffd4daee8ff7adcb1c2fad124b7f5.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330022",
+      "nome": "00000000000000085773_6b876e053b3dfe4671f8533a3928df4d.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330023",
+      "nome": "00000000000000085774_1f86526b0aef9cb4f973aea5f83f18a8.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330024",
+      "nome": "00000000000000085775_dabff1fc1ab4f6ca37830293ca142a50.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330025",
+      "nome": "00000000000000085795_12dbec48e3a44695aacce21409438bad.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330026",
+      "nome": "00000000000000085911_a610f25048302e78b43bd3f2008bfd8a.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330027",
+      "nome": "00000000000000085912_06bf19a7e32c8146b6511fdd8f210c66.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330028",
+      "nome": "00000000000000085913_658a159b2f33b17e36c21eeb77bbde23.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "330030",
+      "nome": "demonstrativo-0282622.xlsx",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360001",
+      "nome": "00000000000000086809_26eba8a549e22a48e0c0f3a25869f87b.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360002",
+      "nome": "00000000000000086811_e3e8e42e7422e9b26ca0b32bb221972a.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360003",
+      "nome": "00000000000000086812_e6de1fd53bfddc0b54f6ba268417919e.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360004",
+      "nome": "00000000000000086813_226ff6b64232f0667f279a8db9e01db7.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360005",
+      "nome": "00000000000000086910_567e34d0159dea0e41893934cf730210.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360006",
+      "nome": "00000000000000086187_1e15866cb832fd3b0644552ff4daaa79.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360007",
+      "nome": "00000000000000086368_b282621f49304fb8f3a69d831fbdfe85.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360008",
+      "nome": "00000000000000086381_52269ad1bcdd943a8d49acc569aa787e.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360009",
+      "nome": "00000000000000086385_360145a95ac9d33e991d71eb51a2cf10.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360010",
+      "nome": "00000000000000086386_0c32e43e173de445978452ad2f40cd55.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360011",
+      "nome": "00000000000000086399_7a9d080aca630295fad4ec9ea7b9fae2.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360012",
+      "nome": "00000000000000086406_aed978c5e8060b44275c69d9b1e5169a.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360013",
+      "nome": "00000000000000086508_06ede26fb9cfeaf002c61593e98218d4.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360014",
+      "nome": "00000000000000086512_df9cf2e7183e0c991c5347c7ab751e17.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360015",
+      "nome": "00000000000000086513_0ca9b2901fde61adb79f374089132e57.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360016",
+      "nome": "00000000000000086515_aded469bb0ddc1c6a07b0fd85070e3d4.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360017",
+      "nome": "00000000000000086526_4e1c147ce2b2c6d27203e64d25d9b9cd.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360018",
+      "nome": "00000000000000086788_dc7900f356d58e65c14ddffcdda32c7b.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360019",
+      "nome": "00000000000000086789_0c84bb541e18540e35b97543f27bc300.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360020",
+      "nome": "00000000000000086792_214a42e9e8b0f9bec294e62dd2ca8a6e.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360021",
+      "nome": "00000000000000086794_fc2e573ad1763740a8a9fe77922e27c6.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360022",
+      "nome": "00000000000000086802_caad32ead38a935de533c18cb2e17065.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    },
+    {
+      "id": "360023",
+      "nome": "00000000000000086807_06713995fd547262997219ab3046606c.xml",
+      "estabelecimentoId": "90001",
+      "estabelecimento": "Ox Uti ",
+      "userId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\testabelecimentoId\testabelecimento\tuserId\n330001\t00000000000000085914_ecd09b88cf469b50ad8c158606689f60.xml\t90001\tOx Uti \t1\n330002\t00000000000000085916_ef4899119dff26319bd5c8605616980a.xml\t90001\tOx Uti \t1\n330003\t00000000000000085918_8b20e9344ff0e19af5af1d965cfb9965.xml\t90001\tOx Uti \t1\n330004\t00000000000000085919_b713e0ac8d142a53fc35bf395a52b239.xml\t90001\tOx Uti \t1\n330005\t00000000000000085920_01eabea89f9b560102eb0416a246e210.xml\t90001\tOx Uti \t1\n330006\t00000000000000086037_b59442f24d53d4831d1e5d260a28d753.xml\t90001\tOx Uti \t1\n330007\t00000000000000086057_7aef5a5c4319bc55d56c051864c7348d.xml\t90001\tOx Uti \t1\n330008\t00000000000000086059_3e113706534b7e183fbd0932bdda2c07.xml\t90001\tOx Uti \t1\n330009\t00000000000000086060_b2f4f1ddd67239f904275b44d2c97d92.xml\t90001\tOx Uti \t1\n330010\t00000000000000085661_3b8dd31b10b97f3f2e2af54c6ab622d6.xml\t90001\tOx Uti \t1\n330011\t00000000000000085665_6c71e81acb60bb2c54b6bd72733f9dda.xml\t90001\tOx Uti \t1\n330012\t00000000000000085666_8eb6e7ade8c091547383aae44354ccdb.xml\t90001\tOx Uti \t1\n330013\t00000000000000085683_4f9f2536d49016b3c8e8f6d1f23c79d7.xml\t90001\tOx Uti \t1\n330014\t00000000000000085686_4b10ed73ee355309e1000fb958dcaac7.xml\t90001\tOx Uti \t1\n330015\t00000000000000085686_ebcde657d26c7669cacd2c956deb9540.xml\t90001\tOx Uti \t1\n330016\t00000000000000085700_76805f8b855dc67cbded326d2d1fcb51.xml\t90001\tOx Uti \t1\n330017\t00000000000000085725_b10c8449037e65f10441b5762a0021f9.xml\t90001\tOx Uti \t1\n330018\t00000000000000085732_bd16cc4b5fd74f972a05055af42ef323.xml\t90001\tOx Uti \t1\n330019\t00000000000000085734_a5260f83a03792f31a79ac0b51ca1a3f.xml\t90001\tOx Uti \t1\n330020\t00000000000000085756_a57def78e977a93963bbf1ded24fe2ce.xml\t90001\tOx Uti \t1\n330021\t00000000000000085762_cc0ffd4daee8ff7adcb1c2fad124b7f5.xml\t90001\tOx Uti \t1\n330022\t00000000000000085773_6b876e053b3dfe4671f8533a3928df4d.xml\t90001\tOx Uti \t1\n330023\t00000000000000085774_1f86526b0aef9cb4f973aea5f83f18a8.xml\t90001\tOx Uti \t1\n330024\t00000000000000085775_dabff1fc1ab4f6ca37830293ca142a50.xml\t90001\tOx Uti \t1\n330025\t00000000000000085795_12dbec48e3a44695aacce21409438bad.xml\t90001\tOx Uti \t1\n330026\t00000000000000085911_a610f25048302e78b43bd3f2008bfd8a.xml\t90001\tOx Uti \t1\n330027\t00000000000000085912_06bf19a7e32c8146b6511fdd8f210c66.xml\t90001\tOx Uti \t1\n330028\t00000000000000085913_658a159b2f33b17e36c21eeb77bbde23.xml\t90001\tOx Uti \t1\n330030\tdemonstrativo-0282622.xlsx\t90001\tOx Uti \t1\n360001\t00000000000000086809_26eba8a549e22a48e0c0f3a25869f87b.xml\t90001\tOx Uti \t1\n360002\t00000000000000086811_e3e8e42e7422e9b26ca0b32bb221972a.xml\t90001\tOx Uti \t1\n360003\t00000000000000086812_e6de1fd53bfddc0b54f6ba268417919e.xml\t90001\tOx Uti \t1\n360004\t00000000000000086813_226ff6b64232f0667f279a8db9e01db7.xml\t90001\tOx Uti \t1\n360005\t00000000000000086910_567e34d0159dea0e41893934cf730210.xml\t90001\tOx Uti \t1\n360006\t00000000000000086187_1e15866cb832fd3b0644552ff4daaa79.xml\t90001\tOx Uti \t1\n360007\t00000000000000086368_b282621f49304fb8f3a69d831fbdfe85.xml\t90001\tOx Uti \t1\n360008\t00000000000000086381_52269ad1bcdd943a8d49acc569aa787e.xml\t90001\tOx Uti \t1\n360009\t00000000000000086385_360145a95ac9d33e991d71eb51a2cf10.xml\t90001\tOx Uti \t1\n360010\t00000000000000086386_0c32e43e173de445978452ad2f40cd55.xml\t90001\tOx Uti \t1\n360011\t00000000000000086399_7a9d080aca630295fad4ec9ea7b9fae2.xml\t90001\tOx Uti \t1\n360012\t00000000000000086406_aed978c5e8060b44275c69d9b1e5169a.xml\t90001\tOx Uti \t1\n360013\t00000000000000086508_06ede26fb9cfeaf002c61593e98218d4.xml\t90001\tOx Uti \t1\n360014\t00000000000000086512_df9cf2e7183e0c991c5347c7ab751e17.xml\t90001\tOx Uti \t1\n360015\t00000000000000086513_0ca9b2901fde61adb79f374089132e57.xml\t90001\tOx Uti \t1\n360016\t00000000000000086515_aded469bb0ddc1c6a07b0fd85070e3d4.xml\t90001\tOx Uti \t1\n360017\t00000000000000086526_4e1c147ce2b2c6d27203e64d25d9b9cd.xml\t90001\tOx Uti \t1\n360018\t00000000000000086788_dc7900f356d58e65c14ddffcdda32c7b.xml\t90001\tOx Uti \t1\n360019\t00000000000000086789_0c84bb541e18540e35b97543f27bc300.xml\t90001\tOx Uti \t1\n360020\t00000000000000086792_214a42e9e8b0f9bec294e62dd2ca8a6e.xml\t90001\tOx Uti \t1\n360021\t00000000000000086794_fc2e573ad1763740a8a9fe77922e27c6.xml\t90001\tOx Uti \t1\n360022\t00000000000000086802_caad32ead38a935de533c18cb2e17065.xml\t90001\tOx Uti \t1\n360023\t00000000000000086807_06713995fd547262997219ab3046606c.xml\t90001\tOx Uti \t1\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}
