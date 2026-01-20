@@ -6596,7 +6596,21 @@ export async function listarTodosUsuarios() {
     .from(users)
     .orderBy(users.name);
 
-  return usuarios;
+  // Buscar contagem de estabelecimentos para cada usuário
+  const usuariosComContagem = await Promise.all(
+    usuarios.map(async (user) => {
+      const permissoes = await db
+        .select({ estabelecimentoId: permissoesEstabelecimento.estabelecimentoId })
+        .from(permissoesEstabelecimento)
+        .where(eq(permissoesEstabelecimento.userId, user.id));
+      return {
+        ...user,
+        estabelecimentosCount: permissoes.length,
+      };
+    })
+  );
+
+  return usuariosComContagem;
 }
 
 
@@ -6891,4 +6905,135 @@ export async function changeUserPassword(
   await setUserPassword(userId, newPassword);
   
   return { success: true, message: "Senha alterada com sucesso" };
+}
+
+
+// ============ ESTABELECIMENTOS DO USUÁRIO ============
+
+/**
+ * Busca os estabelecimentos que um usuário tem acesso
+ */
+export async function getEstabelecimentosUsuario(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await db
+    .select({
+      id: estabelecimentos.id,
+      nome: estabelecimentos.nome,
+      cnpj: estabelecimentos.cnpj,
+      endereco: estabelecimentos.endereco,
+      podeVisualizar: permissoesEstabelecimento.podeVisualizar,
+      podeEditar: permissoesEstabelecimento.podeEditar,
+      podeExcluir: permissoesEstabelecimento.podeExcluir,
+      podeGerenciar: permissoesEstabelecimento.podeGerenciar,
+    })
+    .from(permissoesEstabelecimento)
+    .innerJoin(
+      estabelecimentos,
+      eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentos.id)
+    )
+    .where(eq(permissoesEstabelecimento.userId, userId))
+    .orderBy(estabelecimentos.nome);
+
+  return result;
+}
+
+
+/**
+ * Busca um usuário pelo ID
+ */
+export async function getUserById(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return user;
+}
+
+
+/**
+ * Atualiza os estabelecimentos de um usuário (adiciona e remove conforme necessário)
+ */
+export async function atualizarEstabelecimentosUsuario(
+  userId: number,
+  novosEstabelecimentosIds: number[],
+  adminId: number
+): Promise<{ adicionados: number; removidos: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Buscar estabelecimentos atuais do usuário
+  const estabelecimentosAtuais = await getEstabelecimentosUsuario(userId);
+  const idsAtuais = estabelecimentosAtuais.map(e => e.id);
+
+  // Calcular diferenças
+  const idsParaAdicionar = novosEstabelecimentosIds.filter(id => !idsAtuais.includes(id));
+  const idsParaRemover = idsAtuais.filter(id => !novosEstabelecimentosIds.includes(id));
+
+  // Remover estabelecimentos
+  for (const estabelecimentoId of idsParaRemover) {
+    await db
+      .delete(permissoesEstabelecimento)
+      .where(
+        and(
+          eq(permissoesEstabelecimento.userId, userId),
+          eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentoId)
+        )
+      );
+
+    // Registrar no log de auditoria
+    await registrarLogAuditoria({
+      usuarioId: adminId,
+      usuarioAfetadoId: userId,
+      estabelecimentoId: estabelecimentoId,
+      tipoAcao: "editar_estabelecimentos",
+      descricao: `Removido acesso ao estabelecimento`,
+    });
+  }
+
+  // Adicionar novos estabelecimentos
+  for (const estabelecimentoId of idsParaAdicionar) {
+    await upsertPermissaoEstabelecimento({
+      userId,
+      estabelecimentoId,
+      grupoServico: "visualizador",
+      podeVisualizar: "sim",
+      podeEditar: "nao",
+      podeExcluir: "nao",
+      podeGerenciar: "nao",
+      acessoDashboard: "sim",
+      acessoArquivos: "nao",
+      acessoComparacoes: "nao",
+      acessoFaturamento: "nao",
+      acessoTabelasPreco: "nao",
+      acessoAnaliseGlosa: "nao",
+      acessoDicionarioGlosas: "nao",
+      acessoRecursosGlosa: "nao",
+      acessoConvenios: "nao",
+      acessoRegrasNegocio: "nao",
+      acessoProdutividade: "nao",
+      acessoEstabelecimentos: "nao",
+      acessoPermissoes: "nao",
+    });
+
+    // Registrar no log de auditoria
+    await registrarLogAuditoria({
+      usuarioId: adminId,
+      usuarioAfetadoId: userId,
+      estabelecimentoId: estabelecimentoId,
+      tipoAcao: "editar_estabelecimentos",
+      descricao: `Adicionado acesso ao estabelecimento`,
+    });
+  }
+
+  return {
+    adicionados: idsParaAdicionar.length,
+    removidos: idsParaRemover.length,
+  };
 }

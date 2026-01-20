@@ -138,6 +138,9 @@ export default function GerenciarPermissoes() {
   const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
   const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
+  const [showEditEstabelecimentosDialog, setShowEditEstabelecimentosDialog] = useState(false);
+  const [editingUserEstabelecimentos, setEditingUserEstabelecimentos] = useState<any>(null);
+  const [selectedEstabelecimentosIds, setSelectedEstabelecimentosIds] = useState<number[]>([]);
   
   // Estado para novo usuário
   const [newUser, setNewUser] = useState({
@@ -276,6 +279,30 @@ export default function GerenciarPermissoes() {
     },
     onError: (error) => {
       toast.error("Erro ao excluir grupo", {
+        description: error.message,
+      });
+    },
+  });
+
+  // Query para buscar estabelecimentos de um usuário específico
+  const { data: estabelecimentosUsuario, refetch: refetchEstabelecimentosUsuario } = 
+    trpc.permissoes.listarEstabelecimentosUsuario.useQuery(
+      { userId: editingUserEstabelecimentos?.id || 0 },
+      { enabled: !!editingUserEstabelecimentos?.id }
+    );
+
+  // Mutation para atualizar estabelecimentos do usuário
+  const atualizarEstabelecimentosUsuario = trpc.permissoes.atualizarEstabelecimentosUsuario.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Estabelecimentos atualizados: ${result.adicionados} adicionado(s), ${result.removidos} removido(s)`);
+      refetchTodosUsuarios();
+      refetchUsuarios();
+      setShowEditEstabelecimentosDialog(false);
+      setEditingUserEstabelecimentos(null);
+      setSelectedEstabelecimentosIds([]);
+    },
+    onError: (error) => {
+      toast.error("Erro ao atualizar estabelecimentos", {
         description: error.message,
       });
     },
@@ -435,6 +462,46 @@ export default function GerenciarPermissoes() {
     if (confirm("Tem certeza que deseja excluir este grupo?")) {
       excluirGrupo.mutate({ id });
     }
+  };
+
+  const handleEditEstabelecimentos = (user: any) => {
+    setEditingUserEstabelecimentos(user);
+    setShowEditEstabelecimentosDialog(true);
+  };
+
+  // Effect para carregar estabelecimentos do usuário quando abrir o dialog
+  useEffect(() => {
+    if (estabelecimentosUsuario && showEditEstabelecimentosDialog) {
+      setSelectedEstabelecimentosIds(estabelecimentosUsuario.map((e: any) => e.id));
+    }
+  }, [estabelecimentosUsuario, showEditEstabelecimentosDialog]);
+
+  const handleSaveEstabelecimentos = () => {
+    if (!editingUserEstabelecimentos) return;
+    atualizarEstabelecimentosUsuario.mutate({
+      userId: editingUserEstabelecimentos.id,
+      estabelecimentosIds: selectedEstabelecimentosIds,
+    });
+  };
+
+  const toggleEstabelecimento = (estabelecimentoId: number) => {
+    setSelectedEstabelecimentosIds(prev => {
+      if (prev.includes(estabelecimentoId)) {
+        return prev.filter(id => id !== estabelecimentoId);
+      } else {
+        return [...prev, estabelecimentoId];
+      }
+    });
+  };
+
+  const selectAllEstabelecimentos = () => {
+    if (estabelecimentos) {
+      setSelectedEstabelecimentosIds(estabelecimentos.map(e => e.id));
+    }
+  };
+
+  const clearEstabelecimentos = () => {
+    setSelectedEstabelecimentosIds([]);
   };
 
   const getGrupoInfo = (grupoServico: string | null) => {
@@ -754,6 +821,79 @@ export default function GerenciarPermissoes() {
               </CardContent>
             </Card>
           )}
+
+          {/* Lista de Todos os Usuários do Sistema */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Todos os Usuários do Sistema
+                  </CardTitle>
+                  <CardDescription>
+                    Gerencie os estabelecimentos de cada usuário
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {todosUsuarios && todosUsuarios.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Função</TableHead>
+                      <TableHead>Estabelecimentos</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {todosUsuarios.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              <User className="h-4 w-4 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{user.name}</p>
+                              <p className="text-sm text-muted-foreground">{user.email}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+                            {user.role === "admin" ? "Administrador" : "Usuário"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {user.estabelecimentosCount || 0} estabelecimento(s)
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEditEstabelecimentos(user)}
+                          >
+                            <Building2 className="h-4 w-4 mr-2" />
+                            Editar Estabelecimentos
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Nenhum usuário cadastrado no sistema</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Tab de Grupos de Serviço */}
@@ -1471,6 +1611,95 @@ export default function GerenciarPermissoes() {
             </Button>
             <Button onClick={handleSaveEdit}>
               Salvar Alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para editar estabelecimentos do usuário */}
+      <Dialog open={showEditEstabelecimentosDialog} onOpenChange={(open) => {
+        setShowEditEstabelecimentosDialog(open);
+        if (!open) {
+          setEditingUserEstabelecimentos(null);
+          setSelectedEstabelecimentosIds([]);
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Editar Estabelecimentos
+            </DialogTitle>
+            <DialogDescription>
+              {editingUserEstabelecimentos && (
+                <span>
+                  Gerenciar estabelecimentos de <strong>{editingUserEstabelecimentos.name}</strong>
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                {selectedEstabelecimentosIds.length} de {estabelecimentos?.length || 0} estabelecimento(s) selecionado(s)
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={selectAllEstabelecimentos}>
+                  Selecionar Todos
+                </Button>
+                <Button variant="outline" size="sm" onClick={clearEstabelecimentos}>
+                  Limpar Seleção
+                </Button>
+              </div>
+            </div>
+            
+            <div className="border rounded-lg max-h-96 overflow-y-auto">
+              {estabelecimentos?.map((est) => {
+                const isSelected = selectedEstabelecimentosIds.includes(est.id);
+                return (
+                  <div
+                    key={est.id}
+                    className={`flex items-center gap-3 p-3 border-b last:border-b-0 cursor-pointer transition-all ${
+                      isSelected ? "bg-primary/5" : "hover:bg-muted/50"
+                    }`}
+                    onClick={() => toggleEstabelecimento(est.id)}
+                  >
+                    <div className={`h-5 w-5 rounded border-2 flex items-center justify-center ${
+                      isSelected ? "bg-primary border-primary" : "border-muted-foreground"
+                    }`}>
+                      {isSelected && (
+                        <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium">{est.nome}</p>
+                      <p className="text-sm text-muted-foreground">{est.cnpj}</p>
+                    </div>
+                    <Badge variant={est.ativo === "sim" ? "default" : "secondary"}>
+                      {est.ativo === "sim" ? "Ativo" : "Inativo"}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowEditEstabelecimentosDialog(false);
+              setEditingUserEstabelecimentos(null);
+              setSelectedEstabelecimentosIds([]);
+            }}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleSaveEstabelecimentos}
+              disabled={atualizarEstabelecimentosUsuario.isPending}
+            >
+              {atualizarEstabelecimentosUsuario.isPending ? "Salvando..." : "Salvar Alterações"}
             </Button>
           </DialogFooter>
         </DialogContent>

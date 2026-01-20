@@ -2470,6 +2470,88 @@ export const appRouter = router({
         });
       }),
 
+    // Listar estabelecimentos de um usuário específico
+    listarEstabelecimentosUsuario: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          const isGestor = await db.verificarSeGestor(ctx.user.id);
+          if (!isGestor) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Apenas administradores ou gestores podem ver estabelecimentos de usuários",
+            });
+          }
+        }
+        return db.getEstabelecimentosUsuario(input.userId);
+      }),
+
+    // Atualizar estabelecimentos de um usuário (adicionar/remover)
+    atualizarEstabelecimentosUsuario: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        estabelecimentosIds: z.array(z.number()),
+        grupoId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          const isGestor = await db.verificarSeGestor(ctx.user.id);
+          if (!isGestor) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Apenas administradores ou gestores podem atualizar estabelecimentos de usuários",
+            });
+          }
+        }
+
+        // Buscar estabelecimentos atuais do usuário
+        const estabelecimentosAtuais = await db.getEstabelecimentosUsuario(input.userId);
+        const idsAtuais = estabelecimentosAtuais.map(e => e.id);
+        
+        // Identificar o que adicionar e remover
+        const idsParaAdicionar = input.estabelecimentosIds.filter(id => !idsAtuais.includes(id));
+        const idsParaRemover = idsAtuais.filter(id => !input.estabelecimentosIds.includes(id));
+        
+        // Remover permissões
+        for (const estabelecimentoId of idsParaRemover) {
+          await db.deletePermissaoEstabelecimento(input.userId, estabelecimentoId);
+        }
+        
+        // Adicionar permissões
+        for (const estabelecimentoId of idsParaAdicionar) {
+          await db.criarPermissaoEstabelecimento({
+            usuarioId: input.userId,
+            estabelecimentoId,
+            grupoId: input.grupoId,
+            podeVisualizar: true,
+            podeEditar: false,
+            podeExcluir: false,
+            podeGerenciar: false,
+          });
+        }
+        
+        // Buscar informações do usuário para o log
+        const usuario = await db.getUserById(input.userId);
+        
+        // Registrar no log de auditoria
+        await db.registrarLogAuditoria({
+          usuarioId: ctx.user.id,
+          usuarioNome: ctx.user.name,
+          usuarioAfetadoId: input.userId,
+          usuarioAfetadoNome: usuario?.name || "Usuário",
+          tipoAcao: "editar_estabelecimentos",
+          descricao: `Estabelecimentos atualizados: ${idsParaAdicionar.length} adicionado(s), ${idsParaRemover.length} removido(s)`,
+          valoresAnteriores: { estabelecimentosIds: idsAtuais },
+          valoresNovos: { estabelecimentosIds: input.estabelecimentosIds },
+        });
+        
+        return { 
+          success: true, 
+          adicionados: idsParaAdicionar.length, 
+          removidos: idsParaRemover.length 
+        };
+      }),
+
     // Conceder acesso a todos os estabelecimentos (apenas admin)
     concederAcessoTotal: protectedProcedure
       .input(z.object({

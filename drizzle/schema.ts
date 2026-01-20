@@ -971,7 +971,8 @@ export const logAuditoriaPermissoes = mysqlTable("logAuditoriaPermissoes", {
     "criar_usuario",
     "alterar_grupo",
     "criar_grupo",
-    "excluir_grupo"
+    "excluir_grupo",
+    "editar_estabelecimentos"
   ]).notNull(),
   
   // Descrição da alteração
