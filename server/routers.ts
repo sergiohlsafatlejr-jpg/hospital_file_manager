@@ -777,6 +777,49 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getPadroesCobranca(input);
       }),
+
+    // Métricas de acurácia dos insights
+    metricas: protectedProcedure
+      .input(
+        z.object({
+          estabelecimentoId: z.number().optional(),
+          convenioId: z.number().optional(),
+          dataInicio: z.date().optional(),
+          dataFim: z.date().optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.getMetricasAcuraciaIA(input);
+      }),
+
+    // Verificar e notificar insights críticos
+    verificarCriticos: protectedProcedure
+      .input(
+        z.object({
+          estabelecimentoId: z.number(),
+          limiarImpacto: z.number().optional(),
+          limiarConfianca: z.number().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        return db.verificarENotificarInsightsCriticos(input);
+      }),
+
+    // Processar insights automaticamente após importação
+    processarAutomatico: protectedProcedure
+      .input(
+        z.object({
+          arquivoId: z.number(),
+          estabelecimentoId: z.number(),
+          convenioId: z.number().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        return db.processarInsightsAutomaticos({
+          ...input,
+          userId: ctx.user.id!,
+        });
+      }),
   }),
 
   // ============ CODIGOS PROCEDIMENTOS (ADMIN) ============

@@ -52,7 +52,8 @@ import {
   Shield,
   Activity,
   Lock,
-  KeyRound
+  KeyRound,
+  Brain
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -92,6 +93,7 @@ const menuItems: MenuItem[] = [
   { icon: Activity, label: "Produtividade", path: "/produtividade", modulo: "produtividade" },
   { icon: FileText, label: "Relatório de Contas", path: "/relatorio-contas", modulo: "faturamento" },
   { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
+  { icon: Brain, label: "Dashboard IA", path: "/dashboard-ia", modulo: "comparacoes" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

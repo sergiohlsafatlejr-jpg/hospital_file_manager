@@ -298,3 +298,9 @@
 - [x] Implementar análise de padrões com LLM para identificar falta de itens
 - [x] Alertar sobre quantidades abaixo do esperado baseado no histórico
 - [x] Adicionar seção de insights de IA na tela de Comparações
+
+- [x] Configurar alertas automáticos quando IA detectar divergências significativas
+- [x] Implementar notificação ao proprietário sobre divergências críticas
+- [x] Criar dashboard de acurácia dos insights (taxa de acerto)
+- [x] Adicionar gráficos de evolução do aprendizado da IA
+- [x] Mostrar métricas de insights aceitos vs rejeitados por período

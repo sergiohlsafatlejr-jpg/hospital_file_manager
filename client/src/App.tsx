@@ -34,6 +34,7 @@ import AlterarSenha from "./pages/AlterarSenha";
 import ContaDetalhes from "./pages/ContaDetalhes";
 import RelatorioContas from "./pages/RelatorioContas";
 import AcompanhamentoRecursos from "./pages/AcompanhamentoRecursos";
+import DashboardIA from "./pages/DashboardIA";
 
 function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
@@ -76,6 +77,7 @@ function Router() {
       <Route path={"/alterar-senha"} component={AlterarSenha} />
       <Route path={"/relatorio-contas"} component={RelatorioContas} />
       <Route path={"/acompanhamento-recursos"} component={AcompanhamentoRecursos} />
+      <Route path={"/dashboard-ia"} component={DashboardIA} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

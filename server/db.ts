@@ -8254,3 +8254,303 @@ export async function gerarInsightsContaIA(params: {
 
   return insights;
 }
+
+
+/**
+ * Calcula métricas de acurácia dos insights de IA
+ */
+export async function getMetricasAcuraciaIA(params: {
+  estabelecimentoId?: number;
+  convenioId?: number;
+  dataInicio?: Date;
+  dataFim?: Date;
+}): Promise<{
+  totalInsights: number;
+  aceitos: number;
+  rejeitados: number;
+  pendentes: number;
+  ignorados: number;
+  taxaAcerto: number;
+  taxaRejeicao: number;
+  evolucaoMensal: Array<{
+    mes: string;
+    aceitos: number;
+    rejeitados: number;
+    total: number;
+    taxaAcerto: number;
+  }>;
+  porTipoInsight: Array<{
+    tipo: string;
+    total: number;
+    aceitos: number;
+    rejeitados: number;
+    taxaAcerto: number;
+  }>;
+  impactoRecuperado: number;
+  impactoPotencial: number;
+}> {
+  const db = await getDb();
+  if (!db) {
+    return {
+      totalInsights: 0,
+      aceitos: 0,
+      rejeitados: 0,
+      pendentes: 0,
+      ignorados: 0,
+      taxaAcerto: 0,
+      taxaRejeicao: 0,
+      evolucaoMensal: [],
+      porTipoInsight: [],
+      impactoRecuperado: 0,
+      impactoPotencial: 0,
+    };
+  }
+
+  const conditions: any[] = [];
+
+  if (params.estabelecimentoId) {
+    conditions.push(eq(insightsIA.estabelecimentoId, params.estabelecimentoId));
+  }
+
+  if (params.convenioId) {
+    conditions.push(eq(insightsIA.convenioId, params.convenioId));
+  }
+
+  if (params.dataInicio) {
+    conditions.push(gte(insightsIA.createdAt, params.dataInicio));
+  }
+
+  if (params.dataFim) {
+    conditions.push(lte(insightsIA.createdAt, params.dataFim));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  // Buscar todos os insights
+  const allInsights = await db
+    .select()
+    .from(insightsIA)
+    .where(whereClause)
+    .orderBy(desc(insightsIA.createdAt));
+
+  // Calcular métricas gerais
+  const aceitos = allInsights.filter(i => i.status === "aceito").length;
+  const rejeitados = allInsights.filter(i => i.status === "rejeitado").length;
+  const pendentes = allInsights.filter(i => i.status === "pendente").length;
+  const ignorados = allInsights.filter(i => i.status === "ignorado").length;
+  const totalAvaliados = aceitos + rejeitados;
+  const taxaAcerto = totalAvaliados > 0 ? Math.round((aceitos / totalAvaliados) * 100) : 0;
+  const taxaRejeicao = totalAvaliados > 0 ? Math.round((rejeitados / totalAvaliados) * 100) : 0;
+
+  // Calcular impacto
+  const impactoRecuperado = allInsights
+    .filter(i => i.status === "aceito")
+    .reduce((sum, i) => sum + parseFloat(String(i.valorEstimado || 0)), 0);
+
+  const impactoPotencial = allInsights
+    .filter(i => i.status === "pendente")
+    .reduce((sum, i) => sum + parseFloat(String(i.valorEstimado || 0)), 0);
+
+  // Calcular evolução mensal
+  const porMes = new Map<string, { aceitos: number; rejeitados: number; total: number }>();
+  
+  for (const insight of allInsights) {
+    const data = insight.createdAt ? new Date(insight.createdAt) : new Date();
+    const mes = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
+    
+    if (!porMes.has(mes)) {
+      porMes.set(mes, { aceitos: 0, rejeitados: 0, total: 0 });
+    }
+    
+    const dados = porMes.get(mes)!;
+    dados.total++;
+    if (insight.status === "aceito") dados.aceitos++;
+    if (insight.status === "rejeitado") dados.rejeitados++;
+  }
+
+  const evolucaoMensal = Array.from(porMes.entries())
+    .map(([mes, dados]) => ({
+      mes,
+      aceitos: dados.aceitos,
+      rejeitados: dados.rejeitados,
+      total: dados.total,
+      taxaAcerto: dados.aceitos + dados.rejeitados > 0
+        ? Math.round((dados.aceitos / (dados.aceitos + dados.rejeitados)) * 100)
+        : 0,
+    }))
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+
+  // Calcular por tipo de insight
+  const porTipo = new Map<string, { total: number; aceitos: number; rejeitados: number }>();
+  
+  for (const insight of allInsights) {
+    const tipo = insight.tipoInsight || "outro";
+    
+    if (!porTipo.has(tipo)) {
+      porTipo.set(tipo, { total: 0, aceitos: 0, rejeitados: 0 });
+    }
+    
+    const dados = porTipo.get(tipo)!;
+    dados.total++;
+    if (insight.status === "aceito") dados.aceitos++;
+    if (insight.status === "rejeitado") dados.rejeitados++;
+  }
+
+  const porTipoInsight = Array.from(porTipo.entries())
+    .map(([tipo, dados]) => ({
+      tipo,
+      total: dados.total,
+      aceitos: dados.aceitos,
+      rejeitados: dados.rejeitados,
+      taxaAcerto: dados.aceitos + dados.rejeitados > 0
+        ? Math.round((dados.aceitos / (dados.aceitos + dados.rejeitados)) * 100)
+        : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  return {
+    totalInsights: allInsights.length,
+    aceitos,
+    rejeitados,
+    pendentes,
+    ignorados,
+    taxaAcerto,
+    taxaRejeicao,
+    evolucaoMensal,
+    porTipoInsight,
+    impactoRecuperado,
+    impactoPotencial,
+  };
+}
+
+/**
+ * Verifica insights críticos e notifica o proprietário
+ */
+export async function verificarENotificarInsightsCriticos(params: {
+  estabelecimentoId: number;
+  limiarImpacto?: number; // Valor mínimo para considerar crítico (default: 500)
+  limiarConfianca?: number; // Confiança mínima para notificar (default: 70)
+}): Promise<{
+  notificado: boolean;
+  insightsCriticos: number;
+  valorTotalImpacto: number;
+}> {
+  const db = await getDb();
+  if (!db) {
+    return { notificado: false, insightsCriticos: 0, valorTotalImpacto: 0 };
+  }
+
+  const limiarImpacto = params.limiarImpacto || 500;
+  const limiarConfianca = params.limiarConfianca || 70;
+
+  // Buscar insights pendentes críticos (alto impacto e alta confiança)
+  const insightsCriticos = await db
+    .select()
+    .from(insightsIA)
+    .where(and(
+      eq(insightsIA.estabelecimentoId, params.estabelecimentoId),
+      eq(insightsIA.status, "pendente"),
+      gte(insightsIA.valorEstimado, limiarImpacto.toString()),
+      gte(insightsIA.confianca, limiarConfianca)
+    ))
+    .orderBy(desc(insightsIA.valorEstimado))
+    .limit(10);
+
+  if (insightsCriticos.length === 0) {
+    return { notificado: false, insightsCriticos: 0, valorTotalImpacto: 0 };
+  }
+
+  const valorTotalImpacto = insightsCriticos.reduce(
+    (sum, i) => sum + parseFloat(String(i.valorEstimado || 0)),
+    0
+  );
+
+  // Montar conteúdo da notificação
+  const detalhesInsights = insightsCriticos
+    .slice(0, 5)
+    .map((i, idx) => `${idx + 1}. ${i.titulo} - Impacto: R$ ${parseFloat(String(i.valorEstimado || 0)).toFixed(2)} (${i.confianca}% confiança)`)
+    .join("\n");
+
+  const conteudo = `A IA detectou ${insightsCriticos.length} divergência(s) significativa(s) em contas recentes.
+
+Valor total de impacto potencial: R$ ${valorTotalImpacto.toFixed(2)}
+
+Principais divergências:
+${detalhesInsights}
+
+Acesse o sistema para revisar e tomar as ações necessárias.`;
+
+  // Enviar notificação ao proprietário
+  try {
+    const { notifyOwner } = await import("./_core/notification");
+    await notifyOwner({
+      title: `⚠️ ${insightsCriticos.length} Divergência(s) Crítica(s) Detectada(s) pela IA`,
+      content: conteudo,
+    });
+
+    return {
+      notificado: true,
+      insightsCriticos: insightsCriticos.length,
+      valorTotalImpacto,
+    };
+  } catch (error) {
+    console.error("[Notificação] Erro ao notificar insights críticos:", error);
+    return {
+      notificado: false,
+      insightsCriticos: insightsCriticos.length,
+      valorTotalImpacto,
+    };
+  }
+}
+
+/**
+ * Processa insights automaticamente após importação de arquivo
+ * e notifica se houver divergências críticas
+ */
+export async function processarInsightsAutomaticos(params: {
+  arquivoId: number;
+  estabelecimentoId: number;
+  convenioId?: number;
+  userId: number;
+}): Promise<{
+  insightsGerados: number;
+  insightsCriticos: number;
+  notificacaoEnviada: boolean;
+}> {
+  // Gerar insights para o arquivo
+  const insights = await gerarInsightsContaIA(params);
+
+  if (insights.length === 0) {
+    return {
+      insightsGerados: 0,
+      insightsCriticos: 0,
+      notificacaoEnviada: false,
+    };
+  }
+
+  // Salvar insights no banco
+  for (const insight of insights) {
+    await salvarInsightIA({
+      arquivoId: params.arquivoId,
+      estabelecimentoId: params.estabelecimentoId,
+      convenioId: params.convenioId,
+      tipoInsight: insight.tipo as any,
+      titulo: insight.titulo,
+      descricao: insight.descricao,
+      valorEstimado: insight.impactoEstimado.toString(),
+      confianca: insight.confianca,
+      status: "pendente",
+    });
+  }
+
+  // Verificar e notificar insights críticos
+  const notificacao = await verificarENotificarInsightsCriticos({
+    estabelecimentoId: params.estabelecimentoId,
+  });
+
+  return {
+    insightsGerados: insights.length,
+    insightsCriticos: notificacao.insightsCriticos,
+    notificacaoEnviada: notificacao.notificado,
+  };
+}
