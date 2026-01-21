@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { 
   Receipt, 
   Download,
@@ -21,6 +22,7 @@ import * as XLSX from "xlsx";
 
 export default function Repasse() {
   const { user } = useAuth();
+  const { estabelecimentoAtual } = useEstabelecimento();
   const [convenioId, setConvenioId] = useState<string>("");
   const [dataInicio, setDataInicio] = useState<string>("");
   const [dataFim, setDataFim] = useState<string>("");
@@ -50,6 +52,7 @@ export default function Repasse() {
   const { data: repasseData, isLoading } = trpc.repasse.list.useQuery(
     { 
       convenioId: convenioId ? parseInt(convenioId) : undefined,
+      estabelecimentoId: estabelecimentoAtual?.id,
       dataInicio: dataInicio || undefined,
       dataFim: dataFim || undefined,
       search: buscaDebounced || undefined,

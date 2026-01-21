@@ -1,0 +1,46 @@
+{
+  "query": "SELECT id, nome FROM estabelecimentos WHERE nome LIKE '%Teste%' OR id >= 120000 ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome FROM estabelecimentos WHERE nome LIKE '%Teste%' OR id >= 120000 ORDER BY id;",
+  "rows": [
+    {
+      "id": "210001",
+      "nome": "Pronto Socorro Infantil"
+    },
+    {
+      "id": "240001",
+      "nome": "Estabelecimento Teste 1 - 1769020703068"
+    },
+    {
+      "id": "240002",
+      "nome": "Estabelecimento Teste 2 - 1769020703068"
+    },
+    {
+      "id": "240006",
+      "nome": "Estabelecimento Teste 1 - 1769021287004"
+    },
+    {
+      "id": "240007",
+      "nome": "Estabelecimento Teste 2 - 1769021287004"
+    },
+    {
+      "id": "240011",
+      "nome": "Estabelecimento Teste 1 - 1769021959253"
+    },
+    {
+      "id": "240012",
+      "nome": "Estabelecimento Teste 2 - 1769021959253"
+    },
+    {
+      "id": "240016",
+      "nome": "Estabelecimento Teste 1 - 1769022283106"
+    },
+    {
+      "id": "240017",
+      "nome": "Estabelecimento Teste 2 - 1769022283106"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\n210001\tPronto Socorro Infantil\n240001\tEstabelecimento Teste 1 - 1769020703068\n240002\tEstabelecimento Teste 2 - 1769020703068\n240006\tEstabelecimento Teste 1 - 1769021287004\n240007\tEstabelecimento Teste 2 - 1769021287004\n240011\tEstabelecimento Teste 1 - 1769021959253\n240012\tEstabelecimento Teste 2 - 1769021959253\n240016\tEstabelecimento Teste 1 - 1769022283106\n240017\tEstabelecimento Teste 2 - 1769022283106\n",
+  "stderr": "",
+  "execution_time_ms": 104
+}

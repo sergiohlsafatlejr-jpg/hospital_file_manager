@@ -1840,6 +1840,7 @@ export const appRouter = router({
       .input(
         z.object({
           convenioId: z.number().optional(),
+          estabelecimentoId: z.number().optional(),
           meses: z.number().optional().default(6),
         }).optional()
       )
@@ -1847,6 +1848,7 @@ export const appRouter = router({
         return db.getTendenciasGlosa({
           userId: ctx.user.id,
           convenioId: input?.convenioId,
+          estabelecimentoId: input?.estabelecimentoId,
           meses: input?.meses || 6,
         });
       }),
@@ -1855,12 +1857,14 @@ export const appRouter = router({
     geral: protectedProcedure
       .input(
         z.object({
+          estabelecimentoId: z.number().optional(),
           meses: z.number().optional().default(6),
         }).optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getTendenciaGeral({
           userId: ctx.user.id,
+          estabelecimentoId: input?.estabelecimentoId,
           meses: input?.meses || 6,
         });
       }),
@@ -1872,6 +1876,7 @@ export const appRouter = router({
       .input(
         z.object({
           convenioId: z.number().optional(),
+          estabelecimentoId: z.number().optional(),
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
           search: z.string().optional(),
@@ -1883,6 +1888,7 @@ export const appRouter = router({
         return db.getRepasseData({
           userId: ctx.user.id,
           convenioId: input?.convenioId,
+          estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
           search: input?.search,

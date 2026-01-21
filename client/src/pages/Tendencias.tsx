@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,16 +32,19 @@ import {
 } from "recharts";
 
 export default function Tendencias() {
+  const { estabelecimentoAtual } = useEstabelecimento();
   const [meses, setMeses] = useState(6);
   const [convenioId, setConvenioId] = useState<number | undefined>(undefined);
 
   const { data: tendenciasConvenio, isLoading: isLoadingConvenios } = trpc.tendencias.porConvenio.useQuery({
     meses,
     convenioId,
+    estabelecimentoId: estabelecimentoAtual?.id,
   });
 
   const { data: tendenciaGeral, isLoading: isLoadingGeral } = trpc.tendencias.geral.useQuery({
     meses,
+    estabelecimentoId: estabelecimentoAtual?.id,
   });
 
   const { data: convenios } = trpc.convenios.list.useQuery();

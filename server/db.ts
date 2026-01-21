@@ -2697,6 +2697,7 @@ const MESES_PT = [
 export async function getTendenciasGlosa(filters: {
   userId: number;
   convenioId?: number;
+  estabelecimentoId?: number;
   meses?: number;
 }): Promise<TendenciaConvenio[]> {
   const db = await getDb();
@@ -2723,33 +2724,39 @@ export async function getTendenciasGlosa(filters: {
   const resultado: TendenciaConvenio[] = [];
 
   for (const conv of convList) {
+    // Condições base para arquivos enviados
+    const condEnviados: any[] = [
+      eq(arquivos.convenioId, conv.id),
+      eq(arquivos.direcao, "enviado"),
+      eq(arquivos.status, "processado"),
+      gte(arquivos.createdAt, dataLimite)
+    ];
+    if (filters.estabelecimentoId) {
+      condEnviados.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
+    }
+
     // Buscar arquivos enviados do convênio nos últimos X meses
     const arquivosEnviados = await db
       .select()
       .from(arquivos)
-      .where(
-        and(
-          eq(arquivos.convenioId, conv.id),
-          eq(arquivos.direcao, "enviado"),
-          eq(arquivos.status, "processado"),
-          eq(arquivos.userId, filters.userId),
-          gte(arquivos.createdAt, dataLimite)
-        )
-      );
+      .where(and(...condEnviados));
+
+    // Condições base para arquivos retornados
+    const condRetornados: any[] = [
+      eq(arquivos.convenioId, conv.id),
+      eq(arquivos.direcao, "retornado"),
+      eq(arquivos.status, "processado"),
+      gte(arquivos.createdAt, dataLimite)
+    ];
+    if (filters.estabelecimentoId) {
+      condRetornados.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
+    }
 
     // Buscar arquivos retornados do convênio nos últimos X meses
     const arquivosRetornados = await db
       .select()
       .from(arquivos)
-      .where(
-        and(
-          eq(arquivos.convenioId, conv.id),
-          eq(arquivos.direcao, "retornado"),
-          eq(arquivos.status, "processado"),
-          eq(arquivos.userId, filters.userId),
-          gte(arquivos.createdAt, dataLimite)
-        )
-      );
+      .where(and(...condRetornados));
 
     // Agrupar procedimentos por mês
     const dadosPorMes: { [key: string]: TendenciaMensal } = {};
@@ -2877,6 +2884,7 @@ export async function getTendenciasGlosa(filters: {
 
 export async function getTendenciaGeral(filters: {
   userId: number;
+  estabelecimentoId?: number;
   meses?: number;
 }): Promise<TendenciaMensal[]> {
   const db = await getDb();
@@ -2908,31 +2916,37 @@ export async function getTendenciaGeral(filters: {
     };
   }
 
+  // Condições base para arquivos enviados
+  const condEnviados: any[] = [
+    eq(arquivos.direcao, "enviado"),
+    eq(arquivos.status, "processado"),
+    gte(arquivos.createdAt, dataLimite)
+  ];
+  if (filters.estabelecimentoId) {
+    condEnviados.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
+  }
+
   // Buscar todos os arquivos enviados nos últimos X meses
   const arquivosEnviados = await db
     .select()
     .from(arquivos)
-    .where(
-      and(
-        eq(arquivos.direcao, "enviado"),
-        eq(arquivos.status, "processado"),
-        eq(arquivos.userId, filters.userId),
-        gte(arquivos.createdAt, dataLimite)
-      )
-    );
+    .where(and(...condEnviados));
+
+  // Condições base para arquivos retornados
+  const condRetornados: any[] = [
+    eq(arquivos.direcao, "retornado"),
+    eq(arquivos.status, "processado"),
+    gte(arquivos.createdAt, dataLimite)
+  ];
+  if (filters.estabelecimentoId) {
+    condRetornados.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
+  }
 
   // Buscar todos os arquivos retornados nos últimos X meses
   const arquivosRetornados = await db
     .select()
     .from(arquivos)
-    .where(
-      and(
-        eq(arquivos.direcao, "retornado"),
-        eq(arquivos.status, "processado"),
-        eq(arquivos.userId, filters.userId),
-        gte(arquivos.createdAt, dataLimite)
-      )
-    );
+    .where(and(...condRetornados));
 
   // Processar procedimentos enviados
   for (const arq of arquivosEnviados) {
@@ -3012,6 +3026,7 @@ export interface RepasseItem {
 export async function getRepasseData(filters: {
   userId: number;
   convenioId?: number;
+  estabelecimentoId?: number;
   dataInicio?: Date;
   dataFim?: Date;
   search?: string;
@@ -3022,11 +3037,14 @@ export async function getRepasseData(filters: {
   if (!db) return { items: [], total: 0, resumo: null };
 
   // Buscar arquivos enviados do usuário
-  const arquivosConditions = [
-    eq(arquivos.userId, filters.userId),
+  const arquivosConditions: any[] = [
     eq(arquivos.direcao, "enviado"),
     eq(arquivos.status, "processado"),
   ];
+
+  if (filters.estabelecimentoId) {
+    arquivosConditions.push(eq(arquivos.estabelecimentoId, filters.estabelecimentoId));
+  }
 
   if (filters.convenioId) {
     arquivosConditions.push(eq(arquivos.convenioId, filters.convenioId));

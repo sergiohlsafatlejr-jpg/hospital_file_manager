@@ -359,3 +359,12 @@
 - [x] Verificar se estabelecimentoId está sendo salvo na importação de arquivos XML
 - [x] Corrigir filtro de estabelecimento na tela de Conciliação
 - [x] Garantir que cada estabelecimento veja apenas seus próprios dados
+
+
+## Filtro de Estabelecimento em Outras Telas
+- [x] Aplicar filtro de estabelecimento na tela de Tendências
+- [x] Aplicar filtro de estabelecimento na tela de Repasse
+- [x] Verificar outras telas que precisam do filtro
+
+## Limpeza de Estabelecimentos de Teste
+- [x] Remover estabelecimentos de teste do banco de dados
