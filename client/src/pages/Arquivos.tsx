@@ -15,7 +15,8 @@ import {
   Download,
   Loader2,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -62,6 +63,7 @@ export default function Arquivos() {
   const [arquivoToDelete, setArquivoToDelete] = useState<{ id: number; nome: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReprocessing, setIsReprocessing] = useState<number | null>(null);
+  const [isGeneratingInsights, setIsGeneratingInsights] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -119,6 +121,35 @@ export default function Arquivos() {
   const handleReprocessar = (arquivoId: number) => {
     setIsReprocessing(arquivoId);
     reprocessarArquivo.mutate({ id: arquivoId });
+  };
+
+  const gerarInsights = trpc.insightsIA.gerar.useMutation({
+    onSuccess: (result) => {
+      const count = result?.length || 0;
+      if (count > 0) {
+        toast.success(`${count} insight(s) gerado(s) com sucesso!`);
+      } else {
+        toast.info("Nenhum insight encontrado para este arquivo");
+      }
+      setIsGeneratingInsights(null);
+    },
+    onError: (error) => {
+      toast.error(error.message || "Erro ao gerar insights");
+      setIsGeneratingInsights(null);
+    },
+  });
+
+  const handleGerarInsights = (arquivo: any) => {
+    if (!estabelecimentoId) {
+      toast.error("Selecione um estabelecimento primeiro");
+      return;
+    }
+    setIsGeneratingInsights(arquivo.id);
+    gerarInsights.mutate({
+      arquivoId: arquivo.id,
+      estabelecimentoId,
+      convenioId: arquivo.convenioId || undefined,
+    });
   };
 
   const handleDeleteArquivo = () => {
@@ -355,6 +386,20 @@ export default function Arquivos() {
                               onClick={() => window.open(arquivo.s3Url, "_blank")}
                             >
                               <Download className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              onClick={() => handleGerarInsights(arquivo)}
+                              disabled={isGeneratingInsights === arquivo.id || arquivo.status !== "processado"}
+                              title="Gerar insights de IA"
+                            >
+                              {isGeneratingInsights === arquivo.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-4 w-4" />
+                              )}
                             </Button>
                             <Button 
                               variant="ghost" 

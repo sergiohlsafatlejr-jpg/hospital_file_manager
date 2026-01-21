@@ -373,3 +373,9 @@
 ## Geração Automática de Insights da IA
 - [x] Adicionar chamada de geração de insights na importação de arquivos XML
 - [x] Garantir que insights sejam gerados automaticamente após processamento
+
+
+## Botão Gerar Insights na Tela de Arquivos
+- [x] Adicionar botão "Gerar Insights" na listagem de arquivos
+- [x] Implementar chamada para gerar insights manualmente
+- [x] Mostrar feedback de sucesso/erro ao usuário
