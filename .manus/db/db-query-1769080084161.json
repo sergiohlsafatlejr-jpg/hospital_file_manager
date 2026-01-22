@@ -1,0 +1,16 @@
+{
+  "query": "SELECT a.id, a.nome, a.status, COUNT(p.id) as total_procedimentos \nFROM arquivos a \nLEFT JOIN procedimentos p ON p.arquivoId = a.id \nWHERE a.nome LIKE '%demonstrativo%' \nGROUP BY a.id, a.nome, a.status \nORDER BY a.createdAt DESC \nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT a.id, a.nome, a.status, COUNT(p.id) as total_procedimentos \nFROM arquivos a \nLEFT JOIN procedimentos p ON p.arquivoId = a.id \nWHERE a.nome LIKE '%demonstrativo%' \nGROUP BY a.id, a.nome, a.status \nORDER BY a.createdAt DESC \nLIMIT 5;",
+  "rows": [
+    {
+      "id": "220",
+      "nome": "demonstrativo-0282629.xlsx",
+      "status": "processando",
+      "total_procedimentos": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tstatus\ttotal_procedimentos\n220\tdemonstrativo-0282629.xlsx\tprocessando\t0\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

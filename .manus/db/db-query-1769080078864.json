@@ -1,0 +1,90 @@
+{
+  "query": "SELECT id, nome, tipoArquivo, direcao, status, createdAt FROM arquivos ORDER BY createdAt DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, tipoArquivo, direcao, status, createdAt FROM arquivos ORDER BY createdAt DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "220",
+      "nome": "demonstrativo-0282629.xlsx",
+      "tipoArquivo": "excel",
+      "direcao": "retornado",
+      "status": "processando",
+      "createdAt": "2026-01-22 11:02:18"
+    },
+    {
+      "id": "219",
+      "nome": "00000000000130087602_b015c6465145c96ad4370fdd1f86014b.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:29"
+    },
+    {
+      "id": "218",
+      "nome": "00000000000130087600_41361beecae34763597489a104e457e6.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:28"
+    },
+    {
+      "id": "217",
+      "nome": "00000000000130087596_7f6fe4d27cb933029ca15f88c168f189.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:26"
+    },
+    {
+      "id": "216",
+      "nome": "00000000000130087592_4266445dd1d8bce7eb34443548b3db90.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:24"
+    },
+    {
+      "id": "215",
+      "nome": "00000000000130087590_109471b15f57d8b65a9e30b7295346c2.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:22"
+    },
+    {
+      "id": "214",
+      "nome": "00000000000130087627_d515898e5e51f6827e90c579396f3b1a.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:21"
+    },
+    {
+      "id": "213",
+      "nome": "00000000000130087614_b6346c6497dcd582f39c2216574a342d.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:19"
+    },
+    {
+      "id": "212",
+      "nome": "00000000000130087610_4a2944fe8a2d5dfa4c8a0392e8b19a6c.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:17"
+    },
+    {
+      "id": "211",
+      "nome": "00000000000130087604_f6187008a5209583a22d1195f2d224b9.xml",
+      "tipoArquivo": "xml",
+      "direcao": "enviado",
+      "status": "processado",
+      "createdAt": "2026-01-22 11:01:16"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\ttipoArquivo\tdirecao\tstatus\tcreatedAt\n220\tdemonstrativo-0282629.xlsx\texcel\tretornado\tprocessando\t2026-01-22 11:02:18\n219\t00000000000130087602_b015c6465145c96ad4370fdd1f86014b.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:29\n218\t00000000000130087600_41361beecae34763597489a104e457e6.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:28\n217\t00000000000130087596_7f6fe4d27cb933029ca15f88c168f189.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:26\n216\t00000000000130087592_4266445dd1d8bce7eb34443548b3db90.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:24\n215\t00000000000130087590_109471b15f57d8b65a9e30b7295346c2.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:22\n214\t00000000000130087627_d515898e5e51f6827e90c579396f3b1a.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:21\n213\t00000000000130087614_b6346c6497dcd582f39c2216574a342d.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:19\n212\t00000000000130087610_4a2944fe8a2d5dfa4c8a0392e8b19a6c.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:17\n211\t00000000000130087604_f6187008a5209583a22d1195f2d224b9.xml\txml\tenviado\tprocessado\t2026-01-22 11:01:16\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

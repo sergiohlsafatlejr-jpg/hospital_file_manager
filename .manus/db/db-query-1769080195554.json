@@ -1,0 +1,21 @@
+{
+  "query": "SELECT a.id, a.nome, a.status, a.tipoArquivo, a.direcao, a.s3Key, a.progresso, a.itensProcessados, a.totalItens\nFROM arquivos a \nWHERE a.status = 'processando' OR a.nome LIKE '%demonstrativo%' OR a.nome LIKE '%0282629%'\nORDER BY a.createdAt DESC\nLIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT a.id, a.nome, a.status, a.tipoArquivo, a.direcao, a.s3Key, a.progresso, a.itensProcessados, a.totalItens\nFROM arquivos a \nWHERE a.status = 'processando' OR a.nome LIKE '%demonstrativo%' OR a.nome LIKE '%0282629%'\nORDER BY a.createdAt DESC\nLIMIT 5;",
+  "rows": [
+    {
+      "id": "220",
+      "nome": "demonstrativo-0282629.xlsx",
+      "status": "processando",
+      "tipoArquivo": "excel",
+      "direcao": "retornado",
+      "s3Key": "arquivos/1/HZ0aTVZkEOwtNFaixFL8F-demonstrativo-0282629.xlsx.xlsx",
+      "progresso": "0",
+      "itensProcessados": "0",
+      "totalItens": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tstatus\ttipoArquivo\tdirecao\ts3Key\tprogresso\titensProcessados\ttotalItens\n220\tdemonstrativo-0282629.xlsx\tprocessando\texcel\tretornado\tarquivos/1/HZ0aTVZkEOwtNFaixFL8F-demonstrativo-0282629.xlsx.xlsx\t0\t0\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

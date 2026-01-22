@@ -794,6 +794,13 @@ export async function parseExcel(content: Buffer): Promise<ParseResult> {
         defval: '', // Default empty values
       });
       
+      // Log colunas encontradas para debug
+      if (rawData.length > 0) {
+        const colunas = Object.keys(rawData[0]);
+        console.log(`[Excel Parser] Sheet: ${sheetName}, Colunas encontradas:`, colunas);
+        console.log(`[Excel Parser] Primeira linha:`, JSON.stringify(rawData[0]).substring(0, 500));
+      }
+      
       // Normalizar nomes das colunas removendo espaços extras
       const data = rawData.map(row => normalizeColumnNames(row));
       
@@ -840,7 +847,8 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
   // Map common column names to our fields
   // Includes Unimed format: Item, Item Desc, Número Guia, Nome Beneficiário, Valor Pagamento, etc.
   const columnMappings: Record<string, string[]> = {
-    codigo: ["codigo", "cod", "código", "cod_proc", "codigo_procedimento", "item", "cod_item", "codigo_item", "codigodoprocedimento", "codigoprocedimento"],
+    // Ampliado para aceitar mais variações de nomes de colunas de código
+    codigo: ["codigo", "cod", "código", "cod_proc", "codigo_procedimento", "item", "cod_item", "codigo_item", "codigodoprocedimento", "codigoprocedimento", "codprocedimento", "codproc", "codigoproc", "proc", "procedimento_cod", "cd_procedimento", "cdprocedimento", "codigotuss", "tuss", "codtuss", "codigotabela", "codtabela"],
     descricao: ["descricao", "descrição", "desc", "procedimento_nome", "item_desc", "itemdesc", "descricao_item", "descricaoitem", "descricaodoprocedimento", "descricaoprocedimento", "procedimento"],
     quantidade: ["quantidade", "qtd", "qtde", "quant", "quantidadesolicitada", "quantidadeliberada"],
     valorUnitario: ["valor_unitario", "vl_unitario", "vlunitario", "preco"],
@@ -880,7 +888,13 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
   };
   
   const codigo = findValue(columnMappings.codigo);
-  if (!codigo) return null;
+  
+  // Se não encontrou código, tentar usar descrição como identificador (para arquivos sem coluna de código)
+  const descricaoTemp = findValue(columnMappings.descricao);
+  if (!codigo && !descricaoTemp) return null;
+  
+  // Se não tem código mas tem descrição, usar descrição como código temporário
+  const codigoFinal = codigo || `DESC_${String(descricaoTemp).substring(0, 20)}`;
   
   // Parse data de execução (pode ser número serial do Excel ou string)
   let dataExecucao: Date | undefined;
@@ -913,7 +927,7 @@ function extractProcedimentoFromRow(row: Record<string, unknown>): ParsedProcedi
   }
   
   return {
-    codigo: String(codigo),
+    codigo: String(codigoFinal),
     descricao: findValue(columnMappings.descricao) as string | undefined,
     quantidade: parseNumber(findValue(columnMappings.quantidade)) || 1,
     valorUnitario: parseNumber(findValue(columnMappings.valorUnitario)),

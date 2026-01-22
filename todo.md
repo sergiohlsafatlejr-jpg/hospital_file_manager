@@ -468,3 +468,9 @@
 
 ## Melhoria no Menu Lateral
 - [x] Reorganizar itens do menu na ordem correta do processo de trabalho
+
+
+## Bug - Importação de Demonstrativo Excel
+- [x] Investigar por que o arquivo demonstrativo-0282629.xlsx não carrega os dados após importação
+- [x] Melhorar parser de Excel para aceitar mais variações de colunas
+- [x] Arquivo processado com sucesso (26.614 procedimentos importados em 8.9s)
