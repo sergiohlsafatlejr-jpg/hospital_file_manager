@@ -414,6 +414,7 @@ export default function AnaliseGlosa() {
         valorCobrado: item.valorCobrado.toString(),
         motivoGlosaConvenio: item.motivoGlosa,
         pacienteNome: item.pacienteNome,
+        pacienteCarteirinha: item.pacienteCarteirinha || "",
         guiaNumero: item.guiaNumero,
       })),
       estabelecimentoId: estabelecimentoAtual?.id,

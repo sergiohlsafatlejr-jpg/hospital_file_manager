@@ -69,6 +69,9 @@ export default function AcompanhamentoRecursos() {
   const [protocoloEnvio, setProtocoloEnvio] = useState("");
   const [exportando, setExportando] = useState(false);
   const [exportandoLote, setExportandoLote] = useState<number | null>(null);
+  const [dialogExportarPeriodo, setDialogExportarPeriodo] = useState(false);
+  const [dataInicio, setDataInicio] = useState<string>("");
+  const [dataFim, setDataFim] = useState<string>("");
   const [dialogAnexarPdf, setDialogAnexarPdf] = useState(false);
   const [loteParaAnexarPdf, setLoteParaAnexarPdf] = useState<number | null>(null);
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null);
@@ -156,6 +159,19 @@ export default function AcompanhamentoRecursos() {
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       status: statusFiltro !== "todos" ? statusFiltro : undefined,
     });
+  };
+
+  const handleExportarPorPeriodo = () => {
+    setExportando(true);
+    exportarMutation.mutate({
+      formato: "excel",
+      estabelecimentoId: estabelecimentoAtual?.id,
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+      status: statusFiltro !== "todos" ? statusFiltro : undefined,
+      dataInicio: dataInicio ? new Date(dataInicio) : undefined,
+      dataFim: dataFim ? new Date(dataFim) : undefined,
+    });
+    setDialogExportarPeriodo(false);
   };
 
   // Mutation para exportar lote específico
@@ -289,6 +305,13 @@ export default function AcompanhamentoRecursos() {
               <FileSpreadsheet className="h-4 w-4 mr-2" />
             )}
             Exportar Excel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setDialogExportarPeriodo(true)}
+          >
+            <Calendar className="h-4 w-4 mr-2" />
+            Exportar por Período
           </Button>
           <Button asChild>
             <a href="/envio-recursos-lote">
@@ -502,6 +525,30 @@ export default function AcompanhamentoRecursos() {
                             </div>
                           )}
                         </div>
+                        {/* Alerta de prazo de resposta */}
+                        {lote.dataPrazoResposta && (() => {
+                          const diasPrazo = calcularDiasRestantes(lote.dataPrazoResposta);
+                          if (diasPrazo !== null && diasPrazo >= 0) {
+                            return (
+                              <Badge 
+                                variant={diasPrazo <= 5 ? "destructive" : diasPrazo <= 10 ? "secondary" : "outline"} 
+                                className="mt-2"
+                              >
+                                <AlertTriangle className={`h-3 w-3 mr-1 ${diasPrazo <= 5 ? "animate-pulse" : ""}`} />
+                                {diasPrazo === 0 ? "Prazo vence HOJE!" : diasPrazo === 1 ? "1 dia para resposta" : `${diasPrazo} dias para resposta`}
+                              </Badge>
+                            );
+                          }
+                          if (diasPrazo !== null && diasPrazo < 0) {
+                            return (
+                              <Badge variant="destructive" className="mt-2">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Prazo vencido há {Math.abs(diasPrazo)} dias
+                              </Badge>
+                            );
+                          }
+                          return null;
+                        })()}
                         {diasRestantes !== null && diasRestantes >= 0 && (
                           <Badge 
                             variant={diasRestantes <= 5 ? "destructive" : "outline"} 
@@ -775,6 +822,95 @@ export default function AcompanhamentoRecursos() {
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enviando...</>
               ) : (
                 <><Upload className="h-4 w-4 mr-2" /> Anexar PDF</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Exportar por Período */}
+      <Dialog open={dialogExportarPeriodo} onOpenChange={setDialogExportarPeriodo}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Exportar Recursos por Período</DialogTitle>
+            <DialogDescription>
+              Selecione o período para exportar os recursos de glosa
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Data Início</label>
+                <Input
+                  type="date"
+                  value={dataInicio}
+                  onChange={(e) => setDataInicio(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Data Fim</label>
+                <Input
+                  type="date"
+                  value={dataFim}
+                  onChange={(e) => setDataFim(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Convênio (opcional)</label>
+                <Select value={convenioFiltro} onValueChange={setConvenioFiltro}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos os convênios" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os convênios</SelectItem>
+                    {convenios?.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Status (opcional)</label>
+                <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos os status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os status</SelectItem>
+                    <SelectItem value="rascunho">Rascunho</SelectItem>
+                    <SelectItem value="pendente_envio">Pendente Envio</SelectItem>
+                    <SelectItem value="enviado">Enviado</SelectItem>
+                    <SelectItem value="em_analise">Em Análise</SelectItem>
+                    <SelectItem value="respondido">Respondido</SelectItem>
+                    <SelectItem value="finalizado">Finalizado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setDialogExportarPeriodo(false);
+              setDataInicio("");
+              setDataFim("");
+            }}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleExportarPorPeriodo}
+              disabled={!dataInicio || !dataFim || exportando}
+            >
+              {exportando ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Exportando...</>
+              ) : (
+                <><FileSpreadsheet className="h-4 w-4 mr-2" /> Exportar Excel</>
               )}
             </Button>
           </DialogFooter>

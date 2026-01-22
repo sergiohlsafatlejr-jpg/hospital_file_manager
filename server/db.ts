@@ -9107,6 +9107,10 @@ export async function criarLoteRecurso(params: {
     valorTotalRecursado += parseFloat(recurso.valorGlosado || "0"); // Valor recursado = valor glosado inicialmente
   }
 
+  // Calcular prazo de resposta (30 dias úteis após criação - padrão ANS)
+  const dataPrazoResposta = new Date(dataAtual);
+  dataPrazoResposta.setDate(dataPrazoResposta.getDate() + 30);
+
   // Criar o lote
   const [result] = await db.insert(lotesRecurso).values({
     convenioId: params.convenioId,
@@ -9119,6 +9123,7 @@ export async function criarLoteRecurso(params: {
     valorTotalRecuperado: "0",
     quantidadeItens: params.recursosIds.length,
     status: "pendente_envio",
+    dataPrazoResposta,
     createdAt: new Date(),
   });
 

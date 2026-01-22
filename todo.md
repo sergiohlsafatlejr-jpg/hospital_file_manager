@@ -452,3 +452,9 @@
 - [x] Adicionar funcionalidade para visualizar/baixar PDF anexado
 - [x] Incluir campo Carteirinha ao criar recursos
 - [ ] Adicionar filtro por período no relatório de recursos (pendente)
+
+
+## Novas Funcionalidades - Recursos de Glosa
+- [x] Filtro por período no relatório: Adicionar seletor de data inicial/final para exportar recursos
+- [x] Preenchimento automático da carteirinha: Buscar carteirinha ao criar recursos na Análise de Glosa
+- [x] Notificação de prazo de resposta: Alerta automático quando lote estiver próximo do vencimento

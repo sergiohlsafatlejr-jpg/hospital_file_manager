@@ -286,6 +286,7 @@ export const lotesRecurso = mysqlTable("lotesRecurso", {
   
   dataEnvio: timestamp("dataEnvio"),
   dataPrazoPagamento: timestamp("dataPrazoPagamento"),
+  dataPrazoResposta: timestamp("dataPrazoResposta"), // Prazo para resposta do convênio
   dataResposta: timestamp("dataResposta"),
   
   // Protocolo e anexos

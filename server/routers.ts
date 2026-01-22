@@ -1550,6 +1550,7 @@ export const appRouter = router({
               descricaoProcedimento: z.string().optional(),
               guiaNumero: z.string().optional(),
               pacienteNome: z.string().optional(),
+              pacienteCarteirinha: z.string().optional(),
               valorCobrado: z.string().optional(),
               valorGlosado: z.string().optional(),
               motivoGlosaConvenio: z.string().optional(),
