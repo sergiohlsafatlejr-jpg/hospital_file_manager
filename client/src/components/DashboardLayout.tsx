@@ -53,7 +53,8 @@ import {
   Activity,
   Lock,
   KeyRound,
-  Brain
+  Brain,
+  Clock
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -94,6 +95,7 @@ const menuItems: MenuItem[] = [
   { icon: FileText, label: "Relatório de Contas", path: "/relatorio-contas", modulo: "faturamento" },
   { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
   { icon: Brain, label: "Dashboard IA", path: "/dashboard-ia", modulo: "comparacoes" },
+  { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "faturamento" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

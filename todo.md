@@ -401,3 +401,10 @@
 ### Tabelas de Preço
 - [x] Vincular estabelecimentoId automaticamente na importação de tabelas de preço
 - [x] Garantir que tabelas do ID 90001 não apareçam no ID 90002
+
+
+## Relatório de Itens Não Recebidos
+- [x] Criar rota e função para buscar itens não recebidos (status nao_recebido)
+- [x] Criar tela de relatório com filtros por convênio, período e estabelecimento
+- [x] Adicionar métricas: total de itens, valor total pendente, resumo por convênio
+- [x] Adicionar exportação para Excel

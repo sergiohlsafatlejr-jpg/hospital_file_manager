@@ -1851,6 +1851,30 @@ export const appRouter = router({
           estabelecimentoId: input?.estabelecimentoId,
         });
       }),
+
+    // Buscar itens não recebidos (pendentes de pagamento)
+    naoRecebidos: protectedProcedure
+      .input(
+        z.object({
+          convenioId: z.number().optional(),
+          estabelecimentoId: z.number().optional(),
+          mesReferencia: z.number().min(1).max(12).optional(),
+          anoReferencia: z.number().min(2000).max(2100).optional(),
+          pagina: z.number().min(1).optional().default(1),
+          itensPorPagina: z.number().min(10).max(500).optional().default(50),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        return db.getItensNaoRecebidos({
+          convenioId: input.convenioId,
+          userId: ctx.user.id,
+          estabelecimentoId: input.estabelecimentoId,
+          mesReferencia: input.mesReferencia,
+          anoReferencia: input.anoReferencia,
+          pagina: input.pagina,
+          itensPorPagina: input.itensPorPagina,
+        });
+      }),
   }),
 
   // ============ TENDÊNCIAS DE GLOSA ============

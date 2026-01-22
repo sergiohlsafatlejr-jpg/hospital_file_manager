@@ -2641,6 +2641,82 @@ export async function getConciliacaoPorConvenio(filters: {
   return { itens: itensPaginados, resumo, total };
 }
 
+// Função para buscar itens não recebidos (pendentes de pagamento)
+export async function getItensNaoRecebidos(filters: {
+  convenioId?: number;
+  userId: number;
+  estabelecimentoId?: number;
+  mesReferencia?: number;
+  anoReferencia?: number;
+  pagina?: number;
+  itensPorPagina?: number;
+}): Promise<{ itens: ItemConciliacao[]; resumo: { totalItens: number; valorTotal: number; porConvenio: { convenioId: number; convenioNome: string; totalItens: number; valorTotal: number }[] }; total: number }> {
+  const db = await getDb();
+  if (!db) return { itens: [], resumo: { totalItens: 0, valorTotal: 0, porConvenio: [] }, total: 0 };
+
+  // Buscar todos os convênios do usuário
+  const conveniosConditions: any[] = [];
+  if (filters.convenioId) {
+    conveniosConditions.push(eq(convenios.id, filters.convenioId));
+  }
+  
+  const listaConvenios = await db.select().from(convenios).where(conveniosConditions.length > 0 ? and(...conveniosConditions) : undefined);
+  
+  const todosItensNaoRecebidos: ItemConciliacao[] = [];
+  const porConvenio: { convenioId: number; convenioNome: string; totalItens: number; valorTotal: number }[] = [];
+  
+  for (const convenio of listaConvenios) {
+    // Buscar conciliação para cada convênio
+    const resultado = await getConciliacaoPorConvenio({
+      convenioId: convenio.id,
+      userId: filters.userId,
+      estabelecimentoId: filters.estabelecimentoId,
+      mesReferencia: filters.mesReferencia,
+      anoReferencia: filters.anoReferencia,
+      pagina: 1,
+      itensPorPagina: 10000, // Buscar todos para filtrar
+    });
+    
+    // Filtrar apenas itens não recebidos
+    const itensNaoRecebidos = resultado.itens.filter(item => item.status === "nao_recebido");
+    
+    if (itensNaoRecebidos.length > 0) {
+      const valorTotalConvenio = itensNaoRecebidos.reduce((acc, item) => acc + item.valorFaturado, 0);
+      porConvenio.push({
+        convenioId: convenio.id,
+        convenioNome: convenio.nome,
+        totalItens: itensNaoRecebidos.length,
+        valorTotal: valorTotalConvenio,
+      });
+      todosItensNaoRecebidos.push(...itensNaoRecebidos);
+    }
+  }
+  
+  // Ordenar por valor faturado (maior primeiro)
+  todosItensNaoRecebidos.sort((a, b) => b.valorFaturado - a.valorFaturado);
+  
+  // Calcular totais
+  const totalItens = todosItensNaoRecebidos.length;
+  const valorTotal = todosItensNaoRecebidos.reduce((acc, item) => acc + item.valorFaturado, 0);
+  
+  // Aplicar paginação
+  const pagina = filters.pagina || 1;
+  const itensPorPagina = filters.itensPorPagina || 50;
+  const inicio = (pagina - 1) * itensPorPagina;
+  const fim = inicio + itensPorPagina;
+  const itensPaginados = todosItensNaoRecebidos.slice(inicio, fim);
+  
+  return {
+    itens: itensPaginados,
+    resumo: {
+      totalItens,
+      valorTotal,
+      porConvenio,
+    },
+    total: totalItens,
+  };
+}
+
 export async function getResumoConciliacao(filters: {
   convenioId?: number;
   userId: number;
