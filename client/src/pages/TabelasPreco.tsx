@@ -232,6 +232,7 @@ export default function TabelasPreco() {
 
       importMutation.mutate({
         convenioId,
+        estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
         tipo: tipoSelecionado,
         nomeArquivo: importFile.name,
         formatoArquivo: formato,

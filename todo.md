@@ -384,3 +384,20 @@
 ## Bug - Erro na Importação de Excel no Estabelecimento 90002
 - [x] Investigar erro na importação do arquivo demonstrativo-0282629.xlsx
 - [x] Corrigir o problema identificado (arquivo reprocessado manualmente)
+
+
+## Correções Solicitadas - Comparativo, Faturamento e Tabelas de Preço
+
+### Comparativo/Conciliação
+- [x] Adicionar tela inicial com filtro por mês de referência antes de carregar dados
+- [x] Otimizar performance para evitar travamentos com muitos dados (paginação no backend)
+- [x] Carregar dados apenas após seleção de mês/ano
+
+### Faturamento
+- [x] Adicionar filtro por mês de referência
+- [x] Corrigir lógica para não interpretar contas não recebidas como glosadas
+- [x] Criar status "não_recebido" separado de "glosado"
+
+### Tabelas de Preço
+- [x] Vincular estabelecimentoId automaticamente na importação de tabelas de preço
+- [x] Garantir que tabelas do ID 90001 não apareçam no ID 90002

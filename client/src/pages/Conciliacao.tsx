@@ -1,4 +1,3 @@
-import { useAuth } from "@/_core/hooks/useAuth";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -20,9 +19,12 @@ import {
   DollarSign,
   FileText,
   Search,
-  Calendar
+  Calendar,
+  ArrowRight
 } from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 // Lista de meses em português
 const MESES = [
@@ -49,8 +51,6 @@ const getAnos = () => {
   }
   return anos;
 };
-import { toast } from "sonner";
-import * as XLSX from "xlsx";
 
 interface ItemConciliacao {
   guiaNumero: string;
@@ -63,7 +63,7 @@ interface ItemConciliacao {
   valorPago: number;
   valorGlosado: number;
   motivoGlosa: string;
-  status: "ok" | "divergente" | "glosado" | "nao_encontrado";
+  status: "ok" | "divergente" | "glosado" | "nao_encontrado" | "nao_recebido";
 }
 
 interface ResumoConciliacao {
@@ -74,22 +74,31 @@ interface ResumoConciliacao {
   totalConciliados: number;
   totalDivergentes: number;
   totalGlosados: number;
+  totalNaoRecebidos: number;
   valorTotalFaturado: number;
   valorTotalPago: number;
   valorTotalGlosado: number;
+  valorTotalNaoRecebido: number;
   percentualGlosa: number;
 }
 
+// Etapas do fluxo
+type Etapa = "selecao_periodo" | "resumo_convenios" | "detalhes_convenio";
+
 export default function Conciliacao() {
-  const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
+  
+  // Estado do fluxo
+  const [etapa, setEtapa] = useState<Etapa>("selecao_periodo");
+  const [mesReferencia, setMesReferencia] = useState<string>("");
+  const [anoReferencia, setAnoReferencia] = useState<string>(String(new Date().getFullYear()));
+  
+  // Estado para detalhes do convênio
   const [convenioId, setConvenioId] = useState<string>("");
-  const [dataInicio, setDataInicio] = useState<string>("");
-  const [dataFim, setDataFim] = useState<string>("");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [busca, setBusca] = useState<string>("");
-  const [mesReferencia, setMesReferencia] = useState<string>("");
-  const [anoReferencia, setAnoReferencia] = useState<string>("");
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 100;
 
   // Memoize anos para evitar recriação a cada render
   const anos = useMemo(() => getAnos(), []);
@@ -97,22 +106,26 @@ export default function Conciliacao() {
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
 
-  // Buscar resumo de todos os convênios
+  // Buscar resumo de todos os convênios - só quando tiver mês/ano selecionado
   const { data: resumoGeral, isLoading: isLoadingResumo } = trpc.conciliacao.resumo.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
+    mesReferencia: mesReferencia ? parseInt(mesReferencia) : undefined,
+    anoReferencia: anoReferencia ? parseInt(anoReferencia) : undefined,
+  }, {
+    enabled: etapa !== "selecao_periodo" && !!mesReferencia && !!anoReferencia,
   });
 
-  // Buscar conciliação detalhada do convênio selecionado
+  // Buscar conciliação detalhada do convênio selecionado - com paginação
   const { data: conciliacaoData, isLoading: isLoadingConciliacao, refetch } = trpc.conciliacao.porConvenio.useQuery(
     { 
       convenioId: convenioId ? parseInt(convenioId) : 0,
       estabelecimentoId: estabelecimentoAtual?.id,
-      dataInicio: dataInicio || undefined,
-      dataFim: dataFim || undefined,
       mesReferencia: mesReferencia ? parseInt(mesReferencia) : undefined,
       anoReferencia: anoReferencia ? parseInt(anoReferencia) : undefined,
+      pagina: paginaAtual,
+      itensPorPagina,
     },
-    { enabled: !!convenioId }
+    { enabled: etapa === "detalhes_convenio" && !!convenioId }
   );
 
   const formatCurrency = (value: number) => {
@@ -129,12 +142,14 @@ export default function Conciliacao() {
         return <Badge className="bg-red-100 text-red-700 border-red-200">Glosado</Badge>;
       case "nao_encontrado":
         return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Não Encontrado</Badge>;
+      case "nao_recebido":
+        return <Badge className="bg-orange-100 text-orange-700 border-orange-200">Não Recebido</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
   };
 
-  // Filtrar itens
+  // Filtrar itens localmente (busca e status)
   const itensFiltrados = useMemo(() => {
     if (!conciliacaoData?.itens) return [];
     
@@ -190,7 +205,8 @@ export default function Conciliacao() {
       "Motivo Glosa": item.motivoGlosa,
       "Status": item.status === "ok" ? "OK" : 
                item.status === "divergente" ? "Divergente" :
-               item.status === "glosado" ? "Glosado" : "Não Encontrado",
+               item.status === "glosado" ? "Glosado" : 
+               item.status === "nao_recebido" ? "Não Recebido" : "Não Encontrado",
     }));
 
     const wb = XLSX.utils.book_new();
@@ -202,9 +218,43 @@ export default function Conciliacao() {
     XLSX.utils.book_append_sheet(wb, ws, "Conciliação");
     
     const convenioNome = convenios?.find(c => c.id === parseInt(convenioId))?.nome || "convenio";
-    XLSX.writeFile(wb, `conciliacao_${convenioNome}_${new Date().toISOString().split("T")[0]}.xlsx`);
+    const mesNome = MESES.find(m => m.value === mesReferencia)?.label || "";
+    XLSX.writeFile(wb, `conciliacao_${convenioNome}_${mesNome}_${anoReferencia}.xlsx`);
     toast.success("Arquivo exportado com sucesso!");
   };
+
+  const handleIniciarConciliacao = () => {
+    if (!mesReferencia || !anoReferencia) {
+      toast.error("Selecione o mês e ano de referência");
+      return;
+    }
+    setEtapa("resumo_convenios");
+  };
+
+  const handleSelecionarConvenio = (convId: string) => {
+    setConvenioId(convId);
+    setPaginaAtual(1);
+    setEtapa("detalhes_convenio");
+  };
+
+  const handleVoltarResumo = () => {
+    setConvenioId("");
+    setFiltroStatus("todos");
+    setBusca("");
+    setPaginaAtual(1);
+    setEtapa("resumo_convenios");
+  };
+
+  const handleVoltarSelecao = () => {
+    setConvenioId("");
+    setFiltroStatus("todos");
+    setBusca("");
+    setPaginaAtual(1);
+    setEtapa("selecao_periodo");
+  };
+
+  // Calcular total de páginas
+  const totalPaginas = conciliacaoData?.total ? Math.ceil(conciliacaoData.total / itensPorPagina) : 1;
 
   return (
     <DashboardLayout>
@@ -216,9 +266,86 @@ export default function Conciliacao() {
           </p>
         </div>
 
-        {/* Cards de resumo geral */}
-        {!convenioId && (
+        {/* ETAPA 1: Seleção de Período */}
+        {etapa === "selecao_periodo" && (
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                <Calendar className="h-8 w-8 text-primary" />
+              </div>
+              <CardTitle className="text-2xl">Selecione o Período de Referência</CardTitle>
+              <CardDescription>
+                Escolha o mês e ano para visualizar a conciliação dos convênios
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Mês de Referência</label>
+                  <Select value={mesReferencia} onValueChange={setMesReferencia}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MESES.map((mes) => (
+                        <SelectItem key={mes.value} value={mes.value}>
+                          {mes.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Ano de Referência</label>
+                  <Select value={anoReferencia} onValueChange={setAnoReferencia}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o ano" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {anos.map((ano) => (
+                        <SelectItem key={ano.value} value={ano.value}>
+                          {ano.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Button 
+                className="w-full" 
+                size="lg"
+                onClick={handleIniciarConciliacao}
+                disabled={!mesReferencia || !anoReferencia}
+              >
+                Visualizar Conciliação
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ETAPA 2: Resumo por Convênio */}
+        {etapa === "resumo_convenios" && (
           <div className="space-y-4">
+            {/* Indicador de período */}
+            <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <Calendar className="h-5 w-5" />
+                    <span className="font-medium">
+                      Período: {MESES.find(m => m.value === mesReferencia)?.label} / {anoReferencia}
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleVoltarSelecao}>
+                    Alterar Período
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <h2 className="text-xl font-semibold">Resumo por Convênio</h2>
             {isLoadingResumo ? (
               <div className="flex items-center justify-center py-8">
@@ -230,7 +357,7 @@ export default function Conciliacao() {
                   <Card 
                     key={resumo.convenioId} 
                     className="cursor-pointer hover:border-primary transition-colors"
-                    onClick={() => setConvenioId(String(resumo.convenioId))}
+                    onClick={() => handleSelecionarConvenio(String(resumo.convenioId))}
                   >
                     <CardHeader className="pb-2">
                       <CardTitle className="text-lg">{resumo.convenioNome}</CardTitle>
@@ -257,10 +384,20 @@ export default function Conciliacao() {
                           <p className="font-semibold text-amber-600">{resumo.percentualGlosa.toFixed(1)}%</p>
                         </div>
                       </div>
-                      <div className="mt-4 flex gap-2">
+                      {resumo.totalNaoRecebidos > 0 && (
+                        <div className="mt-2 p-2 bg-orange-50 dark:bg-orange-950 rounded border border-orange-200 dark:border-orange-800">
+                          <p className="text-xs text-orange-700 dark:text-orange-300">
+                            {resumo.totalNaoRecebidos} itens não recebidos ({formatCurrency(resumo.valorTotalNaoRecebido || 0)})
+                          </p>
+                        </div>
+                      )}
+                      <div className="mt-4 flex gap-2 flex-wrap">
                         <Badge variant="outline" className="text-green-600">{resumo.totalConciliados} OK</Badge>
                         <Badge variant="outline" className="text-red-600">{resumo.totalGlosados} Glosados</Badge>
                         <Badge variant="outline" className="text-amber-600">{resumo.totalDivergentes} Divergentes</Badge>
+                        {resumo.totalNaoRecebidos > 0 && (
+                          <Badge variant="outline" className="text-orange-600">{resumo.totalNaoRecebidos} Não Recebidos</Badge>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -270,7 +407,7 @@ export default function Conciliacao() {
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   <GitCompare className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>Nenhum dado de conciliação disponível.</p>
+                  <p>Nenhum dado de conciliação disponível para o período selecionado.</p>
                   <p className="text-sm mt-2">Importe arquivos XML (enviados) e Excel (retornados) do mesmo convênio para iniciar a conciliação.</p>
                 </CardContent>
               </Card>
@@ -278,76 +415,22 @@ export default function Conciliacao() {
           </div>
         )}
 
-        {/* Filtros e detalhes quando convênio selecionado */}
-        {convenioId && (
+        {/* ETAPA 3: Detalhes do Convênio */}
+        {etapa === "detalhes_convenio" && (
           <>
             {/* Filtros */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <GitCompare className="h-5 w-5" />
-                  Filtros de Conciliação
+                  {convenios?.find(c => c.id === parseInt(convenioId))?.nome || "Convênio"}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    - {MESES.find(m => m.value === mesReferencia)?.label} / {anoReferencia}
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Convênio</label>
-                    <Select value={convenioId} onValueChange={setConvenioId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o convênio" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os convênios</SelectItem>
-                        {convenios?.map((c) => (
-                          <SelectItem key={c.id} value={String(c.id)}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      Mês Referência
-                    </label>
-                    <Select value={mesReferencia} onValueChange={setMesReferencia}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Todos" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os meses</SelectItem>
-                        {MESES.map((mes) => (
-                          <SelectItem key={mes.value} value={mes.value}>
-                            {mes.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      Ano Referência
-                    </label>
-                    <Select value={anoReferencia} onValueChange={setAnoReferencia}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Todos" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os anos</SelectItem>
-                        {anos.map((ano) => (
-                          <SelectItem key={ano.value} value={ano.value}>
-                            {ano.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Status</label>
                     <Select value={filtroStatus} onValueChange={setFiltroStatus}>
@@ -360,11 +443,12 @@ export default function Conciliacao() {
                         <SelectItem value="glosado">Glosado</SelectItem>
                         <SelectItem value="divergente">Divergente</SelectItem>
                         <SelectItem value="nao_encontrado">Não Encontrado</SelectItem>
+                        <SelectItem value="nao_recebido">Não Recebido</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:col-span-2">
                     <label className="text-sm font-medium">Busca</label>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -378,30 +462,8 @@ export default function Conciliacao() {
                   </div>
                 </div>
 
-                {/* Indicador de período selecionado */}
-                {(mesReferencia || anoReferencia) && (
-                  <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Filtrando por referência: {mesReferencia ? MESES.find(m => m.value === mesReferencia)?.label : "Todos os meses"} / {anoReferencia || "Todos os anos"}
-                      <span className="text-xs opacity-70">(informado no upload do arquivo)</span>
-                    </p>
-                  </div>
-                )}
-
                 <div className="flex gap-2 mt-4">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      setConvenioId("");
-                      setDataInicio("");
-                      setDataFim("");
-                      setFiltroStatus("todos");
-                      setBusca("");
-                      setMesReferencia("");
-                      setAnoReferencia("");
-                    }}
-                  >
+                  <Button variant="outline" onClick={handleVoltarResumo}>
                     Voltar ao Resumo
                   </Button>
                   <Button 
@@ -422,7 +484,7 @@ export default function Conciliacao() {
 
             {/* Cards de resumo do convênio selecionado */}
             {conciliacaoData?.resumo && (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                 <Card>
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-2">
@@ -474,6 +536,18 @@ export default function Conciliacao() {
                 <Card>
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-orange-600" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Não Recebido</p>
+                        <p className="text-lg font-bold text-orange-600">{formatCurrency(conciliacaoData.resumo.valorTotalNaoRecebido || 0)}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2">
                       <TrendingDown className="h-5 w-5 text-amber-600" />
                       <div>
                         <p className="text-sm text-muted-foreground">% Glosa</p>
@@ -502,9 +576,9 @@ export default function Conciliacao() {
               <CardHeader>
                 <CardTitle>
                   Detalhes da Conciliação
-                  {itensFiltrados.length > 0 && (
+                  {conciliacaoData?.total && (
                     <span className="ml-2 text-sm font-normal text-muted-foreground">
-                      ({itensFiltrados.length} itens)
+                      ({conciliacaoData.total} itens total - Página {paginaAtual} de {totalPaginas})
                     </span>
                   )}
                 </CardTitle>
@@ -518,79 +592,107 @@ export default function Conciliacao() {
                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
                 ) : itensFiltrados.length > 0 ? (
-                  <div className="rounded-md border overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[120px]">Guia</TableHead>
-                          <TableHead className="w-[100px]">Lote</TableHead>
-                          <TableHead className="w-[100px]">Data</TableHead>
-                          <TableHead className="w-[100px]">Código</TableHead>
-                          <TableHead>Descrição</TableHead>
-                          <TableHead className="w-[150px]">Paciente</TableHead>
-                          <TableHead className="w-[120px] text-right">Faturado</TableHead>
-                          <TableHead className="w-[120px] text-right">Pago</TableHead>
-                          <TableHead className="w-[120px] text-right">Glosado</TableHead>
-                          <TableHead className="w-[200px]">Motivo Glosa</TableHead>
-                          <TableHead className="w-[100px]">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {Object.entries(itensAgrupados).map(([guia, itens]) => (
-                          <>
-                            {/* Cabeçalho do grupo */}
-                            <TableRow key={`header-${guia}`} className="bg-muted/50">
-                              <TableCell colSpan={11} className="font-semibold">
-                                <div className="flex items-center gap-2">
-                                  <FileText className="h-4 w-4" />
-                                  Guia: {guia}
-                                  <span className="text-muted-foreground font-normal">
-                                    ({itens.length} procedimentos)
-                                  </span>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                            {/* Itens do grupo */}
-                            {itens.map((item, idx) => (
-                              <TableRow 
-                                key={`${guia}-${idx}`}
-                                className={
-                                  item.status === "glosado" ? "bg-red-50" :
-                                  item.status === "nao_encontrado" ? "bg-gray-50" :
-                                  item.status === "divergente" ? "bg-amber-50" :
-                                  ""
-                                }
-                              >
-                                <TableCell className="text-muted-foreground text-sm">{item.guiaNumero}</TableCell>
-                                <TableCell className="text-muted-foreground text-sm">{item.numeroLote || "-"}</TableCell>
-                                <TableCell>{item.dataExecucao}</TableCell>
-                                <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
-                                <TableCell className="max-w-[300px] truncate" title={item.descricao}>
-                                  {item.descricao}
+                  <>
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[120px]">Guia</TableHead>
+                            <TableHead className="w-[100px]">Lote</TableHead>
+                            <TableHead className="w-[100px]">Data</TableHead>
+                            <TableHead className="w-[100px]">Código</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead className="w-[150px]">Paciente</TableHead>
+                            <TableHead className="w-[120px] text-right">Faturado</TableHead>
+                            <TableHead className="w-[120px] text-right">Pago</TableHead>
+                            <TableHead className="w-[120px] text-right">Glosado</TableHead>
+                            <TableHead className="w-[200px]">Motivo Glosa</TableHead>
+                            <TableHead className="w-[120px]">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.entries(itensAgrupados).map(([guia, itens]) => (
+                            <>
+                              {/* Cabeçalho do grupo */}
+                              <TableRow key={`header-${guia}`} className="bg-muted/50">
+                                <TableCell colSpan={11} className="font-semibold">
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4" />
+                                    Guia: {guia}
+                                    <span className="text-muted-foreground font-normal">
+                                      ({itens.length} procedimentos)
+                                    </span>
+                                  </div>
                                 </TableCell>
-                                <TableCell className="max-w-[150px] truncate" title={item.pacienteNome}>
-                                  {item.pacienteNome}
-                                </TableCell>
-                                <TableCell className="text-right font-mono">
-                                  {formatCurrency(item.valorFaturado)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-green-600">
-                                  {formatCurrency(item.valorPago)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-red-600">
-                                  {item.valorGlosado > 0 ? formatCurrency(item.valorGlosado) : "-"}
-                                </TableCell>
-                                <TableCell className="max-w-[200px] truncate text-sm" title={item.motivoGlosa}>
-                                  {item.motivoGlosa || "-"}
-                                </TableCell>
-                                <TableCell>{getStatusBadge(item.status)}</TableCell>
                               </TableRow>
-                            ))}
-                          </>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                              {/* Itens do grupo */}
+                              {itens.map((item, idx) => (
+                                <TableRow 
+                                  key={`${guia}-${idx}`}
+                                  className={
+                                    item.status === "glosado" ? "bg-red-50 dark:bg-red-950/20" :
+                                    item.status === "nao_encontrado" ? "bg-gray-50 dark:bg-gray-950/20" :
+                                    item.status === "divergente" ? "bg-amber-50 dark:bg-amber-950/20" :
+                                    item.status === "nao_recebido" ? "bg-orange-50 dark:bg-orange-950/20" :
+                                    ""
+                                  }
+                                >
+                                  <TableCell className="text-muted-foreground text-sm">{item.guiaNumero}</TableCell>
+                                  <TableCell className="text-muted-foreground text-sm">{item.numeroLote || "-"}</TableCell>
+                                  <TableCell>{item.dataExecucao}</TableCell>
+                                  <TableCell className="font-mono text-sm">{item.codigo}</TableCell>
+                                  <TableCell className="max-w-[300px] truncate" title={item.descricao}>
+                                    {item.descricao}
+                                  </TableCell>
+                                  <TableCell className="max-w-[150px] truncate" title={item.pacienteNome}>
+                                    {item.pacienteNome}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono">
+                                    {formatCurrency(item.valorFaturado)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-green-600">
+                                    {formatCurrency(item.valorPago)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-red-600">
+                                    {item.valorGlosado > 0 ? formatCurrency(item.valorGlosado) : "-"}
+                                  </TableCell>
+                                  <TableCell className="max-w-[200px] truncate text-sm" title={item.motivoGlosa}>
+                                    {item.motivoGlosa || "-"}
+                                  </TableCell>
+                                  <TableCell>{getStatusBadge(item.status)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Paginação */}
+                    {totalPaginas > 1 && (
+                      <div className="flex items-center justify-center gap-2 mt-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                          disabled={paginaAtual === 1}
+                        >
+                          Anterior
+                        </Button>
+                        <span className="text-sm text-muted-foreground">
+                          Página {paginaAtual} de {totalPaginas}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+                          disabled={paginaAtual === totalPaginas}
+                        >
+                          Próxima
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     <GitCompare className="h-12 w-12 mx-auto mb-4 opacity-50" />

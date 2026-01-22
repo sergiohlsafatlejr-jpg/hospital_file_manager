@@ -2178,7 +2178,7 @@ export interface ItemConciliacao {
   valorPago: number;
   valorGlosado: number;
   motivoGlosa: string;
-  status: "ok" | "divergente" | "glosado" | "nao_encontrado";
+  status: "ok" | "divergente" | "glosado" | "nao_encontrado" | "nao_recebido";
 }
 
 export interface ResumoConciliacao {
@@ -2189,9 +2189,11 @@ export interface ResumoConciliacao {
   totalConciliados: number;
   totalDivergentes: number;
   totalGlosados: number;
+  totalNaoRecebidos: number;
   valorTotalFaturado: number;
   valorTotalPago: number;
   valorTotalGlosado: number;
+  valorTotalNaoRecebido: number;
   percentualGlosa: number;
 }
 
@@ -2203,9 +2205,11 @@ export async function getConciliacaoPorConvenio(filters: {
   dataFim?: Date;
   mesReferencia?: number; // 1-12
   anoReferencia?: number; // ex: 2025
-}): Promise<{ itens: ItemConciliacao[]; resumo: ResumoConciliacao | null }> {
+  pagina?: number;
+  itensPorPagina?: number;
+}): Promise<{ itens: ItemConciliacao[]; resumo: ResumoConciliacao | null; total: number }> {
   const db = await getDb();
-  if (!db) return { itens: [], resumo: null };
+  if (!db) return { itens: [], resumo: null, total: 0 };
 
   // Buscar convênio
   const [convenio] = await db
@@ -2214,7 +2218,7 @@ export async function getConciliacaoPorConvenio(filters: {
     .where(eq(convenios.id, filters.convenioId))
     .limit(1);
 
-  if (!convenio) return { itens: [], resumo: null };
+  if (!convenio) return { itens: [], resumo: null, total: 0 };
 
   // Buscar regras de conciliação configuradas para este convênio
   const regra = await getRegraConciliacaoPorConvenio(filters.convenioId);
@@ -2360,9 +2364,11 @@ export async function getConciliacaoPorConvenio(filters: {
   let totalConciliados = 0;
   let totalDivergentes = 0;
   let totalGlosados = 0;
+  let totalNaoRecebidos = 0;
   let valorTotalFaturado = 0;
   let valorTotalPago = 0;
   let valorTotalGlosado = 0;
+  let valorTotalNaoRecebido = 0;
 
   for (const env of procedimentosEnviados) {
     // Usar chave composta para buscar correspondência exata
@@ -2439,7 +2445,7 @@ export async function getConciliacaoPorConvenio(filters: {
         });
         totalDivergentes++;
       } else {
-        // Glosado total (padrão)
+        // Não recebido (padrão) - NÃO é glosa, apenas não foi processado ainda
         itensConciliados.push({
           guiaNumero: env.guiaNumero || "",
           numeroLote: env.numeroLote || "",
@@ -2449,12 +2455,12 @@ export async function getConciliacaoPorConvenio(filters: {
           pacienteNome: env.pacienteNome || "",
           valorFaturado: valorEnviado,
           valorPago: 0,
-          valorGlosado: valorEnviado,
-          motivoGlosa: "Procedimento não encontrado no retorno",
-          status: "nao_encontrado",
+          valorGlosado: 0,
+          motivoGlosa: "Aguardando retorno do convênio",
+          status: "nao_recebido",
         });
-        totalGlosados++;
-        valorTotalGlosado += valorEnviado;
+        totalNaoRecebidos++;
+        valorTotalNaoRecebido += valorEnviado;
       }
     } else {
       // Encontrado - comparar valores
@@ -2616,13 +2622,23 @@ export async function getConciliacaoPorConvenio(filters: {
     totalConciliados,
     totalDivergentes,
     totalGlosados,
+    totalNaoRecebidos,
     valorTotalFaturado,
     valorTotalPago,
     valorTotalGlosado,
+    valorTotalNaoRecebido,
     percentualGlosa: valorTotalFaturado > 0 ? (valorTotalGlosado / valorTotalFaturado) * 100 : 0,
   };
 
-  return { itens: itensConciliados, resumo };
+  // Aplicar paginação
+  const total = itensConciliados.length;
+  const pagina = filters.pagina || 1;
+  const itensPorPagina = filters.itensPorPagina || 100;
+  const inicio = (pagina - 1) * itensPorPagina;
+  const fim = inicio + itensPorPagina;
+  const itensPaginados = itensConciliados.slice(inicio, fim);
+
+  return { itens: itensPaginados, resumo, total };
 }
 
 export async function getResumoConciliacao(filters: {

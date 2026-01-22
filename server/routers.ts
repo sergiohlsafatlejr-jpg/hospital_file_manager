@@ -1816,6 +1816,8 @@ export const appRouter = router({
           dataFim: z.string().optional(),
           mesReferencia: z.number().min(1).max(12).optional(),
           anoReferencia: z.number().min(2000).max(2100).optional(),
+          pagina: z.number().min(1).optional().default(1),
+          itensPorPagina: z.number().min(10).max(500).optional().default(100),
         })
       )
       .query(async ({ input, ctx }) => {
@@ -1827,6 +1829,8 @@ export const appRouter = router({
           dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
           mesReferencia: input.mesReferencia,
           anoReferencia: input.anoReferencia,
+          pagina: input.pagina,
+          itensPorPagina: input.itensPorPagina,
         });
       }),
 
@@ -1836,6 +1840,8 @@ export const appRouter = router({
         z.object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
+          mesReferencia: z.number().min(1).max(12).optional(),
+          anoReferencia: z.number().min(2000).max(2100).optional(),
         }).optional()
       )
       .query(async ({ input, ctx }) => {
@@ -2115,6 +2121,7 @@ export const appRouter = router({
       .input(
         z.object({
           convenioId: z.number(),
+          estabelecimentoId: z.number().optional(), // Estabelecimento específico ou null para global
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]),
           nomeArquivo: z.string(),
           formatoArquivo: z.enum(["excel", "csv", "dbf"]),
@@ -2265,6 +2272,7 @@ export const appRouter = router({
 
             return {
               convenioId: input.convenioId,
+              estabelecimentoId: input.estabelecimentoId || null, // Estabelecimento específico ou null para global
               tipo: input.tipo,
               codigo: String(codigo).trim(),
               nome: String(nome).trim(),

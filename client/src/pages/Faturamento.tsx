@@ -19,7 +19,8 @@ import {
   RefreshCw,
   Download,
   BarChart3,
-  PieChart
+  PieChart,
+  Calendar
 } from "lucide-react";
 import { useState } from "react";
 import * as XLSX from "xlsx";
@@ -43,12 +44,29 @@ import {
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D", "#FFC658", "#FF6B6B"];
 
+// Lista de meses em português
+const MESES = [
+  { value: "1", label: "Janeiro" },
+  { value: "2", label: "Fevereiro" },
+  { value: "3", label: "Março" },
+  { value: "4", label: "Abril" },
+  { value: "5", label: "Maio" },
+  { value: "6", label: "Junho" },
+  { value: "7", label: "Julho" },
+  { value: "8", label: "Agosto" },
+  { value: "9", label: "Setembro" },
+  { value: "10", label: "Outubro" },
+  { value: "11", label: "Novembro" },
+  { value: "12", label: "Dezembro" },
+];
+
 export default function Faturamento() {
-  const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined;
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
   const [periodoMeses, setPeriodoMeses] = useState<string>("12");
+  const [mesReferencia, setMesReferencia] = useState<string>("");
+  const [anoReferencia, setAnoReferencia] = useState<string>(String(new Date().getFullYear()));
 
   // Buscar dados
   const { data: faturamentoConvenio, isLoading: loadingConvenio, refetch: refetchConvenio } = 
@@ -161,6 +179,63 @@ export default function Faturamento() {
             </Button>
           </div>
         </div>
+
+        {/* Filtros por Período */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Filtrar por Período de Referência
+            </CardTitle>
+            <CardDescription>
+              Selecione o mês e ano para filtrar os dados de faturamento
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="w-48">
+                <label className="text-sm font-medium mb-2 block">Mês</label>
+                <Select value={mesReferencia} onValueChange={setMesReferencia}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos os meses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os meses</SelectItem>
+                    {MESES.map((mes) => (
+                      <SelectItem key={mes.value} value={mes.value}>
+                        {mes.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-32">
+                <label className="text-sm font-medium mb-2 block">Ano</label>
+                <Select value={anoReferencia} onValueChange={setAnoReferencia}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Ano" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((ano) => (
+                      <SelectItem key={ano} value={String(ano)}>
+                        {ano}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {(mesReferencia && mesReferencia !== "todos") && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setMesReferencia("")}
+                  size="sm"
+                >
+                  Limpar Filtro
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Cards de Resumo */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
