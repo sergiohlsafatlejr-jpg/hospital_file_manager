@@ -458,3 +458,13 @@
 - [x] Filtro por período no relatório: Adicionar seletor de data inicial/final para exportar recursos
 - [x] Preenchimento automático da carteirinha: Buscar carteirinha ao criar recursos na Análise de Glosa
 - [x] Notificação de prazo de resposta: Alerta automático quando lote estiver próximo do vencimento
+
+
+## Manutenção do Banco de Dados
+- [x] Limpar todos os dados do banco (usuários, estabelecimentos e dados relacionados)
+
+- [x] Liberar permissões de administrador para o usuário inicial após limpeza do banco
+
+
+## Melhoria no Menu Lateral
+- [x] Reorganizar itens do menu na ordem correta do processo de trabalho

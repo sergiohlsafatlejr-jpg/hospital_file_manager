@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO permissoesEstabelecimento (\n  userId, \n  estabelecimentoId, \n  grupoServico,\n  podeVisualizar,\n  podeEditar,\n  podeExcluir,\n  podeGerenciar,\n  acessoDashboard,\n  acessoArquivos,\n  acessoComparacoes,\n  acessoFaturamento,\n  acessoTabelasPreco,\n  acessoAnaliseGlosa,\n  acessoDicionarioGlosas,\n  acessoRecursosGlosa,\n  acessoConvenios,\n  acessoRegrasNegocio,\n  acessoProdutividade,\n  acessoEstabelecimentos,\n  acessoPermissoes,\n  createdAt,\n  updatedAt\n) VALUES (\n  1, \n  1, \n  'administrador',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  NOW(),\n  NOW()\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute INSERT INTO permissoesEstabelecimento (\n  userId, \n  estabelecimentoId, \n  grupoServico,\n  podeVisualizar,\n  podeEditar,\n  podeExcluir,\n  podeGerenciar,\n  acessoDashboard,\n  acessoArquivos,\n  acessoComparacoes,\n  acessoFaturamento,\n  acessoTabelasPreco,\n  acessoAnaliseGlosa,\n  acessoDicionarioGlosas,\n  acessoRecursosGlosa,\n  acessoConvenios,\n  acessoRegrasNegocio,\n  acessoProdutividade,\n  acessoEstabelecimentos,\n  acessoPermissoes,\n  createdAt,\n  updatedAt\n) VALUES (\n  1, \n  1, \n  'administrador',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  'sim',\n  NOW(),\n  NOW()\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 68
+}

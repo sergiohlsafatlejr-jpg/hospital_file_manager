@@ -72,31 +72,46 @@ type MenuItem = {
 };
 
 const menuItems: MenuItem[] = [
+  // Dashboards
   { icon: LayoutDashboard, label: "Dashboard", path: "/", modulo: "dashboard" },
+  { icon: LayoutGrid, label: "Dashboard Consolidado", path: "/dashboard-consolidado", adminOnly: true },
+  { icon: Brain, label: "Dashboard IA", path: "/dashboard-ia", modulo: "comparacoes" },
+  { icon: Activity, label: "Produtividade", path: "/produtividade", modulo: "produtividade" },
+  
+  // Arquivos e Upload
   { icon: Upload, label: "Upload de Arquivos", path: "/upload", modulo: "arquivos" },
   { icon: FileSearch, label: "Arquivos", path: "/arquivos", modulo: "arquivos" },
   { icon: List, label: "Contas", path: "/contas", modulo: "arquivos" },
-  { icon: Scale, label: "Conciliação", path: "/conciliacao", modulo: "comparacoes" },
-  { icon: BarChart3, label: "Faturamento", path: "/faturamento", modulo: "faturamento" },
-  { icon: PieChart, label: "Análise de Glosa", path: "/analise-glosa", modulo: "analiseGlosa" },
-  { icon: Gavel, label: "Recursos de Glosa", path: "/recursos", modulo: "recursosGlosa" },
-  { icon: TrendingUp, label: "Tendências", path: "/tendencias", modulo: "analiseGlosa" },
-  { icon: FileSpreadsheet, label: "Demonstrativo", path: "/demonstrativo", modulo: "faturamento" },
-  { icon: Receipt, label: "Repasse", path: "/repasse", modulo: "faturamento" },
-  { icon: BookOpen, label: "Dicionário de Glosas", path: "/dicionario-glosas", modulo: "dicionarioGlosas" },
-  { icon: History, label: "Histórico Contestações", path: "/historico-contestacoes", modulo: "recursosGlosa" },
+  
+  // Comparações e Conciliação
   { icon: GitCompare, label: "Comparações", path: "/comparacoes", modulo: "comparacoes" },
   { icon: AlertTriangle, label: "Divergências", path: "/divergencias", modulo: "comparacoes" },
-  { icon: FileText, label: "Relatórios", path: "/relatorios", modulo: "faturamento" },
-  { icon: Settings, label: "Configurações", path: "/configuracoes" },
-  { icon: LayoutGrid, label: "Dashboard Consolidado", path: "/dashboard-consolidado", adminOnly: true },
-  { icon: Shield, label: "Gerenciar Permissões", path: "/gerenciar-permissoes", modulo: "permissoes" },
-  { icon: Activity, label: "Produtividade", path: "/produtividade", modulo: "produtividade" },
+  { icon: Scale, label: "Conciliação", path: "/conciliacao", modulo: "comparacoes" },
+  
+  // Faturamento
+  { icon: BarChart3, label: "Faturamento", path: "/faturamento", modulo: "faturamento" },
   { icon: FileText, label: "Relatório de Contas", path: "/relatorio-contas", modulo: "faturamento" },
+  { icon: FileSpreadsheet, label: "Demonstrativo", path: "/demonstrativo", modulo: "faturamento" },
+  
+  // Análise e Recursos de Glosa
+  { icon: PieChart, label: "Análise de Glosa", path: "/analise-glosa", modulo: "analiseGlosa" },
+  { icon: Gavel, label: "Recursos de Glosa", path: "/recursos", modulo: "recursosGlosa" },
   { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
   { icon: Gavel, label: "Envio em Lote", path: "/envio-recursos-lote", modulo: "recursosGlosa" },
-  { icon: Brain, label: "Dashboard IA", path: "/dashboard-ia", modulo: "comparacoes" },
+  
+  // Itens Não Recebidos
   { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "faturamento" },
+  
+  // Relatórios e Históricos
+  { icon: FileText, label: "Relatórios", path: "/relatorios", modulo: "faturamento" },
+  { icon: TrendingUp, label: "Tendências", path: "/tendencias", modulo: "analiseGlosa" },
+  { icon: History, label: "Histórico Contestações", path: "/historico-contestacoes", modulo: "recursosGlosa" },
+  { icon: Receipt, label: "Repasse", path: "/repasse", modulo: "faturamento" },
+  
+  // Administração
+  { icon: Shield, label: "Gerenciar Permissões", path: "/gerenciar-permissoes", modulo: "permissoes" },
+  { icon: BookOpen, label: "Dicionário de Glosas", path: "/dicionario-glosas", modulo: "dicionarioGlosas" },
+  { icon: Settings, label: "Configurações", path: "/configuracoes" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

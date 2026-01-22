@@ -1,0 +1,194 @@
+{
+  "query": "DESCRIBE permissoesEstabelecimento;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute DESCRIBE permissoesEstabelecimento;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "userId",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "estabelecimentoId",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "podeVisualizar",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "sim",
+      "Extra": ""
+    },
+    {
+      "Field": "podeEditar",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "podeExcluir",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "podeGerenciar",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updatedAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    },
+    {
+      "Field": "grupoServico",
+      "Type": "enum('administrador','faturista','recurso_glosa','gestor','visualizador')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "visualizador",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoDashboard",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "sim",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoArquivos",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoComparacoes",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoFaturamento",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoTabelasPreco",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoAnaliseGlosa",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoDicionarioGlosas",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoRecursosGlosa",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoConvenios",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoRegrasNegocio",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoProdutividade",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoEstabelecimentos",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "acessoPermissoes",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint(11)\tNO\tPRI\tNULL\tauto_increment\nuserId\tint(11)\tNO\t\tNULL\t\nestabelecimentoId\tint(11)\tNO\t\tNULL\t\npodeVisualizar\tenum('sim','nao')\tNO\t\tsim\t\npodeEditar\tenum('sim','nao')\tNO\t\tnao\t\npodeExcluir\tenum('sim','nao')\tNO\t\tnao\t\npodeGerenciar\tenum('sim','nao')\tNO\t\tnao\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\ngrupoServico\tenum('administrador','faturista','recurso_glosa','gestor','visualizador')\tNO\t\tvisualizador\t\nacessoDashboard\tenum('sim','nao')\tNO\t\tsim\t\nacessoArquivos\tenum('sim','nao')\tNO\t\tnao\t\nacessoComparacoes\tenum('sim','nao')\tNO\t\tnao\t\nacessoFaturamento\tenum('sim','nao')\tNO\t\tnao\t\nacessoTabelasPreco\tenum('sim','nao')\tNO\t\tnao\t\nacessoAnaliseGlosa\tenum('sim','nao')\tNO\t\tnao\t\nacessoDicionarioGlosas\tenum('sim','nao')\tNO\t\tnao\t\nacessoRecursosGlosa\tenum('sim','nao')\tNO\t\tnao\t\nacessoConvenios\tenum('sim','nao')\tNO\t\tnao\t\nacessoRegrasNegocio\tenum('sim','nao')\tNO\t\tnao\t\nacessoProdutividade\tenum('sim','nao')\tNO\t\tnao\t\nacessoEstabelecimentos\tenum('sim','nao')\tNO\t\tnao\t\nacessoPermissoes\tenum('sim','nao')\tNO\t\tnao\t\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}
