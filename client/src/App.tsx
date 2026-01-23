@@ -39,6 +39,7 @@ import NaoRecebidos from "./pages/NaoRecebidos";
 import EnvioRecursosLote from "./pages/EnvioRecursosLote";
 import RegrasIA from "./pages/RegrasIA";
 import ConciliacaoDetalhes from "./pages/ConciliacaoDetalhes";
+import ImportacaoTasy from "./pages/ImportacaoTasy";
 
 function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
@@ -86,6 +87,7 @@ function Router() {
       <Route path={"/nao-recebidos"} component={NaoRecebidos} />
       <Route path={"/envio-recursos-lote"} component={EnvioRecursosLote} />
       <Route path={"/regras-ia"} component={RegrasIA} />
+      <Route path={"/importacao-tasy"} component={ImportacaoTasy} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

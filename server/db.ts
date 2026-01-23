@@ -53,6 +53,10 @@ import {
   InsertInsightIA,
   regrasIA,
   InsertRegraIA,
+  dadosTasy,
+  InsertDadoTasy,
+  importacoesTasy,
+  InsertImportacaoTasy,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -10277,4 +10281,309 @@ export async function getParametrosRegra(codigo: string, estabelecimentoId?: num
     ...regra.parametros,
     tipoAlerta: regra.tipoAlerta,
   };
+}
+
+
+// ==========================================
+// IMPORTAÇÃO DE DADOS DO TASY
+// ==========================================
+
+/**
+ * Cria um novo registro de importação do Tasy
+ */
+export async function createImportacaoTasy(data: InsertImportacaoTasy) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const result = await db.insert(importacoesTasy).values(data);
+  return { id: Number(result[0].insertId) };
+}
+
+/**
+ * Atualiza o status e estatísticas de uma importação
+ */
+export async function updateImportacaoTasy(id: number, data: Partial<InsertImportacaoTasy>) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  await db.update(importacoesTasy).set(data).where(eq(importacoesTasy.id, id));
+  return { success: true };
+}
+
+/**
+ * Busca uma importação por ID
+ */
+export async function getImportacaoTasyById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const result = await db
+    .select()
+    .from(importacoesTasy)
+    .where(eq(importacoesTasy.id, id))
+    .limit(1);
+
+  return result[0] || null;
+}
+
+/**
+ * Lista todas as importações de um estabelecimento
+ */
+export async function getImportacoesTasy(estabelecimentoId: number, limite: number = 50) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const result = await db
+    .select()
+    .from(importacoesTasy)
+    .where(eq(importacoesTasy.estabelecimentoId, estabelecimentoId))
+    .orderBy(desc(importacoesTasy.createdAt))
+    .limit(limite);
+
+  return result;
+}
+
+/**
+ * Verifica se um registro do Tasy já existe no banco
+ * Usa atendimento + sequencia como chave única
+ */
+export async function verificarRegistroTasyExiste(
+  estabelecimentoId: number,
+  atendimento: string,
+  sequencia: string | null
+) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const conditions = [
+    eq(dadosTasy.estabelecimentoId, estabelecimentoId),
+    eq(dadosTasy.atendimento, atendimento),
+  ];
+
+  if (sequencia) {
+    conditions.push(eq(dadosTasy.sequencia, sequencia));
+  }
+
+  const result = await db
+    .select({ id: dadosTasy.id })
+    .from(dadosTasy)
+    .where(and(...conditions))
+    .limit(1);
+
+  return result.length > 0;
+}
+
+/**
+ * Insere um lote de registros do Tasy
+ * Retorna quantidade de registros inseridos e ignorados
+ */
+export async function insertDadosTasyBatch(
+  registros: InsertDadoTasy[],
+  estabelecimentoId: number
+): Promise<{ inseridos: number; ignorados: number; erros: number }> {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  let inseridos = 0;
+  let ignorados = 0;
+  let erros = 0;
+
+  // Processa em lotes menores para melhor performance
+  const BATCH_SIZE = 100;
+  
+  for (let i = 0; i < registros.length; i += BATCH_SIZE) {
+    const batch = registros.slice(i, i + BATCH_SIZE);
+    
+    for (const registro of batch) {
+      try {
+        // Verifica se já existe
+        const existe = await verificarRegistroTasyExiste(
+          estabelecimentoId,
+          registro.atendimento,
+          registro.sequencia || null
+        );
+
+        if (existe) {
+          ignorados++;
+          continue;
+        }
+
+        // Insere o registro
+        await db.insert(dadosTasy).values(registro);
+        inseridos++;
+      } catch (error) {
+        console.error('Erro ao inserir registro Tasy:', error);
+        erros++;
+      }
+    }
+  }
+
+  return { inseridos, ignorados, erros };
+}
+
+/**
+ * Busca dados do Tasy por estabelecimento com filtros
+ */
+export async function getDadosTasy(
+  estabelecimentoId: number,
+  filtros?: {
+    dataInicio?: Date;
+    dataFim?: Date;
+    convenio?: string;
+    tipo?: 'MATERIAL' | 'HONORARIO';
+    atendimento?: string;
+    guia?: string;
+    limite?: number;
+    offset?: number;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const conditions = [eq(dadosTasy.estabelecimentoId, estabelecimentoId)];
+
+  if (filtros?.dataInicio) {
+    conditions.push(sql`${dadosTasy.dataFaturado} >= ${filtros.dataInicio}`);
+  }
+  if (filtros?.dataFim) {
+    conditions.push(sql`${dadosTasy.dataFaturado} <= ${filtros.dataFim}`);
+  }
+  if (filtros?.convenio) {
+    conditions.push(sql`${dadosTasy.convenio} LIKE ${`%${filtros.convenio}%`}`);
+  }
+  if (filtros?.tipo) {
+    conditions.push(eq(dadosTasy.tipo, filtros.tipo));
+  }
+  if (filtros?.atendimento) {
+    conditions.push(eq(dadosTasy.atendimento, filtros.atendimento));
+  }
+  if (filtros?.guia) {
+    conditions.push(sql`${dadosTasy.guia} LIKE ${`%${filtros.guia}%`}`);
+  }
+
+  const limite = filtros?.limite || 100;
+  const offset = filtros?.offset || 0;
+
+  const result = await db
+    .select()
+    .from(dadosTasy)
+    .where(and(...conditions))
+    .orderBy(desc(dadosTasy.dataFaturado))
+    .limit(limite)
+    .offset(offset);
+
+  return result;
+}
+
+/**
+ * Conta total de registros do Tasy com filtros
+ */
+export async function countDadosTasy(
+  estabelecimentoId: number,
+  filtros?: {
+    dataInicio?: Date;
+    dataFim?: Date;
+    convenio?: string;
+    tipo?: 'MATERIAL' | 'HONORARIO';
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const conditions = [eq(dadosTasy.estabelecimentoId, estabelecimentoId)];
+
+  if (filtros?.dataInicio) {
+    conditions.push(sql`${dadosTasy.dataFaturado} >= ${filtros.dataInicio}`);
+  }
+  if (filtros?.dataFim) {
+    conditions.push(sql`${dadosTasy.dataFaturado} <= ${filtros.dataFim}`);
+  }
+  if (filtros?.convenio) {
+    conditions.push(sql`${dadosTasy.convenio} LIKE ${`%${filtros.convenio}%`}`);
+  }
+  if (filtros?.tipo) {
+    conditions.push(eq(dadosTasy.tipo, filtros.tipo));
+  }
+
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(dadosTasy)
+    .where(and(...conditions));
+
+  return result[0]?.count || 0;
+}
+
+/**
+ * Busca estatísticas dos dados do Tasy por estabelecimento
+ */
+export async function getEstatisticasTasy(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const stats = await db
+    .select({
+      totalRegistros: sql<number>`COUNT(*)`,
+      totalMateriais: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'MATERIAL' THEN 1 ELSE 0 END)`,
+      totalHonorarios: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'HONORARIO' THEN 1 ELSE 0 END)`,
+      valorTotalMateriais: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'MATERIAL' THEN CAST(${dadosTasy.valorTotal} AS DECIMAL(12,2)) ELSE 0 END)`,
+      valorTotalHonorarios: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'HONORARIO' THEN CAST(${dadosTasy.valorTotal} AS DECIMAL(12,2)) ELSE 0 END)`,
+      dataMinima: sql<Date>`MIN(${dadosTasy.dataFaturado})`,
+      dataMaxima: sql<Date>`MAX(${dadosTasy.dataFaturado})`,
+      totalConvenios: sql<number>`COUNT(DISTINCT ${dadosTasy.convenio})`,
+      totalAtendimentos: sql<number>`COUNT(DISTINCT ${dadosTasy.atendimento})`,
+    })
+    .from(dadosTasy)
+    .where(eq(dadosTasy.estabelecimentoId, estabelecimentoId));
+
+  return stats[0];
+}
+
+/**
+ * Busca dados do Tasy agrupados por convênio
+ */
+export async function getDadosTasyPorConvenio(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  const result = await db
+    .select({
+      convenio: dadosTasy.convenio,
+      totalRegistros: sql<number>`COUNT(*)`,
+      totalMateriais: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'MATERIAL' THEN 1 ELSE 0 END)`,
+      totalHonorarios: sql<number>`SUM(CASE WHEN ${dadosTasy.tipo} = 'HONORARIO' THEN 1 ELSE 0 END)`,
+      valorTotal: sql<number>`SUM(CAST(${dadosTasy.valorTotal} AS DECIMAL(12,2)))`,
+    })
+    .from(dadosTasy)
+    .where(eq(dadosTasy.estabelecimentoId, estabelecimentoId))
+    .groupBy(dadosTasy.convenio)
+    .orderBy(desc(sql`SUM(CAST(${dadosTasy.valorTotal} AS DECIMAL(12,2)))`));
+
+  return result;
+}
+
+/**
+ * Exclui todos os dados de uma importação específica
+ */
+export async function deleteDadosTasyPorImportacao(importacaoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  await db.delete(dadosTasy).where(eq(dadosTasy.importacaoId, importacaoId));
+  return { success: true };
+}
+
+/**
+ * Exclui uma importação e seus dados
+ */
+export async function deleteImportacaoTasy(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  // Primeiro exclui os dados
+  await deleteDadosTasyPorImportacao(id);
+  
+  // Depois exclui o registro de importação
+  await db.delete(importacoesTasy).where(eq(importacoesTasy.id, id));
+  
+  return { success: true };
 }

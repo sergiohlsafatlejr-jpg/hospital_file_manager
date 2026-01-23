@@ -246,6 +246,13 @@
       "when": 1769129017306,
       "tag": "0034_reflective_johnny_blaze",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1769185137615,
+      "tag": "0035_shallow_quasimodo",
+      "breakpoints": true
     }
   ]
 }

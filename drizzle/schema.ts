@@ -1285,3 +1285,114 @@ export const regrasIA = mysqlTable("regrasIA", {
 
 export type RegraIA = typeof regrasIA.$inferSelect;
 export type InsertRegraIA = typeof regrasIA.$inferInsert;
+
+
+/**
+ * Dados importados do Tasy - Tabela unificada de materiais e honorários
+ * Armazena os dados exportados do sistema Tasy para integração com o Safatle
+ */
+export const dadosTasy = mysqlTable("dadosTasy", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  importacaoId: int("importacaoId").notNull(), // Referência à importação que trouxe este registro
+  
+  // Identificadores únicos do Tasy
+  atendimento: varchar("atendimento", { length: 50 }).notNull(), // NR_ATENDIMENTO - chave principal
+  nrInternoConta: varchar("nrInternoConta", { length: 50 }), // NR_INTERNO_CONTA
+  sequencia: varchar("sequencia", { length: 50 }), // NR_SEQUENCIA ou sequencial gerado
+  
+  // Dados do faturamento
+  dataFaturado: timestamp("dataFaturado"), // DT_MESANO_REFERENCIA
+  guia: varchar("guia", { length: 100 }), // NR_DOC_CONVENIO
+  convenio: varchar("convenio", { length: 255 }), // DS_CONVENIO
+  
+  // Dados do paciente
+  paciente: varchar("paciente", { length: 255 }), // NM_PACIENTE
+  dataConta: timestamp("dataConta"), // DT_CONTA ou DT_PROCEDIMENTO
+  
+  // Dados do item
+  codigo: varchar("codigo", { length: 50 }), // CD_MATERIAL ou CD_PROCEDIMENTO
+  codigoConvenio: varchar("codigoConvenio", { length: 50 }), // CD_MATERIAL ou CD_PROCEDIMENTO_CONVENIO
+  descricao: text("descricao"), // DS_MATERIAL ou DS_PROC_CONVENIO
+  quantidade: decimal("quantidade", { precision: 10, scale: 4 }), // QT_MATERIAL ou QT_PROCEDIMENTO
+  unidade: varchar("unidade", { length: 20 }), // CD_UNIDADE_MEDIDA
+  valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }), // VL_UNITARIO ou VL_PROCEDIMENTO
+  valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }), // VL_MATERIAL ou VL_PROCEDIMENTO
+  
+  // Dados adicionais
+  setor: varchar("setor", { length: 255 }), // DS_SETOR_ATENDIMENTO
+  protocolo: varchar("protocolo", { length: 100 }), // NR_PROTOCOLO
+  statusProtocolo: varchar("statusProtocolo", { length: 50 }), // IE_STATUS_PROTOCOLO
+  
+  // Tipo do registro
+  tipo: mysqlEnum("tipo", ["MATERIAL", "HONORARIO"]).notNull(),
+  
+  // Dados específicos de honorários
+  medico: varchar("medico", { length: 255 }), // NM_MEDICO
+  funcaoMedico: varchar("funcaoMedico", { length: 100 }), // DS_FUNCAO
+  crm: varchar("crm", { length: 50 }), // NR_CRM
+  valorMedico: decimal("valorMedico", { precision: 12, scale: 4 }), // VL_MEDICO
+  
+  // Controle de processamento
+  processado: mysqlEnum("processado", ["sim", "nao"]).default("nao").notNull(), // Se já foi vinculado a um procedimento
+  procedimentoId: int("procedimentoId"), // Referência ao procedimento vinculado (se houver)
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DadoTasy = typeof dadosTasy.$inferSelect;
+export type InsertDadoTasy = typeof dadosTasy.$inferInsert;
+
+/**
+ * Histórico de Importações do Tasy
+ * Registra cada importação de arquivo SQLite do Tasy
+ */
+export const importacoesTasy = mysqlTable("importacoesTasy", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  userId: int("userId").notNull(),
+  
+  // Informações do arquivo
+  nomeArquivo: varchar("nomeArquivo", { length: 255 }).notNull(),
+  tamanhoArquivo: int("tamanhoArquivo"), // Em bytes
+  
+  // Estatísticas da importação
+  totalRegistros: int("totalRegistros").default(0),
+  registrosImportados: int("registrosImportados").default(0),
+  registrosIgnorados: int("registrosIgnorados").default(0), // Já existiam no banco
+  registrosErro: int("registrosErro").default(0),
+  
+  // Detalhes por tipo
+  totalMateriais: int("totalMateriais").default(0),
+  totalHonorarios: int("totalHonorarios").default(0),
+  
+  // Período dos dados
+  dataInicio: timestamp("dataInicio"), // Menor data de faturamento
+  dataFim: timestamp("dataFim"), // Maior data de faturamento
+  
+  // Status da importação
+  status: mysqlEnum("status", [
+    "aguardando",    // Arquivo recebido, aguardando processamento
+    "processando",   // Em processamento
+    "concluido",     // Importação concluída com sucesso
+    "concluido_parcial", // Concluído com alguns erros
+    "erro"           // Falha na importação
+  ]).default("aguardando").notNull(),
+  
+  // Progresso (para importações grandes)
+  progresso: int("progresso").default(0), // 0-100
+  
+  // Mensagens de erro/log
+  mensagemErro: text("mensagemErro"),
+  logProcessamento: json("logProcessamento"), // Array de mensagens de log
+  
+  // S3 (se o arquivo for armazenado)
+  s3Key: varchar("s3Key", { length: 512 }),
+  s3Url: text("s3Url"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ImportacaoTasy = typeof importacoesTasy.$inferSelect;
+export type InsertImportacaoTasy = typeof importacoesTasy.$inferInsert;

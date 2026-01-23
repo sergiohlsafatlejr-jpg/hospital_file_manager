@@ -54,7 +54,8 @@ import {
   Lock,
   KeyRound,
   Brain,
-  Clock
+  Clock,
+  Database
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -112,6 +113,7 @@ const menuItems: MenuItem[] = [
   { icon: Shield, label: "Gerenciar Permissões", path: "/gerenciar-permissoes", modulo: "permissoes" },
   { icon: BookOpen, label: "Dicionário de Glosas", path: "/dicionario-glosas", modulo: "dicionarioGlosas" },
   { icon: Settings2, label: "Regras de IA", path: "/regras-ia", adminOnly: true },
+  { icon: Database, label: "Importação Tasy", path: "/importacao-tasy", adminOnly: true },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
 ];
 

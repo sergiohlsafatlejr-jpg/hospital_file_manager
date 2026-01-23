@@ -3565,6 +3565,239 @@ export const appRouter = router({
         return db.restaurarRegraPadrao(input.codigo, input.estabelecimentoId);
       }),
   }),
+
+  // ============ IMPORTAÇÃO DE DADOS DO TASY ============
+  importacaoTasy: router({
+    // Criar nova importação (upload de arquivo SQLite)
+    upload: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        nomeArquivo: z.string(),
+        tamanhoArquivo: z.number().optional(),
+        conteudoBase64: z.string(), // Arquivo SQLite em base64
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Cria o registro de importação
+        const importacao = await db.createImportacaoTasy({
+          estabelecimentoId: input.estabelecimentoId,
+          userId: ctx.user.id,
+          nomeArquivo: input.nomeArquivo,
+          tamanhoArquivo: input.tamanhoArquivo,
+          status: 'aguardando',
+          progresso: 0,
+        });
+
+        // Salva o arquivo no S3 para processamento posterior
+        const s3Key = `tasy-imports/${input.estabelecimentoId}/${importacao.id}/${sanitizeFilename(input.nomeArquivo)}`;
+        const fileBuffer = Buffer.from(input.conteudoBase64, 'base64');
+        const { url } = await storagePut(s3Key, fileBuffer, 'application/x-sqlite3');
+
+        // Atualiza com a URL do S3
+        await db.updateImportacaoTasy(importacao.id, {
+          s3Key,
+          s3Url: url,
+        });
+
+        return { id: importacao.id, s3Key, s3Url: url };
+      }),
+
+    // Processar importação (lê o SQLite e insere os dados)
+    processar: protectedProcedure
+      .input(z.object({
+        importacaoId: z.number(),
+        dados: z.array(z.object({
+          atendimento: z.string(),
+          nrInternoConta: z.string().optional(),
+          sequencia: z.string().optional(),
+          dataFaturado: z.string().optional(),
+          guia: z.string().optional(),
+          convenio: z.string().optional(),
+          paciente: z.string().optional(),
+          dataConta: z.string().optional(),
+          codigo: z.string().optional(),
+          codigoConvenio: z.string().optional(),
+          descricao: z.string().optional(),
+          quantidade: z.number().optional(),
+          unidade: z.string().optional(),
+          valorUnitario: z.number().optional(),
+          valorTotal: z.number().optional(),
+          setor: z.string().optional(),
+          protocolo: z.string().optional(),
+          statusProtocolo: z.string().optional(),
+          tipo: z.enum(['MATERIAL', 'HONORARIO']),
+          medico: z.string().optional(),
+          funcaoMedico: z.string().optional(),
+          crm: z.string().optional(),
+          valorMedico: z.number().optional(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        const importacao = await db.getImportacaoTasyById(input.importacaoId);
+        if (!importacao) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Importação não encontrada',
+          });
+        }
+
+        // Atualiza status para processando
+        await db.updateImportacaoTasy(input.importacaoId, {
+          status: 'processando',
+          totalRegistros: input.dados.length,
+        });
+
+        // Prepara os registros para inserção
+        const registros = input.dados.map(d => ({
+          estabelecimentoId: importacao.estabelecimentoId,
+          importacaoId: input.importacaoId,
+          atendimento: d.atendimento,
+          nrInternoConta: d.nrInternoConta || null,
+          sequencia: d.sequencia || null,
+          dataFaturado: d.dataFaturado ? new Date(d.dataFaturado) : null,
+          guia: d.guia || null,
+          convenio: d.convenio || null,
+          paciente: d.paciente || null,
+          dataConta: d.dataConta ? new Date(d.dataConta) : null,
+          codigo: d.codigo || null,
+          codigoConvenio: d.codigoConvenio || null,
+          descricao: d.descricao || null,
+          quantidade: d.quantidade?.toString() || null,
+          unidade: d.unidade || null,
+          valorUnitario: d.valorUnitario?.toString() || null,
+          valorTotal: d.valorTotal?.toString() || null,
+          setor: d.setor || null,
+          protocolo: d.protocolo || null,
+          statusProtocolo: d.statusProtocolo || null,
+          tipo: d.tipo,
+          medico: d.medico || null,
+          funcaoMedico: d.funcaoMedico || null,
+          crm: d.crm || null,
+          valorMedico: d.valorMedico?.toString() || null,
+        }));
+
+        // Insere em lotes
+        const resultado = await db.insertDadosTasyBatch(
+          registros as any,
+          importacao.estabelecimentoId
+        );
+
+        // Conta por tipo
+        const totalMateriais = input.dados.filter(d => d.tipo === 'MATERIAL').length;
+        const totalHonorarios = input.dados.filter(d => d.tipo === 'HONORARIO').length;
+
+        // Calcula datas
+        const datas = input.dados
+          .filter(d => d.dataFaturado)
+          .map(d => new Date(d.dataFaturado!));
+        const dataInicio = datas.length > 0 ? new Date(Math.min(...datas.map(d => d.getTime()))) : null;
+        const dataFim = datas.length > 0 ? new Date(Math.max(...datas.map(d => d.getTime()))) : null;
+
+        // Atualiza estatísticas
+        const status = resultado.erros > 0 ? 'concluido_parcial' : 'concluido';
+        await db.updateImportacaoTasy(input.importacaoId, {
+          status,
+          progresso: 100,
+          registrosImportados: resultado.inseridos,
+          registrosIgnorados: resultado.ignorados,
+          registrosErro: resultado.erros,
+          totalMateriais,
+          totalHonorarios,
+          dataInicio,
+          dataFim,
+        });
+
+        return {
+          success: true,
+          inseridos: resultado.inseridos,
+          ignorados: resultado.ignorados,
+          erros: resultado.erros,
+        };
+      }),
+
+    // Listar importações
+    list: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        limite: z.number().optional().default(50),
+      }))
+      .query(async ({ input }) => {
+        return db.getImportacoesTasy(input.estabelecimentoId, input.limite);
+      }),
+
+    // Buscar importação por ID
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getImportacaoTasyById(input.id);
+      }),
+
+    // Excluir importação e seus dados
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        return db.deleteImportacaoTasy(input.id);
+      }),
+
+    // Buscar dados importados
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        dataInicio: z.string().optional(),
+        dataFim: z.string().optional(),
+        convenio: z.string().optional(),
+        tipo: z.enum(['MATERIAL', 'HONORARIO']).optional(),
+        atendimento: z.string().optional(),
+        guia: z.string().optional(),
+        limite: z.number().optional().default(100),
+        offset: z.number().optional().default(0),
+      }))
+      .query(async ({ input }) => {
+        const filtros = {
+          dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
+          convenio: input.convenio,
+          tipo: input.tipo,
+          atendimento: input.atendimento,
+          guia: input.guia,
+          limite: input.limite,
+          offset: input.offset,
+        };
+        return db.getDadosTasy(input.estabelecimentoId, filtros);
+      }),
+
+    // Contar dados importados
+    count: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        dataInicio: z.string().optional(),
+        dataFim: z.string().optional(),
+        convenio: z.string().optional(),
+        tipo: z.enum(['MATERIAL', 'HONORARIO']).optional(),
+      }))
+      .query(async ({ input }) => {
+        const filtros = {
+          dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
+          convenio: input.convenio,
+          tipo: input.tipo,
+        };
+        return db.countDadosTasy(input.estabelecimentoId, filtros);
+      }),
+
+    // Estatísticas gerais
+    estatisticas: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getEstatisticasTasy(input.estabelecimentoId);
+      }),
+
+    // Dados agrupados por convênio
+    porConvenio: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getDadosTasyPorConvenio(input.estabelecimentoId);
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

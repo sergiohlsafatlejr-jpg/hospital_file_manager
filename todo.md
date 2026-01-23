@@ -509,3 +509,16 @@
 - [x] Permitir ativar/desativar tipos de alertas individualmente
 - [x] Integrar regras configuráveis nas funções de análise de IA
 - [x] Adicionar testes automatizados para as novas funcionalidades
+
+
+## Módulo de Importação de Dados do Tasy (SQLite)
+- [x] Criar tabela no banco de dados para armazenar dados importados do Tasy
+- [x] Criar tabela de histórico de importações
+- [x] Implementar rota de upload de arquivo SQLite
+- [x] Implementar processamento em lotes (chunks de 500 registros)
+- [x] Implementar lógica de importação incremental (apenas novos registros)
+- [x] Criar interface de upload com barra de progresso
+- [x] Criar tela de histórico de importações
+- [x] Adicionar validação de estrutura do arquivo SQLite
+- [x] Implementar mapeamento de campos Tasy -> Safatle
+- [x] Adicionar testes automatizados para importação
