@@ -9533,3 +9533,425 @@ export async function getDetalhesConta(params: DetalhesContaParams) {
     itens,
   };
 }
+
+
+// ============ ANÁLISE INTELIGENTE DE CONTAS (IA) ============
+
+/**
+ * Obtém estatísticas de valores por código de procedimento para comparação
+ */
+export async function getEstatisticasPorCodigo(estabelecimentoId: number, convenioId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+  const whereConditions = [
+    eq(procedimentos.tipoDespesa, "procedimento"),
+    sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`,
+    sql`${arquivos.direcao} = 'enviado'`,
+  ];
+  
+  if (convenioId) {
+    whereConditions.push(sql`${arquivos.convenioId} = ${convenioId}`);
+  }
+
+  const stats = await db
+    .select({
+      codigo: procedimentos.codigo,
+      descricao: procedimentos.descricao,
+      convenioId: arquivos.convenioId,
+      totalContas: sql<number>`COUNT(*)`,
+      valorMedio: sql<number>`AVG(CAST(${procedimentos.valorTotal} AS DECIMAL(10,2)))`,
+      valorMinimo: sql<number>`MIN(CAST(${procedimentos.valorTotal} AS DECIMAL(10,2)))`,
+      valorMaximo: sql<number>`MAX(CAST(${procedimentos.valorTotal} AS DECIMAL(10,2)))`,
+      desvioPadrao: sql<number>`STDDEV(CAST(${procedimentos.valorTotal} AS DECIMAL(10,2)))`,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(and(...whereConditions))
+    .groupBy(procedimentos.codigo, procedimentos.descricao, arquivos.convenioId)
+    .having(sql`COUNT(*) >= 3`); // Mínimo de 3 contas para ter estatísticas significativas
+
+  return stats;
+}
+
+/**
+ * Identifica contas com valores fora da média (outliers)
+ */
+export async function getContasOutliers(estabelecimentoId: number, convenioId?: number, limiteDesvio: number = 2) {
+  // Primeiro, obtém as estatísticas por código
+  const estatisticas = await getEstatisticasPorCodigo(estabelecimentoId, convenioId);
+  
+  // Cria um mapa para lookup rápido
+  const statsMap = new Map<string, typeof estatisticas[0]>();
+  for (const stat of estatisticas) {
+    const key = `${stat.codigo}-${stat.convenioId}`;
+    statsMap.set(key, stat);
+  }
+
+  // Busca procedimentos recentes (últimos 90 dias)
+  const dataLimite = new Date();
+  dataLimite.setDate(dataLimite.getDate() - 90);
+
+  const whereConditions = [
+    sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`,
+    sql`${arquivos.direcao} = 'enviado'`,
+    sql`${arquivos.createdAt} >= ${dataLimite}`,
+  ];
+  
+  if (convenioId) {
+    whereConditions.push(sql`${arquivos.convenioId} = ${convenioId}`);
+  }
+
+  const db2 = await getDb();
+  if (!db2) throw new Error('Database connection failed');
+  const procedimentosRecentes = await db2
+    .select({
+      id: procedimentos.id,
+      codigo: procedimentos.codigo,
+      descricao: procedimentos.descricao,
+      valorTotal: procedimentos.valorTotal,
+      guiaNumero: procedimentos.guiaNumero,
+      pacienteNome: procedimentos.pacienteNome,
+      dataExecucao: procedimentos.dataExecucao,
+      convenioId: arquivos.convenioId,
+      arquivoId: arquivos.id,
+      arquivoNome: arquivos.nome,
+      userId: arquivos.userId,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(and(...whereConditions));
+
+  // Identifica outliers
+  const outliers: Array<{
+    procedimento: typeof procedimentosRecentes[0];
+    tipo: 'abaixo_media' | 'acima_media';
+    valorMedio: number;
+    desvioPadrao: number;
+    diferencaPercentual: number;
+  }> = [];
+
+  for (const proc of procedimentosRecentes) {
+    const key = `${proc.codigo}-${proc.convenioId}`;
+    const stat = statsMap.get(key);
+    
+    if (stat && stat.desvioPadrao && stat.valorMedio) {
+      const valor = Number(proc.valorTotal) || 0;
+      const media = Number(stat.valorMedio);
+      const desvio = Number(stat.desvioPadrao);
+      
+      if (desvio > 0) {
+        const zScore = Math.abs((valor - media) / desvio);
+        
+        if (zScore >= limiteDesvio) {
+          const diferencaPercentual = ((valor - media) / media) * 100;
+          outliers.push({
+            procedimento: proc,
+            tipo: valor < media ? 'abaixo_media' : 'acima_media',
+            valorMedio: media,
+            desvioPadrao: desvio,
+            diferencaPercentual,
+          });
+        }
+      }
+    }
+  }
+
+  // Ordena por diferença percentual (maior primeiro)
+  outliers.sort((a, b) => Math.abs(b.diferencaPercentual) - Math.abs(a.diferencaPercentual));
+
+  return outliers;
+}
+
+/**
+ * Detecta padrões de erro por funcionário (faturista)
+ */
+export async function getPadroesErroPorFuncionario(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+  // Busca glosas agrupadas por usuário que fez o upload
+  const dataLimite = new Date();
+  dataLimite.setDate(dataLimite.getDate() - 180); // Últimos 6 meses
+
+  const errosPorUsuario = await db
+    .select({
+      userId: arquivos.userId,
+      totalContas: sql<number>`COUNT(DISTINCT ${arquivos.id})`,
+      totalProcedimentos: sql<number>`COUNT(${procedimentos.id})`,
+      totalGlosados: sql<number>`SUM(CASE WHEN ${procedimentos.valorGlosado} > 0 THEN 1 ELSE 0 END)`,
+      valorTotalFaturado: sql<number>`SUM(CAST(${procedimentos.valorTotal} AS DECIMAL(10,2)))`,
+      valorTotalGlosado: sql<number>`SUM(CAST(${procedimentos.valorGlosado} AS DECIMAL(10,2)))`,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(and(
+      sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`,
+      sql`${arquivos.direcao} = 'enviado'`,
+      sql`${arquivos.createdAt} >= ${dataLimite}`,
+    ))
+    .groupBy(arquivos.userId);
+
+  // Busca nomes dos usuários
+  const userIds = errosPorUsuario.map((e: { userId: number }) => e.userId);
+  const usuariosInfo = userIds.length > 0 ? await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+    })
+    .from(users)
+    .where(inArray(users.id, userIds)) : [];
+
+  const userMap = new Map(usuariosInfo.map((u: { id: number; name: string | null; email: string | null }) => [u.id, u]));
+
+  // Calcula métricas e identifica padrões
+  const resultado = errosPorUsuario.map((erro: { userId: number; totalContas: number; totalProcedimentos: number; totalGlosados: number; valorTotalFaturado: number; valorTotalGlosado: number }) => {
+    const user = userMap.get(erro.userId);
+    const taxaGlosa = erro.totalProcedimentos > 0 
+      ? (erro.totalGlosados / erro.totalProcedimentos) * 100 
+      : 0;
+    const valorGlosaPercentual = erro.valorTotalFaturado > 0
+      ? (erro.valorTotalGlosado / erro.valorTotalFaturado) * 100
+      : 0;
+
+    return {
+      userId: erro.userId,
+      userName: user?.name || 'Usuário não identificado',
+      userEmail: user?.email || '',
+      totalContas: erro.totalContas,
+      totalProcedimentos: erro.totalProcedimentos,
+      totalGlosados: erro.totalGlosados,
+      valorTotalFaturado: erro.valorTotalFaturado,
+      valorTotalGlosado: erro.valorTotalGlosado,
+      taxaGlosa: Math.round(taxaGlosa * 100) / 100,
+      valorGlosaPercentual: Math.round(valorGlosaPercentual * 100) / 100,
+    };
+  });
+
+  // Ordena por taxa de glosa (maior primeiro)
+  resultado.sort((a, b) => b.taxaGlosa - a.taxaGlosa);
+
+  return resultado;
+}
+
+/**
+ * Busca motivos de glosa mais frequentes por funcionário
+ */
+export async function getMotivosGlosaPorFuncionario(estabelecimentoId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+  const dataLimite = new Date();
+  dataLimite.setDate(dataLimite.getDate() - 180);
+
+  const motivos = await db
+    .select({
+      motivoGlosa: procedimentos.motivoGlosa,
+      codigo: procedimentos.codigo,
+      descricao: procedimentos.descricao,
+      quantidade: sql<number>`COUNT(*)`,
+      valorTotal: sql<number>`SUM(CAST(${procedimentos.valorGlosado} AS DECIMAL(10,2)))`,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(and(
+      sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`,
+      sql`${arquivos.userId} = ${userId}`,
+      sql`${procedimentos.valorGlosado} > 0`,
+      sql`${arquivos.createdAt} >= ${dataLimite}`,
+    ))
+    .groupBy(procedimentos.motivoGlosa, procedimentos.codigo, procedimentos.descricao)
+    .orderBy(sql`COUNT(*) DESC`)
+    .limit(20);
+
+  return motivos;
+}
+
+/**
+ * Calcula score de risco de glosa para contas
+ */
+export async function calcularRiscoGlosa(estabelecimentoId: number, arquivoId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+  // Busca histórico de glosas por código de procedimento
+  const historicoGlosas = await db
+    .select({
+      codigo: procedimentos.codigo,
+      convenioId: arquivos.convenioId,
+      totalContas: sql<number>`COUNT(*)`,
+      totalGlosadas: sql<number>`SUM(CASE WHEN ${procedimentos.valorGlosado} > 0 THEN 1 ELSE 0 END)`,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`)
+    .groupBy(procedimentos.codigo, arquivos.convenioId);
+
+  // Cria mapa de taxa de glosa por código/convênio
+  const taxaGlosaMap = new Map<string, number>();
+  for (const h of historicoGlosas) {
+    const key = `${h.codigo}-${h.convenioId}`;
+    const taxa = h.totalContas > 0 ? (h.totalGlosadas / h.totalContas) * 100 : 0;
+    taxaGlosaMap.set(key, taxa);
+  }
+
+  // Busca contas para análise
+  const whereConditions = [
+    sql`${arquivos.estabelecimentoId} = ${estabelecimentoId}`,
+    sql`${arquivos.direcao} = 'enviado'`,
+  ];
+  
+  if (arquivoId) {
+    whereConditions.push(sql`${arquivos.id} = ${arquivoId}`);
+  } else {
+    // Últimos 30 dias se não especificado arquivo
+    const dataLimite = new Date();
+    dataLimite.setDate(dataLimite.getDate() - 30);
+    whereConditions.push(sql`${arquivos.createdAt} >= ${dataLimite}`);
+  }
+
+  const db2 = await getDb();
+  if (!db2) throw new Error('Database connection failed');
+  const contas = await db2
+    .select({
+      arquivoId: arquivos.id,
+      arquivoNome: arquivos.nome,
+      convenioId: arquivos.convenioId,
+      guiaNumero: procedimentos.guiaNumero,
+      pacienteNome: procedimentos.pacienteNome,
+      codigo: procedimentos.codigo,
+      descricao: procedimentos.descricao,
+      valorTotal: procedimentos.valorTotal,
+      dataExecucao: procedimentos.dataExecucao,
+    })
+    .from(procedimentos)
+    .innerJoin(arquivos, eq(procedimentos.arquivoId, arquivos.id))
+    .where(and(...whereConditions));
+
+  // Agrupa por guia e calcula risco
+  const contasAgrupadas = new Map<string, {
+    guiaNumero: string;
+    pacienteNome: string;
+    arquivoId: number;
+    arquivoNome: string;
+    convenioId: number;
+    dataExecucao: Date | null;
+    itens: Array<{
+      codigo: string;
+      descricao: string | null;
+      valorTotal: string | null;
+      riscoIndividual: number;
+    }>;
+    valorTotal: number;
+    riscoMedio: number;
+    riscoMaximo: number;
+  }>();
+
+  for (const conta of contas) {
+    const key = `${conta.arquivoId}-${conta.guiaNumero}`;
+    const taxaKey = `${conta.codigo}-${conta.convenioId}`;
+    const riscoIndividual = taxaGlosaMap.get(taxaKey) || 0;
+
+    if (!contasAgrupadas.has(key)) {
+      contasAgrupadas.set(key, {
+        guiaNumero: conta.guiaNumero || '',
+        pacienteNome: conta.pacienteNome || '',
+        arquivoId: conta.arquivoId,
+        arquivoNome: conta.arquivoNome,
+        convenioId: conta.convenioId,
+        dataExecucao: conta.dataExecucao,
+        itens: [],
+        valorTotal: 0,
+        riscoMedio: 0,
+        riscoMaximo: 0,
+      });
+    }
+
+    const grupo = contasAgrupadas.get(key)!;
+    grupo.itens.push({
+      codigo: conta.codigo,
+      descricao: conta.descricao,
+      valorTotal: conta.valorTotal,
+      riscoIndividual,
+    });
+    grupo.valorTotal += Number(conta.valorTotal) || 0;
+    grupo.riscoMaximo = Math.max(grupo.riscoMaximo, riscoIndividual);
+  }
+
+  // Calcula risco médio e converte para array
+  const resultado = Array.from(contasAgrupadas.values()).map(conta => {
+    const somaRiscos = conta.itens.reduce((sum, item) => sum + item.riscoIndividual, 0);
+    conta.riscoMedio = conta.itens.length > 0 ? somaRiscos / conta.itens.length : 0;
+    return conta;
+  });
+
+  // Ordena por risco máximo (maior primeiro)
+  resultado.sort((a, b) => b.riscoMaximo - a.riscoMaximo);
+
+  return resultado;
+}
+
+/**
+ * Gera alertas e recomendações da IA para o dashboard
+ */
+export async function gerarAlertasIA(estabelecimentoId: number) {
+  const alertas: Array<{
+    tipo: 'critico' | 'alerta' | 'info';
+    categoria: 'outlier' | 'padrao_erro' | 'risco_glosa' | 'tendencia';
+    titulo: string;
+    descricao: string;
+    dados?: any;
+  }> = [];
+
+  // 1. Verifica outliers
+  const outliers = await getContasOutliers(estabelecimentoId, undefined, 2);
+  const outliersAbaixo = outliers.filter(o => o.tipo === 'abaixo_media').slice(0, 5);
+  const outliersAcima = outliers.filter(o => o.tipo === 'acima_media').slice(0, 5);
+
+  if (outliersAbaixo.length > 0) {
+    alertas.push({
+      tipo: 'alerta',
+      categoria: 'outlier',
+      titulo: `${outliersAbaixo.length} conta(s) com valor muito abaixo da média`,
+      descricao: `Foram identificadas contas com valores significativamente menores que a média histórica. Verifique se há itens faltando ou valores incorretos.`,
+      dados: outliersAbaixo,
+    });
+  }
+
+  if (outliersAcima.length > 0) {
+    alertas.push({
+      tipo: 'info',
+      categoria: 'outlier',
+      titulo: `${outliersAcima.length} conta(s) com valor acima da média`,
+      descricao: `Foram identificadas contas com valores acima da média histórica. Verifique se os valores estão corretos antes de enviar.`,
+      dados: outliersAcima,
+    });
+  }
+
+  // 2. Verifica padrões de erro por funcionário
+  const padroes = await getPadroesErroPorFuncionario(estabelecimentoId);
+  const funcionariosProblematicos = padroes.filter((p: { taxaGlosa: number; totalProcedimentos: number }) => p.taxaGlosa > 20 && p.totalProcedimentos >= 50);
+
+  if (funcionariosProblematicos.length > 0) {
+    alertas.push({
+      tipo: 'critico',
+      categoria: 'padrao_erro',
+      titulo: `${funcionariosProblematicos.length} funcionário(s) com taxa de glosa elevada`,
+      descricao: `Funcionários com taxa de glosa acima de 20% foram identificados. Recomenda-se treinamento ou revisão dos processos.`,
+      dados: funcionariosProblematicos,
+    });
+  }
+
+  // 3. Verifica contas com alto risco de glosa
+  const contasRisco = await calcularRiscoGlosa(estabelecimentoId);
+  const contasAltoRisco = contasRisco.filter(c => c.riscoMaximo > 50).slice(0, 10);
+
+  if (contasAltoRisco.length > 0) {
+    alertas.push({
+      tipo: 'alerta',
+      categoria: 'risco_glosa',
+      titulo: `${contasAltoRisco.length} conta(s) com alto risco de glosa`,
+      descricao: `Contas com procedimentos que historicamente têm alta taxa de glosa. Revise antes de enviar ao convênio.`,
+      dados: contasAltoRisco,
+    });
+  }
+
+  return alertas;
+}

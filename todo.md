@@ -488,3 +488,12 @@
 ## Padrão de Envio de Recurso de Glosa - Unimed
 - [x] Criar modelo/template de recurso de glosa específico para Unimed
 - [x] Implementar formato padrão de exportação Excel com campos: Seq, Protocolo(DP), Nº Guia, Seq(DP), Nome Beneficiário, Cód.Beneficiário, Data Atendto, Período Atendto, Código Serviço, Descrição, Participação, Qtde, Valor Recursado, Local Atendimento, Motivo da Glosa, Justificativa para o pagamento, Anexo, Qtde Acatado, Valor Acatado, Pago pelo código, Observações
+
+
+## Melhorias na IA - Análise Inteligente de Contas
+- [x] Comparar contas similares (mesmo procedimento, mesmo convênio)
+- [x] Identificar contas com valor muito abaixo da média
+- [x] Identificar contas com valor muito acima da média
+- [x] Detectar padrões de erro por funcionário (faturista)
+- [x] Priorizar contas com maior risco de glosa
+- [x] Criar dashboard de IA com alertas e recomendações

@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Brain, 
   TrendingUp, 
@@ -21,7 +21,12 @@ import {
   BarChart3,
   Target,
   Zap,
-  DollarSign
+  DollarSign,
+  Users,
+  ShieldAlert,
+  ArrowUp,
+  ArrowDown,
+  AlertCircle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -363,6 +368,18 @@ export default function DashboardIA() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Seção de Alertas da IA */}
+            <AlertasIASection estabelecimentoId={estabelecimentoSelecionado.id} />
+
+            {/* Seção de Contas Outliers */}
+            <OutliersSection estabelecimentoId={estabelecimentoSelecionado.id} convenioId={convenioId} />
+
+            {/* Seção de Padrões de Erro por Funcionário */}
+            <PadroesErroSection estabelecimentoId={estabelecimentoSelecionado.id} />
+
+            {/* Seção de Risco de Glosa */}
+            <RiscoGlosaSection estabelecimentoId={estabelecimentoSelecionado.id} />
           </>
         ) : (
           <Card>
@@ -373,5 +390,409 @@ export default function DashboardIA() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+// Componente de Alertas da IA
+function AlertasIASection({ estabelecimentoId }: { estabelecimentoId: number }) {
+  const { data: alertas, isLoading } = trpc.ia.alertas.useQuery(
+    { estabelecimentoId },
+    { enabled: !!estabelecimentoId }
+  );
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5" />
+            Alertas da IA
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-20 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!alertas || alertas.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5" />
+            Alertas da IA
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-32 text-muted-foreground">
+            <CheckCircle2 className="h-8 w-8 mr-2 text-green-500" />
+            Nenhum alerta no momento
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const getAlertaIcon = (tipo: string) => {
+    switch (tipo) {
+      case 'critico': return <AlertCircle className="h-5 w-5 text-red-500" />;
+      case 'alerta': return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
+      default: return <Bell className="h-5 w-5 text-blue-500" />;
+    }
+  };
+
+  const getAlertaBg = (tipo: string) => {
+    switch (tipo) {
+      case 'critico': return 'bg-red-50 border-red-200';
+      case 'alerta': return 'bg-yellow-50 border-yellow-200';
+      default: return 'bg-blue-50 border-blue-200';
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldAlert className="h-5 w-5" />
+          Alertas da IA
+          <Badge variant="secondary">{alertas.length}</Badge>
+        </CardTitle>
+        <CardDescription>Problemas identificados que requerem atenção</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {alertas.map((alerta, index) => (
+            <div key={index} className={`p-4 rounded-lg border ${getAlertaBg(alerta.tipo)}`}>
+              <div className="flex items-start gap-3">
+                {getAlertaIcon(alerta.tipo)}
+                <div className="flex-1">
+                  <h4 className="font-medium">{alerta.titulo}</h4>
+                  <p className="text-sm text-muted-foreground mt-1">{alerta.descricao}</p>
+                </div>
+                <Badge variant="outline" className="capitalize">{alerta.categoria.replace('_', ' ')}</Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Componente de Contas Outliers
+function OutliersSection({ estabelecimentoId, convenioId }: { estabelecimentoId: number; convenioId?: number }) {
+  const { data: outliers, isLoading } = trpc.ia.contasOutliers.useQuery(
+    { estabelecimentoId, convenioId, limiteDesvio: 2 },
+    { enabled: !!estabelecimentoId }
+  );
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Contas com Valores Fora da Média
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-40 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const outliersAbaixo = outliers?.filter(o => o.tipo === 'abaixo_media') || [];
+  const outliersAcima = outliers?.filter(o => o.tipo === 'acima_media') || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BarChart3 className="h-5 w-5" />
+          Contas com Valores Fora da Média
+        </CardTitle>
+        <CardDescription>Contas com valores significativamente diferentes da média histórica</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Abaixo da Média */}
+          <div className="space-y-2">
+            <h4 className="font-medium flex items-center gap-2 text-orange-600">
+              <ArrowDown className="h-4 w-4" />
+              Abaixo da Média ({outliersAbaixo.length})
+            </h4>
+            {outliersAbaixo.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma conta identificada</p>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {outliersAbaixo.slice(0, 5).map((o, i) => (
+                  <div key={i} className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-sm">{o.procedimento.pacienteNome || 'Paciente'}</p>
+                        <p className="text-xs text-muted-foreground">Guia: {o.procedimento.guiaNumero}</p>
+                        <p className="text-xs text-muted-foreground">{o.procedimento.codigo} - {o.procedimento.descricao}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-orange-600">
+                          R$ {Number(o.procedimento.valorTotal || 0).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Média: R$ {o.valorMedio.toFixed(2)}
+                        </p>
+                        <Badge variant="outline" className="text-orange-600">
+                          {o.diferencaPercentual.toFixed(1)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Acima da Média */}
+          <div className="space-y-2">
+            <h4 className="font-medium flex items-center gap-2 text-blue-600">
+              <ArrowUp className="h-4 w-4" />
+              Acima da Média ({outliersAcima.length})
+            </h4>
+            {outliersAcima.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma conta identificada</p>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {outliersAcima.slice(0, 5).map((o, i) => (
+                  <div key={i} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-sm">{o.procedimento.pacienteNome || 'Paciente'}</p>
+                        <p className="text-xs text-muted-foreground">Guia: {o.procedimento.guiaNumero}</p>
+                        <p className="text-xs text-muted-foreground">{o.procedimento.codigo} - {o.procedimento.descricao}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-blue-600">
+                          R$ {Number(o.procedimento.valorTotal || 0).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Média: R$ {o.valorMedio.toFixed(2)}
+                        </p>
+                        <Badge variant="outline" className="text-blue-600">
+                          +{o.diferencaPercentual.toFixed(1)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Componente de Padrões de Erro por Funcionário
+function PadroesErroSection({ estabelecimentoId }: { estabelecimentoId: number }) {
+  const { data: padroes, isLoading } = trpc.ia.padroesErroPorFuncionario.useQuery(
+    { estabelecimentoId },
+    { enabled: !!estabelecimentoId }
+  );
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Padrões de Erro por Funcionário
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-40 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!padroes || padroes.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Padrões de Erro por Funcionário
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-32 text-muted-foreground">
+            Dados insuficientes para análise
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const getTaxaColor = (taxa: number) => {
+    if (taxa > 20) return 'text-red-600 bg-red-50';
+    if (taxa > 10) return 'text-yellow-600 bg-yellow-50';
+    return 'text-green-600 bg-green-50';
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="h-5 w-5" />
+          Padrões de Erro por Funcionário
+        </CardTitle>
+        <CardDescription>Análise de taxa de glosa por faturista nos últimos 6 meses</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2">Funcionário</th>
+                <th className="text-right py-2">Contas</th>
+                <th className="text-right py-2">Procedimentos</th>
+                <th className="text-right py-2">Glosados</th>
+                <th className="text-right py-2">Taxa Glosa</th>
+                <th className="text-right py-2">Valor Glosado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {padroes.slice(0, 10).map((p, i) => (
+                <tr key={i} className="border-b hover:bg-muted/50">
+                  <td className="py-2">
+                    <div>
+                      <p className="font-medium">{p.userName}</p>
+                      <p className="text-xs text-muted-foreground">{p.userEmail}</p>
+                    </div>
+                  </td>
+                  <td className="text-right py-2">{p.totalContas}</td>
+                  <td className="text-right py-2">{p.totalProcedimentos}</td>
+                  <td className="text-right py-2">{p.totalGlosados}</td>
+                  <td className="text-right py-2">
+                    <Badge className={getTaxaColor(p.taxaGlosa)}>
+                      {p.taxaGlosa.toFixed(1)}%
+                    </Badge>
+                  </td>
+                  <td className="text-right py-2 font-medium">
+                    R$ {Number(p.valorTotalGlosado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Componente de Risco de Glosa
+function RiscoGlosaSection({ estabelecimentoId }: { estabelecimentoId: number }) {
+  const { data: contasRisco, isLoading } = trpc.ia.riscoGlosa.useQuery(
+    { estabelecimentoId },
+    { enabled: !!estabelecimentoId }
+  );
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            Contas com Alto Risco de Glosa
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-40 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const contasAltoRisco = contasRisco?.filter(c => c.riscoMaximo > 30) || [];
+
+  if (contasAltoRisco.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            Contas com Alto Risco de Glosa
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-32 text-muted-foreground">
+            <CheckCircle2 className="h-8 w-8 mr-2 text-green-500" />
+            Nenhuma conta com alto risco identificada
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const getRiscoColor = (risco: number) => {
+    if (risco > 50) return 'text-red-600 bg-red-100';
+    if (risco > 30) return 'text-orange-600 bg-orange-100';
+    return 'text-yellow-600 bg-yellow-100';
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Target className="h-5 w-5" />
+          Contas com Alto Risco de Glosa
+          <Badge variant="destructive">{contasAltoRisco.length}</Badge>
+        </CardTitle>
+        <CardDescription>Contas com procedimentos que historicamente têm alta taxa de glosa</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {contasAltoRisco.slice(0, 10).map((conta, i) => (
+            <div key={i} className="p-4 rounded-lg border bg-card hover:bg-muted/50">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-medium">{conta.pacienteNome || 'Paciente'}</p>
+                  <p className="text-sm text-muted-foreground">Guia: {conta.guiaNumero}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {conta.itens.length} procedimento(s) - {conta.arquivoNome}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <Badge className={getRiscoColor(conta.riscoMaximo)}>
+                    Risco: {conta.riscoMaximo.toFixed(0)}%
+                  </Badge>
+                  <p className="text-sm font-medium mt-1">
+                    R$ {conta.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t">
+                <p className="text-xs text-muted-foreground mb-1">Procedimentos de risco:</p>
+                <div className="flex flex-wrap gap-1">
+                  {conta.itens.filter(item => item.riscoIndividual > 30).slice(0, 3).map((item, j) => (
+                    <Badge key={j} variant="outline" className="text-xs">
+                      {item.codigo} ({item.riscoIndividual.toFixed(0)}%)
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

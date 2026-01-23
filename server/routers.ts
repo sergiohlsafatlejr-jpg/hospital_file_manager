@@ -3382,6 +3382,68 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ============ ANÁLISE INTELIGENTE DE CONTAS (IA) ============
+  ia: router({
+    // Obter estatísticas por código de procedimento
+    estatisticasPorCodigo: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        convenioId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getEstatisticasPorCodigo(input.estabelecimentoId, input.convenioId);
+      }),
+
+    // Identificar contas com valores fora da média (outliers)
+    contasOutliers: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        convenioId: z.number().optional(),
+        limiteDesvio: z.number().default(2),
+      }))
+      .query(async ({ input }) => {
+        return db.getContasOutliers(input.estabelecimentoId, input.convenioId, input.limiteDesvio);
+      }),
+
+    // Detectar padrões de erro por funcionário
+    padroesErroPorFuncionario: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        return db.getPadroesErroPorFuncionario(input.estabelecimentoId);
+      }),
+
+    // Buscar motivos de glosa por funcionário
+    motivosGlosaPorFuncionario: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        userId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        return db.getMotivosGlosaPorFuncionario(input.estabelecimentoId, input.userId);
+      }),
+
+    // Calcular risco de glosa para contas
+    riscoGlosa: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        arquivoId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.calcularRiscoGlosa(input.estabelecimentoId, input.arquivoId);
+      }),
+
+    // Gerar alertas e recomendações da IA
+    alertas: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+      }))
+      .query(async ({ input }) => {
+        return db.gerarAlertasIA(input.estabelecimentoId);
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
