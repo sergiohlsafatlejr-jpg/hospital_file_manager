@@ -658,3 +658,7 @@
 - [x] Implementar controle por teclado (setas, espaço, P para pausar)
 - [x] Exibir totais de valor, quantidade e registros
 - [x] 24 testes automatizados do modo apresentação
+
+
+## Correções de Interface
+- [x] Corrigir modal de detalhes das Contas Tasy - campos muito pequenos e difícil visualização

@@ -845,165 +845,204 @@ export default function ContasTasy() {
 
         {/* Modal de Detalhes da Conta */}
         <Dialog open={modalAberto} onOpenChange={setModalAberto}>
-          <DialogContent className="w-[95vw] max-w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileSearch className="h-5 w-5" />
-                Detalhes da Conta - Atendimento {contaSelecionada?.atendimento}
-              </DialogTitle>
-              <DialogDescription>
-                Visualize todos os itens (materiais e honorários) desta conta
-              </DialogDescription>
-            </DialogHeader>
+          <DialogContent className="w-[98vw] max-w-[98vw] h-[98vh] max-h-[98vh] overflow-hidden flex flex-col p-0">
+            {/* Header fixo do modal */}
+            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 text-xl">
+                  <div className="p-2 bg-primary/10 rounded-lg">
+                    <FileSearch className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <span>Detalhes da Conta</span>
+                    <span className="ml-2 text-muted-foreground font-normal">|</span>
+                    <span className="ml-2 font-mono text-primary">Atendimento {contaSelecionada?.atendimento}</span>
+                  </div>
+                </DialogTitle>
+                <DialogDescription className="text-base mt-1">
+                  Visualize todos os itens (materiais e honorários) desta conta hospitalar
+                </DialogDescription>
+              </DialogHeader>
+            </div>
             
             {contaSelecionada && (
-              <div className="flex-1 overflow-hidden flex flex-col">
-                {/* Informações da Conta */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 p-4 bg-muted/50 rounded-lg">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Paciente</p>
-                    <p className="font-medium truncate" title={contaSelecionada.paciente}>
+              <div className="flex-1 overflow-auto px-6 py-4">
+                {/* Informações da Conta - Layout melhorado */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-6 p-6 bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl border">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Paciente
+                    </p>
+                    <p className="text-lg font-semibold" title={contaSelecionada.paciente}>
                       {contaSelecionada.paciente}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Convênio</p>
-                    <p className="font-medium truncate" title={contaSelecionada.convenio}>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4" />
+                      Convênio
+                    </p>
+                    <p className="text-lg font-semibold" title={contaSelecionada.convenio}>
                       {contaSelecionada.convenio}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Guia</p>
-                    <p className="font-mono">{contaSelecionada.guia}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Guia
+                    </p>
+                    <p className="text-lg font-mono font-semibold">{contaSelecionada.guia}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Nr Interno Conta</p>
-                    <p className="font-mono">{contaSelecionada.nrInternoConta}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                      <Hash className="h-4 w-4" />
+                      Nr Interno Conta
+                    </p>
+                    <p className="text-lg font-mono font-semibold">{contaSelecionada.nrInternoConta}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Data Faturado</p>
-                    <p>{formatDate(contaSelecionada.dataFaturado)}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Data Faturado</p>
+                    <p className="text-lg font-semibold">{formatDate(contaSelecionada.dataFaturado)}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Setor</p>
-                    <p className="truncate" title={contaSelecionada.setor}>{contaSelecionada.setor}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Setor</p>
+                    <p className="text-lg font-semibold" title={contaSelecionada.setor}>{contaSelecionada.setor}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Protocolo</p>
-                    <p className="font-mono">{contaSelecionada.protocolo}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Protocolo</p>
+                    <p className="text-lg font-mono font-semibold">{contaSelecionada.protocolo}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <p>{contaSelecionada.statusProtocolo}</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-muted-foreground">Status</p>
+                    <p className="text-lg font-semibold">{contaSelecionada.statusProtocolo}</p>
                   </div>
                 </div>
 
-                {/* Resumo de Valores */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="text-2xl font-bold">{contaSelecionada.quantidadeItens}</div>
-                      <p className="text-xs text-muted-foreground">Total de Itens</p>
+                {/* Resumo de Valores - Cards maiores */}
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                  <Card className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-2">
+                    <CardContent className="pt-6 pb-6 text-center">
+                      <div className="text-4xl font-bold">{contaSelecionada.quantidadeItens}</div>
+                      <p className="text-sm text-muted-foreground mt-2">Total de Itens</p>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="text-2xl font-bold text-blue-600">{totaisContaSelecionada.materiais}</div>
-                      <p className="text-xs text-muted-foreground">Materiais</p>
+                  <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-2 border-blue-200 dark:border-blue-800">
+                    <CardContent className="pt-6 pb-6 text-center">
+                      <div className="text-4xl font-bold text-blue-600">{totaisContaSelecionada.materiais}</div>
+                      <p className="text-sm text-blue-600/70 mt-2">Materiais</p>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="text-2xl font-bold text-purple-600">{totaisContaSelecionada.honorarios}</div>
-                      <p className="text-xs text-muted-foreground">Honorários</p>
+                  <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 border-2 border-purple-200 dark:border-purple-800">
+                    <CardContent className="pt-6 pb-6 text-center">
+                      <div className="text-4xl font-bold text-purple-600">{totaisContaSelecionada.honorarios}</div>
+                      <p className="text-sm text-purple-600/70 mt-2">Honorários</p>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="text-lg font-bold text-blue-600">{formatCurrency(totaisContaSelecionada.valorMateriais)}</div>
-                      <p className="text-xs text-muted-foreground">Valor Materiais</p>
+                  <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-2 border-blue-200 dark:border-blue-800">
+                    <CardContent className="pt-6 pb-6 text-center">
+                      <div className="text-2xl font-bold text-blue-600">{formatCurrency(totaisContaSelecionada.valorMateriais)}</div>
+                      <p className="text-sm text-blue-600/70 mt-2">Valor Materiais</p>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="text-lg font-bold text-purple-600">{formatCurrency(totaisContaSelecionada.valorHonorarios)}</div>
-                      <p className="text-xs text-muted-foreground">Valor Honorários</p>
+                  <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 border-2 border-purple-200 dark:border-purple-800">
+                    <CardContent className="pt-6 pb-6 text-center">
+                      <div className="text-2xl font-bold text-purple-600">{formatCurrency(totaisContaSelecionada.valorHonorarios)}</div>
+                      <p className="text-sm text-purple-600/70 mt-2">Valor Honorários</p>
                     </CardContent>
                   </Card>
                 </div>
 
-                {/* Valor Total */}
-                <div className="flex items-center justify-between mb-4 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <span className="text-lg font-medium">Valor Total da Conta</span>
-                  <span className="text-2xl font-bold text-green-600">
+                {/* Valor Total - Destaque maior */}
+                <div className="flex items-center justify-between mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 rounded-xl border-2 border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-green-100 dark:bg-green-900 rounded-lg">
+                      <DollarSign className="h-8 w-8 text-green-600" />
+                    </div>
+                    <span className="text-xl font-semibold">Valor Total da Conta</span>
+                  </div>
+                  <span className="text-4xl font-bold text-green-600">
                     {formatCurrency(contaSelecionada.valorTotal)}
                   </span>
                 </div>
 
                 {/* Botão de Exportar */}
                 <div className="flex justify-end mb-4">
-                  <Button onClick={handleExportContaExcel} variant="outline" size="sm">
-                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  <Button onClick={handleExportContaExcel} variant="outline" size="default" className="gap-2">
+                    <FileSpreadsheet className="h-5 w-5" />
                     Exportar Itens para Excel
                   </Button>
                 </div>
 
-                {/* Tabela de Itens */}
-                <div className="flex-1 overflow-auto rounded-md border">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-background">
-                      <TableRow>
-                        <TableHead>Código</TableHead>
-                        <TableHead>Cód. Convênio</TableHead>
-                        <TableHead className="min-w-[250px]">Descrição</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead className="text-right">Qtd</TableHead>
-                        <TableHead>Unid.</TableHead>
-                        <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
-                        <TableHead>Médico</TableHead>
-                        <TableHead>CRM</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {contaSelecionada.itens.map((item, index) => (
-                        <TableRow key={`${item.id}-${index}`}>
-                          <TableCell className="font-mono text-xs">
-                            {item.codigo || '-'}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {item.codigoConvenio || '-'}
-                          </TableCell>
-                          <TableCell className="max-w-[250px]" title={item.descricao || ''}>
-                            <span className="line-clamp-2">{item.descricao || '-'}</span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={item.tipo === 'MATERIAL' ? 'default' : 'secondary'}>
-                              {item.tipo === 'MATERIAL' ? 'Material' : 'Honorário'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.quantidade || 1}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {item.unidade || '-'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(parseFloat(item.valorUnitario || '0'))}
-                          </TableCell>
-                          <TableCell className="text-right font-medium text-green-600">
-                            {formatCurrency(parseFloat(item.valorTotal || '0'))}
-                          </TableCell>
-                          <TableCell className="max-w-[150px] truncate" title={item.medico || ''}>
-                            {item.medico || '-'}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {item.crm || '-'}
-                          </TableCell>
+                {/* Título da Tabela */}
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Package className="h-5 w-5" />
+                    Itens da Conta ({contaSelecionada.quantidadeItens} itens)
+                  </h3>
+                </div>
+
+                {/* Tabela de Itens - Melhorada */}
+                <div className="rounded-xl border-2 overflow-hidden">
+                  <div className="max-h-[400px] overflow-auto">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur">
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead className="font-bold text-base py-4">Código</TableHead>
+                          <TableHead className="font-bold text-base py-4">Cód. Convênio</TableHead>
+                          <TableHead className="font-bold text-base py-4 min-w-[350px]">Descrição</TableHead>
+                          <TableHead className="font-bold text-base py-4">Tipo</TableHead>
+                          <TableHead className="font-bold text-base py-4 text-right">Qtd</TableHead>
+                          <TableHead className="font-bold text-base py-4">Unid.</TableHead>
+                          <TableHead className="font-bold text-base py-4 text-right">Valor Unit.</TableHead>
+                          <TableHead className="font-bold text-base py-4 text-right">Valor Total</TableHead>
+                          <TableHead className="font-bold text-base py-4 min-w-[200px]">Médico</TableHead>
+                          <TableHead className="font-bold text-base py-4">CRM</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {contaSelecionada.itens.map((item, index) => (
+                          <TableRow key={`${item.id}-${index}`} className="hover:bg-muted/50">
+                            <TableCell className="font-mono text-sm py-4">
+                              {item.codigo || '-'}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm py-4">
+                              {item.codigoConvenio || '-'}
+                            </TableCell>
+                            <TableCell className="py-4" title={item.descricao || ''}>
+                              <span className="text-sm leading-relaxed">{item.descricao || '-'}</span>
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Badge 
+                                variant={item.tipo === 'MATERIAL' ? 'default' : 'secondary'}
+                                className="text-sm px-3 py-1"
+                              >
+                                {item.tipo === 'MATERIAL' ? 'Material' : 'Honorário'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right text-sm py-4 font-medium">
+                              {item.quantidade || 1}
+                            </TableCell>
+                            <TableCell className="text-sm py-4">
+                              {item.unidade || '-'}
+                            </TableCell>
+                            <TableCell className="text-right text-sm py-4">
+                              {formatCurrency(parseFloat(item.valorUnitario || '0'))}
+                            </TableCell>
+                            <TableCell className="text-right font-bold text-green-600 text-sm py-4">
+                              {formatCurrency(parseFloat(item.valorTotal || '0'))}
+                            </TableCell>
+                            <TableCell className="py-4" title={item.medico || ''}>
+                              <span className="text-sm">{item.medico || '-'}</span>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm py-4">
+                              {item.crm || '-'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </div>
             )}
