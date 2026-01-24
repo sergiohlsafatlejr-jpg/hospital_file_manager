@@ -1,0 +1,30 @@
+{
+  "query": "SELECT id, nome, status, progresso, itensProcessados, totalItens, createdAt, updatedAt FROM arquivos WHERE nome LIKE '%demonstrativo%' ORDER BY createdAt DESC LIMIT 5",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, status, progresso, itensProcessados, totalItens, createdAt, updatedAt FROM arquivos WHERE nome LIKE '%demonstrativo%' ORDER BY createdAt DESC LIMIT 5",
+  "rows": [
+    {
+      "id": "90001",
+      "nome": "demonstrativo-0282645 (1).xlsx",
+      "status": "processando",
+      "progresso": "0",
+      "itensProcessados": "0",
+      "totalItens": "NULL",
+      "createdAt": "2026-01-24 20:45:28",
+      "updatedAt": "2026-01-24 20:45:28"
+    },
+    {
+      "id": "220",
+      "nome": "demonstrativo-0282629.xlsx",
+      "status": "processado",
+      "progresso": "0",
+      "itensProcessados": "0",
+      "totalItens": "NULL",
+      "createdAt": "2026-01-22 11:02:18",
+      "updatedAt": "2026-01-22 11:22:42"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tstatus\tprogresso\titensProcessados\ttotalItens\tcreatedAt\tupdatedAt\n90001\tdemonstrativo-0282645 (1).xlsx\tprocessando\t0\t0\tNULL\t2026-01-24 20:45:28\t2026-01-24 20:45:28\n220\tdemonstrativo-0282629.xlsx\tprocessado\t0\t0\tNULL\t2026-01-22 11:02:18\t2026-01-22 11:22:42\n",
+  "stderr": "",
+  "execution_time_ms": 391
+}

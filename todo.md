@@ -753,3 +753,7 @@
 - [x] Otimizar conversão Base64 com processamento em chunks de 32KB (evita stack overflow)
 - [x] Adicionar toast de progresso para arquivos maiores que 1 MB
 - [x] 298 testes automatizados passando
+
+- [x] Corrigir arquivos travados em status "processando" - implementado timeout de 5 minutos e tratamento de erro robusto
+- [x] Adicionar endpoint para corrigir arquivos travados automaticamente (arquivos.corrigirTravados)
+- [x] Adicionar endpoint para verificar status de processamento de arquivos (arquivos.status, arquivos.processando)

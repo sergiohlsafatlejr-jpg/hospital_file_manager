@@ -1,4 +1,4 @@
-import { eq, and, desc, like, sql, gte, lte, or, inArray } from "drizzle-orm";
+import { eq, and, desc, like, sql, gte, lte, lt, or, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { isNull, isNotNull } from "drizzle-orm";
 import {
@@ -12981,4 +12981,80 @@ export async function getMesesDisponiveisTasy(estabelecimentoId: number): Promis
     });
 
   return meses;
+}
+
+
+/**
+ * Corrige arquivos que estão travados em status "processando" há mais de X minutos
+ * Isso pode acontecer se o processamento em background falhar silenciosamente
+ */
+export async function corrigirArquivosTravados(minutosTimeout: number = 10): Promise<{ corrigidos: number }> {
+  const db = await getDb();
+  if (!db) return { corrigidos: 0 };
+
+  // Calcular timestamp de timeout
+  const timeoutDate = new Date(Date.now() - minutosTimeout * 60 * 1000);
+
+  // Atualizar arquivos que estão processando há mais tempo que o timeout
+  const result = await db
+    .update(arquivos)
+    .set({ 
+      status: "erro",
+      progresso: 0,
+      itensProcessados: 0,
+      totalItens: 0
+    })
+    .where(
+      and(
+        eq(arquivos.status, "processando"),
+        lt(arquivos.updatedAt, timeoutDate)
+      )
+    );
+
+  const corrigidos = (result as any)[0]?.affectedRows || 0;
+  
+  if (corrigidos > 0) {
+    console.log(`[DB] Corrigidos ${corrigidos} arquivos travados em processando`);
+  }
+
+  return { corrigidos };
+}
+
+/**
+ * Busca arquivos que estão em processamento
+ */
+export async function getArquivosProcessando(estabelecimentoId?: number): Promise<Array<{
+  id: number;
+  nome: string;
+  progresso: number;
+  itensProcessados: number;
+  totalItens: number | null;
+  updatedAt: Date;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions: SQL[] = [eq(arquivos.status, "processando")];
+  if (estabelecimentoId) {
+    conditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
+  }
+
+  const result = await db
+    .select({
+      id: arquivos.id,
+      nome: arquivos.nome,
+      progresso: arquivos.progresso,
+      itensProcessados: arquivos.itensProcessados,
+      totalItens: arquivos.totalItens,
+      updatedAt: arquivos.updatedAt,
+    })
+    .from(arquivos)
+    .where(and(...conditions));
+
+  return result.map(r => ({
+    ...r,
+    progresso: r.progresso ?? 0,
+    itensProcessados: r.itensProcessados ?? 0,
+    updatedAt: r.updatedAt ?? new Date(),
+  }));
 }

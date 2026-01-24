@@ -1,0 +1,19 @@
+{
+  "query": "SELECT a.id, a.nome, a.status, a.progresso, a.itensProcessados, a.totalItens, COUNT(p.id) as procedimentos_count FROM arquivos a LEFT JOIN procedimentos p ON p.arquivoId = a.id WHERE a.status = 'processando' GROUP BY a.id",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT a.id, a.nome, a.status, a.progresso, a.itensProcessados, a.totalItens, COUNT(p.id) as procedimentos_count FROM arquivos a LEFT JOIN procedimentos p ON p.arquivoId = a.id WHERE a.status = 'processando' GROUP BY a.id",
+  "rows": [
+    {
+      "id": "90001",
+      "nome": "demonstrativo-0282645 (1).xlsx",
+      "status": "processando",
+      "progresso": "0",
+      "itensProcessados": "0",
+      "totalItens": "NULL",
+      "procedimentos_count": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tstatus\tprogresso\titensProcessados\ttotalItens\tprocedimentos_count\n90001\tdemonstrativo-0282645 (1).xlsx\tprocessando\t0\t0\tNULL\t0\n",
+  "stderr": "",
+  "execution_time_ms": 348
+}

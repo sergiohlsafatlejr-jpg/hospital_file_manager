@@ -425,10 +425,21 @@ export const appRouter = router({
         
         // Parse file and extract procedimentos in background
         // Return immediately to user while processing continues
+        const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos de timeout
+        
         const processInBackground = async () => {
+          const startTime = Date.now();
+          let timeoutId: NodeJS.Timeout | null = null;
+          
+          // Timeout para garantir que o status seja atualizado mesmo se o processamento travar
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              reject(new Error(`Timeout: processamento excedeu ${TIMEOUT_MS / 1000 / 60} minutos`));
+            }, TIMEOUT_MS);
+          });
+          
           try {
             console.log('[Upload] Starting background processing:', input.nome);
-            const startTime = Date.now();
             
             // Set status to processing
             await db.updateArquivoStatus(arquivoId, "processando");
@@ -499,14 +510,29 @@ export const appRouter = router({
             }
           } catch (error) {
             console.error("[Upload] Error in background processing:", error);
-            await db.updateArquivoStatus(arquivoId, "erro");
+            try {
+              await db.updateArquivoStatus(arquivoId, "erro");
+            } catch (dbError) {
+              console.error("[Upload] Failed to update status to erro:", dbError);
+            }
+          } finally {
+            // Limpar timeout se ainda estiver ativo
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
           }
         };
         
         // Start background processing without awaiting
         // This allows the response to return immediately
-        processInBackground().catch(err => {
+        processInBackground().catch(async (err) => {
           console.error('[Upload] Unhandled error in background processing:', err);
+          // Garantir que o status seja atualizado para erro em caso de falha não tratada
+          try {
+            await db.updateArquivoStatus(arquivoId, "erro");
+          } catch (dbError) {
+            console.error('[Upload] Failed to update status after unhandled error:', dbError);
+          }
         });
         
         // Return immediately - user can check progress via status endpoint
@@ -601,6 +627,37 @@ export const appRouter = router({
           await db.updateArquivoStatus(input.id, "erro");
           throw error;
         }
+      }),
+
+    // Corrigir arquivos travados em processando
+    corrigirTravados: protectedProcedure
+      .input(z.object({ minutosTimeout: z.number().optional() }).optional())
+      .mutation(async ({ input }) => {
+        const minutosTimeout = input?.minutosTimeout || 10;
+        return db.corrigirArquivosTravados(minutosTimeout);
+      }),
+
+    // Verificar arquivos em processamento
+    processando: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getArquivosProcessando(input?.estabelecimentoId);
+      }),
+
+    // Verificar status de um arquivo específico
+    status: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const arquivo = await db.getArquivoById(input.id);
+        if (!arquivo) return null;
+        return {
+          id: arquivo.id,
+          nome: arquivo.nome,
+          status: arquivo.status,
+          progresso: arquivo.progresso || 0,
+          itensProcessados: arquivo.itensProcessados || 0,
+          totalItens: arquivo.totalItens || 0,
+        };
       }),
   }),
 

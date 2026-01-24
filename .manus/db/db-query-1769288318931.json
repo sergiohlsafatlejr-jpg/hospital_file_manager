@@ -1,0 +1,19 @@
+{
+  "query": "SELECT id, nome, status, progresso, updatedAt, NOW() as now_time, TIMESTAMPDIFF(SECOND, updatedAt, NOW()) as segundos_desde_update FROM arquivos WHERE nome LIKE '%demonstrativo%' ORDER BY createdAt DESC LIMIT 1",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, status, progresso, updatedAt, NOW() as now_time, TIMESTAMPDIFF(SECOND, updatedAt, NOW()) as segundos_desde_update FROM arquivos WHERE nome LIKE '%demonstrativo%' ORDER BY createdAt DESC LIMIT 1",
+  "rows": [
+    {
+      "id": "90001",
+      "nome": "demonstrativo-0282645 (1).xlsx",
+      "status": "erro",
+      "progresso": "0",
+      "updatedAt": "2026-01-24 20:58:33",
+      "now_time": "2026-01-24 20:58:38",
+      "segundos_desde_update": "5"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tstatus\tprogresso\tupdatedAt\tnow_time\tsegundos_desde_update\n90001\tdemonstrativo-0282645 (1).xlsx\terro\t0\t2026-01-24 20:58:33\t2026-01-24 20:58:38\t5\n",
+  "stderr": "",
+  "execution_time_ms": 370
+}
