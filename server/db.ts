@@ -10376,7 +10376,8 @@ export async function verificarRegistroTasyExiste(
 }
 
 /**
- * Insere um lote de registros do Tasy
+ * Insere um lote de registros do Tasy com ALTA PERFORMANCE
+ * Usa bulk insert e verificação de duplicatas em lote
  * Retorna quantidade de registros inseridos e ignorados
  */
 export async function insertDadosTasyBatch(
@@ -10386,36 +10387,86 @@ export async function insertDadosTasyBatch(
   const db = await getDb();
   if (!db) throw new Error('Database connection failed');
 
+  if (registros.length === 0) {
+    return { inseridos: 0, ignorados: 0, erros: 0 };
+  }
+
   let inseridos = 0;
   let ignorados = 0;
   let erros = 0;
 
-  // Processa em lotes menores para melhor performance
-  const BATCH_SIZE = 100;
+  // OTIMIZAÇÃO 1: Buscar todos os atendimentos existentes de uma vez
+  // Cria chaves únicas para verificar duplicatas
+  const chavesParaVerificar = registros.map(r => `${r.atendimento}|${r.sequencia || ''}`);
+  const chavesSet = new Set(chavesParaVerificar);
+  const chavesUnicas: string[] = [];
+  chavesSet.forEach(c => chavesUnicas.push(c));
   
-  for (let i = 0; i < registros.length; i += BATCH_SIZE) {
-    const batch = registros.slice(i, i + BATCH_SIZE);
+  // Busca atendimentos existentes em lotes de 1000
+  const atendimentosExistentes = new Set<string>();
+  const BATCH_VERIFICACAO = 1000;
+  
+  for (let i = 0; i < chavesUnicas.length; i += BATCH_VERIFICACAO) {
+    const loteChaves = chavesUnicas.slice(i, i + BATCH_VERIFICACAO);
+    const atendimentosLote = loteChaves.map(c => c.split('|')[0]);
     
-    for (const registro of batch) {
-      try {
-        // Verifica se já existe
-        const existe = await verificarRegistroTasyExiste(
-          estabelecimentoId,
-          registro.atendimento,
-          registro.sequencia || null
-        );
+    try {
+      const existentes = await db
+        .select({ 
+          atendimento: dadosTasy.atendimento, 
+          sequencia: dadosTasy.sequencia 
+        })
+        .from(dadosTasy)
+        .where(and(
+          eq(dadosTasy.estabelecimentoId, estabelecimentoId),
+          inArray(dadosTasy.atendimento, atendimentosLote)
+        ));
+      
+      for (const e of existentes) {
+        atendimentosExistentes.add(`${e.atendimento}|${e.sequencia || ''}`);
+      }
+    } catch (error) {
+      console.error('Erro ao verificar duplicatas:', error);
+    }
+  }
 
-        if (existe) {
-          ignorados++;
-          continue;
+  // OTIMIZAÇÃO 2: Filtrar registros novos (não duplicados)
+  const registrosNovos = registros.filter(r => {
+    const chave = `${r.atendimento}|${r.sequencia || ''}`;
+    if (atendimentosExistentes.has(chave)) {
+      ignorados++;
+      return false;
+    }
+    return true;
+  });
+
+  // OTIMIZAÇÃO 3: Inserir em lotes grandes (1000 registros por vez)
+  const BATCH_INSERT = 1000;
+  
+  for (let i = 0; i < registrosNovos.length; i += BATCH_INSERT) {
+    const batch = registrosNovos.slice(i, i + BATCH_INSERT);
+    
+    try {
+      // Bulk insert - insere todos de uma vez
+      await db.insert(dadosTasy).values(batch);
+      inseridos += batch.length;
+    } catch (error: any) {
+      // Se falhar o bulk insert, tenta inserir um por um para identificar o problema
+      console.error('Erro no bulk insert, tentando individualmente:', error.message);
+      
+      for (const registro of batch) {
+        try {
+          await db.insert(dadosTasy).values(registro);
+          inseridos++;
+        } catch (err: any) {
+          // Ignora erro de duplicata (pode acontecer em caso de race condition)
+          if (err.code === 'ER_DUP_ENTRY' || err.message?.includes('Duplicate')) {
+            ignorados++;
+          } else {
+            console.error('Erro ao inserir registro:', err.message);
+            erros++;
+          }
         }
-
-        // Insere o registro
-        await db.insert(dadosTasy).values(registro);
-        inseridos++;
-      } catch (error) {
-        console.error('Erro ao inserir registro Tasy:', error);
-        erros++;
       }
     }
   }

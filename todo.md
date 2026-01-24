@@ -573,3 +573,12 @@
 - [x] Agrupar itens por guia com expansão/colapso
 - [x] Adicionar modal de detalhes da guia com todos os itens
 - [x] Destacar em vermelho linhas com diferença > 0
+
+
+## Otimização de Performance - Importação Tasy (URGENTE)
+- [x] Analisar código atual de importação e identificar gargalos
+- [x] Implementar inserção em lote (bulk insert) - 1000+ registros por vez
+- [x] Otimizar verificação de duplicatas em lote (buscar todos atendimentos de uma vez)
+- [x] Adicionar índices no banco de dados (atendimento, estabelecimentoId, convenio, guia, importacao)
+- [x] Reduzir tempo de importação de 5 horas para menos de 30 minutos (estimativa)
+- [ ] Testar com volume real de dados (100k+ registros) - aguardando teste do usuário
