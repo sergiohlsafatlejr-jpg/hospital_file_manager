@@ -634,3 +634,14 @@
 - [x] Corrigir modal de Contas Tasy - aumentar para tela cheia (95vw x 95vh)
 - [x] Criar aba Construtor de Gráficos (Power BI) com seleção de tipo, métrica e agrupamento
 - [x] Adicionar opções de agrupamento por Mês/Ano, Trimestre e Ano
+
+
+## Drag-and-Drop, Templates e IA para Gráficos
+- [x] Implementar drag-and-drop de campos para eixos X/Y no Construtor de Gráficos
+- [x] Criar área de campos disponíveis para arrastar
+- [x] Criar zonas de drop para eixo X, eixo Y e filtros
+- [x] Criar templates de relatórios pré-configurados (5 templates: Faturamento Mensal, Análise de Glosas, etc.)
+- [x] Implementar IA para análise automática dos dados
+- [x] IA sugere melhores tipos de gráficos baseado nos dados
+- [x] IA identifica padrões e anomalias nos dados
+- [x] Adicionar botão "Sugestões da IA" no Construtor de Gráficos
