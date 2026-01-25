@@ -1,0 +1,40 @@
+{
+  "query": "SHOW TABLES LIKE '%tasy%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW TABLES LIKE '%tasy%';",
+  "rows": [
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "conciliacaoTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "contasPagasTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "contasTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "dadosTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "importacoesTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "itensContaTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "itensPagosTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "matMedTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "procedimentosTasy"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)": "resumoConciliacaoTasy"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_98MRdVE9Uf2ZRMz25bPSye (%tasy%)\nconciliacaoTasy\ncontasPagasTasy\ncontasTasy\ndadosTasy\nimportacoesTasy\nitensContaTasy\nitensPagosTasy\nmatMedTasy\nprocedimentosTasy\nresumoConciliacaoTasy\n",
+  "stderr": "",
+  "execution_time_ms": 396
+}

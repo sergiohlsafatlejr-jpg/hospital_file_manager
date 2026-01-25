@@ -1,0 +1,26 @@
+{
+  "query": "SELECT \n  'procedimentosTasy' as tabela, COUNT(*) as total FROM procedimentosTasy WHERE importacaoId = 150003\nUNION ALL\nSELECT 'matMedTasy', COUNT(*) FROM matMedTasy WHERE importacaoId = 150003\nUNION ALL\nSELECT 'contasPagasTasy', COUNT(*) FROM contasPagasTasy WHERE estabelecimentoId = 2\nUNION ALL\nSELECT 'itensPagosTasy', COUNT(*) FROM itensPagosTasy WHERE estabelecimentoId = 2;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  'procedimentosTasy' as tabela, COUNT(*) as total FROM procedimentosTasy WHERE importacaoId = 150003\nUNION ALL\nSELECT 'matMedTasy', COUNT(*) FROM matMedTasy WHERE importacaoId = 150003\nUNION ALL\nSELECT 'contasPagasTasy', COUNT(*) FROM contasPagasTasy WHERE estabelecimentoId = 2\nUNION ALL\nSELECT 'itensPagosTasy', COUNT(*) FROM itensPagosTasy WHERE estabelecimentoId = 2;",
+  "rows": [
+    {
+      "tabela": "contasPagasTasy",
+      "total": "0"
+    },
+    {
+      "tabela": "itensPagosTasy",
+      "total": "0"
+    },
+    {
+      "tabela": "procedimentosTasy",
+      "total": "76500"
+    },
+    {
+      "tabela": "matMedTasy",
+      "total": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tabela\ttotal\ncontasPagasTasy\t0\nitensPagosTasy\t0\nprocedimentosTasy\t76500\nmatMedTasy\t0\n",
+  "stderr": "",
+  "execution_time_ms": 785
+}

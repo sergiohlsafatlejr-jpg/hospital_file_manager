@@ -1,0 +1,14 @@
+{
+  "query": "SELECT \n  (SELECT COUNT(*) FROM procedimentosTasy WHERE importacaoId = 150001) as procedimentos,\n  (SELECT COUNT(*) FROM matMedTasy WHERE importacaoId = 150001) as mat_med;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  (SELECT COUNT(*) FROM procedimentosTasy WHERE importacaoId = 150001) as procedimentos,\n  (SELECT COUNT(*) FROM matMedTasy WHERE importacaoId = 150001) as mat_med;",
+  "rows": [
+    {
+      "procedimentos": "12500",
+      "mat_med": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "procedimentos\tmat_med\n12500\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1134
+}

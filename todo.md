@@ -773,4 +773,6 @@
 - [x] Atualizar rotas de importação para processar 4 tabelas do SQLite
 - [x] Criar lógica de junção automática para contas_tasy
 - [x] Atualizar frontend de importação Tasy
-- [ ] Testar importação com arquivo SQLite real
+- [x] Testar importação com arquivo SQLite real
+
+- [x] Corrigir importação SQLite que está travando no sistema - 414.418 registros importados com sucesso

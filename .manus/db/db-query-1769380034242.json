@@ -1,0 +1,26 @@
+{
+  "query": "SELECT \n  'procedimentosTasy' as tabela, COUNT(*) as total FROM procedimentosTasy\nUNION ALL\nSELECT 'matMedTasy', COUNT(*) FROM matMedTasy\nUNION ALL\nSELECT 'contasPagasTasy', COUNT(*) FROM contasPagasTasy\nUNION ALL\nSELECT 'itensPagosTasy', COUNT(*) FROM itensPagosTasy;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  'procedimentosTasy' as tabela, COUNT(*) as total FROM procedimentosTasy\nUNION ALL\nSELECT 'matMedTasy', COUNT(*) FROM matMedTasy\nUNION ALL\nSELECT 'contasPagasTasy', COUNT(*) FROM contasPagasTasy\nUNION ALL\nSELECT 'itensPagosTasy', COUNT(*) FROM itensPagosTasy;",
+  "rows": [
+    {
+      "tabela": "contasPagasTasy",
+      "total": "411"
+    },
+    {
+      "tabela": "itensPagosTasy",
+      "total": "28089"
+    },
+    {
+      "tabela": "matMedTasy",
+      "total": "271767"
+    },
+    {
+      "tabela": "procedimentosTasy",
+      "total": "125661"
+    }
+  ],
+  "messages": [],
+  "stdout": "tabela\ttotal\ncontasPagasTasy\t411\nitensPagosTasy\t28089\nmatMedTasy\t271767\nprocedimentosTasy\t125661\n",
+  "stderr": "",
+  "execution_time_ms": 669
+}
