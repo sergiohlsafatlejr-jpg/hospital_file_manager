@@ -776,3 +776,5 @@
 - [x] Testar importação com arquivo SQLite real
 
 - [x] Corrigir importação SQLite que está travando no sistema - 414.418 registros importados com sucesso
+
+- [x] Gerar tabela unificada contas_tasy com junção de procedimentos e mat_med - 21.856 contas, 395.428 itens, R$ 43.017.279,87

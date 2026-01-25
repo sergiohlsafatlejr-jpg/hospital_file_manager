@@ -1,0 +1,194 @@
+{
+  "query": "DESCRIBE matMedTasy",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute DESCRIBE matMedTasy",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "estabelecimentoId",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "importacaoId",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "atendimento",
+      "Type": "varchar(50)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nrInternoConta",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "guia",
+      "Type": "varchar(100)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "sequencia",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "dataFaturado",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "convenio",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "paciente",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "dataConta",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigo",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigoConvenio",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "descricao",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "quantidade",
+      "Type": "decimal(10,4)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "unidade",
+      "Type": "varchar(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "valorUnitario",
+      "Type": "decimal(12,4)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "valorTotal",
+      "Type": "decimal(12,4)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "setor",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "protocolo",
+      "Type": "varchar(100)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "statusProtocolo",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "tipoItem",
+      "Type": "enum('material','medicamento')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "material",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint(11)\tNO\tPRI\tNULL\tauto_increment\nestabelecimentoId\tint(11)\tNO\t\tNULL\t\nimportacaoId\tint(11)\tNO\t\tNULL\t\natendimento\tvarchar(50)\tNO\t\tNULL\t\nnrInternoConta\tvarchar(50)\tYES\t\tNULL\t\nguia\tvarchar(100)\tYES\t\tNULL\t\nsequencia\tvarchar(50)\tYES\t\tNULL\t\ndataFaturado\ttimestamp\tYES\t\tNULL\t\nconvenio\tvarchar(255)\tYES\t\tNULL\t\npaciente\tvarchar(255)\tYES\t\tNULL\t\ndataConta\ttimestamp\tYES\t\tNULL\t\ncodigo\tvarchar(50)\tYES\t\tNULL\t\ncodigoConvenio\tvarchar(50)\tYES\t\tNULL\t\ndescricao\ttext\tYES\t\tNULL\t\nquantidade\tdecimal(10,4)\tYES\t\tNULL\t\nunidade\tvarchar(20)\tYES\t\tNULL\t\nvalorUnitario\tdecimal(12,4)\tYES\t\tNULL\t\nvalorTotal\tdecimal(12,4)\tYES\t\tNULL\t\nsetor\tvarchar(255)\tYES\t\tNULL\t\nprotocolo\tvarchar(100)\tYES\t\tNULL\t\nstatusProtocolo\tvarchar(50)\tYES\t\tNULL\t\ntipoItem\tenum('material','medicamento')\tYES\t\tmaterial\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\n",
+  "stderr": "",
+  "execution_time_ms": 387
+}

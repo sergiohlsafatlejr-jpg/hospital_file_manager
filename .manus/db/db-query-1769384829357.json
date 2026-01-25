@@ -1,0 +1,19 @@
+{
+  "query": "SELECT COUNT(*) as total_contas FROM contasTasy WHERE importacaoId = 150003; SELECT COUNT(*) as total_itens FROM itensContaTasy WHERE contaTasyId IN (SELECT id FROM contasTasy WHERE importacaoId = 150003)",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT COUNT(*) as total_contas FROM contasTasy WHERE importacaoId = 150003; SELECT COUNT(*) as total_itens FROM itensContaTasy WHERE contaTasyId IN (SELECT id FROM contasTasy WHERE importacaoId = 150003)",
+  "rows": [
+    {
+      "total_contas": "21856"
+    },
+    {
+      "total_contas": "total_itens"
+    },
+    {
+      "total_contas": "395428"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_contas\n21856\ntotal_itens\n395428\n",
+  "stderr": "",
+  "execution_time_ms": 767
+}
