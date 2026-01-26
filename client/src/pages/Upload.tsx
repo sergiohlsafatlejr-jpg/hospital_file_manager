@@ -44,9 +44,22 @@ export default function Upload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: convenios, refetch: refetchConvenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
+  const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery({});
   const uploadMutation = trpc.arquivos.upload.useMutation();
+  const detectarPrestadoresMutation = trpc.arquivos.detectarPrestadores.useMutation();
   const criarConvenioMutation = trpc.convenios.create.useMutation();
   const utils = trpc.useUtils();
+
+  // Estado para detecção automática de prestador
+  const [prestadorDetectado, setPrestadorDetectado] = useState<{
+    codigoPrestador: string;
+    estabelecimentoId: number;
+    estabelecimentoNome: string;
+    convenioNome: string;
+  } | null>(null);
+  const [prestadoresNaoCadastrados, setPrestadoresNaoCadastrados] = useState<string[]>([]);
+  const [isDetectando, setIsDetectando] = useState(false);
+  const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] = useState<string>("");
 
   const detectFileType = (file: File): "xml" | "excel" | "pdf" => {
     const ext = file.name.split(".").pop()?.toLowerCase();
@@ -55,6 +68,50 @@ export default function Upload() {
     if (ext === "pdf") return "pdf";
     return "xml";
   };
+
+  // Função para detectar prestadores de um arquivo XML
+  const detectarPrestadorDoArquivo = useCallback(async (file: File) => {
+    if (detectFileType(file) !== "xml" || !convenioId) return;
+    
+    setIsDetectando(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const CHUNK_SIZE = 32768;
+      let base64 = '';
+      for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+        const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+        base64 += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      base64 = btoa(base64);
+
+      const result = await detectarPrestadoresMutation.mutateAsync({
+        conteudo: base64,
+        convenioId: parseInt(convenioId),
+      });
+
+      if (result.success && result.estabelecimentoSugerido) {
+        setPrestadorDetectado(result.estabelecimentoSugerido);
+        setEstabelecimentoSelecionado(result.estabelecimentoSugerido.estabelecimentoId.toString());
+        toast.success(
+          `Prestador detectado: ${result.estabelecimentoSugerido.codigoPrestador} - ${result.estabelecimentoSugerido.estabelecimentoNome}`,
+          { duration: 5000 }
+        );
+      }
+
+      if (result.prestadoresNaoCadastrados && result.prestadoresNaoCadastrados.length > 0) {
+        setPrestadoresNaoCadastrados(result.prestadoresNaoCadastrados);
+        toast.warning(
+          `${result.prestadoresNaoCadastrados.length} prestador(es) não cadastrado(s): ${result.prestadoresNaoCadastrados.join(", ")}`,
+          { duration: 8000 }
+        );
+      }
+    } catch (error) {
+      console.error("Erro ao detectar prestador:", error);
+    } finally {
+      setIsDetectando(false);
+    }
+  }, [convenioId, detectarPrestadoresMutation]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -80,7 +137,13 @@ export default function Upload() {
       
       return combined;
     });
-  }, []);
+
+    // Detectar prestador do primeiro arquivo XML
+    const primeiroXml = validFiles.find(f => detectFileType(f) === "xml");
+    if (primeiroXml && convenioId) {
+      detectarPrestadorDoArquivo(primeiroXml);
+    }
+  }, [convenioId, detectarPrestadorDoArquivo]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -169,12 +232,17 @@ export default function Upload() {
         }
         base64 = btoa(base64);
 
+        // Usar estabelecimento selecionado, detectado ou o atual do contexto
+        const estabId = estabelecimentoSelecionado 
+          ? parseInt(estabelecimentoSelecionado) 
+          : (prestadorDetectado?.estabelecimentoId || estabelecimentoAtual?.id || 0);
+
         const result = await uploadMutation.mutateAsync({
           nome: fileItem.file.name,
           tipoArquivo: detectFileType(fileItem.file),
           direcao,
           convenioId: parseInt(convenioId),
-          estabelecimentoId: estabelecimentoAtual?.id || 0,
+          estabelecimentoId: estabId,
           conteudo: base64,
           dataReferencia: dataReferencia || undefined,
           dataPagamento: dataPagamento || undefined,
@@ -494,6 +562,78 @@ export default function Upload() {
                   </Select>
                 </div>
               </div>
+
+              {/* Seleção de Estabelecimento */}
+              <div className="space-y-2">
+                <Label htmlFor="estabelecimento">Estabelecimento</Label>
+                {prestadorDetectado ? (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-700">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="font-medium">Prestador detectado automaticamente</span>
+                    </div>
+                    <p className="text-sm text-green-600 mt-1">
+                      Código: <span className="font-mono">{prestadorDetectado.codigoPrestador}</span> → {prestadorDetectado.estabelecimentoNome}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 h-auto py-1 px-2 text-xs text-green-700"
+                      onClick={() => {
+                        setPrestadorDetectado(null);
+                        setEstabelecimentoSelecionado("");
+                      }}
+                    >
+                      Alterar estabelecimento
+                    </Button>
+                  </div>
+                ) : (
+                  <Select 
+                    value={estabelecimentoSelecionado || (estabelecimentoAtual?.id?.toString() || "")}
+                    onValueChange={setEstabelecimentoSelecionado}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione um estabelecimento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {estabelecimentos?.map((est) => (
+                        <SelectItem key={est.id} value={est.id.toString()}>
+                          {est.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {isDetectando && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Detectando prestador do XML...
+                  </div>
+                )}
+              </div>
+
+              {/* Alerta de prestadores não cadastrados */}
+              {prestadoresNaoCadastrados.length > 0 && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-yellow-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="font-medium">Prestadores não cadastrados</span>
+                  </div>
+                  <p className="text-sm text-yellow-600 mt-1">
+                    Os seguintes códigos de prestador não estão cadastrados no sistema:
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {prestadoresNaoCadastrados.map((codigo) => (
+                      <span key={codigo} className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-mono rounded">
+                        {codigo}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-yellow-600 mt-2">
+                    Cadastre os prestadores em Configurações → Prestadores para detecção automática.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="dataReferencia">Data de Referência (opcional)</Label>

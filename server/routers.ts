@@ -366,6 +366,69 @@ export const appRouter = router({
       return db.getArquivosStats(ctx.user.id);
     }),
 
+    // Detectar prestadores de um XML antes da importação
+    detectarPrestadores: protectedProcedure
+      .input(z.object({
+        conteudo: z.string(), // Base64 encoded XML
+        convenioId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          // Decode base64 content
+          const buffer = Buffer.from(input.conteudo, "base64");
+          const xmlContent = buffer.toString("utf-8");
+          
+          // Extrair códigos de prestadores do XML
+          const { extractPrestadoresFromXML } = await import("./parsers");
+          const codigosPrestadores = await extractPrestadoresFromXML(xmlContent);
+          
+          // Buscar estabelecimentos associados a cada código
+          const estabelecimentosEncontrados: Array<{
+            codigoPrestador: string;
+            estabelecimentoId: number;
+            estabelecimentoNome: string;
+            convenioNome: string;
+          }> = [];
+          
+          for (const codigo of codigosPrestadores) {
+            const prestador = await db.getPrestadorPorCodigo(codigo, input.convenioId);
+            if (prestador) {
+              estabelecimentosEncontrados.push({
+                codigoPrestador: codigo,
+                estabelecimentoId: prestador.estabelecimentoId,
+                estabelecimentoNome: prestador.estabelecimentoNome,
+                convenioNome: prestador.convenioNome,
+              });
+            }
+          }
+          
+          // Determinar o estabelecimento sugerido (o mais frequente ou o primeiro)
+          const estabelecimentoSugerido = estabelecimentosEncontrados.length > 0
+            ? estabelecimentosEncontrados[0]
+            : null;
+          
+          return {
+            success: true,
+            codigosPrestadores,
+            estabelecimentosEncontrados,
+            estabelecimentoSugerido,
+            prestadoresNaoCadastrados: codigosPrestadores.filter(
+              codigo => !estabelecimentosEncontrados.find(e => e.codigoPrestador === codigo)
+            ),
+          };
+        } catch (error) {
+          console.error("[detectarPrestadores] Erro:", error);
+          return {
+            success: false,
+            codigosPrestadores: [],
+            estabelecimentosEncontrados: [],
+            estabelecimentoSugerido: null,
+            prestadoresNaoCadastrados: [],
+            error: error instanceof Error ? error.message : "Erro ao processar XML",
+          };
+        }
+      }),
+
     upload: protectedProcedure
       .input(
         z.object({

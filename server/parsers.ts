@@ -1730,3 +1730,75 @@ function parseDataGEAP(dateStr: string): Date | undefined {
   // Assume DD/MM/YYYY (Brazilian format)
   return new Date(year, part2 - 1, part1);
 }
+
+
+/**
+ * Extrai rapidamente todos os códigos de prestadores executantes de um XML
+ * Útil para identificar o estabelecimento antes da importação completa
+ * Retorna um array de códigos únicos encontrados no XML
+ */
+export async function extractPrestadoresFromXML(xmlContent: string): Promise<string[]> {
+  try {
+    const parser = new xml2js.Parser({
+      explicitArray: false,
+      ignoreAttrs: true,
+      tagNameProcessors: [xml2js.processors.stripPrefix],
+    });
+
+    const result = await parser.parseStringPromise(xmlContent);
+    const prestadores = new Set<string>();
+
+    // Função recursiva para buscar codigoPrestadorNaOperadora em toda a estrutura
+    const findPrestadores = (obj: unknown): void => {
+      if (!obj || typeof obj !== "object") return;
+
+      const record = obj as Record<string, unknown>;
+
+      // Verificar se este objeto tem codigoPrestadorNaOperadora
+      if (record["codigoPrestadorNaOperadora"]) {
+        const codigo = getTextValue(record["codigoPrestadorNaOperadora"]);
+        if (codigo) prestadores.add(codigo);
+      }
+
+      // Buscar em contratadoExecutante
+      if (record["contratadoExecutante"]) {
+        const contratado = record["contratadoExecutante"] as Record<string, unknown>;
+        if (contratado["codigoPrestadorNaOperadora"]) {
+          const codigo = getTextValue(contratado["codigoPrestadorNaOperadora"]);
+          if (codigo) prestadores.add(codigo);
+        }
+      }
+
+      // Buscar em dadosExecutante -> contratadoExecutante
+      if (record["dadosExecutante"]) {
+        const dadosExec = record["dadosExecutante"] as Record<string, unknown>;
+        if (dadosExec["contratadoExecutante"]) {
+          const contratado = dadosExec["contratadoExecutante"] as Record<string, unknown>;
+          if (contratado["codigoPrestadorNaOperadora"]) {
+            const codigo = getTextValue(contratado["codigoPrestadorNaOperadora"]);
+            if (codigo) prestadores.add(codigo);
+          }
+        }
+      }
+
+      // Recursivamente buscar em todos os filhos
+      for (const key of Object.keys(record)) {
+        const value = record[key];
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            findPrestadores(item);
+          }
+        } else if (typeof value === "object") {
+          findPrestadores(value);
+        }
+      }
+    }
+
+    findPrestadores(result);
+
+    return Array.from(prestadores);
+  } catch (error) {
+    console.error("[Parser] Erro ao extrair prestadores do XML:", error);
+    return [];
+  }
+}

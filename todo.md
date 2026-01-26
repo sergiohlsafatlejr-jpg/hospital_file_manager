@@ -870,3 +870,9 @@
 - [x] Adicionar rotas CRUD para cadastro de prestadores por convênio/estabelecimento
 - [x] Criar interface de cadastro de prestadores na tela de Configurações
 - [x] Permitir associar código de prestador único para cada combinação convênio+estabelecimento
+
+- [x] Implementar identificação automática de estabelecimento na importação de XML
+- [x] Criar função para extrair código do prestador do XML antes da importação
+- [x] Buscar estabelecimento automaticamente pelo código do prestador cadastrado
+- [x] Atualizar interface de upload para sugerir estabelecimento baseado no prestador do XML
+- [x] Alertar quando código do prestador não estiver cadastrado no sistema
