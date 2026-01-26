@@ -838,3 +838,9 @@
 - [x] Criar exportador padrão Unimed (Excel) com campos: Protocolo, Nº Guia, Seq., Nome Beneficiário, Cód. Beneficiário, Data Atendimento, Período, Código Serviço, Descrição, Participação, Qtde, Valor Recursado, Local Atendimento, Motivo Glosa, Justificativa, Anexo, Qtde Acatado, Valor Acatado, Pago pelo código, Observações, Valor Recebido, Data Pagamento
 - [x] Criar exportador padrão XML ANS (TISS) para envio às operadoras
 - [x] Testar exportação nos dois formatos
+
+
+## Tabela de Itens no Modal de Detalhes do Lote
+- [x] Adicionar tabela de itens no modal de detalhes do lote
+- [x] Incluir colunas: Paciente, Guia, Código, Descrição, Valor Glosado, Valor Recebido, Data de Pagamento, Status
+- [x] Testar visualização dos itens no modal

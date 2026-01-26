@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -102,9 +102,45 @@ export default function AcompanhamentoRecursos() {
     onError: (error) => toast.error(error.message),
   });
 
+  const [carregandoDetalhes, setCarregandoDetalhes] = useState(false);
+  const [loteIdParaDetalhes, setLoteIdParaDetalhes] = useState<number | null>(null);
+
+  const { data: detalhesLoteData, isLoading: isLoadingDetalhes } = trpc.recursos.detalhesLote.useQuery(
+    { loteId: loteIdParaDetalhes! },
+    { enabled: loteIdParaDetalhes !== null }
+  );
+
+  // Efeito para processar os detalhes quando carregados
+  useEffect(() => {
+    if (detalhesLoteData && loteIdParaDetalhes !== null) {
+      // Mapear recursos para o formato esperado pelo modal
+      const itens = detalhesLoteData.recursos?.map((r: any) => ({
+        id: r.id,
+        guiaNumero: r.guiaNumero,
+        codigoProcedimento: r.codigoProcedimento,
+        descricaoProcedimento: r.descricaoProcedimento,
+        pacienteNome: r.pacienteNome,
+        valorGlosado: r.valorGlosado,
+        valorRecursado: r.valorRecursado,
+        valorRecebido: r.valorRecebido,
+        dataPagamento: r.dataPagamento,
+        status: r.status,
+        motivoGlosa: r.motivoGlosa,
+        justificativa: r.justificativa,
+      })) || [];
+      
+      setLoteDetalhes({
+        ...detalhesLoteData,
+        itens,
+      });
+      setDialogDetalhes(true);
+      setCarregandoDetalhes(false);
+    }
+  }, [detalhesLoteData, loteIdParaDetalhes]);
+
   const handleVerDetalhes = async (lote: any) => {
-    setLoteDetalhes(lote);
-    setDialogDetalhes(true);
+    setCarregandoDetalhes(true);
+    setLoteIdParaDetalhes(lote.id);
   };
 
   const handleAbrirAnexo = (loteId: number) => {
