@@ -782,3 +782,19 @@
 - [x] Atualizar aba Contas Tasy para exibir dados da tabela unificada contas_tasy - 10.000 contas, 188.543 itens, R$ 27.269.529,98
 - [x] Integrar contas_tasy na Conciliação Tasy para comparar com retornos
 - [ ] Aplicar regras de negócio nas contas Tasy para validar completude
+
+## Salvar Resultados da Conciliação Tasy
+- [x] Criar tabela resultados_conciliacao_tasy no banco de dados
+- [x] Criar tabela itens_conciliacao_tasy para detalhes dos itens conciliados
+- [x] Criar tabela detalhes_itens_conciliacao_tasy para detalhes granulares
+- [x] Implementar rota para salvar resultado da conciliação
+- [x] Implementar rota para listar histórico de conciliações
+- [x] Implementar rota para buscar detalhes de uma conciliação
+- [x] Implementar rota para excluir conciliação
+- [x] Implementar rota para buscar evolução das conciliações
+- [x] Adicionar botão "Salvar Conciliação" na tela de Conciliação Tasy
+- [x] Adicionar botão "Histórico" na tela de Conciliação Tasy
+- [x] Criar tela de histórico de conciliações com filtros
+- [x] Implementar visualização de detalhes de conciliações anteriores
+- [x] Implementar exclusão de conciliações
+- [x] Implementar gráfico de evolução das conciliações

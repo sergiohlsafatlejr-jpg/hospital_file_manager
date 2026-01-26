@@ -1,0 +1,63 @@
+CREATE TABLE `detalhesItensConciliacaoTasy` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`itemConciliacaoId` int NOT NULL,
+	`tipoItem` enum('procedimento','material','medicamento') NOT NULL,
+	`codigo` varchar(50),
+	`descricao` text,
+	`quantidadeTasy` decimal(10,4),
+	`valorUnitarioTasy` decimal(12,4),
+	`valorTotalTasy` decimal(12,4),
+	`quantidadePaga` decimal(10,4),
+	`valorUnitarioPago` decimal(12,4),
+	`valorTotalPago` decimal(12,4),
+	`valorGlosado` decimal(12,4),
+	`codigoGlosa` varchar(50),
+	`motivoGlosa` text,
+	`statusItem` enum('ok','pago','glosado','parcial','nao_encontrado') DEFAULT 'nao_encontrado',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `detalhesItensConciliacaoTasy_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `itensConciliacaoTasy` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`resultadoConciliacaoId` int NOT NULL,
+	`contaTasyId` int NOT NULL,
+	`nrInternoConta` varchar(50),
+	`guia` varchar(50),
+	`paciente` varchar(255),
+	`dataInternacao` timestamp,
+	`valorTasy` decimal(15,2),
+	`valorPago` decimal(15,2),
+	`valorGlosado` decimal(15,2),
+	`valorDiferenca` decimal(15,2),
+	`statusConciliacao` enum('ok','glosa','divergente','nao_encontrado') NOT NULL,
+	`totalProcedimentos` int DEFAULT 0,
+	`totalMatMed` int DEFAULT 0,
+	`demonstrativoItemId` int,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `itensConciliacaoTasy_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `resultadosConciliacaoTasy` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`estabelecimentoId` int NOT NULL,
+	`convenioId` int,
+	`mesReferencia` int,
+	`anoReferencia` int,
+	`totalContas` int DEFAULT 0,
+	`contasOk` int DEFAULT 0,
+	`contasComGlosa` int DEFAULT 0,
+	`contasDivergentes` int DEFAULT 0,
+	`contasNaoEncontradas` int DEFAULT 0,
+	`valorTotalTasy` decimal(15,2),
+	`valorTotalPago` decimal(15,2),
+	`valorTotalGlosado` decimal(15,2),
+	`valorDiferenca` decimal(15,2),
+	`percentualGlosa` decimal(5,2),
+	`percentualRecebido` decimal(5,2),
+	`userId` int NOT NULL,
+	`observacoes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `resultadosConciliacaoTasy_id` PRIMARY KEY(`id`)
+);

@@ -1,4 +1,4 @@
-import { eq, and, desc, like, sql, gte, lte, lt, or, inArray } from "drizzle-orm";
+import { eq, and, desc, like, sql, gte, lte, lt, or, inArray, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { isNull, isNotNull } from "drizzle-orm";
 import {
@@ -79,6 +79,12 @@ import {
   InsertContaTasy,
   itensContaTasy,
   InsertItemContaTasy,
+  resultadosConciliacaoTasy,
+  InsertResultadoConciliacaoTasy,
+  itensConciliacaoTasy,
+  InsertItemConciliacaoTasy,
+  detalhesItensConciliacaoTasy,
+  InsertDetalheItemConciliacaoTasy,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -13506,4 +13512,382 @@ export async function limparDadosImportacaoTasy(importacaoId: number): Promise<v
 
   // Deletar mat/med
   await db.delete(matMedTasy).where(eq(matMedTasy.importacaoId, importacaoId));
+}
+
+
+// ============ RESULTADOS CONCILIAÇÃO TASY ============
+
+/**
+ * Interface para dados de resultado da conciliação
+ */
+interface DadosConciliacao {
+  estabelecimentoId: number;
+  convenioId?: number;
+  mesReferencia?: number;
+  anoReferencia?: number;
+  totalContas: number;
+  contasOk: number;
+  contasComGlosa: number;
+  contasDivergentes: number;
+  contasNaoEncontradas: number;
+  valorTotalTasy: number;
+  valorTotalPago: number;
+  valorTotalGlosado: number;
+  valorDiferenca: number;
+  percentualGlosa: number;
+  percentualRecebido: number;
+  userId: number;
+  observacoes?: string;
+}
+
+interface ItemConciliacaoTasy {
+  contaTasyId: number;
+  nrInternoConta: string;
+  guia: string;
+  paciente: string;
+  dataInternacao?: Date;
+  valorTasy: number;
+  valorPago: number;
+  valorGlosado: number;
+  valorDiferenca: number;
+  statusConciliacao: 'ok' | 'glosa' | 'divergente' | 'nao_encontrado';
+  totalProcedimentos: number;
+  totalMatMed: number;
+  demonstrativoItemId?: number;
+}
+
+interface DetalheItemConciliacao {
+  tipoItem: 'procedimento' | 'material' | 'medicamento';
+  codigo: string;
+  descricao: string;
+  quantidadeTasy: number;
+  valorUnitarioTasy: number;
+  valorTotalTasy: number;
+  quantidadePaga?: number;
+  valorUnitarioPago?: number;
+  valorTotalPago?: number;
+  valorGlosado?: number;
+  codigoGlosa?: string;
+  motivoGlosa?: string;
+  statusItem: 'ok' | 'pago' | 'glosado' | 'parcial' | 'nao_encontrado';
+}
+
+/**
+ * Salva o resultado de uma conciliação Tasy
+ */
+export async function salvarResultadoConciliacao(
+  dados: DadosConciliacao,
+  itens: ItemConciliacaoTasy[],
+  detalhesItens: Map<number, DetalheItemConciliacao[]>
+): Promise<{ id: number; success: boolean }> {
+  const db = await getDb();
+  if (!db) return { id: 0, success: false };
+
+  try {
+    // Inserir resultado principal
+    const [resultado] = await db.insert(resultadosConciliacaoTasy).values({
+      estabelecimentoId: dados.estabelecimentoId,
+      convenioId: dados.convenioId,
+      mesReferencia: dados.mesReferencia,
+      anoReferencia: dados.anoReferencia,
+      totalContas: dados.totalContas,
+      contasOk: dados.contasOk,
+      contasComGlosa: dados.contasComGlosa,
+      contasDivergentes: dados.contasDivergentes,
+      contasNaoEncontradas: dados.contasNaoEncontradas,
+      valorTotalTasy: dados.valorTotalTasy.toFixed(2),
+      valorTotalPago: dados.valorTotalPago.toFixed(2),
+      valorTotalGlosado: dados.valorTotalGlosado.toFixed(2),
+      valorDiferenca: dados.valorDiferenca.toFixed(2),
+      percentualGlosa: dados.percentualGlosa.toFixed(2),
+      percentualRecebido: dados.percentualRecebido.toFixed(2),
+      userId: dados.userId,
+      observacoes: dados.observacoes,
+    });
+
+    const resultadoId = (resultado as any).insertId;
+
+    // Inserir itens em lotes de 500
+    const batchSize = 500;
+    for (let i = 0; i < itens.length; i += batchSize) {
+      const batch = itens.slice(i, i + batchSize);
+      const insertedItens = await db.insert(itensConciliacaoTasy).values(
+        batch.map(item => ({
+          resultadoConciliacaoId: resultadoId,
+          contaTasyId: item.contaTasyId,
+          nrInternoConta: item.nrInternoConta,
+          guia: item.guia,
+          paciente: item.paciente,
+          dataInternacao: item.dataInternacao,
+          valorTasy: item.valorTasy.toFixed(2),
+          valorPago: item.valorPago.toFixed(2),
+          valorGlosado: item.valorGlosado.toFixed(2),
+          valorDiferenca: item.valorDiferenca.toFixed(2),
+          statusConciliacao: item.statusConciliacao,
+          totalProcedimentos: item.totalProcedimentos,
+          totalMatMed: item.totalMatMed,
+          demonstrativoItemId: item.demonstrativoItemId,
+        }))
+      );
+
+      // Inserir detalhes dos itens
+      const detalhesParaInserir: any[] = [];
+      for (let j = 0; j < batch.length; j++) {
+        const itemIndex = i + j;
+        const detalhes = detalhesItens.get(itemIndex);
+        if (detalhes && detalhes.length > 0) {
+          // Calcular o ID do item inserido
+          const itemConciliacaoId = (insertedItens as any).insertId + j;
+          detalhes.forEach(detalhe => {
+            detalhesParaInserir.push({
+              itemConciliacaoId,
+              tipoItem: detalhe.tipoItem,
+              codigo: detalhe.codigo,
+              descricao: detalhe.descricao,
+              quantidadeTasy: detalhe.quantidadeTasy?.toFixed(4),
+              valorUnitarioTasy: detalhe.valorUnitarioTasy?.toFixed(4),
+              valorTotalTasy: detalhe.valorTotalTasy?.toFixed(4),
+              quantidadePaga: detalhe.quantidadePaga?.toFixed(4),
+              valorUnitarioPago: detalhe.valorUnitarioPago?.toFixed(4),
+              valorTotalPago: detalhe.valorTotalPago?.toFixed(4),
+              valorGlosado: detalhe.valorGlosado?.toFixed(4),
+              codigoGlosa: detalhe.codigoGlosa,
+              motivoGlosa: detalhe.motivoGlosa,
+              statusItem: detalhe.statusItem,
+            });
+          });
+        }
+      }
+
+      // Inserir detalhes em lotes
+      if (detalhesParaInserir.length > 0) {
+        for (let k = 0; k < detalhesParaInserir.length; k += batchSize) {
+          const detalheBatch = detalhesParaInserir.slice(k, k + batchSize);
+          await db.insert(detalhesItensConciliacaoTasy).values(detalheBatch);
+        }
+      }
+    }
+
+    return { id: resultadoId, success: true };
+  } catch (error) {
+    console.error('[salvarResultadoConciliacao] Erro:', error);
+    return { id: 0, success: false };
+  }
+}
+
+/**
+ * Lista histórico de conciliações de um estabelecimento
+ */
+export async function listarHistoricoConciliacoes(
+  estabelecimentoId: number,
+  filtros?: {
+    convenioId?: number;
+    mesReferencia?: number;
+    anoReferencia?: number;
+    limite?: number;
+    offset?: number;
+  }
+): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions: SQL[] = [eq(resultadosConciliacaoTasy.estabelecimentoId, estabelecimentoId)];
+
+  if (filtros?.convenioId) {
+    conditions.push(eq(resultadosConciliacaoTasy.convenioId, filtros.convenioId));
+  }
+  if (filtros?.mesReferencia) {
+    conditions.push(eq(resultadosConciliacaoTasy.mesReferencia, filtros.mesReferencia));
+  }
+  if (filtros?.anoReferencia) {
+    conditions.push(eq(resultadosConciliacaoTasy.anoReferencia, filtros.anoReferencia));
+  }
+
+  const resultados = await db
+    .select({
+      id: resultadosConciliacaoTasy.id,
+      estabelecimentoId: resultadosConciliacaoTasy.estabelecimentoId,
+      convenioId: resultadosConciliacaoTasy.convenioId,
+      mesReferencia: resultadosConciliacaoTasy.mesReferencia,
+      anoReferencia: resultadosConciliacaoTasy.anoReferencia,
+      totalContas: resultadosConciliacaoTasy.totalContas,
+      contasOk: resultadosConciliacaoTasy.contasOk,
+      contasComGlosa: resultadosConciliacaoTasy.contasComGlosa,
+      contasDivergentes: resultadosConciliacaoTasy.contasDivergentes,
+      contasNaoEncontradas: resultadosConciliacaoTasy.contasNaoEncontradas,
+      valorTotalTasy: resultadosConciliacaoTasy.valorTotalTasy,
+      valorTotalPago: resultadosConciliacaoTasy.valorTotalPago,
+      valorTotalGlosado: resultadosConciliacaoTasy.valorTotalGlosado,
+      valorDiferenca: resultadosConciliacaoTasy.valorDiferenca,
+      percentualGlosa: resultadosConciliacaoTasy.percentualGlosa,
+      percentualRecebido: resultadosConciliacaoTasy.percentualRecebido,
+      userId: resultadosConciliacaoTasy.userId,
+      observacoes: resultadosConciliacaoTasy.observacoes,
+      createdAt: resultadosConciliacaoTasy.createdAt,
+    })
+    .from(resultadosConciliacaoTasy)
+    .where(and(...conditions))
+    .orderBy(desc(resultadosConciliacaoTasy.createdAt))
+    .limit(filtros?.limite || 50)
+    .offset(filtros?.offset || 0);
+
+  // Buscar nome do convênio para cada resultado
+  const resultadosComConvenio = await Promise.all(
+    resultados.map(async (r) => {
+      let convenioNome = 'Todos os convênios';
+      if (r.convenioId) {
+        const [convenio] = await db
+          .select({ nome: convenios.nome })
+          .from(convenios)
+          .where(eq(convenios.id, r.convenioId))
+          .limit(1);
+        if (convenio) {
+          convenioNome = convenio.nome;
+        }
+      }
+      return { ...r, convenioNome };
+    })
+  );
+
+  return resultadosComConvenio;
+}
+
+/**
+ * Busca detalhes de uma conciliação específica
+ */
+export async function getDetalhesConciliacao(
+  resultadoId: number,
+  filtros?: {
+    statusConciliacao?: string;
+    busca?: string;
+    limite?: number;
+    offset?: number;
+  }
+): Promise<{ resultado: any; itens: any[]; total: number }> {
+  const db = await getDb();
+  if (!db) return { resultado: null, itens: [], total: 0 };
+
+  // Buscar resultado principal
+  const [resultado] = await db
+    .select()
+    .from(resultadosConciliacaoTasy)
+    .where(eq(resultadosConciliacaoTasy.id, resultadoId))
+    .limit(1);
+
+  if (!resultado) {
+    return { resultado: null, itens: [], total: 0 };
+  }
+
+  // Buscar itens com filtros
+  const conditions: SQL[] = [eq(itensConciliacaoTasy.resultadoConciliacaoId, resultadoId)];
+
+  if (filtros?.statusConciliacao) {
+    conditions.push(eq(itensConciliacaoTasy.statusConciliacao, filtros.statusConciliacao as any));
+  }
+  if (filtros?.busca) {
+    conditions.push(
+      or(
+        like(itensConciliacaoTasy.paciente, `%${filtros.busca}%`),
+        like(itensConciliacaoTasy.guia, `%${filtros.busca}%`),
+        like(itensConciliacaoTasy.nrInternoConta, `%${filtros.busca}%`)
+      ) as SQL
+    );
+  }
+
+  // Contar total
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(itensConciliacaoTasy)
+    .where(and(...conditions));
+
+  // Buscar itens
+  const itens = await db
+    .select()
+    .from(itensConciliacaoTasy)
+    .where(and(...conditions))
+    .orderBy(desc(itensConciliacaoTasy.valorDiferenca))
+    .limit(filtros?.limite || 50)
+    .offset(filtros?.offset || 0);
+
+  return { resultado, itens, total };
+}
+
+/**
+ * Busca detalhes dos itens de uma conta conciliada
+ */
+export async function getDetalhesItemConciliacao(itemConciliacaoId: number): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(detalhesItensConciliacaoTasy)
+    .where(eq(detalhesItensConciliacaoTasy.itemConciliacaoId, itemConciliacaoId))
+    .orderBy(detalhesItensConciliacaoTasy.tipoItem, detalhesItensConciliacaoTasy.codigo);
+}
+
+/**
+ * Exclui uma conciliação e todos os seus dados relacionados
+ */
+export async function excluirConciliacao(resultadoId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+
+  try {
+    // Buscar itens da conciliação
+    const itens = await db
+      .select({ id: itensConciliacaoTasy.id })
+      .from(itensConciliacaoTasy)
+      .where(eq(itensConciliacaoTasy.resultadoConciliacaoId, resultadoId));
+
+    // Excluir detalhes dos itens
+    if (itens.length > 0) {
+      const itemIds = itens.map(i => i.id);
+      await db.delete(detalhesItensConciliacaoTasy).where(inArray(detalhesItensConciliacaoTasy.itemConciliacaoId, itemIds));
+    }
+
+    // Excluir itens
+    await db.delete(itensConciliacaoTasy).where(eq(itensConciliacaoTasy.resultadoConciliacaoId, resultadoId));
+
+    // Excluir resultado
+    await db.delete(resultadosConciliacaoTasy).where(eq(resultadosConciliacaoTasy.id, resultadoId));
+
+    return true;
+  } catch (error) {
+    console.error('[excluirConciliacao] Erro:', error);
+    return false;
+  }
+}
+
+/**
+ * Busca estatísticas de evolução das conciliações ao longo do tempo
+ */
+export async function getEvolucaoConciliacoes(
+  estabelecimentoId: number,
+  meses: number = 6
+): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Buscar últimas conciliações agrupadas por mês/ano
+  const resultados = await db
+    .select({
+      mesReferencia: resultadosConciliacaoTasy.mesReferencia,
+      anoReferencia: resultadosConciliacaoTasy.anoReferencia,
+      totalContas: sql<number>`SUM(${resultadosConciliacaoTasy.totalContas})`,
+      contasOk: sql<number>`SUM(${resultadosConciliacaoTasy.contasOk})`,
+      contasComGlosa: sql<number>`SUM(${resultadosConciliacaoTasy.contasComGlosa})`,
+      contasDivergentes: sql<number>`SUM(${resultadosConciliacaoTasy.contasDivergentes})`,
+      contasNaoEncontradas: sql<number>`SUM(${resultadosConciliacaoTasy.contasNaoEncontradas})`,
+      valorTotalTasy: sql<number>`SUM(${resultadosConciliacaoTasy.valorTotalTasy})`,
+      valorTotalPago: sql<number>`SUM(${resultadosConciliacaoTasy.valorTotalPago})`,
+      valorTotalGlosado: sql<number>`SUM(${resultadosConciliacaoTasy.valorTotalGlosado})`,
+    })
+    .from(resultadosConciliacaoTasy)
+    .where(eq(resultadosConciliacaoTasy.estabelecimentoId, estabelecimentoId))
+    .groupBy(resultadosConciliacaoTasy.mesReferencia, resultadosConciliacaoTasy.anoReferencia)
+    .orderBy(desc(resultadosConciliacaoTasy.anoReferencia), desc(resultadosConciliacaoTasy.mesReferencia))
+    .limit(meses);
+
+  return resultados;
 }

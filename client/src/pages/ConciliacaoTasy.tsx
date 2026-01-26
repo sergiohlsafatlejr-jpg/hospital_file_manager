@@ -31,9 +31,13 @@ import {
   ChevronUp,
   User,
   Hash,
-  Calendar
+  Calendar,
+  Save,
+  History,
+  Loader2
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
@@ -84,6 +88,7 @@ function formatDate(date: Date | string | null | undefined): string {
 export default function ConciliacaoTasy() {
   const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
+  const [, navigate] = useLocation();
   const [convenioId, setConvenioId] = useState<string>("");
   const [mes, setMes] = useState<string>("");
   const [ano, setAno] = useState<string>("");
@@ -91,7 +96,25 @@ export default function ConciliacaoTasy() {
   const [statusFiltro, setStatusFiltro] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [expandedContas, setExpandedContas] = useState<Set<string>>(new Set());
+  const [salvando, setSalvando] = useState(false);
   const pageSize = 20;
+
+  // Mutation para salvar conciliação
+  const salvarConciliacaoMutation = trpc.historicoConciliacao.salvar.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success('Conciliação salva com sucesso!');
+        setSalvando(false);
+      } else {
+        toast.error('Erro ao salvar conciliação');
+        setSalvando(false);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro ao salvar: ${error.message}`);
+      setSalvando(false);
+    },
+  });
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({});
@@ -304,6 +327,58 @@ export default function ConciliacaoTasy() {
     toast.success('Arquivo Excel exportado com sucesso!');
   };
 
+  const salvarConciliacao = () => {
+    if (!estabelecimentoAtual || resultadosConciliacao.length === 0) {
+      toast.error('Não há dados para salvar');
+      return;
+    }
+
+    setSalvando(true);
+
+    // Mapear status para o formato esperado pela API
+    const mapStatus = (status: string): 'ok' | 'glosa' | 'divergente' | 'nao_encontrado' => {
+      if (status === 'divergencia') return 'divergente';
+      return status as 'ok' | 'glosa' | 'divergente' | 'nao_encontrado';
+    };
+
+    // Preparar dados para salvar
+    const itens = resultadosConciliacao.map(r => ({
+      contaTasyId: r.id,
+      nrInternoConta: r.nrInternoConta,
+      guia: r.guia,
+      paciente: r.paciente,
+      dataInternacao: r.dataFaturado !== '-' ? r.dataFaturado : undefined,
+      valorTasy: r.valorTotalTasy,
+      valorPago: r.valorTotalPago,
+      valorGlosado: r.valorTotalGlosado,
+      valorDiferenca: r.diferenca,
+      statusConciliacao: mapStatus(r.status),
+      totalProcedimentos: r.totalProcedimentos,
+      totalMatMed: r.totalMatMed,
+    }));
+
+    salvarConciliacaoMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual.id,
+      convenioId: convenioId && convenioId !== 'all' ? parseInt(convenioId) : undefined,
+      mesReferencia: mes && mes !== 'all' ? parseInt(mes) : undefined,
+      anoReferencia: ano && ano !== 'all' ? parseInt(ano) : undefined,
+      totalContas: estatisticas.total,
+      contasOk: estatisticas.ok,
+      contasComGlosa: estatisticas.glosas,
+      contasDivergentes: estatisticas.divergencias,
+      contasNaoEncontradas: estatisticas.naoEncontrados,
+      valorTotalTasy: estatisticas.valorTotalTasy,
+      valorTotalPago: estatisticas.valorTotalPago,
+      valorTotalGlosado: estatisticas.valorTotalGlosado,
+      valorDiferenca: estatisticas.valorTotalDiferenca,
+      percentualGlosa: estatisticas.percentualGlosa,
+      percentualRecebido: estatisticas.valorTotalTasy > 0 
+        ? (estatisticas.valorTotalPago / estatisticas.valorTotalTasy) * 100 
+        : 0,
+      itens,
+    });
+  };
+
   const isLoading = loadingTasy || loadingDemonstrativo;
 
   // Anos disponíveis para filtro
@@ -342,6 +417,22 @@ export default function ConciliacaoTasy() {
             <Button variant="outline" onClick={exportarExcel} disabled={resultadosFiltrados.length === 0}>
               <Download className="h-4 w-4 mr-2" />
               Exportar Excel
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={salvarConciliacao} 
+              disabled={resultadosConciliacao.length === 0 || salvando}
+            >
+              {salvando ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              {salvando ? 'Salvando...' : 'Salvar Conciliação'}
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/historico-conciliacao-tasy')}>
+              <History className="h-4 w-4 mr-2" />
+              Histórico
             </Button>
           </div>
         </div>

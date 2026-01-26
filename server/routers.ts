@@ -4747,6 +4747,110 @@ export const appRouter = router({
       }),
   }),
 
+  // ============ HISTÓRICO CONCILIAÇÃO TASY ============
+  historicoConciliacao: router({
+    // Salvar resultado da conciliação
+    salvar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        convenioId: z.number().optional(),
+        mesReferencia: z.number().optional(),
+        anoReferencia: z.number().optional(),
+        totalContas: z.number(),
+        contasOk: z.number(),
+        contasComGlosa: z.number(),
+        contasDivergentes: z.number(),
+        contasNaoEncontradas: z.number(),
+        valorTotalTasy: z.number(),
+        valorTotalPago: z.number(),
+        valorTotalGlosado: z.number(),
+        valorDiferenca: z.number(),
+        percentualGlosa: z.number(),
+        percentualRecebido: z.number(),
+        observacoes: z.string().optional(),
+        itens: z.array(z.object({
+          contaTasyId: z.number(),
+          nrInternoConta: z.string(),
+          guia: z.string(),
+          paciente: z.string(),
+          dataInternacao: z.string().optional(),
+          valorTasy: z.number(),
+          valorPago: z.number(),
+          valorGlosado: z.number(),
+          valorDiferenca: z.number(),
+          statusConciliacao: z.enum(['ok', 'glosa', 'divergente', 'nao_encontrado']),
+          totalProcedimentos: z.number(),
+          totalMatMed: z.number(),
+          demonstrativoItemId: z.number().optional(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { itens, ...dados } = input;
+        const result = await db.salvarResultadoConciliacao(
+          { ...dados, userId: ctx.user.id },
+          itens.map(item => ({
+            ...item,
+            dataInternacao: item.dataInternacao ? new Date(item.dataInternacao) : undefined,
+          })),
+          new Map() // Detalhes vazios por enquanto
+        );
+        return result;
+      }),
+
+    // Listar histórico de conciliações
+    listar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        convenioId: z.number().optional(),
+        mesReferencia: z.number().optional(),
+        anoReferencia: z.number().optional(),
+        limite: z.number().optional().default(50),
+        offset: z.number().optional().default(0),
+      }))
+      .query(async ({ input }) => {
+        return db.listarHistoricoConciliacoes(input.estabelecimentoId, input);
+      }),
+
+    // Buscar detalhes de uma conciliação
+    detalhes: protectedProcedure
+      .input(z.object({
+        resultadoId: z.number(),
+        statusConciliacao: z.string().optional(),
+        busca: z.string().optional(),
+        limite: z.number().optional().default(50),
+        offset: z.number().optional().default(0),
+      }))
+      .query(async ({ input }) => {
+        const { resultadoId, ...filtros } = input;
+        return db.getDetalhesConciliacao(resultadoId, filtros);
+      }),
+
+    // Buscar detalhes dos itens de uma conta conciliada
+    detalhesItem: protectedProcedure
+      .input(z.object({ itemConciliacaoId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getDetalhesItemConciliacao(input.itemConciliacaoId);
+      }),
+
+    // Excluir conciliação
+    excluir: protectedProcedure
+      .input(z.object({ resultadoId: z.number() }))
+      .mutation(async ({ input }) => {
+        const success = await db.excluirConciliacao(input.resultadoId);
+        return { success };
+      }),
+
+    // Buscar evolução das conciliações
+    evolucao: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        meses: z.number().optional().default(6),
+      }))
+      .query(async ({ input }) => {
+        return db.getEvolucaoConciliacoes(input.estabelecimentoId, input.meses);
+      }),
+  }),
+
   // ============ RELATÓRIOS BI ============
   relatoriosBI: router({
     // Buscar dados consolidados para BI

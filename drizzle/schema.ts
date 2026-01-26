@@ -1953,3 +1953,123 @@ export const itensContaTasy = mysqlTable("itensContaTasy", {
 
 export type ItemContaTasy = typeof itensContaTasy.$inferSelect;
 export type InsertItemContaTasy = typeof itensContaTasy.$inferInsert;
+
+/**
+ * Resultados da Conciliação Tasy - Histórico de conciliações realizadas
+ * Armazena os resultados consolidados de cada execução de conciliação
+ */
+export const resultadosConciliacaoTasy = mysqlTable("resultadosConciliacaoTasy", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Filtros utilizados na conciliação
+  convenioId: int("convenioId"), // Null = todos os convênios
+  mesReferencia: int("mesReferencia"), // 1-12
+  anoReferencia: int("anoReferencia"), // Ex: 2026
+  
+  // Totais de contas
+  totalContas: int("totalContas").default(0),
+  contasOk: int("contasOk").default(0),
+  contasComGlosa: int("contasComGlosa").default(0),
+  contasDivergentes: int("contasDivergentes").default(0),
+  contasNaoEncontradas: int("contasNaoEncontradas").default(0),
+  
+  // Valores consolidados
+  valorTotalTasy: decimal("valorTotalTasy", { precision: 15, scale: 2 }),
+  valorTotalPago: decimal("valorTotalPago", { precision: 15, scale: 2 }),
+  valorTotalGlosado: decimal("valorTotalGlosado", { precision: 15, scale: 2 }),
+  valorDiferenca: decimal("valorDiferenca", { precision: 15, scale: 2 }),
+  
+  // Percentuais
+  percentualGlosa: decimal("percentualGlosa", { precision: 5, scale: 2 }),
+  percentualRecebido: decimal("percentualRecebido", { precision: 5, scale: 2 }),
+  
+  // Metadados
+  userId: int("userId").notNull(), // Usuário que executou a conciliação
+  observacoes: text("observacoes"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ResultadoConciliacaoTasy = typeof resultadosConciliacaoTasy.$inferSelect;
+export type InsertResultadoConciliacaoTasy = typeof resultadosConciliacaoTasy.$inferInsert;
+
+/**
+ * Itens da Conciliação Tasy - Detalhes de cada conta conciliada
+ * Armazena o resultado individual de cada conta na conciliação
+ */
+export const itensConciliacaoTasy = mysqlTable("itensConciliacaoTasy", {
+  id: int("id").autoincrement().primaryKey(),
+  resultadoConciliacaoId: int("resultadoConciliacaoId").notNull(), // Referência ao resultado
+  contaTasyId: int("contaTasyId").notNull(), // Referência à conta Tasy
+  
+  // Dados da conta (desnormalizados para histórico)
+  nrInternoConta: varchar("nrInternoConta", { length: 50 }),
+  guia: varchar("guia", { length: 50 }),
+  paciente: varchar("paciente", { length: 255 }),
+  dataInternacao: timestamp("dataInternacao"),
+  
+  // Valores
+  valorTasy: decimal("valorTasy", { precision: 15, scale: 2 }),
+  valorPago: decimal("valorPago", { precision: 15, scale: 2 }),
+  valorGlosado: decimal("valorGlosado", { precision: 15, scale: 2 }),
+  valorDiferenca: decimal("valorDiferenca", { precision: 15, scale: 2 }),
+  
+  // Status da conciliação
+  statusConciliacao: mysqlEnum("statusConciliacao", [
+    "ok",           // Valores conferem
+    "glosa",        // Conta com glosa
+    "divergente",   // Valores divergentes
+    "nao_encontrado" // Não encontrado no demonstrativo
+  ]).notNull(),
+  
+  // Totais de itens
+  totalProcedimentos: int("totalProcedimentos").default(0),
+  totalMatMed: int("totalMatMed").default(0),
+  
+  // Detalhes do demonstrativo vinculado (se encontrado)
+  demonstrativoItemId: int("demonstrativoItemId"), // ID do item no demonstrativo
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ItemConciliacaoTasy = typeof itensConciliacaoTasy.$inferSelect;
+export type InsertItemConciliacaoTasy = typeof itensConciliacaoTasy.$inferInsert;
+
+/**
+ * Detalhes dos Itens Conciliados - Procedimentos e Mat/Med individuais
+ * Armazena o status de cada item dentro de uma conta conciliada
+ */
+export const detalhesItensConciliacaoTasy = mysqlTable("detalhesItensConciliacaoTasy", {
+  id: int("id").autoincrement().primaryKey(),
+  itemConciliacaoId: int("itemConciliacaoId").notNull(), // Referência ao item da conciliação
+  
+  // Tipo e identificação do item
+  tipoItem: mysqlEnum("tipoItem", ["procedimento", "material", "medicamento"]).notNull(),
+  codigo: varchar("codigo", { length: 50 }),
+  descricao: text("descricao"),
+  
+  // Valores do Tasy
+  quantidadeTasy: decimal("quantidadeTasy", { precision: 10, scale: 4 }),
+  valorUnitarioTasy: decimal("valorUnitarioTasy", { precision: 12, scale: 4 }),
+  valorTotalTasy: decimal("valorTotalTasy", { precision: 12, scale: 4 }),
+  
+  // Valores do Demonstrativo
+  quantidadePaga: decimal("quantidadePaga", { precision: 10, scale: 4 }),
+  valorUnitarioPago: decimal("valorUnitarioPago", { precision: 12, scale: 4 }),
+  valorTotalPago: decimal("valorTotalPago", { precision: 12, scale: 4 }),
+  valorGlosado: decimal("valorGlosado", { precision: 12, scale: 4 }),
+  
+  // Glosa
+  codigoGlosa: varchar("codigoGlosa", { length: 50 }),
+  motivoGlosa: text("motivoGlosa"),
+  
+  // Status
+  statusItem: mysqlEnum("statusItem", ["ok", "pago", "glosado", "parcial", "nao_encontrado"]).default("nao_encontrado"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DetalheItemConciliacaoTasy = typeof detalhesItensConciliacaoTasy.$inferSelect;
+export type InsertDetalheItemConciliacaoTasy = typeof detalhesItensConciliacaoTasy.$inferInsert;
