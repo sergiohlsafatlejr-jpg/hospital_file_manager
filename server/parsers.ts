@@ -60,10 +60,36 @@ function parseNumber(value: unknown): number | undefined {
 
 /**
  * Parse date from string
+ * Supports Brazilian format DD/MM/YYYY and ISO format YYYY-MM-DD
  */
 function parseDate(value: unknown): Date | undefined {
   const str = getTextValue(value);
   if (!str) return undefined;
+  
+  // Try to detect Brazilian format DD/MM/YYYY
+  const brMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (brMatch) {
+    const day = parseInt(brMatch[1], 10);
+    const month = parseInt(brMatch[2], 10) - 1; // Month is 0-indexed
+    const year = parseInt(brMatch[3], 10);
+    const date = new Date(year, month, day);
+    return isNaN(date.getTime()) ? undefined : date;
+  }
+  
+  // Try to detect Brazilian format DD/MM/YYYY HH:MM:SS
+  const brMatchTime = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (brMatchTime) {
+    const day = parseInt(brMatchTime[1], 10);
+    const month = parseInt(brMatchTime[2], 10) - 1;
+    const year = parseInt(brMatchTime[3], 10);
+    const hour = parseInt(brMatchTime[4], 10);
+    const minute = parseInt(brMatchTime[5], 10);
+    const second = brMatchTime[6] ? parseInt(brMatchTime[6], 10) : 0;
+    const date = new Date(year, month, day, hour, minute, second);
+    return isNaN(date.getTime()) ? undefined : date;
+  }
+  
+  // Fallback to standard Date parsing (ISO format, etc.)
   const date = new Date(str);
   return isNaN(date.getTime()) ? undefined : date;
 }

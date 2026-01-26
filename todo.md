@@ -808,3 +808,11 @@
 - [x] Corrigir erro de conversão de datas no salvamento (RangeError: Invalid time value)
 - [x] Salvar itens da conciliação na tabela itensConciliacaoTasy (10.000 itens)
 - [x] Implementar visualização das contas conciliadas no modal do histórico com filtros e paginação
+
+
+## Correção de Formatação de Datas
+- [x] Analisar fluxo de dados da data de execução desde importação até frontend
+- [x] Identificar onde ocorre conversão incorreta de DD/MM/AAAA para MM/DD/AAAA (função parseDate em parsers.ts)
+- [x] Corrigir parser/formatação de datas no Demonstrativo (função parseDate corrigida)
+- [x] Corrigir parser/formatação de datas na Conciliação Tasy
+- [ ] Reimportar demonstrativo para aplicar correção nas datas já armazenadas
