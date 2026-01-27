@@ -335,6 +335,38 @@ const meses = [
   { value: 12, label: 'Dezembro' },
 ];
 
+// Componente de Resumo do Relatório
+const ResumoRelatorio = ({ dados }: { dados: any[] }) => {
+  const totais = dados.reduce((acc, curr) => ({
+    faturado: acc.faturado + (curr.valorTotal || 0),
+    pago: acc.pago + (curr.valorPago || 0),
+    glosa: acc.glosa + (curr.valorGlosado || 0),
+  }), { faturado: 0, pago: 0, glosa: 0 });
+
+  return (
+    <div className="flex gap-5 mb-5">
+      <div className="flex-1 p-5 rounded-lg bg-white shadow text-center">
+        <h4 className="text-muted-foreground m-0">Total Faturado</h4>
+        <p className="text-2xl font-bold text-slate-800 mt-2 mb-0">
+          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totais.faturado)}
+        </p>
+      </div>
+      <div className="flex-1 p-5 rounded-lg bg-white shadow text-center">
+        <h4 className="text-muted-foreground m-0">Total Pago</h4>
+        <p className="text-2xl font-bold text-green-600 mt-2 mb-0">
+          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totais.pago)}
+        </p>
+      </div>
+      <div className="flex-1 p-5 rounded-lg bg-white shadow text-center">
+        <h4 className="text-muted-foreground m-0">Total Glosado</h4>
+        <p className="text-2xl font-bold text-red-500 mt-2 mb-0">
+          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totais.glosa)}
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export default function RelatoriosTasy() {
   const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
@@ -1231,6 +1263,11 @@ export default function RelatoriosTasy() {
             </Button>
           </div>
         </div>
+
+        {/* Resumo do Relatório */}
+        {dadosTasy && dadosTasy.length > 0 && (
+          <ResumoRelatorio dados={dadosTasy} />
+        )}
 
         {/* Tabs */}
         <Tabs defaultValue="construtor" className="space-y-4">

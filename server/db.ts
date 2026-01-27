@@ -15273,12 +15273,21 @@ export async function getFaturadoTasyParaRelatorio(
     .where(and(...conditions))
     .orderBy(desc(faturadoTasy.competencia))
     .limit(filtros?.limite || 10000);
-  // CORREÇÃO 2: Helper robusto para números (evita NaN até com vírgulas brasileiras)
+  // CORREÇÃO 2: Helper robusto para números (detecta formato BR vs US)
   const toNum = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
+    
+    // Se já for número, apenas garante que não é NaN
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
-    const clean = String(val).replace(/\./g, '').replace(',', '.');
-    const parsed = parseFloat(clean);
+    let str = String(val).trim();
+    // Detecta se o formato é Brasileiro (1.250,50) ou Americano (1250.50)
+    // Se tem vírgula e ponto, ou só vírgula, tratamos como BR
+    if (str.includes(',') && str.includes('.')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else if (str.includes(',')) {
+      str = str.replace(',', '.');
+    }
+    const parsed = parseFloat(str);
     return isNaN(parsed) ? 0 : parsed;
   };
   return registros.map(r => {

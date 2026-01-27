@@ -994,3 +994,6 @@
 - [x] Simplificar relatórios para serem mais precisos (parseFloat com tratamento de null em todos os campos de valor)
 
 - [x] Substituir função getFaturadoTasyParaRelatorio pela versão com helper toNum (trata pontos de milhar e vírgulas brasileiras)
+
+- [x] Atualizar função toNum para detectar formato brasileiro vs americano
+- [x] Criar componente ResumoRelatorio na página de relatórios Tasy
