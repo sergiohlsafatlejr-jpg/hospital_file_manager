@@ -950,3 +950,9 @@
 - [x] Integrar Relatório Tasy para usar a nova tabela FaturadoTasy (seletor de fonte de dados: Antiga vs Nova)
 
 - [x] Corrigir botão de importação Excel na tela Faturado Tasy (usando useRef para acionar input de arquivo)
+
+- [ ] Corrigir importação SQLite na tela Importação Tasy para usar a nova tabela FaturadoTasy
+
+- [x] Adicionar suporte à leitura de arquivos SQLite com tabela FaturadoTasy na tela de Importação Tasy
+- [x] Mapear campos da tabela FaturadoTasy (sequencia, convenio, competencia, protocolo, setor, atend, conta, prof_exec, tipo_item, cd_item, cd_item_tuss, descricao, qtd, vl_faturado, a_receber, vl_pago, vl_glosa, motivo_glosa, retorno, dt_pgto)
+- [x] Normalizar tipoItem para PROC/TAXA ou MAT/MED na importação

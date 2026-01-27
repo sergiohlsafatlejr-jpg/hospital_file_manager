@@ -5238,10 +5238,10 @@ export const appRouter = router({
         return db.getDadosBIFaturadoTasy(input.estabelecimentoId, input);
       }),
 
-    // Importar dados do Excel
+    // Importar dados do Excel ou SQLite
     importar: protectedProcedure
       .input(z.object({
-        estabelecimentoId: z.number(),
+        estabelecimentoId: z.number().optional(),
         dados: z.array(z.object({
           sequencia: z.string().optional(),
           convenio: z.string().optional(),
@@ -5253,7 +5253,7 @@ export const appRouter = router({
           profExec: z.string().optional(),
           cdMotivoExcConta: z.string().optional(),
           dsComplMotivoExcon: z.string().optional(),
-          tipoItem: z.enum(['PROC/TAXA', 'MAT/MED']),
+          tipoItem: z.string().optional(), // Aceita qualquer string para SQLite
           cdItem: z.string().optional(),
           cdItemTuss: z.string().optional(),
           dtItem: z.string().optional(),
@@ -5269,9 +5269,30 @@ export const appRouter = router({
         })),
         importacaoId: z.number(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        // Busca o estabelecimentoId da importação se não foi fornecido
+        let estabelecimentoId: number = input.estabelecimentoId || 0;
+        if (!estabelecimentoId) {
+          const importacoes = await db.getImportacoesTasy(0); // Busca todas
+          const importacao = importacoes.find(i => i.id === input.importacaoId);
+          estabelecimentoId = importacao?.estabelecimentoId || 0;
+        }
+        
+        // Função para normalizar tipoItem
+        const normalizarTipoItem = (tipo: string | undefined): 'PROC/TAXA' | 'MAT/MED' => {
+          if (!tipo) return 'PROC/TAXA';
+          const tipoUpper = tipo.toUpperCase();
+          // Verifica se é mat/med
+          if (tipoUpper.includes('MAT') || tipoUpper.includes('MED') || 
+              tipoUpper.includes('MATERIAL') || tipoUpper.includes('MEDICAMENTO')) {
+            return 'MAT/MED';
+          }
+          // Caso contrário, é proc/taxa
+          return 'PROC/TAXA';
+        };
+        
         const registros = input.dados.map(d => ({
-          estabelecimentoId: input.estabelecimentoId,
+          estabelecimentoId: estabelecimentoId,
           importacaoId: input.importacaoId,
           sequencia: d.sequencia || null,
           convenio: d.convenio || null,
@@ -5283,7 +5304,7 @@ export const appRouter = router({
           profExec: d.profExec || null,
           cdMotivoExcConta: d.cdMotivoExcConta || null,
           dsComplMotivoExcon: d.dsComplMotivoExcon || null,
-          tipoItem: d.tipoItem,
+          tipoItem: normalizarTipoItem(d.tipoItem),
           cdItem: d.cdItem || null,
           cdItemTuss: d.cdItemTuss || null,
           dtItem: d.dtItem ? new Date(d.dtItem) : null,
@@ -5298,7 +5319,7 @@ export const appRouter = router({
           dtPgto: d.dtPgto ? new Date(d.dtPgto) : null,
         }));
 
-        const resultado = await db.insertFaturadoTasyBatch(registros as any, input.estabelecimentoId);
+        const resultado = await db.insertFaturadoTasyBatch(registros as any, estabelecimentoId || 0);
         return resultado;
       }),
 
