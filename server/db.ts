@@ -15461,13 +15461,31 @@ export async function getConciliacaoFaturadoTasy(
     ? contasComStatus.filter(c => c.status === filtros.status)
     : contasComStatus;
 
-  // Calcular resumo
+  // Calcular resumo GERAL (todos os registros da competência, sem limite de paginação)
+  const resumoGeral = await db
+    .select({
+      totalFaturado: sql<number>`COALESCE(SUM(CAST(${faturadoTasy.vlFaturado} AS DECIMAL(15,2))), 0)`,
+      totalPago: sql<number>`COALESCE(SUM(CAST(${faturadoTasy.vlPago} AS DECIMAL(15,2))), 0)`,
+      totalGlosado: sql<number>`COALESCE(SUM(CAST(${faturadoTasy.vlGlosa} AS DECIMAL(15,2))), 0)`,
+      totalContas: sql<number>`COUNT(DISTINCT ${faturadoTasy.conta})`,
+      totalRegistros: sql<number>`COUNT(*)`,
+    })
+    .from(faturadoTasy)
+    .where(and(...conditions))
+    .then(r => r[0]);
+
+  const totalFaturadoGeral = Number(resumoGeral?.totalFaturado) || 0;
+  const totalPagoGeral = Number(resumoGeral?.totalPago) || 0;
+  const totalGlosadoGeral = Number(resumoGeral?.totalGlosado) || 0;
+  const totalPendenteGeral = Math.max(0, totalFaturadoGeral - totalPagoGeral - totalGlosadoGeral);
+
   const resumo = {
-    totalContas: contasFiltradas.length,
-    totalFaturado: contasFiltradas.reduce((acc, c) => acc + c.valorFaturado, 0),
-    totalPago: contasFiltradas.reduce((acc, c) => acc + c.valorPago, 0),
-    totalGlosado: contasFiltradas.reduce((acc, c) => acc + c.valorGlosado, 0),
-    totalPendente: contasFiltradas.reduce((acc, c) => acc + c.valorPendente, 0),
+    totalContas: Number(resumoGeral?.totalContas) || 0,
+    totalRegistros: Number(resumoGeral?.totalRegistros) || 0,
+    totalFaturado: totalFaturadoGeral,
+    totalPago: totalPagoGeral,
+    totalGlosado: totalGlosadoGeral,
+    totalPendente: totalPendenteGeral,
     contasPagas: contasFiltradas.filter(c => c.status === 'pago').length,
     contasParciais: contasFiltradas.filter(c => c.status === 'parcial').length,
     contasGlosadas: contasFiltradas.filter(c => c.status === 'glosado').length,

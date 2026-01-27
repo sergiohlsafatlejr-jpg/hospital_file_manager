@@ -1,0 +1,150 @@
+{
+  "query": "SELECT \n  competencia,\n  COUNT(*) as total_registros,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) as total_faturado,\n  SUM(CAST(vlPago AS DECIMAL(15,2))) as total_pago,\n  SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_glosado\nFROM faturadoTasy \nWHERE estabelecimentoId = 2\nGROUP BY competencia\nORDER BY competencia DESC\nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  competencia,\n  COUNT(*) as total_registros,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) as total_faturado,\n  SUM(CAST(vlPago AS DECIMAL(15,2))) as total_pago,\n  SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_glosado\nFROM faturadoTasy \nWHERE estabelecimentoId = 2\nGROUP BY competencia\nORDER BY competencia DESC\nLIMIT 20;",
+  "rows": [
+    {
+      "competencia": "2026-03-01",
+      "total_registros": "40558",
+      "total_faturado": "1672619.12",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-28",
+      "total_registros": "37862",
+      "total_faturado": "1486671.08",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-12",
+      "total_registros": "3148",
+      "total_faturado": "119871.72",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-06",
+      "total_registros": "3990",
+      "total_faturado": "137805.30",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-05",
+      "total_registros": "6310",
+      "total_faturado": "593638.26",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-04",
+      "total_registros": "3986",
+      "total_faturado": "147279.65",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-03",
+      "total_registros": "13176",
+      "total_faturado": "534303.03",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-02-01",
+      "total_registros": "20200",
+      "total_faturado": "757791.18",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-31",
+      "total_registros": "30210",
+      "total_faturado": "1495837.82",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-30",
+      "total_registros": "1868",
+      "total_faturado": "71698.82",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-13",
+      "total_registros": "26456",
+      "total_faturado": "1352422.42",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-10",
+      "total_registros": "298",
+      "total_faturado": "19786.62",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-09",
+      "total_registros": "5226",
+      "total_faturado": "187207.86",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2026-01-01",
+      "total_registros": "14980",
+      "total_faturado": "576772.00",
+      "total_pago": "NULL",
+      "total_glosado": "NULL"
+    },
+    {
+      "competencia": "2025-12-31",
+      "total_registros": "42350",
+      "total_faturado": "3144446.82",
+      "total_pago": "904551.30",
+      "total_glosado": "37875.50"
+    },
+    {
+      "competencia": "2025-12-30",
+      "total_registros": "576",
+      "total_faturado": "34900.06",
+      "total_pago": "17473.66",
+      "total_glosado": "4.88"
+    },
+    {
+      "competencia": "2025-12-10",
+      "total_registros": "2646",
+      "total_faturado": "277106.96",
+      "total_pago": "84203.28",
+      "total_glosado": "1845.00"
+    },
+    {
+      "competencia": "2025-12-05",
+      "total_registros": "50100",
+      "total_faturado": "1941386.02",
+      "total_pago": "1567117.80",
+      "total_glosado": "82711.80"
+    },
+    {
+      "competencia": "2025-12-04",
+      "total_registros": "116",
+      "total_faturado": "9736.72",
+      "total_pago": "2084.72",
+      "total_glosado": "590.76"
+    },
+    {
+      "competencia": "2025-12-01",
+      "total_registros": "282",
+      "total_faturado": "26514.32",
+      "total_pago": "13820.80",
+      "total_glosado": "3747.20"
+    }
+  ],
+  "messages": [],
+  "stdout": "competencia\ttotal_registros\ttotal_faturado\ttotal_pago\ttotal_glosado\n2026-03-01\t40558\t1672619.12\tNULL\tNULL\n2026-02-28\t37862\t1486671.08\tNULL\tNULL\n2026-02-12\t3148\t119871.72\tNULL\tNULL\n2026-02-06\t3990\t137805.30\tNULL\tNULL\n2026-02-05\t6310\t593638.26\tNULL\tNULL\n2026-02-04\t3986\t147279.65\tNULL\tNULL\n2026-02-03\t13176\t534303.03\tNULL\tNULL\n2026-02-01\t20200\t757791.18\tNULL\tNULL\n2026-01-31\t30210\t1495837.82\tNULL\tNULL\n2026-01-30\t1868\t71698.82\tNULL\tNULL\n2026-01-13\t26456\t1352422.42\tNULL\tNULL\n2026-01-10\t298\t19786.62\tNULL\tNULL\n2026-01-09\t5226\t187207.86\tNULL\tNULL\n2026-01-01\t14980\t576772.00\tNULL\tNULL\n2025-12-31\t42350\t3144446.82\t904551.30\t37875.50\n2025-12-30\t576\t34900.06\t17473.66\t4.88\n2025-12-10\t2646\t277106.96\t84203.28\t1845.00\n2025-12-05\t50100\t1941386.02\t1567117.80\t82711.80\n2025-12-04\t116\t9736.72\t2084.72\t590.76\n2025-12-01\t282\t26514.32\t13820.80\t3747.20\n",
+  "stderr": "",
+  "execution_time_ms": 1614
+}

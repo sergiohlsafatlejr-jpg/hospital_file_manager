@@ -1,0 +1,100 @@
+{
+  "query": "SELECT \n  id,\n  competencia,\n  convenio,\n  conta,\n  vlFaturado,\n  vlPago,\n  vlGlosa\nFROM faturadoTasy \nWHERE estabelecimentoId = 2\nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  id,\n  competencia,\n  convenio,\n  conta,\n  vlFaturado,\n  vlPago,\n  vlGlosa\nFROM faturadoTasy \nWHERE estabelecimentoId = 2\nLIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "63.6800",
+      "vlPago": "63.6800",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "2",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "113.7500",
+      "vlPago": "113.7500",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "3",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "85.7200",
+      "vlPago": "85.7200",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "4",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "4.2800",
+      "vlPago": "4.2800",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "5",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "14.1200",
+      "vlPago": "14.1200",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "6",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "3.4300",
+      "vlPago": "3.4300",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "7",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "57.6500",
+      "vlPago": "57.6500",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "8",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "8.5600",
+      "vlPago": "8.5600",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "9",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "7.4100",
+      "vlPago": "7.4100",
+      "vlGlosa": "NULL"
+    },
+    {
+      "id": "10",
+      "competencia": "2025-07-04",
+      "convenio": "Sul America",
+      "conta": "13364",
+      "vlFaturado": "2.2500",
+      "vlPago": "2.2500",
+      "vlGlosa": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcompetencia\tconvenio\tconta\tvlFaturado\tvlPago\tvlGlosa\n1\t2025-07-04\tSul America\t13364\t63.6800\t63.6800\tNULL\n2\t2025-07-04\tSul America\t13364\t113.7500\t113.7500\tNULL\n3\t2025-07-04\tSul America\t13364\t85.7200\t85.7200\tNULL\n4\t2025-07-04\tSul America\t13364\t4.2800\t4.2800\tNULL\n5\t2025-07-04\tSul America\t13364\t14.1200\t14.1200\tNULL\n6\t2025-07-04\tSul America\t13364\t3.4300\t3.4300\tNULL\n7\t2025-07-04\tSul America\t13364\t57.6500\t57.6500\tNULL\n8\t2025-07-04\tSul America\t13364\t8.5600\t8.5600\tNULL\n9\t2025-07-04\tSul America\t13364\t7.4100\t7.4100\tNULL\n10\t2025-07-04\tSul America\t13364\t2.2500\t2.2500\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 131
+}

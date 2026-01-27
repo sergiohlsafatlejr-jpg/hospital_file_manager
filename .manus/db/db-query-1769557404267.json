@@ -1,0 +1,17 @@
+{
+  "query": "SELECT \n  COUNT(*) as total_registros,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) as total_faturado,\n  SUM(CAST(vlPago AS DECIMAL(15,2))) as total_pago,\n  SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_glosado,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) - SUM(CAST(vlPago AS DECIMAL(15,2))) - SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_pendente\nFROM faturadoTasy \nWHERE estabelecimentoId = 2 \nAND competencia LIKE '2025-12%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  COUNT(*) as total_registros,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) as total_faturado,\n  SUM(CAST(vlPago AS DECIMAL(15,2))) as total_pago,\n  SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_glosado,\n  SUM(CAST(vlFaturado AS DECIMAL(15,2))) - SUM(CAST(vlPago AS DECIMAL(15,2))) - SUM(CAST(vlGlosa AS DECIMAL(15,2))) as total_pendente\nFROM faturadoTasy \nWHERE estabelecimentoId = 2 \nAND competencia LIKE '2025-12%';",
+  "rows": [
+    {
+      "total_registros": "96070",
+      "total_faturado": "5434090.90",
+      "total_pago": "2589251.56",
+      "total_glosado": "126775.14",
+      "total_pendente": "2718064.20"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_registros\ttotal_faturado\ttotal_pago\ttotal_glosado\ttotal_pendente\n96070\t5434090.90\t2589251.56\t126775.14\t2718064.20\n",
+  "stderr": "",
+  "execution_time_ms": 626
+}
