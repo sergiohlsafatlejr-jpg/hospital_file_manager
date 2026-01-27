@@ -984,3 +984,5 @@
 
 - [x] Corrigir filtro de competência na tela Contas Faturadas - formato ajustado para AAAA-MM com LIKE
 - [x] Criar tela separada de detalhes da conta (DetalhesContaFaturada.tsx)
+
+- [x] Corrigir erro na navegação para tela de detalhes da conta - adicionado DashboardLayout e useLocation

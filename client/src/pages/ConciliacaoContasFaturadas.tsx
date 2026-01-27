@@ -34,11 +34,13 @@ import {
   Package
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useLocation } from "wouter";
 
 export default function ConciliacaoContasFaturadas() {
   const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const [, setLocation] = useLocation();
 
   // Filtros
   const [anoFiltro, setAnoFiltro] = useState("todos");
@@ -238,8 +240,8 @@ export default function ConciliacaoContasFaturadas() {
   };
 
   const abrirDetalhes = (conta: string) => {
-    // Navegar para a tela de detalhes em vez de abrir modal
-    window.location.href = `/contas-faturadas/${encodeURIComponent(conta)}`;
+    // Navegar para a tela de detalhes usando wouter
+    setLocation(`/contas-faturadas/${encodeURIComponent(conta)}`);
   };
 
   // Exportar para Excel

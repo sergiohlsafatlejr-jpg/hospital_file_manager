@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -182,6 +183,7 @@ export default function DetalhesContaFaturada() {
   const StatusIcon = status.icon;
 
   return (
+    <DashboardLayout>
     <div className="container py-6 space-y-6">
       {/* Header com botão voltar */}
       <div className="flex items-center gap-4">
@@ -419,5 +421,6 @@ export default function DetalhesContaFaturada() {
         </CardContent>
       </Card>
     </div>
+    </DashboardLayout>
   );
 }
