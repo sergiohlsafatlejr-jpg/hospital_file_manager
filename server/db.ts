@@ -15576,9 +15576,18 @@ export async function getItensFaturadoTasyPorConta(
   }
 
   const primeiro = itens[0];
-  const valorFaturadoTotal = itens.reduce((acc, i) => acc + parseFloat(i.vlFaturado || '0'), 0);
-  const valorPagoTotal = itens.reduce((acc, i) => acc + parseFloat(i.vlPago || '0'), 0);
-  const valorGlosadoTotal = itens.reduce((acc, i) => acc + parseFloat(i.vlGlosa || '0'), 0);
+  const valorFaturadoTotal = itens.reduce((acc, i) => {
+    const val = i.vlFaturado != null ? parseFloat(String(i.vlFaturado)) : 0;
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
+  const valorPagoTotal = itens.reduce((acc, i) => {
+    const val = i.vlPago != null ? parseFloat(String(i.vlPago)) : 0;
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
+  const valorGlosadoTotal = itens.reduce((acc, i) => {
+    const val = i.vlGlosa != null ? parseFloat(String(i.vlGlosa)) : 0;
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
 
   return {
     conta: primeiro.conta || '',
@@ -15591,19 +15600,26 @@ export async function getItensFaturadoTasyPorConta(
     valorFaturadoTotal,
     valorPagoTotal,
     valorGlosadoTotal,
-    itens: itens.map(i => ({
-      id: i.id,
-      tipoItem: i.tipoItem,
-      cdItem: i.cdItem || '',
-      cdItemTuss: i.cdItemTuss || '',
-      descricao: i.descricao || '',
-      qtd: parseFloat(i.qtd || '0'),
-      vlFaturado: parseFloat(i.vlFaturado || '0'),
-      vlPago: parseFloat(i.vlPago || '0'),
-      vlGlosa: parseFloat(i.vlGlosa || '0'),
-      motivoGlosa: i.motivoGlosa || '',
-      dtItem: i.dtItem,
-    })),
+    itens: itens.map(i => {
+      const parseVal = (v: unknown) => {
+        if (v == null) return 0;
+        const num = parseFloat(String(v));
+        return isNaN(num) ? 0 : num;
+      };
+      return {
+        id: i.id,
+        tipoItem: i.tipoItem,
+        cdItem: i.cdItem || '',
+        cdItemTuss: i.cdItemTuss || '',
+        descricao: i.descricao || '',
+        qtd: parseVal(i.qtd),
+        vlFaturado: parseVal(i.vlFaturado),
+        vlPago: parseVal(i.vlPago),
+        vlGlosa: parseVal(i.vlGlosa),
+        motivoGlosa: i.motivoGlosa || '',
+        dtItem: i.dtItem,
+      };
+    }),
   };
 }
 

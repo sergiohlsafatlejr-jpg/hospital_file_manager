@@ -986,3 +986,5 @@
 - [x] Criar tela separada de detalhes da conta (DetalhesContaFaturada.tsx)
 
 - [x] Corrigir erro na navegação para tela de detalhes da conta - adicionado DashboardLayout e useLocation
+
+- [x] Corrigir KPIs da tela de detalhes da conta mostrando NaN (tratamento de valores null/undefined)
