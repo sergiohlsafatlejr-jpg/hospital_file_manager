@@ -1,0 +1,70 @@
+{
+  "query": "SELECT DISTINCT competencia FROM faturadoTasy WHERE estabelecimentoId = 2 LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT DISTINCT competencia FROM faturadoTasy WHERE estabelecimentoId = 2 LIMIT 20;",
+  "rows": [
+    {
+      "competencia": "2025-07-10"
+    },
+    {
+      "competencia": "2025-11-11"
+    },
+    {
+      "competencia": "2026-01-31"
+    },
+    {
+      "competencia": "2025-11-14"
+    },
+    {
+      "competencia": "2025-12-05"
+    },
+    {
+      "competencia": "2025-08-08"
+    },
+    {
+      "competencia": "2025-10-21"
+    },
+    {
+      "competencia": "2025-07-30"
+    },
+    {
+      "competencia": "2025-07-15"
+    },
+    {
+      "competencia": "2025-08-19"
+    },
+    {
+      "competencia": "2025-08-11"
+    },
+    {
+      "competencia": "2026-01-01"
+    },
+    {
+      "competencia": "2025-09-03"
+    },
+    {
+      "competencia": "2025-07-11"
+    },
+    {
+      "competencia": "2025-09-30"
+    },
+    {
+      "competencia": "2026-02-28"
+    },
+    {
+      "competencia": "2025-07-09"
+    },
+    {
+      "competencia": "2025-12-31"
+    },
+    {
+      "competencia": "2026-01-09"
+    },
+    {
+      "competencia": "2025-10-20"
+    }
+  ],
+  "messages": [],
+  "stdout": "competencia\n2025-07-10\n2025-11-11\n2026-01-31\n2025-11-14\n2025-12-05\n2025-08-08\n2025-10-21\n2025-07-30\n2025-07-15\n2025-08-19\n2025-08-11\n2026-01-01\n2025-09-03\n2025-07-11\n2025-09-30\n2026-02-28\n2025-07-09\n2025-12-31\n2026-01-09\n2025-10-20\n",
+  "stderr": "",
+  "execution_time_ms": 483
+}

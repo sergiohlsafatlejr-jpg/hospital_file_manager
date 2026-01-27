@@ -63,18 +63,31 @@ export default function ConciliacaoContasFaturadas() {
   );
 
   // Calcular competência a partir de ano e mês selecionados
+  // Formato no banco: MM/AAAA (ex: 01/2024)
   const competenciaFiltro = useMemo(() => {
     if (anoFiltro === "todos" || mesFiltro === "todos") return undefined;
-    return `${anoFiltro}-${mesFiltro.padStart(2, '0')}`;
+    return `${mesFiltro}/${anoFiltro}`;
   }, [anoFiltro, mesFiltro]);
 
   // Extrair anos e meses únicos das competências
+  // Formato no banco: MM/AAAA (ex: 01/2024)
   const anosDisponiveis = useMemo(() => {
     if (!competencias) return [];
     const anos = new Set<string>();
     competencias.forEach(c => {
-      const match = c.competencia.match(/(\d{4})/);
-      if (match) anos.add(match[1]);
+      // Tentar extrair ano de diferentes formatos: MM/AAAA, AAAA-MM, AAAA
+      const comp = c.competencia || '';
+      let ano = '';
+      // Formato MM/AAAA
+      const matchBarra = comp.match(/\d{2}\/(\d{4})/);
+      if (matchBarra) {
+        ano = matchBarra[1];
+      } else {
+        // Formato AAAA-MM ou AAAA
+        const matchAno = comp.match(/(\d{4})/);
+        if (matchAno) ano = matchAno[1];
+      }
+      if (ano) anos.add(ano);
     });
     return Array.from(anos).sort((a, b) => b.localeCompare(a));
   }, [competencias]);

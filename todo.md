@@ -979,3 +979,5 @@
 - [x] Criar tela de detalhes dos itens por conta (ao clicar em uma conta)
 
 - [x] Alterar filtro de competência na tela Contas Faturadas para dois campos separados: Ano e Mês
+
+- [x] Corrigir filtros de Ano e Mês na tela Contas Faturadas - formato ajustado para MM/AAAA
