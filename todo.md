@@ -1036,3 +1036,7 @@
 
 - [x] Verificar dados da guia 66829180 no banco (numeroLote e sequencialTransacao) - VERIFICADO: 4 transações diferentes com lotes 85918, 85795, 86037 e null
 - [x] Verificar e corrigir chave de renderização do componente React (key deve usar chave composta) - CORRIGIDO: adicionado React.Fragment com key={conta.chave}
+
+- [x] Ajustar lógica de chave para usar ID do banco quando lote/sequencial forem 'null', nulos ou vazios (ContaConvenio e ContasDemonstrativo)
+- [x] Exibir valor real do lote na coluna (não apenas traço quando for 'null')
+- [x] Adicionar badge 'Alta Administrativa' para guias com múltiplas transações

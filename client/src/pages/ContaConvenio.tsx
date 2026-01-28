@@ -126,10 +126,14 @@ export default function ContaConvenio() {
     
     procedimentos.forEach((p: any) => {
       // Chave composta: guiaNumero + numeroLote + sequencialTransacao
-      const guiaNumero = p.guiaNumero || 'sem_guia';
-      const numeroLote = p.numeroLote || 'sem_lote';
-      const sequencialTransacao = p.sequencialTransacao || 'sem_seq';
-      const chave = `${guiaNumero}_${numeroLote}_${sequencialTransacao}`;
+      // Se lote ou sequencial forem 'null' (string), nulos ou vazios, usar ID do banco para evitar soma indevida
+      const loteValido = p.numeroLote && p.numeroLote !== 'null' && p.numeroLote.trim() !== '';
+      const seqValido = p.sequencialTransacao && p.sequencialTransacao !== 'null' && p.sequencialTransacao.trim() !== '';
+      
+      // Se não tiver lote válido, cada registro vira uma linha separada (usa ID)
+      const chave = loteValido 
+        ? `${p.guiaNumero || 'sem_guia'}_${p.numeroLote}_${seqValido ? p.sequencialTransacao : 'sem_seq'}`
+        : p.id.toString();
       
       if (!grupos[chave]) {
         grupos[chave] = {
@@ -572,13 +576,22 @@ export default function ContaConvenio() {
                                 </Button>
                               </TableCell>
                               <TableCell className="font-mono font-medium">
-                                {conta.guiaNumero}
+                                <div className="flex items-center gap-2">
+                                  {conta.guiaNumero}
+                                  {/* Badge para indicar Alta Administrativa (múltiplas transações da mesma guia) */}
+                                  {contasAgrupadas.filter(c => c.guiaNumero === conta.guiaNumero && c.guiaNumero !== '-').length > 1 && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-300">
+                                      Alta Adm.
+                                    </Badge>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="font-mono text-xs text-muted-foreground">
-                                {conta.numeroLote !== "-" ? conta.numeroLote : "-"}
+                                {/* Exibir valor real do lote, mesmo que seja 'null' como string */}
+                                {conta.numeroLote && conta.numeroLote !== '-' && conta.numeroLote !== 'null' ? conta.numeroLote : '-'}
                               </TableCell>
                               <TableCell className="font-mono text-xs text-muted-foreground">
-                                {conta.sequencialTransacao !== "-" ? conta.sequencialTransacao : "-"}
+                                {conta.sequencialTransacao && conta.sequencialTransacao !== '-' && conta.sequencialTransacao !== 'null' ? conta.sequencialTransacao : '-'}
                               </TableCell>
                               <TableCell className="font-mono">
                                 {conta.senha}
