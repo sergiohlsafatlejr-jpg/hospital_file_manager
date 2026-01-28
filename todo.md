@@ -1040,3 +1040,5 @@
 - [x] Ajustar lógica de chave para usar ID do banco quando lote/sequencial forem 'null', nulos ou vazios (ContaConvenio e ContasDemonstrativo)
 - [x] Exibir valor real do lote na coluna (não apenas traço quando for 'null')
 - [x] Adicionar badge 'Alta Administrativa' para guias com múltiplas transações
+
+- [x] Corrigir lógica de agrupamento Master-Detail: agrupar por guiaNumero + numeroLote + sequencialTransacao (mesmo quando 'null')

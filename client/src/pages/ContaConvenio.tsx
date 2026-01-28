@@ -126,14 +126,12 @@ export default function ContaConvenio() {
     
     procedimentos.forEach((p: any) => {
       // Chave composta: guiaNumero + numeroLote + sequencialTransacao
-      // Se lote ou sequencial forem 'null' (string), nulos ou vazios, usar ID do banco para evitar soma indevida
-      const loteValido = p.numeroLote && p.numeroLote !== 'null' && p.numeroLote.trim() !== '';
-      const seqValido = p.sequencialTransacao && p.sequencialTransacao !== 'null' && p.sequencialTransacao.trim() !== '';
-      
-      // Se não tiver lote válido, cada registro vira uma linha separada (usa ID)
-      const chave = loteValido 
-        ? `${p.guiaNumero || 'sem_guia'}_${p.numeroLote}_${seqValido ? p.sequencialTransacao : 'sem_seq'}`
-        : p.id.toString();
+      // Sempre agrupa pela chave composta, mesmo quando valores são 'null' ou vazios
+      // Isso garante que itens da mesma transação fiquem juntos (Master-Detail)
+      const guiaNumero = p.guiaNumero || 'sem_guia';
+      const numeroLote = p.numeroLote || 'sem_lote';
+      const sequencialTransacao = p.sequencialTransacao || 'sem_seq';
+      const chave = `${guiaNumero}_${numeroLote}_${sequencialTransacao}`;
       
       if (!grupos[chave]) {
         grupos[chave] = {
