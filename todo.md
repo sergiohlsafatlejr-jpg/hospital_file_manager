@@ -1017,3 +1017,7 @@
 
 - [x] Unificar filtro de competência na tela Relatórios Tasy para agrupar por mês/ano (ex: 09/2025) ao invés de mostrar cada importação separadamente
 - [x] Remover abas Conciliação Tasy e Contas Tasy do menu lateral
+
+- [x] Renomear tela "Contas" para "Conta Convênio" e filtrar apenas arquivos XML enviados (direcao = 'enviado')
+- [x] Criar nova tela "Contas Demonstrativo" para arquivos retornados (direcao = 'retornado') com suporte a XML, PDF e Excel
+- [x] Atualizar menu lateral com os novos nomes e rotas

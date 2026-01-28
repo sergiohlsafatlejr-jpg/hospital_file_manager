@@ -648,6 +648,7 @@ export async function getProcedimentosPaginated(filters?: {
   userId?: number;
   estabelecimentoId?: number;
   apenasRetornados?: boolean;
+  direcaoArquivo?: "enviado" | "retornado";
   mesReferencia?: number; // 1-12
   anoReferencia?: number; // ex: 2025
 }) {
@@ -702,6 +703,11 @@ export async function getProcedimentosPaginated(filters?: {
   // Add filter for only returned files (for Demonstrativo)
   if (filters?.apenasRetornados) {
     conditions.push(eq(arquivos.direcao, "retornado"));
+  }
+
+  // Add filter for direcao (enviado/retornado)
+  if (filters?.direcaoArquivo) {
+    conditions.push(eq(arquivos.direcao, filters.direcaoArquivo));
   }
 
   // Add filter for reference month/year (based on dataReferencia from arquivo - set during upload)

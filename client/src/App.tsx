@@ -13,7 +13,8 @@ import Comparacoes from "./pages/Comparacoes";
 import Divergencias from "./pages/Divergencias";
 import Relatorios from "./pages/Relatorios";
 import Configuracoes from "./pages/Configuracoes";
-import Contas from "./pages/Contas";
+import ContaConvenio from "./pages/ContaConvenio";
+import ContasDemonstrativo from "./pages/ContasDemonstrativo";
 import Conciliacao from "./pages/Conciliacao";
 import Faturamento from "./pages/Faturamento";
 import AnaliseGlosa from "./pages/AnaliseGlosa";
@@ -71,7 +72,8 @@ function Router() {
       <Route path={"/divergencias"} component={Divergencias} />
       <Route path={"/relatorios"} component={Relatorios} />
       <Route path={"/configuracoes"} component={Configuracoes} />
-      <Route path={"/contas"} component={Contas} />
+      <Route path={"/conta-convenio"} component={ContaConvenio} />
+      <Route path={"/contas-demonstrativo"} component={ContasDemonstrativo} />
       <Route path={"/contas/:guiaNumero"} component={ContaDetalhes} />
       <Route path={"/conciliacao"} component={Conciliacao} />
       <Route path={"/conciliacao/:convenioId/:guiaNumero"} component={ConciliacaoDetalhes} />
