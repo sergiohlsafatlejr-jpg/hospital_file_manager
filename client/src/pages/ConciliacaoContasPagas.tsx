@@ -39,8 +39,9 @@ export default function ConciliacaoContasPagas() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
 
-  // Filtros
-  const [competenciaFiltro, setCompetenciaFiltro] = useState(""); // Filtro principal por competência
+  // Filtros - Ano e Mês separados
+  const [anoFiltro, setAnoFiltro] = useState("");
+  const [mesFiltro, setMesFiltro] = useState("");
   const [convenioFiltro, setConvenioFiltro] = useState("todos");
   const [contaFiltro, setContaFiltro] = useState("");
   const [statusFiltro, setStatusFiltro] = useState("todos");
@@ -59,11 +60,63 @@ export default function ConciliacaoContasPagas() {
     { enabled: estabelecimentoId > 0 }
   );
 
+  // Extrair anos e meses únicos das competências
+  const { anosDisponiveis, mesesPorAno } = useMemo(() => {
+    if (!competenciasDisponiveis) return { anosDisponiveis: [], mesesPorAno: {} as Record<string, { mes: string; total: number }[]> };
+    
+    const anosSet = new Set<string>();
+    const mesesPorAnoMap: Record<string, Map<string, number>> = {};
+    
+    competenciasDisponiveis.forEach((c: any) => {
+      const match = c.competencia?.match(/(\d{4})-(\d{2})/);
+      if (match) {
+        const ano = match[1];
+        const mes = match[2];
+        anosSet.add(ano);
+        
+        if (!mesesPorAnoMap[ano]) {
+          mesesPorAnoMap[ano] = new Map();
+        }
+        mesesPorAnoMap[ano].set(mes, (mesesPorAnoMap[ano].get(mes) || 0) + c.total);
+      }
+    });
+    
+    const anos = Array.from(anosSet).sort((a, b) => b.localeCompare(a)); // Mais recente primeiro
+    
+    const mesesPorAnoResult: Record<string, { mes: string; total: number }[]> = {};
+    for (const [ano, mesesMap] of Object.entries(mesesPorAnoMap)) {
+      mesesPorAnoResult[ano] = Array.from(mesesMap.entries())
+        .map(([mes, total]) => ({ mes, total }))
+        .sort((a, b) => b.mes.localeCompare(a.mes)); // Mais recente primeiro
+    }
+    
+    return { anosDisponiveis: anos, mesesPorAno: mesesPorAnoResult };
+  }, [competenciasDisponiveis]);
+
+  // Meses disponíveis para o ano selecionado
+  const mesesDisponiveis = useMemo(() => {
+    if (!anoFiltro || anoFiltro === "todos") return [];
+    return mesesPorAno[anoFiltro] || [];
+  }, [anoFiltro, mesesPorAno]);
+
+  // Construir competência para filtro baseado em ano e mês selecionados
+  const competenciaFiltro = useMemo(() => {
+    if (!anoFiltro || anoFiltro === "todos") return undefined;
+    if (!mesFiltro || mesFiltro === "todos") {
+      // Filtrar por ano apenas - retorna a primeira competência do ano
+      return competenciasDisponiveis
+        ?.filter((c: any) => c.competencia?.startsWith(anoFiltro))
+        .map((c: any) => c.competencia)[0];
+    }
+    // Filtrar por ano e mês
+    return `${anoFiltro}-${mesFiltro}-01 00:00:00`;
+  }, [anoFiltro, mesFiltro, competenciasDisponiveis]);
+
   // Query de conciliação usando endpoint do faturadoTasy
   const { data: conciliacao, isLoading, refetch } = trpc.faturadoTasy.conciliacao.useQuery(
     {
       estabelecimentoId,
-      competencia: competenciaFiltro && competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
+      competencia: competenciaFiltro || undefined,
       convenio: convenioFiltro !== "todos" ? convenioFiltro : undefined,
       conta: contaFiltro || undefined,
       status: statusFiltro !== "todos" ? statusFiltro as any : undefined,
@@ -428,18 +481,32 @@ export default function ConciliacaoContasPagas() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               <div>
-                <Label className="font-semibold text-primary">Competência</Label>
-                <Select value={competenciaFiltro} onValueChange={setCompetenciaFiltro}>
+                <Label className="font-semibold text-primary">Ano</Label>
+                <Select value={anoFiltro} onValueChange={(v) => { setAnoFiltro(v); setMesFiltro(""); }}>
                   <SelectTrigger className="border-primary">
-                    <SelectValue placeholder="Selecione a competência" />
+                    <SelectValue placeholder="Selecione o ano" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="todos">Todas as competências</SelectItem>
-                    {competenciasDisponiveis?.map((c: any) => (
-                      <SelectItem key={c.competencia} value={c.competencia}>
-                        {formatarCompetencia(c.competencia)} ({c.total} itens)
+                    <SelectItem value="todos">Todos os anos</SelectItem>
+                    {anosDisponiveis.map((ano) => (
+                      <SelectItem key={ano} value={ano}>{ano}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="font-semibold text-primary">Mês</Label>
+                <Select value={mesFiltro} onValueChange={setMesFiltro} disabled={!anoFiltro || anoFiltro === "todos"}>
+                  <SelectTrigger className="border-primary">
+                    <SelectValue placeholder="Selecione o mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os meses</SelectItem>
+                    {mesesDisponiveis.map((m) => (
+                      <SelectItem key={m.mes} value={m.mes}>
+                        {new Date(2000, parseInt(m.mes) - 1).toLocaleString('pt-BR', { month: 'long' }).charAt(0).toUpperCase() + new Date(2000, parseInt(m.mes) - 1).toLocaleString('pt-BR', { month: 'long' }).slice(1)} ({m.total} itens)
                       </SelectItem>
                     ))}
                   </SelectContent>
