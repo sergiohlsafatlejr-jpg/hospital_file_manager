@@ -1081,3 +1081,5 @@
 - [x] Adicionar barra de progresso detalhada na importação de arquivos mostrando número de linhas processadas
 
 - [x] Reprocessar arquivo demonstrativo-0284932.xlsx travado no status "processando" (22.177 itens importados com sucesso)
+
+- [x] Corrigir importação do arquivo demonstrativo-0284932.xlsx - itens glosados não aparecem na tela de Demonstrativo (1206 itens glosados importados corretamente)
