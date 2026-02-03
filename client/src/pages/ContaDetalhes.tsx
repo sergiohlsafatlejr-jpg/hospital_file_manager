@@ -25,8 +25,10 @@ import {
 } from "lucide-react";
 import { useParams, useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
+import { useMemo } from "react";
 
 // Mapeamento de código de despesa para nome e ícone
+// Tipos corretos conforme solicitado: Medicamentos, Material, Procedimento, Taxas
 const TIPOS_DESPESA: Record<string, { label: string; color: string; icon: any }> = {
   "01": { label: "Gás", color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", icon: Flame },
   "02": { label: "Medicamento", color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", icon: Pill },
@@ -47,18 +49,45 @@ export default function ContaDetalhes() {
   const params = useParams<{ guiaNumero: string }>();
   const [, setLocation] = useLocation();
   const searchString = useSearch();
-  const guiaNumero = decodeURIComponent(params.guiaNumero || "");
+  const chaveParam = decodeURIComponent(params.guiaNumero || "");
   
-  // Detectar de onde veio o usuário (conta-convenio ou contas-demonstrativo)
+  // Extrair parâmetros da URL
   const searchParams = new URLSearchParams(searchString);
   const origem = searchParams.get('origem') || 'conta-convenio';
-  const voltarUrl = `/${origem}`;
+  const chaveComposta = searchParams.get('chave') || chaveParam;
+  const arquivoIdParam = searchParams.get('arquivoId');
+  
+  // Parâmetros de filtro para manter ao voltar
+  const convenioIdParam = searchParams.get('convenioId') || '';
+  const mesReferenciaParam = searchParams.get('mesReferencia') || '';
+  const anoReferenciaParam = searchParams.get('anoReferencia') || '';
+  const prestadorExecutanteParam = searchParams.get('prestadorExecutante') || '';
+  const arquivoIdFiltroParam = searchParams.get('arquivoIdFiltro') || '';
+  const searchTermParam = searchParams.get('searchTerm') || '';
+  
+  // Extrair guiaNumero da chave composta (primeiro segmento antes do _)
+  const guiaNumero = chaveComposta.split('_')[0];
 
-  // Buscar procedimentos da guia
+  // Construir URL de volta com os filtros preservados
+  const buildVoltarUrl = () => {
+    const params = new URLSearchParams();
+    if (convenioIdParam) params.set('convenioId', convenioIdParam);
+    if (mesReferenciaParam) params.set('mesReferencia', mesReferenciaParam);
+    if (anoReferenciaParam) params.set('anoReferencia', anoReferenciaParam);
+    if (prestadorExecutanteParam) params.set('prestadorExecutante', prestadorExecutanteParam);
+    if (arquivoIdFiltroParam) params.set('arquivoId', arquivoIdFiltroParam);
+    if (searchTermParam) params.set('searchTerm', searchTermParam);
+    
+    const queryString = params.toString();
+    return `/${origem}${queryString ? `?${queryString}` : ''}`;
+  };
+
+  // Buscar procedimentos da guia específica com arquivoId para filtrar corretamente
   const { data: procedimentosData, isLoading } = trpc.procedimentos.list.useQuery(
     {
       search: guiaNumero,
       estabelecimentoId: estabelecimentoAtual?.id,
+      arquivoId: arquivoIdParam ? parseInt(arquivoIdParam) : undefined,
       page: 1,
       pageSize: 1000,
     },
@@ -67,8 +96,26 @@ export default function ContaDetalhes() {
 
   const procedimentos = procedimentosData?.items || [];
   
-  // Filtrar apenas os itens desta guia
-  const itensGuia = procedimentos.filter((p: any) => p.guiaNumero === guiaNumero);
+  // Filtrar apenas os itens que correspondem à chave composta específica
+  // Isso garante que apenas os itens da conta correta sejam exibidos (não soma todas as contas do paciente)
+  const itensGuia = useMemo(() => {
+    return procedimentos.filter((p: any) => {
+      // Reconstruir a chave composta do item para comparar
+      const loteValido = p.numeroLote && p.numeroLote !== 'null' && p.numeroLote !== 'undefined' && String(p.numeroLote).trim() !== '';
+      const seqValido = p.sequencialTransacao && p.sequencialTransacao !== 'null' && p.sequencialTransacao !== 'undefined' && String(p.sequencialTransacao).trim() !== '';
+      
+      let chaveItem: string;
+      if (loteValido && seqValido) {
+        chaveItem = `${p.guiaNumero || 'sem_guia'}_${p.numeroLote}_${p.sequencialTransacao}`;
+      } else if (loteValido) {
+        chaveItem = `${p.guiaNumero || 'sem_guia'}_${p.numeroLote}_sem_seq`;
+      } else {
+        chaveItem = `${p.guiaNumero || 'sem_guia'}_arquivo_${p.arquivoId}`;
+      }
+      
+      return chaveItem === chaveComposta;
+    });
+  }, [procedimentos, chaveComposta]);
 
   // Calcular totais
   const valorTotal = itensGuia.reduce((acc: number, p: any) => acc + parseFloat(p.valorTotal || "0"), 0);
@@ -94,6 +141,8 @@ export default function ContaDetalhes() {
     dataConta: primeiroItem?.dataExecucao ? new Date(primeiroItem.dataExecucao) : null,
     convenioNome: primeiroItem?.convenioNome || "-",
     arquivoNome: primeiroItem?.arquivoNome || "-",
+    numeroLote: (primeiroItem as any)?.numeroLote || "-",
+    sequencialTransacao: (primeiroItem as any)?.sequencialTransacao || "-",
   };
 
   const formatDate = (date: Date | null) => {
@@ -168,19 +217,29 @@ export default function ContaDetalhes() {
     URL.revokeObjectURL(url);
   };
 
+  const handleVoltar = () => {
+    setLocation(buildVoltarUrl());
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => setLocation(voltarUrl)}>
+            <Button variant="outline" size="icon" onClick={handleVoltar}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Detalhes da Conta</h1>
               <p className="text-muted-foreground">
                 Guia: <span className="font-mono font-medium">{guiaNumero}</span>
+                {infoConta.numeroLote !== "-" && (
+                  <span className="ml-2">| Lote: <span className="font-mono">{infoConta.numeroLote}</span></span>
+                )}
+                {infoConta.sequencialTransacao !== "-" && (
+                  <span className="ml-2">| Seq: <span className="font-mono">{infoConta.sequencialTransacao}</span></span>
+                )}
               </p>
             </div>
           </div>
@@ -204,8 +263,8 @@ export default function ContaDetalhes() {
           <Card>
             <CardContent className="py-16 text-center">
               <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">Nenhum item encontrado para esta guia</p>
-              <Button variant="outline" className="mt-4" onClick={() => setLocation(voltarUrl)}>
+              <p className="text-muted-foreground">Nenhum item encontrado para esta conta</p>
+              <Button variant="outline" className="mt-4" onClick={handleVoltar}>
                 Voltar
               </Button>
             </CardContent>

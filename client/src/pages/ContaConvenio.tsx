@@ -32,8 +32,8 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import React, { useState, useMemo } from "react";
-import { useLocation } from "wouter";
+import React, { useState, useMemo, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 
 // Interface para conta agrupada (Master)
@@ -66,8 +66,32 @@ export default function ContaConvenio() {
   const [prestadorExecutante, setPrestadorExecutante] = useState<string>("");
   const [page, setPage] = useState(1);
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [filtrosRestaurados, setFiltrosRestaurados] = useState(false);
   const pageSize = 50;
+
+  // Restaurar filtros da URL ao carregar a página (quando volta da tela de detalhes)
+  useEffect(() => {
+    if (filtrosRestaurados) return;
+    
+    const params = new URLSearchParams(searchString);
+    const convenioIdUrl = params.get('convenioId');
+    const mesReferenciaUrl = params.get('mesReferencia');
+    const anoReferenciaUrl = params.get('anoReferencia');
+    const prestadorExecutanteUrl = params.get('prestadorExecutante');
+    const arquivoIdUrl = params.get('arquivoId');
+    const searchTermUrl = params.get('searchTerm');
+    
+    if (convenioIdUrl) setConvenioId(convenioIdUrl);
+    if (mesReferenciaUrl) setMesReferencia(mesReferenciaUrl);
+    if (anoReferenciaUrl) setAnoReferencia(anoReferenciaUrl);
+    if (prestadorExecutanteUrl) setPrestadorExecutante(prestadorExecutanteUrl);
+    if (arquivoIdUrl) setArquivoId(arquivoIdUrl);
+    if (searchTermUrl) setSearchTerm(searchTermUrl);
+    
+    setFiltrosRestaurados(true);
+  }, [searchString, filtrosRestaurados]);
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({});
@@ -298,7 +322,18 @@ export default function ContaConvenio() {
   };
 
   const handleVerDetalhes = (conta: ContaAgrupada) => {
-    setLocation(`/contas/${encodeURIComponent(conta.guiaNumero)}?origem=conta-convenio`);
+    // Passar a chave composta e os filtros atuais na URL para manter contexto
+    const params = new URLSearchParams();
+    params.set('origem', 'conta-convenio');
+    params.set('chave', conta.chave);
+    params.set('arquivoId', String(conta.arquivoId));
+    if (convenioId) params.set('convenioId', convenioId);
+    if (mesReferencia) params.set('mesReferencia', mesReferencia);
+    if (anoReferencia) params.set('anoReferencia', anoReferencia);
+    if (prestadorExecutante) params.set('prestadorExecutante', prestadorExecutante);
+    if (arquivoId) params.set('arquivoIdFiltro', arquivoId);
+    if (searchTerm) params.set('searchTerm', searchTerm);
+    setLocation(`/contas/${encodeURIComponent(conta.chave)}?${params.toString()}`);
   };
 
   // Determinar tipo de despesa baseado no codigoDespesa

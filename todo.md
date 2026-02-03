@@ -1070,3 +1070,6 @@
 - [x] Corrigir filtro de competência na tela Conciliação Contas Pagas - agrupar competências duplicadas e usar filtros separados por Ano e Mês
 - [x] Bug: Filtros de Ano e Mês na tela Conciliação Contas Pagas mostrando NaN itens e não trazendo dados
 - [x] Adicionar opção de selecionar todas as contas e exportar tudo para Excel na tela de Repasse (não apenas a página atual)
+- [x] Bug: Tela Detalhes da Conta (origem Conta-Convênio) está somando todas as contas do paciente ao invés de mostrar apenas dados da conta específica
+- [x] Bug: Tipos de itens incorretos na tela Detalhes da Conta - precisa mostrar Medicamentos, Material, Procedimento, Taxas
+- [x] Bug: Perda de filtros ao voltar da tela Detalhes da Conta para Conta-Convênio
