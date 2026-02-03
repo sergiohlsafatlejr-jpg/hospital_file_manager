@@ -1,0 +1,8 @@
+{
+  "query": "SELECT \n  guiaNumero, \n  numeroLote, \n  sequencialTransacao, \n  pacienteNome,\n  DATE(dataExecucao) as dataExec,\n  COUNT(*) as totalItens,\n  SUM(CAST(valorFaturado AS DECIMAL(10,2))) as valorTotal\nFROM procedimentos \nWHERE guiaNumero = '65811869' \nGROUP BY guiaNumero, numeroLote, sequencialTransacao, pacienteNome, DATE(dataExecucao)\nORDER BY dataExec, pacienteNome\nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  guiaNumero, \n  numeroLote, \n  sequencialTransacao, \n  pacienteNome,\n  DATE(dataExecucao) as dataExec,\n  COUNT(*) as totalItens,\n  SUM(CAST(valorFaturado AS DECIMAL(10,2))) as valorTotal\nFROM procedimentos \nWHERE guiaNumero = '65811869' \nGROUP BY guiaNumero, numeroLote, sequencialTransacao, pacienteNome, DATE(dataExecucao)\nORDER BY dataExec, pacienteNome\nLIMIT 20;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'valorfaturado' in 'where clause'"
+  ]
+}

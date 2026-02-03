@@ -1074,3 +1074,4 @@
 - [x] Bug: Tipos de itens incorretos na tela Detalhes da Conta - precisa mostrar Medicamentos, Material, Procedimento, Taxas
 - [x] Bug: Perda de filtros ao voltar da tela Detalhes da Conta para Conta-Convênio
 - [x] Bug: Tela Conciliação Automática duplicando atendimentos - precisa usar chave composta (guiaNumero + lote + sequencial + paciente) para agrupar
+- [x] Modificar lógica de conciliação para usar chave composta: guiaNumero + numeroLote + Protocolo TISS + Data Execução + Item do demonstrativo

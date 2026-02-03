@@ -1,0 +1,40 @@
+{
+  "query": "SELECT DISTINCT\n  guiaNumero, \n  numeroLote, \n  sequencialTransacao, \n  pacienteNome\nFROM procedimentos \nWHERE guiaNumero = '65811869' \nORDER BY numeroLote, sequencialTransacao, pacienteNome\nLIMIT 30;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT DISTINCT\n  guiaNumero, \n  numeroLote, \n  sequencialTransacao, \n  pacienteNome\nFROM procedimentos \nWHERE guiaNumero = '65811869' \nORDER BY numeroLote, sequencialTransacao, pacienteNome\nLIMIT 30;",
+  "rows": [
+    {
+      "guiaNumero": "65811869",
+      "numeroLote": "NULL",
+      "sequencialTransacao": "NULL",
+      "pacienteNome": "NILZA T CHIAMENTI"
+    },
+    {
+      "guiaNumero": "65811869",
+      "numeroLote": "85665",
+      "sequencialTransacao": "NULL",
+      "pacienteNome": "NULL"
+    },
+    {
+      "guiaNumero": "65811869",
+      "numeroLote": "85686",
+      "sequencialTransacao": "NULL",
+      "pacienteNome": "NULL"
+    },
+    {
+      "guiaNumero": "65811869",
+      "numeroLote": "85912",
+      "sequencialTransacao": "NULL",
+      "pacienteNome": "NULL"
+    },
+    {
+      "guiaNumero": "65811869",
+      "numeroLote": "85920",
+      "sequencialTransacao": "NULL",
+      "pacienteNome": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "guiaNumero\tnumeroLote\tsequencialTransacao\tpacienteNome\n65811869\tNULL\tNULL\tNILZA T CHIAMENTI\n65811869\t85665\tNULL\tNULL\n65811869\t85686\tNULL\tNULL\n65811869\t85912\tNULL\tNULL\n65811869\t85920\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 57
+}
