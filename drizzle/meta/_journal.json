@@ -344,6 +344,13 @@
       "when": 1769639068166,
       "tag": "0048_dashing_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "5",
+      "when": 1770223260473,
+      "tag": "0049_woozy_christian_walker",
+      "breakpoints": true
     }
   ]
 }

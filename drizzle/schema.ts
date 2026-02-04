@@ -2130,3 +2130,54 @@ export const detalhesItensConciliacaoTasy = mysqlTable("detalhesItensConciliacao
 
 export type DetalheItemConciliacaoTasy = typeof detalhesItensConciliacaoTasy.$inferSelect;
 export type InsertDetalheItemConciliacaoTasy = typeof detalhesItensConciliacaoTasy.$inferInsert;
+
+
+/**
+ * Faturamento TISS - Dados extraídos dos arquivos XML TISS para faturamento
+ * Armazena informações detalhadas de cada item (procedimento ou despesa) para análise e conciliação
+ */
+export const faturamentoTiss = mysqlTable("faturamento_tiss", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Dados do Cabeçalho e Lote
+  numeroLote: varchar("numero_lote", { length: 20 }),
+  sequencialTransacao: varchar("sequencial_transacao", { length: 20 }),
+  dataRegistro: timestamp("data_registro"),
+  registroAns: varchar("registro_ans", { length: 10 }),
+  
+  // Dados da Guia e Beneficiário
+  numeroGuiaPrestador: varchar("numero_guia_prestador", { length: 20 }),
+  numeroGuiaOperadora: varchar("numero_guia_operadora", { length: 20 }),
+  senha: varchar("senha", { length: 20 }),
+  carteiraBeneficiario: varchar("carteira_beneficiario", { length: 20 }),
+  
+  // Dados do Item (Pode ser Procedimento ou Despesa)
+  tipoItem: varchar("tipo_item", { length: 20 }), // 'PROCEDIMENTO' ou 'DESPESA'
+  sequencialItem: int("sequencial_item"),
+  dataExecucao: timestamp("data_execucao"),
+  codigoTabela: varchar("codigo_tabela", { length: 5 }),
+  codigoItem: varchar("codigo_item", { length: 20 }),
+  descricaoItem: varchar("descricao_item", { length: 255 }),
+  quantidade: decimal("quantidade", { precision: 10, scale: 3 }),
+  valorUnitario: decimal("valor_unitario", { precision: 12, scale: 2 }),
+  valorTotalItem: decimal("valor_total_item", { precision: 12, scale: 2 }),
+  
+  // Dados do Profissional (se houver)
+  nomeProf: varchar("nome_prof", { length: 150 }),
+  conselhoProf: varchar("conselho_prof", { length: 20 }),
+  
+  // Totais da Guia (para conferência)
+  valorTotalGeralGuia: decimal("valor_total_geral_guia", { precision: 12, scale: 2 }),
+  
+  // Chave de estabelecimento para segregação de dados
+  estabelecimentoId: int("estabelecimento_id"),
+  
+  // Referência ao arquivo de origem
+  arquivoId: int("arquivo_id"),
+  
+  // Data de importação
+  dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
+});
+
+export type FaturamentoTiss = typeof faturamentoTiss.$inferSelect;
+export type InsertFaturamentoTiss = typeof faturamentoTiss.$inferInsert;

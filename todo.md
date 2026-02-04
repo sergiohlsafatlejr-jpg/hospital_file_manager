@@ -1099,3 +1099,5 @@
 - [x] Adicionar campo ProfExec (Profissional Executante) no modal de itens da tela Conciliação Contas Pagas
 
 - [x] Adicionar coluna Prof. Executante no relatório Excel de itens detalhados da tela Conciliação Contas Pagas
+
+- [x] Criar tabela faturamento_tiss no schema do banco de dados para armazenar dados de faturamento TISS
