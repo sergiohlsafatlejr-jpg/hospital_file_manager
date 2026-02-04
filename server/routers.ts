@@ -7,7 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { storagePut, storageGet } from "./storage";
 import { parseFile, toProcedimentoInsert } from "./parsers";
-import { parseExcelRecebimentoTiss } from "./recebimentoTissParser";
+import { parseExcelRecebimentoTiss, parseXmlRecebimentoTiss } from "./recebimentoTissParser";
 import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
 import * as db from "./db";
 
@@ -676,10 +676,10 @@ export const appRouter = router({
                 }
               }
               
-              // Processar arquivos de retorno Excel para recebimento_tiss automaticamente
-              if (input.direcao === "retornado" && input.tipoArquivo === "excel") {
+              // Processar arquivos de retorno para recebimento_tiss automaticamente (Excel e XML)
+              if (input.direcao === "retornado") {
                 try {
-                  console.log('[Upload] Processando arquivo de retorno Excel para recebimento_tiss:', arquivoId);
+                  console.log('[Upload] Processando arquivo de retorno para recebimento_tiss:', arquivoId, 'tipo:', input.tipoArquivo);
                   
                   // Excluir dados antigos deste arquivo se for reimportação
                   if (isReimportacao) {
@@ -687,18 +687,28 @@ export const appRouter = router({
                     console.log('[Upload] Dados antigos de recebimento_tiss excluídos para reimportação');
                   }
                   
-                  const recebimentoResult = await parseExcelRecebimentoTiss(
-                    buffer,
-                    arquivoId,
-                    input.estabelecimentoId
-                  );
+                  let recebimentoResult;
                   
-                  if (recebimentoResult.success && recebimentoResult.items.length > 0) {
+                  if (input.tipoArquivo === "excel") {
+                    recebimentoResult = await parseExcelRecebimentoTiss(
+                      buffer,
+                      arquivoId,
+                      input.estabelecimentoId
+                    );
+                  } else if (input.tipoArquivo === "xml") {
+                    recebimentoResult = await parseXmlRecebimentoTiss(
+                      buffer,
+                      arquivoId,
+                      input.estabelecimentoId
+                    );
+                  }
+                  
+                  if (recebimentoResult && recebimentoResult.success && recebimentoResult.items.length > 0) {
                     const totalImportados = await db.insertRecebimentoTiss(recebimentoResult.items);
                     console.log('[Upload] Recebimento TISS importado:', totalImportados, 'itens de', recebimentoResult.totalRows, 'linhas');
-                  } else if (!recebimentoResult.success) {
+                  } else if (recebimentoResult && !recebimentoResult.success) {
                     console.error('[Upload] Erro ao processar recebimento_tiss:', recebimentoResult.error);
-                  } else {
+                  } else if (recebimentoResult) {
                     console.log('[Upload] Nenhum item de recebimento_tiss encontrado no arquivo');
                   }
                 } catch (recebimentoError) {

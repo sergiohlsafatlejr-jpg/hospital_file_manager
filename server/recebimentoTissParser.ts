@@ -305,4 +305,170 @@ function extractRecebimentoTissFromRow(
   return item;
 }
 
+/**
+ * Parse de arquivo XML de demonstrativo TISS para recebimento_tiss
+ */
+export async function parseXmlRecebimentoTiss(
+  content: Buffer,
+  arquivoId: number,
+  estabelecimentoId: number
+): Promise<RecebimentoTissParseResult> {
+  try {
+    console.log(`[RecebimentoTiss XML Parser] Starting parse, buffer size: ${(content.length / 1024).toFixed(1)} KB`);
+    
+    const xmlString = content.toString('utf-8');
+    const items: Partial<InsertRecebimentoTiss>[] = [];
+    
+    // Extrair dados do cabeçalho do demonstrativo
+    const numeroDemonstrativo = extractXmlValue(xmlString, 'numeroDemonstrativo');
+    const nomeOperadora = extractXmlValue(xmlString, 'nomeOperadora');
+    const cnpjOperadora = extractXmlValue(xmlString, 'numeroCNPJ');
+    const dataEmissaoStr = extractXmlValue(xmlString, 'dataEmissao');
+    const dataEmissao = dataEmissaoStr ? parseXmlDate(dataEmissaoStr) : null;
+    
+    // Extrair todos os protocolos (dadosProtocolo)
+    const protocoloRegex = /<ans:dadosProtocolo>([\s\S]*?)<\/ans:dadosProtocolo>/g;
+    let protocoloMatch;
+    
+    while ((protocoloMatch = protocoloRegex.exec(xmlString)) !== null) {
+      const protocoloXml = protocoloMatch[1];
+      
+      const numeroLotePrestador = extractXmlValue(protocoloXml, 'numeroLotePrestador');
+      const numeroProtocolo = extractXmlValue(protocoloXml, 'numeroProtocolo');
+      const situacaoProtocolo = extractXmlValue(protocoloXml, 'situacaoProtocolo');
+      
+      // Extrair todas as guias (relacaoGuias) dentro do protocolo
+      const guiaRegex = /<ans:relacaoGuias>([\s\S]*?)<\/ans:relacaoGuias>/g;
+      let guiaMatch;
+      
+      while ((guiaMatch = guiaRegex.exec(protocoloXml)) !== null) {
+        const guiaXml = guiaMatch[1];
+        
+        const numeroGuiaPrestador = extractXmlValue(guiaXml, 'numeroGuiaPrestador');
+        const numeroGuiaOperadora = extractXmlValue(guiaXml, 'numeroGuiaOperadora');
+        const senha = extractXmlValue(guiaXml, 'senha');
+        const numeroCarteira = extractXmlValue(guiaXml, 'numeroCarteira');
+        const situacaoGuia = extractXmlValue(guiaXml, 'situacaoGuia');
+        const dataInicioFatStr = extractXmlValue(guiaXml, 'dataInicioFat');
+        const dataInicioInternacao = dataInicioFatStr ? parseXmlDate(dataInicioFatStr) : null;
+        
+        // Extrair todos os detalhes (detalhesGuia) dentro da guia
+        const detalheRegex = /<ans:detalhesGuia>([\s\S]*?)<\/ans:detalhesGuia>/g;
+        let detalheMatch;
+        
+        while ((detalheMatch = detalheRegex.exec(guiaXml)) !== null) {
+          const detalheXml = detalheMatch[1];
+          
+          const sequencialItem = parseInt(extractXmlValue(detalheXml, 'sequencialItem') || '0', 10);
+          const dataRealizacaoStr = extractXmlValue(detalheXml, 'dataRealizacao');
+          const dataRealizacao = dataRealizacaoStr ? parseXmlDate(dataRealizacaoStr) : null;
+          
+          const codigoTabela = extractXmlValue(detalheXml, 'codigoTabela');
+          const codigoProcedimento = extractXmlValue(detalheXml, 'codigoProcedimento');
+          const descricaoProcedimento = extractXmlValue(detalheXml, 'descricaoProcedimento');
+          
+          const valorInformado = extractXmlValue(detalheXml, 'valorInformado');
+          const valorProcessado = extractXmlValue(detalheXml, 'valorProcessado');
+          const valorLiberado = extractXmlValue(detalheXml, 'valorLiberado');
+          const qtdExecutada = parseFloat(extractXmlValue(detalheXml, 'qtdExecutada') || '0');
+          
+          // Extrair glosa se houver
+          const codigoGlosa = extractXmlValue(detalheXml, 'tipoGlosa');
+          const valorGlosa = extractXmlValue(detalheXml, 'valorGlosa');
+          
+          // Determinar situação do item baseado na glosa
+          let situacaoItem = 'pago';
+          if (codigoGlosa) {
+            const vlLiberado = parseFloat(valorLiberado || '0');
+            const vlInformado = parseFloat(valorInformado || '0');
+            if (vlLiberado === 0) {
+              situacaoItem = 'glosado';
+            } else if (vlLiberado < vlInformado) {
+              situacaoItem = 'parcial';
+            }
+          }
+          
+          const item: Partial<InsertRecebimentoTiss> = {
+            arquivoId,
+            estabelecimentoId,
+            
+            // Dados do Demonstrativo
+            numeroDemonstrativo,
+            nomeOperadora,
+            cnpjOperadora,
+            dataEmissao,
+            
+            // Dados do Protocolo
+            numeroLotePrestador,
+            numeroProtocolo,
+            situacaoProtocolo,
+            
+            // Dados da Guia
+            numeroGuiaPrestador,
+            numeroGuiaOperadora,
+            senha,
+            numeroCarteira,
+            situacaoGuia,
+            dataInicioInternacao,
+            
+            // Dados do Item
+            sequencialItem: sequencialItem || undefined,
+            dataRealizacao,
+            codigoTabela,
+            codigoProcedimento,
+            descricaoProcedimento,
+            
+            // Valores
+            valorInformado,
+            valorProcessado,
+            valorLiberado,
+            qtdExecutada: qtdExecutada || undefined,
+            
+            // Glosa
+            codigoGlosa,
+            descricaoGlosa: valorGlosa ? `Valor glosa: ${valorGlosa}` : undefined,
+            situacaoItem,
+          };
+          
+          items.push(item);
+        }
+      }
+    }
+    
+    console.log(`[RecebimentoTiss XML Parser] Completed: ${items.length} items`);
+    
+    return {
+      success: true,
+      items,
+      totalRows: items.length,
+    };
+  } catch (error) {
+    console.error(`[RecebimentoTiss XML Parser] Error:`, error);
+    return {
+      success: false,
+      items: [],
+      totalRows: 0,
+      error: error instanceof Error ? error.message : "Erro ao processar arquivo XML",
+    };
+  }
+}
+
+/**
+ * Extrai valor de uma tag XML
+ */
+function extractXmlValue(xml: string, tagName: string): string | null {
+  const regex = new RegExp(`<ans:${tagName}>([^<]*)<\/ans:${tagName}>`, 'i');
+  const match = xml.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Parse de data no formato ISO (YYYY-MM-DD)
+ */
+function parseXmlDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  return isNaN(date.getTime()) ? null : date;
+}
+
 export default parseExcelRecebimentoTiss;

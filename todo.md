@@ -1115,3 +1115,5 @@
 - [x] Criar script de importação para popular tabela recebimento_tiss a partir de arquivos XML e Excel de retorno das operadoras (15 arquivos, 97.415 itens, R$ 8.124.574,95)
 
 - [x] Alterar fluxo de upload de arquivos de retorno para popular automaticamente a tabela recebimento_tiss com mapeamento específico Unimed
+
+- [x] Adicionar suporte para importar arquivos XML de retorno (demonstrativos) para a tabela recebimento_tiss automaticamente
