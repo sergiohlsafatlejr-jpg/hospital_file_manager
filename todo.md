@@ -1095,3 +1095,5 @@
 - [x] Implementar exportação Excel dos itens de todas as contas filtradas na tela Conciliação Contas Pagas (141 contas, 34.151 itens exportados com sucesso)
 
 - [x] Corrigir cálculo de valores no Relatório BI para usar mesma lógica da tela Demonstrativo (somar valorTotal apenas onde valorGlosado = 0) - Recebido agora mostra R$ 72.227,52 corretamente
+
+- [x] Adicionar campo ProfExec (Profissional Executante) no modal de itens da tela Conciliação Contas Pagas

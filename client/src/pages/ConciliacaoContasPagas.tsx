@@ -950,6 +950,7 @@ export default function ConciliacaoContasPagas() {
                             <th className="text-left p-2 font-medium">Tipo</th>
                             <th className="text-left p-2 font-medium">Código</th>
                             <th className="text-left p-2 font-medium min-w-[300px]">Descrição</th>
+                            <th className="text-left p-2 font-medium min-w-[150px]">Prof. Executante</th>
                             <th className="text-center p-2 font-medium">Qtd</th>
                             <th className="text-right p-2 font-medium">Faturado</th>
                             <th className="text-right p-2 font-medium">Pago</th>
@@ -968,6 +969,7 @@ export default function ConciliacaoContasPagas() {
                               </td>
                               <td className="p-2 font-mono text-sm">{item.cdItem || '-'}</td>
                               <td className="p-2 text-sm">{item.descricao || '-'}</td>
+                              <td className="p-2 text-sm">{item.profExec || '-'}</td>
                               <td className="p-2 text-center">{item.qtd}</td>
                               <td className="p-2 text-right text-blue-600">{formatarMoeda(item.vlFaturado)}</td>
                               <td className="p-2 text-right text-green-600">{formatarMoeda(item.vlPago)}</td>

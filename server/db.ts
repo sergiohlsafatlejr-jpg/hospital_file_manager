@@ -15683,6 +15683,7 @@ export async function getItensFaturadoTasyPorConta(
     cdItem: string;
     cdItemTuss: string;
     descricao: string;
+    profExec: string;
     qtd: number;
     vlFaturado: number;
     vlPago: number;
@@ -15778,6 +15779,7 @@ export async function getItensFaturadoTasyPorConta(
         cdItem: i.cdItem || '',
         cdItemTuss: i.cdItemTuss || '',
         descricao: i.descricao || '',
+        profExec: i.profExec || '',
         qtd: parseVal(i.qtd),
         vlFaturado: parseVal(i.vlFaturado),
         vlPago: parseVal(i.vlPago),
