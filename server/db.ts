@@ -16483,3 +16483,97 @@ export async function deleteRecebimentosExcelByArquivo(arquivoId: number): Promi
 
   return result[0]?.affectedRows || 0;
 }
+
+
+// ============================================
+// FUNÇÕES PARA TABELA DEMONSTRATIVO
+// ============================================
+
+import { demonstrativo, type InsertDemonstrativo, type Demonstrativo } from '../drizzle/schema';
+
+/**
+ * Insere múltiplos registros de demonstrativo em lote
+ */
+export async function insertDemonstrativoBatch(
+  records: InsertDemonstrativo[]
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (records.length === 0) return 0;
+
+  // Inserir em lotes de 500
+  const batchSize = 500;
+  let totalInserted = 0;
+
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    await db.insert(demonstrativo).values(batch);
+    totalInserted += batch.length;
+  }
+
+  return totalInserted;
+}
+
+/**
+ * Exclui demonstrativos por arquivo
+ */
+export async function deleteDemonstrativoByArquivo(arquivoId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .delete(demonstrativo)
+    .where(eq(demonstrativo.arquivoId, arquivoId));
+
+  return result[0]?.affectedRows || 0;
+}
+
+/**
+ * Busca demonstrativos por arquivo
+ */
+export async function getDemonstrativoByArquivo(arquivoId: number): Promise<Demonstrativo[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select()
+    .from(demonstrativo)
+    .where(eq(demonstrativo.arquivoId, arquivoId));
+}
+
+/**
+ * Busca demonstrativos por convênio e data de referência
+ */
+export async function getDemonstrativoByConvenioDataRef(
+  convenioId: number,
+  dataReferencia?: Date
+): Promise<Demonstrativo[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const conditions = [eq(demonstrativo.convenioId, convenioId)];
+  
+  if (dataReferencia) {
+    conditions.push(eq(demonstrativo.dataReferencia, dataReferencia));
+  }
+
+  return await db
+    .select()
+    .from(demonstrativo)
+    .where(and(...conditions));
+}
+
+/**
+ * Conta registros de demonstrativo por arquivo
+ */
+export async function countDemonstrativoByArquivo(arquivoId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(demonstrativo)
+    .where(eq(demonstrativo.arquivoId, arquivoId));
+
+  return result[0]?.count || 0;
+}

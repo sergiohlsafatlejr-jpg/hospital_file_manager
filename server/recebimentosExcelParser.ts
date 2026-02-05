@@ -3,11 +3,13 @@ import type { InsertRecebimentoExcel } from '../drizzle/schema';
 
 /**
  * Mapeamento de colunas do Excel para campos da tabela recebimentos_excel
- * Chave: Nome exato da coluna no Excel
- * Valor: Nome do campo na tabela
+ * Chave: Nome exato da coluna no Excel (case-sensitive)
+ * Valor: Nome do campo na tabela (camelCase)
  */
 const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
-  // Data e valores
+  // Demonstrativo e Data
+  'Demonstrativo': 'processado', // Usado como referência
+  'Data Pagto Processado': 'dataPagto',
   'Data Pagto': 'dataPagto',
   'Processado': 'processado',
   
@@ -16,11 +18,8 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'Lote Prestador': 'lotePrestador',
   
   // Prestador Pagamento
-  'Código Prestador': 'codigoPrestadorPagamento',
   'Código Prestador Pagamento': 'codigoPrestadorPagamento',
-  'Nome Prestador': 'nomePrestadorPagamento',
   'Nome Prestador Pagamento': 'nomePrestadorPagamento',
-  'Pagamento': 'valorPagamento',
   
   // Guia
   'Número Guia': 'numeroGuia',
@@ -39,11 +38,14 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'Item Desc': 'itemDesc',
   'Quantidade': 'quantidade',
   'Valor Pagamento': 'valorPagamento',
+  'Pagamento': 'valorPagamento',
   
-  // Tipo e Status
+  // Tipo e Status - CAMPOS IMPORTANTES
   'Tipo Lançamento': 'tipoLancamento',
+  'Tipo Lancamento': 'tipoLancamento',
   'Erro TISS': 'erroTiss',
   'Situação Item': 'situacaoItem',
+  'Situacao Item': 'situacaoItem',
   
   // Solicitante
   'Código Solicitante': 'codigoSolicitante',
@@ -51,13 +53,17 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   
   // Internação
   'Acomodação da Internação': 'acomodacaoInternacao',
+  'Acomodacao da Internacao': 'acomodacaoInternacao',
   'Data Inicio Faturamento Internação': 'dataInicioFaturamentoInternacao',
+  'Data Inicio Faturamento Internacao': 'dataInicioFaturamentoInternacao',
   'Data Fim Faturamento Internação': 'dataFimFaturamentoInternacao',
+  'Data Fim Faturamento Internacao': 'dataFimFaturamentoInternacao',
   
-  // Prestador Executante
-  'Código Prestador Executante': 'codigoPrestador',
-  'Nome Prestador Executante': 'nomePrestadorExecutante',
+  // Prestador
+  'Código Prestador': 'codigoPrestador',
+  'Nome Prestador': 'nomePrestador',
   'Prestador Executante': 'prestadorExecutante',
+  'Nome Prestador Executante': 'nomePrestadorExecutante',
 };
 
 /**
@@ -132,6 +138,26 @@ function parseInt2(value: unknown): number | null {
   return isNaN(num) ? null : num;
 }
 
+// Campos que são datas
+const DATE_FIELDS: (keyof InsertRecebimentoExcel)[] = [
+  'dataPagto',
+  'dataExecucao',
+  'dataInicioFaturamentoInternacao',
+  'dataFimFaturamentoInternacao',
+];
+
+// Campos que são números decimais (armazenados como string)
+const DECIMAL_FIELDS: (keyof InsertRecebimentoExcel)[] = [
+  'processado',
+  'valorPagamento',
+];
+
+// Campos que são inteiros
+const INTEGER_FIELDS: (keyof InsertRecebimentoExcel)[] = [
+  'seq',
+  'quantidade',
+];
+
 /**
  * Extrai um registro de recebimento de uma linha do Excel
  */
@@ -155,45 +181,34 @@ export function extractRecebimentoExcelFromRow(
     if (value === undefined || value === null || value === '') continue;
     
     // Converter valor baseado no tipo do campo
-    switch (dbField) {
-      // Campos de data
-      case 'dataPagto':
-      case 'dataExecucao':
-      case 'dataInicioFaturamentoInternacao':
-      case 'dataFimFaturamentoInternacao':
-        const dateValue = parseDate(value);
-        if (dateValue) {
-          (record as any)[dbField] = dateValue;
-        }
-        break;
-      
-      // Campos numéricos decimais
-      case 'processado':
-      case 'valorPagamento':
-        const numValue = parseNumber(value);
-        if (numValue !== null) {
-          (record as any)[dbField] = String(numValue);
-        }
-        break;
-      
-      // Campos inteiros
-      case 'seq':
-      case 'quantidade':
-        const intValue = parseInt2(value);
-        if (intValue !== null) {
-          (record as any)[dbField] = intValue;
-        }
-        break;
-      
+    if (DATE_FIELDS.includes(dbField)) {
+      const dateValue = parseDate(value);
+      if (dateValue) {
+        (record as any)[dbField] = dateValue;
+      }
+    } else if (DECIMAL_FIELDS.includes(dbField)) {
+      const numValue = parseNumber(value);
+      if (numValue !== null) {
+        (record as any)[dbField] = String(numValue);
+      }
+    } else if (INTEGER_FIELDS.includes(dbField)) {
+      const intValue = parseInt2(value);
+      if (intValue !== null) {
+        (record as any)[dbField] = intValue;
+      }
+    } else {
       // Campos de texto
-      default:
-        const strValue = parseString(value);
-        if (strValue) {
-          (record as any)[dbField] = strValue;
-        }
-        break;
+      const strValue = parseString(value);
+      if (strValue) {
+        (record as any)[dbField] = strValue;
+      }
     }
   }
+  
+  // Log para debug dos campos importantes
+  // console.log('[Parser] tipoLancamento:', record.tipoLancamento);
+  // console.log('[Parser] erroTiss:', record.erroTiss);
+  // console.log('[Parser] situacaoItem:', record.situacaoItem);
   
   return record;
 }
@@ -212,11 +227,23 @@ export function parseExcelRecebimentosExcel(
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   
-  // Converter para JSON com cabeçalhos
+  // Converter para JSON com cabeçalhos - IMPORTANTE: raw: false para manter strings
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
     defval: null,
     raw: false,
   });
+  
+  // Log das colunas encontradas para debug
+  if (rows.length > 0) {
+    const cols = Object.keys(rows[0]);
+    console.log('[Parser] Colunas encontradas no Excel:', cols.join(', '));
+    
+    // Verificar se os campos importantes estão presentes
+    const hastipoLancamento = cols.some(c => c.includes('Tipo Lan'));
+    const hasErroTiss = cols.some(c => c.includes('Erro TISS'));
+    const hasSituacaoItem = cols.some(c => c.includes('Situa'));
+    console.log('[Parser] Campos importantes - tipoLancamento:', hastipoLancamento, 'erroTiss:', hasErroTiss, 'situacaoItem:', hasSituacaoItem);
+  }
   
   const records: InsertRecebimentoExcel[] = [];
   
@@ -227,6 +254,13 @@ export function parseExcelRecebimentosExcel(
     
     const record = extractRecebimentoExcelFromRow(row, arquivoId, convenioId, dataReferencia, dataPagamento);
     records.push(record);
+  }
+  
+  // Log do primeiro registro para verificar campos
+  if (records.length > 0) {
+    console.log('[Parser] Primeiro registro - tipoLancamento:', records[0].tipoLancamento);
+    console.log('[Parser] Primeiro registro - erroTiss:', records[0].erroTiss);
+    console.log('[Parser] Primeiro registro - situacaoItem:', records[0].situacaoItem);
   }
   
   return records;

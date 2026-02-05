@@ -676,73 +676,78 @@ export const appRouter = router({
                 }
               }
               
-              // Processar arquivos de retorno: Excel -> recebimentos_excel, XML -> recebimento_tiss
+              // Processar arquivos de retorno: Popular tabela DEMONSTRATIVO unificada
               if (input.direcao === "retornado") {
                 try {
                   // Converter datas do input
                   const dataReferenciaUpload = input.dataReferencia ? new Date(input.dataReferencia) : undefined;
                   const dataPagamentoUpload = input.dataPagamento ? new Date(input.dataPagamento) : undefined;
                   
-                  // SEPARAÇÃO: Excel vai para recebimentos_excel, XML vai para recebimento_tiss
+                  // Excluir dados antigos deste arquivo se for reimportação
+                  if (isReimportacao) {
+                    await db.deleteDemonstrativoByArquivo(arquivoId);
+                    console.log('[Upload] Dados antigos de demonstrativo excluídos para reimportação');
+                  }
+                  
+                  // Importar para tabela DEMONSTRATIVO unificada
                   if (input.tipoArquivo === "excel") {
-                    // Arquivos Excel de retorno -> tabela recebimentos_excel
-                    console.log('[Upload] Processando arquivo Excel de retorno para recebimentos_excel:', arquivoId);
-                    
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentosExcelByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
-                    }
+                    console.log('[Upload] Processando arquivo Excel de retorno para demonstrativo:', arquivoId);
                     
                     try {
-                      const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
-                      const recordsExcel = parseExcelRecebimentosExcel(
+                      const { parseExcelToDemonstrativo } = await import('./demonstrativoParser');
+                      const recordsDemo = parseExcelToDemonstrativo(
                         buffer,
                         arquivoId,
                         input.convenioId,
                         dataReferenciaUpload,
                         dataPagamentoUpload
                       );
-                      if (recordsExcel.length > 0) {
-                        const totalExcel = await db.insertRecebimentosExcelBatch(recordsExcel);
-                        console.log('[Upload] Recebimentos Excel importado:', totalExcel, 'itens');
+                      if (recordsDemo.length > 0) {
+                        const totalDemo = await db.insertDemonstrativoBatch(recordsDemo);
+                        console.log('[Upload] Demonstrativo Excel importado:', totalDemo, 'itens');
                       } else {
-                        console.log('[Upload] Nenhum item de recebimentos_excel encontrado no arquivo');
+                        console.log('[Upload] Nenhum item de demonstrativo encontrado no arquivo Excel');
                       }
                     } catch (excelError) {
-                      console.error('[Upload] Erro ao importar recebimentos_excel:', excelError);
+                      console.error('[Upload] Erro ao importar demonstrativo Excel:', excelError);
                     }
                   } else if (input.tipoArquivo === "xml") {
-                    // Arquivos XML de retorno -> tabela recebimento_tiss
-                    console.log('[Upload] Processando arquivo XML de retorno para recebimento_tiss:', arquivoId);
+                    console.log('[Upload] Processando arquivo XML de retorno para demonstrativo:', arquivoId);
                     
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentoTissByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimento_tiss excluídos para reimportação');
-                    }
-                    
-                    const recebimentoResult = await parseXmlRecebimentoTiss(
-                      buffer,
-                      arquivoId,
-                      input.estabelecimentoId,
-                      input.convenioId,
-                      dataReferenciaUpload,
-                      dataPagamentoUpload
-                    );
-                    
-                    if (recebimentoResult && recebimentoResult.success && recebimentoResult.items.length > 0) {
-                      const totalImportados = await db.insertRecebimentoTiss(recebimentoResult.items);
-                      console.log('[Upload] Recebimento TISS importado:', totalImportados, 'itens de', recebimentoResult.totalRows, 'linhas');
-                    } else if (recebimentoResult && !recebimentoResult.success) {
-                      console.error('[Upload] Erro ao processar recebimento_tiss:', recebimentoResult.error);
-                    } else if (recebimentoResult) {
-                      console.log('[Upload] Nenhum item de recebimento_tiss encontrado no arquivo');
+                    try {
+                      const recebimentoResult = await parseXmlRecebimentoTiss(
+                        buffer,
+                        arquivoId,
+                        input.estabelecimentoId,
+                        input.convenioId,
+                        dataReferenciaUpload,
+                        dataPagamentoUpload
+                      );
+                      
+                      if (recebimentoResult && recebimentoResult.success && recebimentoResult.items.length > 0) {
+                        // Converter para formato demonstrativo
+                        const { parseXmlToDemonstrativo } = await import('./demonstrativoParser');
+                        const recordsDemo = parseXmlToDemonstrativo(
+                          recebimentoResult.items,
+                          arquivoId,
+                          input.convenioId,
+                          dataReferenciaUpload,
+                          dataPagamentoUpload
+                        );
+                        const totalDemo = await db.insertDemonstrativoBatch(recordsDemo);
+                        console.log('[Upload] Demonstrativo XML importado:', totalDemo, 'itens');
+                      } else if (recebimentoResult && !recebimentoResult.success) {
+                        console.error('[Upload] Erro ao processar demonstrativo XML:', recebimentoResult.error);
+                      } else {
+                        console.log('[Upload] Nenhum item de demonstrativo encontrado no arquivo XML');
+                      }
+                    } catch (xmlError) {
+                      console.error('[Upload] Erro ao importar demonstrativo XML:', xmlError);
                     }
                   }
                 } catch (recebimentoError) {
-                  // Não falhar o upload se a importação de recebimento falhar
-                  console.error('[Upload] Erro ao importar recebimento:', recebimentoError);
+                  // Não falhar o upload se a importação de demonstrativo falhar
+                  console.error('[Upload] Erro ao importar demonstrativo:', recebimentoError);
                 }
               }
             } else if (!parseResult.success) {

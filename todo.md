@@ -1139,3 +1139,14 @@
 - [x] Alterar fluxo de upload para salvar Excel de retorno na tabela recebimentos_excel
 - [x] Manter recebimento_tiss apenas para arquivos XML de retorno
 - [x] Migrar dados existentes de Excel da tabela recebimento_tiss para recebimentos_excel
+
+
+## Correção do Parser de Excel para recebimentos_excel
+- [ ] Corrigir mapeamento dos campos tipo_lancamento, situacao_item e erro_tiss no parser
+- [ ] Reimportar arquivos Excel existentes com os campos corretos
+
+
+## Tabela Demonstrativo Unificada
+- [x] Criar tabela Demonstrativo no schema e banco de dados
+- [x] Criar funções de inserção e consulta para Demonstrativo
+- [x] Atualizar parsers para popular a tabela Demonstrativo

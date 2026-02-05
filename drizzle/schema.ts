@@ -2407,3 +2407,54 @@ export const retornoTissUnificado = mysqlTable("retorno_tiss_unificado", {
 
 export type RetornoTissUnificado = typeof retornoTissUnificado.$inferSelect;
 export type InsertRetornoTissUnificado = typeof retornoTissUnificado.$inferInsert;
+
+
+// ============================================
+// TABELA DEMONSTRATIVO - Unificada para XML e Excel de Retorno
+// ============================================
+
+export const demonstrativo = mysqlTable("demonstrativo", {
+  id: int("id").primaryKey().autoincrement(),
+  arquivoId: int("arquivo_id").notNull(),
+  origemTipo: mysqlEnum("origem_tipo", ["xml", "excel"]).notNull(),
+  convenioId: int("convenio_id"),
+  
+  // Identificação Principal
+  numeroGuia: varchar("numero_guia", { length: 50 }),
+  protocolo: varchar("protocolo", { length: 50 }),
+  lotePrestador: varchar("lote_prestador", { length: 50 }),
+  dataPagamento: date("data_pagamento"),
+  
+  // Beneficiário
+  carteiraBeneficiario: varchar("carteira_beneficiario", { length: 50 }),
+  nomeBeneficiario: varchar("nome_beneficiario", { length: 255 }),
+  
+  // Detalhes do Procedimento/Item
+  sequencialItem: int("sequencial_item"),
+  codigoItem: varchar("codigo_item", { length: 50 }),
+  descricaoItem: text("descricao_item"),
+  dataExecucao: date("data_execucao"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 3 }),
+  
+  // Valores Financeiros
+  valorInformado: decimal("valor_informado", { precision: 12, scale: 2 }).default("0.00"),
+  valorPago: decimal("valor_pago", { precision: 12, scale: 2 }).default("0.00"),
+  valorGlosa: decimal("valor_glosa", { precision: 12, scale: 2 }).default("0.00"),
+  
+  // Status e Motivos
+  codigoGlosa: varchar("codigo_glosa", { length: 50 }),
+  situacaoItem: varchar("situacao_item", { length: 100 }),
+  
+  // Campos extras do Excel
+  tipoLancamento: varchar("tipo_lancamento", { length: 100 }),
+  erroTiss: varchar("erro_tiss", { length: 255 }),
+  
+  // Data de referência do arquivo
+  dataReferencia: date("data_referencia"),
+  
+  // Auditoria
+  dataImportacaoSistema: timestamp("data_importacao_sistema").defaultNow().notNull(),
+});
+
+export type Demonstrativo = typeof demonstrativo.$inferSelect;
+export type InsertDemonstrativo = typeof demonstrativo.$inferInsert;
