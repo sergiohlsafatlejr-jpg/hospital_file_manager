@@ -711,6 +711,20 @@ export const appRouter = router({
                   } else if (recebimentoResult) {
                     console.log('[Upload] Nenhum item de recebimento_tiss encontrado no arquivo');
                   }
+                  
+                  // Também importar para recebimentos_excel (nova tabela)
+                  if (input.tipoArquivo === "excel") {
+                    try {
+                      const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
+                      const recordsExcel = parseExcelRecebimentosExcel(buffer, arquivoId);
+                      if (recordsExcel.length > 0) {
+                        const totalExcel = await db.insertRecebimentosExcelBatch(recordsExcel);
+                        console.log('[Upload] Recebimentos Excel importado:', totalExcel, 'itens');
+                      }
+                    } catch (excelError) {
+                      console.error('[Upload] Erro ao importar recebimentos_excel:', excelError);
+                    }
+                  }
                 } catch (recebimentoError) {
                   // Não falhar o upload se a importação de recebimento falhar
                   console.error('[Upload] Erro ao importar recebimento_tiss:', recebimentoError);
@@ -5625,6 +5639,86 @@ export const appRouter = router({
       .input(z.object({ arquivoId: z.number() }))
       .mutation(async ({ input }) => {
         const deleted = await db.deleteFaturamentoTissByArquivo(input.arquivoId);
+        return { success: true, deleted };
+      }),
+  }),
+
+  // ============ RECEBIMENTOS EXCEL ============
+  recebimentosExcel: router({
+    // Importar dados de Excel para recebimentos_excel
+    importarExcel: protectedProcedure
+      .input(z.object({
+        arquivoId: z.number(),
+        estabelecimentoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
+        
+        // Buscar arquivo
+        const arquivo = await db.getArquivoById(input.arquivoId);
+        if (!arquivo) {
+          throw new Error('Arquivo não encontrado');
+        }
+        
+        // Baixar conteúdo do S3
+        const response = await fetch(arquivo.s3Url);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        
+        // Parsear Excel
+        const records = parseExcelRecebimentosExcel(buffer, input.arquivoId);
+        
+        if (records.length === 0) {
+          return { success: false, message: 'Nenhum registro encontrado no arquivo', imported: 0 };
+        }
+        
+        // Inserir no banco
+        const imported = await db.insertRecebimentosExcelBatch(records);
+        
+        // Atualizar status do arquivo
+        await db.updateArquivo(input.arquivoId, {
+          status: 'processado',
+          totalItens: records.length,
+          itensProcessados: records.length,
+          progresso: 100,
+        });
+        
+        return { success: true, imported, total: records.length };
+      }),
+    
+    // Listar itens com filtros e paginação
+    list: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        convenioId: z.number().optional(),
+        arquivoId: z.number().optional(),
+        situacaoItem: z.string().optional(),
+        search: z.string().optional(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+        page: z.number().optional(),
+        limit: z.number().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getRecebimentosExcel(input || {});
+      }),
+    
+    // Resumo de recebimentos
+    resumo: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        convenioId: z.number().optional(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getRecebimentosExcelResumo(input || {});
+      }),
+    
+    // Excluir itens por arquivo
+    excluirPorArquivo: protectedProcedure
+      .input(z.object({ arquivoId: z.number() }))
+      .mutation(async ({ input }) => {
+        const deleted = await db.deleteRecebimentosExcelByArquivo(input.arquivoId);
         return { success: true, deleted };
       }),
   }),

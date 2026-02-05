@@ -2255,3 +2255,103 @@ export const recebimentoTiss = mysqlTable("recebimento_tiss", {
 
 export type RecebimentoTiss = typeof recebimentoTiss.$inferSelect;
 export type InsertRecebimentoTiss = typeof recebimentoTiss.$inferInsert;
+
+
+/**
+ * Recebimentos Excel - Tabela para importação de Excel de retorno dos convênios
+ * Campos mapeados exatamente como no Excel da Unimed
+ */
+export const recebimentosExcel = mysqlTable("recebimentos_excel", {
+  id: int("id").autoincrement().primaryKey(),
+  arquivoId: int("arquivo_id"), // Referência ao arquivo de origem
+  
+  // Data Pagto
+  dataPagto: timestamp("data_pagto"),
+  
+  // Processado (valor)
+  processado: decimal("processado", { precision: 12, scale: 2 }),
+  
+  // Protocolo TISS
+  protocoloTiss: varchar("protocolo_tiss", { length: 50 }),
+  
+  // Lote Prestador
+  lotePrestador: varchar("lote_prestador", { length: 50 }),
+  
+  // Código Prestador Pagamento
+  codigoPrestadorPagamento: varchar("codigo_prestador_pagamento", { length: 50 }),
+  
+  // Nome Prestador Pagamento
+  nomePrestadorPagamento: varchar("nome_prestador_pagamento", { length: 255 }),
+  
+  // Número Guia
+  numeroGuia: varchar("numero_guia", { length: 50 }),
+  
+  // Seq (sequencial do item)
+  seq: int("seq"),
+  
+  // Beneficiário (número carteira)
+  beneficiario: varchar("beneficiario", { length: 50 }),
+  
+  // Nome Beneficiário
+  nomeBeneficiario: varchar("nome_beneficiario", { length: 255 }),
+  
+  // Data Execução
+  dataExecucao: timestamp("data_execucao"),
+  
+  // Hora Execução
+  horaExecucao: varchar("hora_execucao", { length: 20 }),
+  
+  // Item (código do procedimento)
+  item: varchar("item", { length: 50 }),
+  
+  // Item Desc (descrição do procedimento)
+  itemDesc: varchar("item_desc", { length: 500 }),
+  
+  // Quantidade
+  quantidade: int("quantidade"),
+  
+  // Valor Pagamento
+  valorPagamento: decimal("valor_pagamento", { precision: 12, scale: 2 }),
+  
+  // Tipo Lançamento
+  tipoLancamento: varchar("tipo_lancamento", { length: 100 }),
+  
+  // Erro TISS (código de glosa)
+  erroTiss: varchar("erro_tiss", { length: 50 }),
+  
+  // Situação Item (PAGO/GLOSADO/etc)
+  situacaoItem: varchar("situacao_item", { length: 50 }),
+  
+  // Código Solicitante
+  codigoSolicitante: varchar("codigo_solicitante", { length: 50 }),
+  
+  // Nome Solicitante
+  nomeSolicitante: varchar("nome_solicitante", { length: 255 }),
+  
+  // Acomodação da Internação
+  acomodacaoInternacao: varchar("acomodacao_internacao", { length: 100 }),
+  
+  // Data Inicio Faturamento Internação
+  dataInicioFaturamentoInternacao: timestamp("data_inicio_faturamento_internacao"),
+  
+  // Data Fim Faturamento Internação
+  dataFimFaturamentoInternacao: timestamp("data_fim_faturamento_internacao"),
+  
+  // Código Prestador (executante)
+  codigoPrestador: varchar("codigo_prestador", { length: 50 }),
+  
+  // Nome Prestador (executante)
+  nomePrestador: varchar("nome_prestador", { length: 255 }),
+  
+  // Prestador Executante (código)
+  prestadorExecutante: varchar("prestador_executante", { length: 50 }),
+  
+  // Nome Prestador Executante
+  nomePrestadorExecutante: varchar("nome_prestador_executante", { length: 255 }),
+  
+  // Data de importação
+  dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
+});
+
+export type RecebimentoExcel = typeof recebimentosExcel.$inferSelect;
+export type InsertRecebimentoExcel = typeof recebimentosExcel.$inferInsert;

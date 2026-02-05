@@ -94,6 +94,8 @@ import {
   InsertRecebimentoTiss,
   faturamentoTiss,
   InsertFaturamentoTiss,
+  recebimentosExcel,
+  InsertRecebimentoExcel,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -16295,6 +16297,219 @@ export async function deleteFaturamentoTissByArquivo(arquivoId: number): Promise
   const result = await db
     .delete(faturamentoTiss)
     .where(eq(faturamentoTiss.arquivoId, arquivoId));
+
+  return result[0]?.affectedRows || 0;
+}
+
+
+// ==========================================
+// RECEBIMENTOS EXCEL
+// ==========================================
+
+/**
+ * Insere múltiplos registros de recebimentos_excel em lote
+ */
+export async function insertRecebimentosExcelBatch(
+  records: InsertRecebimentoExcel[]
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (records.length === 0) return 0;
+
+  // Inserir em lotes de 500
+  const batchSize = 500;
+  let totalInserted = 0;
+
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    await db.insert(recebimentosExcel).values(batch);
+    totalInserted += batch.length;
+  }
+
+  return totalInserted;
+}
+
+/**
+ * Busca recebimentos_excel com filtros e paginação
+ */
+export async function getRecebimentosExcel(params: {
+  arquivoId?: number;
+  estabelecimentoId?: number;
+  convenioId?: number;
+  mesReferencia?: number;
+  anoReferencia?: number;
+  situacaoItem?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}): Promise<{ items: any[]; total: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const {
+    arquivoId,
+    estabelecimentoId,
+    convenioId,
+    mesReferencia,
+    anoReferencia,
+    situacaoItem,
+    search,
+    page = 1,
+    limit = 50,
+  } = params;
+
+  const conditions: SQL[] = [];
+
+  if (arquivoId) {
+    conditions.push(eq(recebimentosExcel.arquivoId, arquivoId));
+  }
+
+  if (convenioId) {
+    conditions.push(
+      inArray(
+        recebimentosExcel.arquivoId,
+        db.select({ id: arquivos.id }).from(arquivos).where(eq(arquivos.convenioId, convenioId))
+      )
+    );
+  }
+
+  if (estabelecimentoId) {
+    conditions.push(
+      inArray(
+        recebimentosExcel.arquivoId,
+        db.select({ id: arquivos.id }).from(arquivos).where(eq(arquivos.estabelecimentoId, estabelecimentoId))
+      )
+    );
+  }
+
+  if (mesReferencia && anoReferencia) {
+    conditions.push(sql`MONTH(${recebimentosExcel.dataExecucao}) = ${mesReferencia}`);
+    conditions.push(sql`YEAR(${recebimentosExcel.dataExecucao}) = ${anoReferencia}`);
+  } else if (mesReferencia) {
+    conditions.push(sql`MONTH(${recebimentosExcel.dataExecucao}) = ${mesReferencia}`);
+  } else if (anoReferencia) {
+    conditions.push(sql`YEAR(${recebimentosExcel.dataExecucao}) = ${anoReferencia}`);
+  }
+
+  if (situacaoItem) {
+    conditions.push(eq(recebimentosExcel.situacaoItem, situacaoItem));
+  }
+
+  if (search) {
+    const searchCondition = or(
+      like(recebimentosExcel.nomeBeneficiario, `%${search}%`),
+      like(recebimentosExcel.beneficiario, `%${search}%`),
+      like(recebimentosExcel.numeroGuia, `%${search}%`),
+      like(recebimentosExcel.item, `%${search}%`),
+      like(recebimentosExcel.itemDesc, `%${search}%`)
+    );
+    if (searchCondition) {
+      conditions.push(searchCondition);
+    }
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const offset = (page - 1) * limit;
+
+  // Buscar itens
+  const items = await db
+    .select()
+    .from(recebimentosExcel)
+    .where(whereClause)
+    .orderBy(desc(recebimentosExcel.dataPagto), desc(recebimentosExcel.id))
+    .limit(limit)
+    .offset(offset);
+
+  // Contar total
+  const countResult = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(recebimentosExcel)
+    .where(whereClause);
+
+  return {
+    items,
+    total: countResult[0]?.count || 0,
+  };
+}
+
+/**
+ * Retorna resumo dos recebimentos_excel
+ */
+export async function getRecebimentosExcelResumo(params: {
+  arquivoId?: number;
+  estabelecimentoId?: number;
+  convenioId?: number;
+  mesReferencia?: number;
+  anoReferencia?: number;
+}): Promise<{
+  totalItens: number;
+  totalPagos: number;
+  totalGlosados: number;
+  valorTotal: number;
+} | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const { arquivoId, estabelecimentoId, convenioId, mesReferencia, anoReferencia } = params;
+
+  const conditions: SQL[] = [];
+
+  if (arquivoId) {
+    conditions.push(eq(recebimentosExcel.arquivoId, arquivoId));
+  }
+
+  if (convenioId) {
+    conditions.push(
+      inArray(
+        recebimentosExcel.arquivoId,
+        db.select({ id: arquivos.id }).from(arquivos).where(eq(arquivos.convenioId, convenioId))
+      )
+    );
+  }
+
+  if (estabelecimentoId) {
+    conditions.push(
+      inArray(
+        recebimentosExcel.arquivoId,
+        db.select({ id: arquivos.id }).from(arquivos).where(eq(arquivos.estabelecimentoId, estabelecimentoId))
+      )
+    );
+  }
+
+  if (mesReferencia && anoReferencia) {
+    conditions.push(sql`MONTH(${recebimentosExcel.dataExecucao}) = ${mesReferencia}`);
+    conditions.push(sql`YEAR(${recebimentosExcel.dataExecucao}) = ${anoReferencia}`);
+  } else if (mesReferencia) {
+    conditions.push(sql`MONTH(${recebimentosExcel.dataExecucao}) = ${mesReferencia}`);
+  } else if (anoReferencia) {
+    conditions.push(sql`YEAR(${recebimentosExcel.dataExecucao}) = ${anoReferencia}`);
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const result = await db
+    .select({
+      totalItens: sql<number>`COUNT(*)`,
+      totalPagos: sql<number>`SUM(CASE WHEN UPPER(${recebimentosExcel.situacaoItem}) = 'PAGO' OR ${recebimentosExcel.situacaoItem} IS NULL THEN 1 ELSE 0 END)`,
+      totalGlosados: sql<number>`SUM(CASE WHEN UPPER(${recebimentosExcel.situacaoItem}) LIKE '%GLOS%' THEN 1 ELSE 0 END)`,
+      valorTotal: sql<number>`COALESCE(SUM(CAST(${recebimentosExcel.valorPagamento} AS DECIMAL(15,2))), 0)`,
+    })
+    .from(recebimentosExcel)
+    .where(whereClause);
+
+  return result[0] || null;
+}
+
+/**
+ * Exclui recebimentos_excel por arquivo
+ */
+export async function deleteRecebimentosExcelByArquivo(arquivoId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .delete(recebimentosExcel)
+    .where(eq(recebimentosExcel.arquivoId, arquivoId));
 
   return result[0]?.affectedRows || 0;
 }

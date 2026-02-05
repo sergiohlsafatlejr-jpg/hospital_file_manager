@@ -1121,3 +1121,5 @@
 - [x] Alterar telas Contas Demonstrativo e Demonstrativo para buscar dados da tabela recebimento_tiss em vez de procedimentos
 
 - [x] Alterar tela Conta Convênio para buscar dados da tabela faturamento_tiss em vez de procedimentos
+
+- [x] Criar nova tabela recebimentos_excel no banco de dados com campos: Data Pagto, Processado, Protocolo TISS, Lote Prestador, Código Prestador, Nome Prestador, Número Guia, Seq, Beneficiário, Nome Beneficiário, Data Execução, Hora Execução, Item, Item Desc, Quantidade, Valor Pagamento, Tipo Lançamento, Erro TISS, Situação Item, Código Solicitante, Nome Solicitante, Acomodação da Internação, Data Inicio/Fim Faturamento Internação, Prestador Executante
