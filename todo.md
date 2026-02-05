@@ -1250,8 +1250,7 @@
 
 ## Correção Agrupamento de Guias (Altas Administrativas) - 05/02/2026
 
-- [ ] Modificar tela Conta Convênio para usar chave composta: guiaNumero + numeroLote + Protocolo TISS + Data Execução + Código Item
-- [ ] Modificar tela Contas Demonstrativo para usar chave composta similar
+- [ ]- [x] Tela Contas Demonstrativo: Usar chave composta (guiaNumero + numeroLote + Protocolo TISS + Data Execução + Código do Item)- [ ] Modificar tela Contas Demonstrativo para usar chave composta similar
 - [ ] Separar guias com mesmo número mas lotes diferentes (altas administrativas)
 - [ ] Testar com guia 67752681 que tem múltiplos lotes de envio XML
 - [ ] Corrigir valores totais das guias que estão incorretos
@@ -1270,3 +1269,8 @@
 ## Correção 05/02/2026 - Ajuste Agrupamento Conta Convênio
 
 - [x] Corrigir agrupamento na tela Conta Convênio para usar apenas guia + lote (remover data de execução)
+
+
+## Implementações 05/02/2026 - Contas Demonstrativo e Indicador Alta Administrativa
+
+- [ ] Implementar chave composta na tela Contas Demonstrativo (guiaNumero + numeroLote + Protocolo TISS + Data Execução + Código- [x] Adicionar indicador visual de alta administrativa (badge/ícone) para guias com múltiplos lotesdge/ícone especial)

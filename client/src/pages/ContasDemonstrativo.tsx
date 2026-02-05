@@ -31,7 +31,9 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  ExternalLink
+  ExternalLink,
+  Layers2,
+  Package
 } from "lucide-react";
 import React, { useState, useMemo } from "react";
 import { useLocation } from "wouter";
@@ -450,6 +452,12 @@ export default function ContasDemonstrativo() {
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Hash className="h-3 w-3" />
                             <span>Guia</span>
+                            {conta.isAltaAdministrativa && (
+                              <Badge variant="secondary" className="bg-orange-100 text-orange-800 text-xs px-1.5 py-0.5">
+                                <Layers2 className="h-3 w-3 mr-1" />
+                                Alta Adm ({conta.totalLotesGuia} lotes)
+                              </Badge>
+                            )}
                           </div>
                           <p className="font-semibold">{conta.numeroGuia || "-"}</p>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
@@ -458,16 +466,18 @@ export default function ContasDemonstrativo() {
                           </div>
                         </div>
 
-                        {/* Carteirinha e Protocolo */}
+                        {/* Carteirinha e Lote */}
                         <div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <CreditCard className="h-3 w-3" />
                             <span>Carteirinha</span>
                           </div>
                           <p className="font-medium">{conta.carteiraBeneficiario || "-"}</p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Protocolo: {conta.protocolo || "-"}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-sm text-muted-foreground">
+                              Lote: {conta.lotePrestador || "-"}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Datas */}

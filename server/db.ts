@@ -16665,7 +16665,7 @@ export async function getDemonstrativoContas(params: {
   const pageSize = params.pageSize || 20;
   const offset = (page - 1) * pageSize;
 
-  // Buscar contas agrupadas por chave composta (guia + lote + protocolo + data execução)
+  // Buscar contas agrupadas por chave composta (guia + lote + protocolo)
   // Isso permite separar altas administrativas (mesma guia, lotes diferentes)
   const contasQuery = db
     .select({
@@ -16675,7 +16675,7 @@ export async function getDemonstrativoContas(params: {
       carteiraBeneficiario: demonstrativo.carteiraBeneficiario,
       nomeBeneficiario: demonstrativo.nomeBeneficiario,
       dataPagamento: demonstrativo.dataPagamento,
-      dataExecucao: demonstrativo.dataExecucao,
+      dataExecucao: sql<string>`MIN(${demonstrativo.dataExecucao})`,
       dataReferencia: demonstrativo.dataReferencia,
       convenioId: demonstrativo.convenioId,
       arquivoId: demonstrativo.arquivoId,
@@ -16692,7 +16692,6 @@ export async function getDemonstrativoContas(params: {
       demonstrativo.numeroGuia,
       demonstrativo.protocolo,
       demonstrativo.lotePrestador,
-      demonstrativo.dataExecucao,
       demonstrativo.carteiraBeneficiario,
       demonstrativo.nomeBeneficiario,
       demonstrativo.dataPagamento,
@@ -16705,14 +16704,13 @@ export async function getDemonstrativoContas(params: {
     .limit(pageSize)
     .offset(offset);
 
-  // Contar total de contas (usando chave composta: guia + lote + protocolo + data execução)
+  // Contar total de contas (usando chave composta: guia + lote + protocolo)
   const countQuery = db
     .select({ 
       count: sql<number>`COUNT(DISTINCT CONCAT(
         COALESCE(${demonstrativo.numeroGuia}, ''), '-', 
         COALESCE(${demonstrativo.lotePrestador}, ''), '-',
-        COALESCE(${demonstrativo.protocolo}, ''), '-',
-        COALESCE(DATE(${demonstrativo.dataExecucao}), '')
+        COALESCE(${demonstrativo.protocolo}, '')
       ))` 
     })
     .from(demonstrativo)
@@ -16720,10 +16718,32 @@ export async function getDemonstrativoContas(params: {
 
   const [contas, countResult] = await Promise.all([contasQuery, countQuery]);
 
+  // Identificar guias com múltiplos lotes (altas administrativas)
+  // Buscar todas as guias que aparecem com mais de um lote diferente
+  const guiasMultiplosLotes = await db
+    .select({
+      numeroGuia: demonstrativo.numeroGuia,
+      totalLotes: sql<number>`COUNT(DISTINCT ${demonstrativo.lotePrestador})`,
+    })
+    .from(demonstrativo)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(demonstrativo.numeroGuia)
+    .having(sql`COUNT(DISTINCT ${demonstrativo.lotePrestador}) > 1`);
+
+  // Criar um Set com as guias que têm múltiplos lotes
+  const guiasComAltaAdm = new Set(guiasMultiplosLotes.map(g => g.numeroGuia));
+
+  // Adicionar flag de alta administrativa a cada conta
+  const contasComFlag = contas.map(conta => ({
+    ...conta,
+    isAltaAdministrativa: guiasComAltaAdm.has(conta.numeroGuia),
+    totalLotesGuia: guiasMultiplosLotes.find(g => g.numeroGuia === conta.numeroGuia)?.totalLotes || 1,
+  }));
+
   // Filtrar por status de glosa se necessário
-  let filteredContas = contas;
+  let filteredContas = contasComFlag;
   if (params.statusGlosa && params.statusGlosa !== "todos") {
-    filteredContas = contas.filter(conta => {
+    filteredContas = contasComFlag.filter(conta => {
       const valorGlosa = parseFloat(conta.valorGlosado || "0");
       const valorPago = parseFloat(conta.valorTotal || "0");
       
