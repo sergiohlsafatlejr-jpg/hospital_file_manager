@@ -653,7 +653,9 @@ export const appRouter = router({
                       faturamentoRecords.push({
                         numeroLote: proc.numeroLote || undefined,
                         sequencialTransacao: proc.sequencialTransacao || undefined,
+                        registroAns: proc.registroANS || undefined,
                         numeroGuiaPrestador: proc.guiaNumero || undefined,
+                        numeroGuiaOperadora: proc.numeroGuiaOperadora || undefined,
                         senha: proc.senha || undefined,
                         carteiraBeneficiario: proc.pacienteCarteirinha || undefined,
                         tipoItem: proc.tipoDespesa === 'procedimento' || !proc.tipoDespesa ? 'PROCEDIMENTO' : 'DESPESA',
@@ -5711,6 +5713,18 @@ export const appRouter = router({
       }).optional())
       .query(async ({ input }) => {
         return db.getFaturamentoTissResumo(input || {});
+      }),
+    
+    // Buscar itens individuais de uma guia específica (sem agrupamento)
+    itensGuia: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        numeroGuiaPrestador: z.string(),
+        numeroLote: z.string().optional(),
+        convenioId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getFaturamentoTissItensGuia(input);
       }),
     
     // Buscar guias com múltiplos lotes (altas administrativas)

@@ -15,6 +15,8 @@ export interface ParsedProcedimento {
   pacienteCarteirinha?: string;
   guiaNumero?: string;
   senha?: string; // Senha da autorização
+  registroANS?: string; // Registro ANS da operadora
+  numeroGuiaOperadora?: string; // Número da guia na operadora
   nomeMedico?: string;
   crmMedico?: string;
   codigoPrestadorExecutante?: string; // Código do prestador executante (CNPJ ou código na operadora)
@@ -160,10 +162,12 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
           const guiaNumero = extractGuiaNumero(guia);
           const pacienteCarteirinha = extractPacienteCarteirinha(guia);
           const codigoPrestadorExecutante = extractCodigoPrestadorExecutante(guia);
+          const { registroANS, senha, numeroGuiaOperadora } = extractDadosGuia(guia);
           
           if (sequencialTransacao) {
             console.log(`[Parser] Guia ${guiaNumero} - Sequencial: ${sequencialTransacao}`);
           }
+          console.log(`[Parser] Guia ${guiaNumero} - registroANS: ${registroANS || 'N/A'}, senha: ${senha || 'N/A'}, guiaOperadora: ${numeroGuiaOperadora || 'N/A'}`);
           
           // Extract procedimentos executados
           const procedimentosExecutados = extractProcedimentosExecutados(guia);
@@ -173,6 +177,9 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
               guiaNumero: proc.guiaNumero || guiaNumero,
               pacienteCarteirinha: proc.pacienteCarteirinha || pacienteCarteirinha,
               codigoPrestadorExecutante: proc.codigoPrestadorExecutante || codigoPrestadorExecutante,
+              registroANS,
+              senha: proc.senha || senha,
+              numeroGuiaOperadora,
               numeroLote,
               sequencialTransacao,
             });
@@ -186,6 +193,9 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
               guiaNumero: proc.guiaNumero || guiaNumero,
               pacienteCarteirinha: proc.pacienteCarteirinha || pacienteCarteirinha,
               codigoPrestadorExecutante: proc.codigoPrestadorExecutante || codigoPrestadorExecutante,
+              registroANS,
+              senha: proc.senha || senha,
+              numeroGuiaOperadora,
               numeroLote,
               sequencialTransacao,
             });
@@ -582,6 +592,33 @@ function extractGuiaNumero(guia: unknown): string | undefined {
   }
   
   return undefined;
+}
+
+/**
+ * Extract registroANS, senha and numeroGuiaOperadora from guia object
+ */
+function extractDadosGuia(guia: unknown): { registroANS?: string; senha?: string; numeroGuiaOperadora?: string } {
+  if (!guia || typeof guia !== "object") return {};
+  
+  const record = guia as Record<string, unknown>;
+  let registroANS: string | undefined;
+  let senha: string | undefined;
+  let numeroGuiaOperadora: string | undefined;
+  
+  // Extract registroANS from cabecalhoGuia
+  const cabecalho = record["cabecalhoGuia"] as Record<string, unknown> | undefined;
+  if (cabecalho) {
+    registroANS = getTextValue(cabecalho["registroANS"]);
+  }
+  
+  // Extract senha and numeroGuiaOperadora from dadosAutorizacao
+  const autorizacao = record["dadosAutorizacao"] as Record<string, unknown> | undefined;
+  if (autorizacao) {
+    senha = getTextValue(autorizacao["senha"]);
+    numeroGuiaOperadora = getTextValue(autorizacao["numeroGuiaOperadora"]);
+  }
+  
+  return { registroANS, senha, numeroGuiaOperadora };
 }
 
 /**

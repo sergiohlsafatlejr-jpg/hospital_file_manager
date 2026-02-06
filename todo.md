@@ -1307,3 +1307,28 @@
 - [x] Alterar routers.ts para chamar nova função no upload de XML enviados
 - [x] Migrar dados existentes de procedimentos para faturamento_tiss (estab 3: 6.209 registros via SQL)
 - [x] Verificar migração: faturamento_tiss agora tem 6.209 registros para estab 3
+
+## Correção Mapeamento XML → faturamento_tiss - 06/02/2026
+
+- [x] Investigar campos do parser XML que não estão sendo mapeados para faturamento_tiss
+- [x] Corrigir mapeamento: codigo_item, descricao_item, valor_unitario, valor_faturado, nome_prof, conselho_prof - OK, já estão populados
+- [x] Extrair registroANS do cabeçalho da guia no parser XML
+- [x] Extrair numeroGuiaOperadora do dadosAutorizacao no parser XML
+- [x] Extrair senha do dadosAutorizacao no parser XML
+- [x] Mapear novos campos para faturamento_tiss no routers.ts
+- [x] Testar importação e verificar dados populados corretamente
+
+## Correção Detalhes da Guia - Conta Convênio - 06/02/2026
+
+- [x] Investigar query de detalhes da guia que retorna apenas 1 item agregado em vez dos itens individuais
+- [x] Criar nova procedure itensGuia no backend (sem agrupamento)
+- [x] Atualizar ContaConvenioDetalhes.tsx para usar nova procedure
+- [x] Adicionar campos Registro ANS, Guia Operadora, Senha e Nº Lote no cabeçalho
+- [x] Testar na tela Conta Convênio - 557 itens exibidos corretamente
+
+## Correção Urgente - Detalhes Guia + Campos NULL - 06/02/2026
+
+- [x] Corrigir tela detalhes da guia: mostra 1 item MISTO em vez dos itens individuais
+- [x] Verificar se procedure itensGuia está sendo chamada corretamente no frontend
+- [x] Corrigir parser XML para extrair registroAns, senha, numeroGuiaOperadora (funciona em novas importações)
+- [ ] Salvar checkpoint e entregar nova versão

@@ -33,7 +33,9 @@ import {
   Bed,
   Stethoscope,
   Activity,
-  MoreHorizontal
+  MoreHorizontal,
+  Shield,
+  Key
 } from "lucide-react";
 import React, { useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
@@ -90,38 +92,32 @@ export default function ContaConvenioDetalhes() {
   const params = new URLSearchParams(searchString);
   
   const guia = params.get("guia") || "";
+  const lote = params.get("lote") || undefined;
   const arquivoId = params.get("arquivoId") || "";
   const convenioId = params.get("convenioId") || "";
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({});
 
-  // Buscar itens da guia
-  const { data: faturamentoData, isLoading, refetch } = trpc.faturamentoTiss.list.useQuery(
+  // Buscar itens individuais da guia usando a nova procedure
+  const { data: itensGuia, isLoading, refetch } = trpc.faturamentoTiss.itensGuia.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id,
-      arquivoId: arquivoId ? parseInt(arquivoId) : undefined,
-      search: guia,
-      pageSize: 1000, // Buscar todos os itens da guia
+      numeroGuiaPrestador: guia,
+      numeroLote: lote,
+      convenioId: convenioId ? parseInt(convenioId) : undefined,
     },
     { enabled: !!estabelecimentoAtual?.id && !!guia }
   );
 
-  // Filtrar apenas itens da guia específica
-  const itensGuia = useMemo(() => {
-    if (!faturamentoData?.items) return [];
-    return faturamentoData.items.filter((item: any) => 
-      item.numeroGuiaPrestador === guia
-    );
-  }, [faturamentoData?.items, guia]);
-
   // Calcular KPIs por tipo
   const kpisPorTipo = useMemo(() => {
+    if (!itensGuia) return [];
     const tipos = new Map<string, { quantidade: number; valor: number; itens: number }>();
     
     itensGuia.forEach((item: any) => {
       const tipo = item.tipoItem || "Outros";
-      const valor = parseFloat(item.valorTotalItem || item.valorFaturado || "0");
+      const valor = parseFloat(item.valorFaturado || "0");
       const qtd = parseFloat(item.quantidade || "1");
       
       if (tipos.has(tipo)) {
@@ -141,11 +137,12 @@ export default function ContaConvenioDetalhes() {
 
   // Calcular totais
   const totais = useMemo(() => {
+    if (!itensGuia) return { valorTotal: 0, totalItens: 0 };
     let valorTotal = 0;
     let totalItens = 0;
     
     itensGuia.forEach((item: any) => {
-      valorTotal += parseFloat(item.valorTotalItem || item.valorFaturado || "0");
+      valorTotal += parseFloat(item.valorFaturado || "0");
       totalItens += 1;
     });
     
@@ -153,17 +150,19 @@ export default function ContaConvenioDetalhes() {
   }, [itensGuia]);
 
   // Obter informações da guia
-  const infoGuia = itensGuia[0] || {};
+  const infoGuia = (itensGuia && itensGuia[0]) || {} as any;
   const convenioSelecionado = convenios?.find(c => c.id === parseInt(convenioId));
 
   // Exportar para Excel
   const handleExportExcel = () => {
-    if (!itensGuia.length) return;
+    if (!itensGuia?.length) return;
 
     const data = itensGuia.map((item: any) => ({
       "Guia": item.numeroGuiaPrestador || "-",
       "Nº Lote": item.numeroLote || "-",
       "Seq. Transação": item.sequencialTransacao || "-",
+      "Registro ANS": item.registroAns || "-",
+      "Guia Operadora": item.numeroGuiaOperadora || "-",
       "Senha": item.senha || "-",
       "Carteirinha": item.carteiraBeneficiario || "-",
       "Tipo Item": item.tipoItem || "-",
@@ -174,7 +173,8 @@ export default function ContaConvenioDetalhes() {
       "Quantidade": item.quantidade || 0,
       "Valor Unitário": parseFloat(item.valorUnitario || "0"),
       "Valor Faturado": parseFloat(item.valorFaturado || "0"),
-      "Valor Total": parseFloat(item.valorTotalItem || "0"),
+      "Profissional": item.nomeProf || "-",
+      "CRM": item.conselhoProf || "-",
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -203,6 +203,7 @@ export default function ContaConvenioDetalhes() {
               <h1 className="text-3xl font-bold tracking-tight">Detalhes da Guia</h1>
               <p className="text-muted-foreground">
                 Guia: {guia} | Convênio: {convenioSelecionado?.nome || "-"}
+                {lote && ` | Lote: ${lote}`}
               </p>
             </div>
           </div>
@@ -214,7 +215,7 @@ export default function ContaConvenioDetalhes() {
             <Button 
               size="sm" 
               onClick={handleExportExcel}
-              disabled={!itensGuia.length}
+              disabled={!itensGuia?.length}
             >
               <FileSpreadsheet className="mr-2 h-4 w-4" />
               Exportar Excel
@@ -260,6 +261,34 @@ export default function ContaConvenioDetalhes() {
                   <p className="font-semibold">{infoGuia.nomeProf || "-"}</p>
                 </div>
               </div>
+              <div className="flex items-start gap-3">
+                <Shield className="h-5 w-5 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Registro ANS</p>
+                  <p className="font-semibold">{infoGuia.registroAns || "-"}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Guia Operadora</p>
+                  <p className="font-semibold">{infoGuia.numeroGuiaOperadora || "-"}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Key className="h-5 w-5 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Senha</p>
+                  <p className="font-semibold">{infoGuia.senha || "-"}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Receipt className="h-5 w-5 text-muted-foreground mt-0.5" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Nº Lote</p>
+                  <p className="font-semibold">{infoGuia.numeroLote || "-"}</p>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -297,7 +326,7 @@ export default function ContaConvenioDetalhes() {
           </div>
         </div>
 
-        {/* Resumo Total */}
+        {/* Totais */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900">
             <CardContent className="pt-6">
@@ -338,7 +367,7 @@ export default function ContaConvenioDetalhes() {
                   <Skeleton key={i} className="h-12 w-full" />
                 ))}
               </div>
-            ) : itensGuia.length === 0 ? (
+            ) : !itensGuia?.length ? (
               <div className="text-center py-8">
                 <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">Nenhum item encontrado para esta guia</p>
@@ -355,7 +384,7 @@ export default function ContaConvenioDetalhes() {
                       <TableHead>Data Exec.</TableHead>
                       <TableHead className="text-right">Qtd</TableHead>
                       <TableHead className="text-right">Valor Unit.</TableHead>
-                      <TableHead className="text-right">Valor Total</TableHead>
+                      <TableHead className="text-right">Valor Faturado</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -380,7 +409,7 @@ export default function ContaConvenioDetalhes() {
                           <TableCell className="text-right">{item.quantidade || 1}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
                           <TableCell className="text-right font-semibold text-emerald-600">
-                            {formatCurrency(item.valorTotalItem || item.valorFaturado)}
+                            {formatCurrency(item.valorFaturado)}
                           </TableCell>
                         </TableRow>
                       );

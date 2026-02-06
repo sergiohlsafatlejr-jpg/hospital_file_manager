@@ -16233,6 +16233,45 @@ export async function getFaturamentoTiss(params: {
 }
 
 /**
+ * Busca itens individuais de uma guia específica no faturamento_tiss (sem agrupamento)
+ */
+export async function getFaturamentoTissItensGuia(params: {
+  estabelecimentoId?: number;
+  numeroGuiaPrestador: string;
+  numeroLote?: string;
+  convenioId?: number;
+}): Promise<any[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const { estabelecimentoId, numeroGuiaPrestador, numeroLote, convenioId } = params;
+
+  const conditions: SQL[] = [
+    eq(faturamentoTiss.numeroGuiaPrestador, numeroGuiaPrestador),
+  ];
+
+  if (estabelecimentoId) {
+    conditions.push(eq(faturamentoTiss.estabelecimentoId, estabelecimentoId));
+  }
+  if (numeroLote) {
+    conditions.push(eq(faturamentoTiss.numeroLote, numeroLote));
+  }
+  if (convenioId) {
+    conditions.push(eq(faturamentoTiss.convenioId, convenioId));
+  }
+
+  const whereClause = and(...conditions);
+
+  const items = await db
+    .select()
+    .from(faturamentoTiss)
+    .where(whereClause)
+    .orderBy(faturamentoTiss.sequencialItem);
+
+  return items;
+}
+
+/**
  * Busca resumo de faturamento_tiss
  */
 export async function getFaturamentoTissResumo(params: {
