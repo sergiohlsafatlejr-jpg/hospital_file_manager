@@ -11,6 +11,32 @@ import { eq, sql } from 'drizzle-orm';
 import type { InsertDemonstrativo } from '../drizzle/schema';
 
 /**
+ * Normaliza uma data para evitar problemas de fuso horário.
+ * Quando o Drizzle converte Date para o banco, usa o fuso local do servidor,
+ * o que pode transformar 2025-12-01T05:00:00Z em 2025-11-30.
+ * Esta função extrai a data UTC e cria uma string YYYY-MM-DD.
+ */
+function normalizeDateForDB(dateValue: any): Date | null {
+  if (!dateValue) return null;
+  let d: Date;
+  if (typeof dateValue === 'string') {
+    // Se já é uma string no formato YYYY-MM-DD, criar Date UTC
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+      const [y, m, day] = dateValue.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, day, 12, 0, 0)); // Meio-dia UTC para evitar problemas de fuso
+    }
+    d = new Date(dateValue);
+  } else if (dateValue instanceof Date) {
+    d = dateValue;
+  } else {
+    return null;
+  }
+  if (isNaN(d.getTime())) return null;
+  // Criar nova Date com meio-dia UTC para evitar que o fuso horário mude o dia
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
+}
+
+/**
  * Sincroniza os dados de um arquivo específico para a tabela demonstrativo
  * Chamado automaticamente após cada importação de arquivo de retorno
  */
@@ -86,8 +112,8 @@ export async function syncDemonstrativoByArquivo(
           situacaoItem: item.situacaoItem,
           codigoGlosa: isGlosado ? item.erroTiss : null, // Erro TISS é o código da glosa
           
-          // Data de referência
-          dataReferencia: item.dataReferencia,
+          // Data de referência - normalizar para evitar problemas de fuso horário
+          dataReferencia: normalizeDateForDB(item.dataReferencia),
         };
       });
 
@@ -133,8 +159,8 @@ export async function syncDemonstrativoByArquivo(
         codigoGlosa: item.codigoGlosa,
         situacaoItem: item.situacaoGuia,
         
-        // Data de referência
-        dataReferencia: item.dataReferencia,
+        // Data de referência - normalizar para evitar problemas de fuso horário
+        dataReferencia: normalizeDateForDB(item.dataReferencia),
       }));
     }
 

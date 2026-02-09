@@ -1408,4 +1408,12 @@
 - [x] Ajustar filtro de competência no Demonstrativo.tsx para usar as datas reais do banco em vez de gerar lista fixa de 24 meses
 - [x] Inicializar o filtro com a competência mais recente disponível (11/2025 com 24.500 itens)
 - [x] Corrigir erro SQL only_full_group_by na query getDemonstrativoCompetencias (usando aliases)
-- [ ] Salvar checkpoint
+- [x] Salvar checkpoint (versão 3c9625c6)
+
+
+## Arquivo Demostrativo Psi-12-2025.xlsx travado em 'processando' - 09/02/2026
+- [x] Diagnosticar por que o arquivo (ID 840002) está travado em status 'processando' e não populou tabela demonstrativo
+- [x] Reprocessar o arquivo: 26.614 registros em recebimentos_excel, 24.500 em demonstrativo
+- [x] Corrigir bug de fuso horário no syncDemonstrativo (data 2025-12-01 virava 2025-11-30) - função normalizeDateForDB com meio-dia UTC
+- [x] Atualizar status do arquivo de 'processando' para 'processado'
+- [x] Verificar dados na tela Demonstrativo com competência 12/2025 (4.674 contas, 24.500 itens, R$ 866.804,71)
