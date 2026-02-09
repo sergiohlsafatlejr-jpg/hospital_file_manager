@@ -1,0 +1,20 @@
+{
+  "query": "SELECT arquivo_id, COUNT(*) as total, MIN(numero_protocolo) as protocolo FROM recebimento_tiss GROUP BY arquivo_id ORDER BY arquivo_id",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT arquivo_id, COUNT(*) as total, MIN(numero_protocolo) as protocolo FROM recebimento_tiss GROUP BY arquivo_id ORDER BY arquivo_id",
+  "rows": [
+    {
+      "arquivo_id": "900005",
+      "total": "102",
+      "protocolo": "223689903"
+    },
+    {
+      "arquivo_id": "900006",
+      "total": "15",
+      "protocolo": "223722682"
+    }
+  ],
+  "messages": [],
+  "stdout": "arquivo_id\ttotal\tprotocolo\n900005\t102\t223689903\n900006\t15\t223722682\n",
+  "stderr": "",
+  "execution_time_ms": 63
+}

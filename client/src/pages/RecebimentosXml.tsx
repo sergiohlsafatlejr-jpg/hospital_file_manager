@@ -29,7 +29,20 @@ import {
   TrendingDown,
   Layers2,
   Calendar,
+  Trash2,
+  FolderOpen,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -291,6 +304,7 @@ export default function RecebimentosXml() {
       "Código": item.codigoProcedimento || "",
       "Descrição": item.descricaoProcedimento || "",
       "Valor Informado": parseFloat(item.valorInformado || "0"),
+      "Valor Pago": parseFloat(item.valorLiberado || "0"),
       "Valor Processado": parseFloat(item.valorProcessado || "0"),
       "Valor Glosado": parseFloat(item.valorGlosa || "0"),
       "Código Glosa": item.codigoGlosa || "",
@@ -370,8 +384,8 @@ export default function RecebimentosXml() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Valor Processado</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(stats?.valorProcessado)}</p>
+                  <p className="text-sm text-slate-500">Valor Pago</p>
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(stats?.valorLiberado ?? stats?.valorProcessado)}</p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-green-50 flex items-center justify-center">
                   <DollarSign className="h-6 w-6 text-green-600" />
@@ -384,7 +398,7 @@ export default function RecebimentosXml() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Valor Glosado</p>
-                  <p className="text-2xl font-bold text-red-600">{formatCurrency(stats?.valorProcessado ? (stats.valorInformado - stats.valorProcessado) : 0)}</p>
+                  <p className="text-2xl font-bold text-red-600">{formatCurrency(stats?.valorGlosado || 0)}</p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-red-50 flex items-center justify-center">
                   <TrendingDown className="h-6 w-6 text-red-600" />
@@ -411,6 +425,7 @@ export default function RecebimentosXml() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="listagem">Itens Recebidos</TabsTrigger>
+            <TabsTrigger value="arquivos">Arquivos Importados</TabsTrigger>
             <TabsTrigger value="upload">Importar XML</TabsTrigger>
           </TabsList>
 
@@ -507,7 +522,7 @@ export default function RecebimentosXml() {
                             <TableHead>Código</TableHead>
                             <TableHead>Descrição</TableHead>
                             <TableHead className="text-right">Vl. Informado</TableHead>
-                            <TableHead className="text-right">Vl. Processado</TableHead>
+                            <TableHead className="text-right">Vl. Pago</TableHead>
                             <TableHead className="text-right">Vl. Glosa</TableHead>
                             <TableHead>Cód. Glosa</TableHead>
                             <TableHead>Data</TableHead>
@@ -516,7 +531,7 @@ export default function RecebimentosXml() {
                         <TableBody>
                           {items.map((item: any, idx: number) => {
                             const valorGlosa = parseFloat(item.valorGlosa || "0");
-                            const valorProcessado = parseFloat(item.valorProcessado || "0");
+                            const valorPago = parseFloat(item.valorLiberado || "0");
                             return (
                               <TableRow key={item.id || idx} className={valorGlosa > 0 ? "bg-red-50/50" : ""}>
                                 <TableCell className="font-mono text-xs">{item.numeroProtocolo || "-"}</TableCell>
@@ -525,7 +540,7 @@ export default function RecebimentosXml() {
                                 <TableCell className="font-mono text-xs">{item.codigoProcedimento || "-"}</TableCell>
                                 <TableCell className="max-w-[200px] truncate text-sm">{item.descricaoProcedimento || "-"}</TableCell>
                                 <TableCell className="text-right text-sm">{formatCurrency(item.valorInformado)}</TableCell>
-                                <TableCell className="text-right text-sm font-medium text-green-700">{formatCurrency(item.valorProcessado)}</TableCell>
+                                <TableCell className="text-right text-sm font-medium text-green-700">{formatCurrency(item.valorLiberado)}</TableCell>
                                 <TableCell className="text-right text-sm font-medium text-red-600">{valorGlosa > 0 ? formatCurrency(valorGlosa) : "-"}</TableCell>
                                 <TableCell>
                                   {item.codigoGlosa ? (
@@ -784,8 +799,159 @@ export default function RecebimentosXml() {
               </div>
             </div>
           </TabsContent>
+          {/* Tab: Arquivos Importados */}
+          <TabsContent value="arquivos" className="space-y-4">
+            <ArquivosImportadosTab
+              estabelecimentoId={estabelecimentoAtual?.id}
+              formatCurrency={formatCurrency}
+              formatDate={formatDate}
+              onDeleted={() => {
+                utils.recebimentoTiss.list.invalidate();
+                utils.recebimentoTiss.stats.invalidate();
+                utils.demonstrativo.contas.invalidate();
+                utils.demonstrativo.resumo.invalidate();
+                utils.demonstrativo.competencias.invalidate();
+                utils.arquivos.list.invalidate();
+              }}
+            />
+          </TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+// Componente separado para a aba de Arquivos Importados
+function ArquivosImportadosTab({
+  estabelecimentoId,
+  formatCurrency,
+  formatDate,
+  onDeleted,
+}: {
+  estabelecimentoId?: number;
+  formatCurrency: (v: any) => string;
+  formatDate: (v: any) => string;
+  onDeleted: () => void;
+}) {
+  const { data: arquivos, isLoading, refetch } = trpc.arquivos.list.useQuery(
+    {
+      estabelecimentoId,
+      direcao: "retornado",
+      tipoArquivo: "xml",
+    },
+    { enabled: !!estabelecimentoId }
+  );
+
+  const deleteMutation = trpc.arquivos.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Arquivo e todos os dados relacionados foram excluídos com sucesso!");
+      refetch();
+      onDeleted();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao excluir: ${error.message}`);
+    },
+  });
+
+  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "xml" || a.nome?.toLowerCase().endsWith(".xml"))) || [];
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FolderOpen className="h-5 w-5 text-blue-600" />
+          Arquivos XML Importados
+        </CardTitle>
+        <CardDescription>
+          Lista de arquivos XML de retorno importados. Ao excluir um arquivo, todos os dados relacionados (recebimentos e demonstrativo) serão removidos automaticamente.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          </div>
+        ) : arquivosList.length === 0 ? (
+          <div className="text-center py-12 text-slate-500">
+            <FileCode2 className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+            <p className="font-medium">Nenhum arquivo XML importado</p>
+            <p className="text-sm mt-1">Importe arquivos XML na aba "Importar XML"</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome do Arquivo</TableHead>
+                <TableHead>Convênio</TableHead>
+                <TableHead>Data Import.</TableHead>
+                <TableHead className="text-right">Itens</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {arquivosList.map((arquivo: any) => (
+                <TableRow key={arquivo.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <FileCode2 className="h-4 w-4 text-blue-500" />
+                      <span className="truncate max-w-[250px]">{arquivo.nome}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{arquivo.convenioNome || "-"}</TableCell>
+                  <TableCell>{formatDate(arquivo.createdAt)}</TableCell>
+                  <TableCell className="text-right">{arquivo.totalItens || "-"}</TableCell>
+                  <TableCell>
+                    <Badge variant={arquivo.status === "processado" ? "default" : "secondary"} className="text-xs">
+                      {arquivo.status || "pendente"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={deleteMutation.isPending}
+                        >
+                          {deleteMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Excluir arquivo e dados relacionados?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Esta ação irá excluir o arquivo <strong>{arquivo.nome}</strong> e todos os dados relacionados:
+                            <ul className="list-disc ml-4 mt-2 space-y-1">
+                              <li>Itens de recebimento TISS</li>
+                              <li>Registros no demonstrativo</li>
+                            </ul>
+                            <p className="mt-2 font-medium text-red-600">Esta ação não pode ser desfeita.</p>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => deleteMutation.mutate({ id: arquivo.id })}
+                          >
+                            Excluir
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

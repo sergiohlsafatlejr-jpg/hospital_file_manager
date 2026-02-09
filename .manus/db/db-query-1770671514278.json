@@ -1,0 +1,26 @@
+{
+  "query": "SELECT 'recebimento_tiss' as tabela, COUNT(*) as total FROM recebimento_tiss UNION ALL SELECT 'recebimentos_excel', COUNT(*) FROM recebimentos_excel UNION ALL SELECT 'demonstrativo', COUNT(*) FROM demonstrativo UNION ALL SELECT 'arquivos_retornados', COUNT(*) FROM arquivos WHERE direcao = 'retornado'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT 'recebimento_tiss' as tabela, COUNT(*) as total FROM recebimento_tiss UNION ALL SELECT 'recebimentos_excel', COUNT(*) FROM recebimentos_excel UNION ALL SELECT 'demonstrativo', COUNT(*) FROM demonstrativo UNION ALL SELECT 'arquivos_retornados', COUNT(*) FROM arquivos WHERE direcao = 'retornado'",
+  "rows": [
+    {
+      "tabela": "arquivos_retornados",
+      "total": "0"
+    },
+    {
+      "tabela": "recebimento_tiss",
+      "total": "0"
+    },
+    {
+      "tabela": "recebimentos_excel",
+      "total": "0"
+    },
+    {
+      "tabela": "demonstrativo",
+      "total": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tabela\ttotal\narquivos_retornados\t0\nrecebimento_tiss\t0\nrecebimentos_excel\t0\ndemonstrativo\t0\n",
+  "stderr": "",
+  "execution_time_ms": 73
+}

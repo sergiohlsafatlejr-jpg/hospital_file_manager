@@ -1,0 +1,25 @@
+{
+  "query": "SELECT COUNT(*) as total FROM recebimento_tiss; SELECT COUNT(*) as total FROM recebimentos_excel; SELECT COUNT(*) as total FROM demonstrativo",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT COUNT(*) as total FROM recebimento_tiss; SELECT COUNT(*) as total FROM recebimentos_excel; SELECT COUNT(*) as total FROM demonstrativo",
+  "rows": [
+    {
+      "total": "117"
+    },
+    {
+      "total": "total"
+    },
+    {
+      "total": "0"
+    },
+    {
+      "total": "total"
+    },
+    {
+      "total": "117"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\n117\ntotal\n0\ntotal\n117\n",
+  "stderr": "",
+  "execution_time_ms": 87
+}

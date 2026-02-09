@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, nome, tipo, direcao, convenio_id FROM arquivos WHERE direcao = 'retornado' ORDER BY id DESC LIMIT 20",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, tipo, direcao, convenio_id FROM arquivos WHERE direcao = 'retornado' ORDER BY id DESC LIMIT 20",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'tipo' in 'field list'"
+  ]
+}

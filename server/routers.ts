@@ -878,15 +878,29 @@ export const appRouter = router({
         if (!arquivo) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado" });
         }
-        if (arquivo.userId !== ctx.user.id) {
+        if (arquivo.userId !== ctx.user.id && ctx.user.role !== 'admin') {
           throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para excluir este arquivo" });
         }
         
-        // Delete associated procedimentos first
+        // Delete associated procedimentos
         await db.deleteProcedimentosByArquivoId(input.id);
         
-        // Delete the arquivo record
+        // Delete associated faturamento_tiss
+        await db.deleteFaturamentoTissByArquivo(input.id);
+        
+        // Delete associated recebimento_tiss (XML retornados)
+        const recTiss = await db.deleteRecebimentoTissByArquivo(input.id);
+        
+        // Delete associated recebimentos_excel (Excel retornados)
+        const recExcel = await db.deleteRecebimentosExcelByArquivo(input.id);
+        
+        // Delete associated demonstrativo entries
+        const demo = await db.deleteDemonstrativoByArquivo(input.id);
+        
+        // Delete the arquivo record itself
         await db.deleteArquivo(input.id);
+        
+        console.log(`[Arquivo Delete] Arquivo ${input.id} (${arquivo.nome}) excluído em cascata: recebimentoTiss=${recTiss}, recebimentosExcel=${recExcel}, demonstrativo=${demo}`);
         
         return { success: true };
       }),
@@ -5681,7 +5695,7 @@ export const appRouter = router({
         arquivoId: z.number().optional(),
       }).optional())
       .query(async ({ input }) => {
-        return db.getRecebimentoTissStats(input);
+        return db.getRecebimentoTissStats(input || {});
       }),
     
     // Excluir itens por arquivo

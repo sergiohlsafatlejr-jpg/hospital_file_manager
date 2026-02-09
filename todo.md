@@ -1481,3 +1481,14 @@
   - Bug: sistema calculava glosa pela diferença valorInformado - valorLiberado mesmo sem glosa real
   - Fix: só marcar como glosado se houver <relacaoGlosa> explícita ou motivoGlosaGuia + valorLiberado=0
   - Corrigido em: recebimentoTissParser.ts, syncDemonstrativo.ts, parsers.ts
+- [x] Investigar e limpar dados residuais que ainda aparecem nas telas após exclusão dos arquivos (limpeza total: recebimento_tiss, recebimentos_excel, demonstrativo, arquivos retornados)
+
+## Exclusão em Cascata de Arquivos
+- [x] Criar procedure de exclusão em cascata no backend (ao excluir arquivo, remover dados de recebimento_tiss, recebimentos_excel e demonstrativo)
+- [x] Adicionar botão de exclusão nas telas Recebimentos XML e Recebimentos Excel
+- [x] Adicionar confirmação antes de excluir (AlertDialog)
+- [x] Implementar exclusão em cascata ao excluir arquivo
+- [x] Adicionar aba de arquivos importados com botão de exclusão nas telas de Recebimentos
+- [x] Analisar 6 XMLs de retorno e identificar problemas na importação de valores
+- [x] Corrigir parser de XML para importar valores corretamente (todos os 6 XMLs com valores corretos)
+- [ ] Testar fluxo completo de exclusão em cascata

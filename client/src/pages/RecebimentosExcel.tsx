@@ -28,7 +28,20 @@ import {
   DollarSign,
   TrendingDown,
   Layers2,
+  Trash2,
+  FolderOpen,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -365,6 +378,7 @@ export default function RecebimentosExcel() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="listagem">Itens Recebidos</TabsTrigger>
+            <TabsTrigger value="arquivos">Arquivos Importados</TabsTrigger>
             <TabsTrigger value="upload">Importar Excel</TabsTrigger>
           </TabsList>
 
@@ -704,8 +718,159 @@ export default function RecebimentosExcel() {
               </div>
             </div>
           </TabsContent>
+          {/* Tab: Arquivos Importados */}
+          <TabsContent value="arquivos" className="space-y-4">
+            <ArquivosImportadosExcelTab
+              estabelecimentoId={estabelecimentoAtual?.id}
+              formatCurrency={formatCurrency}
+              formatDate={formatDate}
+              onDeleted={() => {
+                utils.recebimentosExcel.list.invalidate();
+                utils.recebimentosExcel.resumo.invalidate();
+                utils.demonstrativo.contas.invalidate();
+                utils.demonstrativo.resumo.invalidate();
+                utils.demonstrativo.competencias.invalidate();
+                utils.arquivos.list.invalidate();
+              }}
+            />
+          </TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+// Componente separado para a aba de Arquivos Importados
+function ArquivosImportadosExcelTab({
+  estabelecimentoId,
+  formatCurrency,
+  formatDate,
+  onDeleted,
+}: {
+  estabelecimentoId?: number;
+  formatCurrency: (v: any) => string;
+  formatDate: (v: any) => string;
+  onDeleted: () => void;
+}) {
+  const { data: arquivos, isLoading, refetch } = trpc.arquivos.list.useQuery(
+    {
+      estabelecimentoId,
+      direcao: "retornado",
+      tipoArquivo: "excel",
+    },
+    { enabled: !!estabelecimentoId }
+  );
+
+  const deleteMutation = trpc.arquivos.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Arquivo e todos os dados relacionados foram excluídos com sucesso!");
+      refetch();
+      onDeleted();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao excluir: ${error.message}`);
+    },
+  });
+
+  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "excel" || a.nome?.toLowerCase().endsWith(".xlsx") || a.nome?.toLowerCase().endsWith(".xls"))) || [];
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FolderOpen className="h-5 w-5 text-emerald-600" />
+          Arquivos Excel Importados
+        </CardTitle>
+        <CardDescription>
+          Lista de arquivos Excel de retorno importados. Ao excluir um arquivo, todos os dados relacionados (recebimentos e demonstrativo) serão removidos automaticamente.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          </div>
+        ) : arquivosList.length === 0 ? (
+          <div className="text-center py-12 text-slate-500">
+            <FileSpreadsheet className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+            <p className="font-medium">Nenhum arquivo Excel importado</p>
+            <p className="text-sm mt-1">Importe arquivos Excel na aba "Importar Excel"</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome do Arquivo</TableHead>
+                <TableHead>Convênio</TableHead>
+                <TableHead>Data Import.</TableHead>
+                <TableHead className="text-right">Itens</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {arquivosList.map((arquivo: any) => (
+                <TableRow key={arquivo.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                      <span className="truncate max-w-[250px]">{arquivo.nome}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{arquivo.convenioNome || "-"}</TableCell>
+                  <TableCell>{formatDate(arquivo.createdAt)}</TableCell>
+                  <TableCell className="text-right">{arquivo.totalItens || "-"}</TableCell>
+                  <TableCell>
+                    <Badge variant={arquivo.status === "processado" ? "default" : "secondary"} className="text-xs">
+                      {arquivo.status || "pendente"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={deleteMutation.isPending}
+                        >
+                          {deleteMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Excluir arquivo e dados relacionados?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Esta ação irá excluir o arquivo <strong>{arquivo.nome}</strong> e todos os dados relacionados:
+                            <ul className="list-disc ml-4 mt-2 space-y-1">
+                              <li>Itens de recebimentos Excel</li>
+                              <li>Registros no demonstrativo</li>
+                            </ul>
+                            <p className="mt-2 font-medium text-red-600">Esta ação não pode ser desfeita.</p>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => deleteMutation.mutate({ id: arquivo.id })}
+                          >
+                            Excluir
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

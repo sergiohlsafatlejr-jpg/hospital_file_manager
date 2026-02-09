@@ -15942,6 +15942,7 @@ export async function getRecebimentoTiss(filtros?: {
  */
 export async function getRecebimentoTissStats(filtros?: {
   arquivoId?: number;
+  estabelecimentoId?: number;
 }) {
   const db = await getDb();
   if (!db) return null;
@@ -15950,6 +15951,9 @@ export async function getRecebimentoTissStats(filtros?: {
 
   if (filtros?.arquivoId) {
     conditions.push(eq(recebimentoTiss.arquivoId, filtros.arquivoId));
+  }
+  if (filtros?.estabelecimentoId) {
+    conditions.push(eq(recebimentoTiss.estabelecimentoId, filtros.estabelecimentoId));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -15960,6 +15964,7 @@ export async function getRecebimentoTissStats(filtros?: {
       valorInformado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorInformado} AS DECIMAL(15,2))), 0)`,
       valorProcessado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorProcessado} AS DECIMAL(15,2))), 0)`,
       valorLiberado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorLiberado} AS DECIMAL(15,2))), 0)`,
+      valorGlosado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorGlosado} AS DECIMAL(15,2))), 0)`,
       itensPagos: sql<number>`SUM(CASE WHEN (${recebimentoTiss.codigoGlosa} IS NULL OR ${recebimentoTiss.codigoGlosa} = '') AND CAST(${recebimentoTiss.valorLiberado} AS DECIMAL(15,2)) > 0 THEN 1 ELSE 0 END)`,
       itensGlosados: sql<number>`SUM(CASE WHEN ${recebimentoTiss.codigoGlosa} IS NOT NULL AND ${recebimentoTiss.codigoGlosa} != '' THEN 1 ELSE 0 END)`,
     })

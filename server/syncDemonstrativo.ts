@@ -128,18 +128,26 @@ export async function syncDemonstrativoByArquivo(
 
       // Mapear para formato demonstrativo
       records = xmlData.map((item: any) => {
+        // Valores do item
+        const valorInf = parseFloat(item.valorInformado || '0');
+        const valorLib = parseFloat(item.valorLiberado || '0');
+        
         // CORREÇÃO: Usar o valorGlosado já calculado corretamente pelo parser
-        // NÃO recalcular pela diferença valorInformado - valorLiberado
+        // O parser só marca como glosado se houver <relacaoGlosa> explícita ou motivoGlosaGuia
         const valorGlosadoStr = item.valorGlosado ? String(item.valorGlosado) : null;
         const valorGlosadoNum = parseFloat(valorGlosadoStr || '0');
         const hasGlosa = valorGlosadoNum > 0.01 || (item.codigoGlosa && item.codigoGlosa !== '');
         
-        // Traduzir situação TISS: "3" = processado
-        // Se tem glosa, marcar como GLOSADO; senão, PAGO
+        // Traduzir situação TISS
+        // Se tem glosa total (valorLiberado = 0), marcar como GLOSADO
+        // Se tem glosa parcial (valorLiberado > 0 mas tem glosa), marcar como PARCIAL
+        // Senão, PAGO
         let situacao = item.situacaoGuia;
-        if (hasGlosa) {
+        if (hasGlosa && valorLib === 0) {
           situacao = 'GLOSADO';
-        } else if (situacao === '3' || situacao === '1' || situacao === '2') {
+        } else if (hasGlosa && valorLib > 0) {
+          situacao = 'PARCIAL';
+        } else {
           situacao = 'PAGO';
         }
         
@@ -166,13 +174,16 @@ export async function syncDemonstrativoByArquivo(
           dataExecucao: item.dataRealizacao,
           quantidade: item.quantidadeExecutada,
           
-          // Valores
+          // Valores - CORREÇÃO: 
+          // valorInformado = o que o hospital cobrou
+          // valorPago = valorLiberado do XML (o que o convênio efetivamente pagou)
+          // valorGlosa = valorGlosado calculado pelo parser (só quando há glosa explícita)
           valorInformado: item.valorInformado,
-          valorPago: hasGlosa ? '0' : item.valorLiberado,
+          valorPago: item.valorLiberado || '0',
           valorGlosa: hasGlosa ? String(valorGlosadoNum.toFixed(2)) : null,
           
           // Status
-          codigoGlosa: item.codigoGlosa || (hasGlosa ? `Glosa: ${valorGlosadoNum.toFixed(2)}` : null),
+          codigoGlosa: item.codigoGlosa || null,
           situacaoItem: situacao,
           erroTiss: item.codigoGlosa ? `${item.codigoGlosa}${item.descricaoGlosa ? ' - ' + item.descricaoGlosa : ''}` : null,
           
