@@ -1539,3 +1539,7 @@
 - [x] Limpar referências residuais: removido import de Procedimento no comparador.ts, removido InsertProcedimento e toProcedimentoInsert do parsers.ts
 - [x] Dropar a tabela procedimentos no banco de dados via SQL (DROP TABLE IF EXISTS procedimentos)
 - [x] Verificar compilação e executar testes (435 testes passando, 0 erros TS no db.ts)
+
+## Sincronização do Schema Drizzle com o Banco
+
+- [x] Sincronizar schema Drizzle com o banco: migração 0053 criada (DROP TABLE procedimentos), snapshot atualizado, 4 migrações faltantes registradas (54/54 synced), drizzle-kit migrate OK, 435 testes passando
