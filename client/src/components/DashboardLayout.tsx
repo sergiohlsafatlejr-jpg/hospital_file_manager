@@ -31,7 +31,6 @@ import {
   Upload, 
   FileSearch, 
   GitCompare, 
-  AlertTriangle,
   Settings,
   FileText,
   List,
@@ -90,12 +89,9 @@ const menuItems: MenuItem[] = [
   
   // Comparações e Conciliação
   { icon: GitCompare, label: "Comparações", path: "/comparacoes", modulo: "comparacoes" },
-  { icon: AlertTriangle, label: "Divergências", path: "/divergencias", modulo: "comparacoes" },
   { icon: Scale, label: "Conciliação", path: "/conciliacao", modulo: "comparacoes" },
   
   // Faturamento
-  { icon: BarChart3, label: "Faturamento", path: "/faturamento", modulo: "faturamento" },
-  { icon: FileText, label: "Relatório de Contas", path: "/relatorio-contas", modulo: "faturamento" },
   { icon: FileSpreadsheet, label: "Demonstrativo", path: "/demonstrativo", modulo: "faturamento" },
   
   // Recebimentos (fontes de dados do Demonstrativo)
@@ -114,7 +110,6 @@ const menuItems: MenuItem[] = [
   // Relatórios e Históricos
   { icon: FileText, label: "Relatórios", path: "/relatorios", modulo: "faturamento" },
   { icon: TrendingUp, label: "Tendências", path: "/tendencias", modulo: "analiseGlosa" },
-  { icon: History, label: "Histórico Contestações", path: "/historico-contestacoes", modulo: "recursosGlosa" },
   { icon: Receipt, label: "Repasse", path: "/repasse", modulo: "faturamento" },
   
   // Administração
@@ -122,7 +117,6 @@ const menuItems: MenuItem[] = [
   { icon: BookOpen, label: "Dicionário de Glosas", path: "/dicionario-glosas", modulo: "dicionarioGlosas" },
   { icon: Settings2, label: "Regras de IA", path: "/regras-ia", adminOnly: true },
   { icon: Database, label: "Importação Tasy", path: "/importacao-tasy", adminOnly: true, tasyOnly: true },
-  { icon: Receipt, label: "Faturado Tasy", path: "/faturado-tasy", modulo: "arquivos", tasyOnly: true },
   { icon: DollarSign, label: "Contas Faturadas", path: "/contas-faturadas", modulo: "arquivos", tasyOnly: true },
   { icon: BarChart3, label: "Relatórios Tasy", path: "/relatorios-tasy", modulo: "arquivos", tasyOnly: true },
   { icon: PieChart, label: "Relatórios BI", path: "/relatorios-bi", modulo: "arquivos", tasyOnly: true },

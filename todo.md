@@ -1577,3 +1577,8 @@
 - [ ] Analisar aba Relatório de Contas: identificar tabelas e procedures utilizadas
 - [ ] Analisar aba Histórico de Contestações: identificar tabelas e procedures utilizadas
 - [ ] Analisar aba Faturado Tasy: identificar tabelas e procedures utilizadas
+- [x] Remover aba Divergentes do sistema (rota, sidebar, página)
+- [x] Remover aba Faturamento do sistema (rota, sidebar, página)
+- [x] Remover aba Relatório de Contas do sistema (rota, sidebar, página)
+- [x] Remover aba Histórico de Contestações do sistema (rota, sidebar, página)
+- [x] Remover aba Faturado Tasy do sistema (rota, sidebar, página)

@@ -10,21 +10,18 @@ import SelecionarEstabelecimento from "./pages/SelecionarEstabelecimento";
 import Upload from "./pages/Upload";
 import Arquivos from "./pages/Arquivos";
 import Comparacoes from "./pages/Comparacoes";
-import Divergencias from "./pages/Divergencias";
 import Relatorios from "./pages/Relatorios";
 import Configuracoes from "./pages/Configuracoes";
 import ContaConvenio from "./pages/ContaConvenio";
 import ContasDemonstrativo from "./pages/ContasDemonstrativo";
 import ContaDetalhesDemonstrativo from "./pages/ContaDetalhesDemonstrativo";
 import Conciliacao from "./pages/Conciliacao";
-import Faturamento from "./pages/Faturamento";
 import AnaliseGlosa from "./pages/AnaliseGlosa";
 import RecursosGlosa from "./pages/RecursosGlosa";
 import Tendencias from "./pages/Tendencias";
 import Demonstrativo from "./pages/Demonstrativo";
 import Repasse from "./pages/Repasse";
 import DicionarioGlosas from "./pages/DicionarioGlosas";
-import HistoricoContestacoes from "./pages/HistoricoContestacoes";
 import Estabelecimentos from "./pages/Estabelecimentos";
 import RegrasConciliacao from "./pages/RegrasConciliacao";
 import TabelasPreco from "./pages/TabelasPreco";
@@ -34,7 +31,6 @@ import GerenciarPermissoes from "./pages/GerenciarPermissoes";
 import DashboardProdutividade from "./pages/DashboardProdutividade";
 import AlterarSenha from "./pages/AlterarSenha";
 import ContaDetalhes from "./pages/ContaDetalhes";
-import RelatorioContas from "./pages/RelatorioContas";
 import AcompanhamentoRecursos from "./pages/AcompanhamentoRecursos";
 import DashboardIA from "./pages/DashboardIA";
 import NaoRecebidos from "./pages/NaoRecebidos";
@@ -49,7 +45,6 @@ import DetalheContaTasy from "./pages/DetalheContaTasy";
 import RelatoriosBI from "./pages/RelatoriosBI";
 import ConciliacaoContasPagas from "./pages/ConciliacaoContasPagas";
 import HistoricoConciliacaoTasy from "./pages/HistoricoConciliacaoTasy";
-import FaturadoTasy from "./pages/FaturadoTasy";
 import ConciliacaoContasFaturadas from "./pages/ConciliacaoContasFaturadas";
 import DetalhesContaFaturada from "./pages/DetalhesContaFaturada";
 import ContaConvenioDetalhes from "./pages/ContaConvenioDetalhes";
@@ -73,7 +68,6 @@ function Router() {
       <Route path={"/upload"} component={Upload} />
       <Route path={"/arquivos"} component={Arquivos} />
       <Route path={"/comparacoes"} component={Comparacoes} />
-      <Route path={"/divergencias"} component={Divergencias} />
       <Route path={"/relatorios"} component={Relatorios} />
       <Route path={"/configuracoes"} component={Configuracoes} />
       <Route path={"/conta-convenio"} component={ContaConvenio} />
@@ -83,7 +77,6 @@ function Router() {
       <Route path={"/contas/:guiaNumero"} component={ContaDetalhes} />
       <Route path={"/conciliacao"} component={Conciliacao} />
       <Route path={"/conciliacao/:convenioId/:guiaNumero"} component={ConciliacaoDetalhes} />
-      <Route path={"/faturamento"} component={Faturamento} />
       <Route path={"/analise-glosa"} component={AnaliseGlosa} />
       <Route path={"/recursos"} component={RecursosGlosa} />
       <Route path={"/regras-conciliacao"} component={RegrasConciliacao} />
@@ -91,7 +84,6 @@ function Router() {
       <Route path={"/demonstrativo"} component={Demonstrativo} />
       <Route path={"/repasse"} component={Repasse} />
       <Route path={"/dicionario-glosas"} component={DicionarioGlosas} />
-      <Route path={"/historico-contestacoes"} component={HistoricoContestacoes} />
       <Route path={"/estabelecimentos"} component={Estabelecimentos} />
       <Route path={"/tabelas-preco"} component={TabelasPreco} />
       <Route path={"/regras-negocio"} component={RegrasNegocio} />
@@ -99,7 +91,6 @@ function Router() {
       <Route path={"/gerenciar-permissoes"} component={GerenciarPermissoes} />
       <Route path={"/produtividade"} component={DashboardProdutividade} />
       <Route path={"/alterar-senha"} component={AlterarSenha} />
-      <Route path={"/relatorio-contas"} component={RelatorioContas} />
       <Route path={"/acompanhamento-recursos"} component={AcompanhamentoRecursos} />
       <Route path={"/dashboard-ia"} component={DashboardIA} />
       <Route path={"/nao-recebidos"} component={NaoRecebidos} />
@@ -113,7 +104,6 @@ function Router() {
       <Route path={"/relatorios-bi"} component={RelatoriosBI} />
       <Route path={"/conciliacao-contas-pagas"} component={ConciliacaoContasPagas} />
       <Route path={"/historico-conciliacao-tasy"} component={HistoricoConciliacaoTasy} />
-      <Route path={"/faturado-tasy"} component={FaturadoTasy} />
       <Route path={"/contas-faturadas"} component={ConciliacaoContasFaturadas} />
       <Route path={"/contas-faturadas/:conta"} component={DetalhesContaFaturada} />
       <Route path={"/recebimentos-xml"} component={RecebimentosXml} />
