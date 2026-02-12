@@ -1694,3 +1694,10 @@
 - [x] Substituir query UNION complexa por SELECT simples da tabela din_Atend_receb_s_faturar
 - [x] Ajustar interface AtendimentoFaturarRow para os novos campos (remover nomepac, codtipsai, codcc_destino)
 - [x] Ajustar frontend para campos disponíveis (remover colunas Paciente, Tipo Saída, CC Destino)
+
+## KPIs por Plano e Botão Voltar nas Telas de Atendimentos
+- [x] Adicionar KPIs por plano (convênio) abaixo dos KPIs por tipo na tela Atendimentos
+- [x] Adicionar KPIs por plano (convênio) abaixo dos KPIs por tipo na tela Atendimentos a Faturar
+- [x] Adicionar botão de voltar na tela Atendimentos
+- [x] Adicionar botão de voltar na tela Atendimentos a Faturar
+- [x] Adicionar filtro clicável por plano com badge de filtro ativo nas duas telas

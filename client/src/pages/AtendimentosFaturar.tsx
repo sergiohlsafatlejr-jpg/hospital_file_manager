@@ -8,8 +8,9 @@ import { toast } from "sonner";
 import {
   Users, Building2, Stethoscope, FlaskConical,
   ArrowUpDown, Download, X, RefreshCw,
-  Search, AlertTriangle, Clock, Timer, FileText
+  Search, AlertTriangle, Clock, Timer, FileText, ArrowLeft, Shield
 } from "lucide-react";
+import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 
 type SortColumn = "numatend" | "nomeplaco" | "datatend" | "datasai" | "diasParado" | "tipoatendimentodescricao" | "codserv" | "carater" | "procprin";
@@ -36,6 +37,8 @@ export default function AtendimentosFaturar() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroServico, setFiltroServico] = useState<string | null>(null);
+  const [filtroPlano, setFiltroPlano] = useState<string | null>(null);
+  const [, navigate] = useLocation();
 
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
   const [tempoRestante, setTempoRestante] = useState<string>("");
@@ -84,6 +87,17 @@ export default function AtendimentosFaturar() {
     };
   }, [atendimentos]);
 
+  // KPIs por plano (convênio)
+  const planosContagem = useMemo(() => {
+    if (!atendimentos) return [];
+    const contagem: Record<string, number> = {};
+    atendimentos.forEach(d => {
+      const plano = d.nomeplaco || "Sem Plano";
+      contagem[plano] = (contagem[plano] || 0) + 1;
+    });
+    return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
+  }, [atendimentos]);
+
   // Contagem por serviço
   const servicosContagem = useMemo(() => {
     if (!atendimentos) return [];
@@ -108,6 +122,11 @@ export default function AtendimentosFaturar() {
     // Filtro por serviço
     if (filtroServico) {
       filtrados = filtrados.filter(d => (d.codserv || "Sem Serviço") === filtroServico);
+    }
+
+    // Filtro por plano
+    if (filtroPlano) {
+      filtrados = filtrados.filter(d => (d.nomeplaco || "Sem Plano") === filtroPlano);
     }
 
     // Filtro de pesquisa
@@ -150,7 +169,7 @@ export default function AtendimentosFaturar() {
     });
 
     return filtrados;
-  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico]);
+  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano]);
 
   function handleSort(col: SortColumn) {
     if (sortColumn === col) {
@@ -199,14 +218,19 @@ export default function AtendimentosFaturar() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="w-7 h-7 text-primary" />
-            Atendimentos a Faturar - Instituto do Rim
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Atendimentos com alta nos últimos 90 dias pendentes de faturamento
-          </p>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" onClick={() => navigate("/")} className="h-9 w-9">
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <FileText className="w-7 h-7 text-primary" />
+              Atendimentos a Faturar - Instituto do Rim
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Atendimentos com alta nos últimos 90 dias pendentes de faturamento
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {/* Indicador de última atualização */}
@@ -283,6 +307,34 @@ export default function AtendimentosFaturar() {
         </Card>
       </div>
 
+      {/* KPIs por Plano */}
+      {planosContagem.length > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className="w-4 h-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold text-muted-foreground">Quantidade por Plano (Convênio)</h2>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              {planosContagem.map(([plano, qtd]) => (
+                <div
+                  key={plano}
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg border text-sm cursor-pointer transition-all hover:border-emerald-500/50 hover:bg-emerald-500/5 ${
+                    filtroPlano === plano
+                      ? "bg-emerald-500/10 border-emerald-500 ring-1 ring-emerald-500/30"
+                      : "bg-muted/50"
+                  }`}
+                  onClick={() => setFiltroPlano(prev => prev === plano ? null : plano)}
+                >
+                  <span className={`truncate mr-2 text-xs ${filtroPlano === plano ? "text-emerald-600 font-medium" : "text-muted-foreground"}`}>{plano}</span>
+                  <span className="font-bold text-emerald-600">{qtd}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quantidade por Serviço */}
       {servicosContagem.length > 0 && (
         <Card>
@@ -324,7 +376,7 @@ export default function AtendimentosFaturar() {
         </Button>
       </div>
 
-      {(filtroTipo !== "todos" || filtroServico) && (
+      {(filtroTipo !== "todos" || filtroServico || filtroPlano) && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-blue-400 bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-500/20">
           <AlertTriangle className="w-4 h-4" />
           <span>Filtros ativos:</span>
@@ -338,7 +390,12 @@ export default function AtendimentosFaturar() {
               Serviço: {filtroServico} <X className="w-3 h-3" />
             </Badge>
           )}
-          <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); }}>
+          {filtroPlano && (
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroPlano(null)}>
+              Plano: {filtroPlano} <X className="w-3 h-3" />
+            </Badge>
+          )}
+          <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); }}>
             <X className="w-3 h-3 mr-1" /> Limpar Todos
           </Button>
         </div>
