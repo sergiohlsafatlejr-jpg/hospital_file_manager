@@ -1654,3 +1654,19 @@
 - [x] Implementar refetchInterval de 60 minutos nas queries tRPC da aba Atendimentos
 - [x] Adicionar indicador visual de última atualização e countdown para próximo refresh
 - [x] Permitir refresh manual via botão dedicado (com spinner e estado disabled durante fetch)
+
+## Envio de Notificações por E-mail - 12/02/2026
+- [ ] Pesquisar e configurar API de envio de e-mail disponível na plataforma
+- [ ] Implementar função de envio de e-mail no backend
+- [ ] Adicionar campo de destinatário(s) de e-mail no modal de notificação de Atendimentos
+- [ ] Gerar template HTML do e-mail com dados do atendimento e notificação
+- [ ] Integrar envio de e-mail ao fluxo de registrar notificação
+
+## Nova Tela: Atendimentos a Faturar - 12/02/2026
+- [x] Criar função getAtendimentosAFaturar() no pgAtendimentos.ts com a query SQL fornecida
+- [x] Criar procedure tRPC atendimentosFaturar.listar no routers.ts
+- [x] Criar página AtendimentosFaturar.tsx baseada na tela de Atendimentos existente
+- [x] Registrar rota /atendimentos-faturar no App.tsx
+- [x] Adicionar item no menu da sidebar (DashboardLayout) com permissão acessoAtendimentos
+- [x] Adicionar coluna codtipsai (tipo saída) na interface e na tabela
+- [x] Criar testes para a nova funcionalidade (6 testes passando)

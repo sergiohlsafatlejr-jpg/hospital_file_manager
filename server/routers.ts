@@ -11,7 +11,7 @@ import type { InsertFaturamentoTiss } from "../drizzle/schema";
 import { parseExcelRecebimentoTiss, parseXmlRecebimentoTiss } from "./recebimentoTissParser";
 import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
 import * as db from "./db";
-import { getAtendimentosParados, salvarNotificacao } from "./pgAtendimentos";
+import { getAtendimentosParados, salvarNotificacao, getAtendimentosAFaturar } from "./pgAtendimentos";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -6132,6 +6132,25 @@ export const appRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao registrar notificação: ${err.message}`,
+          });
+        }
+      }),
+  }),
+
+  // ===== ATENDIMENTOS A FATURAR (PostgreSQL externo) =====
+  atendimentosFaturar: router({
+    listar: protectedProcedure
+      .query(async () => {
+        try {
+          const dados = await getAtendimentosAFaturar();
+          return dados.map(d => ({
+            ...d,
+            diasParado: calcularDiasParado(d.datasai),
+          }));
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos a faturar: ${err.message}`,
           });
         }
       }),

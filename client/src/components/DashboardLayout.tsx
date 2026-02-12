@@ -126,6 +126,7 @@ const menuItems: MenuItem[] = [
   
   // Atendimentos (PostgreSQL externo) - apenas Instituto do Rim (ID 4)
   { icon: Users, label: "Atendimentos", path: "/atendimentos", modulo: "atendimentos", estabelecimentoIds: [4] },
+  { icon: FileText, label: "Atendimentos a Faturar", path: "/atendimentos-faturar", modulo: "atendimentos", estabelecimentoIds: [4] },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
 ];
 
