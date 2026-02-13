@@ -1701,3 +1701,9 @@
 - [x] Adicionar botão de voltar na tela Atendimentos
 - [x] Adicionar botão de voltar na tela Atendimentos a Faturar
 - [x] Adicionar filtro clicável por plano com badge de filtro ativo nas duas telas
+
+## Atualizar Query Atendimentos a Faturar (adicionar nomepac)
+- [x] Atualizar query SQL no pgAtendimentos.ts para incluir campo nomepac
+- [x] Atualizar interface AtendimentoFaturarRow com nomepac
+- [x] Adicionar coluna Paciente no frontend AtendimentosFaturar.tsx
+- [x] Incluir nomepac na busca textual e exportação Excel

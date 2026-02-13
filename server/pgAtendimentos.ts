@@ -107,6 +107,7 @@ export async function salvarNotificacao(
 export interface AtendimentoFaturarRow {
   numatend: string;
   nomeplaco: string;
+  nomepac: string;
   carater: string;
   datatend: string;
   datasai: string | null;
@@ -123,6 +124,7 @@ export async function getAtendimentosAFaturar(): Promise<AtendimentoFaturarRow[]
       SELECT 
         a.numatend::text,
         a.nomeplaco,
+        a.nomepac,
         a.carater,
         a.datatend::text,
         a.datasai::text,

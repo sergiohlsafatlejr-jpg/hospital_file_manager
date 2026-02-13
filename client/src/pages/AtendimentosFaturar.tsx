@@ -13,7 +13,7 @@ import {
 import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 
-type SortColumn = "numatend" | "nomeplaco" | "datatend" | "datasai" | "diasParado" | "tipoatendimentodescricao" | "codserv" | "carater" | "procprin";
+type SortColumn = "numatend" | "nomeplaco" | "nomepac" | "datatend" | "datasai" | "diasParado" | "tipoatendimentodescricao" | "codserv" | "carater" | "procprin";
 type SortOrder = "asc" | "desc";
 
 function getDiasParadoColor(dias: number): string {
@@ -134,7 +134,7 @@ export default function AtendimentosFaturar() {
       const termo = pesquisa.toLowerCase();
       filtrados = filtrados.filter(d => {
         const campos = [
-          d.numatend, d.nomeplaco,
+          d.numatend, d.nomeplaco, d.nomepac,
           d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "",
           d.datasai ? new Date(d.datasai).toLocaleDateString("pt-BR") : "",
           String(d.diasParado),
@@ -184,6 +184,7 @@ export default function AtendimentosFaturar() {
     const dadosExport = dadosFiltrados.map(d => ({
       "Nº Atend.": d.numatend,
       "Plano": d.nomeplaco,
+      "Paciente": d.nomepac || "-",
       "Caráter": d.carater || "-",
       "Data Entrada": d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "",
       "Data Saída": d.datasai ? new Date(d.datasai).toLocaleDateString("pt-BR") : "",
@@ -410,6 +411,7 @@ export default function AtendimentosFaturar() {
                 {[
                   { col: "numatend" as SortColumn, label: "Nº Atend." },
                   { col: "nomeplaco" as SortColumn, label: "Plano" },
+                  { col: "nomepac" as SortColumn, label: "Paciente" },
                   { col: "carater" as SortColumn, label: "Caráter" },
                   { col: "datatend" as SortColumn, label: "Data Entrada" },
                   { col: "datasai" as SortColumn, label: "Data Saída" },
@@ -432,7 +434,7 @@ export default function AtendimentosFaturar() {
             <tbody>
               {dadosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
                     Nenhum atendimento a faturar encontrado
                   </td>
                 </tr>
@@ -444,6 +446,7 @@ export default function AtendimentosFaturar() {
                   >
                     <td className="px-4 py-3 font-mono font-medium">{d.numatend}</td>
                     <td className="px-4 py-3 max-w-[150px] truncate" title={d.nomeplaco}>{d.nomeplaco}</td>
+                    <td className="px-4 py-3 max-w-[180px] truncate" title={d.nomepac || ""}>{d.nomepac || "-"}</td>
                     <td className="px-4 py-3">
                       {d.carater ? (
                         <Badge variant="outline" className="text-xs">
