@@ -58,7 +58,8 @@ import {
   ArrowLeftRight,
   FileCode2,
   Users,
-  Megaphone
+  Megaphone,
+  Home
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -78,8 +79,10 @@ type MenuItem = {
 };
 
 const menuItems: MenuItem[] = [
+  // Início
+  { icon: Home, label: "Início", path: "/" },
   // Dashboards
-  { icon: LayoutDashboard, label: "Dashboard", path: "/", modulo: "dashboard" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard", modulo: "dashboard" },
   { icon: LayoutGrid, label: "Dashboard Consolidado", path: "/dashboard-consolidado", adminOnly: true },
   { icon: Brain, label: "Dashboard IA", path: "/dashboard-ia", modulo: "comparacoes" },
   { icon: Activity, label: "Produtividade", path: "/produtividade", modulo: "produtividade" },

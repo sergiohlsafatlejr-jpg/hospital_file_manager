@@ -1762,3 +1762,10 @@
 - [x] Remover banners de avisos internos da tela SelecionarEstabelecimento
 - [x] Remover card de Dashboard Consolidado da tela SelecionarEstabelecimento
 - [x] Adicionar banners de avisos internos na tela Home do dashboard (após selecionar estabelecimento)
+
+## Aba Início com Avisos e Notícias
+- [x] Criar página Inicio.tsx com avisos internos da empresa e notícias do setor
+- [x] Adicionar "Início" como primeiro item na sidebar (antes do Dashboard)
+- [x] Configurar rota "/" para a nova página Início
+- [x] Mover Dashboard para rota "/dashboard"
+- [x] Remover avisos da Home.tsx (agora ficam só no Início)

@@ -10,12 +10,8 @@ import {
   Clock, 
   TrendingUp,
   ArrowUpRight,
-  ArrowDownRight,
-  Info,
-  AlertCircle,
-  X
+  ArrowDownRight
 } from "lucide-react";
-import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,85 +26,11 @@ export default function Home() {
   const { data: ultimasComparacoes } = trpc.dashboard.ultimasComparacoes.useQuery({ limit: 5, estabelecimentoId });
   const { data: ultimosArquivos } = trpc.dashboard.ultimosArquivos.useQuery({ limit: 5, estabelecimentoId });
 
-  // Avisos internos
-  const { data: avisosAtivos } = trpc.avisosInternos.listarAtivos.useQuery(undefined, {
-    refetchInterval: 5 * 60 * 1000,
-    staleTime: 2 * 60 * 1000,
-  });
 
-  const [avisosFechados, setAvisosFechados] = useState<number[]>([]);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("avisos_fechados");
-      if (stored) {
-        setAvisosFechados(JSON.parse(stored));
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const fecharAviso = (id: number) => {
-    const novos = [...avisosFechados, id];
-    setAvisosFechados(novos);
-    localStorage.setItem("avisos_fechados", JSON.stringify(novos));
-  };
-
-  const avisosVisiveis = avisosAtivos?.filter(a => !avisosFechados.includes(a.id)) || [];
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Avisos Internos */}
-        {avisosVisiveis.length > 0 && (
-          <div className="space-y-3">
-            {avisosVisiveis.map((aviso) => {
-              const isUrgente = aviso.tipo === "urgente";
-              const isAlerta = aviso.tipo === "alerta";
-              const bgClass = isUrgente
-                ? "bg-red-50 border-red-300"
-                : isAlerta
-                ? "bg-amber-50 border-amber-300"
-                : "bg-blue-50 border-blue-300";
-              const textClass = isUrgente
-                ? "text-red-800"
-                : isAlerta
-                ? "text-amber-800"
-                : "text-blue-800";
-              const IconComponent = isUrgente
-                ? AlertCircle
-                : isAlerta
-                ? AlertTriangle
-                : Info;
-
-              return (
-                <div
-                  key={aviso.id}
-                  className={`relative rounded-lg border-l-4 p-4 ${bgClass} shadow-sm animate-in fade-in slide-in-from-top-2 duration-300`}
-                >
-                  <button
-                    onClick={() => fecharAviso(aviso.id)}
-                    className={`absolute top-3 right-3 p-1 rounded-full hover:bg-black/10 transition-colors ${textClass}`}
-                    title="Fechar aviso"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <div className="flex items-start gap-3 pr-8">
-                    <IconComponent className={`h-5 w-5 mt-0.5 flex-shrink-0 ${textClass}`} />
-                    <div>
-                      <h4 className={`font-semibold text-sm ${textClass}`}>{aviso.titulo}</h4>
-                      <p className={`text-sm mt-1 ${textClass} opacity-80 whitespace-pre-wrap`}>{aviso.conteudo}</p>
-                      <p className={`text-xs mt-2 ${textClass} opacity-50`}>
-                        {new Date(aviso.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
-                        {aviso.criadoPorNome && ` — ${aviso.criadoPorNome}`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* Header */}
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>

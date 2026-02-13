@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useEstabelecimento } from "./contexts/EstabelecimentoContext";
 import Home from "./pages/Home";
+import Inicio from "./pages/Inicio";
 import SelecionarEstabelecimento from "./pages/SelecionarEstabelecimento";
 import Upload from "./pages/Upload";
 import Arquivos from "./pages/Arquivos";
@@ -66,7 +67,8 @@ function Router() {
   return (
     <Switch>
       <Route path={"/selecionar-estabelecimento"} component={SelecionarEstabelecimento} />
-      <Route path={"/"} component={Home} />
+      <Route path={"/"} component={Inicio} />
+      <Route path={"/dashboard"} component={Home} />
       <Route path={"/upload"} component={Upload} />
       <Route path={"/arquivos"} component={Arquivos} />
       <Route path={"/comparacoes"} component={Comparacoes} />
