@@ -1769,3 +1769,18 @@
 - [x] Configurar rota "/" para a nova página Início
 - [x] Mover Dashboard para rota "/dashboard"
 - [x] Remover avisos da Home.tsx (agora ficam só no Início)
+
+## Fase 1 - Motor de Regras (Integração com Portal.Safatle)
+
+- [x] Criar repositórios GitHub: safatle-ml-auditoria, safatle-motor-regras, safatle-api-integracao, safatle-docs
+- [x] Implementar parser XML TISS/ANS em safatle-api-integracao
+- [x] Implementar motor de regras e validações em safatle-motor-regras
+- [x] Criar API REST FastAPI para integrar parser + motor de regras
+- [x] Criar página ImportacaoXML.tsx com drag-and-drop
+- [x] Integrar com API REST de validação (endpoints /processar, /validar, /processar-e-validar)
+- [x] Adicionar rota /importacao-xml no App.tsx
+- [x] Adicionar item de menu "Importação XML (Fase 1)" na sidebar
+- [x] Exibir relatório de processamento (total, válidas, inválidas, score médio)
+- [ ] Botão para exportar relatório em TXT
+- [ ] Suporte a múltiplos uploads simultâneos
+- [ ] Testes vitest para ImportacaoXML.tsx
