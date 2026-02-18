@@ -1,10 +1,10 @@
 import { router } from "../_core/trpc";
 import { faturamentoRouter } from "./faturamentoRouter";
-import { glosaRouter } from "./glosaRouter";
+// import { glosaRouter } from "./glosaRouter"; // TODO: Implementar glosaRouter
 import { comparacoesRouter } from "./comparacoesRouter";
 import { tasyRouter } from "./tasyRouter";
 import { relatoriosRouter } from "./relatoriosRouter";
-import { auditariaRouter } from "./auditariaRouter";
+// import { auditariaRouter } from "./auditariaRouter"; // TODO: Criar auditariaRouter
 
 /**
  * Agregador de routers modulares
@@ -12,11 +12,11 @@ import { auditariaRouter } from "./auditariaRouter";
  */
 export const modulesRouter = router({
   faturamento: faturamentoRouter,
-  glosa: glosaRouter,
+  // glosa: glosaRouter, // TODO: Implementar glosaRouter
   comparacoes: comparacoesRouter,
   tasy: tasyRouter,
   relatorios: relatoriosRouter,
-  auditoria: auditariaRouter,
+  // auditoria: auditariaRouter, // TODO: Implementar auditariaRouter
 });
 
 /**
@@ -28,7 +28,7 @@ export const MODULOS_ATIVOS = {
   comparacoes: process.env.ENABLE_MODULO_COMPARACOES === "true",
   tasy: process.env.ENABLE_MODULO_TASY === "true",
   relatorios: process.env.ENABLE_MODULO_RELATORIOS === "true",
-  auditoria: process.env.ENABLE_MODULO_AUDITORIA === "true",
+  // auditoria: process.env.ENABLE_MODULO_AUDITORIA === "true", // TODO: Implementar
 };
 
 /**

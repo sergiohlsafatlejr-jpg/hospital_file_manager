@@ -71,7 +71,7 @@ export async function cacheSet<T>(
   }
 
   try {
-    await redisClient.setEx(key, ttlSeconds, JSON.stringify(value));
+    await redisClient.setEx(key, ttlSeconds, JSON.stringify(value) as any);
     logger.debug("Cache: SET", { key, ttl: ttlSeconds });
   } catch (error) {
     logger.error("Cache: Erro ao SET", { key, error });
