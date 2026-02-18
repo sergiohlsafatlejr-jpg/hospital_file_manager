@@ -56,6 +56,7 @@ import GerenciarAvisos from "./pages/GerenciarAvisos";
 import AuditDashboard from "./pages/AuditDashboard";
 import CacheDashboard from "./pages/CacheDashboard";
 import { HistoricoValidacaoXml } from "./pages/HistoricoValidacaoXml";
+import { PopularHistoricoXml } from "./pages/PopularHistoricoXml";
 // import ImportacaoXML from "./pages/ImportacaoXML"; // Removido temporariamente
 
 function Router() {
@@ -121,6 +122,7 @@ function Router() {
       <Route path={"/auditoria"} component={AuditDashboard} />
       <Route path={"/cache-dashboard"} component={CacheDashboard} />
       <Route path={"/historico-validacao-xml"} component={HistoricoValidacaoXml} />
+      <Route path={"/popular-historico-xml"} component={PopularHistoricoXml} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

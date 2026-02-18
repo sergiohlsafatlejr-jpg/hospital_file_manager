@@ -1871,3 +1871,19 @@
 - [x] Adicionar rota /historico-validacao-xml no App.tsx
 - [x] Integrar motorRegrasRouter no appRouter (server/routers.ts)
 - [x] **ZERO ERROS DE COMPILAÇÃO MANTIDO!**
+
+
+## Fase 7 - Ler XMLs Importados e Popular Histórico (Semana 8)
+
+- [x] Criar procedure tRPC `populateFromImportedXml` para ler XMLs da tabela faturamento_tiss
+- [x] Agrupar XMLs por arquivo e estabelecimento
+- [x] Calcular conformidade e estatísticas de cada arquivo
+- [x] Detectar outliers e padrões de erro
+- [x] Popular historicoValidacaoXml com dados históricos
+- [x] Gerar regras automáticas baseadas no histórico
+- [x] Criar página PopularHistoricoXml.tsx com interface amigável
+- [x] Adicionar rota /popular-historico-xml no App.tsx
+- [x] Integrar com motorRegrasRouter
+- [ ] Criar testes vitest para procedure populateFromImportedXml
+- [ ] Executar população de histórico com dados reais
+- [ ] Validar regras geradas automaticamente

@@ -1,4 +1,4 @@
-import { router, trackedProtectedProcedure, protectedProcedure } from "../_core/trpc";
+import { router, trackedProtectedProcedure, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { logger } from "../_core/logger";
@@ -65,6 +65,205 @@ export const motorRegrasRouter = router({
       } catch (error) {
         logger.error({
           message: "Erro ao salvar validação XML",
+          error: String(error),
+          input,
+        });
+        throw error;
+      }
+    }),
+
+  /**
+   * Popular histórico a partir dos XMLs já importados
+   * Lê dados da tabela faturamento_tiss e calcula conformidade
+   */
+  populateFromImportedXml: adminProcedure
+    .input(
+      z.object({
+        estabelecimentoId: z.number().positive().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        logger.info({
+          message: "Iniciando população de histórico a partir de XMLs importados",
+          usuarioId: ctx.user.id,
+          estabelecimentoId: input.estabelecimentoId,
+        });
+
+        // 1. Agrupar XMLs por arquivo e estabelecimento
+        let query = sql`
+          SELECT 
+            estabelecimentoId,
+            nomeArquivo,
+            COUNT(*) as totalContas,
+            COUNT(CASE WHEN statusValidacao = 'valido' THEN 1 END) as contasValidas,
+            COUNT(CASE WHEN statusValidacao != 'valido' THEN 1 END) as contasInvalidas,
+            AVG(CAST(scoreConformidade AS DECIMAL(5,2))) as scoreConformidadeMedio,
+            MAX(dataImportacao) as dataProcessamento,
+            GROUP_CONCAT(DISTINCT usuarioId) as usuarioIds
+          FROM faturamento_tiss
+          WHERE nomeArquivo IS NOT NULL AND nomeArquivo != ''
+        `;
+
+        if (input.estabelecimentoId) {
+          query = sql`${query} AND estabelecimentoId = ${input.estabelecimentoId}`;
+        }
+
+        query = sql`${query} GROUP BY estabelecimentoId, nomeArquivo ORDER BY dataProcessamento DESC`;
+
+        const arquivos = await db.execute(query);
+
+        if (!Array.isArray(arquivos)) {
+          throw new Error("Erro ao buscar arquivos");
+        }
+
+        let totalInseridos = 0;
+        let totalErros = 0;
+
+        // 2. Para cada arquivo, extrair divergências e inserir no histórico
+        for (const arquivo of arquivos) {
+          try {
+            const arq = arquivo as any;
+
+            // Verificar se já existe
+            const [existing] = await db.execute(
+              sql`SELECT id FROM historicoValidacaoXml WHERE nomeArquivo = ${arq.nomeArquivo} AND estabelecimentoId = ${arq.estabelecimentoId} LIMIT 1`
+            );
+
+            if (Array.isArray(existing) && existing.length > 0) {
+              logger.info({
+                message: "Arquivo já existe no histórico",
+                nomeArquivo: arq.nomeArquivo,
+              });
+              continue;
+            }
+
+            // Extrair divergências do arquivo
+            const [contas] = await db.execute(
+              sql`
+              SELECT 
+                id,
+                statusValidacao,
+                scoreConformidade,
+                motivoRejeicao,
+                usuarioId,
+                procedimentoCodigo,
+                procedimentoDescricao,
+                valorConta
+              FROM faturamento_tiss
+              WHERE nomeArquivo = ${arq.nomeArquivo} AND estabelecimentoId = ${arq.estabelecimentoId}
+              ORDER BY dataImportacao ASC
+            `
+            );
+
+            if (!Array.isArray(contas)) {
+              throw new Error("Erro ao buscar contas");
+            }
+
+            // Calcular estatísticas
+            const errosPorTipo: Record<string, number> = {};
+            const errosPorFuncionario: Record<string, number> = {};
+            const valores = [];
+            const outliers = [];
+
+            let valorTotal = 0;
+            let countValores = 0;
+
+            // Primeira passagem: calcular média
+            for (const conta of contas) {
+              const c = conta as any;
+              if (c.statusValidacao !== "valido") {
+                const tipoErro = c.motivoRejeicao || "erro_desconhecido";
+                errosPorTipo[tipoErro] = (errosPorTipo[tipoErro] || 0) + 1;
+
+                if (c.usuarioId) {
+                  errosPorFuncionario[c.usuarioId] = (errosPorFuncionario[c.usuarioId] || 0) + 1;
+                }
+              }
+
+              const valor = parseFloat(c.valorConta) || 0;
+              if (valor > 0) {
+                valores.push(valor);
+                valorTotal += valor;
+                countValores++;
+              }
+            }
+
+            const valorMedio = countValores > 0 ? valorTotal / countValores : 0;
+
+            // Segunda passagem: detectar outliers
+            for (const conta of contas) {
+              const c = conta as any;
+              const valor = parseFloat(c.valorConta) || 0;
+              if (valor > valorMedio * 2) {
+                outliers.push({
+                  contaId: c.id,
+                  procedimento: c.procedimentoCodigo,
+                  descricao: c.procedimentoDescricao,
+                  valor: c.valorConta,
+                  mediaEsperada: valorMedio.toFixed(2),
+                  desvio: ((valor / valorMedio - 1) * 100).toFixed(2),
+                });
+              }
+            }
+
+            // Pegar primeiro usuário
+            const usuarioId = arq.usuarioIds ? parseInt(String(arq.usuarioIds).split(",")[0]) : 1;
+
+            // Inserir no histórico
+            await db.execute(
+              sql`
+              INSERT INTO historicoValidacaoXml 
+              (estabelecimentoId, nomeArquivo, dataProcessamento, totalContas, contasValidas, contasInvalidas, scoreConformidadeMedio, resultadoCompleto, usuarioId)
+              VALUES 
+              (${arq.estabelecimentoId}, ${arq.nomeArquivo}, ${arq.dataProcessamento}, ${arq.totalContas}, ${arq.contasValidas}, ${arq.contasInvalidas}, ${parseFloat(String(arq.scoreConformidadeMedio))}, ${JSON.stringify({
+                errosPorTipo,
+                errosPorFuncionario,
+                outliers,
+                totalOutliers: outliers.length,
+              })}, ${usuarioId})`
+            );
+
+            totalInseridos++;
+            logger.info({
+              message: "Histórico inserido",
+              nomeArquivo: arq.nomeArquivo,
+              totalContas: arq.totalContas,
+              contasValidas: arq.contasValidas,
+            });
+          } catch (error) {
+            totalErros++;
+            logger.error({
+              message: "Erro ao processar arquivo",
+              nomeArquivo: (arquivo as any).nomeArquivo,
+              error: String(error),
+            });
+          }
+        }
+
+        // 3. Invalidar cache
+        if (input.estabelecimentoId) {
+          await invalidateMotorRegrasCache(input.estabelecimentoId);
+        }
+
+        logger.info({
+          message: "População de histórico concluída",
+          totalInseridos,
+          totalErros,
+          usuarioId: ctx.user.id,
+        });
+
+        return {
+          totalInseridos,
+          totalErros,
+          totalArquivos: arquivos.length,
+        };
+      } catch (error) {
+        logger.error({
+          message: "Erro ao popular histórico",
           error: String(error),
           input,
         });
