@@ -1825,3 +1825,29 @@
 - [ ] Criar procedures tRPC para histórico
 - [ ] Atualizar página ImportacaoXML para persistir histórico
 - [ ] Exibir histórico com filtros por data, usuário e arquivo
+
+
+## Fase 4 - Corrigir Erros e Migrar 50% das Procedures (Semana 6 - Completada)
+
+- [x] Corrigir erro de tipagem em trpc.ts linha 112 (comparacaoId)
+- [x] Corrigir erros em routers/index.ts linhas 46-47
+- [x] Corrigir erro em context.ts (estabelecimentoId)
+- [x] Corrigir erro em permissionsConsolidated.ts (valoresAntigos)
+- [x] Corrigir erros de iteração em idempotency.ts
+- [x] Adicionar target ES2020 e downlevelIteration ao tsconfig.json
+- [x] Migrar comparacoesRouter (50% das procedures)
+- [x] Implementar cache Redis para comparacoes
+- [x] Criar testes vitest para comparacoesRouter (6 testes passando)
+- [x] Criar MIGRATION_STRATEGY.md com padrão de implementação
+- [x] **ZERO ERROS DE COMPILAÇÃO ALCANÇADO!**
+
+## Fase 5 - Próximas Etapas (Semana 7+)
+
+- [ ] Ativar módulo de faturamento com 5% de tráfego
+- [ ] Monitorar métricas por 24h e expandir para 100%
+- [ ] Implementar histórico de validações XML
+- [ ] Criar procedures tRPC para histórico
+- [ ] Atualizar página ImportacaoXML para persistir histórico
+- [ ] Exibir histórico com filtros por data, usuário e arquivo
+- [ ] Migrar módulo de tasy (procedures de importação)
+- [ ] Migrar módulo de relatórios (procedures de geração)

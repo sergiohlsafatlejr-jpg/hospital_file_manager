@@ -108,7 +108,7 @@ export function limparCacheExpirado(): number {
   const EXPIRACAO = 24 * 60 * 60 * 1000;
   let removidos = 0;
 
-  for (const [chave, registro] of idempotencyCache.entries()) {
+  for (const [chave, registro] of Array.from(idempotencyCache.entries())) {
     const idade = agora - registro.timestamp;
     if (idade > EXPIRACAO) {
       idempotencyCache.delete(chave);
@@ -134,7 +134,7 @@ export function obterEstatisticasIdempotencia() {
   let erro = 0;
   let pendente = 0;
 
-  for (const registro of idempotencyCache.values()) {
+  for (const registro of Array.from(idempotencyCache.values())) {
     if (registro.status === "sucesso") sucesso++;
     if (registro.status === "erro") erro++;
     if (registro.status === "pendente") pendente++;

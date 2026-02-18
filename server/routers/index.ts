@@ -42,9 +42,9 @@ export async function executarComFallback(
 ): Promise<any> {
   if (MODULOS_ATIVOS[modulo as keyof typeof MODULOS_ATIVOS]) {
     // Usar módulo novo
-    const router = modulesRouter[modulo as keyof typeof modulesRouter];
-    if (router && router[procedure as any]) {
-      return await router[procedure as any](input, ctx);
+    const router = modulesRouter[modulo as keyof typeof modulesRouter] as any;
+    if (router && router[procedure]) {
+      return await router[procedure](input, ctx);
     }
   }
   

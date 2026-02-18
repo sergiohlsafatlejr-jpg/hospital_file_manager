@@ -25,6 +25,6 @@ export async function createContext(
     req: opts.req,
     res: opts.res,
     user,
-    estabelecimentoId: user?.estabelecimentoId,
+    estabelecimentoId: (user as any)?.estabelecimentoId,
   };
 }

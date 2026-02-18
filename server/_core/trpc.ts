@@ -109,7 +109,7 @@ const auditMiddleware = t.middleware(async (opts) => {
 
     // Registrar auditoria
     if (resultado && typeof resultado === "object") {
-      const registroId = resultado.id || resultado.comparacaoId || 0;
+      const registroId = (resultado as any).id || (resultado as any).comparacaoId || 0;
 
       if (registroId > 0) {
         await logAudit({

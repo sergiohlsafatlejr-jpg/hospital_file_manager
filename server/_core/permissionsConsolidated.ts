@@ -277,7 +277,7 @@ export async function registrarMudancaPermissao(
         grupoServico: grupoNovo,
         modulosAcessiveis: obterModulosAcessiveis(grupoNovo),
       },
-      valoresAntigos: {
+      valoresAnteriores: {
         grupoServico: grupoAnterior,
         modulosAcessiveis: obterModulosAcessiveis(grupoAnterior),
       },
