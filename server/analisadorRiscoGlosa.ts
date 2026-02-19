@@ -75,7 +75,6 @@ export class AnalisadorRiscoGlosa {
       dataLimite.setMonth(dataLimite.getMonth() - mesesHistorico);
 
       // Query simplificada que busca dados direto da tabela recebimento_tiss
-      const dataLimiteStr = dataLimite.toISOString().split('T')[0];
       const query = sql`
         SELECT 
           rt.codigo_item as codigoItem,
@@ -96,7 +95,7 @@ export class AnalisadorRiscoGlosa {
         
         WHERE rt.estabelecimentoId = ${estabelecimentoId}
           ${convenioId ? sql`AND rt.convenioId = ${convenioId}` : sql``}
-          AND DATE(rt.data_importacao) >= DATE(${sql.raw(`'${dataLimiteStr}'`)})
+          AND rt.data_importacao >= ${dataLimite}
         
         GROUP BY rt.codigo_item, rt.descricao_item
         ORDER BY totalFaturado DESC
