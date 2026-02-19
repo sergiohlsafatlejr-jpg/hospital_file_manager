@@ -58,7 +58,7 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   // Solicitante
   'Código Solicitante': 'codigoSolicitante',
   'Nome Solicitante': 'nomeSolicitante',
-  'PROFISSIONAL EXECUTANTE': 'nomeSolicitante', // Formato Vivacom
+  'PROFISSIONAL EXECUTANTE': 'nomePrestador', // Formato Vivacom
   
   // Internação
   'Acomodação da Internação': 'acomodacaoInternacao',
@@ -76,7 +76,8 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   
   // Valores Vivacom
   'VALOR PROCESSADO': 'processado', // Formato Vivacom
-  'VALOR GLOSA': 'valorGlosa', // Formato Vivacom - CORRIGIDO: era erroTiss
+  'VALOR GLOSA': 'valorGlosa', // Formato Vivacom
+  'VALOR INFORMADO': 'valorInformado', // Formato Vivacom
 };
 
 /**
@@ -163,6 +164,8 @@ const DATE_FIELDS: (keyof InsertRecebimentoExcel)[] = [
 const DECIMAL_FIELDS: (keyof InsertRecebimentoExcel)[] = [
   'processado',
   'valorPagamento',
+  'valorGlosa',
+  'valorInformado',
 ];
 
 // Campos que são inteiros
@@ -241,6 +244,17 @@ export function extractRecebimentoExcelFromRow(
     // Caso contrário, marcar como PAGO
     else {
       record.situacaoItem = 'PAGO';
+    }
+  }
+  
+  // CORREÇÃO VIVACOM: Quando valor_informado = 0, considerar como GLOSADO
+  const valorInformadoNum = parseNumber(record.valorInformado);
+  if (valorInformadoNum === 0) {
+    const valorPagamentoNum = parseNumber(record.valorPagamento);
+    if (valorPagamentoNum && valorPagamentoNum > 0) {
+      record.valorGlosa = record.valorPagamento;
+      record.valorPagamento = '0.00';
+      record.situacaoItem = 'GLOSADO';
     }
   }
   
