@@ -1963,3 +1963,14 @@
 - [ ] Adicionar tooltip com código TISS ao passar mouse sobre nome do motivo de glosa
 - [ ] Implementar filtro por categoria de glosa (Elegibilidade, Autorização, Valorização, etc.)
 - [ ] Melhorar exportação Excel para incluir nomes descritivos junto com códigos de motivos
+
+
+## Funcionalidades Avançadas em Relatórios BI (v2)
+
+- [ ] Gráfico de pizza mostrando distribuição de glosas por categoria
+- [ ] Filtro de período avançado com data inicial e final
+- [ ] Cálculo e exibição de ticket médio por conta
+- [ ] Análise de dados por trimestre
+- [ ] Gráfico comparativo de valores por mês
+- [ ] Exportação de análises por trimestre em Excel
+- [ ] Comparativo de ticket médio entre períodos

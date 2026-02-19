@@ -35,6 +35,8 @@ import {
   Bar as RechartsBar,
   PieChart as RechartsPieChart,
   Pie as RechartsPie,
+  LineChart as RechartsLineChart,
+  Line,
   Cell,
   ResponsiveContainer,
   Legend as RechartsLegend,
@@ -55,6 +57,12 @@ export default function RelatoriosBI() {
   const [tipo, setTipo] = useState("todos");
   const [prestador, setPrestador] = useState("todos");
   const [categoriaGlosa, setCategoriaGlosa] = useState("todas");
+  const [mostrarGraficoCategoriasGlosa, setMostrarGraficoCategoriasGlosa] = useState(false);
+  const [mostrarComparativoMes, setMostrarComparativoMes] = useState(false);
+  const [mostrarAnaliseTrimestre, setMostrarAnaliseTrimestre] = useState(false);
+  const [dataInicial, setDataInicial] = useState("");
+  const [dataFinal, setDataFinal] = useState("");
+  const [usarPeriodoAvancado, setUsarPeriodoAvancado] = useState(false);
 
   const { data: relatorioData, isLoading } = trpc.relatoriosBI.dados.useQuery(
     {
@@ -97,12 +105,14 @@ export default function RelatoriosBI() {
     }
     const { totalFaturado, totalRecebido, totalGlosado, totalItens } = relatorioData.resumo;
     const percentualGlosa = totalFaturado > 0 ? ((totalGlosado / totalFaturado) * 100).toFixed(2) : 0;
+    const ticketMedio = totalItens > 0 ? (totalFaturado / totalItens) : 0;
     return { 
       faturado: totalFaturado, 
       recebido: totalRecebido, 
       glosado: totalGlosado, 
       itens: totalItens, 
-      percentualGlosa 
+      percentualGlosa,
+      ticketMedio
     };
   }, [relatorioData]);
 
