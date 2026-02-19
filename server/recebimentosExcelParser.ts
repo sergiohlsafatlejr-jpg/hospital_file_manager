@@ -78,6 +78,28 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'VALOR PROCESSADO': 'processado', // Formato Vivacom
   'VALOR GLOSA': 'valorGlosa', // Formato Vivacom
   'VALOR INFORMADO': 'valorInformado', // Formato Vivacom
+  
+  // Formato GEAP
+  'Data Entrega': 'dataPagto', // GEAP
+  'Protocolo': 'protocoloTiss', // GEAP
+  'Protocolo TMS/Lote': 'lotePrestador', // GEAP
+  'Nªguia': 'numeroGuia', // GEAP
+  'Nº Guia': 'numeroGuia', // GEAP
+  'Seq. Cliente': 'seq', // GEAP
+  'N Carteira Cliente': 'beneficiario', // GEAP
+  'Cliente': 'nomeBeneficiario', // GEAP
+  'Data de Atendimento': 'dataExecucao', // GEAP
+  'Nº Serviço': 'item', // GEAP
+  'Serviço': 'itemDesc', // GEAP
+  'Valor Calculado Item': 'valorPagamento', // GEAP
+  'Descrição Tipo Guia': 'tipoLancamento', // GEAP
+  'Justificativa Padrão': 'erroTiss', // GEAP
+  'Existe Glosa': 'situacaoItem', // GEAP - será convertido de boolean para string
+  'Tipo Guia': 'acomodacaoInternacao', // GEAP
+  'Data Baixa': 'dataInicioFaturamentoInternacao', // GEAP
+  'Guia Contratado': 'codigoPrestador', // GEAP - armazenar no campo codigoPrestador
+  'Valor Glosado Item': 'valorGlosa', // GEAP
+  'Justificativa': 'codigoGlosa', // GEAP
 };
 
 /**
@@ -160,6 +182,11 @@ const DATE_FIELDS: (keyof InsertRecebimentoExcel)[] = [
   'dataFimFaturamentoInternacao',
 ];
 
+// Campos que são booleanos (GEAP)
+const BOOLEAN_FIELDS: (keyof InsertRecebimentoExcel)[] = [
+  'situacaoItem', // GEAP usa boolean para "Existe Glosa"
+];
+
 // Campos que são números decimais (armazenados como string)
 const DECIMAL_FIELDS: (keyof InsertRecebimentoExcel)[] = [
   'processado',
@@ -213,6 +240,16 @@ export function extractRecebimentoExcelFromRow(
       const intValue = parseInt2(value);
       if (intValue !== null) {
         (record as any)[dbField] = intValue;
+      }
+    } else if (BOOLEAN_FIELDS.includes(dbField)) {
+      // Campos booleanos (GEAP)
+      if (typeof value === 'boolean') {
+        // GEAP: "Existe Glosa" = false significa PAGO, true significa GLOSADO
+        (record as any)[dbField] = value ? 'GLOSADO' : 'PAGO';
+      } else if (typeof value === 'string') {
+        // Se for string, converter para boolean
+        const boolValue = value.toLowerCase() === 'true' || value === '1';
+        (record as any)[dbField] = boolValue ? 'GLOSADO' : 'PAGO';
       }
     } else {
       // Campos de texto
@@ -276,11 +313,48 @@ export function parseExcelRecebimentosExcel(
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   
-  // Converter para JSON com cabeçalhos - IMPORTANTE: raw: false para manter strings
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-    defval: null,
-    raw: false,
-  });
+  // Detectar se é arquivo GEAP (cabeçalho na linha 2)
+  const row2Cell = worksheet['A2'];
+  const isGEAP = row2Cell && String(row2Cell.v || row2Cell.t || '').includes('Guia');
+  
+  let rows: Record<string, unknown>[] = [];
+  
+  if (isGEAP) {
+    // Para GEAP, ler manualmente linha 2 como cabeçalho
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    const headers: string[] = [];
+    
+    // Extrair cabeçalhos da linha 2 (índice 1)
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 1, c: col });
+      const cell = worksheet[cellRef];
+      headers.push(cell?.v ? String(cell.v).trim() : `__EMPTY_${col}`);
+    }
+    
+    console.log('[Parser GEAP] Cabeçalhos encontrados:', headers.join(', '));
+    
+    // Extrair dados a partir da linha 3 (índice 2)
+    for (let row = 2; row <= range.e.r; row++) {
+      const rowData: Record<string, unknown> = {};
+      let hasData = false;
+      
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = worksheet[cellRef];
+        const value = cell?.v || null;
+        rowData[headers[col]] = value;
+        if (value) hasData = true;
+      }
+      
+      if (hasData) rows.push(rowData);
+    }
+  } else {
+    // Para outros formatos, usar leitura padrão
+    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+      defval: null,
+      raw: false,
+    });
+  }
   
   // Log das colunas encontradas para debug
   if (rows.length > 0) {
@@ -289,8 +363,8 @@ export function parseExcelRecebimentosExcel(
     
     // Verificar se os campos importantes estão presentes
     const hastipoLancamento = cols.some(c => c.includes('Tipo Lan'));
-    const hasErroTiss = cols.some(c => c.includes('Erro TISS'));
-    const hasSituacaoItem = cols.some(c => c.includes('Situa'));
+    const hasErroTiss = cols.some(c => c.includes('Erro TISS') || c.includes('Justificativa'));
+    const hasSituacaoItem = cols.some(c => c.includes('Situa') || c.includes('Existe'));
     console.log('[Parser] Campos importantes - tipoLancamento:', hastipoLancamento, 'erroTiss:', hasErroTiss, 'situacaoItem:', hasSituacaoItem);
   }
   
@@ -298,9 +372,10 @@ export function parseExcelRecebimentosExcel(
   
   for (const row of rows) {
     // Verificar se a linha tem dados relevantes (pelo menos número da guia ou beneficiário)
-    // Suportar múltiplos formatos: padrão e Vivacom
+    // Suportar múltiplos formatos: padrão, Vivacom e GEAP
     const hasData = row['Número Guia'] || row['Beneficiário'] || row['Item'] || 
-                    row['GUIA'] || row['ASSOCIADO'] || row['CODIGO'];
+                    row['GUIA'] || row['ASSOCIADO'] || row['CODIGO'] ||
+                    row['Nº Guia'] || row['Cliente'] || row['Nº Serviço'];
     if (!hasData) continue;
     
     const record = extractRecebimentoExcelFromRow(row, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
@@ -312,6 +387,7 @@ export function parseExcelRecebimentosExcel(
     console.log('[Parser] Primeiro registro - tipoLancamento:', records[0].tipoLancamento);
     console.log('[Parser] Primeiro registro - erroTiss:', records[0].erroTiss);
     console.log('[Parser] Primeiro registro - situacaoItem:', records[0].situacaoItem);
+    console.log('[Parser] Primeiro registro - valorGlosa:', records[0].valorGlosa);
   }
   
   return records;
