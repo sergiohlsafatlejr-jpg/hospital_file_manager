@@ -1,0 +1,8 @@
+{
+  "query": "SELECT item, item_desc, valor_pagamento, erro_tiss, situacao_item, COUNT(*) as qtd FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') GROUP BY situacao_item;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT item, item_desc, valor_pagamento, erro_tiss, situacao_item, COUNT(*) as qtd FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') GROUP BY situacao_item;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1055 (42000) at line 1: Expression #1 of SELECT list is not in GROUP BY clause and contains nonaggregated column '98MRdVE9Uf2ZRMz25bPSye.recebimentos_excel.item' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by"
+  ]
+}

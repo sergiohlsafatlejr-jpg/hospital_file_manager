@@ -1,0 +1,20 @@
+{
+  "query": "SELECT id, nome, convenioId, estabelecimentoId, status, totalItens, itensProcessados, createdAt FROM arquivos WHERE nome LIKE '%analise_contas%' OR nome LIKE '%vivacom%' ORDER BY createdAt DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, convenioId, estabelecimentoId, status, totalItens, itensProcessados, createdAt FROM arquivos WHERE nome LIKE '%analise_contas%' OR nome LIKE '%vivacom%' ORDER BY createdAt DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "1350001",
+      "nome": "analise_contas_medicas20260203112034.xls",
+      "convenioId": "60008",
+      "estabelecimentoId": "1",
+      "status": "processado",
+      "totalItens": "0",
+      "itensProcessados": "0",
+      "createdAt": "2026-02-19 11:34:07"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tconvenioId\testabelecimentoId\tstatus\ttotalItens\titensProcessados\tcreatedAt\n1350001\tanalise_contas_medicas20260203112034.xls\t60008\t1\tprocessado\t0\t0\t2026-02-19 11:34:07\n",
+  "stderr": "",
+  "execution_time_ms": 64
+}

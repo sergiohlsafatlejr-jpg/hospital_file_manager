@@ -1,0 +1,16 @@
+{
+  "query": "SELECT id, nome, convenioId, status FROM arquivos WHERE nome LIKE '%analise_contas%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, convenioId, status FROM arquivos WHERE nome LIKE '%analise_contas%';",
+  "rows": [
+    {
+      "id": "1350002",
+      "nome": "analise_contas_medicas20260203112034.xls",
+      "convenioId": "60008",
+      "status": "processado"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\tconvenioId\tstatus\n1350002\tanalise_contas_medicas20260203112034.xls\t60008\tprocessado\n",
+  "stderr": "",
+  "execution_time_ms": 49
+}

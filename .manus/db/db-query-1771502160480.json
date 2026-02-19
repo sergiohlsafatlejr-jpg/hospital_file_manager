@@ -1,0 +1,18 @@
+{
+  "query": "SELECT COUNT(*) as total_recebimentos, 'recebimentos_excel' as tabela FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') UNION ALL SELECT COUNT(*) as total, 'demonstrativo' as tabela FROM demonstrativo WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT COUNT(*) as total_recebimentos, 'recebimentos_excel' as tabela FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') UNION ALL SELECT COUNT(*) as total, 'demonstrativo' as tabela FROM demonstrativo WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%');",
+  "rows": [
+    {
+      "total_recebimentos": "0",
+      "tabela": "demonstrativo"
+    },
+    {
+      "total_recebimentos": "0",
+      "tabela": "recebimentos_excel"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_recebimentos\ttabela\n0\tdemonstrativo\n0\trecebimentos_excel\n",
+  "stderr": "",
+  "execution_time_ms": 128
+}

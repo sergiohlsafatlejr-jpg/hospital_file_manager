@@ -1928,3 +1928,19 @@
 - [x] Validar que valores em gráficos são positivos
 - [x] Testar combinação de filtros (período + convênio + tipo de lançamento)
 - [x] Remover imports duplicados de Chart.js que conflitavam com Recharts
+
+
+## Fase 10 - Correção de Importação Vivacom (Fevereiro 2026)
+
+- [x] Analisar arquivo Vivacom que não trouxe dados
+- [x] Identificar que arquivo é Excel de demonstrativo (retorno da operadora)
+- [x] Identificar que parser não reconhecia colunas Vivacom
+- [x] Adicionar mapeamento de colunas Vivacom no recebimentosExcelParser
+- [x] Primeira importação: 361 registros inseridos em recebimentos_excel
+- [x] Identificar que situacao_item estava NULL
+- [x] Adicionar lógica para calcular situacao_item baseado em VALOR GLOSA
+- [x] Deletar registros antigos do arquivo Vivacom
+- [ ] Reimportar arquivo Vivacom com correção
+- [ ] Validar que 361 registros foram inseridos com situacao_item correto
+- [ ] Verificar sincronização com tabela demonstrativo
+- [ ] Verificar dados nos gráficos de Relatórios BI

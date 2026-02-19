@@ -23,33 +23,41 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   
   // Guia
   'Número Guia': 'numeroGuia',
+  'GUIA': 'numeroGuia', // Formato Vivacom
   'Seq': 'seq',
   
   // Beneficiário
   'Beneficiário': 'beneficiario',
+  'ASSOCIADO': 'beneficiario', // Formato Vivacom
   'Nome Beneficiário': 'nomeBeneficiario',
   
   // Execução
   'Data Execução': 'dataExecucao',
+  'DATA ATENDIMENTO': 'dataExecucao', // Formato Vivacom
   'Hora Execução': 'horaExecucao',
   
   // Item
   'Item': 'item',
+  'CODIGO': 'item', // Formato Vivacom
   'Item Desc': 'itemDesc',
+  'PROCEDIMENTO': 'itemDesc', // Formato Vivacom
   'Quantidade': 'quantidade',
   'Valor Pagamento': 'valorPagamento',
+  'VALOR PAGO': 'valorPagamento', // Formato Vivacom
   'Pagamento': 'valorPagamento',
   
   // Tipo e Status - CAMPOS IMPORTANTES
   'Tipo Lançamento': 'tipoLancamento',
   'Tipo Lancamento': 'tipoLancamento',
   'Erro TISS': 'erroTiss',
+  'COD. GLOSA': 'erroTiss', // Formato Vivacom
   'Situação Item': 'situacaoItem',
   'Situacao Item': 'situacaoItem',
   
   // Solicitante
   'Código Solicitante': 'codigoSolicitante',
   'Nome Solicitante': 'nomeSolicitante',
+  'PROFISSIONAL EXECUTANTE': 'nomeSolicitante', // Formato Vivacom
   
   // Internação
   'Acomodação da Internação': 'acomodacaoInternacao',
@@ -64,6 +72,10 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'Nome Prestador': 'nomePrestador',
   'Prestador Executante': 'prestadorExecutante',
   'Nome Prestador Executante': 'nomePrestadorExecutante',
+  
+  // Valores Vivacom
+  'VALOR PROCESSADO': 'processado', // Formato Vivacom
+  'VALOR GLOSA': 'erroTiss', // Formato Vivacom
 };
 
 /**
@@ -211,6 +223,25 @@ export function extractRecebimentoExcelFromRow(
   // console.log('[Parser] tipoLancamento:', record.tipoLancamento);
   // console.log('[Parser] erroTiss:', record.erroTiss);
   // console.log('[Parser] situacaoItem:', record.situacaoItem);
+  
+  // CORREÇÃO VIVACOM: Se situacaoItem não foi preenchido, calcular baseado em VALOR GLOSA
+  if (!record.situacaoItem) {
+    const valorGlosaNum = parseNumber(record.valorGlosa);
+    const valorPagamentoNum = parseNumber(record.valorPagamento);
+    
+    // Se tem valor de glosa > 0, marcar como GLOSADO
+    if (valorGlosaNum && valorGlosaNum > 0) {
+      record.situacaoItem = 'GLOSADO';
+    }
+    // Se valor pago é 0 e não tem glosa, pode ser não pago
+    else if (valorPagamentoNum === 0) {
+      record.situacaoItem = 'NAO_PAGO';
+    }
+    // Caso contrário, marcar como PAGO
+    else {
+      record.situacaoItem = 'PAGO';
+    }
+  }
   
   return record;
 }

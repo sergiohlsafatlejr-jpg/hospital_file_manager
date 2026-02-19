@@ -1,0 +1,9 @@
+{
+  "query": "DELETE FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%'); DELETE FROM demonstrativo WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute DELETE FROM recebimentos_excel WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%'); DELETE FROM demonstrativo WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%');",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 594
+}

@@ -645,11 +645,12 @@ export const appRouter = router({
                 }
               }
               
-              // === FLUXO SIMPLIFICADO: Popular faturamento_tiss diretamente do XML enviado (sem tabela procedimentos) ===
+              // === FLUXO SIMPLIFICADO: Popular faturamento_tiss diretamente do XML/Excel enviado (sem tabela procedimentos) ===
               const totalItensToProcess = parseResult.procedimentos.length;
               await db.updateArquivoProgresso(arquivoId, 0, 0, totalItensToProcess);
               
-              if (input.direcao === "enviado" && input.tipoArquivo === "xml") {
+              // Suportar tanto XML quanto Excel como arquivo enviado
+              if (input.direcao === "enviado" && (input.tipoArquivo === "xml" || input.tipoArquivo === "excel")) {
                 try {
                   console.log('[Upload] Populando faturamento_tiss diretamente do XML enviado...');
                   const dataReferenciaUpload = input.dataReferencia ? new Date(input.dataReferencia) : undefined;

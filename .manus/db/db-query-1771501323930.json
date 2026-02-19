@@ -1,0 +1,9 @@
+{
+  "query": "SELECT COUNT(*) as total_registros, arquivo_id, convenioId FROM faturamento_tiss WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') GROUP BY arquivo_id, convenioId;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT COUNT(*) as total_registros, arquivo_id, convenioId FROM faturamento_tiss WHERE arquivo_id IN (SELECT id FROM arquivos WHERE nome LIKE '%analise_contas%') GROUP BY arquivo_id, convenioId;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 117
+}

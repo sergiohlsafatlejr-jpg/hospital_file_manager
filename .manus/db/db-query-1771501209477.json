@@ -1,0 +1,46 @@
+{
+  "query": "SELECT DISTINCT convenioId FROM faturamento_tiss LIMIT 10; SELECT COUNT(*) as total FROM arquivos WHERE nome LIKE '%vivacom%' OR nome LIKE '%analise_contas%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT DISTINCT convenioId FROM faturamento_tiss LIMIT 10; SELECT COUNT(*) as total FROM arquivos WHERE nome LIKE '%vivacom%' OR nome LIKE '%analise_contas%';",
+  "rows": [
+    {
+      "convenioId": "60006"
+    },
+    {
+      "convenioId": "60003"
+    },
+    {
+      "convenioId": "30001"
+    },
+    {
+      "convenioId": "120002"
+    },
+    {
+      "convenioId": "60008"
+    },
+    {
+      "convenioId": "120005"
+    },
+    {
+      "convenioId": "60005"
+    },
+    {
+      "convenioId": "60002"
+    },
+    {
+      "convenioId": "60001"
+    },
+    {
+      "convenioId": "120001"
+    },
+    {
+      "convenioId": "total"
+    },
+    {
+      "convenioId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "convenioId\n60006\n60003\n30001\n120002\n60008\n120005\n60005\n60002\n60001\n120001\ntotal\n1\n",
+  "stderr": "",
+  "execution_time_ms": 110
+}
