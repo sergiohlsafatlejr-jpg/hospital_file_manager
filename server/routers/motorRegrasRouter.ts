@@ -474,3 +474,6 @@ export const motorRegrasRouter = router({
       }
     }),
 });
+
+// Nota: Procedimentos de análise de padrões adicionados via script
+// analisarPadroesAutomaticos, detectarAnomalias, criarRegraDePatrao
