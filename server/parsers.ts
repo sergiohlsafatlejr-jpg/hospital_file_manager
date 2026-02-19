@@ -138,8 +138,24 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
         }
       }
     }
-    // Check if this is a demonstrativo de retorno (operadoraParaPrestador)
-    else {
+    // Check if this is Petrobras format (operadoraParaPrestador with guiasDoLote)
+    const mensagemRecord = result as Record<string, unknown>;
+    const mensagemTISS = mensagemRecord['mensagemTISS'] as Record<string, unknown> | undefined;
+    const operadoraParaPrestador = mensagemTISS ? mensagemTISS['operadoraParaPrestador'] : mensagemRecord['operadoraParaPrestador'];
+    
+    if (operadoraParaPrestador && typeof operadoraParaPrestador === 'object') {
+      console.log('[Parser] Detected Petrobras format (operadoraParaPrestador with guiasDoLote)');
+      // Create a wrapper object for extractProcedimentosFromPetrobras
+      const petrobrasWrapper = mensagemTISS ? mensagemTISS : result;
+      const procsPetrobras = extractProcedimentosFromPetrobras(petrobrasWrapper);
+      console.log(`[Parser] Extracted ${procsPetrobras.length} guias from Petrobras XML`);
+      for (const proc of procsPetrobras) {
+        procedimentos.push({
+          ...proc,
+          numeroLote: proc.numeroLote || numeroLote,
+        });
+      }
+    } else {
       const demonstrativos = findDemonstrativosRetorno(result);
       if (demonstrativos.length > 0) {
         // Process demonstrativo de retorno
@@ -400,6 +416,145 @@ function extractProcedimentosFromDemonstrativo(demonstrativo: unknown): ParsedPr
             atendimento: atendimento || undefined,
           },
         });
+      }
+    }
+  }
+  
+  return procedimentos;
+}
+
+/**
+ * Extract procedimentos from Petrobras XML (operadoraParaPrestador with guiasDoLote)
+ * Structure: operadoraParaPrestador -> demonstrativosRetorno -> demonstrativoPagamento -> pagamentos -> pagamentosPorData -> dadosResumo -> relacaoProtocolos -> guiasDoLote
+ */
+function extractProcedimentosFromPetrobras(obj: unknown): ParsedProcedimento[] {
+  const procedimentos: ParsedProcedimento[] = [];
+  
+  if (!obj || typeof obj !== "object") return procedimentos;
+  const record = obj as Record<string, unknown>;
+  
+  // Navigate to operadoraParaPrestador
+  const operadoraParaPrestador = record["operadoraParaPrestador"] as Record<string, unknown> | undefined;
+  if (!operadoraParaPrestador) return procedimentos;
+  
+  // Get demonstrativosRetorno
+  const demonstrativosRetorno = operadoraParaPrestador["demonstrativosRetorno"] as Record<string, unknown> | undefined;
+  if (!demonstrativosRetorno) return procedimentos;
+  
+  // Get demonstrativoPagamento (can be array or single)
+  let demonstrativos = demonstrativosRetorno["demonstrativoPagamento"];
+  if (!demonstrativos) return procedimentos;
+  if (!Array.isArray(demonstrativos)) demonstrativos = [demonstrativos];
+  
+  for (const demonstrativo of demonstrativos as unknown[]) {
+    if (!demonstrativo || typeof demonstrativo !== "object") continue;
+    const demoRecord = demonstrativo as Record<string, unknown>;
+    
+    // Get header info
+    const cabecalho = demoRecord["cabecalhoDemonstrativo"] as Record<string, unknown> | undefined;
+    const nomeOperadora = cabecalho ? getTextValue(cabecalho["nomeOperadora"]) : undefined;
+    const numeroCNPJ = cabecalho ? getTextValue(cabecalho["numeroCNPJ"]) : undefined;
+    const dataEmissao = cabecalho ? parseDate(cabecalho["dataEmissao"]) : undefined;
+    
+    // Get prestador info
+    const dadosContratado = demoRecord["dadosContratado"] as Record<string, unknown> | undefined;
+    const dadosPrestador = dadosContratado ? dadosContratado["dadosPrestador"] as Record<string, unknown> | undefined : undefined;
+    const codigoPrestador = dadosPrestador ? getTextValue(dadosPrestador["codigoPrestadorNaOperadora"]) : undefined;
+    const cnes = dadosContratado ? getTextValue(dadosContratado["CNES"]) : undefined;
+    
+    // Get pagamentos
+    const pagamentos = demoRecord["pagamentos"] as Record<string, unknown> | undefined;
+    if (!pagamentos) continue;
+    
+    // Get pagamentosPorData (can be array or single)
+    let pagamentosPorData = pagamentos["pagamentosPorData"];
+    if (!pagamentosPorData) continue;
+    if (!Array.isArray(pagamentosPorData)) pagamentosPorData = [pagamentosPorData];
+    
+    for (const pagamento of pagamentosPorData as unknown[]) {
+      if (!pagamento || typeof pagamento !== "object") continue;
+      const pagtoRecord = pagamento as Record<string, unknown>;
+      
+      // Get data de pagamento
+      const dadosPagamento = pagtoRecord["dadosPagamento"] as Record<string, unknown> | undefined;
+      const dataPagamento = dadosPagamento ? parseDate(dadosPagamento["dataPagamento"]) : undefined;
+      
+      // Get dadosResumo
+      const dadosResumo = pagtoRecord["dadosResumo"] as Record<string, unknown> | undefined;
+      if (!dadosResumo) continue;
+      
+      // Get relacaoProtocolos (can be array or single)
+      let protocolos = dadosResumo["relacaoProtocolos"];
+      if (!protocolos) continue;
+      if (!Array.isArray(protocolos)) protocolos = [protocolos];
+      
+      for (const protocolo of protocolos as unknown[]) {
+        if (!protocolo || typeof protocolo !== "object") continue;
+        const protoRecord = protocolo as Record<string, unknown>;
+        
+        // Get protocolo info
+        const numeroProtocolo = getTextValue(protoRecord["numeroProtocolo"]);
+        const numeroLote = getTextValue(protoRecord["numeroLote"]);
+        const dataProtocolo = parseDate(protoRecord["dataProtocolo"]);
+        const valorInformado = parseNumber(protoRecord["valorInformado"]);
+        const valorProcessado = parseNumber(protoRecord["valorProcessado"]);
+        const valorLiberado = parseNumber(protoRecord["valorLiberado"]);
+        const valorGlosa = parseNumber(protoRecord["valorGlosa"]);
+        
+        // Get guiasDoLote (can be array or single)
+        let guias = protoRecord["guiasDoLote"];
+        if (!guias) continue;
+        if (!Array.isArray(guias)) guias = [guias];
+        
+        for (const guia of guias as unknown[]) {
+          if (!guia || typeof guia !== "object") continue;
+          const guiaRecord = guia as Record<string, unknown>;
+          
+          // Get guia info
+          const numeroGuiaPrestador = getTextValue(guiaRecord["numeroGuiaPrestador"]);
+          const numeroGuiaOperadora = getTextValue(guiaRecord["numeroGuiaOperadora"]);
+          const tipoPagamento = getTextValue(guiaRecord["tipoPagamento"]);
+          const valorProcessadoGuia = parseNumber(guiaRecord["valorProcessadoGuia"]);
+          const valorLiberadoGuia = parseNumber(guiaRecord["valorLiberadoGuia"]);
+          const valorGlosaGuia = parseNumber(guiaRecord["valorGlosaGuia"]);
+          
+          // Determine situacao_item
+          let situacaoItem = "NAO_PAGO";
+          if ((valorGlosaGuia || 0) > 0) {
+            situacaoItem = "GLOSADO";
+          } else if ((valorLiberadoGuia || 0) > 0) {
+            situacaoItem = "PAGO";
+          }
+          
+          // Create procedimento entry for this guia
+          procedimentos.push({
+            codigo: numeroGuiaPrestador || numeroGuiaOperadora || "UNKNOWN",
+            descricao: `Guia ${numeroGuiaOperadora || numeroGuiaPrestador}`,
+            quantidade: 1,
+            valorUnitario: valorLiberadoGuia,
+            valorTotal: valorLiberadoGuia,
+            dataExecucao: dataProtocolo || dataPagamento || dataEmissao,
+            guiaNumero: numeroGuiaPrestador || numeroGuiaOperadora,
+            numeroGuiaOperadora: numeroGuiaOperadora,
+            codigoPrestadorExecutante: codigoPrestador,
+            registroANS: nomeOperadora,
+            motivoGlosa: (valorGlosaGuia || 0) > 0 ? "Glosa" : undefined,
+            valorGlosado: valorGlosaGuia,
+            numeroLote: numeroLote,
+            dadosExtras: {
+              nomeOperadora,
+              numeroCNPJ,
+              numeroProtocolo,
+              cnes,
+              tipoPagamento,
+              valorProcessadoGuia,
+              valorProcessado,
+              valorInformado,
+              situacaoItem,
+              dataPagamento: dataPagamento?.toISOString(),
+            }
+          });
+        }
       }
     }
   }
