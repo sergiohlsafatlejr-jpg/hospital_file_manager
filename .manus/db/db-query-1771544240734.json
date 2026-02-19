@@ -1,0 +1,16 @@
+{
+  "query": "SELECT \n  COUNT(*) as total_faturado,\n  COUNT(DISTINCT codigo_item) as itens_unicos,\n  SUM(CASE WHEN valor_glosado > 0 THEN 1 ELSE 0 END) as total_glosado,\n  ROUND(SUM(CASE WHEN valor_glosado > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as taxa_glosa_geral\nFROM recebimento_tiss rt\nWHERE rt.convenioId = 1\nAND DATE(rt.data_importacao) >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nAND rt.estabelecimentoId = 1",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  COUNT(*) as total_faturado,\n  COUNT(DISTINCT codigo_item) as itens_unicos,\n  SUM(CASE WHEN valor_glosado > 0 THEN 1 ELSE 0 END) as total_glosado,\n  ROUND(SUM(CASE WHEN valor_glosado > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as taxa_glosa_geral\nFROM recebimento_tiss rt\nWHERE rt.convenioId = 1\nAND DATE(rt.data_importacao) >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nAND rt.estabelecimentoId = 1",
+  "rows": [
+    {
+      "total_faturado": "0",
+      "itens_unicos": "0",
+      "total_glosado": "NULL",
+      "taxa_glosa_geral": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_faturado\titens_unicos\ttotal_glosado\ttaxa_glosa_geral\n0\t0\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 115
+}
