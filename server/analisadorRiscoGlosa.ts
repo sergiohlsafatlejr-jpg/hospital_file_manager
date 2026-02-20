@@ -73,6 +73,8 @@ export class AnalisadorRiscoGlosa {
       // 1. Buscar dados de recebimento dos últimos N meses
       const dataLimite = new Date();
       dataLimite.setMonth(dataLimite.getMonth() - mesesHistorico);
+      // Converter para ISO string (YYYY-MM-DD)
+      const dataLimiteStr = dataLimite.toISOString().split('T')[0];
 
       // Query simplificada que busca dados direto da tabela recebimento_tiss
       const query = sql`
@@ -95,7 +97,7 @@ export class AnalisadorRiscoGlosa {
         
         WHERE rt.estabelecimentoId = ${estabelecimentoId}
           ${convenioId ? sql`AND rt.convenioId = ${convenioId}` : sql``}
-          AND rt.data_importacao >= ${dataLimite}
+          AND rt.data_importacao >= ${dataLimiteStr}
         
         GROUP BY rt.codigo_item, rt.descricao_item
         ORDER BY totalFaturado DESC
