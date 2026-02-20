@@ -286,7 +286,7 @@ export const motorRegrasRouter = router({
         offset: z.number().min(0).default(0),
       })
     )
-    .mutation(async ({ input }) => {
+    .query(async ({ input }) => {
       const cacheKey = generateMotorRegrasKey(
         input.estabelecimentoId,
         "historico"
@@ -359,7 +359,7 @@ export const motorRegrasRouter = router({
         dataFim: z.date().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .query(async ({ input }) => {
       const cacheKey = generateMotorRegrasKey(
         input.estabelecimentoId,
         "estatisticas"
@@ -575,7 +575,7 @@ export const motorRegrasRouter = router({
         estabelecimentoId: z.number().positive(),
         convenioId: z.number().positive(),
         arquivoId: z.number().positive(),
-        limiteRisco: z.enum(["alto", "critico"]).default("alto"),
+        limiteRisco: z.enum(["alto_critico", "critico"]).default("alto_critico"),
       })
     )
     .mutation(async ({ input }) => {
@@ -588,7 +588,6 @@ export const motorRegrasRouter = router({
 
         const contas = await AnalisadorRiscoGlosa.identificarContasComRisco(
           input.estabelecimentoId,
-          input.convenioId,
           input.arquivoId,
           input.limiteRisco
         );

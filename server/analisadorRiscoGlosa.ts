@@ -76,35 +76,80 @@ export class AnalisadorRiscoGlosa {
       // Converter para ISO string (YYYY-MM-DD)
       const dataLimiteStr = dataLimite.toISOString().split('T')[0];
 
-      // Query simplificada que busca dados direto da tabela recebimento_tiss
+      // Query simplificada - busca dados brutos sem GROUP BY
       const query = sql`
         SELECT 
-          rt.codigo_item as codigoItem,
-          rt.descricao_item as descricaoItem,
-          COUNT(*) as totalFaturado,
-          SUM(rt.valor_faturado) as valorTotalFaturado,
-          AVG(rt.valor_faturado) as valorMedioFaturado,
-          
-          SUM(CASE WHEN rt.valor_liberado > 0 THEN 1 ELSE 0 END) as totalRecebido,
-          SUM(CASE WHEN rt.valor_liberado > 0 THEN rt.valor_liberado ELSE 0 END) as valorTotalRecebido,
-          AVG(CASE WHEN rt.valor_liberado > 0 THEN rt.valor_liberado ELSE NULL END) as valorMedioRecebido,
-          
-          SUM(CASE WHEN rt.valor_glosado > 0 THEN 1 ELSE 0 END) as totalGlosado,
-          SUM(CASE WHEN rt.valor_glosado > 0 THEN rt.valor_glosado ELSE 0 END) as valorTotalGlosado,
-          AVG(CASE WHEN rt.valor_glosado > 0 THEN rt.valor_glosado ELSE NULL END) as valorMedioGlosado
-          
+          rt.codigo_item,
+          rt.descricao_item,
+          rt.valor_faturado,
+          rt.valor_liberado,
+          rt.valor_glosado
         FROM recebimento_tiss rt
-        
         WHERE rt.estabelecimentoId = ${estabelecimentoId}
           ${convenioId ? sql`AND rt.convenioId = ${convenioId}` : sql``}
           AND rt.data_importacao >= ${dataLimiteStr}
-        
-        GROUP BY rt.codigo_item, rt.descricao_item
-        ORDER BY totalFaturado DESC
       `;
 
       const resultados = await db.execute(query);
-      const dados = (resultados as any[]) || [];
+      const linhas = (resultados as any[]) || [];
+
+      // Processar dados em JavaScript (GROUP BY manual)
+      const mapa = new Map<string, any>();
+      
+      for (const linha of linhas) {
+        const chave = `${linha.codigo_item}|${linha.descricao_item}`;
+        if (!mapa.has(chave)) {
+          mapa.set(chave, {
+            codigoItem: linha.codigo_item,
+            descricaoItem: linha.descricao_item,
+            totalFaturado: 0,
+            valorTotalFaturado: 0,
+            valorMedioFaturado: 0,
+            totalRecebido: 0,
+            valorTotalRecebido: 0,
+            valorMedioRecebido: 0,
+            totalGlosado: 0,
+            valorTotalGlosado: 0,
+            valorMedioGlosado: 0,
+            valores: []
+          });
+        }
+        
+        const grupo = mapa.get(chave)!;
+        grupo.totalFaturado++;
+        grupo.valorTotalFaturado += parseFloat(linha.valor_faturado) || 0;
+        
+        if (parseFloat(linha.valor_liberado) > 0) {
+          grupo.totalRecebido++;
+          grupo.valorTotalRecebido += parseFloat(linha.valor_liberado);
+        }
+        
+        if (parseFloat(linha.valor_glosado) > 0) {
+          grupo.totalGlosado++;
+          grupo.valorTotalGlosado += parseFloat(linha.valor_glosado);
+        }
+        
+        grupo.valores.push({
+          faturado: parseFloat(linha.valor_faturado) || 0,
+          recebido: parseFloat(linha.valor_liberado) || 0,
+          glosado: parseFloat(linha.valor_glosado) || 0
+        });
+      }
+      
+      // Calcular médias
+      const dados = Array.from(mapa.values()).map(g => ({
+        codigoItem: g.codigoItem,
+        descricaoItem: g.descricaoItem,
+        totalFaturado: g.totalFaturado,
+        valorTotalFaturado: Math.round(g.valorTotalFaturado * 100) / 100,
+        valorMedioFaturado: g.totalFaturado > 0 ? Math.round((g.valorTotalFaturado / g.totalFaturado) * 100) / 100 : 0,
+        totalRecebido: g.totalRecebido,
+        valorTotalRecebido: Math.round(g.valorTotalRecebido * 100) / 100,
+        valorMedioRecebido: g.totalRecebido > 0 ? Math.round((g.valorTotalRecebido / g.totalRecebido) * 100) / 100 : 0,
+        totalGlosado: g.totalGlosado,
+        valorTotalGlosado: Math.round(g.valorTotalGlosado * 100) / 100,
+        valorMedioGlosado: g.totalGlosado > 0 ? Math.round((g.valorTotalGlosado / g.totalGlosado) * 100) / 100 : 0
+      })).sort((a, b) => b.totalFaturado - a.totalFaturado);
 
       logger.info({
         message: "Dados de recebimento recuperados",
@@ -174,9 +219,9 @@ export class AnalisadorRiscoGlosa {
           totalGlosado,
           taxaGlosa: Math.round(taxaGlosa * 100) / 100,
           taxaRecebimento: Math.round(taxaRecebimento * 100) / 100,
-          valorMedioFaturado: parseFloat(row.valorMedioFaturado || 0),
-          valorMedioRecebido: parseFloat(row.valorMedioRecebido || 0),
-          valorMedioGlosado: parseFloat(row.valorMedioGlosado || 0),
+          valorMedioFaturado: Number(row.valorMedioFaturado) || 0,
+          valorMedioRecebido: Number(row.valorMedioRecebido) || 0,
+          valorMedioGlosado: Number(row.valorMedioGlosado) || 0,
           motivosGlosaFrequentes,
           risco,
         });

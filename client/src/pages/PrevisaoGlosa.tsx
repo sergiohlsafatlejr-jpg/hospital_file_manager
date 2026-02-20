@@ -58,7 +58,7 @@ export function PrevisaoGlosa() {
   const [mesesHistorico, setMesesHistorico] = useState(12);
   const [numeroGuia, setNumeroGuia] = useState("");
   const [arquivoId, setArquivoId] = useState<number | null>(null);
-  const [limiteRisco, setLimiteRisco] = useState<"alto" | "critico">("alto");
+  const [limiteRisco, setLimiteRisco] = useState<"alto_critico" | "critico">("alto_critico");
 
   // Estados para resultados
   const [padroes, setPadroes] = useState<PadraoRecebimento[]>([]);
