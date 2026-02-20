@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip as TooltipUI, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { 
@@ -47,7 +48,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   Legend,
   ResponsiveContainer,
   PieChart as RechartsPie,
@@ -1508,9 +1509,19 @@ export default function AnaliseGlosa() {
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex flex-col gap-1">
-                                    <Badge variant="secondary" className="w-fit">
-                                      {item.codigoGlosa || "N/A"}
-                                    </Badge>
+                                    <TooltipUI>
+                                      <TooltipTrigger asChild>
+                                        <Badge variant="secondary" className="w-fit cursor-help">
+                                          {item.codigoGlosa || "N/A"}
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="right" className="max-w-xs">
+                                        <div className="text-sm">
+                                          <p className="font-semibold mb-1">Codigo: {item.codigoGlosa || "N/A"}</p>
+                                          <p>{glosaInfo?.descricao || "Descricao nao encontrada no dicionario"}</p>
+                                        </div>
+                                      </TooltipContent>
+                                    </TooltipUI>
                                     {glosaInfo && (
                                       <span className="text-xs text-muted-foreground truncate max-w-[150px]" title={glosaInfo.descricao}>
                                         {glosaInfo.descricao}
@@ -1677,7 +1688,7 @@ export default function AnaliseGlosa() {
                             />
                           ))}
                         </Pie>
-                        <Tooltip 
+                        <RechartsTooltip 
                           formatter={(value: number, name: string, props: any) => [
                             `${value} ocorrências (${formatCurrency(props.payload.valor)})`,
                             props.payload.name
@@ -1767,7 +1778,7 @@ export default function AnaliseGlosa() {
                         <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                         <YAxis yAxisId="left" orientation="left" stroke="#ef4444" />
                         <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
-                        <Tooltip formatter={(value: number, name: string) => [
+                        <RechartsTooltip formatter={(value: number, name: string) => [
                           name === "valor" ? formatCurrency(value) : value,
                           name === "valor" ? "Valor Glosado" : "Divergências"
                         ]} />
@@ -1920,7 +1931,7 @@ export default function AnaliseGlosa() {
                       <XAxis dataKey="name" />
                       <YAxis yAxisId="left" orientation="left" stroke="#ef4444" />
                       <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number, name: string) => [
+                      <RechartsTooltip formatter={(value: number, name: string) => [
                         name === "valor" ? formatCurrency(value) : value,
                         name === "valor" ? "Valor Glosado" : "Qtd Glosas"
                       ]} />

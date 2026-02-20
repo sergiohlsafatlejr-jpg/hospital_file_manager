@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { GLOSAS_TISS } from "../../../shared/glossaryGlosas";
 import {
   Table,
   TableBody,
@@ -417,8 +419,24 @@ export default function DetalhesContaFaturada() {
                       <TableCell className="text-right text-red-600">
                         {formatCurrency(item.vlGlosa)}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate text-xs text-muted-foreground" title={item.motivoGlosa || ''}>
-                        {item.motivoGlosa || '-'}
+                      <TableCell className="max-w-xs">
+                        {item.motivoGlosa ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help border-b border-dotted border-gray-400 hover:border-gray-600 truncate block text-xs text-muted-foreground">
+                                {item.motivoGlosa}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-xs">
+                              <div className="text-sm">
+                                <p className="font-semibold mb-1">Motivo da Glosa</p>
+                                <p>{item.motivoGlosa}</p>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          '-'
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

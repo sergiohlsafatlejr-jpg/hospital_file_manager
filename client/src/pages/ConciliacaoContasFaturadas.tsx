@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { GLOSAS_TISS } from "../../../shared/glossaryGlosas";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { 
   Search, 
@@ -921,8 +923,24 @@ export default function ConciliacaoContasFaturadas() {
                             <TableCell className="text-right">{formatarMoeda(item.vlFaturado)}</TableCell>
                             <TableCell className="text-right text-green-600">{formatarMoeda(item.vlPago)}</TableCell>
                             <TableCell className="text-right text-red-600">{formatarMoeda(item.vlGlosa)}</TableCell>
-                            <TableCell className="max-w-[150px] truncate" title={item.motivoGlosa}>
-                              {item.motivoGlosa || '-'}
+                            <TableCell className="max-w-[150px]">
+                              {item.motivoGlosa ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="cursor-help border-b border-dotted border-gray-400 hover:border-gray-600 truncate block">
+                                      {item.motivoGlosa}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="max-w-xs">
+                                    <div className="text-sm">
+                                      <p className="font-semibold mb-1">Motivo da Glosa</p>
+                                      <p>{item.motivoGlosa}</p>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                '-'
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
