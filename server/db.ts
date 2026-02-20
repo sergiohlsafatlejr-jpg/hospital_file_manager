@@ -99,7 +99,24 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
+import { GLOSAS_TISS } from '../shared/glossaryGlosas';
+
 let _db: ReturnType<typeof drizzle> | null = null;
+
+// Enriquece codigo de glosa com descricao do dicionario
+export function enriquecerCodigoGlosa(codigoGlosaStr: string): string {
+  if (!codigoGlosaStr) return 'Nao informado';
+  
+  const codigoMatch = codigoGlosaStr.match(/^(\d+)/);
+  const codigoNum = codigoMatch ? codigoMatch[1] : codigoGlosaStr;
+  
+  const glosaInfo = GLOSAS_TISS[codigoNum];
+  if (glosaInfo) {
+    return glosaInfo.descricaoSimplificada || glosaInfo.descricao;
+  }
+  
+  return codigoGlosaStr;
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -4228,7 +4245,7 @@ export async function getItensGlosados(filters: {
       valorCobrado,
       valorPago,
       valorGlosado: valorGlosa,
-      motivoGlosa: codigoGlosaStr || 'Não informado',
+      motivoGlosa: enriquecerCodigoGlosa(codigoGlosaStr),
       codigoGlosa: codigoGlosaNum,
       convenioId: row.convenioId || 0,
       convenioNome: convenioMap.get(row.convenioId || 0) || 'Desconhecido',
@@ -5324,6 +5341,9 @@ export async function getItensGlosadosAceitos(filters: {
     const valorPago = parseFloat(String(row.valorPago || '0'));
     const tipo = TIPO_MAP[(row.tipoLancamento || '').toUpperCase()] || determinarTipoProcedimento(row.codigoItem || '', row.descricaoItem || undefined);
 
+    const codigoGlosaStr = row.codigoGlosa || '';
+    const codigoGlosaNum = codigoGlosaStr.match(/^(\d+)/)?.[1] || '';
+    
     itensAceitos.push({
       id: row.id,
       codigo: row.codigoItem || '',
@@ -5335,8 +5355,8 @@ export async function getItensGlosadosAceitos(filters: {
       dataExecucao: row.dataExecucao ? new Date(row.dataExecucao) : null,
       valorCobrado: valorGlosa + valorPago,
       valorGlosado: valorGlosa,
-      motivoGlosa: row.codigoGlosa || 'Não informado',
-      codigoGlosa: (row.codigoGlosa || '').match(/^(\d+)/)?.[1] || '',
+      motivoGlosa: enriquecerCodigoGlosa(codigoGlosaStr),
+      codigoGlosa: codigoGlosaNum,
       convenioId: row.convenioId || 0,
       convenioNome: convenioMap.get(row.convenioId || 0) || 'Desconhecido',
       arquivoId: row.arquivoId,
@@ -10190,7 +10210,10 @@ export async function getMotivosGlosaPorFuncionario(estabelecimentoId: number, u
     .orderBy(sql`COUNT(*) DESC`)
     .limit(20);
 
-  return motivos;
+  return motivos.map(m => ({
+    ...m,
+    motivoGlosa: enriquecerCodigoGlosa(m.motivoGlosa || '')
+  }));
 }
 
 /**
