@@ -12935,17 +12935,15 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
   }
 
   // Agrupar por motivo de glosa (do demonstrativo)
-  // Buscar todos os motivos de glosa para mapear código -> descrição
-  const motivosGlosaDb = await db.select().from(motivosGlosa);
-  const motivoGlosaMap = new Map(motivosGlosaDb.map(m => [m.codigo, m.descricaoSimplificada || m.descricao]));
+  // Usar enriquecerCodigoGlosa para buscar descrição do dicionário GLOSAS_TISS
   
   const porMotivoGlosaMap = new Map<string, DadosBIAgrupado>();
   for (const item of itensRecebidosFiltrados) {
     const valorGlosa = parseFloat(item.valorGlosa || "0");
     if (valorGlosa > 0) {
       const codigoGlosa = item.codigoGlosa || 'Motivo Não Informado';
-      // Buscar descrição do motivo no dicionário, ou usar o código se não encontrar
-      const descricaoMotivo = motivoGlosaMap.get(codigoGlosa) || codigoGlosa;
+      // Buscar descrição do motivo no dicionário GLOSAS_TISS
+      const descricaoMotivo = enriquecerCodigoGlosa(codigoGlosa);
       const chave = descricaoMotivo;
       
       if (!porMotivoGlosaMap.has(chave)) {

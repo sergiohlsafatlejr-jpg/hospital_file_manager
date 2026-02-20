@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { getDb } from './db';
+import { getDb, enriquecerCodigoGlosa } from './db';
+import { GLOSAS_TISS } from '../shared/glossaryGlosas';
 
 /**
  * Obter itens agrupados por categoria (tipo_lancamento)
@@ -69,7 +70,7 @@ export async function getGlosasPorMotivo(input: any): Promise<any[]> {
     const total = (result as any[]).reduce((sum, row) => sum + (row.valor || 0), 0);
     
     return (result as any[]).map(row => ({
-      motivo: row.motivo,
+      motivo: enriquecerCodigoGlosa(row.motivo || ''),
       quantidade: row.quantidade || 0,
       valor: row.valor || 0,
       percentual: total > 0 ? Math.round((row.valor / total) * 100) : 0,
