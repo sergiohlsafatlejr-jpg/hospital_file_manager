@@ -771,7 +771,7 @@ export const motorRegrasRouter = router({
             recomendacoes: [],
           }));
 
-          const consolidado = AnalisadorConformidadePadrao.gerarRelatorioConsolidado(relatorios);
+          const consolidado = AnalisadorConformidadePadrao.gerarRelatorioConsolidado(relatorios as any);
 
           logger.info({
             message: "Relatório de conformidade gerado",

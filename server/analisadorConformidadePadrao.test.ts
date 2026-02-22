@@ -100,7 +100,7 @@ describe("Analisador de Conformidade de Padrões", () => {
       const itemEsperado = null;
       const itemEncontrado = { codigoItem: "10101099" };
 
-      const ehExcedente = !itemEsperado && itemEncontrado;
+      const ehExcedente = !itemEsperado && !!itemEncontrado;
       expect(ehExcedente).toBe(true);
     });
 

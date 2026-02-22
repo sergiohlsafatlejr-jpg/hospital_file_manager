@@ -5,7 +5,7 @@ import { eq, and } from "drizzle-orm";
 
 export interface ItemConta {
   codigoItem: string;
-  descricaoItem: string;
+  descricaoItem?: string;
   tipoItem: string;
   quantidade: number;
   valor: number;
@@ -167,7 +167,7 @@ export class AnalisadorConformidadePadrao {
         if (!itemEsperado) {
           divergencias.push({
             codigoItem: itemEncontrado.codigoItem,
-            descricaoItem: itemEncontrado.descricaoItem,
+            descricaoItem: itemEncontrado.descricaoItem || "",
             tipoItem: itemEncontrado.tipoItem,
             status: "excedente",
             esperado: {},
