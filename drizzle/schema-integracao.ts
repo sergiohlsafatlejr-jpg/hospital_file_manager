@@ -1,22 +1,22 @@
-import { pgTable, text, integer, timestamp, boolean, decimal, json, uniqueIndex, index, varchar } from "drizzle-orm/pg-core";
+import { mysqlTable, int, varchar, text, boolean, timestamp, index, json } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
  * CAMADA 1: CONFIGURAÇÃO DE QUERIES
  * Armazena as configurações de queries para cada sistema/estabelecimento
  */
-export const queryConfiguracoes = pgTable(
+export const queryConfiguracoes = mysqlTable(
   "query_configuracoes",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
     sistema: varchar({ length: 50 }).notNull(), // warleine, tasy, omni, gesthor
     tipoDados: varchar({ length: 50 }).notNull(), // atendimentos, faturamento, procedimentos, pacientes
     querySql: text().notNull(),
     descricao: text(),
     
-    // Configuração de conexão (para sistemas que não usam credenciais globais)
-    conexaoConfig: json(), // { host, port, database, user, password }
+    // Configuração de conexão (JSON com host, port, database, user, password)
+    conexaoConfig: json(),
     
     // Frequência de sincronização
     frequencia: varchar({ length: 50 }).notNull().default("tempo_real"), // tempo_real, 1x_dia, 1x_semana
@@ -27,7 +27,9 @@ export const queryConfiguracoes = pgTable(
     // Rastreamento
     ultimaSincronizacao: timestamp(),
     proximaSincronizacao: timestamp(),
-    totalRegistrosSincronizados: integer().default(0),
+    totalRegistrosSincronizados: int().default(0),
+    ultimoErro: text(),
+    ultimaTentativa: timestamp(),
     
     criadoEm: timestamp().defaultNow(),
     atualizadoEm: timestamp().defaultNow(),
@@ -35,6 +37,7 @@ export const queryConfiguracoes = pgTable(
   (table) => ({
     estabelecimentoSistemaIdx: index("idx_query_config_estab_sistema").on(table.estabelecimentoId, table.sistema),
     sistemaIdx: index("idx_query_config_sistema").on(table.sistema),
+    ativoIdx: index("idx_query_config_ativo").on(table.ativo),
   })
 );
 
@@ -43,221 +46,194 @@ export const queryConfiguracoes = pgTable(
  */
 
 // WARLEINE - Atendimentos (Staging)
-export const warleineAtendimentosStaging = pgTable(
+export const warleineAtendimentosStaging = mysqlTable(
   "warleine_atendimentos_staging",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    configuracaoId: int().notNull(),
     
-    // Dados brutos da query
-    numatend: varchar({ length: 50 }).notNull(), // Número do atendimento
-    codtipsai: varchar({ length: 50 }), // Código tipo saída
-    nomeplaco: varchar({ length: 255 }), // Nome do local
-    nomepac: varchar({ length: 255 }), // Nome do paciente
-    carater: varchar({ length: 50 }), // Caráter (UR, EL, etc)
-    datatend: timestamp(), // Data do atendimento
-    datasai: timestamp(), // Data de saída
-    tipoatend: varchar({ length: 50 }), // Tipo atendimento (I, E, A)
-    tipoatendimentodescricao: varchar({ length: 255 }), // Descrição (INTERNAÇÃO, EXAME, AMBULATORIO)
-    codserv: varchar({ length: 255 }), // Código do serviço
-    procprin: varchar({ length: 50 }), // Procedimento principal
-    codccDestino: varchar({ length: 50 }), // Centro de custo destino
+    // Dados brutos em JSON (preserva estrutura original)
+    dadosBrutos: json().notNull(),
     
-    // Metadados
-    dadosBrutos: json(), // JSON com todos os dados originais
-    sincronizadoEm: timestamp().defaultNow(),
-    processado: boolean().default(false),
+    // Identificadores únicos
+    atendimentoId: varchar({ length: 100 }),
+    pacienteId: varchar({ length: 100 }),
+    
+    // Rastreamento
+    dataSincronizacao: timestamp().defaultNow(),
+    dataAtendimento: timestamp(),
+    
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_warleine_staging_estab").on(table.estabelecimentoId),
-    numatendIdx: index("idx_warleine_staging_numatend").on(table.numatend),
-    processadoIdx: index("idx_warleine_staging_processado").on(table.processado),
+    estabelecimentoIdx: index("idx_warleine_atend_estab").on(table.estabelecimentoId),
+    configuracaoIdx: index("idx_warleine_atend_config").on(table.configuracaoId),
+    atendimentoIdIdx: index("idx_warleine_atend_id").on(table.atendimentoId),
   })
 );
 
 // TASY - Atendimentos (Staging)
-export const tasyAtendimentosStaging = pgTable(
+export const tasyAtendimentosStaging = mysqlTable(
   "tasy_atendimentos_staging",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Dados brutos do Oracle
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    configuracaoId: int().notNull(),
     dadosBrutos: json().notNull(),
-    
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
-    processado: boolean().default(false),
+    atendimentoId: varchar({ length: 100 }),
+    pacienteId: varchar({ length: 100 }),
+    dataSincronizacao: timestamp().defaultNow(),
+    dataAtendimento: timestamp(),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_tasy_staging_estab").on(table.estabelecimentoId),
-    processadoIdx: index("idx_tasy_staging_processado").on(table.processado),
+    estabelecimentoIdx: index("idx_tasy_atend_estab").on(table.estabelecimentoId),
+    configuracaoIdx: index("idx_tasy_atend_config").on(table.configuracaoId),
   })
 );
 
 // OMNI - Atendimentos (Staging)
-export const omniAtendimentosStaging = pgTable(
+export const omniAtendimentosStaging = mysqlTable(
   "omni_atendimentos_staging",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Dados brutos do Firebird
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    configuracaoId: int().notNull(),
     dadosBrutos: json().notNull(),
-    
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
-    processado: boolean().default(false),
+    atendimentoId: varchar({ length: 100 }),
+    pacienteId: varchar({ length: 100 }),
+    dataSincronizacao: timestamp().defaultNow(),
+    dataAtendimento: timestamp(),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_omni_staging_estab").on(table.estabelecimentoId),
-    processadoIdx: index("idx_omni_staging_processado").on(table.processado),
+    estabelecimentoIdx: index("idx_omni_atend_estab").on(table.estabelecimentoId),
+    configuracaoIdx: index("idx_omni_atend_config").on(table.configuracaoId),
   })
 );
 
 // GESTHOR - Atendimentos (Staging)
-export const gesthorAtendimentosStaging = pgTable(
+export const gesthorAtendimentosStaging = mysqlTable(
   "gesthor_atendimentos_staging",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Dados brutos do Firebird
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    configuracaoId: int().notNull(),
     dadosBrutos: json().notNull(),
-    
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
-    processado: boolean().default(false),
+    atendimentoId: varchar({ length: 100 }),
+    pacienteId: varchar({ length: 100 }),
+    dataSincronizacao: timestamp().defaultNow(),
+    dataAtendimento: timestamp(),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_gesthor_staging_estab").on(table.estabelecimentoId),
-    processadoIdx: index("idx_gesthor_staging_processado").on(table.processado),
+    estabelecimentoIdx: index("idx_gesthor_atend_estab").on(table.estabelecimentoId),
+    configuracaoIdx: index("idx_gesthor_atend_config").on(table.configuracaoId),
   })
 );
 
 /**
  * CAMADA 3: DADOS UNIFICADOS
+ * Tabelas normalizadas com dados de todos os sistemas
  */
 
-// Atendimentos Unificados
-export const atendimentosUnificados = pgTable(
+export const atendimentos = mysqlTable(
   "atendimentos_unificados",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
+    id: int().primaryKey().autoincrement(),
     
     // Rastreamento de origem
     origemSistema: varchar({ length: 50 }).notNull(), // warleine, tasy, omni, gesthor
-    origemId: varchar({ length: 100 }).notNull(), // ID original do sistema
+    origemId: varchar({ length: 100 }).notNull(), // ID original no sistema
+    estabelecimentoId: int().notNull(),
     
-    // Dados normalizados
-    dataAtendimento: timestamp().notNull(),
-    dataSaida: timestamp(),
-    tipoAtendimento: varchar({ length: 50 }), // INTERNACAO, EXAME, AMBULATORIO
-    nomePaciente: varchar({ length: 255 }),
-    codigoProcedimento: varchar({ length: 50 }),
-    nomeServico: varchar({ length: 255 }),
-    carater: varchar({ length: 50 }),
+    // Dados principais
+    dataAtendimento: timestamp(),
+    pacienteId: varchar({ length: 100 }),
+    procedimentoCodigo: varchar({ length: 100 }),
+    procedimentoDescricao: text(),
+    medicoId: varchar({ length: 100 }),
+    medicoNome: varchar({ length: 255 }),
+    valor: varchar({ length: 20 }), // Armazenar como string para preservar precisão
+    status: varchar({ length: 50 }),
     
     // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
     atualizadoEm: timestamp().defaultNow(),
-    
-    // Dados brutos para referência
-    dadosOriginais: json(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_atend_unif_estab").on(table.estabelecimentoId),
-    origemIdx: index("idx_atend_unif_origem").on(table.origemSistema, table.origemId),
-    dataAtendimentoIdx: index("idx_atend_unif_data").on(table.dataAtendimento),
+    origemSistemaIdx: index("idx_atend_origem_sistema").on(table.origemSistema),
+    origemIdIdx: index("idx_atend_origem_id").on(table.origemId),
+    estabelecimentoIdx: index("idx_atend_estab").on(table.estabelecimentoId),
+    dataAtendimentoIdx: index("idx_atend_data").on(table.dataAtendimento),
   })
 );
 
-// Faturamento Unificado
-export const faturamentoUnificado = pgTable(
+export const faturamento = mysqlTable(
   "faturamento_unificado",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Rastreamento de origem
+    id: int().primaryKey().autoincrement(),
     origemSistema: varchar({ length: 50 }).notNull(),
     origemId: varchar({ length: 100 }).notNull(),
+    estabelecimentoId: int().notNull(),
     
-    // Dados normalizados
-    dataFaturamento: timestamp().notNull(),
-    numeroGuia: varchar({ length: 50 }),
-    codigoItem: varchar({ length: 50 }),
-    descricaoItem: varchar({ length: 255 }),
-    tipoItem: varchar({ length: 50 }), // medicamento, material, taxa, diaria, procedimento
-    quantidade: decimal({ precision: 10, scale: 2 }),
-    valorUnitario: decimal({ precision: 12, scale: 2 }),
-    valorTotal: decimal({ precision: 12, scale: 2 }),
+    dataFaturamento: timestamp(),
+    contaNumero: varchar({ length: 100 }),
+    pacienteId: varchar({ length: 100 }),
+    valor: varchar({ length: 20 }),
+    status: varchar({ length: 50 }),
     
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
     atualizadoEm: timestamp().defaultNow(),
-    dadosOriginais: json(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_fat_unif_estab").on(table.estabelecimentoId),
-    origemIdx: index("idx_fat_unif_origem").on(table.origemSistema, table.origemId),
-    dataFaturamentoIdx: index("idx_fat_unif_data").on(table.dataFaturamento),
+    origemSistemaIdx: index("idx_fatur_origem_sistema").on(table.origemSistema),
+    estabelecimentoIdx: index("idx_fatur_estab").on(table.estabelecimentoId),
   })
 );
 
-// Procedimentos Unificados
-export const procedimentosUnificados = pgTable(
+export const procedimentos = mysqlTable(
   "procedimentos_unificados",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Rastreamento de origem
+    id: int().primaryKey().autoincrement(),
     origemSistema: varchar({ length: 50 }).notNull(),
     origemId: varchar({ length: 100 }).notNull(),
+    estabelecimentoId: int().notNull(),
     
-    // Dados normalizados
-    codigoProcedimento: varchar({ length: 50 }).notNull(),
-    descricao: varchar({ length: 255 }),
-    tipo: varchar({ length: 50 }),
+    codigo: varchar({ length: 100 }).notNull(),
+    descricao: text(),
+    valor: varchar({ length: 20 }),
     
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
-    atualizadoEm: timestamp().defaultNow(),
-    dadosOriginais: json(),
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_proc_unif_estab").on(table.estabelecimentoId),
-    origemIdx: index("idx_proc_unif_origem").on(table.origemSistema, table.origemId),
+    codigoIdx: index("idx_proc_codigo").on(table.codigo),
+    origemSistemaIdx: index("idx_proc_origem_sistema").on(table.origemSistema),
   })
 );
 
-// Pacientes Unificados
-export const pacientesUnificados = pgTable(
+export const pacientes = mysqlTable(
   "pacientes_unificados",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
-    
-    // Rastreamento de origem
+    id: int().primaryKey().autoincrement(),
     origemSistema: varchar({ length: 50 }).notNull(),
     origemId: varchar({ length: 100 }).notNull(),
+    estabelecimentoId: int().notNull(),
     
-    // Dados normalizados
-    nome: varchar({ length: 255 }).notNull(),
     cpf: varchar({ length: 20 }),
+    nome: varchar({ length: 255 }),
     dataNascimento: timestamp(),
     
-    // Metadados
-    sincronizadoEm: timestamp().defaultNow(),
-    atualizadoEm: timestamp().defaultNow(),
-    dadosOriginais: json(),
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_pac_unif_estab").on(table.estabelecimentoId),
-    origemIdx: index("idx_pac_unif_origem").on(table.origemSistema, table.origemId),
-    cpfIdx: index("idx_pac_unif_cpf").on(table.cpf),
+    cpfIdx: index("idx_pac_cpf").on(table.cpf),
+    origemSistemaIdx: index("idx_pac_origem_sistema").on(table.origemSistema),
   })
 );
 
@@ -265,51 +241,52 @@ export const pacientesUnificados = pgTable(
  * CAMADA 4: AUDITORIA E HISTÓRICO
  */
 
-// Log de Sincronização
-export const sincronizacaoLog = pgTable(
+export const sincronizacaoLog = mysqlTable(
   "sincronizacao_log",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    estabelecimentoId: integer().notNull(),
+    id: int().primaryKey().autoincrement(),
     
+    configuracaoId: int().notNull(),
     sistema: varchar({ length: 50 }).notNull(),
     tipoDados: varchar({ length: 50 }).notNull(),
+    estabelecimentoId: int().notNull(),
     
-    status: varchar({ length: 50 }).notNull(), // sucesso, erro, parcial
-    registrosSincronizados: integer().default(0),
-    registrosErro: integer().default(0),
+    // Resultado da sincronização
+    status: varchar({ length: 50 }).notNull(), // sucesso, erro, em_andamento
+    registrosSincronizados: int().default(0),
+    registrosErro: int().default(0),
+    duracao: int(), // em milissegundos
     
+    // Detalhes do erro
     mensagemErro: text(),
-    detalhesErro: json(),
+    stackTrace: text(),
     
-    inicioSincronizacao: timestamp().defaultNow(),
-    fimSincronizacao: timestamp(),
-    duracao: integer(), // em segundos
-    
+    // Rastreamento
+    iniciadoEm: timestamp().defaultNow(),
+    finalizadoEm: timestamp(),
     criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_sync_log_estab").on(table.estabelecimentoId),
+    configuracaoIdx: index("idx_sync_log_config").on(table.configuracaoId),
     sistemaIdx: index("idx_sync_log_sistema").on(table.sistema),
     statusIdx: index("idx_sync_log_status").on(table.status),
+    dataIdx: index("idx_sync_log_data").on(table.criadoEm),
   })
 );
 
-// Histórico de Atendimentos
-export const atendimentosHistorico = pgTable(
+export const atendimentosHistorico = mysqlTable(
   "atendimentos_historico",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    atendimentoId: integer().notNull(),
+    id: int().primaryKey().autoincrement(),
     
+    atendimentoId: int().notNull(),
     campoAlterado: varchar({ length: 100 }).notNull(),
     valorAnterior: text(),
     valorNovo: text(),
     
-    alteradoEm: timestamp().defaultNow(),
-    alteradoPor: varchar({ length: 255 }),
+    criadoEm: timestamp().defaultNow(),
   },
   (table) => ({
-    atendimentoIdx: index("idx_hist_atend_id").on(table.atendimentoId),
+    atendimentoIdx: index("idx_atend_hist_atend").on(table.atendimentoId),
   })
 );

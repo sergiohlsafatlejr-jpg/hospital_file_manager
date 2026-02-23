@@ -133,6 +133,9 @@ const menuItems: MenuItem[] = [
   { icon: Activity, label: "Motor de Regras", path: "/motor-regras", modulo: "relatoriosBi" },
   { icon: DollarSign, label: "Conciliação Contas Pagas", path: "/conciliacao-contas-pagas", modulo: "conciliacaoContasPagas" },
   
+  // Integração de Dados
+  { icon: Database, label: "Integrador de Dados", path: "/integracao", adminOnly: true },
+  
   // Atendimentos (PostgreSQL externo) - apenas Instituto do Rim (ID 4)
   { icon: Users, label: "Atendimentos", path: "/atendimentos", modulo: "atendimentos", estabelecimentoIds: [4] },
   { icon: FileText, label: "Atendimentos a Faturar", path: "/atendimentos-faturar", modulo: "atendimentosFaturar", estabelecimentoIds: [4] },

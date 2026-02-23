@@ -8,11 +8,11 @@ export interface SyncConfig {
   querySql: string;
   frequencia: "tempo_real" | "1x_dia" | "1x_semana";
   conexaoConfig?: {
-    host: string;
-    port: number;
-    database: string;
-    user: string;
-    password: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    user?: string;
+    password?: string;
   };
 }
 
