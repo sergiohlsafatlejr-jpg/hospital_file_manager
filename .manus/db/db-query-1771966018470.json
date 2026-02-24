@@ -1,0 +1,50 @@
+{
+  "query": "SELECT id, numero_atendimento, paciente, data_entrada, data_saida, estabelecimentoId FROM atendimentos_unificados LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, numero_atendimento, paciente, data_entrada, data_saida, estabelecimentoId FROM atendimentos_unificados LIMIT 5;",
+  "rows": [
+    {
+      "id": "816",
+      "numero_atendimento": "3262981",
+      "paciente": "ALBERTO DA SILVA MOREIRA",
+      "data_entrada": "2026-02-23 14:40:00",
+      "data_saida": "NULL",
+      "estabelecimentoId": "1260036"
+    },
+    {
+      "id": "817",
+      "numero_atendimento": "3262913",
+      "paciente": "CRISTIANO BORGES VIEIRA",
+      "data_entrada": "2026-02-19 16:49:14",
+      "data_saida": "NULL",
+      "estabelecimentoId": "1260036"
+    },
+    {
+      "id": "818",
+      "numero_atendimento": "3262975",
+      "paciente": "MARCOS ALVES FERNANDES",
+      "data_entrada": "2026-02-23 12:39:00",
+      "data_saida": "NULL",
+      "estabelecimentoId": "1260036"
+    },
+    {
+      "id": "819",
+      "numero_atendimento": "3262553",
+      "paciente": "SAULO DANIEL ANDRADE CAMPOS",
+      "data_entrada": "2026-01-30 09:22:00",
+      "data_saida": "NULL",
+      "estabelecimentoId": "1260036"
+    },
+    {
+      "id": "820",
+      "numero_atendimento": "3262669",
+      "paciente": "JEFERSON SANDRO DE PAULA",
+      "data_entrada": "2026-02-05 08:14:00",
+      "data_saida": "NULL",
+      "estabelecimentoId": "1260036"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnumero_atendimento\tpaciente\tdata_entrada\tdata_saida\testabelecimentoId\n816\t3262981\tALBERTO DA SILVA MOREIRA\t2026-02-23 14:40:00\tNULL\t1260036\n817\t3262913\tCRISTIANO BORGES VIEIRA\t2026-02-19 16:49:14\tNULL\t1260036\n818\t3262975\tMARCOS ALVES FERNANDES\t2026-02-23 12:39:00\tNULL\t1260036\n819\t3262553\tSAULO DANIEL ANDRADE CAMPOS\t2026-01-30 09:22:00\tNULL\t1260036\n820\t3262669\tJEFERSON SANDRO DE PAULA\t2026-02-05 08:14:00\tNULL\t1260036\n",
+  "stderr": "",
+  "execution_time_ms": 61
+}

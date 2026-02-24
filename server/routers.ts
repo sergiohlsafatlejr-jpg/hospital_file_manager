@@ -6366,8 +6366,9 @@ export const appRouter = router({
     listarParadosUnificados: protectedProcedure
       .query(async ({ ctx }) => {
         try {
-          const estabelecimentoId = ctx.user?.estabelecimentoId || 1;
-          const dados = await getAtendimentosParadosUnificados(estabelecimentoId);
+          // Se o usuário não tem estabelecimentoId, retorna todos os dados
+          const estabelecimentoId = ctx.user?.estabelecimentoId;
+          const dados = await getAtendimentosParadosUnificados(estabelecimentoId || undefined);
           return dados.map((d: any) => ({
             ...d,
             diasParado: calcularDiasParadoUnificado(d.data_entrada, d.data_saida || undefined),
