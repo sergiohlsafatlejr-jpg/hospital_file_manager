@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,9 +72,41 @@ export function IntegradorDados() {
   const deletarConfiguracao = trpc.integradorDados.deletarConfiguracao.useMutation({
     onSuccess: () => {
       setDeleteConfirmation(null);
+      toast.success("Configuração deletada com sucesso");
       listarConfiguracoes.refetch();
     },
+    onError: (error) => {
+      toast.error("Erro ao deletar configuração", {
+        description: error.message,
+      });
+    },
   });
+
+  const sincronizar = trpc.integradorDados.sincronizar.useMutation({
+    onSuccess: (data) => {
+      if (data.sucesso) {
+        toast.success("Sincronização Concluída", {
+          description: data.mensagem,
+        });
+        listarConfiguracoes.refetch();
+        obterLogs.refetch();
+        obterStatus.refetch();
+      } else {
+        toast.error("Erro na Sincronização", {
+          description: data.mensagem,
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error("Erro ao Sincronizar", {
+        description: error.message || "Ocorreu um erro durante a sincronização",
+      });
+    },
+  });
+
+  const handleSincronizar = async (configId: number) => {
+    await sincronizar.mutateAsync({ configId });
+  };
 
   const handleDelete = async (configId: number) => {
     await deletarConfiguracao.mutateAsync({ configId });
@@ -211,13 +244,25 @@ export function IntegradorDados() {
                         {config.descricao || "-"}
                       </TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button size="sm" variant="ghost">
-                          <Play className="h-4 w-4" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleSincronizar(config.id)}
+                          disabled={sincronizar.isPending}
+                          title="Sincronizar agora"
+                        >
+                          {sincronizar.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => setDeleteConfirmation(config.id)}
+                          disabled={sincronizar.isPending}
+                          title="Deletar configuração"
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
