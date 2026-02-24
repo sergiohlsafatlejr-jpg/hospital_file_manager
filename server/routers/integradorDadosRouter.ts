@@ -6,7 +6,7 @@ import { WarleineConnector } from "../connectors/WarleineConnector";
 import { logger } from "../_core/logger";
 import { getDb } from "../db";
 import { estabelecimentos } from "../../drizzle/schema";
-import { queryConfiguracoes } from "../../drizzle/schema-integracao";
+import { queryConfiguracoes, warleineAtendimentosStaging } from "../../drizzle/schema-integracao";
 
 /**
  * Router para gerenciar integração de dados de múltiplos sistemas
@@ -334,19 +334,41 @@ export const integradorDadosRouter = router({
         }
 
         const config = configs[0];
-
-        // Executar sincronização baseado no sistema
         let registrosProcessados = 0;
 
-        if (config.sistema === "warleine") {
-          const conexaoStr = typeof config.conexaoConfig === 'string' ? config.conexaoConfig : JSON.stringify(config.conexaoConfig || {});
-          const conexao = JSON.parse(conexaoStr);
-          const connector = new WarleineConnector(conexao);
+        logger.info({
+          message: "Iniciando sincronização",
+          configId: input.configId,
+          sistema: config.sistema,
+          tipoDados: config.tipoDados,
+        });
 
+        if (config.sistema === "warleine") {
           try {
+            // Parse da configuração de conexão
+            let conexao = {};
+            if (config.conexaoConfig) {
+              if (typeof config.conexaoConfig === 'string') {
+                conexao = JSON.parse(config.conexaoConfig);
+              } else {
+                conexao = config.conexaoConfig as any;
+              }
+            }
+
+            logger.info({
+              message: "Configuração de conexão",
+              conexao: { ...conexao, password: '***' },
+            });
+
+            const connector = new WarleineConnector(conexao as any);
+
             // Conectar ao WARLEINE
             const conectado = await connector.conectar();
             if (!conectado) {
+              logger.error({
+                message: "Falha ao conectar ao WARLEINE",
+                configId: input.configId,
+              });
               return {
                 sucesso: false,
                 mensagem: "Falha ao conectar ao banco WARLEINE",
@@ -354,76 +376,78 @@ export const integradorDadosRouter = router({
               };
             }
 
-            // Executar query SEM LIMIT para trazer todos os dados
+            logger.info({
+              message: "Conectado ao WARLEINE",
+              configId: input.configId,
+            });
+
+            // Executar query para trazer todos os dados
             const dados = await connector.executarQuery(config.querySql);
             registrosProcessados = dados.length;
 
             logger.info({
               message: "Dados extraídos do WARLEINE",
               registrosProcessados,
+              configId: input.configId,
             });
 
             // Armazenar em tabela de staging
             if (registrosProcessados > 0) {
-              const tableName = `${config.sistema}_${config.tipoDados}_staging`;
-              
-              // Construir INSERT com múltiplas linhas
-              const placeholders = dados.map(() => 
-                '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
-              ).join(',');
+              try {
+                // Inserir dados na tabela de staging usando Drizzle ORM
+                const valuesToInsert = dados.map((row: any) => ({
+                  estabelecimentoId: config.estabelecimentoId,
+                  configuracaoId: config.id,
+                  dadosBrutos: row,
+                  atendimentoId: row.numatend || null,
+                  pacienteId: row.codpac || null,
+                  dataAtendimento: row.datatend || null,
+                }));
 
-              const values: any[] = [];
-              dados.forEach((row: any) => {
-                values.push(
-                  config.estabelecimentoId,
-                  config.id,
-                  row.numatend || null,
-                  row.codtipsai || null,
-                  row.nomeplaco || null,
-                  row.nomepac || null,
-                  row.carater || null,
-                  row.datatend || null,
-                  row.datasai || null,
-                  row.tipoatendimentodescricao || null,
-                  row.codserv || null,
-                  row.procprin || null,
-                  row.codcc_destino || null,
-                  JSON.stringify(row)
-                );
-              });
+                await db.insert(warleineAtendimentosStaging).values(valuesToInsert);
 
-              const insertSql = `
-                INSERT INTO ${tableName} 
-                (estabelecimentoId, configId, numeroAtendimento, tipoSaida, local, paciente, carater, dataAdmissao, dataAlta, tipoAtendimento, servico, procedimentoPrincipal, centroCusto, dadosBrutos, criadoEm)
-                VALUES ${placeholders}
-              `;
-
-              // Executar insert usando raw query
-              await db.execute(sql.raw(insertSql));
-
-              logger.info({
-                message: "Dados armazenados em staging",
-                tabela: tableName,
-                registros: registrosProcessados,
-              });
+                logger.info({
+                  message: "Dados armazenados em staging",
+                  tabela: "warleine_atendimentos_staging",
+                  registros: registrosProcessados,
+                  configId: input.configId,
+                });
+              } catch (insertError) {
+                logger.error({
+                  message: "Erro ao inserir dados em staging",
+                  error: insertError instanceof Error ? insertError.message : String(insertError),
+                  configId: input.configId,
+                });
+                throw insertError;
+              }
             }
+
+            // Desconectar
+            await connector.desconectar();
 
             // Atualizar última sincronização
             await db
               .update(queryConfiguracoes)
-              .set({ ultimaSincronizacao: new Date() })
+              .set({ 
+                ultimaSincronizacao: new Date(),
+                totalRegistrosSincronizados: registrosProcessados,
+              })
               .where(eq(queryConfiguracoes.id, input.configId));
-          } finally {
-            await connector.desconectar();
+
+            logger.info({
+              message: "Sincronização concluída com sucesso",
+              configId: input.configId,
+              registrosProcessados,
+            });
+          } catch (error) {
+            logger.error({
+              message: "Erro durante sincronização WARLEINE",
+              error: error instanceof Error ? error.message : String(error),
+              configId: input.configId,
+            });
+            throw error;
           }
         }
-
-        logger.info({
-          message: "Sincronização executada",
-          configId: input.configId,
-          sistema: config.sistema,
-          registrosProcessados,
-        });
 
         return {
           sucesso: true,

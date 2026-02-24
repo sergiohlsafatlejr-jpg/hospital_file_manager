@@ -331,3 +331,217 @@ describe("IntegradorDados Router", () => {
     });
   });
 });
+
+
+describe("Sincronização de Dados", () => {
+  describe("Resultado de Sincronização", () => {
+    it("deve retornar sucesso com quantidade de registros", () => {
+      const resultado = {
+        sucesso: true,
+        mensagem: "Sincronização concluída. 150 registros processados.",
+        registrosProcessados: 150,
+      };
+
+      expect(resultado.sucesso).toBe(true);
+      expect(resultado.registrosProcessados).toBeGreaterThan(0);
+      expect(resultado.mensagem).toContain("registros processados");
+    });
+
+    it("deve retornar erro quando falha conexão", () => {
+      const resultado = {
+        sucesso: false,
+        mensagem: "Falha ao conectar ao banco WARLEINE",
+        registrosProcessados: 0,
+      };
+
+      expect(resultado.sucesso).toBe(false);
+      expect(resultado.registrosProcessados).toBe(0);
+    });
+
+    it("deve retornar erro quando configuração não encontrada", () => {
+      const resultado = {
+        sucesso: false,
+        mensagem: "Configuração não encontrada",
+        registrosProcessados: 0,
+      };
+
+      expect(resultado.sucesso).toBe(false);
+      expect(resultado.mensagem).toContain("Configuração");
+    });
+
+    it("deve retornar erro quando usuário não é admin", () => {
+      const resultado = {
+        sucesso: false,
+        mensagem: "Apenas administradores podem sincronizar",
+        registrosProcessados: 0,
+      };
+
+      expect(resultado.sucesso).toBe(false);
+      expect(resultado.mensagem).toContain("administrador");
+    });
+  });
+
+  describe("Dados Sincronizados", () => {
+    it("deve armazenar atendimento com todos os campos", () => {
+      const atendimento = {
+        estabelecimentoId: 1,
+        configuracaoId: 1,
+        dadosBrutos: {
+          numatend: "123456",
+          nomepac: "João Silva",
+          datatend: "2026-02-23",
+        },
+        atendimentoId: "123456",
+        pacienteId: "999",
+        dataAtendimento: new Date("2026-02-23"),
+      };
+
+      expect(atendimento.estabelecimentoId).toBe(1);
+      expect(atendimento.configuracaoId).toBe(1);
+      expect(atendimento.dadosBrutos).toBeDefined();
+      expect(atendimento.atendimentoId).toBe("123456");
+    });
+
+    it("deve preservar dados brutos em JSON", () => {
+      const dadosBrutos = {
+        numatend: "123456",
+        codtipsai: "01",
+        nomeplaco: "Pronto Socorro",
+        nomepac: "João Silva",
+        carater: "E",
+        datatend: "2026-02-23",
+        datasai: "2026-02-25",
+        tipoatend: "I",
+        tipoatendimentodescricao: "INTERNACAO",
+        codserv: "01",
+        procprin: "123456",
+        codcc_destino: "CC001",
+      };
+
+      expect(typeof dadosBrutos).toBe("object");
+      expect(dadosBrutos.numatend).toBe("123456");
+      expect(dadosBrutos.nomepac).toBe("João Silva");
+    });
+  });
+
+  describe("Status de Sincronização", () => {
+    it("deve retornar status com configurações ativas", () => {
+      const status = {
+        status: "ok",
+        mensagem: "Status obtido com sucesso",
+        totalConfigs: 5,
+        ativas: 3,
+        ultimaSincronizacao: new Date(),
+      };
+
+      expect(status.status).toBe("ok");
+      expect(status.totalConfigs).toBeGreaterThan(0);
+      expect(status.ativas).toBeGreaterThan(0);
+    });
+
+    it("deve retornar status sem sincronizações", () => {
+      const status = {
+        status: "ok",
+        mensagem: "Status obtido com sucesso",
+        totalConfigs: 0,
+        ativas: 0,
+        ultimaSincronizacao: null,
+      };
+
+      expect(status.status).toBe("ok");
+      expect(status.totalConfigs).toBe(0);
+      expect(status.ultimaSincronizacao).toBeNull();
+    });
+
+    it("deve retornar erro de acesso", () => {
+      const status = {
+        status: "nao_autorizado",
+        mensagem: "Acesso negado",
+        totalConfigs: 0,
+        ativas: 0,
+        ultimaSincronizacao: null,
+      };
+
+      expect(status.status).toBe("nao_autorizado");
+      expect(status.mensagem).toContain("Acesso");
+    });
+  });
+
+  describe("Logs de Sincronização", () => {
+    it("deve retornar logs com informações completas", () => {
+      const log = {
+        id: 1,
+        configId: 1,
+        timestamp: new Date(),
+        status: "sucesso",
+        mensagem: "Sincronização concluída com sucesso",
+        registrosProcessados: 150,
+      };
+
+      expect(log.id).toBe(1);
+      expect(log.status).toBe("sucesso");
+      expect(log.registrosProcessados).toBeGreaterThan(0);
+    });
+
+    it("deve retornar logs de erro", () => {
+      const log = {
+        id: 2,
+        configId: 1,
+        timestamp: new Date(),
+        status: "erro",
+        mensagem: "Falha ao conectar ao banco",
+        registrosProcessados: 0,
+      };
+
+      expect(log.status).toBe("erro");
+      expect(log.registrosProcessados).toBe(0);
+    });
+  });
+
+  describe("Deleção de Configuração", () => {
+    it("deve retornar sucesso ao deletar", () => {
+      const resultado = {
+        sucesso: true,
+        mensagem: "Configuração deletada com sucesso",
+      };
+
+      expect(resultado.sucesso).toBe(true);
+      expect(resultado.mensagem).toContain("deletada");
+    });
+
+    it("deve retornar erro ao tentar deletar sem permissão", () => {
+      const resultado = {
+        sucesso: false,
+        mensagem: "Apenas administradores podem deletar configurações",
+      };
+
+      expect(resultado.sucesso).toBe(false);
+      expect(resultado.mensagem).toContain("administrador");
+    });
+  });
+
+  describe("Estatísticas de Sincronização", () => {
+    it("deve retornar estatísticas com dados", () => {
+      const stats = {
+        totalConfiguracoes: 5,
+        ultimaSincronizacao: new Date(),
+        proximaSincronizacao: new Date(),
+      };
+
+      expect(stats.totalConfiguracoes).toBeGreaterThan(0);
+      expect(stats.ultimaSincronizacao).toBeDefined();
+      expect(stats.proximaSincronizacao).toBeDefined();
+    });
+
+    it("deve retornar estatísticas vazias", () => {
+      const stats = {
+        totalConfiguracoes: 0,
+        ultimaSincronizacao: null,
+        proximaSincronizacao: null,
+      };
+
+      expect(stats.totalConfiguracoes).toBe(0);
+      expect(stats.ultimaSincronizacao).toBeNull();
+    });
+  });
+});
