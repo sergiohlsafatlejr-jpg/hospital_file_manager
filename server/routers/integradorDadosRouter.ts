@@ -402,9 +402,6 @@ export const integradorDadosRouter = router({
                     estabelecimentoId: config.estabelecimentoId,
                     configId: config.id,
                     dadosBrutos: row,
-                    atendimentoId: row.numatend || null,
-                    pacienteId: row.codpac || null,
-                    dataAtendimento: row.datatend || null,
                   }));
 
                   console.log(`[DEBUG] Tentando inserir lote ${Math.floor(i / BATCH_SIZE) + 1} com ${valuesToInsert.length} registros`);

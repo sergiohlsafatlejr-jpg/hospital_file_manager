@@ -56,15 +56,7 @@ export const warleineAtendimentosStaging = mysqlTable(
     // Dados brutos em JSON (preserva estrutura original)
     dadosBrutos: json().notNull(),
     
-    // Identificadores únicos
-    atendimentoId: varchar({ length: 100 }),
-    pacienteId: varchar({ length: 100 }),
-    
-    // Rastreamento
-    dataSincronizacao: timestamp().defaultNow(),
-    dataAtendimento: timestamp(),
-    
-    criadoEm: timestamp().defaultNow(),
+
   },
   (table) => ({
     estabelecimentoIdx: index("idx_warleine_atend_estab").on(table.estabelecimentoId),
