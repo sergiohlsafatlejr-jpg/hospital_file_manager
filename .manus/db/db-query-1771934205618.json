@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE warleine_atendimentos_staging (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  estabelecimentoId INT NOT NULL,\n  configId INT NOT NULL,\n  dadosBrutos JSON NOT NULL,\n  INDEX idx_warleine_atend_estab (estabelecimentoId),\n  INDEX idx_warleine_atend_config (configId)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute CREATE TABLE warleine_atendimentos_staging (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  estabelecimentoId INT NOT NULL,\n  configId INT NOT NULL,\n  dadosBrutos JSON NOT NULL,\n  INDEX idx_warleine_atend_estab (estabelecimentoId),\n  INDEX idx_warleine_atend_config (configId)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 198
+}
