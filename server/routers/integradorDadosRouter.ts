@@ -6,7 +6,7 @@ import { WarleineConnector } from "../connectors/WarleineConnector";
 import { logger } from "../_core/logger";
 import { getDb } from "../db";
 import { estabelecimentos } from "../../drizzle/schema";
-import { queryConfiguracoes, warleineAtendimentosStaging } from "../../drizzle/schema-integracao";
+import { queryConfiguracoes, warleineAtendimentosStaging, atendimentos } from "../../drizzle/schema-integracao";
 
 /**
  * Router para gerenciar integração de dados de múltiplos sistemas
@@ -625,7 +625,7 @@ export const integradorDadosRouter = router({
           .from(warleineAtendimentosStaging)
           .where(eq(warleineAtendimentosStaging.configId, input.configId));
         console.log(`[DEBUG] Transformando ${stagingData.length} registros`);
-        const { atendimentos } = await import("../../drizzle/schema");
+        // atendimentos já foi importado no topo do arquivo
         let registrosTransformados = 0;
         const BATCH_SIZE = 100;
         for (let i = 0; i < stagingData.length; i += BATCH_SIZE) {

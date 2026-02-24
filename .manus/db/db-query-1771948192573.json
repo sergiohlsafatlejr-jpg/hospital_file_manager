@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE atendimentos (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  origemSistema VARCHAR(50) NOT NULL,\n  origemId VARCHAR(255) NOT NULL,\n  estabelecimentoId INT NOT NULL,\n  pacienteId VARCHAR(50),\n  pacienteNome VARCHAR(255),\n  numeroAtendimento VARCHAR(50),\n  dataAdmissao DATETIME,\n  dataAlta DATETIME,\n  dataAtendimento DATETIME,\n  tipoAtendimento VARCHAR(100),\n  tipoSaida VARCHAR(100),\n  local VARCHAR(255),\n  carater VARCHAR(100),\n  servico VARCHAR(255),\n  procedimentoPrincipal VARCHAR(255),\n  centroCusto VARCHAR(100),\n  dadosBrutos JSON,\n  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY unique_origem (origemSistema, origemId)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute CREATE TABLE atendimentos (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  origemSistema VARCHAR(50) NOT NULL,\n  origemId VARCHAR(255) NOT NULL,\n  estabelecimentoId INT NOT NULL,\n  pacienteId VARCHAR(50),\n  pacienteNome VARCHAR(255),\n  numeroAtendimento VARCHAR(50),\n  dataAdmissao DATETIME,\n  dataAlta DATETIME,\n  dataAtendimento DATETIME,\n  tipoAtendimento VARCHAR(100),\n  tipoSaida VARCHAR(100),\n  local VARCHAR(255),\n  carater VARCHAR(100),\n  servico VARCHAR(255),\n  procedimentoPrincipal VARCHAR(255),\n  centroCusto VARCHAR(100),\n  dadosBrutos JSON,\n  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY unique_origem (origemSistema, origemId)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 210
+}
