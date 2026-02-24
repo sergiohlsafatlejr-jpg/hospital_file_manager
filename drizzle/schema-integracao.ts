@@ -61,7 +61,7 @@ export const warleineAtendimentosStaging = mysqlTable(
   (table) => ({
     estabelecimentoIdx: index("idx_warleine_atend_estab").on(table.estabelecimentoId),
     configuracaoIdx: index("idx_warleine_atend_config").on(table.configId),
-    atendimentoIdIdx: index("idx_warleine_atend_id").on(table.atendimentoId),
+
   })
 );
 
@@ -137,18 +137,22 @@ export const atendimentos = mysqlTable(
     
     // Rastreamento de origem
     origemSistema: varchar({ length: 50 }).notNull(), // warleine, tasy, omni, gesthor
-    origemId: varchar({ length: 100 }).notNull(), // ID original no sistema
+    origemId: varchar({ length: 255 }).notNull(), // ID original no sistema
     estabelecimentoId: int().notNull(),
     
-    // Dados principais
-    dataAtendimento: timestamp(),
-    pacienteId: varchar({ length: 100 }),
-    procedimentoCodigo: varchar({ length: 100 }),
-    procedimentoDescricao: text(),
-    medicoId: varchar({ length: 100 }),
-    medicoNome: varchar({ length: 255 }),
-    valor: varchar({ length: 20 }), // Armazenar como string para preservar precisão
-    status: varchar({ length: 50 }),
+    // Campos específicos solicitados (DE-PARA WARLEINE)
+    numero_atendimento: varchar({ length: 100 }), // numatend
+    codigo_saida: varchar({ length: 50 }), // codtipsai
+    convenio: varchar({ length: 255 }), // nomeplaco
+    paciente: varchar({ length: 255 }), // nomepac
+    caracter_atendimento: varchar({ length: 50 }), // carater
+    data_entrada: timestamp(), // datatend
+    data_saida: timestamp(), // datasai
+    tipo_atendimento: varchar({ length: 50 }), // tipoatend
+    descricao_atendimento: varchar({ length: 255 }), // tipoatendimentodescricao
+    codigo_servico: varchar({ length: 100 }), // codserv
+    codigo_procedimento: varchar({ length: 100 }), // procprin
+    destino_conta: varchar({ length: 100 }), // codcc_destino
     
     // Metadados
     dataSincronizacao: timestamp().defaultNow(),
@@ -159,7 +163,7 @@ export const atendimentos = mysqlTable(
     origemSistemaIdx: index("idx_atend_origem_sistema").on(table.origemSistema),
     origemIdIdx: index("idx_atend_origem_id").on(table.origemId),
     estabelecimentoIdx: index("idx_atend_estab").on(table.estabelecimentoId),
-    dataAtendimentoIdx: index("idx_atend_data").on(table.dataAtendimento),
+    dataEntradaIdx: index("idx_atend_data_entrada").on(table.data_entrada),
   })
 );
 

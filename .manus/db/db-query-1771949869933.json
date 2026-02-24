@@ -1,0 +1,13 @@
+{
+  "query": "SELECT dadosBrutos FROM warleine_atendimentos_staging LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT dadosBrutos FROM warleine_atendimentos_staging LIMIT 1;",
+  "rows": [
+    {
+      "dadosBrutos": "{\"carater\": \"EL\", \"codcc_destino\": null, \"codserv\": \"EXAMES\", \"codtipsai\": null, \"datasai\": null, \"datatend\": \"2026-02-23T14:40:00.000Z\", \"nomepac\": \"ALBERTO DA SILVA MOREIRA\", \"nomeplaco\": \"UNIMED GOIANIA\", \"numatend\": \"3262981\", \"procprin\": \"0000000000\", \"tipoatend\": \"E\", \"tipoatendimentodescricao\": \"EXAME\"}"
+    }
+  ],
+  "messages": [],
+  "stdout": "dadosBrutos\n{\"carater\": \"EL\", \"codcc_destino\": null, \"codserv\": \"EXAMES\", \"codtipsai\": null, \"datasai\": null, \"datatend\": \"2026-02-23T14:40:00.000Z\", \"nomepac\": \"ALBERTO DA SILVA MOREIRA\", \"nomeplaco\": \"UNIMED GOIANIA\", \"numatend\": \"3262981\", \"procprin\": \"0000000000\", \"tipoatend\": \"E\", \"tipoatendimentodescricao\": \"EXAME\"}\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

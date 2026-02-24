@@ -1,0 +1,25 @@
+{
+  "query": "SELECT \n  JSON_EXTRACT(dadosBrutos, '$.codpac') as pacienteId,\n  JSON_EXTRACT(dadosBrutos, '$.procedprincipal') as procedimento,\n  JSON_EXTRACT(dadosBrutos, '$.datatend') as dataAtendimento\nFROM warleine_atendimentos_staging LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT \n  JSON_EXTRACT(dadosBrutos, '$.codpac') as pacienteId,\n  JSON_EXTRACT(dadosBrutos, '$.procedprincipal') as procedimento,\n  JSON_EXTRACT(dadosBrutos, '$.datatend') as dataAtendimento\nFROM warleine_atendimentos_staging LIMIT 3;",
+  "rows": [
+    {
+      "pacienteId": "NULL",
+      "procedimento": "NULL",
+      "dataAtendimento": "\"2026-02-23T14:40:00.000Z\""
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimento": "NULL",
+      "dataAtendimento": "\"2026-02-19T16:49:14.000Z\""
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimento": "NULL",
+      "dataAtendimento": "\"2026-02-23T12:39:00.000Z\""
+    }
+  ],
+  "messages": [],
+  "stdout": "pacienteId\tprocedimento\tdataAtendimento\nNULL\tNULL\t\"2026-02-23T14:40:00.000Z\"\nNULL\tNULL\t\"2026-02-19T16:49:14.000Z\"\nNULL\tNULL\t\"2026-02-23T12:39:00.000Z\"\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

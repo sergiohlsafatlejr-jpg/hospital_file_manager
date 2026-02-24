@@ -6,7 +6,8 @@ import { WarleineConnector } from "../connectors/WarleineConnector";
 import { logger } from "../_core/logger";
 import { getDb } from "../db";
 import { estabelecimentos } from "../../drizzle/schema";
-import { queryConfiguracoes, warleineAtendimentosStaging, atendimentos } from "../../drizzle/schema-integracao";
+import { queryConfiguracoes, warleineAtendimentosStaging } from "../../drizzle/schema-integracao";
+import { atendimentos } from "../../drizzle/schema-integracao"; // atendimentos_unificados
 
 /**
  * Router para gerenciar integração de dados de múltiplos sistemas
@@ -636,20 +637,18 @@ export const integradorDadosRouter = router({
               origemSistema: "WARLEINE",
               origemId: `${config.id}-${row.id}`,
               estabelecimentoId: row.estabelecimentoId,
-              pacienteId: dados?.codpac || null,
-              pacienteNome: dados?.nomepac || null,
-              numeroAtendimento: dados?.numatend || null,
-              dataAdmissao: dados?.dataadm ? new Date(dados.dataadm) : null,
-              dataAlta: dados?.datalta ? new Date(dados.datalta) : null,
-              dataAtendimento: dados?.datatend ? new Date(dados.datatend) : null,
-              tipoAtendimento: dados?.tipointernacao || null,
-              tipoSaida: dados?.tiposaida || null,
-              local: dados?.local || null,
-              carater: dados?.carater || null,
-              servico: dados?.servico || null,
-              procedimentoPrincipal: dados?.procedprincipal || null,
-              centroCusto: dados?.centrocusto || null,
-              dadosBrutos: row.dadosBrutos,
+              numero_atendimento: dados?.numatend || null,
+              codigo_saida: dados?.codtipsai || null,
+              convenio: dados?.nomeplaco || null,
+              paciente: dados?.nomepac || null,
+              caracter_atendimento: dados?.carater || null,
+              data_entrada: dados?.datatend ? new Date(dados.datatend) : null,
+              data_saida: dados?.datasai ? new Date(dados.datasai) : null,
+              tipo_atendimento: dados?.tipoatend || null,
+              descricao_atendimento: dados?.tipoatendimentodescricao || null,
+              codigo_servico: dados?.codserv || null,
+              codigo_procedimento: dados?.procprin || null,
+              destino_conta: dados?.codcc_destino || null,
             };
           });
           const result = await db.insert(atendimentos).values(valuesToInsert);

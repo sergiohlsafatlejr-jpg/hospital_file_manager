@@ -1,0 +1,13 @@
+{
+  "query": "SELECT JSON_KEYS(dadosBrutos) as chaves FROM warleine_atendimentos_staging LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT JSON_KEYS(dadosBrutos) as chaves FROM warleine_atendimentos_staging LIMIT 1;",
+  "rows": [
+    {
+      "chaves": "[\"carater\", \"codcc_destino\", \"codserv\", \"codtipsai\", \"datasai\", \"datatend\", \"nomepac\", \"nomeplaco\", \"numatend\", \"procprin\", \"tipoatend\", \"tipoatendimentodescricao\"]"
+    }
+  ],
+  "messages": [],
+  "stdout": "chaves\n[\"carater\", \"codcc_destino\", \"codserv\", \"codtipsai\", \"datasai\", \"datatend\", \"nomepac\", \"nomeplaco\", \"numatend\", \"procprin\", \"tipoatend\", \"tipoatendimentodescricao\"]\n",
+  "stderr": "",
+  "execution_time_ms": 62
+}

@@ -1,0 +1,18 @@
+{
+  "query": "SELECT 'staging' as tabela, COUNT(*) as total FROM warleine_atendimentos_staging\nUNION ALL\nSELECT 'atendimentos' as tabela, COUNT(*) as total FROM atendimentos;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT 'staging' as tabela, COUNT(*) as total FROM warleine_atendimentos_staging\nUNION ALL\nSELECT 'atendimentos' as tabela, COUNT(*) as total FROM atendimentos;",
+  "rows": [
+    {
+      "tabela": "atendimentos",
+      "total": "0"
+    },
+    {
+      "tabela": "staging",
+      "total": "408"
+    }
+  ],
+  "messages": [],
+  "stdout": "tabela\ttotal\natendimentos\t0\nstaging\t408\n",
+  "stderr": "",
+  "execution_time_ms": 66
+}

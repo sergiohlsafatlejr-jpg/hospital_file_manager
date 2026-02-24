@@ -1,0 +1,35 @@
+{
+  "query": "SELECT pacienteId, procedimentoCodigo, procedimentoDescricao FROM atendimentos_unificados LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT pacienteId, procedimentoCodigo, procedimentoDescricao FROM atendimentos_unificados LIMIT 5;",
+  "rows": [
+    {
+      "pacienteId": "NULL",
+      "procedimentoCodigo": "NULL",
+      "procedimentoDescricao": "NULL"
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimentoCodigo": "NULL",
+      "procedimentoDescricao": "NULL"
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimentoCodigo": "NULL",
+      "procedimentoDescricao": "NULL"
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimentoCodigo": "NULL",
+      "procedimentoDescricao": "NULL"
+    },
+    {
+      "pacienteId": "NULL",
+      "procedimentoCodigo": "NULL",
+      "procedimentoDescricao": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "pacienteId\tprocedimentoCodigo\tprocedimentoDescricao\nNULL\tNULL\tNULL\nNULL\tNULL\tNULL\nNULL\tNULL\tNULL\nNULL\tNULL\tNULL\nNULL\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 57
+}
