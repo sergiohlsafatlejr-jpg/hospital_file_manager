@@ -169,6 +169,16 @@ export default function AtendimentosParadosUnificados() {
     }
   };
 
+  const formatDate = (date: string | Date | null | undefined): string => {
+    if (!date) return "-";
+    try {
+      const d = typeof date === 'string' ? new Date(date) : date;
+      return d.toLocaleDateString('pt-BR', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch {
+      return String(date);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
       <div className="max-w-7xl mx-auto">
@@ -365,8 +375,8 @@ export default function AtendimentosParadosUnificados() {
                         <td className="px-4 py-3 text-slate-200">{atendimento.convenio}</td>
                         <td className="px-4 py-3 text-slate-200">{atendimento.paciente}</td>
                         <td className="px-4 py-3 text-slate-200">{atendimento.caracter_atendimento}</td>
-                        <td className="px-4 py-3 text-slate-200">{atendimento.data_entrada}</td>
-                        <td className="px-4 py-3 text-slate-200">{atendimento.data_saida || "-"}</td>
+                        <td className="px-4 py-3 text-slate-200">{formatDate(atendimento.data_entrada)}</td>
+                        <td className="px-4 py-3 text-slate-200">{formatDate(atendimento.data_saida)}</td>
                         <td className="px-4 py-3">
                           <Badge className={`${getDiasParadoColor(atendimento.diasParado)}`}>
                             {atendimento.diasParado} dias
@@ -437,11 +447,11 @@ export default function AtendimentosParadosUnificados() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-slate-400 text-sm">Data Entrada</p>
-                    <p className="text-white">{selectedRow.data_entrada}</p>
+                    <p className="text-white">{formatDate(selectedRow.data_entrada)}</p>
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm">Data Saída</p>
-                    <p className="text-white">{selectedRow.data_saida || "-"}</p>
+                    <p className="text-white">{formatDate(selectedRow.data_saida)}</p>
                   </div>
                 </div>
 
