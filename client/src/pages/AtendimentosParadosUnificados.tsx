@@ -6,13 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  Users, Building2, Stethoscope, FlaskConical,
-  ArrowUpDown, Download, RefreshCw, Search, Clock, BarChart3, X
+  ArrowUpDown, Download, RefreshCw, Search, X
 } from "lucide-react";
 import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { useState, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { trpc } from "@/lib/trpc";
 
 type SortColumn = "numero_atendimento" | "paciente" | "convenio" | "data_entrada" | "data_saida" | "diasParado" | "descricao_atendimento" | "codigo_servico";
@@ -45,13 +43,11 @@ export default function AtendimentosParadosUnificados() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroTipo, setFiltroTipo] = useState<string>("");
   const [filtroConvenio, setFiltroConvenio] = useState<string>("");
+  const [filtroServico, setFiltroServico] = useState<string>("");
   const [selectedRow, setSelectedRow] = useState<AtendimentoUnificado | null>(null);
 
   // Buscar dados
   const { data: atendimentos = [], isLoading, refetch } = trpc.atendimentos.listarParadosUnificados.useQuery();
-  const { data: kpis, isLoading: loadingKPIs } = trpc.atendimentos.getKPIs.useQuery();
-  const { data: quantidadePorPlano = [] } = trpc.atendimentos.getQuantidadePorPlano.useQuery();
-  const { data: quantidadePorServico = [] } = trpc.atendimentos.getQuantidadePorServico.useQuery();
 
   // Filtrar e ordenar dados
   const filteredData = useMemo(() => {
@@ -74,6 +70,10 @@ export default function AtendimentosParadosUnificados() {
       filtered = filtered.filter(a => a.convenio === filtroConvenio);
     }
 
+    if (filtroServico) {
+      filtered = filtered.filter(a => a.codigo_servico === filtroServico);
+    }
+
     // Ordenar
     filtered.sort((a, b) => {
       const aVal = a[sortColumn];
@@ -83,7 +83,7 @@ export default function AtendimentosParadosUnificados() {
     });
 
     return filtered;
-  }, [atendimentos, searchTerm, filtroTipo, filtroConvenio, sortColumn, sortOrder]);
+  }, [atendimentos, searchTerm, filtroTipo, filtroConvenio, filtroServico, sortColumn, sortOrder]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -115,38 +115,40 @@ export default function AtendimentosParadosUnificados() {
     toast.success("Arquivo exportado com sucesso!");
   };
 
-  const getKPIIcon = (tipo: string) => {
-    switch (tipo) {
-      case "total": return <Users className="w-6 h-6" />;
-      case "internacao": return <Building2 className="w-6 h-6" />;
-      case "exame": return <FlaskConical className="w-6 h-6" />;
-      case "ambulatorio": return <Stethoscope className="w-6 h-6" />;
-      default: return <Clock className="w-6 h-6" />;
-    }
+  // Calcular quantidade por tipo
+  const getQuantidadePorTipo = () => {
+    const tipos = [...new Set(atendimentos.map(a => a.tipo_atendimento).filter(Boolean))];
+    return tipos.map(tipo => ({
+      tipo,
+      quantidade: atendimentos.filter(a => a.tipo_atendimento === tipo).length
+    })).sort((a, b) => b.quantidade - a.quantidade);
   };
 
-  const getKPILabel = (tipo: string) => {
-    switch (tipo) {
-      case "total": return "Total a Faturar";
-      case "internacao": return "Internação";
-      case "exame": return "Exame";
-      case "ambulatorio": return "Ambulatório";
-      default: return tipo;
-    }
+  // Calcular quantidade por plano
+  const getQuantidadePorPlano = () => {
+    const planos = [...new Set(atendimentos.map(a => a.convenio).filter(Boolean))];
+    return planos.map(plano => ({
+      plano,
+      quantidade: atendimentos.filter(a => a.convenio === plano).length
+    })).sort((a, b) => b.quantidade - a.quantidade);
   };
 
-  const getKPIColor = (tipo: string) => {
-    switch (tipo) {
-      case "total": return "from-blue-600 to-blue-700";
-      case "internacao": return "from-orange-600 to-orange-700";
-      case "exame": return "from-purple-600 to-purple-700";
-      case "ambulatorio": return "from-cyan-600 to-cyan-700";
-      default: return "from-gray-600 to-gray-700";
-    }
+  // Calcular quantidade por serviço
+  const getQuantidadePorServico = () => {
+    const servicos = [...new Set(atendimentos.map(a => a.codigo_servico).filter(Boolean))];
+    return servicos.map(servico => ({
+      servico,
+      quantidade: atendimentos.filter(a => a.codigo_servico === servico).length
+    })).sort((a, b) => b.quantidade - a.quantidade);
   };
 
-  const getTipos = () => [...new Set(atendimentos.map(a => a.tipo_atendimento).filter(Boolean))];
-  const getConvenios = () => [...new Set(atendimentos.map(a => a.convenio).filter(Boolean))];
+  const getTypeColor = (tipo?: string) => {
+    const t = tipo?.toUpperCase() || '';
+    if (t.includes('INTERNACAO') || t.includes('INTERNA\u00c7\u00c3O')) return 'bg-orange-500 hover:bg-orange-600';
+    if (t.includes('EXAME')) return 'bg-purple-500 hover:bg-purple-600';
+    if (t.includes('AMBULATORIO') || t.includes('AMBULAT\u00d3RIO')) return 'bg-blue-500 hover:bg-blue-600';
+    return 'bg-slate-600 hover:bg-slate-700';
+  };
 
   const getDiasParadoColor = (dias: number) => {
     if (dias >= 30) return "bg-red-100 text-red-800";
@@ -157,10 +159,10 @@ export default function AtendimentosParadosUnificados() {
   const getTipoAtendimentoBadgeColor = (tipo?: string) => {
     switch (tipo?.toUpperCase()) {
       case "INTERNACAO":
-      case "INTERNAÇÃO":
+      case "INTERNA\u00c7\u00c3O":
         return "bg-orange-100 text-orange-800";
       case "AMBULATORIO":
-      case "AMBULATÓRIO":
+      case "AMBULAT\u00d3RIO":
         return "bg-blue-100 text-blue-800";
       case "EXAME":
         return "bg-purple-100 text-purple-800";
@@ -188,77 +190,109 @@ export default function AtendimentosParadosUnificados() {
           <p className="text-slate-400">Acompanhe atendimentos pendentes de faturamento</p>
         </div>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {kpis && Object.entries(kpis).map(([tipo, valor]: any) => (
-            <Card key={tipo} className={`bg-gradient-to-br ${getKPIColor(tipo)} border-0 text-white`}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium opacity-90">{getKPILabel(tipo)}</p>
-                    <p className="text-3xl font-bold mt-2">{valor}</p>
-                  </div>
-                  <div className="opacity-50">{getKPIIcon(tipo)}</div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Filtros por Tipo de Atendimento */}
+        <Card className="bg-slate-800 border-slate-700 mb-6">
+          <CardHeader>
+            <CardTitle className="text-white">Filtrar por Tipo de Atendimento</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setFiltroTipo('')}
+                className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  filtroTipo === ''
+                    ? 'bg-blue-600 text-white shadow-lg'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                Todos ({atendimentos.length})
+              </button>
+              {getQuantidadePorTipo().map(({ tipo, quantidade }) => (
+                <button
+                  key={tipo}
+                  onClick={() => setFiltroTipo(tipo)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    filtroTipo === tipo
+                      ? `${getTypeColor(tipo)} text-white shadow-lg`
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  {tipo} ({quantidade})
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Gráficos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Quantidade por Plano */}
-          <Card className="bg-slate-800 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5" />
-                Quantidade por Plano (Convênio)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {quantidadePorPlano && quantidadePorPlano.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={quantidadePorPlano}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="convenio" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #475569", borderRadius: "8px", color: "#f1f5f9" }} />
-                    <Bar dataKey="quantidade" fill="#a78bfa" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-64 flex items-center justify-center text-slate-400">Sem dados</div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Filtros por Plano */}
+        <Card className="bg-slate-800 border-slate-700 mb-6">
+          <CardHeader>
+            <CardTitle className="text-white">Filtrar por Plano (Convênio)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setFiltroConvenio('')}
+                className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  filtroConvenio === ''
+                    ? 'bg-green-600 text-white shadow-lg'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                Todos ({atendimentos.length})
+              </button>
+              {getQuantidadePorPlano().map(({ plano, quantidade }) => (
+                <button
+                  key={plano}
+                  onClick={() => setFiltroConvenio(plano)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    filtroConvenio === plano
+                      ? 'bg-green-600 text-white shadow-lg'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  {plano} ({quantidade})
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* Quantidade por Serviço */}
-          <Card className="bg-slate-800 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5" />
-                Quantidade por Serviço
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {quantidadePorServico && quantidadePorServico.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={quantidadePorServico}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="servico" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #475569", borderRadius: "8px", color: "#f1f5f9" }} />
-                    <Bar dataKey="quantidade" fill="#60a5fa" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-64 flex items-center justify-center text-slate-400">Sem dados</div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        {/* Filtros por Serviço */}
+        <Card className="bg-slate-800 border-slate-700 mb-6">
+          <CardHeader>
+            <CardTitle className="text-white">Filtrar por Serviço</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setFiltroServico('')}
+                className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  filtroServico === ''
+                    ? 'bg-indigo-600 text-white shadow-lg'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                Todos ({atendimentos.length})
+              </button>
+              {getQuantidadePorServico().map(({ servico, quantidade }) => (
+                <button
+                  key={servico}
+                  onClick={() => setFiltroServico(servico)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
+                    filtroServico === servico
+                      ? 'bg-indigo-600 text-white shadow-lg'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  {servico} ({quantidade})
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Filtros e Tabela */}
+        {/* Tabela de Atendimentos */}
         <Card className="bg-slate-800 border-slate-700">
           <CardHeader>
             <div className="flex flex-col gap-4">
@@ -285,39 +319,15 @@ export default function AtendimentosParadosUnificados() {
                 </div>
               </div>
 
-              {/* Filtros */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                  <Input
-                    placeholder="Buscar por N° Atend, Paciente ou Plano..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 bg-slate-700 border-slate-600 text-white placeholder-slate-400"
-                  />
-                </div>
-
-                <select
-                  value={filtroTipo}
-                  onChange={(e) => setFiltroTipo(e.target.value)}
-                  className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2"
-                >
-                  <option value="">Todos os Tipos</option>
-                  {getTipos().map(tipo => (
-                    <option key={tipo} value={tipo}>{tipo}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={filtroConvenio}
-                  onChange={(e) => setFiltroConvenio(e.target.value)}
-                  className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2"
-                >
-                  <option value="">Todos os Planos</option>
-                  {getConvenios().map(convenio => (
-                    <option key={convenio} value={convenio}>{convenio}</option>
-                  ))}
-                </select>
+              {/* Barra de Busca */}
+              <div className="relative">
+                <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Buscar por N° Atend, Paciente ou Plano..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 bg-slate-700 border-slate-600 text-white placeholder-slate-400"
+                />
               </div>
             </div>
           </CardHeader>
