@@ -32,13 +32,14 @@ export function useMotorRegrasNotifications(options: UseMotorRegrasNotifications
   const [unreadCount, setUnreadCount] = useState(0);
   const lastAlertsRef = useRef<string>("");
 
-  // Query para obter estatísticas
+  // Query para obter estatísticas - desabilitar se estabelecimentoId for inválido
+  const isValidEstabelecimento = !!(estabelecimentoId && estabelecimentoId > 0 && estabelecimentoId < 1000000);
   const { data: stats, refetch: refetchStats } = trpc.motorRegras.obterEstatisticas.useQuery(
     {
       estabelecimentoId: estabelecimentoId || 1,
     },
     {
-      enabled: !!estabelecimentoId && enabled,
+      enabled: isValidEstabelecimento && enabled,
       staleTime: intervalMs,
     }
   );
