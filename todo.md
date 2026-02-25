@@ -2064,3 +2064,24 @@
 - [x] Verificar se usuários sumiram do banco de dados (35 usuários confirmados no banco)
 - [x] Reorganizar menu lateral com seções claras (Cadastros, Acesso, Sistema)
 - [x] Criar página dedicada de Convênios com CRUD completo e associação de prestadores por estabelecimento
+
+## Unificação de Conexões PostgreSQL
+
+- [ ] Analisar conexão direta pgAtendimentos.ts e suas queries
+- [x] Analisar WarleineConnector.ts e dados já sincronizados
+- [x] Migrar tela Atendimentos Parados para usar banco interno com fallback
+- [x] Migrar tela Atendimentos a Faturar para usar banco interno com fallback
+- [ ] Remover conexão direta pgAtendimentos.ts após validação completa
+- [x] Garantir que dados de ambas as views estejam no Integrador
+
+## Novas Tabelas - Atendimentos Sem Conta e A Faturar
+
+- [x] Criar schema atendimentos_sem_conta no banco interno
+- [x] Criar schema atendimentos_a_faturar no banco interno
+- [x] Criar funções de sincronização no Integrador para as views do PostgreSQL externo
+- [x] Migrar tela Atendimentos Parados para consultar banco interno (com fallback)
+- [x] Migrar tela Atendimentos a Faturar para consultar banco interno (com fallback)
+- [x] Manter funções de notificação no pgAtendimentos.ts
+- [x] Adicionar métodos extrairAtendimentosSemConta e extrairAtendimentosAFaturar no WarleineConnector
+- [x] Adicionar procedures sincronizarAtendimentosSemConta e sincronizarAtendimentosAFaturar no Integrador
+- [x] Adicionar procedures listarAtendimentosSemConta e listarAtendimentosAFaturar no Integrador

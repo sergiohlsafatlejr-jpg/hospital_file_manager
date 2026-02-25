@@ -12,4 +12,9 @@ export const ENV = {
   pgAtendimentosDatabase: process.env.PG_ATENDIMENTOS_DATABASE ?? "",
   pgAtendimentosUser: process.env.PG_ATENDIMENTOS_USER ?? "",
   pgAtendimentosPassword: process.env.PG_ATENDIMENTOS_PASSWORD ?? "",
+  warleineDbHost: process.env.WARLEINE_DB_HOST ?? "",
+  warleineDbPort: process.env.WARLEINE_DB_PORT ?? "5432",
+  warleineDbName: process.env.WARLEINE_DB_NAME ?? "",
+  warleineDbUser: process.env.WARLEINE_DB_USER ?? "",
+  warleineDbPassword: process.env.WARLEINE_DB_PASSWORD ?? "",
 };

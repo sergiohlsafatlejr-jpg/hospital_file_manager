@@ -6,8 +6,9 @@ import { WarleineConnector } from "../connectors/WarleineConnector";
 import { logger } from "../_core/logger";
 import { getDb } from "../db";
 import { estabelecimentos } from "../../drizzle/schema";
-import { queryConfiguracoes, warleineAtendimentosStaging } from "../../drizzle/schema-integracao";
+import { queryConfiguracoes, warleineAtendimentosStaging, atendimentosSemConta, atendimentosAFaturar } from "../../drizzle/schema-integracao";
 import { atendimentos } from "../../drizzle/schema-integracao"; // atendimentos_unificados
+import { ENV } from "../_core/env";
 
 /**
  * Router para gerenciar integração de dados de múltiplos sistemas
@@ -707,6 +708,202 @@ export const integradorDadosRouter = router({
           sucesso: false,
           mensagem: error instanceof Error ? error.message : "Erro ao atualizar agendamento",
         };
+      }
+    }),
+
+  // ============================================================
+  // SINCRONIZAÇÃO DAS VIEWS DO POSTGRESQL EXTERNO
+  // ============================================================
+
+  /**
+   * Sincroniza atendimentos sem conta (view din_Atend_n_receb)
+   * Busca dados do PostgreSQL externo e grava no banco interno
+   */
+  sincronizarAtendimentosSemConta: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        if (ctx.user?.role !== "admin") {
+          throw new Error("Acesso negado");
+        }
+
+        const db = await getDb();
+        if (!db) throw new Error("Banco de dados nao disponivel");
+
+        // Usar credenciais WARLEINE (mesmo banco PostgreSQL)
+        const connector = new WarleineConnector({
+          host: ENV.warleineDbHost || ENV.pgAtendimentosHost,
+          port: parseInt(ENV.warleineDbPort || ENV.pgAtendimentosPort, 10),
+          database: ENV.warleineDbName || ENV.pgAtendimentosDatabase,
+          user: ENV.warleineDbUser || ENV.pgAtendimentosUser,
+          password: ENV.warleineDbPassword || ENV.pgAtendimentosPassword,
+        });
+
+        const conectado = await connector.conectar();
+        if (!conectado) {
+          return { sucesso: false, mensagem: "Falha ao conectar ao PostgreSQL externo", totalRegistros: 0 };
+        }
+
+        // Extrair dados da view
+        const dados = await connector.extrairAtendimentosSemConta();
+        await connector.desconectar();
+
+        // Limpar dados antigos do estabelecimento
+        await db.delete(atendimentosSemConta)
+          .where(eq(atendimentosSemConta.estabelecimentoId, input.estabelecimentoId));
+
+        // Inserir novos dados em lotes
+        let registrosInseridos = 0;
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < dados.length; i += BATCH_SIZE) {
+          const batch = dados.slice(i, i + BATCH_SIZE);
+          const values = batch.map((row) => ({
+            estabelecimentoId: input.estabelecimentoId,
+            origemSistema: "WARLEINE",
+            numatend: row.numatend || "",
+            nomeplaco: row.nomeplaco || null,
+            nomepac: row.nomepac || null,
+            carater: row.carater || null,
+            datatend: row.datatend ? new Date(row.datatend) : null,
+            datasai: row.datasai ? new Date(row.datasai) : null,
+            tipoatend: row.tipoatend || null,
+            tipoatendimentodescricao: row.tipoatendimentodescricao || null,
+            codserv: row.codserv || null,
+            procprin: row.procprin || null,
+            codcc_destino: row.codcc_destino || null,
+            motivo: row.motivo || null,
+            dataSincronizacao: new Date(),
+          }));
+          await db.insert(atendimentosSemConta).values(values);
+          registrosInseridos += values.length;
+        }
+
+        return {
+          sucesso: true,
+          mensagem: `${registrosInseridos} atendimentos sem conta sincronizados`,
+          totalRegistros: registrosInseridos,
+        };
+      } catch (error) {
+        console.error("[ERROR] sincronizarAtendimentosSemConta:", error);
+        return {
+          sucesso: false,
+          mensagem: error instanceof Error ? error.message : "Erro ao sincronizar",
+          totalRegistros: 0,
+        };
+      }
+    }),
+
+  /**
+   * Sincroniza atendimentos a faturar (view din_Atend_receb_s_faturar)
+   * Busca dados do PostgreSQL externo e grava no banco interno
+   */
+  sincronizarAtendimentosAFaturar: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        if (ctx.user?.role !== "admin") {
+          throw new Error("Acesso negado");
+        }
+
+        const db = await getDb();
+        if (!db) throw new Error("Banco de dados nao disponivel");
+
+        const connector = new WarleineConnector({
+          host: ENV.warleineDbHost || ENV.pgAtendimentosHost,
+          port: parseInt(ENV.warleineDbPort || ENV.pgAtendimentosPort, 10),
+          database: ENV.warleineDbName || ENV.pgAtendimentosDatabase,
+          user: ENV.warleineDbUser || ENV.pgAtendimentosUser,
+          password: ENV.warleineDbPassword || ENV.pgAtendimentosPassword,
+        });
+
+        const conectado = await connector.conectar();
+        if (!conectado) {
+          return { sucesso: false, mensagem: "Falha ao conectar ao PostgreSQL externo", totalRegistros: 0 };
+        }
+
+        const dados = await connector.extrairAtendimentosAFaturar();
+        await connector.desconectar();
+
+        // Limpar dados antigos do estabelecimento
+        await db.delete(atendimentosAFaturar)
+          .where(eq(atendimentosAFaturar.estabelecimentoId, input.estabelecimentoId));
+
+        // Inserir novos dados em lotes
+        let registrosInseridos = 0;
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < dados.length; i += BATCH_SIZE) {
+          const batch = dados.slice(i, i + BATCH_SIZE);
+          const values = batch.map((row) => ({
+            estabelecimentoId: input.estabelecimentoId,
+            origemSistema: "WARLEINE",
+            numatend: row.numatend || "",
+            nomeplaco: row.nomeplaco || null,
+            nomepac: row.nomepac || null,
+            carater: row.carater || null,
+            datatend: row.datatend ? new Date(row.datatend) : null,
+            datasai: row.datasai ? new Date(row.datasai) : null,
+            tipoatend: row.tipoatend || null,
+            tipoatendimentodescricao: row.tipoatendimentodescricao || null,
+            codserv: row.codserv || null,
+            procprin: row.procprin || null,
+            dataSincronizacao: new Date(),
+          }));
+          await db.insert(atendimentosAFaturar).values(values);
+          registrosInseridos += values.length;
+        }
+
+        return {
+          sucesso: true,
+          mensagem: `${registrosInseridos} atendimentos a faturar sincronizados`,
+          totalRegistros: registrosInseridos,
+        };
+      } catch (error) {
+        console.error("[ERROR] sincronizarAtendimentosAFaturar:", error);
+        return {
+          sucesso: false,
+          mensagem: error instanceof Error ? error.message : "Erro ao sincronizar",
+          totalRegistros: 0,
+        };
+      }
+    }),
+
+  /**
+   * Busca atendimentos sem conta do banco interno
+   */
+  listarAtendimentosSemConta: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number() }))
+    .query(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) return [];
+        const dados = await db
+          .select()
+          .from(atendimentosSemConta)
+          .where(eq(atendimentosSemConta.estabelecimentoId, input.estabelecimentoId));
+        return dados;
+      } catch (error) {
+        console.error("[ERROR] listarAtendimentosSemConta:", error);
+        return [];
+      }
+    }),
+
+  /**
+   * Busca atendimentos a faturar do banco interno
+   */
+  listarAtendimentosAFaturar: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number() }))
+    .query(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) return [];
+        const dados = await db
+          .select()
+          .from(atendimentosAFaturar)
+          .where(eq(atendimentosAFaturar.estabelecimentoId, input.estabelecimentoId));
+        return dados;
+      } catch (error) {
+        console.error("[ERROR] listarAtendimentosAFaturar:", error);
+        return [];
       }
     }),
 

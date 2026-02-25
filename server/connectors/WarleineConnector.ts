@@ -247,6 +247,152 @@ AND (X.codcc_destino NOT in ('BN2028', '000022', 'BN100') OR X.codcc_destino IS 
     `;
   }
 
+  // ============================================================
+  // MÉTODOS DE EXTRAÇÃO DAS VIEWS DO POSTGRESQL EXTERNO
+  // ============================================================
+
+  /**
+   * Interface para dados da view din_Atend_n_receb (Atendimentos Sem Conta)
+   */
+  static AtendimentoSemContaInterface = {} as {
+    numatend: string;
+    nomeplaco: string;
+    nomepac: string;
+    carater: string;
+    datatend: string;
+    datasai: string;
+    tipoatend: string;
+    tipoatendimentodescricao: string;
+    codserv: string;
+    procprin: string;
+    codcc_destino: string;
+    motivo: string | null;
+  };
+
+  /**
+   * Interface para dados da view din_Atend_receb_s_faturar (Atendimentos a Faturar)
+   */
+  static AtendimentoAFaturarInterface = {} as {
+    numatend: string;
+    nomeplaco: string;
+    nomepac: string;
+    carater: string;
+    datatend: string;
+    datasai: string | null;
+    tipoatend: string;
+    tipoatendimentodescricao: string;
+    codserv: string;
+    procprin: string;
+  };
+
+  /**
+   * Extrai atendimentos sem conta da view din_Atend_n_receb
+   * Esses são atendimentos parados que não tiveram conta aberta
+   */
+  async extrairAtendimentosSemConta(): Promise<Array<{
+    numatend: string;
+    nomeplaco: string;
+    nomepac: string;
+    carater: string;
+    datatend: string;
+    datasai: string;
+    tipoatend: string;
+    tipoatendimentodescricao: string;
+    codserv: string;
+    procprin: string;
+    codcc_destino: string;
+    motivo: string | null;
+  }>> {
+    try {
+      logger.info({ message: "Iniciando extração de atendimentos sem conta (din_Atend_n_receb)" });
+
+      const resultado = await this.executarQuery(`
+        SELECT a.numatend::text,
+               a.nomeplaco,
+               a.nomepac,
+               a.carater,
+               a.datatend::text,
+               COALESCE(a.datasai, a.datatend)::text AS datasai,
+               a.tipoatend,
+               a.tipoatendimentodescricao,
+               a.codserv,
+               a.procprin,
+               a.codcc_destino,
+               rni.motivo
+        FROM c33581562000206.din_Atend_n_receb a
+        LEFT JOIN (
+          SELECT rn.numatend, MAX(rn.id) AS max_rn_id
+          FROM c33581562000206.registro_notificacao rn
+          GROUP BY rn.numatend
+        ) rn_max ON rn_max.numatend::text = a.numatend
+        LEFT JOIN c33581562000206.registro_notificacao_item rni
+          ON rni.notificacao_id = rn_max.max_rn_id
+      `);
+
+      logger.info({
+        message: "Extração de atendimentos sem conta concluída",
+        totalRegistros: resultado.length,
+      });
+
+      return resultado;
+    } catch (error) {
+      logger.error({
+        message: "Erro ao extrair atendimentos sem conta",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Extrai atendimentos a faturar da view din_Atend_receb_s_faturar
+   * Esses são atendimentos recebidos mas que ainda não foram faturados
+   */
+  async extrairAtendimentosAFaturar(): Promise<Array<{
+    numatend: string;
+    nomeplaco: string;
+    nomepac: string;
+    carater: string;
+    datatend: string;
+    datasai: string | null;
+    tipoatend: string;
+    tipoatendimentodescricao: string;
+    codserv: string;
+    procprin: string;
+  }>> {
+    try {
+      logger.info({ message: "Iniciando extração de atendimentos a faturar (din_Atend_receb_s_faturar)" });
+
+      const resultado = await this.executarQuery(`
+        SELECT 
+          a.numatend::text,
+          a.nomeplaco,
+          a.nomepac,
+          a.carater,
+          a.datatend::text,
+          a.datasai::text,
+          a.tipoatend,
+          a.tipoatendimentodescricao,
+          a.codserv,
+          a.procprin
+        FROM c33581562000206.din_Atend_receb_s_faturar a
+      `);
+
+      logger.info({
+        message: "Extração de atendimentos a faturar concluída",
+        totalRegistros: resultado.length,
+      });
+
+      return resultado;
+    } catch (error) {
+      logger.error({
+        message: "Erro ao extrair atendimentos a faturar",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
   /**
    * Testa a conexão e a query
    */

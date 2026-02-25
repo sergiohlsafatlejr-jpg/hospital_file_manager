@@ -234,6 +234,82 @@ export const pacientes = mysqlTable(
 );
 
 /**
+ * CAMADA 3B: DADOS DAS VIEWS DO POSTGRESQL EXTERNO
+ * Tabelas que espelham as views do banco do Instituto do Rim
+ * Sincronizadas periodicamente pelo Integrador de Dados
+ */
+
+// Atendimentos Sem Conta (espelho da view din_Atend_n_receb)
+export const atendimentosSemConta = mysqlTable(
+  "atendimentos_sem_conta",
+  {
+    id: int().primaryKey().autoincrement(),
+    
+    // Rastreamento
+    estabelecimentoId: int().notNull(),
+    origemSistema: varchar({ length: 50 }).notNull().default("WARLEINE"),
+    
+    // Campos da view din_Atend_n_receb
+    numatend: varchar({ length: 100 }).notNull(),
+    nomeplaco: varchar({ length: 255 }), // convênio/plano
+    nomepac: varchar({ length: 255 }), // nome do paciente
+    carater: varchar({ length: 50 }), // caráter do atendimento (EL, UR)
+    datatend: timestamp(), // data do atendimento
+    datasai: timestamp(), // data de saída
+    tipoatend: varchar({ length: 10 }), // código tipo (I, E, A)
+    tipoatendimentodescricao: varchar({ length: 100 }), // descrição (INTERNACAO, EXAME, AMBULATORIO)
+    codserv: varchar({ length: 255 }), // código/nome do serviço
+    procprin: varchar({ length: 100 }), // procedimento principal
+    codcc_destino: varchar({ length: 100 }), // centro de custo destino
+    motivo: text(), // motivo da última notificação
+    
+    // Metadados de sincronização
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
+  },
+  (table) => ({
+    estabelecimentoIdx: index("idx_atend_sem_conta_estab").on(table.estabelecimentoId),
+    numatendIdx: index("idx_atend_sem_conta_numatend").on(table.numatend),
+    tipoatendIdx: index("idx_atend_sem_conta_tipo").on(table.tipoatend),
+    datatendIdx: index("idx_atend_sem_conta_datatend").on(table.datatend),
+  })
+);
+
+// Atendimentos a Faturar (espelho da view din_Atend_receb_s_faturar)
+export const atendimentosAFaturar = mysqlTable(
+  "atendimentos_a_faturar",
+  {
+    id: int().primaryKey().autoincrement(),
+    
+    // Rastreamento
+    estabelecimentoId: int().notNull(),
+    origemSistema: varchar({ length: 50 }).notNull().default("WARLEINE"),
+    
+    // Campos da view din_Atend_receb_s_faturar
+    numatend: varchar({ length: 100 }).notNull(),
+    nomeplaco: varchar({ length: 255 }), // convênio/plano
+    nomepac: varchar({ length: 255 }), // nome do paciente
+    carater: varchar({ length: 50 }), // caráter do atendimento (EL, UR)
+    datatend: timestamp(), // data do atendimento
+    datasai: timestamp(), // data de saída
+    tipoatend: varchar({ length: 10 }), // código tipo (I, E, A)
+    tipoatendimentodescricao: varchar({ length: 100 }), // descrição
+    codserv: varchar({ length: 255 }), // código/nome do serviço
+    procprin: varchar({ length: 100 }), // procedimento principal
+    
+    // Metadados de sincronização
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
+  },
+  (table) => ({
+    estabelecimentoIdx: index("idx_atend_faturar_estab").on(table.estabelecimentoId),
+    numatendIdx: index("idx_atend_faturar_numatend").on(table.numatend),
+    tipoatendIdx: index("idx_atend_faturar_tipo").on(table.tipoatend),
+    datatendIdx: index("idx_atend_faturar_datatend").on(table.datatend),
+  })
+);
+
+/**
  * CAMADA 4: AUDITORIA E HISTÓRICO
  */
 

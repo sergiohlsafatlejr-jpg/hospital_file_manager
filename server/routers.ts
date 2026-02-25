@@ -11,6 +11,7 @@ import type { InsertFaturamentoTiss } from "../drizzle/schema";
 import { parseExcelRecebimentoTiss, parseXmlRecebimentoTiss } from "./recebimentoTissParser";
 import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
 import * as db from "./db";
+import { getDb } from "./db";
 import { getAtendimentosParados, salvarNotificacao, salvarNotificacaoEmLote, getAtendimentosAFaturar, salvarHistoricoNotificacao, listarHistoricoNotificacoes } from "./pgAtendimentos";
 import { getAtendimentosParadosUnificados, calcularDiasParadoUnificado, getKPIsPorTipo, getQuantidadePorPlano, getQuantidadePorServico } from "./atendimentosUnificados";
 import { motorRegrasRouter } from "./routers/motorRegrasRouter";
@@ -6206,11 +6207,35 @@ export const appRouter = router({
       }),
   }),
 
-  // ===== ATENDIMENTOS (PostgreSQL externo) =====
+  // ===== ATENDIMENTOS (banco interno com fallback para PostgreSQL externo) =====
   atendimentos: router({
     listar: protectedProcedure
       .query(async () => {
         try {
+          // Primeiro tenta buscar do banco interno (atendimentos_sem_conta)
+          const dbInstance = await getDb();
+          if (dbInstance) {
+            const { atendimentosSemConta } = await import("../drizzle/schema-integracao");
+            const dadosInternos = await dbInstance.select().from(atendimentosSemConta);
+            if (dadosInternos.length > 0) {
+              return dadosInternos.map(d => ({
+                numatend: d.numatend,
+                nomeplaco: d.nomeplaco || "",
+                nomepac: d.nomepac || "",
+                carater: d.carater || "",
+                datatend: d.datatend ? new Date(d.datatend).toISOString() : "",
+                datasai: d.datasai ? new Date(d.datasai).toISOString() : null,
+                tipoatend: d.tipoatend || "",
+                tipoatendimentodescricao: d.tipoatendimentodescricao || "",
+                codserv: d.codserv || "",
+                procprin: d.procprin || "",
+                codcc_destino: d.codcc_destino || "",
+                motivo: d.motivo || null,
+                diasParado: calcularDiasParado(d.datasai ? new Date(d.datasai).toISOString() : null),
+              }));
+            }
+          }
+          // Fallback: buscar direto do PostgreSQL externo
           const dados = await getAtendimentosParados();
           return dados.map(d => ({
             ...d,
@@ -6420,11 +6445,33 @@ export const appRouter = router({
       }),
   }),
 
-  // ===== ATENDIMENTOS A FATURAR (PostgreSQL externo) =====
+  // ===== ATENDIMENTOS A FATURAR (banco interno com fallback para PostgreSQL externo) =====
   atendimentosFaturar: router({
     listar: protectedProcedure
       .query(async () => {
         try {
+          // Primeiro tenta buscar do banco interno (atendimentos_a_faturar)
+          const dbInstance = await getDb();
+          if (dbInstance) {
+            const { atendimentosAFaturar } = await import("../drizzle/schema-integracao");
+            const dadosInternos = await dbInstance.select().from(atendimentosAFaturar);
+            if (dadosInternos.length > 0) {
+              return dadosInternos.map(d => ({
+                numatend: d.numatend,
+                nomeplaco: d.nomeplaco || "",
+                nomepac: d.nomepac || "",
+                carater: d.carater || "",
+                datatend: d.datatend ? new Date(d.datatend).toISOString() : "",
+                datasai: d.datasai ? new Date(d.datasai).toISOString() : null,
+                tipoatend: d.tipoatend || "",
+                tipoatendimentodescricao: d.tipoatendimentodescricao || "",
+                codserv: d.codserv || "",
+                procprin: d.procprin || "",
+                diasParado: calcularDiasParado(d.datasai ? new Date(d.datasai).toISOString() : null),
+              }));
+            }
+          }
+          // Fallback: buscar direto do PostgreSQL externo
           const dados = await getAtendimentosAFaturar();
           return dados.map(d => ({
             ...d,
