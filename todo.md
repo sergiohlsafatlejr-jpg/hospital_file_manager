@@ -2044,3 +2044,16 @@
 - [ ] Adicionar badge de alertas críticos no menu
 - [ ] Testar integração com importação de arquivos
 - [ ] Validar notificações em tempo real
+
+## Submenu de Configurações
+
+- [x] Criar submenu colapsível de Configurações na aba lateral
+- [x] Criar página Configurações Gerais (Nome, Descrição, Logo, Favicon, Tema)
+- [x] Criar página Integração de Dados (WARLEINE, TASY, OMNI, GESTHOR)
+- [x] Criar página Usuários e Permissões (Lista de usuários, Grupos de Permissão)
+- [x] Criar página Notificações (Tipos de alertas, Canais Email/Push)
+- [x] Criar página Backup e Dados (Exportar/Importar, Backups automáticos, Zona de Perigo)
+- [x] Remover "Gerenciar Permissões" duplicado do menu principal
+- [x] Corrigir conflito entre Configuracoes.tsx antigo e Configuracoes/index.tsx novo
+- [x] Adicionar DashboardLayout nas páginas de configuração
+- [x] Corrigir roteamento usando window.location.pathname com useLocation como dependência
