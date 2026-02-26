@@ -2223,3 +2223,5 @@
 - [x] Fix: Erro ao inserir dados sincronizados - datas em formato JavaScript toString() inválido para MySQL
 
 - [x] Incluir automaticamente o estabelecimentoId nas importações do integrador (tabelas integ_*)
+
+- [x] Adicionar botão de editar query cadastrada na aba Tabelas do Integrador de Dados

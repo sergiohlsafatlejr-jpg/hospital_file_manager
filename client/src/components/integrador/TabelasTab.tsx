@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, Plus, Trash2, Eye, TableIcon, X, Wand2, Play, CheckCircle2, Database, RefreshCw, Zap, Info } from "lucide-react";
+import { Loader2, Plus, Trash2, Eye, TableIcon, X, Wand2, Play, CheckCircle2, Database, RefreshCw, Zap, Info, Pencil, Save } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface TabelasTabProps {
@@ -56,6 +56,15 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
   const [showAutoForm, setShowAutoForm] = useState(false);
   const [showDados, setShowDados] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  // Estado para edição de query do mapeamento
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editMapeamento, setEditMapeamento] = useState<any>(null);
+  const [editQuery, setEditQuery] = useState("");
+  const [editModoImportacao, setEditModoImportacao] = useState<"completa" | "incremental">("completa");
+  const [editColunaControle, setEditColunaControle] = useState("");
+  const [editCampoChave, setEditCampoChave] = useState("");
+  const [editFrequencia, setEditFrequencia] = useState("manual");
 
   // Form manual
   const [nomeTabela, setNomeTabela] = useState("");
@@ -144,6 +153,16 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
       tabelas.refetch();
     },
     onError: (e) => toast.error("Erro ao excluir", { description: e.message }),
+  });
+
+  const atualizarMapeamento = trpc.integradorDados.mapeamentos.atualizar.useMutation({
+    onSuccess: () => {
+      toast.success("Configuração do mapeamento atualizada com sucesso!");
+      setShowEditDialog(false);
+      setEditMapeamento(null);
+      tabelas.refetch();
+    },
+    onError: (e) => toast.error("Erro ao atualizar mapeamento", { description: e.message }),
   });
 
   const resetForm = () => {
@@ -331,6 +350,15 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
                     onView={() => setShowDados(tab.id)}
                     onDelete={() => setDeleteId(tab.id)}
                     onSync={(forcarCompleta) => sincronizarTabela.mutate({ tabelaId: tab.id, forcarCompleta })}
+                    onEdit={(mapeamentoData) => {
+                      setEditMapeamento(mapeamentoData);
+                      setEditQuery(mapeamentoData.queryOrigem || "");
+                      setEditModoImportacao(mapeamentoData.modoImportacao || "completa");
+                      setEditColunaControle(mapeamentoData.colunaControle || "");
+                      setEditCampoChave(mapeamentoData.campoChave || "");
+                      setEditFrequencia(mapeamentoData.frequencia || "manual");
+                      setShowEditDialog(true);
+                    }}
                     isSyncing={sincronizarTabela.isPending}
                   />
                 ))}
@@ -877,6 +905,138 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
           </DialogContent>
         </Dialog>
 
+        {/* ========== Dialog de Edição de Query/Mapeamento ========== */}
+        <Dialog open={showEditDialog} onOpenChange={(open) => { if (!open) { setShowEditDialog(false); setEditMapeamento(null); } }}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="w-5 h-5" />
+                Editar Configuração de Sincronização
+              </DialogTitle>
+              <DialogDescription>
+                Edite a query SQL e as configurações do mapeamento vinculado a esta tabela.
+              </DialogDescription>
+            </DialogHeader>
+
+            {editMapeamento && (
+              <div className="space-y-4">
+                {/* Info do mapeamento */}
+                <div className="bg-muted/50 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Info className="w-4 h-4" />
+                    <span>Mapeamento: <strong>{editMapeamento.nome}</strong> (ID: {editMapeamento.id})</span>
+                  </div>
+                </div>
+
+                {/* Query SQL */}
+                <div>
+                  <Label className="text-sm font-medium">Query SQL de Origem</Label>
+                  <Textarea
+                    value={editQuery}
+                    onChange={(e) => setEditQuery(e.target.value)}
+                    placeholder="SELECT * FROM tabela_origem"
+                    className="font-mono text-sm min-h-[180px] mt-1.5"
+                  />
+                </div>
+
+                {/* Modo de Importação */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Modo de Importação</Label>
+                    <Select value={editModoImportacao} onValueChange={(v) => setEditModoImportacao(v as "completa" | "incremental")}>
+                      <SelectTrigger className="mt-1.5">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="completa">Completa (reimporta tudo)</SelectItem>
+                        <SelectItem value="incremental">Incremental (só novos)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium">Frequência</Label>
+                    <Select value={editFrequencia} onValueChange={setEditFrequencia}>
+                      <SelectTrigger className="mt-1.5">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(FREQUENCIA_LABELS).map(([val, label]) => (
+                          <SelectItem key={val} value={val}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Coluna de Controle (só para incremental) */}
+                {editModoImportacao === "incremental" && (
+                  <div>
+                    <Label className="text-sm font-medium">Coluna de Controle (para importação incremental)</Label>
+                    <Input
+                      value={editColunaControle}
+                      onChange={(e) => setEditColunaControle(e.target.value)}
+                      placeholder="Ex: id, updated_at, data_modificacao"
+                      className="mt-1.5"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Campo usado para rastrear quais registros já foram importados. Deve ser um campo que cresce monotonicamente (ID auto-increment ou timestamp).
+                    </p>
+                  </div>
+                )}
+
+                {/* Campo Chave */}
+                <div>
+                  <Label className="text-sm font-medium">Campo Chave (opcional - para upsert)</Label>
+                  <Input
+                    value={editCampoChave}
+                    onChange={(e) => setEditCampoChave(e.target.value)}
+                    placeholder="Ex: id, protocolo"
+                    className="mt-1.5"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Se informado, registros com a mesma chave serão atualizados em vez de duplicados.
+                  </p>
+                </div>
+
+                {/* Botões */}
+                <div className="flex gap-3 justify-end pt-2">
+                  <Button variant="outline" onClick={() => { setShowEditDialog(false); setEditMapeamento(null); }}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!editQuery.trim()) {
+                        toast.error("A query SQL não pode estar vazia");
+                        return;
+                      }
+                      if (editModoImportacao === "incremental" && !editColunaControle.trim()) {
+                        toast.error("Para importação incremental, informe a coluna de controle");
+                        return;
+                      }
+                      atualizarMapeamento.mutate({
+                        id: editMapeamento.id,
+                        queryOrigem: editQuery,
+                        modoImportacao: editModoImportacao,
+                        colunaControle: editModoImportacao === "incremental" ? editColunaControle : null,
+                        campoChave: editCampoChave || undefined,
+                        frequencia: editFrequencia as any,
+                      });
+                    }}
+                    disabled={atualizarMapeamento.isPending}
+                  >
+                    {atualizarMapeamento.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
+                    ) : (
+                      <><Save className="w-4 h-4 mr-2" /> Salvar Alterações</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
         {/* Dialog de Exclusão */}
         <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
           <AlertDialogContent>
@@ -903,11 +1063,12 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
 }
 
 // Componente de linha da tabela com verificação de mapeamento vinculado
-function TabelaRow({ tabela, onView, onDelete, onSync, isSyncing }: {
+function TabelaRow({ tabela, onView, onDelete, onSync, onEdit, isSyncing }: {
   tabela: any;
   onView: () => void;
   onDelete: () => void;
   onSync: (forcarCompleta: boolean) => void;
+  onEdit: (mapeamentoData: any) => void;
   isSyncing: boolean;
 }) {
   const mapeamento = trpc.integradorDados.tabelas.obterMapeamentoVinculado.useQuery(
@@ -957,6 +1118,22 @@ function TabelaRow({ tabela, onView, onDelete, onSync, isSyncing }: {
       </TableCell>
       <TableCell className="text-right">
         <div className="flex gap-1 justify-end">
+          {/* Botão Editar - só aparece se tem mapeamento vinculado */}
+          {hasMapeamento && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onEdit(mapeamento.data)}
+                  className="text-amber-600"
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Editar query e configurações</TooltipContent>
+            </Tooltip>
+          )}
           {/* Botão Sincronizar - só aparece se tem mapeamento vinculado */}
           {hasMapeamento && (
             <>
