@@ -2197,3 +2197,11 @@
 - [x] Investigar causa do erro NotFoundError: insertBefore ao enviar notificações para alguns usuários
 - [x] Corrigir o bug no frontend (requestAnimationFrame nos onSuccess das mutations)
 - [x] Testar a correção
+
+## Bug/Feature: Integrador - Tabela não criada no banco e criação automática de colunas
+- [x] Investigar por que a tabela criada no integrador não aparece no banco MySQL (0 colunas)
+- [x] Corrigir fluxo de criação de tabela para executar DDL corretamente
+- [x] Implementar detecção automática de campos da query de origem
+- [x] Criar colunas automaticamente a partir dos campos retornados pela query
+- [x] Atualizar frontend para suportar criação automática
+- [x] Testar criação automática de tabela com campos detectados

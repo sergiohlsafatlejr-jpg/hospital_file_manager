@@ -1,0 +1,106 @@
+{
+  "query": "DESCRIBE integracao_colunas;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute DESCRIBE integracao_colunas;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "tabelaId",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "MUL",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome",
+      "Type": "varchar(255)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nomeExibicao",
+      "Type": "varchar(255)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "tipo",
+      "Type": "enum('varchar','int','bigint','decimal','text','date','datetime','boolean')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "tamanho",
+      "Type": "int(11)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "precisao",
+      "Type": "int(11)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "obrigatorio",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "chaveUnica",
+      "Type": "enum('sim','nao')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "nao",
+      "Extra": ""
+    },
+    {
+      "Field": "valorPadrao",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "ordem",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "criadoEm",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint(11)\tNO\tPRI\tNULL\tauto_increment\ntabelaId\tint(11)\tNO\tMUL\tNULL\t\nnome\tvarchar(255)\tNO\t\tNULL\t\nnomeExibicao\tvarchar(255)\tNO\t\tNULL\t\ntipo\tenum('varchar','int','bigint','decimal','text','date','datetime','boolean')\tNO\t\tNULL\t\ntamanho\tint(11)\tYES\t\tNULL\t\nprecisao\tint(11)\tYES\t\tNULL\t\nobrigatorio\tenum('sim','nao')\tNO\t\tnao\t\nchaveUnica\tenum('sim','nao')\tNO\t\tnao\t\nvalorPadrao\tvarchar(255)\tYES\t\tNULL\t\nordem\tint(11)\tNO\t\t0\t\ncriadoEm\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

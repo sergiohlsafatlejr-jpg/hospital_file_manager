@@ -1,0 +1,24 @@
+{
+  "query": "SELECT * FROM integracao_tabelas; SELECT * FROM integracao_colunas LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT * FROM integracao_tabelas; SELECT * FROM integracao_colunas LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "nome": "faturado_recebido_stagion",
+      "nomeExibicao": "Faturado_Recebido_stagion",
+      "descricao": "Faturado x Recebido x Glosado ",
+      "estabelecimentoId": "1260036",
+      "criadaNoBanco": "sim",
+      "totalRegistros": "0",
+      "criadoEm": "2026-02-26 12:43:23",
+      "atualizadoEm": "2026-02-26 12:43:23"
+    }
+  ],
+  "messages": [
+    "id\ttabelaId\tnome\tnomeExibicao\ttipo\ttamanho\tprecisao\tobrigatorio\tchaveUnica\tvalorPadrao\tordem\tcriadoEm",
+    "1\t1\tid\tId\tvarchar\t255\tNULL\tnao\tnao\tNULL\t0\t2026-02-26 12:43:23"
+  ],
+  "stdout": "id\tnome\tnomeExibicao\tdescricao\testabelecimentoId\tcriadaNoBanco\ttotalRegistros\tcriadoEm\tatualizadoEm\n1\tfaturado_recebido_stagion\tFaturado_Recebido_stagion\tFaturado x Recebido x Glosado \t1260036\tsim\t0\t2026-02-26 12:43:23\t2026-02-26 12:43:23\nid\ttabelaId\tnome\tnomeExibicao\ttipo\ttamanho\tprecisao\tobrigatorio\tchaveUnica\tvalorPadrao\tordem\tcriadoEm\n1\t1\tid\tId\tvarchar\t255\tNULL\tnao\tnao\tNULL\t0\t2026-02-26 12:43:23\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

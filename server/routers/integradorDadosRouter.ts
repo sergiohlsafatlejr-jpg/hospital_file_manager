@@ -1257,6 +1257,110 @@ export const integradorDadosRouter = router({
           return { sucesso: false, mensagem: msg };
         }
       }),
+
+    executarQuery: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        querySql: z.string().min(1),
+        limite: z.number().default(5),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        const conexao = await dbIntegrador.obterConexao(input.id);
+        if (!conexao) throw new Error("Conexão não encontrada");
+        try {
+          const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
+          let rows: Record<string, any>[] = [];
+          
+          if (conexao.tipo === "postgresql") {
+            const connector = new EasyVisionConnector({
+              host: conexao.host,
+              port: conexao.porta,
+              database: conexao.banco,
+              user: conexao.usuario,
+              password: senha,
+            });
+            await connector.conectar();
+            // Adicionar LIMIT à query se não tiver
+            let queryLimitada = input.querySql.trim().replace(/;$/, "");
+            if (!/\bLIMIT\b/i.test(queryLimitada)) {
+              queryLimitada += ` LIMIT ${input.limite}`;
+            }
+            const resultado = await connector.executarQuery(queryLimitada);
+            rows = resultado || [];
+            await connector.desconectar();
+          } else {
+            const connector = new WarleineConnector({
+              host: conexao.host,
+              port: conexao.porta,
+              database: conexao.banco,
+              user: conexao.usuario,
+              password: senha,
+            });
+            await connector.conectar();
+            let queryLimitada = input.querySql.trim().replace(/;$/, "");
+            if (!/\bLIMIT\b/i.test(queryLimitada)) {
+              queryLimitada += ` LIMIT ${input.limite}`;
+            }
+            const resultado = await connector.executarQuery(queryLimitada);
+            rows = resultado || [];
+            await connector.desconectar();
+          }
+
+          if (!rows || rows.length === 0) {
+            return {
+              sucesso: true,
+              mensagem: "Query executada mas não retornou registros",
+              campos: [] as Array<{ nome: string; tipo: string; exemplo: string | null }>,
+              amostra: [] as Record<string, any>[],
+              totalCampos: 0,
+            };
+          }
+
+          // Detectar campos e tipos a partir dos dados retornados
+          const primeiroRegistro = rows[0];
+          const campos = Object.keys(primeiroRegistro).map(campo => {
+            const valor = primeiroRegistro[campo];
+            let tipoDetectado = "varchar";
+            if (valor === null || valor === undefined) {
+              tipoDetectado = "varchar";
+            } else if (typeof valor === "number") {
+              tipoDetectado = Number.isInteger(valor) ? "int" : "decimal";
+            } else if (typeof valor === "boolean") {
+              tipoDetectado = "boolean";
+            } else if (valor instanceof Date) {
+              tipoDetectado = "datetime";
+            } else if (typeof valor === "string") {
+              // Tentar detectar datas
+              if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+                tipoDetectado = "date";
+              } else if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(valor)) {
+                tipoDetectado = "datetime";
+              } else if (valor.length > 500) {
+                tipoDetectado = "text";
+              } else {
+                tipoDetectado = "varchar";
+              }
+            }
+            return {
+              nome: campo,
+              tipo: tipoDetectado,
+              exemplo: valor !== null && valor !== undefined ? String(valor).substring(0, 200) : null,
+            };
+          });
+
+          return {
+            sucesso: true,
+            mensagem: `Query retornou ${rows.length} registro(s) com ${campos.length} campo(s)`,
+            campos,
+            amostra: rows.slice(0, 3),
+            totalCampos: campos.length,
+          };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Erro desconhecido";
+          return { sucesso: false, mensagem: msg, campos: [], amostra: [], totalCampos: 0 };
+        }
+      }),
   }),
 
   // ============================================================
@@ -1344,6 +1448,181 @@ export const integradorDadosRouter = router({
         }
 
         return { sucesso: true, id: tabelaId };
+      }),
+
+    criarAPartirDeQuery: protectedProcedure
+      .input(z.object({
+        conexaoId: z.number(),
+        querySql: z.string().min(1),
+        nomeTabela: z.string().min(1).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Nome deve conter apenas letras, números e underscore"),
+        nomeExibicao: z.string().min(1),
+        descricao: z.string().optional(),
+        estabelecimentoId: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        
+        // 1. Executar a query para detectar campos
+        const conexao = await dbIntegrador.obterConexao(input.conexaoId);
+        if (!conexao) throw new Error("Conexão não encontrada");
+        
+        const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
+        let rows: Record<string, any>[] = [];
+        
+        try {
+          if (conexao.tipo === "postgresql") {
+            const connector = new EasyVisionConnector({
+              host: conexao.host,
+              port: conexao.porta,
+              database: conexao.banco,
+              user: conexao.usuario,
+              password: senha,
+            });
+            await connector.conectar();
+            let queryLimitada = input.querySql.trim().replace(/;$/, "");
+            if (!/\bLIMIT\b/i.test(queryLimitada)) {
+              queryLimitada += " LIMIT 10";
+            }
+            rows = (await connector.executarQuery(queryLimitada)) || [];
+            await connector.desconectar();
+          } else {
+            const connector = new WarleineConnector({
+              host: conexao.host,
+              port: conexao.porta,
+              database: conexao.banco,
+              user: conexao.usuario,
+              password: senha,
+            });
+            await connector.conectar();
+            let queryLimitada = input.querySql.trim().replace(/;$/, "");
+            if (!/\bLIMIT\b/i.test(queryLimitada)) {
+              queryLimitada += " LIMIT 10";
+            }
+            rows = (await connector.executarQuery(queryLimitada)) || [];
+            await connector.desconectar();
+          }
+        } catch (error) {
+          throw new Error(`Erro ao executar query: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        
+        if (!rows || rows.length === 0) {
+          throw new Error("A query não retornou registros. Verifique a query e tente novamente.");
+        }
+        
+        // 2. Detectar campos e tipos automaticamente
+        const primeiroRegistro = rows[0];
+        const camposDetectados = Object.keys(primeiroRegistro).map((campo, idx) => {
+          const valor = primeiroRegistro[campo];
+          let tipoDetectado = "varchar";
+          let tamanho: number | null = 255;
+          let precisao: number | null = null;
+          
+          if (valor === null || valor === undefined) {
+            tipoDetectado = "varchar";
+            tamanho = 500;
+          } else if (typeof valor === "number") {
+            if (Number.isInteger(valor)) {
+              if (valor > 2147483647 || valor < -2147483648) {
+                tipoDetectado = "bigint";
+                tamanho = null;
+              } else {
+                tipoDetectado = "int";
+                tamanho = null;
+              }
+            } else {
+              tipoDetectado = "decimal";
+              tamanho = 18;
+              precisao = 4;
+            }
+          } else if (typeof valor === "boolean") {
+            tipoDetectado = "boolean";
+            tamanho = null;
+          } else if (valor instanceof Date) {
+            tipoDetectado = "datetime";
+            tamanho = null;
+          } else if (typeof valor === "string") {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+              tipoDetectado = "date";
+              tamanho = null;
+            } else if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(valor)) {
+              tipoDetectado = "datetime";
+              tamanho = null;
+            } else if (valor.length > 500) {
+              tipoDetectado = "text";
+              tamanho = null;
+            } else {
+              tipoDetectado = "varchar";
+              // Estimar tamanho baseado nos dados da amostra
+              const maxLen = Math.max(...rows.map(r => {
+                const v = r[campo];
+                return v ? String(v).length : 0;
+              }));
+              tamanho = Math.max(255, Math.ceil(maxLen * 1.5));
+            }
+          }
+          
+          // Converter nome do campo para snake_case seguro
+          const nomeSafe = campo.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+          
+          return {
+            nome: nomeSafe || `campo_${idx}`,
+            nomeExibicao: campo,
+            tipo: tipoDetectado as "varchar" | "int" | "bigint" | "decimal" | "text" | "date" | "datetime" | "boolean",
+            tamanho,
+            precisao,
+            obrigatorio: "nao" as const,
+            chaveUnica: "nao" as const,
+            valorPadrao: null,
+          };
+        });
+        
+        // 3. Criar registro na tabela de metadados
+        const tabelaId = await dbIntegrador.criarTabela({
+          nome: input.nomeTabela,
+          nomeExibicao: input.nomeExibicao,
+          descricao: input.descricao || `Tabela criada automaticamente a partir de query com ${camposDetectados.length} campos`,
+          estabelecimentoId: input.estabelecimentoId || null,
+          criadaNoBanco: "nao",
+        });
+        
+        // 4. Salvar colunas nos metadados
+        await dbIntegrador.criarColunasEmLote(
+          camposDetectados.map((col, idx) => ({
+            tabelaId,
+            nome: col.nome,
+            nomeExibicao: col.nomeExibicao,
+            tipo: col.tipo,
+            tamanho: col.tamanho,
+            precisao: col.precisao,
+            obrigatorio: col.obrigatorio,
+            chaveUnica: col.chaveUnica,
+            valorPadrao: col.valorPadrao,
+            ordem: idx,
+          }))
+        );
+        
+        // 5. Criar tabela física no MySQL
+        try {
+          await dbIntegrador.executarDDLCriarTabela(input.nomeTabela, camposDetectados.map(col => ({
+            nome: col.nome,
+            tipo: col.tipo,
+            tamanho: col.tamanho,
+            precisao: col.precisao,
+            obrigatorio: col.obrigatorio,
+            chaveUnica: col.chaveUnica,
+            valorPadrao: col.valorPadrao,
+          })));
+          await dbIntegrador.atualizarTabela(tabelaId, { criadaNoBanco: "sim" });
+        } catch (error) {
+          logger.error({ message: "Erro ao criar tabela física no MySQL", error: error instanceof Error ? error.message : String(error) });
+        }
+        
+        return {
+          sucesso: true,
+          id: tabelaId,
+          camposDetectados: camposDetectados.length,
+          campos: camposDetectados.map(c => ({ nome: c.nome, nomeExibicao: c.nomeExibicao, tipo: c.tipo })),
+        };
       }),
 
     adicionarColuna: protectedProcedure

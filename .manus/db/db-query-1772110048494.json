@@ -1,0 +1,31 @@
+{
+  "query": "SHOW TABLES LIKE 'integ_%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW TABLES LIKE 'integ_%';",
+  "rows": [
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integ_faturado_recebido_stagion"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_colunas"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_conexoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_mapeamento_campos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_mapeamentos"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_sincronizacoes"
+    },
+    {
+      "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)": "integracao_tabelas"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_98MRdVE9Uf2ZRMz25bPSye (integ_%)\ninteg_faturado_recebido_stagion\nintegracao_colunas\nintegracao_conexoes\nintegracao_mapeamento_campos\nintegracao_mapeamentos\nintegracao_sincronizacoes\nintegracao_tabelas\n",
+  "stderr": "",
+  "execution_time_ms": 89
+}

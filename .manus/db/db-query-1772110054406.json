@@ -1,0 +1,38 @@
+{
+  "query": "SELECT TABLE_NAME, TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_NAME LIKE 'integ_%' AND TABLE_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT TABLE_NAME, TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_NAME LIKE 'integ_%' AND TABLE_SCHEMA = DATABASE();",
+  "rows": [
+    {
+      "TABLE_NAME": "integracao_conexoes",
+      "TABLE_ROWS": "1"
+    },
+    {
+      "TABLE_NAME": "integracao_tabelas",
+      "TABLE_ROWS": "1"
+    },
+    {
+      "TABLE_NAME": "integracao_colunas",
+      "TABLE_ROWS": "1"
+    },
+    {
+      "TABLE_NAME": "integracao_mapeamentos",
+      "TABLE_ROWS": "0"
+    },
+    {
+      "TABLE_NAME": "integracao_mapeamento_campos",
+      "TABLE_ROWS": "0"
+    },
+    {
+      "TABLE_NAME": "integracao_sincronizacoes",
+      "TABLE_ROWS": "0"
+    },
+    {
+      "TABLE_NAME": "integ_faturado_recebido_stagion",
+      "TABLE_ROWS": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "TABLE_NAME\tTABLE_ROWS\nintegracao_conexoes\t1\nintegracao_tabelas\t1\nintegracao_colunas\t1\nintegracao_mapeamentos\t0\nintegracao_mapeamento_campos\t0\nintegracao_sincronizacoes\t0\ninteg_faturado_recebido_stagion\t0\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}
