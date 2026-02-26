@@ -2225,3 +2225,5 @@
 - [x] Incluir automaticamente o estabelecimentoId nas importações do integrador (tabelas integ_*)
 
 - [x] Adicionar botão de editar query cadastrada na aba Tabelas do Integrador de Dados
+
+- [x] Fix: estabelecimento_id vindo NULL nas importações do integrador de dados (sincronização anterior foi feita antes da implementação - basta re-sincronizar)

@@ -1,0 +1,61 @@
+{
+  "query": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integracao_mapeamentos' ORDER BY ORDINAL_POSITION",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'integracao_mapeamentos' ORDER BY ORDINAL_POSITION",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "nome"
+    },
+    {
+      "COLUMN_NAME": "descricao"
+    },
+    {
+      "COLUMN_NAME": "conexaoOrigemId"
+    },
+    {
+      "COLUMN_NAME": "tabelaDestinoId"
+    },
+    {
+      "COLUMN_NAME": "queryOrigem"
+    },
+    {
+      "COLUMN_NAME": "campoChave"
+    },
+    {
+      "COLUMN_NAME": "frequencia"
+    },
+    {
+      "COLUMN_NAME": "ativo"
+    },
+    {
+      "COLUMN_NAME": "estabelecimentoId"
+    },
+    {
+      "COLUMN_NAME": "criadoEm"
+    },
+    {
+      "COLUMN_NAME": "atualizadoEm"
+    },
+    {
+      "COLUMN_NAME": "modoImportacao"
+    },
+    {
+      "COLUMN_NAME": "colunaControle"
+    },
+    {
+      "COLUMN_NAME": "ultimoValorControle"
+    },
+    {
+      "COLUMN_NAME": "ultimaSincronizacao"
+    },
+    {
+      "COLUMN_NAME": "totalRegistrosImportados"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\nnome\ndescricao\nconexaoOrigemId\ntabelaDestinoId\nqueryOrigem\ncampoChave\nfrequencia\nativo\nestabelecimentoId\ncriadoEm\natualizadoEm\nmodoImportacao\ncolunaControle\nultimoValorControle\nultimaSincronizacao\ntotalRegistrosImportados\n",
+  "stderr": "",
+  "execution_time_ms": 52
+}

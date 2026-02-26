@@ -1,0 +1,26 @@
+{
+  "query": "SHOW COLUMNS FROM integracao_mapeamentos WHERE Field IN ('estabelecimento_id', 'tabela_id', 'nome', 'id')",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW COLUMNS FROM integracao_mapeamentos WHERE Field IN ('estabelecimento_id', 'tabela_id', 'nome', 'id')",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "nome",
+      "Type": "varchar(255)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint(11)\tNO\tPRI\tNULL\tauto_increment\nnome\tvarchar(255)\tNO\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 493
+}
