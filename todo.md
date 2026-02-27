@@ -2252,3 +2252,4 @@
 - [x] Criar procedures tRPC para CRUD de mapeamentos e matching automático por similaridade
 - [x] Criar tela frontend de configuração de mapeamentos com sugestões automáticas
 - [x] Integrar mapeamento na importação de dados (recebimento_geral usa convenioId do Safatle)
+- [x] Bug: Mapeamento de Convênios mostra 0 convênios - corrigido: busca de múltiplas fontes de dados

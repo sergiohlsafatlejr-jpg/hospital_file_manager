@@ -6820,10 +6820,11 @@ export const appRouter = router({
         return await dbConvMap.listarConveniosNaoMapeados(input.estabelecimentoId);
       }),
 
-    // Listar convênios do Safatle
+    // Listar convênios do Safatle (globais + do estabelecimento)
     conveniosSafatle: protectedProcedure
-      .query(async () => {
-        return await dbConvMap.listarConveniosSafatle();
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return await dbConvMap.listarConveniosSafatle(input?.estabelecimentoId);
       }),
 
     // Sugerir mapeamentos automáticos por similaridade

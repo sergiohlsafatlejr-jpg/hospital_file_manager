@@ -1,6 +1,6 @@
 import { getDb } from "./db";
 import { convenioMapeamento, convenios } from "../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, or, isNull } from "drizzle-orm";
 
 /**
  * Algoritmo de similaridade de strings (Levenshtein normalizado)
@@ -49,20 +49,94 @@ function similaridade(a: string, b: string): number {
 }
 
 /**
- * Buscar nomes distintos de convênios vindos do hospital (sem mapeamento)
+ * Buscar nomes distintos de convênios vindos de TODAS as fontes de dados do hospital
+ * Busca em: recebimento_geral, integ_faturado_x_recebido, faturamento_tiss (via join), recebimento_tiss (via join)
+ */
+export async function listarConveniosOrigem(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const nomesSet = new Map<string, { nome: string; codigo: string | null; fonte: string }>();
+  
+  // 1. Buscar de recebimento_geral
+  try {
+    const rows1Result = await db.execute(
+      sql.raw(`SELECT DISTINCT convenio as nome, codigo_convenio as codigo 
+              FROM recebimento_geral 
+              WHERE estabelecimentoId = ${estabelecimentoId} 
+              AND convenio IS NOT NULL AND convenio != ''`)
+    );
+    const rows1 = (rows1Result as unknown as any[][])[0] || [];
+    for (const r of rows1) {
+      const key = (r.nome || "").trim().toUpperCase();
+      if (key && !nomesSet.has(key)) {
+        nomesSet.set(key, { nome: (r.nome || "").trim(), codigo: r.codigo || null, fonte: "recebimento_geral" });
+      }
+    }
+  } catch (e) { /* tabela pode não existir */ }
+  
+  // 2. Buscar de integ_faturado_x_recebido
+  try {
+    const rows2Result = await db.execute(
+      sql.raw(`SELECT DISTINCT nomeconv as nome, codconv as codigo 
+              FROM integ_faturado_x_recebido 
+              WHERE estabelecimento_id = ${estabelecimentoId} 
+              AND nomeconv IS NOT NULL AND nomeconv != ''`)
+    );
+    const rows2 = (rows2Result as unknown as any[][])[0] || [];
+    for (const r of rows2) {
+      const key = (r.nome || "").trim().toUpperCase();
+      if (key && !nomesSet.has(key)) {
+        nomesSet.set(key, { nome: (r.nome || "").trim(), codigo: r.codigo || null, fonte: "integ_faturado_x_recebido" });
+      }
+    }
+  } catch (e) { /* tabela pode não existir */ }
+  
+  // 3. Buscar de faturamento_tiss (via join com convenios para pegar o nome)
+  try {
+    const rows3Result = await db.execute(
+      sql.raw(`SELECT DISTINCT c.nome as nome, c.codigo as codigo 
+              FROM faturamento_tiss f 
+              JOIN convenios c ON f.convenioId = c.id 
+              WHERE f.estabelecimentoId = ${estabelecimentoId}`)
+    );
+    const rows3 = (rows3Result as unknown as any[][])[0] || [];
+    for (const r of rows3) {
+      const key = (r.nome || "").trim().toUpperCase();
+      if (key && !nomesSet.has(key)) {
+        nomesSet.set(key, { nome: (r.nome || "").trim(), codigo: r.codigo || null, fonte: "faturamento_tiss" });
+      }
+    }
+  } catch (e) { /* tabela pode não existir */ }
+  
+  // 4. Buscar de recebimento_tiss (via join com convenios)
+  try {
+    const rows4Result = await db.execute(
+      sql.raw(`SELECT DISTINCT c.nome as nome, c.codigo as codigo 
+              FROM recebimento_tiss r 
+              JOIN convenios c ON r.convenioId = c.id 
+              WHERE r.estabelecimentoId = ${estabelecimentoId}`)
+    );
+    const rows4 = (rows4Result as unknown as any[][])[0] || [];
+    for (const r of rows4) {
+      const key = (r.nome || "").trim().toUpperCase();
+      if (key && !nomesSet.has(key)) {
+        nomesSet.set(key, { nome: (r.nome || "").trim(), codigo: r.codigo || null, fonte: "recebimento_tiss" });
+      }
+    }
+  } catch (e) { /* tabela pode não existir */ }
+  
+  return Array.from(nomesSet.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+/**
+ * Buscar nomes distintos de convênios vindos do hospital que AINDA NÃO foram mapeados
  */
 export async function listarConveniosNaoMapeados(estabelecimentoId: number) {
   const db = await getDb();
   if (!db) return [];
   
-  // Buscar todos os nomes distintos da recebimento_geral para este estabelecimento
-  const nomesHospital = await db.execute(
-    sql`SELECT DISTINCT convenio as nome, codigo_convenio as codigo 
-        FROM recebimento_geral 
-        WHERE estabelecimentoId = ${estabelecimentoId} 
-        AND convenio IS NOT NULL AND convenio != ''
-        ORDER BY convenio`
-  );
+  const todosConvenios = await listarConveniosOrigem(estabelecimentoId);
   
   // Buscar mapeamentos existentes
   const mapeamentosExistentes = await db
@@ -78,23 +152,28 @@ export async function listarConveniosNaoMapeados(estabelecimentoId: number) {
   );
   
   // Filtrar apenas os não mapeados
-  const rows = (nomesHospital as any)[0] || nomesHospital;
-  const naoMapeados = (Array.isArray(rows) ? rows : []).filter(
-    (r: any) => !mapeadosSet.has((r.nome || "").trim().toUpperCase())
+  const naoMapeados = todosConvenios.filter(
+    (r) => !mapeadosSet.has(r.nome.toUpperCase())
   );
   
-  return naoMapeados.map((r: any) => ({
-    nome: (r.nome || "").trim(),
-    codigo: r.codigo || null,
+  return naoMapeados.map((r) => ({
+    nome: r.nome,
+    codigo: r.codigo,
+    fonte: r.fonte,
   }));
 }
 
 /**
- * Buscar todos os convênios cadastrados no Safatle
+ * Buscar todos os convênios cadastrados no Safatle (globais + do estabelecimento)
  */
-export async function listarConveniosSafatle() {
+export async function listarConveniosSafatle(estabelecimentoId?: number) {
   const db = await getDb();
   if (!db) return [];
+  
+  // Buscar convênios globais (estabelecimentoId IS NULL) E do estabelecimento específico
+  const whereClause = estabelecimentoId
+    ? or(isNull(convenios.estabelecimentoId), eq(convenios.estabelecimentoId, estabelecimentoId))
+    : isNull(convenios.estabelecimentoId);
   
   return await db
     .select({
@@ -104,7 +183,10 @@ export async function listarConveniosSafatle() {
       estabelecimentoId: convenios.estabelecimentoId,
     })
     .from(convenios)
-    .where(eq(convenios.ativo, "sim"))
+    .where(and(
+      eq(convenios.ativo, "sim"),
+      whereClause
+    ))
     .orderBy(convenios.nome);
 }
 
@@ -113,11 +195,12 @@ export async function listarConveniosSafatle() {
  */
 export async function sugerirMapeamentos(estabelecimentoId: number) {
   const naoMapeados = await listarConveniosNaoMapeados(estabelecimentoId);
-  const conveniosSafatle = await listarConveniosSafatle();
+  const conveniosSafatle = await listarConveniosSafatle(estabelecimentoId);
   
   const sugestoes: Array<{
     nomeOrigem: string;
     codigoOrigem: string | null;
+    fonte: string;
     sugestoes: Array<{
       convenioId: number;
       nomeSafatle: string;
@@ -182,6 +265,7 @@ export async function sugerirMapeamentos(estabelecimentoId: number) {
     sugestoes.push({
       nomeOrigem: item.nome,
       codigoOrigem: item.codigo,
+      fonte: item.fonte,
       sugestoes: matches.slice(0, 5),
     });
   }
@@ -379,17 +463,29 @@ export async function resolverConvenioId(
  * Estatísticas de mapeamento para um estabelecimento
  */
 export async function estatisticasMapeamento(estabelecimentoId: number) {
-  const naoMapeados = await listarConveniosNaoMapeados(estabelecimentoId);
+  const todosConvenios = await listarConveniosOrigem(estabelecimentoId);
   const mapeamentos = await listarMapeamentos(estabelecimentoId);
   const ativos = mapeamentos.filter((m: any) => m.ativo === "sim");
   
+  // Verificar quais dos convênios de origem já estão mapeados
+  const mapeadosSet = new Set(
+    ativos.map((m: any) => (m.nomeOrigem || "").trim().toUpperCase())
+  );
+  
+  const naoMapeados = todosConvenios.filter(
+    (c) => !mapeadosSet.has(c.nome.toUpperCase())
+  );
+  
+  const total = todosConvenios.length;
+  const totalMapeados = total - naoMapeados.length;
+  
   return {
-    totalConveniosHospital: naoMapeados.length + ativos.length,
-    totalMapeados: ativos.length,
+    totalConveniosHospital: total,
+    totalMapeados,
     totalNaoMapeados: naoMapeados.length,
-    percentualMapeado: ativos.length + naoMapeados.length > 0
-      ? Math.round((ativos.length / (ativos.length + naoMapeados.length)) * 100)
+    percentualMapeado: total > 0
+      ? Math.round((totalMapeados / total) * 100)
       : 0,
-    naoMapeados: naoMapeados.map((n: any) => n.nome),
+    naoMapeados: naoMapeados.map((n) => n.nome),
   };
 }

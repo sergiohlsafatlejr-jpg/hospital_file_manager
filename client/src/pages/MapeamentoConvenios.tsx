@@ -42,7 +42,7 @@ export default function MapeamentoConvenios() {
     );
 
   const { data: conveniosSafatle } = 
-    trpc.convenioMapeamento.conveniosSafatle.useQuery(undefined, { enabled: !!estabId });
+    trpc.convenioMapeamento.conveniosSafatle.useQuery({ estabelecimentoId: estabId! }, { enabled: !!estabId });
 
   const { data: estatisticas, refetch: refetchEstatisticas } = 
     trpc.convenioMapeamento.estatisticas.useQuery(
