@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, boolean, timestamp, index, json } from "drizzle-orm/mysql-core";
+import { mysqlTable, int, varchar, text, timestamp, decimal, json, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -254,16 +254,62 @@ export const faturamento = mysqlTable(
   "faturamento_unificado",
   {
     id: int().primaryKey().autoincrement(),
-    origemSistema: varchar({ length: 50 }).notNull(),
-    origemId: varchar({ length: 100 }).notNull(),
+    
+    // Origem do dado
+    origemSistema: varchar({ length: 50 }).notNull(), // 'TASY' ou 'XML_TISS'
+    origemId: varchar({ length: 100 }), // ID original na tabela de origem
     estabelecimentoId: int().notNull(),
     
-    dataFaturamento: timestamp(),
-    contaNumero: varchar({ length: 100 }),
-    pacienteId: varchar({ length: 100 }),
-    valor: varchar({ length: 20 }),
-    status: varchar({ length: 50 }),
+    // Identificadores da conta/guia
+    contaNumero: varchar({ length: 100 }), // Número da conta (Tasy) ou guia (XML)
+    numeroGuia: varchar({ length: 50 }), // Número da guia do prestador
+    numeroGuiaOperadora: varchar({ length: 50 }), // Número da guia da operadora
+    senha: varchar({ length: 50 }), // Senha de autorização
+    protocolo: varchar({ length: 100 }), // Protocolo TISS
+    lotePrestador: varchar({ length: 50 }), // Número do lote
+    atendimento: varchar({ length: 100 }), // Número do atendimento
     
+    // Dados do paciente/beneficiário
+    pacienteNome: varchar({ length: 255 }),
+    carteiraBeneficiario: varchar({ length: 50 }),
+    
+    // Dados do convênio
+    convenio: varchar({ length: 255 }),
+    convenioId: int(),
+    competencia: varchar({ length: 20 }), // Mês/Ano de referência (YYYY-MM)
+    
+    // Dados do profissional
+    profissionalExecutante: varchar({ length: 255 }),
+    setor: varchar({ length: 255 }),
+    
+    // Dados do item
+    tipoItem: varchar({ length: 50 }), // PROC/TAXA, MAT/MED, PROCEDIMENTO, DESPESA
+    codigoItem: varchar({ length: 50 }),
+    codigoItemTuss: varchar({ length: 50 }),
+    descricaoItem: text(),
+    dataExecucao: timestamp(),
+    quantidade: decimal({ precision: 12, scale: 4 }),
+    
+    // Valores financeiros
+    valorUnitario: decimal({ precision: 12, scale: 4 }),
+    valorFaturado: decimal({ precision: 12, scale: 4 }),
+    valorPago: decimal({ precision: 12, scale: 4 }),
+    valorGlosa: decimal({ precision: 12, scale: 4 }),
+    
+    // Motivo de glosa
+    motivoGlosa: text(),
+    codigoGlosa: varchar({ length: 50 }),
+    
+    // Dados de retorno/pagamento
+    retorno: varchar({ length: 50 }),
+    dataPagamento: timestamp(),
+    
+    // Status da conciliação
+    statusConciliacao: varchar({ length: 50 }).default('pendente'), // pendente, conciliado, divergente, nao_recebido
+    recebimentoVinculadoId: int(), // ID do recebimento vinculado (recebimentos_excel ou recebimento_tiss)
+    recebimentoOrigem: varchar({ length: 20 }), // 'excel' ou 'xml'
+    
+    // Timestamps
     dataSincronizacao: timestamp().defaultNow(),
     criadoEm: timestamp().defaultNow(),
     atualizadoEm: timestamp().defaultNow(),
@@ -271,6 +317,13 @@ export const faturamento = mysqlTable(
   (table) => ({
     origemSistemaIdx: index("idx_fatur_origem_sistema").on(table.origemSistema),
     estabelecimentoIdx: index("idx_fatur_estab").on(table.estabelecimentoId),
+    contaNumeroIdx: index("idx_fatur_conta").on(table.contaNumero),
+    guiaIdx: index("idx_fatur_guia").on(table.numeroGuia),
+    convenioIdx: index("idx_fatur_convenio").on(table.convenio),
+    competenciaIdx: index("idx_fatur_competencia").on(table.competencia),
+    codigoItemIdx: index("idx_fatur_codigo_item").on(table.codigoItem),
+    statusConciliacaoIdx: index("idx_fatur_status_conciliacao").on(table.statusConciliacao),
+    pacienteNomeIdx: index("idx_fatur_paciente").on(table.pacienteNome),
   })
 );
 

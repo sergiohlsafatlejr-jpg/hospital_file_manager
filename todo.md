@@ -2278,7 +2278,7 @@
 - [ ] Integrar cruzamento automático na importação de demonstrativo
 - [ ] Criar tela de Conciliação com visualização por guia/item e vinculação manual de códigos
 - [ ] Persistir histórico de conciliações para consulta futura
-- [ ] Criar tabela faturamento_unificado no banco e schema (unifica XML e Warleine)
+- [x] Criar tabela faturamento_unificado no banco e schema (unifica Tasy + XML TISS)
 - [x] Renomear conciliacaoTasy para conciliacao no banco e schema
 - [x] Renomear resumoConciliacaoTasy para resumoConciliacao
 - [x] Corrigir conciliacaoService.ts para usar sql.raw() em todas as funções (padrão do projeto)
@@ -2289,3 +2289,11 @@
 - [x] Verificar se frontend exibe dados atualizados de atendimentos_unificados (435 registros WARLEINE)
 - [x] Analisar e importar arquivo IpasgoHemolaborComp.12-2025-PGTO02-2026.xlsx no recebimentos Excel (mapeamento IPASGO adicionado ao parser, 28/34 colunas mapeadas, 11 testes passando)
 - [x] Investigar e corrigir processamento travado do arquivo IPASGO (ID 1560001) - causa: arquivo 10.4MB consome 812MB RAM, otimizado com processamento em chunks
+- [x] Reprocessar arquivo IPASGO (ID 1560001) diretamente pelo backend - 71.052 registros inseridos em 30s
+- [x] Criar tabela faturamento_unificado no schema Drizzle (unifica Tasy + XML TISS)
+- [x] Implementar service de população do faturamento_unificado (faturamentoUnificadoService.ts - 12 funções exportadas)
+- [x] Adaptar conciliacaoService para cruzar faturamento_unificado x recebimentos_excel
+- [x] Criar procedures tRPC para conciliação (faturamentoUnificadoRouter.ts - 10 procedures)
+- [x] Criar tela Conciliação Cruzada (ConciliacaoCruzada.tsx) com visualização por guia/item
+- [x] Implementar vinculação manual de guias do mesmo paciente entre faturado e recebido
+- [x] Testes vitest para faturamento_unificado (16 testes passando)

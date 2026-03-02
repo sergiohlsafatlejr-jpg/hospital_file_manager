@@ -1,0 +1,18 @@
+{
+  "query": "SHOW COLUMNS FROM recebimentos_excel LIKE '%arquivo%'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW COLUMNS FROM recebimentos_excel LIKE '%arquivo%'",
+  "rows": [
+    {
+      "Field": "arquivo_id",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\narquivo_id\tint\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 49
+}

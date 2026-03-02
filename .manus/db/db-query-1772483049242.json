@@ -1,0 +1,23 @@
+{
+  "query": "SELECT id, nome, s3Url, status, convenioId, estabelecimentoId, dataReferencia, dataPagamento, progresso, itensProcessados, totalItens FROM arquivos WHERE id = 1560001",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT id, nome, s3Url, status, convenioId, estabelecimentoId, dataReferencia, dataPagamento, progresso, itensProcessados, totalItens FROM arquivos WHERE id = 1560001",
+  "rows": [
+    {
+      "id": "1560001",
+      "nome": "Ipasgo Hemolabor Comp. 12-2025 - PGTO 02-2026.xlsx",
+      "s3Url": "https://d2xsxph8kpxj0f.cloudfront.net/310519663295218967/98MRdVE9Uf2ZRMz25bPSye/arquivos/1/mkbvNF8WmQ9UJLOjf8cb--Ipasgo_Hemolabor_Comp_12-2025_-_PGTO_02-2026.xlsx.xlsx",
+      "status": "processando",
+      "convenioId": "30001",
+      "estabelecimentoId": "6",
+      "dataReferencia": "2025-12-01 00:00:00",
+      "dataPagamento": "2026-02-28 00:00:00",
+      "progresso": "10",
+      "itensProcessados": "0",
+      "totalItens": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tnome\ts3Url\tstatus\tconvenioId\testabelecimentoId\tdataReferencia\tdataPagamento\tprogresso\titensProcessados\ttotalItens\n1560001\tIpasgo Hemolabor Comp. 12-2025 - PGTO 02-2026.xlsx\thttps://d2xsxph8kpxj0f.cloudfront.net/310519663295218967/98MRdVE9Uf2ZRMz25bPSye/arquivos/1/mkbvNF8WmQ9UJLOjf8cb--Ipasgo_Hemolabor_Comp_12-2025_-_PGTO_02-2026.xlsx.xlsx\tprocessando\t30001\t6\t2025-12-01 00:00:00\t2026-02-28 00:00:00\t10\t0\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

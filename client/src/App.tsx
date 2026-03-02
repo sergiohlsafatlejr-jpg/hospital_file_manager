@@ -41,6 +41,7 @@ import ConciliacaoDetalhes from "./pages/ConciliacaoDetalhes";
 import RelatoriosBI from "./pages/RelatoriosBI";
 import ConciliacaoContasPagas from "./pages/ConciliacaoContasPagas";
 import ConciliacaoContasFaturadas from "./pages/ConciliacaoContasFaturadas";
+import ConciliacaoCruzada from "./pages/ConciliacaoCruzada";
 import DetalhesContaFaturada from "./pages/DetalhesContaFaturada";
 import ContaConvenioDetalhes from "./pages/ContaConvenioDetalhes";
 import RecebimentosXml from "./pages/RecebimentosXml";
@@ -109,6 +110,7 @@ function Router() {
       <Route path={"/previsao-glosa"} component={PrevisaoGlosa} />
       <Route path={"/motor-regras"} component={DashboardMotorRegras} />
       <Route path={"/conciliacao-contas-pagas"} component={ConciliacaoContasPagas} />
+      <Route path={"/conciliacao-cruzada"} component={ConciliacaoCruzada} />
       <Route path={"/contas-faturadas"} component={ConciliacaoContasFaturadas} />
       <Route path={"/contas-faturadas/:conta"} component={DetalhesContaFaturada} />
       <Route path={"/recebimentos-xml"} component={RecebimentosXml} />

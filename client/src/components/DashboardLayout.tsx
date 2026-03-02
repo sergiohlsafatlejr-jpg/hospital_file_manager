@@ -69,6 +69,7 @@ import {
   Sun,
   AlertCircle,
   ChevronRight,
+  Link2,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -144,6 +145,7 @@ const menuItems: MenuItem[] = [
   { icon: TrendingUp, label: "Previsão de Glosa", path: "/previsao-glosa", modulo: "relatoriosBi" },
   { icon: Activity, label: "Motor de Regras", path: "/motor-regras", modulo: "relatoriosBi" },
   { icon: DollarSign, label: "Conciliação Contas Pagas", path: "/conciliacao-contas-pagas", modulo: "conciliacaoContasPagas" },
+  { icon: Link2, label: "Conciliação Cruzada", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas" },
   
   // Integração de Dados
   { icon: Database, label: "Integrador de Dados", path: "/integracao", adminOnly: true },

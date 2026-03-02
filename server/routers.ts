@@ -19,6 +19,7 @@ import { motorRegrasRouter } from "./routers/motorRegrasRouter";
 import { enviarEmail, gerarHtmlNotificacaoAtendimentos, verificarConexaoSMTP } from "./emailService";
 import { padroesProcedimentosRouter } from "./routers/padroesProcedimentosRouter";
 import { integradorDadosRouter } from "./routers/integradorDadosRouter";
+import { faturamentoUnificadoRouter } from "./routers/faturamentoUnificadoRouter";
 import * as dbRecebGeral from "./db-recebimentoGeral";
 import * as dbConvMap from "./db-convenioMapeamento";
 
@@ -6768,6 +6769,9 @@ export const appRouter = router({
 
   // ============ INTEGRADOR DE DADOS ============
   integradorDados: integradorDadosRouter,
+
+  // ============ FATURAMENTO UNIFICADO & CONCILIAÇÃO CRUZADA ============
+  faturamentoUnificado: faturamentoUnificadoRouter,
 
   // ============ RECEBIMENTO GERAL ============
   recebimentoGeral: router({
