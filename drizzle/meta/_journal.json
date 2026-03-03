@@ -393,6 +393,20 @@
       "when": 1772474568525,
       "tag": "0055_rename_conciliacao",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "5",
+      "when": 1772497837226,
+      "tag": "0056_integ_faturado_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "5",
+      "when": 1772498221826,
+      "tag": "0057_steep_junta",
+      "breakpoints": true
     }
   ]
 }

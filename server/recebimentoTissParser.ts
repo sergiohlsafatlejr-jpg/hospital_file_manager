@@ -93,6 +93,24 @@ const COLUMN_MAPPINGS: Record<keyof Omit<InsertRecebimentoTiss, 'id' | 'dataImpo
   convenioId: [],
   dataReferencia: [],
   estabelecimentoId: [],
+
+  // Colunas legadas (existem no banco, não mapeadas no parser)
+  estabelecimento_id_legacy: [],
+  codigoPrestadorPagamento: ["Código Prestador Pagamento", "codigo_prestador_pagamento"],
+  nomePrestadorPagamento: ["Nome Prestador Pagamento", "nome_prestador_pagamento"],
+  codigoPrestadorExecutante: ["Código Prestador Executante", "codigo_prestador_executante"],
+  nomePrestadorExecutante: ["Nome Prestador Executante", "nome_prestador_executante"],
+  horaExecucao: ["Hora Execução", "hora_execucao"],
+  codigoProcedimento: ["Código Procedimento", "codigo_procedimento_receb"],
+  descricaoProcedimento: ["Descrição Procedimento", "descricao_procedimento_receb"],
+  tipoLancamento: ["Tipo Lançamento", "tipo_lancamento", "tipolancamento"],
+  qtdExecutada: ["Qtd Executada", "qtd_executada"],
+  situacaoItem: ["Situação Item", "situacao_item", "situacaoitem", "Situação"],
+  codigoSolicitante: ["Código Solicitante", "codigo_solicitante"],
+  nomeSolicitante: ["Nome Solicitante", "nome_solicitante"],
+  acomodacaoInternacao: ["Acomodação Internação", "acomodacao_internacao"],
+  dataInicioInternacao: ["Data Início Internação", "data_inicio_internacao"],
+  dataFimInternacao: ["Data Fim Internação", "data_fim_internacao"],
 };
 
 /**

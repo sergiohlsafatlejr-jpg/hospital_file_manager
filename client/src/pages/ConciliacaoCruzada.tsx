@@ -95,7 +95,7 @@ export default function ConciliacaoCruzada() {
   // Mutations
   const popularTudo = trpc.faturamentoUnificado.popularTudo.useMutation({
     onSuccess: (data) => {
-      toast.success(`Faturamento unificado atualizado: ${data.tasy.inseridos} itens Tasy + ${data.xmlTiss.inseridos} itens XML TISS`);
+      toast.success(`Faturamento unificado atualizado: ${data.warleine.inseridos} itens Warleine + ${data.xmlTiss.inseridos} itens XML TISS`);
       refetch();
     },
     onError: (err) => toast.error(`Erro ao popular: ${err.message}`),
@@ -284,7 +284,7 @@ export default function ConciliacaoCruzada() {
               <Link2 className="w-7 h-7 text-primary" />
               Conciliacao Cruzada
             </h1>
-            <p className="text-muted-foreground">Cruzamento do faturamento (Tasy + XML) com recebimentos (Excel + XML retorno)</p>
+            <p className="text-muted-foreground">Cruzamento do faturamento (Warleine + XML TISS) com recebimentos (Excel + XML retorno)</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button 

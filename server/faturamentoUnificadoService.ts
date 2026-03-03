@@ -1,7 +1,7 @@
 /**
  * Service para popular e manter a tabela faturamento_unificado
  * Unifica dados de duas fontes:
- * - TASY (tabela faturadoTasy): dados do sistema hospitalar Tasy
+ * - WARLEINE (tabela integ_faturado): dados do faturamento do hospital via banco Warleine
  * - XML_TISS (tabela faturamento_tiss): dados dos XMLs enviados aos convênios
  */
 
@@ -9,13 +9,115 @@ import { getDb } from "./db";
 import { sql } from "drizzle-orm";
 
 // ============================================================
-// POPULAÇÃO A PARTIR DO TASY (faturadoTasy)
+// POPULAÇÃO A PARTIR DO WARLEINE (integ_faturado)
 // ============================================================
 
 /**
- * Popula faturamento_unificado a partir dos dados do faturadoTasy
+ * Popula faturamento_unificado a partir dos dados do integ_faturado (Warleine)
  * para um estabelecimento e competência específicos.
- * Usa INSERT IGNORE para evitar duplicatas.
+ * Mapeamento:
+ *   integ_faturado._id → origemId
+ *   'WARLEINE' → origemSistema
+ *   numconta → contaNumero
+ *   guiacobra → numeroGuia
+ *   aihguia → numeroGuiaOperadora
+ *   protocolo → protocolo
+ *   numfatura → lotePrestador
+ *   matricula → carteiraBeneficiario
+ *   nomeconv → convenio
+ *   mesprod → competencia (convertido de 2025/01 para 2025-01)
+ *   nomeprest → profissionalExecutante
+ *   nomecc → setor
+ *   tipoproc → tipoItem
+ *   procdisco → codigoItem
+ *   codproprio → codigoItemTuss
+ *   descricao → descricaoItem
+ *   data → dataExecucao
+ *   quantidade → quantidade
+ *   vl_unitario → valorUnitario
+ *   vl_faturado → valorFaturado
+ */
+export async function popularDeIntegFaturado(
+  estabelecimentoId: number,
+  competencia?: string
+): Promise<{ inseridos: number; total: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // Limpar registros WARLEINE existentes para o estabelecimento/competência
+  let deleteQuery = `DELETE FROM faturamento_unificado WHERE origemSistema = 'WARLEINE' AND estabelecimentoId = ${estabelecimentoId}`;
+  if (competencia) {
+    deleteQuery += ` AND competencia LIKE '${competencia.replace(/'/g, "''")}%'`;
+  }
+  await db.execute(sql.raw(deleteQuery));
+
+  // Inserir dados do integ_faturado
+  let insertQuery = `
+    INSERT INTO faturamento_unificado (
+      origemSistema, origemId, estabelecimentoId,
+      contaNumero, numeroGuia, numeroGuiaOperadora,
+      protocolo, lotePrestador, carteiraBeneficiario,
+      convenio, competencia,
+      profissionalExecutante, setor,
+      tipoItem, codigoItem, codigoItemTuss,
+      descricaoItem, dataExecucao, quantidade,
+      valorUnitario, valorFaturado,
+      dataSincronizacao
+    )
+    SELECT
+      'WARLEINE',
+      CAST(ig._id AS CHAR),
+      ig.estabelecimento_id,
+      ig.numconta,
+      ig.guiacobra,
+      ig.aihguia,
+      ig.protocolo,
+      ig.numfatura,
+      ig.matricula,
+      TRIM(ig.nomeconv),
+      REPLACE(ig.mesprod, '/', '-'),
+      ig.nomeprest,
+      ig.nomecc,
+      ig.tipoproc,
+      ig.procdisco,
+      ig.codproprio,
+      ig.descricao,
+      ig.data,
+      ig.quantidade,
+      ig.vl_unitario,
+      ig.vl_faturado,
+      NOW()
+    FROM integ_faturado ig
+    WHERE ig.estabelecimento_id = ${estabelecimentoId}
+  `;
+
+  if (competencia) {
+    // competencia vem como 2025-01, integ_faturado armazena como 2025/01
+    const compWarleine = competencia.replace('-', '/');
+    insertQuery += ` AND ig.mesprod LIKE '${compWarleine.replace(/'/g, "''")}%'`;
+  }
+
+  await db.execute(sql.raw(insertQuery));
+
+  // Contar registros inseridos
+  const countQuery = `
+    SELECT COUNT(*) as total FROM faturamento_unificado 
+    WHERE origemSistema = 'WARLEINE' AND estabelecimentoId = ${estabelecimentoId}
+    ${competencia ? `AND competencia LIKE '${competencia.replace(/'/g, "''")}%'` : ''}
+  `;
+  const [countResult] = await db.execute(sql.raw(countQuery));
+  const total = (countResult as any)?.[0]?.total || 0;
+
+  return { inseridos: Number(total), total: Number(total) };
+}
+
+// ============================================================
+// POPULAÇÃO A PARTIR DO TASY (faturadoTasy) - LEGADO
+// ============================================================
+
+/**
+ * @deprecated Use popularDeIntegFaturado() em vez desta função.
+ * Mantida para compatibilidade. Popula a partir do faturadoTasy.
  */
 export async function popularDeTasy(
   estabelecimentoId: number,
@@ -182,20 +284,21 @@ export async function popularDeXmlTiss(
 // ============================================================
 
 /**
- * Popula faturamento_unificado a partir de ambas as fontes
- * para um estabelecimento e competência específicos.
+ * Popula faturamento_unificado a partir de ambas as fontes:
+ * - WARLEINE (integ_faturado): dados do faturamento do hospital
+ * - XML_TISS (faturamento_tiss): dados dos XMLs enviados aos convênios
  */
 export async function popularFaturamentoUnificado(
   estabelecimentoId: number,
   competencia?: string
-): Promise<{ tasy: { inseridos: number; total: number }; xmlTiss: { inseridos: number; total: number }; totalGeral: number }> {
-  const tasy = await popularDeTasy(estabelecimentoId, competencia);
+): Promise<{ warleine: { inseridos: number; total: number }; xmlTiss: { inseridos: number; total: number }; totalGeral: number }> {
+  const warleine = await popularDeIntegFaturado(estabelecimentoId, competencia);
   const xmlTiss = await popularDeXmlTiss(estabelecimentoId, competencia);
 
   return {
-    tasy,
+    warleine,
     xmlTiss,
-    totalGeral: tasy.total + xmlTiss.total,
+    totalGeral: warleine.total + xmlTiss.total,
   };
 }
 

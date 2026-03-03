@@ -2304,3 +2304,12 @@
 - [x] Considerar vinculação de códigos divergentes (tabela vinculacao_codigos) no cruzamento - 4 estratégias de matching
 - [ ] Persistir histórico de conciliações para consulta futura
 - [x] Testes vitest para conciliação automática (15 testes passando)
+- [x] Analisar estrutura da tabela integ_faturado existente (118k registros, 40 colunas)
+- [x] Mapear campos integ_faturado → faturamento_unificado
+- [x] Criar schema Drizzle espelhando integ_faturado existente (40 colunas, índices criados)
+- [x] Criar popularDeIntegFaturado() no faturamentoUnificadoService (INSERT SELECT)
+- [x] Atualizar popularFaturamentoUnificado() para juntar integ_faturado + faturamento_tiss (WARLEINE + XML_TISS)
+- [x] Remover faturadoTasy do fluxo de população (mantido como legado, não usado no popularTudo)
+- [x] Atualizar router tRPC para expor nova fonte WARLEINE (popularDeIntegFaturado procedure)
+- [x] Atualizar frontend para mostrar as duas fontes (ConciliacaoCruzada atualizada)
+- [x] Testes vitest para popularDeIntegFaturado (9 testes passando + 15 conciliação)

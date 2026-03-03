@@ -498,3 +498,63 @@ export const atendimentosHistorico = mysqlTable(
     atendimentoIdx: index("idx_atend_hist_atend").on(table.atendimentoId),
   })
 );
+
+/**
+ * INTEG_FATURADO - Dados de faturamento do hospital via banco Warleine
+ * Tabela já existente no banco, sincronizada automaticamente.
+ * Contém apenas dados de faturamento (sem recebimento/glosa).
+ * Usada em conjunto com faturamento_tiss para popular faturamento_unificado.
+ */
+export const integFaturado = mysqlTable(
+  "integ_faturado",
+  {
+    _id: int().primaryKey(),
+    estabelecimento_id: int(),
+    nomeconv: varchar({ length: 255 }),
+    codconv: varchar({ length: 255 }),
+    mesprod: varchar({ length: 255 }),
+    numfatura: varchar({ length: 255 }),
+    codrecur: varchar({ length: 500 }),
+    tipoproc: varchar({ length: 255 }),
+    protocolo: varchar({ length: 255 }),
+    numconta: varchar({ length: 255 }),
+    guiacobra: varchar({ length: 255 }),
+    aihguia: varchar({ length: 255 }),
+    descricao: varchar({ length: 255 }),
+    matricula: varchar({ length: 255 }),
+    data: timestamp(),
+    dataint: timestamp(),
+    datasai: varchar({ length: 500 }),
+    procdisco: varchar({ length: 255 }),
+    codproprio: varchar({ length: 255 }),
+    codgrufi: varchar({ length: 255 }),
+    funcaotiss: varchar({ length: 255 }),
+    receber: varchar({ length: 255 }),
+    codcc: varchar({ length: 255 }),
+    nomecc: varchar({ length: 255 }),
+    prestexe: varchar({ length: 255 }),
+    nomeprest: varchar({ length: 255 }),
+    medsolic: varchar({ length: 255 }),
+    nomemedsolic: varchar({ length: 255 }),
+    codtiss: varchar({ length: 500 }),
+    descmotivo: varchar({ length: 500 }),
+    complrecur: varchar({ length: 500 }),
+    tipoatend: varchar({ length: 255 }),
+    databaixa: varchar({ length: 500 }),
+    codplaco: varchar({ length: 255 }),
+    nomeplaco: varchar({ length: 255 }),
+    vl_unitario: varchar({ length: 255 }),
+    quantidade: varchar({ length: 255 }),
+    vl_faturado: varchar({ length: 255 }),
+    _sincronizado_em: timestamp(),
+    _atualizado_em: timestamp(),
+  },
+  (table) => ({
+    estabelecimentoIdx: index("idx_integ_fatur_estab").on(table.estabelecimento_id),
+    guiacobraIdx: index("idx_integ_fatur_guia").on(table.guiacobra),
+    procdiscoIdx: index("idx_integ_fatur_proc").on(table.procdisco),
+    mesprodIdx: index("idx_integ_fatur_mesprod").on(table.mesprod),
+    numcontaIdx: index("idx_integ_fatur_numconta").on(table.numconta),
+    nomeconvIdx: index("idx_integ_fatur_nomeconv").on(table.nomeconv),
+  })
+);

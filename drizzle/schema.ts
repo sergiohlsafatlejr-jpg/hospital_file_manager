@@ -2165,6 +2165,10 @@ export const faturamentoTiss = mysqlTable("faturamento_tiss", {
   
   // Data de importação
   dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
+
+  // Colunas legadas (existem no banco, mantidas para compatibilidade)
+  valorTotalItem: decimal("valor_total_item", { precision: 12, scale: 2 }),
+  estabelecimento_id_legacy: int("estabelecimento_id"),
 });
 
 export type FaturamentoTiss = typeof faturamentoTiss.$inferSelect;
@@ -2274,6 +2278,24 @@ export const recebimentoTiss = mysqlTable("recebimento_tiss", {
   
   // Estabelecimento
   estabelecimentoId: int("estabelecimentoId"),
+
+  // Colunas legadas (existem no banco, mantidas para compatibilidade)
+  estabelecimento_id_legacy: int("estabelecimento_id"),
+  codigoPrestadorPagamento: varchar("codigo_prestador_pagamento", { length: 50 }),
+  nomePrestadorPagamento: varchar("nome_prestador_pagamento", { length: 255 }),
+  codigoPrestadorExecutante: varchar("codigo_prestador_executante", { length: 50 }),
+  nomePrestadorExecutante: varchar("nome_prestador_executante", { length: 255 }),
+  horaExecucao: varchar("hora_execucao", { length: 20 }),
+  codigoProcedimento: varchar("codigo_procedimento", { length: 20 }),
+  descricaoProcedimento: varchar("descricao_procedimento", { length: 255 }),
+  tipoLancamento: varchar("tipo_lancamento", { length: 50 }),
+  qtdExecutada: decimal("qtd_executada", { precision: 10, scale: 4 }),
+  situacaoItem: varchar("situacao_item", { length: 20 }),
+  codigoSolicitante: varchar("codigo_solicitante", { length: 50 }),
+  nomeSolicitante: varchar("nome_solicitante", { length: 255 }),
+  acomodacaoInternacao: varchar("acomodacao_internacao", { length: 50 }),
+  dataInicioInternacao: date("data_inicio_internacao"),
+  dataFimInternacao: date("data_fim_internacao"),
 });
 
 export type RecebimentoTiss = typeof recebimentoTiss.$inferSelect;

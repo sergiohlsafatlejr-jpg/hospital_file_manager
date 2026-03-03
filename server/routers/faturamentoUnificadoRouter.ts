@@ -9,7 +9,20 @@ import * as faturamentoService from "../faturamentoUnificadoService";
 
 export const faturamentoUnificadoRouter = router({
   /**
-   * Popular faturamento unificado a partir do Tasy
+   * Popular faturamento unificado a partir do integ_faturado (Warleine)
+   */
+  popularDeIntegFaturado: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      competencia: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.popularDeIntegFaturado(input.estabelecimentoId, input.competencia);
+    }),
+
+  /**
+   * @deprecated Use popularDeIntegFaturado em vez desta procedure.
+   * Popular faturamento unificado a partir do Tasy (legado)
    */
   popularDeTasy: protectedProcedure
     .input(z.object({
