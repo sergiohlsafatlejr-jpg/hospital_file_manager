@@ -2340,3 +2340,5 @@
 - [x] Integrar descrição do motivo de glosa na tela de detalhes da conciliação automática (LEFT JOIN motivosGlosa + exibição com grupo)
 - [x] Bug: Nomes dos medicamentos não aparecem na tela de detalhes da conciliação (COALESCE com faturamento_unificado via LEFT JOIN)
 - [x] Bug: Itens duplicados na tela de detalhes da conciliação (deduplicação com ROW_NUMBER na popularDeXmlTiss)
+- [x] Limpar dados das tabelas conciliados_automatico e faturamento_unificado
+- [x] Bug: Excel IPASGO (Hemolabor) - IPASGO marca tudo como PAGO mesmo com glosa; adicionada lógica para reclassificar como GLOSADO quando valor_glosa > 0; sincronizado demonstrativo com 71.052 registros (4.617 glosados, R$ 850.143,08)

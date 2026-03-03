@@ -1,0 +1,330 @@
+{
+  "query": "SHOW COLUMNS FROM recebimentos_excel;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SHOW COLUMNS FROM recebimentos_excel;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "arquivo_id",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_pagto",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "processado",
+      "Type": "decimal(12,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "protocolo_tiss",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lote_prestador",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigo_prestador_pagamento",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome_prestador_pagamento",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "numero_guia",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "seq",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "beneficiario",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome_beneficiario",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_execucao",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "hora_execucao",
+      "Type": "varchar(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "item",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "item_desc",
+      "Type": "varchar(500)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "quantidade",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "valor_pagamento",
+      "Type": "decimal(12,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "tipo_lancamento",
+      "Type": "varchar(100)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "erro_tiss",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "situacao_item",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigo_solicitante",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome_solicitante",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "acomodacao_internacao",
+      "Type": "varchar(100)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_inicio_faturamento_internacao",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_fim_faturamento_internacao",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigo_prestador",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome_prestador",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "prestador_executante",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "nome_prestador_executante",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_importacao",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "convenioId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_referencia",
+      "Type": "date",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_pagamento_upload",
+      "Type": "date",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "data_pagamento",
+      "Type": "date",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "estabelecimentoId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "tipo_item",
+      "Type": "varchar(30)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "valor_glosa",
+      "Type": "decimal(12,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "codigo_glosa",
+      "Type": "varchar(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "valor_informado",
+      "Type": "decimal(12,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\narquivo_id\tint\tYES\t\tNULL\t\ndata_pagto\ttimestamp\tYES\t\tNULL\t\nprocessado\tdecimal(12,2)\tYES\t\tNULL\t\nprotocolo_tiss\tvarchar(50)\tYES\t\tNULL\t\nlote_prestador\tvarchar(50)\tYES\t\tNULL\t\ncodigo_prestador_pagamento\tvarchar(50)\tYES\t\tNULL\t\nnome_prestador_pagamento\tvarchar(255)\tYES\t\tNULL\t\nnumero_guia\tvarchar(50)\tYES\t\tNULL\t\nseq\tint\tYES\t\tNULL\t\nbeneficiario\tvarchar(50)\tYES\t\tNULL\t\nnome_beneficiario\tvarchar(255)\tYES\t\tNULL\t\ndata_execucao\ttimestamp\tYES\t\tNULL\t\nhora_execucao\tvarchar(20)\tYES\t\tNULL\t\nitem\tvarchar(50)\tYES\t\tNULL\t\nitem_desc\tvarchar(500)\tYES\t\tNULL\t\nquantidade\tint\tYES\t\tNULL\t\nvalor_pagamento\tdecimal(12,2)\tYES\t\tNULL\t\ntipo_lancamento\tvarchar(100)\tYES\t\tNULL\t\nerro_tiss\ttext\tYES\t\tNULL\t\nsituacao_item\tvarchar(50)\tYES\t\tNULL\t\ncodigo_solicitante\tvarchar(50)\tYES\t\tNULL\t\nnome_solicitante\tvarchar(255)\tYES\t\tNULL\t\nacomodacao_internacao\tvarchar(100)\tYES\t\tNULL\t\ndata_inicio_faturamento_internacao\ttimestamp\tYES\t\tNULL\t\ndata_fim_faturamento_internacao\ttimestamp\tYES\t\tNULL\t\ncodigo_prestador\tvarchar(50)\tYES\t\tNULL\t\nnome_prestador\tvarchar(255)\tYES\t\tNULL\t\nprestador_executante\tvarchar(50)\tYES\t\tNULL\t\nnome_prestador_executante\tvarchar(255)\tYES\t\tNULL\t\ndata_importacao\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nconvenioId\tint\tYES\t\tNULL\t\ndata_referencia\tdate\tYES\t\tNULL\t\ndata_pagamento_upload\tdate\tYES\t\tNULL\t\ndata_pagamento\tdate\tYES\t\tNULL\t\nestabelecimentoId\tint\tYES\t\tNULL\t\ntipo_item\tvarchar(30)\tYES\t\tNULL\t\nvalor_glosa\tdecimal(12,2)\tYES\t\tNULL\t\ncodigo_glosa\tvarchar(20)\tYES\t\tNULL\t\nvalor_informado\tdecimal(12,2)\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 64
+}

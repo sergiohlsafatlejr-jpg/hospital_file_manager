@@ -291,6 +291,58 @@ describe('recebimentosExcelParser - Formato IPASGO', () => {
     expect(record.erroTiss).toBe('Cobrança em duplicidade');
   });
 
+  it('deve marcar como GLOSADO quando SITUACAO = PAGO mas VALOR_GLOSADO > 0 (formato IPASGO)', () => {
+    const row = {
+      'NUMERO_GUIA_OPERADORA': '17058295',
+      'NOME_BENEFICIARIO': 'MARIA LAZARA SOUSA',
+      'CODIGO_PROCEDIMENTO': '90516966',
+      'DESCRICAO_PROCEDIMENTO': 'MED - AZACITIDINA 100 MG PO SC MG',
+      'VALOR_TOTAL_PAGAMENTO': '0',
+      'VALOR_GLOSADO': '2041.20',
+      'VALOR_UNITARIO': '14.58',
+      'SITUACAO': 'PAGO',
+      'JUSTIFICATIVA_GLOSA': 'GUIA VENCIDA',
+      'TIPO_LANCAMENTO': 'CR\u00c9DITO',
+    };
+
+    const record = extractRecebimentoExcelFromRow(
+      row,
+      defaultArgs.arquivoId,
+      defaultArgs.convenioId,
+      defaultArgs.dataReferencia,
+      defaultArgs.dataPagamento,
+      defaultArgs.estabelecimentoId
+    );
+
+    expect(record.situacaoItem).toBe('GLOSADO');
+    expect(record.valorGlosa).toBe('2041.2');
+    expect(record.codigoGlosa).toBe('GUIA VENCIDA');
+    expect(record.valorPagamento).toBe('0');
+  });
+
+  it('deve manter PAGO quando SITUACAO = PAGO e VALOR_GLOSADO = 0 (formato IPASGO)', () => {
+    const row = {
+      'NUMERO_GUIA_OPERADORA': '18874660',
+      'NOME_BENEFICIARIO': 'ELIENES BEZERRA MACIEL',
+      'CODIGO_PROCEDIMENTO': '40302385',
+      'VALOR_TOTAL_PAGAMENTO': '4.13',
+      'VALOR_GLOSADO': '0',
+      'SITUACAO': 'PAGO',
+    };
+
+    const record = extractRecebimentoExcelFromRow(
+      row,
+      defaultArgs.arquivoId,
+      defaultArgs.convenioId,
+      defaultArgs.dataReferencia,
+      defaultArgs.dataPagamento,
+      defaultArgs.estabelecimentoId
+    );
+
+    expect(record.situacaoItem).toBe('PAGO');
+    expect(record.valorPagamento).toBe('4.13');
+  });
+
   it('deve detectar hasData com campos IPASGO', () => {
     const row = {
       'NUMERO_GUIA_OPERADORA': '18874660',

@@ -1,0 +1,18 @@
+{
+  "query": "SELECT 'conciliados_automatico' as tabela, COUNT(*) as registros FROM conciliados_automatico UNION ALL SELECT 'faturamento_unificado', COUNT(*) FROM faturamento_unificado;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2xKWvZvidGuv3Qt.root --database 98MRdVE9Uf2ZRMz25bPSye --execute SELECT 'conciliados_automatico' as tabela, COUNT(*) as registros FROM conciliados_automatico UNION ALL SELECT 'faturamento_unificado', COUNT(*) FROM faturamento_unificado;",
+  "rows": [
+    {
+      "tabela": "conciliados_automatico",
+      "registros": "0"
+    },
+    {
+      "tabela": "faturamento_unificado",
+      "registros": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "tabela\tregistros\nconciliados_automatico\t0\nfaturamento_unificado\t0\n",
+  "stderr": "",
+  "execution_time_ms": 94
+}

@@ -360,6 +360,24 @@ export function extractRecebimentoExcelFromRow(
     }
   }
   
+  // CORREÇÃO IPASGO: Quando SITUACAO = "PAGO" mas VALOR_GLOSADO > 0,
+  // o item foi glosado (total ou parcialmente). O IPASGO marca tudo como "PAGO"
+  // mesmo quando há glosa. A situação real deve ser determinada pelo valor de glosa.
+  if (record.situacaoItem === 'PAGO') {
+    const valorGlosaNum = parseNumber(record.valorGlosa);
+    const valorPagoNum = parseNumber(record.valorPagamento);
+    
+    if (valorGlosaNum && valorGlosaNum > 0) {
+      if (valorPagoNum === 0 || valorPagoNum === null) {
+        // Glosa total: valor pago = 0, valor glosa > 0
+        record.situacaoItem = 'GLOSADO';
+      } else {
+        // Glosa parcial: valor pago > 0 e valor glosa > 0
+        record.situacaoItem = 'GLOSADO';
+      }
+    }
+  }
+  
   return record;
 }
 
