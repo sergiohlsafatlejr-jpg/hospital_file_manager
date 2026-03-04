@@ -2707,6 +2707,65 @@ export const appRouter = router({
         };
       }),
 
+    // Exportar todos os XMLs de um lote em um arquivo ZIP
+    exportarXmlZip: protectedProcedure
+      .input(
+        z.object({
+          loteId: z.number(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const xmls = await db.gerarXmlsRecursoGlosaPorProtocolo(input.loteId);
+        if (!xmls || xmls.length === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
+        }
+        
+        const archiver = (await import("archiver")).default;
+        const { PassThrough } = await import("stream");
+        
+        // Criar ZIP em memória
+        const chunks: Buffer[] = [];
+        const passThrough = new PassThrough();
+        passThrough.on('data', (chunk: Buffer) => chunks.push(chunk));
+        
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.pipe(passThrough);
+        
+        // Validar e adicionar cada XML ao ZIP
+        const { validarXmlRecursoGlosa } = await import("./validadorTissRecursoGlosa");
+        const resultados: Array<{ protocolo: string; valido: boolean; erros: number }> = [];
+        
+        for (const xmlItem of xmls) {
+          const validacao = validarXmlRecursoGlosa(xmlItem.xml);
+          const fileName = xmls.length > 1
+            ? `recurso_glosa_lote_${input.loteId}_protocolo_${xmlItem.protocolo}.xml`
+            : `recurso_glosa_lote_${input.loteId}.xml`;
+          archive.append(xmlItem.xml, { name: fileName });
+          resultados.push({
+            protocolo: xmlItem.protocolo,
+            valido: validacao.valido,
+            erros: validacao.erros?.length || 0,
+          });
+        }
+        
+        await archive.finalize();
+        
+        // Aguardar todos os chunks
+        await new Promise<void>((resolve) => passThrough.on('end', resolve));
+        const zipBuffer = Buffer.concat(chunks);
+        
+        // Salvar ZIP no S3
+        const timestamp = Date.now();
+        const s3Key = `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}_todos_${timestamp}.zip`;
+        const { url: zipUrl } = await storagePut(s3Key, zipBuffer, 'application/zip');
+        
+        return {
+          zipUrl,
+          totalXmls: xmls.length,
+          resultados,
+        };
+      }),
+
     // Validar XML sem gerar/salvar
     validarXml: protectedProcedure
       .input(

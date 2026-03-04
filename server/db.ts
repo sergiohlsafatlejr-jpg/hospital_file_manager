@@ -8338,8 +8338,39 @@ export async function listarLotesRecurso(params: {
     .from(lotesRecurso)
     .where(whereClause);
 
+  // Enriquecer cada lote com contagem de protocolos distintos
+  const lotesComProtocolos = await Promise.all(
+    lotes.map(async (lote) => {
+      // Buscar guias do lote
+      const guias = await db
+        .select({ guiaNumero: recursosGlosa.guiaNumero })
+        .from(recursosGlosa)
+        .where(eq(recursosGlosa.loteId, lote.id));
+      const guiasUnicas = [...new Set(guias.map(g => g.guiaNumero).filter(Boolean))];
+      
+      if (guiasUnicas.length === 0) {
+        return { ...lote, totalProtocolos: 0, protocolos: [] as string[] };
+      }
+      
+      // Buscar protocolos distintos do demonstrativo para essas guias
+      const protocolosResult = await db
+        .selectDistinct({ protocolo: demonstrativo.protocolo })
+        .from(demonstrativo)
+        .where(
+          and(
+            inArray(demonstrativo.numeroGuia, guiasUnicas as string[]),
+            sql`${demonstrativo.valorGlosa} > 0`,
+            sql`${demonstrativo.protocolo} IS NOT NULL AND ${demonstrativo.protocolo} != ''`
+          )
+        );
+      
+      const protocolos = protocolosResult.map(p => p.protocolo).filter(Boolean) as string[];
+      return { ...lote, totalProtocolos: protocolos.length || 1, protocolos };
+    })
+  );
+
   return {
-    lotes,
+    lotes: lotesComProtocolos,
     total: countResult?.count || 0,
   };
 }

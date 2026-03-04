@@ -2359,3 +2359,5 @@
 - [x] Bug: XML de recurso de glosa IPASGO não conforme TISS 3.02 - corrigido: padrão 3.02.00, codGlosaItem numérico (mapeamento automático texto→código TISS Tabela 38), justificativa truncada 150 chars, CNPJ/guias apenas números, registroANS 6 dígitos
 - [x] Bug: sequencialTransacao no XML recurso de glosa muito grande - corrigido: agora usa ID do lote padded para 6 dígitos (max 10), numeroLote e guiaRecGlosa apenas numéricos
 - [x] Bug: XML recurso de glosa IPASGO - guias informadas não constam no protocolo recursado (496070) - corrigido: agora gera múltiplos XMLs (1 por protocolo), agrupando guias pelo protocolo do demonstrativo. Frontend baixa cada XML separadamente com nome do protocolo.
+- [x] Adicionar indicador visual no card do lote mostrando quantos protocolos/XMLs serão gerados antes de exportar - badge azul com ícone Layers mostrando "X protocolos (X XMLs)"
+- [x] Implementar botão para baixar todos os XMLs de um lote em arquivo ZIP - botão roxo "Baixar ZIP (X XMLs)" com archiver, salva no S3 e abre download

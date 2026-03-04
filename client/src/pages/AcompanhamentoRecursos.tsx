@@ -31,7 +31,9 @@ import {
   Download,
   FileSpreadsheet,
   Send,
-  Loader2
+  Loader2,
+  Archive,
+  Layers
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -70,6 +72,7 @@ export default function AcompanhamentoRecursos() {
   const [exportando, setExportando] = useState(false);
   const [exportandoLote, setExportandoLote] = useState<number | null>(null);
   const [exportandoXml, setExportandoXml] = useState<number | null>(null);
+  const [exportandoZip, setExportandoZip] = useState<number | null>(null);
   const [dialogExportarPeriodo, setDialogExportarPeriodo] = useState(false);
   const [dataInicio, setDataInicio] = useState<string>("");
   const [dataFim, setDataFim] = useState<string>("");
@@ -437,6 +440,34 @@ export default function AcompanhamentoRecursos() {
     exportarXmlMutation.mutate({ loteId });
   };
 
+  // Mutation para baixar todos os XMLs em ZIP
+  const exportarZipMutation = trpc.recursos.exportarXmlZip.useMutation({
+    onSuccess: (data: any) => {
+      setExportandoZip(null);
+      // Abrir URL do ZIP para download
+      window.open(data.zipUrl, '_blank');
+      
+      const todosValidos = data.resultados.every((r: any) => r.valido);
+      if (todosValidos) {
+        toast.success(`ZIP com ${data.totalXmls} XMLs exportado com sucesso!`);
+      } else {
+        const comErros = data.resultados.filter((r: any) => !r.valido).length;
+        toast.warning(`ZIP exportado com ${data.totalXmls} XMLs. ${comErros} contém erros de validação.`);
+      }
+      refetch();
+    },
+    onError: (error) => {
+      setExportandoZip(null);
+      toast.error("Erro ao exportar ZIP: " + error.message);
+    },
+  });
+
+  const handleExportarZip = (loteId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExportandoZip(loteId);
+    exportarZipMutation.mutate({ loteId });
+  };
+
   // Mutation para anexar PDF de protocolo
   const anexarProtocoloMutation = trpc.recursos.anexarProtocoloLote.useMutation({
     onSuccess: () => {
@@ -707,6 +738,12 @@ export default function AcompanhamentoRecursos() {
                               <FileText className="h-4 w-4" />
                               {lote.quantidadeItens || 0} itens
                             </span>
+                            {lote.totalProtocolos > 1 && (
+                              <Badge variant="outline" className="text-xs border-blue-400 text-blue-600 dark:text-blue-400">
+                                <Layers className="h-3 w-3 mr-1" />
+                                {lote.totalProtocolos} protocolos ({lote.totalProtocolos} XMLs)
+                              </Badge>
+                            )}
                           </div>
                           {lote.protocoloEnvio && (
                             <p className="text-sm mt-1">
@@ -822,6 +859,25 @@ export default function AcompanhamentoRecursos() {
                           >
                             <Download className="h-4 w-4 mr-1" />
                             Baixar XML
+                          </Button>
+                        )}
+                        
+                        {/* Botão Baixar ZIP com todos os XMLs (quando há múltiplos protocolos) */}
+                        {lote.totalProtocolos > 1 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => handleExportarZip(lote.id, e)}
+                            disabled={exportandoZip === lote.id}
+                            title={`Baixar ZIP com ${lote.totalProtocolos} XMLs (1 por protocolo)`}
+                            className="text-purple-600 border-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+                          >
+                            {exportandoZip === lote.id ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Archive className="h-4 w-4 mr-1" />
+                            )}
+                            Baixar ZIP ({lote.totalProtocolos} XMLs)
                           </Button>
                         )}
                         
