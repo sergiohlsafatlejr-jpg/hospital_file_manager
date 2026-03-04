@@ -2392,4 +2392,5 @@
 - [x] Implementar manualChunks no Vite
 - [x] Reduzir tamanho total do projeto
 - [ ] Otimizar snapshots drizzle/meta
-- [ ] Sincronizar com repositório GitHub safatle-sistema
+- [x] Sincronizar com repositório GitHub safatle-sistema
+- [x] Implementar lazy loading nas páginas pesadas

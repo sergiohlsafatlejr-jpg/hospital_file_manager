@@ -45,6 +45,8 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom'],
           'vendor-date': ['date-fns'],
           'vendor-motion': ['framer-motion'],
+          'vendor-sonner': ['sonner'],
+          'vendor-lucide': ['lucide-react'],
         },
       },
     },

@@ -7,10 +7,12 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { useEstabelecimento } from "./contexts/EstabelecimentoContext";
 import { lazy, Suspense } from "react";
 
-// Eager load: pages that are always needed or very small
-import Home from "./pages/Home";
-import Inicio from "./pages/Inicio";
+// Eager load: only the selection page (no DashboardLayout dependency)
 import SelecionarEstabelecimento from "./pages/SelecionarEstabelecimento";
+
+// Lazy load: all pages including Home/Inicio (they import DashboardLayout which is heavy)
+const Home = lazy(() => import("./pages/Home"));
+const Inicio = lazy(() => import("./pages/Inicio"));
 
 // Lazy load: all other pages for code-splitting
 const Upload = lazy(() => import("./pages/Upload"));
