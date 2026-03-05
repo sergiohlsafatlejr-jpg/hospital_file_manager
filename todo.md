@@ -2446,3 +2446,6 @@
 - [x] Fix: buscarConta falha ao conectar - melhorar log/mensagem de erro com detalhes da conexão
 - [ ] Fix: página 404 no frontend (rota não encontrada)
 - [x] Fix: conta importada com valores R$ 0,00 - mapeamento flexível de campos (aceita nomes originais e aliases)
+- [ ] Fix: nome do paciente não vem na busca de conta (subquery de paciente não retorna)
+- [x] Fix: botão "Ver" redireciona para /conta-convenio-v2 que não existe (404) - corrigido para /conta-convenio-detalhes
+- [x] Feature: após importar conta com sucesso, redirecionar automaticamente para tela de Conta Convênio (1s delay)

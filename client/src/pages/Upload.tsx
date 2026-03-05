@@ -798,8 +798,10 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
 
       if (result.sucesso) {
         toast.success(result.mensagem);
-        // Navegar para a tela de Conta Convênio com a conta buscada
-        setLocation(`/conta-convenio-v2?numeroConta=${encodeURIComponent(numeroConta.trim())}`);
+        // Redirecionar automaticamente para a tela de Conta Convênio Detalhes
+        setTimeout(() => {
+          setLocation(`/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`);
+        }, 1000);
       } else {
         toast.error(result.mensagem);
       }
@@ -882,7 +884,7 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
               variant="outline"
               size="sm"
               className="mt-3 text-indigo-700 border-indigo-300 hover:bg-indigo-50"
-              onClick={() => setLocation(`/conta-convenio-v2?numeroConta=${encodeURIComponent(numeroConta.trim())}`)}
+              onClick={() => setLocation(`/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`)}
             >
               Ver Conta <ArrowRight className="h-3 w-3 ml-1" />
             </Button>
