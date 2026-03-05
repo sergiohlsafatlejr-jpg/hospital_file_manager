@@ -2,10 +2,11 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
-import { contasConvenioItens, contasConvenioResumo } from "../../drizzle/schema";
+import { contasConvenioItens, contasConvenioResumo, integracaoMapeamentos, integracaoConexoes } from "../../drizzle/schema";
 import { queryConfiguracoes } from "../../drizzle/schema-integracao";
 import { eq, and, sql, desc, like, or, inArray } from "drizzle-orm";
 import { WarleineConnector } from "../connectors/WarleineConnector";
+import { EasyVisionConnector } from "../connectors/EasyVisionConnector";
 import { ENV } from "../_core/env";
 import { logger } from "../_core/logger";
 
@@ -39,63 +40,110 @@ export const contasConvenioRouter = router({
       });
 
       // ============================================================
-      // 1. Buscar a query_configuracoes do tipo "busca_conta" para este estabelecimento
+      // 1. Buscar mapeamento "Busca Conta" na tabela integracao_mapeamentos
+      //    (cadastrado via Integrador de Dados > Mapeamentos)
       // ============================================================
-      const configs = await db
+      const mapeamentos = await db
         .select()
-        .from(queryConfiguracoes)
+        .from(integracaoMapeamentos)
         .where(
           and(
-            eq(queryConfiguracoes.estabelecimentoId, input.estabelecimentoId),
-            eq(queryConfiguracoes.tipoDados, "busca_conta"),
-            eq(queryConfiguracoes.ativo, true),
+            eq(integracaoMapeamentos.estabelecimentoId, input.estabelecimentoId),
+            eq(integracaoMapeamentos.ativo, "sim"),
+            like(integracaoMapeamentos.nome, "%Busca Conta%"),
           )
         )
         .limit(1);
 
-      if (configs.length === 0) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: `Nenhuma query de busca de conta configurada para este estabelecimento. Acesse o Integrador de Dados e cadastre uma query do tipo "Busca Conta" com a conexão e SQL do banco do hospital.`,
-        });
-      }
+      // Fallback: tentar também na query_configuracoes (compatibilidade)
+      let querySql: string;
+      let conexaoConfig: { host: string; port: number; database: string; user: string; password: string } | null = null;
+      let configSource = "";
 
-      const config = configs[0];
+      if (mapeamentos.length > 0) {
+        // Encontrou no integracao_mapeamentos
+        const mapeamento = mapeamentos[0];
+        querySql = mapeamento.queryOrigem;
+        configSource = `mapeamento #${mapeamento.id}`;
 
-      // ============================================================
-      // 2. Parse da configuração de conexão
-      // ============================================================
-      let conexao: any = {};
-      if (config.conexaoConfig) {
-        if (typeof config.conexaoConfig === "string") {
-          conexao = JSON.parse(config.conexaoConfig);
+        // Buscar conexão associada
+        const [conexao] = await db
+          .select()
+          .from(integracaoConexoes)
+          .where(eq(integracaoConexoes.id, mapeamento.conexaoOrigemId));
+
+        if (conexao) {
+          const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
+          conexaoConfig = {
+            host: conexao.host,
+            port: conexao.porta,
+            database: conexao.banco,
+            user: conexao.usuario,
+            password: senha,
+          };
+        }
+      } else {
+        // Fallback: buscar na query_configuracoes (modelo antigo)
+        const configs = await db
+          .select()
+          .from(queryConfiguracoes)
+          .where(
+            and(
+              eq(queryConfiguracoes.estabelecimentoId, input.estabelecimentoId),
+              eq(queryConfiguracoes.tipoDados, "busca_conta"),
+              eq(queryConfiguracoes.ativo, true),
+            )
+          )
+          .limit(1);
+
+        if (configs.length > 0) {
+          const config = configs[0];
+          querySql = config.querySql;
+          configSource = `query_config #${config.id}`;
+
+          if (config.conexaoConfig) {
+            const parsed = typeof config.conexaoConfig === "string"
+              ? JSON.parse(config.conexaoConfig)
+              : config.conexaoConfig;
+            conexaoConfig = parsed;
+          }
         } else {
-          conexao = config.conexaoConfig;
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Nenhuma configuração de "Busca Conta" encontrada para este estabelecimento. Acesse o Integrador de Dados > Mapeamentos e cadastre um mapeamento com nome "Busca Conta" vinculado à conexão do banco do hospital.`,
+          });
         }
       }
 
-      // Fallback para variáveis de ambiente se a conexão não estiver na config
-      if (!conexao.host && ENV.warleineDbHost) {
-        conexao = {
+      // Fallback para variáveis de ambiente se a conexão não foi encontrada
+      if (!conexaoConfig && ENV.warleineDbHost) {
+        conexaoConfig = {
           host: ENV.warleineDbHost,
           port: parseInt(ENV.warleineDbPort),
           database: ENV.warleineDbName,
           user: ENV.warleineDbUser,
           password: ENV.warleineDbPassword,
         };
+        configSource += " (fallback ENV)";
+      }
+
+      if (!conexaoConfig) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Nenhuma conexão configurada para busca de conta. Configure a conexão no Integrador de Dados.",
+        });
       }
 
       logger.info({
         message: "Usando configuração do Integrador de Dados",
-        configId: config.id,
-        sistema: config.sistema,
-        conexao: { ...conexao, password: "***" },
+        source: configSource,
+        conexao: { ...conexaoConfig, password: "***" },
       });
 
       // ============================================================
-      // 3. Conectar ao banco do hospital
+      // 2. Conectar ao banco do hospital (PostgreSQL)
       // ============================================================
-      const connector = new WarleineConnector(conexao);
+      const connector = new EasyVisionConnector(conexaoConfig);
 
       const conectado = await connector.conectar();
       if (!conectado) {
@@ -107,14 +155,12 @@ export const contasConvenioRouter = router({
 
       try {
         // ============================================================
-        // 4. Executar a query cadastrada no Integrador
+        // 3. Executar a query cadastrada no Integrador
         //    A query deve usar $1 como placeholder para o número da conta
         // ============================================================
-        const querySql = config.querySql;
-
         logger.info({
           message: "Executando query de busca de conta",
-          configId: config.id,
+          source: configSource,
           numeroConta: input.numeroConta,
           queryPreview: querySql.substring(0, 200) + "...",
         });
