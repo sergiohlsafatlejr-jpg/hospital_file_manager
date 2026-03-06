@@ -5,7 +5,7 @@ import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useEstabelecimento } from "./contexts/EstabelecimentoContext";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 
 // Eager load: only the selection page (no DashboardLayout dependency)
 import SelecionarEstabelecimento from "./pages/SelecionarEstabelecimento";
@@ -80,11 +80,20 @@ function PageLoader() {
 function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
   const [location] = useLocation();
+  const redirectedRef = useRef(false);
 
-  // Se não selecionou estabelecimento e não está na página de seleção, redireciona
+  // FIX: Move navigation to useEffect to avoid calling window.location.href during render
+  // This was causing NotFoundError: Failed to execute 'removeChild' on 'Node'
+  useEffect(() => {
+    if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento" && !redirectedRef.current) {
+      redirectedRef.current = true;
+      window.location.href = "/selecionar-estabelecimento";
+    }
+  }, [isLoading, selecionado, location]);
+
+  // Show loader while checking or redirecting
   if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento") {
-    window.location.href = "/selecionar-estabelecimento";
-    return null;
+    return <PageLoader />;
   }
 
   return (

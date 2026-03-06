@@ -133,15 +133,27 @@ export function IntegradorDados() {
   });
 
   const handleSincronizar = async (configId: number) => {
-    await sincronizar.mutateAsync({ configId });
+    try {
+      await sincronizar.mutateAsync({ configId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const handleTransformar = async (configId: number) => {
-    await transformarParaAtendimentos.mutateAsync({ configId });
+    try {
+      await transformarParaAtendimentos.mutateAsync({ configId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const handleDelete = async (configId: number) => {
-    await deletarConfiguracao.mutateAsync({ configId });
+    try {
+      await deletarConfiguracao.mutateAsync({ configId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const atualizarAgendamento = trpc.integradorDados.atualizarAgendamento.useMutation({
@@ -165,11 +177,15 @@ export function IntegradorDados() {
   });
 
   const handleAtualizarAgendamento = async (configId: number, frequencia: string, ativo: boolean) => {
-    await atualizarAgendamento.mutateAsync({
-      configId,
-      frequencia: frequencia as any,
-      ativo,
-    });
+    try {
+      await atualizarAgendamento.mutateAsync({
+        configId,
+        frequencia: frequencia as any,
+        ativo,
+      });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   // === Sincronização de Views (Atendimentos Sem Conta e A Faturar) ===
@@ -212,20 +228,32 @@ export function IntegradorDados() {
   });
 
   const handleSincronizarSemConta = async () => {
-    await sincronizarSemConta.mutateAsync({ estabelecimentoId });
+    try {
+      await sincronizarSemConta.mutateAsync({ estabelecimentoId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const handleSincronizarAFaturar = async () => {
-    await sincronizarAFaturar.mutateAsync({ estabelecimentoId });
+    try {
+      await sincronizarAFaturar.mutateAsync({ estabelecimentoId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const handleSincronizarTodas = async () => {
-    toast.info("Iniciando sincronização de todas as views...");
-    await Promise.all([
-      sincronizarSemConta.mutateAsync({ estabelecimentoId }),
-      sincronizarAFaturar.mutateAsync({ estabelecimentoId }),
-    ]);
-    toast.success("Todas as sincronizações concluídas!");
+    try {
+      toast.info("Iniciando sincronização de todas as views...");
+      await Promise.all([
+        sincronizarSemConta.mutateAsync({ estabelecimentoId }),
+        sincronizarAFaturar.mutateAsync({ estabelecimentoId }),
+      ]);
+      toast.success("Todas as sincronizações concluídas!");
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   const limparSincronizacao = trpc.integradorDados.limparSincronizacao.useMutation({
@@ -249,7 +277,11 @@ export function IntegradorDados() {
   });
 
   const handleLimparSincronizacao = async (configId: number) => {
-    await limparSincronizacao.mutateAsync({ configId });
+    try {
+      await limparSincronizacao.mutateAsync({ configId });
+    } catch (e) {
+      // Error already handled by onError callback
+    }
   };
 
   return (

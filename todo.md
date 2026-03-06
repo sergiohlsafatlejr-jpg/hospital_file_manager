@@ -2464,3 +2464,6 @@
 - [x] Gabarito Passo 2: Gabarito manual - criar padrão do zero definindo procedimento + itens obrigatórios com quantidades
 - [x] Gabarito Passo 3: Comparação gabarito vs realidade na Conta Convênio - identificar itens faltantes, extras e divergentes
 - [x] Gabarito Passo 4: Feedback loop - aceitar/rejeitar divergências alimenta e refina o padrão ao longo do tempo
+- [x] BUG: Corrigir erro NotFoundError removeChild - Integrador de Contas (Atualizar Easy) - danilo.chaves
+- [x] BUG: Corrigir erro NotFoundError removeChild - Upload de Contas (número de conta) - iury.barbosa
+- [x] BUG: Corrigir erro NotFoundError removeChild - Conta Convênio (Carregar Padrões) - iury.barbosa

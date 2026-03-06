@@ -675,7 +675,7 @@ export function MapeamentosTab({ estabelecimentoId }: MapeamentosTabProps) {
                           </div>
                           <div className="col-span-4">
                             <Select
-                              value={String(campo.colunaDestinoId || "")}
+                              value={campo.colunaDestinoId ? String(campo.colunaDestinoId) : undefined}
                               onValueChange={(v) => atualizarCampo(idx, "colunaDestinoId", Number(v))}
                             >
                               <SelectTrigger className="text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
