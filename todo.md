@@ -2522,3 +2522,5 @@
 - [x] Feature: Sistema de aprendizado automático - sugestões de falhas de prontuário baseadas em histórico
 - [x] Feature: Sistema de aprendizado automático - sugestões de ajustes de itens baseadas em padrões recorrentes
 - [x] Feature: Sistema de aprendizado automático - sugestões de decisão de feedback baseadas em histórico
+- [x] Feature: Nova aba no Dashboard de Produtividade - métricas de importação de contas via banco (integrador de dados)
+- [x] Feature: Mostrar quem importou, quando, quantas contas via integrador

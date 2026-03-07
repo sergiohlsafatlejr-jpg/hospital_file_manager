@@ -4358,6 +4358,21 @@ export const appRouter = router({
           estabelecimentoId: input?.estabelecimentoId,
         });
       }),
+
+    // Buscar métricas de importação via banco (integrador de dados)
+    metricasImportacaoBanco: protectedProcedure
+      .input(z.object({
+        dataInicio: z.string().optional(),
+        dataFim: z.string().optional(),
+        estabelecimentoId: z.number().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getMetricasImportacaoBanco({
+          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
+          estabelecimentoId: input?.estabelecimentoId,
+        });
+      }),
   }),
 
   // ============ DASHBOARD CONSOLIDADO ============

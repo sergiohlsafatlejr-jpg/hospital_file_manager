@@ -25,7 +25,10 @@ import {
   Upload,
   DollarSign,
   FileUp,
-  Building2
+  Database,
+  Building2,
+  ArrowUpDown,
+  Calendar
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import {
@@ -59,7 +62,7 @@ export default function DashboardProdutividade() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const [dataInicio, setDataInicio] = useState<string>("");
   const [dataFim, setDataFim] = useState<string>("");
-  const [tipoMetrica, setTipoMetrica] = useState<"glosas" | "xml">("glosas");
+  const [tipoMetrica, setTipoMetrica] = useState<"glosas" | "xml" | "banco">("glosas");
 
   // Métricas de classificação de glosas
   const { data: metricasGlosas, isLoading: loadingGlosas, refetch: refetchGlosas } = trpc.produtividade.metricas.useQuery({
@@ -74,10 +77,18 @@ export default function DashboardProdutividade() {
     estabelecimentoId: estabelecimentoAtual?.id,
   });
 
-  const isLoading = tipoMetrica === "glosas" ? loadingGlosas : loadingXML;
+  // Métricas de importação via banco
+  const { data: metricasBanco, isLoading: loadingBanco, refetch: refetchBanco } = trpc.produtividade.metricasImportacaoBanco.useQuery({
+    dataInicio: dataInicio || undefined,
+    dataFim: dataFim || undefined,
+    estabelecimentoId: estabelecimentoAtual?.id,
+  });
+
+  const isLoading = tipoMetrica === "glosas" ? loadingGlosas : tipoMetrica === "xml" ? loadingXML : loadingBanco;
   const refetch = () => {
     refetchGlosas();
     refetchXML();
+    refetchBanco();
   };
 
   // Preparar dados para gráficos de glosas
@@ -110,6 +121,17 @@ export default function DashboardProdutividade() {
       valorFaturado: d.valorFaturado,
     }));
   }, [metricasXML?.porDia]);
+
+  // Preparar dados para gráficos de importação via banco
+  const chartDataDiaBanco = useMemo(() => {
+    if (!metricasBanco?.porDia) return [];
+    return metricasBanco.porDia.map(d => ({
+      data: new Date(d.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
+      contas: d.contas,
+      itens: d.itens,
+      valor: d.valor,
+    }));
+  }, [metricasBanco?.porDia]);
 
   if (!user) {
     return (
@@ -158,8 +180,8 @@ export default function DashboardProdutividade() {
         </div>
 
         {/* Tabs de Tipo de Métrica */}
-        <Tabs value={tipoMetrica} onValueChange={(v) => setTipoMetrica(v as "glosas" | "xml")}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+        <Tabs value={tipoMetrica} onValueChange={(v) => setTipoMetrica(v as "glosas" | "xml" | "banco")}>
+          <TabsList className="grid w-full max-w-lg grid-cols-3">
             <TabsTrigger value="xml" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               Envio de XML
@@ -167,6 +189,10 @@ export default function DashboardProdutividade() {
             <TabsTrigger value="glosas" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Classificação de Glosas
+            </TabsTrigger>
+            <TabsTrigger value="banco" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Importação via Banco
             </TabsTrigger>
           </TabsList>
 
@@ -727,6 +753,348 @@ export default function DashboardProdutividade() {
                         <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                         <p>Nenhum dado de produtividade disponível</p>
                         <p className="text-sm mt-2">Classifique glosas para ver as métricas por usuário</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+
+          {/* Conteúdo de Importação via Banco */}
+          <TabsContent value="banco" className="space-y-6">
+            {loadingBanco ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-32" />
+                ))}
+              </div>
+            ) : (
+              <>
+                {/* KPIs de Importação via Banco */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total de Contas</p>
+                          <p className="text-3xl font-bold">{metricasBanco?.resumo.totalContas || 0}</p>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center">
+                          <Database className="h-6 w-6 text-indigo-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Contas importadas via integrador
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total de Itens</p>
+                          <p className="text-3xl font-bold">{metricasBanco?.resumo.totalItens || 0}</p>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
+                          <FileText className="h-6 w-6 text-purple-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Média de {metricasBanco?.resumo.mediaItensPorConta || 0} itens/conta
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Valor Total</p>
+                          <p className="text-2xl font-bold text-green-600">
+                            {formatCurrency(metricasBanco?.resumo.valorTotal || 0)}
+                          </p>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                          <DollarSign className="h-6 w-6 text-green-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Média de {formatCurrency(metricasBanco?.resumo.mediaValorPorConta || 0)}/conta
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Importadas Hoje</p>
+                          <p className="text-3xl font-bold text-indigo-600">{metricasBanco?.resumo.contasHoje || 0}</p>
+                        </div>
+                        <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center">
+                          <Clock className="h-6 w-6 text-indigo-600" />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Valor hoje: {formatCurrency(metricasBanco?.resumo.valorHoje || 0)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Gráficos de Importação via Banco */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <BarChart3 className="h-5 w-5" />
+                        Importações por Dia
+                      </CardTitle>
+                      <CardDescription>
+                        Quantidade de contas importadas via banco nos últimos 30 dias
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {chartDataDiaBanco.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={chartDataDiaBanco}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="data" fontSize={12} />
+                            <YAxis fontSize={12} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="contas" name="Contas" fill="#6366f1" />
+                            <Bar dataKey="itens" name="Itens" fill="#a78bfa" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center">
+                            <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>Nenhum dado disponível</p>
+                            <p className="text-sm">Importe contas via banco para ver as métricas</p>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5" />
+                        Valores por Dia
+                      </CardTitle>
+                      <CardDescription>
+                        Valor total das contas importadas via banco
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {chartDataDiaBanco.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={300}>
+                          <AreaChart data={chartDataDiaBanco}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="data" fontSize={12} />
+                            <YAxis fontSize={12} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
+                            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                            <Legend />
+                            <Area 
+                              type="monotone" 
+                              dataKey="valor" 
+                              name="Valor" 
+                              stroke="#6366f1" 
+                              fill="#6366f1" 
+                              fillOpacity={0.3} 
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center">
+                            <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>Nenhum dado disponível</p>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Importação por Convênio */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Building2 className="h-5 w-5" />
+                      Importações por Convênio
+                    </CardTitle>
+                    <CardDescription>
+                      Distribuição de contas importadas por convênio
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {metricasBanco?.porConvenio && metricasBanco.porConvenio.length > 0 ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Convênio</TableHead>
+                            <TableHead className="text-center">Contas</TableHead>
+                            <TableHead className="text-center">Itens</TableHead>
+                            <TableHead className="text-right">Valor Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {metricasBanco.porConvenio.map((conv, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{conv.convenio}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary">{conv.totalContas}</Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="outline">{conv.totalItens}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right text-green-600 font-medium">
+                                {formatCurrency(conv.valorTotal)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Nenhum dado por convênio disponível</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Tabela de Produtividade por Usuário - Importação via Banco */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Produtividade por Usuário - Importação via Banco
+                    </CardTitle>
+                    <CardDescription>
+                      Ranking de importações por usuário
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {metricasBanco?.porUsuario && metricasBanco.porUsuario.length > 0 ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[50px]">#</TableHead>
+                            <TableHead>Usuário</TableHead>
+                            <TableHead className="text-center">Contas</TableHead>
+                            <TableHead className="text-center">Itens</TableHead>
+                            <TableHead className="text-right">Valor Total</TableHead>
+                            <TableHead className="text-right">Média/Conta</TableHead>
+                            <TableHead className="text-center">Última Importação</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {metricasBanco.porUsuario.map((usuario, index) => (
+                            <TableRow key={usuario.userId}>
+                              <TableCell>
+                                {index === 0 ? (
+                                  <Award className="h-5 w-5 text-yellow-500" />
+                                ) : index === 1 ? (
+                                  <Award className="h-5 w-5 text-gray-400" />
+                                ) : index === 2 ? (
+                                  <Award className="h-5 w-5 text-amber-700" />
+                                ) : (
+                                  <span className="text-muted-foreground">{index + 1}</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="font-medium">{usuario.userName}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary">{usuario.totalContas}</Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="outline">{usuario.totalItens}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right text-green-600 font-medium">
+                                {formatCurrency(usuario.valorTotal)}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {formatCurrency(usuario.mediaValorPorConta)}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {usuario.ultimaImportacao ? (
+                                  <Badge variant="outline" className="gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    {new Date(usuario.ultimaImportacao).toLocaleDateString("pt-BR")}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Nenhum dado de produtividade disponível</p>
+                        <p className="text-sm mt-2">Importe contas via banco para ver as métricas por usuário</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Últimas Importações */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ArrowUpDown className="h-5 w-5" />
+                      Últimas Importações
+                    </CardTitle>
+                    <CardDescription>
+                      Últimas 20 contas importadas via integrador de dados
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {metricasBanco?.ultimasImportacoes && metricasBanco.ultimasImportacoes.length > 0 ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Conta</TableHead>
+                            <TableHead>Convênio</TableHead>
+                            <TableHead>Paciente</TableHead>
+                            <TableHead className="text-center">Itens</TableHead>
+                            <TableHead className="text-right">Valor</TableHead>
+                            <TableHead>Importado por</TableHead>
+                            <TableHead>Data</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {metricasBanco.ultimasImportacoes.map((imp, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium font-mono">{imp.numeroConta}</TableCell>
+                              <TableCell>{imp.convenio || "-"}</TableCell>
+                              <TableCell>{imp.paciente || "-"}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary">{imp.totalItens}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right text-green-600 font-medium">
+                                {formatCurrency(imp.valorTotal)}
+                              </TableCell>
+                              <TableCell>{imp.importadoPor}</TableCell>
+                              <TableCell>
+                                {imp.dataImportacao ? new Date(imp.dataImportacao).toLocaleString("pt-BR") : "-"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Nenhuma importação recente</p>
                       </div>
                     )}
                   </CardContent>

@@ -18185,3 +18185,210 @@ export async function getHistoricoXmlLote(loteId: number) {
     temXml: !!lote[0].xmlUrl,
   };
 }
+
+
+import { contasConvenioResumo } from "../drizzle/schema";
+
+// ============================================================
+// MÉTRICAS DE IMPORTAÇÃO VIA BANCO (INTEGRADOR DE DADOS)
+// ============================================================
+
+export interface MetricasImportacaoBanco {
+  resumo: {
+    totalContas: number;
+    totalItens: number;
+    valorTotal: number;
+    contasHoje: number;
+    valorHoje: number;
+    mediaItensPorConta: number;
+    mediaValorPorConta: number;
+  };
+  porDia: Array<{
+    data: string;
+    contas: number;
+    itens: number;
+    valor: number;
+  }>;
+  porUsuario: Array<{
+    userId: number;
+    userName: string;
+    totalContas: number;
+    totalItens: number;
+    valorTotal: number;
+    mediaValorPorConta: number;
+    ultimaImportacao: string | null;
+  }>;
+  porConvenio: Array<{
+    convenio: string;
+    totalContas: number;
+    totalItens: number;
+    valorTotal: number;
+  }>;
+  ultimasImportacoes: Array<{
+    numeroConta: string;
+    convenio: string | null;
+    paciente: string | null;
+    totalItens: number;
+    valorTotal: number;
+    importadoPor: string;
+    dataImportacao: string;
+  }>;
+}
+
+export async function getMetricasImportacaoBanco(filters: {
+  dataInicio?: Date;
+  dataFim?: Date;
+  estabelecimentoId?: number;
+}): Promise<MetricasImportacaoBanco> {
+  const db = await getDb();
+  if (!db) return {
+    resumo: {
+      totalContas: 0,
+      totalItens: 0,
+      valorTotal: 0,
+      contasHoje: 0,
+      valorHoje: 0,
+      mediaItensPorConta: 0,
+      mediaValorPorConta: 0,
+    },
+    porDia: [],
+    porUsuario: [],
+    porConvenio: [],
+    ultimasImportacoes: [],
+  };
+
+  // Buscar contas importadas via banco
+  const conditions: any[] = [
+    eq(contasConvenioResumo.origem, "BANCO_CLIENTE"),
+  ];
+
+  if (filters.dataInicio) {
+    conditions.push(gte(contasConvenioResumo.criadoEm, filters.dataInicio));
+  }
+  if (filters.dataFim) {
+    conditions.push(lte(contasConvenioResumo.criadoEm, filters.dataFim));
+  }
+  if (filters.estabelecimentoId) {
+    conditions.push(eq(contasConvenioResumo.estabelecimentoId, filters.estabelecimentoId));
+  }
+
+  const contasImportadas = await db
+    .select()
+    .from(contasConvenioResumo)
+    .where(and(...conditions))
+    .orderBy(desc(contasConvenioResumo.criadoEm));
+
+  // Buscar usuários
+  const userIds = Array.from(new Set(contasImportadas.filter(c => c.buscadoPor).map(c => c.buscadoPor!)));
+  const usuariosResult = userIds.length > 0 ? await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(inArray(users.id, userIds)) : [];
+  const userMap = new Map(usuariosResult.map(u => [u.id, u.name]));
+
+  // Calcular métricas
+  const hoje = new Date().toISOString().split('T')[0];
+  let totalContas = 0;
+  let totalItens = 0;
+  let valorTotal = 0;
+  let contasHoje = 0;
+  let valorHoje = 0;
+
+  const porDiaMap: { [key: string]: { contas: number; itens: number; valor: number } } = {};
+  const porUsuarioMap: { [key: number]: { totalContas: number; totalItens: number; valorTotal: number; ultimaImportacao: string | null } } = {};
+  const porConvenioMap: { [key: string]: { totalContas: number; totalItens: number; valorTotal: number } } = {};
+
+  for (const conta of contasImportadas) {
+    const dataConta = conta.criadoEm ? new Date(conta.criadoEm).toISOString().split('T')[0] : 'N/A';
+    const qtdItens = conta.totalItens || 0;
+    const valorConta = parseFloat(String(conta.valorTotal || 0));
+
+    totalContas++;
+    totalItens += qtdItens;
+    valorTotal += valorConta;
+
+    if (dataConta === hoje) {
+      contasHoje++;
+      valorHoje += valorConta;
+    }
+
+    // Por dia
+    if (!porDiaMap[dataConta]) {
+      porDiaMap[dataConta] = { contas: 0, itens: 0, valor: 0 };
+    }
+    porDiaMap[dataConta].contas++;
+    porDiaMap[dataConta].itens += qtdItens;
+    porDiaMap[dataConta].valor += valorConta;
+
+    // Por usuário
+    if (conta.buscadoPor) {
+      if (!porUsuarioMap[conta.buscadoPor]) {
+        porUsuarioMap[conta.buscadoPor] = { totalContas: 0, totalItens: 0, valorTotal: 0, ultimaImportacao: null };
+      }
+      porUsuarioMap[conta.buscadoPor].totalContas++;
+      porUsuarioMap[conta.buscadoPor].totalItens += qtdItens;
+      porUsuarioMap[conta.buscadoPor].valorTotal += valorConta;
+      if (!porUsuarioMap[conta.buscadoPor].ultimaImportacao || dataConta > porUsuarioMap[conta.buscadoPor].ultimaImportacao!) {
+        porUsuarioMap[conta.buscadoPor].ultimaImportacao = dataConta;
+      }
+    }
+
+    // Por convênio
+    const nomeConvenio = conta.convenio || "Sem convênio";
+    if (!porConvenioMap[nomeConvenio]) {
+      porConvenioMap[nomeConvenio] = { totalContas: 0, totalItens: 0, valorTotal: 0 };
+    }
+    porConvenioMap[nomeConvenio].totalContas++;
+    porConvenioMap[nomeConvenio].totalItens += qtdItens;
+    porConvenioMap[nomeConvenio].valorTotal += valorConta;
+  }
+
+  // Converter mapas para arrays
+  const porDia = Object.entries(porDiaMap)
+    .map(([data, valores]) => ({ data, ...valores }))
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .slice(-30);
+
+  const porUsuario = Object.entries(porUsuarioMap)
+    .map(([userId, valores]) => ({
+      userId: parseInt(userId),
+      userName: userMap.get(parseInt(userId)) || 'Usuário Desconhecido',
+      ...valores,
+      mediaValorPorConta: valores.totalContas > 0 ? valores.valorTotal / valores.totalContas : 0,
+    }))
+    .sort((a, b) => b.totalContas - a.totalContas);
+
+  const porConvenio = Object.entries(porConvenioMap)
+    .map(([convenio, valores]) => ({
+      convenio,
+      ...valores,
+    }))
+    .sort((a, b) => b.valorTotal - a.valorTotal);
+
+  // Últimas 20 importações
+  const ultimasImportacoes = contasImportadas.slice(0, 20).map(c => ({
+    numeroConta: c.numeroConta,
+    convenio: c.convenio,
+    paciente: c.pacienteNome,
+    totalItens: c.totalItens || 0,
+    valorTotal: parseFloat(String(c.valorTotal || 0)),
+    importadoPor: c.buscadoPor ? (userMap.get(c.buscadoPor) || 'Desconhecido') : 'Sistema',
+    dataImportacao: c.criadoEm ? new Date(c.criadoEm).toISOString() : '',
+  }));
+
+  return {
+    resumo: {
+      totalContas,
+      totalItens,
+      valorTotal,
+      contasHoje,
+      valorHoje,
+      mediaItensPorConta: totalContas > 0 ? Math.round(totalItens / totalContas) : 0,
+      mediaValorPorConta: totalContas > 0 ? valorTotal / totalContas : 0,
+    },
+    porDia,
+    porUsuario,
+    porConvenio,
+    ultimasImportacoes,
+  };
+}
