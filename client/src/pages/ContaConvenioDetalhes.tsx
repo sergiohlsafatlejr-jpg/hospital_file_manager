@@ -16,7 +16,7 @@ import {
 
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
-import { 
+import {
   ArrowLeft,
   Download, 
   RefreshCw, 
@@ -65,6 +65,8 @@ import {
   Undo2,
   CheckSquare,
   Square,
+  Printer,
+  ClipboardList,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -450,6 +452,160 @@ export default function ContaConvenioDetalhes() {
   const resumoGeral = itensData?.resumoGeral;
   const resumoPorTipo = itensData?.resumoPorTipo || [];
 
+  // ============================================================
+  // DADOS CONSOLIDADOS PARA RELATÓRIO DO FATURISTA
+  // ============================================================
+  const relatorioFaturistaData = useMemo(() => {
+    const items: Array<{
+      origem: string;
+      codigo: string;
+      descricaoItem: string;
+      descricaoApontamento: string;
+      severidade: string;
+      decisaoAuditor: string;
+      observacaoAuditor: string;
+      impactoFinanceiro: number | null;
+      acaoNecessaria: string;
+    }> = [];
+
+    // 1. Divergências encontradas na comparação com padrões
+    if (divergenciasData?.divergencias) {
+      for (const div of divergenciasData.divergencias) {
+        const fb = getFeedbackForDiv(div);
+        const diferenca = div.diferenca != null ? parseFloat(div.diferenca) : null;
+        
+        let acaoNecessaria = 'Verificar e corrigir';
+        if (div.tipo === 'VALOR_ACIMA') acaoNecessaria = 'Revisar valor cobrado';
+        else if (div.tipo === 'VALOR_ABAIXO') acaoNecessaria = 'Verificar se valor está correto';
+        else if (div.tipo === 'QUANTIDADE_DIVERGENTE') acaoNecessaria = 'Corrigir quantidade';
+        else if (div.tipo === 'ITEM_NAO_PADRAO') acaoNecessaria = 'Verificar se item é procedente';
+        else if (div.tipo === 'ITEM_DUPLICADO') acaoNecessaria = 'Remover duplicidade';
+        else if (div.tipo === 'ITEM_FALTANTE') acaoNecessaria = 'Adicionar item faltante';
+
+        if (fb?.decisao === 'aceitar') {
+          acaoNecessaria = 'Corrigir conforme auditoria (aceita)';
+        } else if (fb?.decisao === 'rejeitar') {
+          acaoNecessaria = 'Sem ação (rejeitada pelo auditor)';
+        }
+
+        items.push({
+          origem: 'DIVERGÊNCIA',
+          codigo: div.codigoItem || '',
+          descricaoItem: div.descricaoItem || '',
+          descricaoApontamento: div.mensagem || div.descricao || div.tipo || '-',
+          severidade: div.severidade || 'info',
+          decisaoAuditor: fb?.decisao || '',
+          observacaoAuditor: fb?.justificativa || '',
+          impactoFinanceiro: diferenca,
+          acaoNecessaria,
+        });
+      }
+    }
+
+    // 2. Falhas de prontuário
+    if (falhasData) {
+      for (const falha of falhasData) {
+        let acaoNecessaria = 'Providenciar documentação';
+        if (falha.status === 'corrigida') acaoNecessaria = 'Já corrigida';
+        else if (falha.status === 'justificada') acaoNecessaria = 'Justificada - verificar';
+
+        items.push({
+          origem: 'FALHA PRONTUÁRIO',
+          codigo: '',
+          descricaoItem: falha.categoriaFalha || '',
+          descricaoApontamento: falha.tipoFalha + (falha.descricao ? ` - ${falha.descricao}` : ''),
+          severidade: falha.severidade || 'moderada',
+          decisaoAuditor: falha.status || 'aberta',
+          observacaoAuditor: '',
+          impactoFinanceiro: null,
+          acaoNecessaria,
+        });
+      }
+    }
+
+    // 3. Ajustes de auditoria aplicados
+    if (ajustesData) {
+      for (const ajuste of ajustesData) {
+        let descricao = '';
+        let impacto: number | null = null;
+
+        if (ajuste.tipoAjuste === 'ALTERAR_QUANTIDADE') {
+          descricao = `Quantidade alterada: ${ajuste.quantidadeOriginal} → ${ajuste.quantidadeAjustada}`;
+          const valorUnit = parseFloat(ajuste.valorOriginal || '0');
+          const qtdOrig = parseFloat(ajuste.quantidadeOriginal || '0');
+          const qtdAjust = parseFloat(ajuste.quantidadeAjustada || '0');
+          impacto = (qtdAjust - qtdOrig) * valorUnit;
+        } else if (ajuste.tipoAjuste === 'ALTERAR_VALOR') {
+          descricao = `Valor alterado: ${formatCurrency(ajuste.valorOriginal)} → ${formatCurrency(ajuste.valorAjustado)}`;
+          impacto = parseFloat(ajuste.valorAjustado || '0') - parseFloat(ajuste.valorOriginal || '0');
+        } else if (ajuste.tipoAjuste === 'ADICIONAR_ITEM') {
+          descricao = `Item adicionado à conta`;
+          impacto = parseFloat(ajuste.valorAjustado || '0') * parseFloat(ajuste.quantidadeAjustada || '1');
+        } else if (ajuste.tipoAjuste === 'REMOVER_ITEM') {
+          descricao = `Item removido da conta`;
+          impacto = -(parseFloat(ajuste.valorOriginal || '0') * parseFloat(ajuste.quantidadeOriginal || '1'));
+        }
+
+        if (ajuste.justificativa) {
+          descricao += ` | Motivo: ${ajuste.justificativa}`;
+        }
+
+        items.push({
+          origem: 'AJUSTE',
+          codigo: ajuste.codigoItem || '',
+          descricaoItem: ajuste.descricaoItem || '',
+          descricaoApontamento: descricao,
+          severidade: 'info',
+          decisaoAuditor: ajuste.status || 'aplicado',
+          observacaoAuditor: ajuste.usuarioNome ? `Por ${ajuste.usuarioNome}` : '',
+          impactoFinanceiro: impacto,
+          acaoNecessaria: ajuste.status === 'revertido' ? 'Revertido - sem ação' : 'Aplicar no faturamento',
+        });
+      }
+    }
+
+    return items;
+  }, [divergenciasData, falhasData, ajustesData, feedbackMap]);
+
+  // Exportar Relatório do Faturista para Excel
+  const handleExportRelatorioFaturista = () => {
+    if (!relatorioFaturistaData.length) return;
+
+    const data = relatorioFaturistaData.map((item, index) => ({
+      '#': index + 1,
+      'Origem': item.origem,
+      'Código Item': item.codigo || '-',
+      'Descrição Item': item.descricaoItem || '-',
+      'Apontamento': item.descricaoApontamento,
+      'Severidade': item.severidade,
+      'Decisão Auditor': item.decisaoAuditor || 'Pendente',
+      'Observação Auditor': item.observacaoAuditor || '-',
+      'Impacto Financeiro': item.impactoFinanceiro != null ? item.impactoFinanceiro : '-',
+      'Ação Necessária': item.acaoNecessaria,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    
+    // Ajustar largura das colunas
+    ws['!cols'] = [
+      { wch: 5 },   // #
+      { wch: 18 },  // Origem
+      { wch: 15 },  // Código
+      { wch: 30 },  // Descrição Item
+      { wch: 50 },  // Apontamento
+      { wch: 12 },  // Severidade
+      { wch: 15 },  // Decisão
+      { wch: 40 },  // Observação
+      { wch: 18 },  // Impacto
+      { wch: 35 },  // Ação
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatório Auditoria');
+    XLSX.writeFile(wb, `relatorio_auditoria_conta_${numeroConta}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Relatório exportado com sucesso!');
+  };
+
   // Exportar para Excel
   const handleExportExcel = () => {
     if (!itensData?.items?.length) return;
@@ -711,7 +867,7 @@ export default function ContaConvenioDetalhes() {
 
         {/* Tabs: Itens, Divergências e Auditoria */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
             <TabsTrigger value="itens" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Itens ({itensData?.items?.length || 0})
@@ -731,6 +887,10 @@ export default function ContaConvenioDetalhes() {
             <TabsTrigger value="auditoria" className="flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4" />
               Auditoria ({feedbackResumo.total})
+            </TabsTrigger>
+            <TabsTrigger value="relatorio-faturista" className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Rel. Faturista
             </TabsTrigger>
           </TabsList>
 
@@ -1678,6 +1838,199 @@ export default function ContaConvenioDetalhes() {
                         </TableBody>
                       </Table>
                     </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab: Relatório para Faturista */}
+          <TabsContent value="relatorio-faturista">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <ClipboardList className="h-5 w-5 text-violet-600" />
+                      Relatório de Itens Auditados para Faturista
+                    </CardTitle>
+                    <CardDescription>
+                      Consolidação de todos os apontamentos da auditoria que precisam de ação do faturista
+                    </CardDescription>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    onClick={handleExportRelatorioFaturista}
+                    disabled={!relatorioFaturistaData.length}
+                  >
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Exportar Relatório
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {!relatorioFaturistaData.length ? (
+                  <div className="text-center py-8">
+                    <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium">Nenhum apontamento de auditoria</h3>
+                    <p className="text-muted-foreground">
+                      Quando a auditoria registrar divergências, falhas de prontuário ou ajustes, eles aparecerão aqui consolidados.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Resumo do Relatório */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <Card className="border-red-200 bg-red-50/30">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Divergências</p>
+                              <p className="text-2xl font-bold text-red-600">
+                                {relatorioFaturistaData.filter(r => r.origem === 'DIVERGÊNCIA').length}
+                              </p>
+                            </div>
+                            <AlertTriangle className="h-8 w-8 text-red-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-amber-200 bg-amber-50/30">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Falhas Prontuário</p>
+                              <p className="text-2xl font-bold text-amber-600">
+                                {relatorioFaturistaData.filter(r => r.origem === 'FALHA PRONTUÁRIO').length}
+                              </p>
+                            </div>
+                            <FileWarning className="h-8 w-8 text-amber-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-blue-200 bg-blue-50/30">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Ajustes Realizados</p>
+                              <p className="text-2xl font-bold text-blue-600">
+                                {relatorioFaturistaData.filter(r => r.origem === 'AJUSTE').length}
+                              </p>
+                            </div>
+                            <Wrench className="h-8 w-8 text-blue-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-violet-200 bg-violet-50/30">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Total Apontamentos</p>
+                              <p className="text-2xl font-bold text-violet-600">
+                                {relatorioFaturistaData.length}
+                              </p>
+                            </div>
+                            <ClipboardList className="h-8 w-8 text-violet-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Tabela do Relatório */}
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="w-[40px]">#</TableHead>
+                            <TableHead>Origem</TableHead>
+                            <TableHead>Item / Código</TableHead>
+                            <TableHead>Descrição do Apontamento</TableHead>
+                            <TableHead>Severidade</TableHead>
+                            <TableHead>Decisão Auditor</TableHead>
+                            <TableHead className="text-right">Impacto Financeiro</TableHead>
+                            <TableHead>Ação Necessária</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {relatorioFaturistaData.map((item, index) => (
+                            <TableRow key={`${item.origem}-${index}`} className={`${
+                              item.severidade === 'critico' || item.severidade === 'critica' ? 'bg-red-50/50' :
+                              item.severidade === 'grave' || item.severidade === 'alerta' ? 'bg-orange-50/50' : ''
+                            }`}>
+                              <TableCell className="font-medium text-muted-foreground">{index + 1}</TableCell>
+                              <TableCell>
+                                <Badge className={`text-xs ${
+                                  item.origem === 'DIVERGÊNCIA' ? 'bg-red-100 text-red-800 border-red-200' :
+                                  item.origem === 'FALHA PRONTUÁRIO' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                                  'bg-blue-100 text-blue-800 border-blue-200'
+                                }`}>
+                                  {item.origem}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div>
+                                  <p className="font-mono text-sm">{item.codigo || '-'}</p>
+                                  <p className="text-xs text-muted-foreground truncate max-w-[180px]" title={item.descricaoItem}>
+                                    {item.descricaoItem || '-'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell className="max-w-xs">
+                                <p className="text-sm">{item.descricaoApontamento}</p>
+                                {item.observacaoAuditor && (
+                                  <p className="text-xs text-indigo-600 mt-1 italic">
+                                    <UserCheck className="h-3 w-3 inline mr-1" />
+                                    {item.observacaoAuditor}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {item.severidade === 'critico' || item.severidade === 'critica' ? (
+                                  <Badge variant="destructive" className="text-xs"><XCircle className="h-3 w-3 mr-1" />Crítico</Badge>
+                                ) : item.severidade === 'alerta' || item.severidade === 'grave' ? (
+                                  <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Alto</Badge>
+                                ) : item.severidade === 'moderada' ? (
+                                  <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs"><Info className="h-3 w-3 mr-1" />Médio</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs"><Info className="h-3 w-3 mr-1" />Info</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {item.decisaoAuditor ? (
+                                  <DecisaoBadge decisao={item.decisaoAuditor} />
+                                ) : (
+                                  <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300">Pendente</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {item.impactoFinanceiro != null && item.impactoFinanceiro !== 0 ? (
+                                  <span className={item.impactoFinanceiro > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>
+                                    {formatCurrency(item.impactoFinanceiro)}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <p className="text-sm font-medium text-violet-700">{item.acaoNecessaria}</p>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Rodapé com total de impacto */}
+                    {(() => {
+                      const totalImpacto = relatorioFaturistaData.reduce((acc, r) => acc + (r.impactoFinanceiro || 0), 0);
+                      return totalImpacto !== 0 ? (
+                        <div className="flex items-center justify-end gap-4 p-4 bg-muted/50 rounded-lg">
+                          <span className="text-sm font-medium text-muted-foreground">Impacto Financeiro Total:</span>
+                          <span className={`text-xl font-bold ${totalImpacto > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {formatCurrency(totalImpacto)}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                 )}
               </CardContent>

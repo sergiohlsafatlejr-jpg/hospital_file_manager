@@ -2537,3 +2537,6 @@
 - [x] Feature: Incluir Recuperado e Taxa Recuperação no export Excel
 - [x] Reorganizar menu: remover Atendimentos e Atendimentos a Faturar de dentro de Relatórios BI
 - [x] Criar nova aba Atendimentos no menu principal com subpastas: Atendimentos e Atendimentos a Faturar
+- [x] Criar relatório de itens auditados na tela Conta Convênio Detalhes
+- [x] Backend: reutiliza queries existentes (divergências, falhas, ajustes) consolidadas no frontend
+- [x] Frontend: nova aba 'Rel. Faturista' com tabela consolidada, cards resumo e export Excel
