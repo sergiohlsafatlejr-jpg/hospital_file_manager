@@ -29,54 +29,108 @@ async function getDb() {
   return _db;
 }
 
+/** Força reconexão descartando a instância cacheada */
+function resetDb() {
+  _db = null;
+}
+
+/**
+ * Wrapper que executa uma operação de banco com retry automático.
+ * Se a query falhar com erro de conexão (ECONNRESET, EPIPE, PROTOCOL_CONNECTION_LOST, etc.),
+ * descarta a conexão cacheada e tenta novamente.
+ */
+async function withRetry<T>(operation: () => Promise<T>, retries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const msg = error?.message || error?.cause?.message || String(error);
+      const isConnectionError = 
+        msg.includes('ECONNRESET') ||
+        msg.includes('EPIPE') ||
+        msg.includes('PROTOCOL_CONNECTION_LOST') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('Connection lost') ||
+        msg.includes('read ECONNRESET') ||
+        msg.includes('password authentication failed') ||
+        (error?.cause && String(error.cause).includes('ECONNRESET'));
+      
+      if (isConnectionError && attempt < retries) {
+        console.warn(`[DB-Integrador] Erro de conexão (tentativa ${attempt + 1}/${retries + 1}), reconectando...`, msg.substring(0, 150));
+        resetDb();
+        // Pequeno delay antes de reconectar
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        // Forçar nova conexão
+        await getDb();
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Falha após todas as tentativas de retry');
+}
+
 // =====================================================
 // CONEXÕES
 // =====================================================
 
 export async function listarConexoes(estabelecimentoId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-  let query = db.select().from(integracaoConexoes);
-  if (estabelecimentoId) {
-    query = query.where(eq(integracaoConexoes.estabelecimentoId, estabelecimentoId)) as any;
-  }
-  return query.orderBy(desc(integracaoConexoes.criadoEm));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    let query = db.select().from(integracaoConexoes);
+    if (estabelecimentoId) {
+      query = query.where(eq(integracaoConexoes.estabelecimentoId, estabelecimentoId)) as any;
+    }
+    return query.orderBy(desc(integracaoConexoes.criadoEm));
+  });
 }
 
 export async function obterConexao(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [conexao] = await db.select().from(integracaoConexoes).where(eq(integracaoConexoes.id, id));
-  return conexao || null;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const [conexao] = await db.select().from(integracaoConexoes).where(eq(integracaoConexoes.id, id));
+    return conexao || null;
+  });
 }
 
 export async function criarConexao(dados: Omit<InsertIntegracaoConexao, "id" | "criadoEm" | "atualizadoEm">) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  const [result] = await db.insert(integracaoConexoes).values(dados);
-  return result.insertId;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    const [result] = await db.insert(integracaoConexoes).values(dados);
+    return result.insertId;
+  });
 }
 
 export async function atualizarConexao(id: number, dados: Partial<InsertIntegracaoConexao>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.update(integracaoConexoes).set(dados).where(eq(integracaoConexoes.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.update(integracaoConexoes).set(dados).where(eq(integracaoConexoes.id, id));
+  });
 }
 
 export async function excluirConexao(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.delete(integracaoConexoes).where(eq(integracaoConexoes.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.delete(integracaoConexoes).where(eq(integracaoConexoes.id, id));
+  });
 }
 
 export async function atualizarStatusConexao(id: number, status: "ok" | "erro" | "nao_testado", erro?: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(integracaoConexoes).set({
-    statusConexao: status,
-    erroConexao: erro || null,
-    ultimoTesteConexao: new Date(),
-  }).where(eq(integracaoConexoes.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return;
+    await db.update(integracaoConexoes).set({
+      statusConexao: status,
+      erroConexao: erro || null,
+      ultimoTesteConexao: new Date(),
+    }).where(eq(integracaoConexoes.id, id));
+  });
 }
 
 // =====================================================
@@ -84,41 +138,51 @@ export async function atualizarStatusConexao(id: number, status: "ok" | "erro" |
 // =====================================================
 
 export async function listarTabelas(estabelecimentoId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-  let query = db.select().from(integracaoTabelas);
-  if (estabelecimentoId) {
-    query = query.where(eq(integracaoTabelas.estabelecimentoId, estabelecimentoId)) as any;
-  }
-  return query.orderBy(desc(integracaoTabelas.criadoEm));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    let query = db.select().from(integracaoTabelas);
+    if (estabelecimentoId) {
+      query = query.where(eq(integracaoTabelas.estabelecimentoId, estabelecimentoId)) as any;
+    }
+    return query.orderBy(desc(integracaoTabelas.criadoEm));
+  });
 }
 
 export async function obterTabela(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [tabela] = await db.select().from(integracaoTabelas).where(eq(integracaoTabelas.id, id));
-  return tabela || null;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const [tabela] = await db.select().from(integracaoTabelas).where(eq(integracaoTabelas.id, id));
+    return tabela || null;
+  });
 }
 
 export async function criarTabela(dados: Omit<InsertIntegracaoTabela, "id" | "criadoEm" | "atualizadoEm">) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  const [result] = await db.insert(integracaoTabelas).values(dados);
-  return result.insertId;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    const [result] = await db.insert(integracaoTabelas).values(dados);
+    return result.insertId;
+  });
 }
 
 export async function atualizarTabela(id: number, dados: Partial<InsertIntegracaoTabela>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.update(integracaoTabelas).set(dados).where(eq(integracaoTabelas.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.update(integracaoTabelas).set(dados).where(eq(integracaoTabelas.id, id));
+  });
 }
 
 export async function excluirTabela(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  // Excluir colunas primeiro
-  await db.delete(integracaoColunas).where(eq(integracaoColunas.tabelaId, id));
-  await db.delete(integracaoTabelas).where(eq(integracaoTabelas.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    // Excluir colunas primeiro
+    await db.delete(integracaoColunas).where(eq(integracaoColunas.tabelaId, id));
+    await db.delete(integracaoTabelas).where(eq(integracaoTabelas.id, id));
+  });
 }
 
 // =====================================================
@@ -126,37 +190,47 @@ export async function excluirTabela(id: number) {
 // =====================================================
 
 export async function listarColunas(tabelaId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(integracaoColunas)
-    .where(eq(integracaoColunas.tabelaId, tabelaId))
-    .orderBy(integracaoColunas.ordem);
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(integracaoColunas)
+      .where(eq(integracaoColunas.tabelaId, tabelaId))
+      .orderBy(integracaoColunas.ordem);
+  });
 }
 
 export async function criarColuna(dados: Omit<InsertIntegracaoColuna, "id" | "criadoEm">) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  const [result] = await db.insert(integracaoColunas).values(dados);
-  return result.insertId;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    const [result] = await db.insert(integracaoColunas).values(dados);
+    return result.insertId;
+  });
 }
 
 export async function criarColunasEmLote(colunas: Omit<InsertIntegracaoColuna, "id" | "criadoEm">[]) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  if (colunas.length === 0) return;
-  await db.insert(integracaoColunas).values(colunas);
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    if (colunas.length === 0) return;
+    await db.insert(integracaoColunas).values(colunas);
+  });
 }
 
 export async function atualizarColuna(id: number, dados: Partial<InsertIntegracaoColuna>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.update(integracaoColunas).set(dados).where(eq(integracaoColunas.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.update(integracaoColunas).set(dados).where(eq(integracaoColunas.id, id));
+  });
 }
 
 export async function excluirColuna(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.delete(integracaoColunas).where(eq(integracaoColunas.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.delete(integracaoColunas).where(eq(integracaoColunas.id, id));
+  });
 }
 
 // =====================================================
@@ -164,48 +238,60 @@ export async function excluirColuna(id: number) {
 // =====================================================
 
 export async function listarMapeamentos(estabelecimentoId?: number) {
-  const db = await getDb();
-  if (!db) return [];
-  let query = db.select().from(integracaoMapeamentos);
-  if (estabelecimentoId) {
-    query = query.where(eq(integracaoMapeamentos.estabelecimentoId, estabelecimentoId)) as any;
-  }
-  return query.orderBy(desc(integracaoMapeamentos.criadoEm));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    let query = db.select().from(integracaoMapeamentos);
+    if (estabelecimentoId) {
+      query = query.where(eq(integracaoMapeamentos.estabelecimentoId, estabelecimentoId)) as any;
+    }
+    return query.orderBy(desc(integracaoMapeamentos.criadoEm));
+  });
 }
 
 export async function buscarMapeamentoPorTabela(tabelaDestinoId: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.tabelaDestinoId, tabelaDestinoId)).limit(1);
-  return mapeamento || null;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.tabelaDestinoId, tabelaDestinoId)).limit(1);
+    return mapeamento || null;
+  });
 }
 
 export async function obterMapeamento(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
-  return mapeamento || null;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
+    return mapeamento || null;
+  });
 }
 
 export async function criarMapeamento(dados: Omit<InsertIntegracaoMapeamento, "id" | "criadoEm" | "atualizadoEm">) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  const [result] = await db.insert(integracaoMapeamentos).values(dados);
-  return result.insertId;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    const [result] = await db.insert(integracaoMapeamentos).values(dados);
+    return result.insertId;
+  });
 }
 
 export async function atualizarMapeamento(id: number, dados: Partial<InsertIntegracaoMapeamento>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.update(integracaoMapeamentos).set(dados).where(eq(integracaoMapeamentos.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.update(integracaoMapeamentos).set(dados).where(eq(integracaoMapeamentos.id, id));
+  });
 }
 
 export async function excluirMapeamento(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  // Excluir campos do mapeamento primeiro
-  await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, id));
-  await db.delete(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    // Excluir campos do mapeamento primeiro
+    await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, id));
+    await db.delete(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
+  });
 }
 
 // =====================================================
@@ -213,22 +299,26 @@ export async function excluirMapeamento(id: number) {
 // =====================================================
 
 export async function listarCamposMapeamento(mapeamentoId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(integracaoMapeamentoCampos)
-    .where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(integracaoMapeamentoCampos)
+      .where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
+  });
 }
 
 export async function salvarCamposMapeamento(mapeamentoId: number, campos: Omit<InsertIntegracaoMapeamentoCampo, "id" | "criadoEm" | "mapeamentoId">[]) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  // Limpar campos existentes e inserir novos
-  await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
-  if (campos.length > 0) {
-    await db.insert(integracaoMapeamentoCampos).values(
-      campos.map(c => ({ ...c, mapeamentoId }))
-    );
-  }
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    // Limpar campos existentes e inserir novos
+    await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
+    if (campos.length > 0) {
+      await db.insert(integracaoMapeamentoCampos).values(
+        campos.map(c => ({ ...c, mapeamentoId }))
+      );
+    }
+  });
 }
 
 // =====================================================
@@ -236,26 +326,32 @@ export async function salvarCamposMapeamento(mapeamentoId: number, campos: Omit<
 // =====================================================
 
 export async function listarSincronizacoes(mapeamentoId?: number, limite = 50) {
-  const db = await getDb();
-  if (!db) return [];
-  let query = db.select().from(integracaoSincronizacoes);
-  if (mapeamentoId) {
-    query = query.where(eq(integracaoSincronizacoes.mapeamentoId, mapeamentoId)) as any;
-  }
-  return query.orderBy(desc(integracaoSincronizacoes.iniciadoEm)).limit(limite);
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    let query = db.select().from(integracaoSincronizacoes);
+    if (mapeamentoId) {
+      query = query.where(eq(integracaoSincronizacoes.mapeamentoId, mapeamentoId)) as any;
+    }
+    return query.orderBy(desc(integracaoSincronizacoes.iniciadoEm)).limit(limite);
+  });
 }
 
 export async function criarSincronizacao(dados: Omit<InsertIntegracaoSincronizacao, "id" | "iniciadoEm">) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  const [result] = await db.insert(integracaoSincronizacoes).values(dados);
-  return result.insertId;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    const [result] = await db.insert(integracaoSincronizacoes).values(dados);
+    return result.insertId;
+  });
 }
 
 export async function atualizarSincronizacao(id: number, dados: Partial<InsertIntegracaoSincronizacao>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
-  await db.update(integracaoSincronizacoes).set(dados).where(eq(integracaoSincronizacoes.id, id));
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
+    await db.update(integracaoSincronizacoes).set(dados).where(eq(integracaoSincronizacoes.id, id));
+  });
 }
 
 // =====================================================
@@ -285,35 +381,37 @@ export async function executarDDLCriarTabela(nomeTabela: string, colunas: Array<
   chaveUnica: string;
   valorPadrao?: string | null;
 }>) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
 
-  // Validar nome da tabela (prevenir SQL injection)
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  if (nomeSeguro !== nomeTabela) {
-    throw new Error("Nome da tabela contém caracteres inválidos. Use apenas letras, números e underscore.");
-  }
+    // Validar nome da tabela (prevenir SQL injection)
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    if (nomeSeguro !== nomeTabela) {
+      throw new Error("Nome da tabela contém caracteres inválidos. Use apenas letras, números e underscore.");
+    }
 
-  const colunasSQL = colunas.map(col => {
-    const nomeCol = col.nome.replace(/[^a-zA-Z0-9_]/g, "");
-    const tipoSQL = tipoMySQLParaColuna(col);
-    const notNull = col.obrigatorio === "sim" ? " NOT NULL" : "";
-    const defaultVal = col.valorPadrao ? ` DEFAULT '${col.valorPadrao.replace(/'/g, "''")}'` : "";
-    return `  \`${nomeCol}\` ${tipoSQL}${notNull}${defaultVal}`;
+    const colunasSQL = colunas.map(col => {
+      const nomeCol = col.nome.replace(/[^a-zA-Z0-9_]/g, "");
+      const tipoSQL = tipoMySQLParaColuna(col);
+      const notNull = col.obrigatorio === "sim" ? " NOT NULL" : "";
+      const defaultVal = col.valorPadrao ? ` DEFAULT '${col.valorPadrao.replace(/'/g, "''")}'` : "";
+      return `  \`${nomeCol}\` ${tipoSQL}${notNull}${defaultVal}`;
+    });
+
+    // Adicionar coluna id auto-increment, estabelecimento_id e timestamps
+    const ddl = `CREATE TABLE IF NOT EXISTS \`integ_${nomeSeguro}\` (
+    \`_id\` INT AUTO_INCREMENT PRIMARY KEY,
+    \`estabelecimento_id\` INT DEFAULT NULL,
+  ${colunasSQL.join(",\n")},
+    \`_sincronizado_em\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    \`_atualizado_em\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX \`idx_estabelecimento\` (\`estabelecimento_id\`)
+  )`;
+
+    await db.execute(sql.raw(ddl));
+    return `integ_${nomeSeguro}`;
   });
-
-  // Adicionar coluna id auto-increment, estabelecimento_id e timestamps
-  const ddl = `CREATE TABLE IF NOT EXISTS \`integ_${nomeSeguro}\` (
-  \`_id\` INT AUTO_INCREMENT PRIMARY KEY,
-  \`estabelecimento_id\` INT DEFAULT NULL,
-${colunasSQL.join(",\n")},
-  \`_sincronizado_em\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  \`_atualizado_em\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX \`idx_estabelecimento\` (\`estabelecimento_id\`)
-)`;
-
-  await db.execute(sql.raw(ddl));
-  return `integ_${nomeSeguro}`;
 }
 
 export async function executarDDLAdicionarColuna(nomeTabela: string, coluna: {
@@ -324,43 +422,49 @@ export async function executarDDLAdicionarColuna(nomeTabela: string, coluna: {
   obrigatorio: string;
   valorPadrao?: string | null;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  const nomeCol = coluna.nome.replace(/[^a-zA-Z0-9_]/g, "");
-  const tipoSQL = tipoMySQLParaColuna(coluna);
-  const notNull = coluna.obrigatorio === "sim" ? " NOT NULL" : "";
-  const defaultVal = coluna.valorPadrao ? ` DEFAULT '${coluna.valorPadrao.replace(/'/g, "''")}'` : "";
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    const nomeCol = coluna.nome.replace(/[^a-zA-Z0-9_]/g, "");
+    const tipoSQL = tipoMySQLParaColuna(coluna);
+    const notNull = coluna.obrigatorio === "sim" ? " NOT NULL" : "";
+    const defaultVal = coluna.valorPadrao ? ` DEFAULT '${coluna.valorPadrao.replace(/'/g, "''")}'` : "";
 
-  const ddl = `ALTER TABLE \`${nomeSeguro}\` ADD COLUMN \`${nomeCol}\` ${tipoSQL}${notNull}${defaultVal}`;
-  await db.execute(sql.raw(ddl));
+    const ddl = `ALTER TABLE \`${nomeSeguro}\` ADD COLUMN \`${nomeCol}\` ${tipoSQL}${notNull}${defaultVal}`;
+    await db.execute(sql.raw(ddl));
+  });
 }
 
 export async function executarDDLRemoverTabela(nomeTabela: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  // Só permite remover tabelas com prefixo integ_ por segurança
-  if (!nomeSeguro.startsWith("integ_")) {
-    throw new Error("Só é possível remover tabelas criadas pelo integrador (prefixo integ_)");
-  }
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    // Só permite remover tabelas com prefixo integ_ por segurança
+    if (!nomeSeguro.startsWith("integ_")) {
+      throw new Error("Só é possível remover tabelas criadas pelo integrador (prefixo integ_)");
+    }
 
-  await db.execute(sql.raw(`DROP TABLE IF EXISTS \`${nomeSeguro}\``));
+    await db.execute(sql.raw(`DROP TABLE IF EXISTS \`${nomeSeguro}\``));
+  });
 }
 
 export async function limparDadosTabela(nomeTabela: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  // Só permite limpar tabelas com prefixo integ_ por segurança
-  if (!nomeSeguro.startsWith("integ_")) {
-    throw new Error("Só é possível limpar tabelas criadas pelo integrador (prefixo integ_)");
-  }
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    // Só permite limpar tabelas com prefixo integ_ por segurança
+    if (!nomeSeguro.startsWith("integ_")) {
+      throw new Error("Só é possível limpar tabelas criadas pelo integrador (prefixo integ_)");
+    }
 
-  await db.execute(sql.raw(`DELETE FROM \`${nomeSeguro}\``));
+    await db.execute(sql.raw(`DELETE FROM \`${nomeSeguro}\``));
+  });
 }
 
 /**
@@ -425,86 +529,92 @@ function sanitizarValorSQL(v: any): string {
 }
 
 export async function inserirDadosTabela(nomeTabela: string, registros: Record<string, any>[], campoChave?: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Banco de dados não disponível");
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("Banco de dados não disponível");
 
-  if (registros.length === 0) return { inseridos: 0 };
+    if (registros.length === 0) return { inseridos: 0 };
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  const colunas = Object.keys(registros[0]);
-  const colunasSQL = colunas.map(c => `\`${c.replace(/[^a-zA-Z0-9_]/g, "")}\``).join(", ");
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    const colunas = Object.keys(registros[0]);
+    const colunasSQL = colunas.map(c => `\`${c.replace(/[^a-zA-Z0-9_]/g, "")}\``).join(", ");
 
-  let inseridos = 0;
-  // Inserir em lotes de 100
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < registros.length; i += BATCH_SIZE) {
-    const lote = registros.slice(i, i + BATCH_SIZE);
-    const valoresSQL = lote.map(reg => {
-      const vals = colunas.map(c => sanitizarValorSQL(reg[c]));
-      return `(${vals.join(", ")})`;
-    }).join(",\n");
+    let inseridos = 0;
+    // Inserir em lotes de 100
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < registros.length; i += BATCH_SIZE) {
+      const lote = registros.slice(i, i + BATCH_SIZE);
+      const valoresSQL = lote.map(reg => {
+        const vals = colunas.map(c => sanitizarValorSQL(reg[c]));
+        return `(${vals.join(", ")})`;
+      }).join(",\n");
 
-    let insertSQL = `INSERT INTO \`${nomeSeguro}\` (${colunasSQL}) VALUES\n${valoresSQL}`;
-    
-    // Se tem campo chave, usar ON DUPLICATE KEY UPDATE para upsert
-    if (campoChave) {
-      const updateCols = colunas
-        .filter(c => c !== campoChave)
-        .map(c => {
-          const safe = `\`${c.replace(/[^a-zA-Z0-9_]/g, "")}\``;
-          return `${safe} = VALUES(${safe})`;
-        })
-        .join(", ");
-      if (updateCols) {
-        insertSQL += ` ON DUPLICATE KEY UPDATE ${updateCols}`;
+      let insertSQL = `INSERT INTO \`${nomeSeguro}\` (${colunasSQL}) VALUES\n${valoresSQL}`;
+      
+      // Se tem campo chave, usar ON DUPLICATE KEY UPDATE para upsert
+      if (campoChave) {
+        const updateCols = colunas
+          .filter(c => c !== campoChave)
+          .map(c => {
+            const safe = `\`${c.replace(/[^a-zA-Z0-9_]/g, "")}\``;
+            return `${safe} = VALUES(${safe})`;
+          })
+          .join(", ");
+        if (updateCols) {
+          insertSQL += ` ON DUPLICATE KEY UPDATE ${updateCols}`;
+        }
       }
-    }
-    
-    try {
-      await db.execute(sql.raw(insertSQL));
-      inseridos += lote.length;
-    } catch (err: any) {
-      console.error(`[inserirDadosTabela] Erro ao inserir lote ${i}-${i + lote.length} na tabela ${nomeSeguro}:`, err.message);
-      // Tentar inserir registro por registro para identificar o problemático
-      for (const reg of lote) {
-        try {
-          const vals = colunas.map(c => sanitizarValorSQL(reg[c]));
-          const singleSQL = `INSERT INTO \`${nomeSeguro}\` (${colunasSQL}) VALUES (${vals.join(", ")})`;
-          await db.execute(sql.raw(singleSQL));
-          inseridos++;
-        } catch (singleErr: any) {
-          console.error(`[inserirDadosTabela] Registro ignorado:`, singleErr.message?.substring(0, 200));
+      
+      try {
+        await db.execute(sql.raw(insertSQL));
+        inseridos += lote.length;
+      } catch (err: any) {
+        console.error(`[inserirDadosTabela] Erro ao inserir lote ${i}-${i + lote.length} na tabela ${nomeSeguro}:`, err.message);
+        // Tentar inserir registro por registro para identificar o problemático
+        for (const reg of lote) {
+          try {
+            const vals = colunas.map(c => sanitizarValorSQL(reg[c]));
+            const singleSQL = `INSERT INTO \`${nomeSeguro}\` (${colunasSQL}) VALUES (${vals.join(", ")})`;
+            await db.execute(sql.raw(singleSQL));
+            inseridos++;
+          } catch (singleErr: any) {
+            console.error(`[inserirDadosTabela] Registro ignorado:`, singleErr.message?.substring(0, 200));
+          }
         }
       }
     }
-  }
 
-  return { inseridos };
+    return { inseridos };
+  });
 }
 
 export async function contarRegistrosTabela(nomeTabela: string): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return 0;
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  try {
-    const result = await db.execute(sql.raw(`SELECT COUNT(*) as total FROM \`${nomeSeguro}\``));
-    const rows = result[0] as unknown as any[];
-    return rows[0]?.total || 0;
-  } catch {
-    return 0;
-  }
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    try {
+      const result = await db.execute(sql.raw(`SELECT COUNT(*) as total FROM \`${nomeSeguro}\``));
+      const rows = result[0] as unknown as any[];
+      return rows[0]?.total || 0;
+    } catch {
+      return 0;
+    }
+  });
 }
 
 export async function consultarDadosTabela(nomeTabela: string, limite = 100, offset = 0): Promise<any[]> {
-  const db = await getDb();
-  if (!db) return [];
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return [];
 
-  const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
-  try {
-    const result = await db.execute(sql.raw(`SELECT * FROM \`${nomeSeguro}\` ORDER BY _id DESC LIMIT ${limite} OFFSET ${offset}`));
-    return result[0] as unknown as any[];
-  } catch {
-    return [];
-  }
+    const nomeSeguro = nomeTabela.replace(/[^a-zA-Z0-9_]/g, "");
+    try {
+      const result = await db.execute(sql.raw(`SELECT * FROM \`${nomeSeguro}\` ORDER BY _id DESC LIMIT ${limite} OFFSET ${offset}`));
+      return result[0] as unknown as any[];
+    } catch {
+      return [];
+    }
+  });
 }

@@ -2567,3 +2567,4 @@
 - [x] Template EasyVision: query SQL e mapeamento de campos pré-configurados
 - [x] Frontend: modal/wizard de criação de mapeamento com seletor de template e preview dos campos
 - [x] Testes vitest para templates de mapeamento (32 testes passando)
+- [x] Bug: Erro de query na tabela integracao_conexoes na página /integracao (estabelecimentoId=4) - Adicionado retry automático com reconexão para erros transitórios (ECONNRESET, etc.)
