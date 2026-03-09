@@ -52,6 +52,18 @@ export default function PadroesCobranca() {
   const convenios = trpc.padroesCobranca.listarConvenios.useQuery({ estabelecimentoId });
   const setores = trpc.padroesCobranca.listarSetores.useQuery({ estabelecimentoId });
   const profissionais = trpc.padroesCobranca.listarProfissionais.useQuery({ estabelecimentoId });
+  const conveniosSafatle = trpc.convenioMapeamento.conveniosSafatle.useQuery({ estabelecimentoId });
+
+  // Mapa de convenioId -> nome
+  const convenioNomeMap = useMemo(() => {
+    const map = new Map<number, string>();
+    if (conveniosSafatle.data) {
+      for (const c of conveniosSafatle.data as any[]) {
+        map.set(c.id, c.nome);
+      }
+    }
+    return map;
+  }, [conveniosSafatle.data]);
 
   const padroesPreco = trpc.padroesCobranca.consultarPadroesPreco.useQuery(
     { estabelecimentoId, convenio: selectedConvenio || undefined, setor: selectedSetor || undefined, busca: searchTerm || undefined, tipoItem: selectedTipoItem || undefined, page: pagePreco },
@@ -608,6 +620,11 @@ export default function PadroesCobranca() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <Badge variant="outline" className="text-xs">{item.codigoProcedimentoPrincipal}</Badge>
+                                {item.convenioId && convenioNomeMap.get(item.convenioId) && (
+                                  <Badge variant="secondary" className="text-xs bg-amber-500/10 text-amber-500 border-amber-500/20">
+                                    {convenioNomeMap.get(item.convenioId)}
+                                  </Badge>
+                                )}
                                 {item.setor && <Badge variant="secondary" className="text-xs bg-cyan-500/10 text-cyan-400 border-cyan-500/20">{item.setor}</Badge>}
                                 {item.profissionalExecutante && <Badge variant="secondary" className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/20">{item.profissionalExecutante}</Badge>}
                                 {statusBadge(item.status, item.isGabarito)}
@@ -738,6 +755,11 @@ export default function PadroesCobranca() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <Badge variant="outline" className="text-xs">{item.codigoProcedimentoPrincipal}</Badge>
+                                {item.convenioId && convenioNomeMap.get(item.convenioId) && (
+                                  <Badge variant="secondary" className="text-xs bg-amber-500/10 text-amber-500 border-amber-500/20">
+                                    {convenioNomeMap.get(item.convenioId)}
+                                  </Badge>
+                                )}
                                 {item.setor && <Badge variant="secondary" className="text-xs bg-cyan-500/10 text-cyan-400 border-cyan-500/20">{item.setor}</Badge>}
                                 {item.profissionalExecutante && <Badge variant="secondary" className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/20">{item.profissionalExecutante}</Badge>}
                                 <Badge className="bg-blue-600/20 text-blue-400 border-blue-500/30 gap-1"><BookOpen className="h-3 w-3" />Gabarito</Badge>

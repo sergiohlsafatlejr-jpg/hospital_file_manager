@@ -11,11 +11,11 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation, useRoute } from "wouter";
 import {
   ChevronLeft, PlusCircle, Trash2, CheckCircle2, Loader2, Save, Package, Eye,
-  ThumbsUp, ThumbsDown, AlertTriangle, Info, XCircle, BookOpen
+  ThumbsUp, ThumbsDown, AlertTriangle, Info, XCircle, BookOpen, Building2
 } from "lucide-react";
 
 export default function EditarPadrao() {
@@ -28,7 +28,11 @@ export default function EditarPadrao() {
   // Estado
   const [itens, setItens] = useState<any[]>([]);
   const [observacoes, setObservacoes] = useState("");
+  const [selectedConvenioId, setSelectedConvenioId] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
+
+  // Query de convênios cadastrados
+  const conveniosSafatle = trpc.convenioMapeamento.conveniosSafatle.useQuery({ estabelecimentoId });
 
   // Buscar detalhes do padrão
   const padraoDetalhes = trpc.padroesCobranca.getPadraoDetalhes.useQuery(
@@ -45,6 +49,7 @@ export default function EditarPadrao() {
         : (typeof padrao.itensAssociados === "string" ? JSON.parse(padrao.itensAssociados) : []);
       setItens(itensRaw.map((i: any) => ({ ...i })));
       setObservacoes((padrao as any).observacoes || padrao.observacoesValidacao || "");
+      setSelectedConvenioId(padrao.convenioId ? String(padrao.convenioId) : "");
       setLoaded(true);
     }
   }, [padraoDetalhes.data, loaded]);
@@ -79,6 +84,7 @@ export default function EditarPadrao() {
     if (!padraoId) return;
     editarPadrao.mutate({
       id: padraoId,
+      convenioId: selectedConvenioId ? Number(selectedConvenioId) : null,
       itensAssociados: itens.map(item => ({
         ...item,
         quantidadeMedia: ((item.quantidadeMin ?? item.quantidadeMedia ?? 1) + (item.quantidadeMax ?? item.quantidadeMedia ?? 1)) / 2,
@@ -179,7 +185,7 @@ export default function EditarPadrao() {
             <CardTitle className="text-lg">Informações do Padrão</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Código</Label>
                 <p className="font-mono font-semibold">{padrao.codigoProcedimentoPrincipal}</p>
@@ -198,6 +204,20 @@ export default function EditarPadrao() {
               <div>
                 <Label className="text-xs text-muted-foreground">Ocorrências / Valor Médio</Label>
                 <p className="text-sm">{padrao.totalOcorrencias} ocorrências | {formatCurrency(padrao.valorMedioConta)}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" /> Convênio</Label>
+                <Select value={selectedConvenioId} onValueChange={(v) => setSelectedConvenioId(v === "todos" ? "" : v)}>
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue placeholder="Todos os convênios" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os convênios</SelectItem>
+                    {(conveniosSafatle.data as any[])?.map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nome}{c.codigo ? ` (${c.codigo})` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </CardContent>

@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
-  ChevronLeft, PlusCircle, Trash2, BookOpen, Loader2, Save, Package
+  ChevronLeft, PlusCircle, Trash2, BookOpen, Loader2, Save, Package, Building2
 } from "lucide-react";
 
 export default function CriarGabarito() {
@@ -26,10 +26,14 @@ export default function CriarGabarito() {
   const [procedimentos, setProcedimentos] = useState<Array<{ codigo: string; descricao: string }>>([{ codigo: "", descricao: "" }]);
   const [observacoes, setObservacoes] = useState("");
   const [selectedSetor, setSelectedSetor] = useState<string>("");
+  const [selectedConvenioId, setSelectedConvenioId] = useState<string>("");
   const [itens, setItens] = useState<any[]>([{ codigo: "", descricao: "", tipo: "MAT_MED", frequencia: 100, quantidadeMedia: 1, quantidadeMin: 1, quantidadeMax: 1, valorMedio: 0 }]);
 
   // Query de setores disponíveis
   const setores = trpc.padroesCobranca.listarSetores.useQuery({ estabelecimentoId });
+
+  // Query de convênios cadastrados
+  const conveniosSafatle = trpc.convenioMapeamento.conveniosSafatle.useQuery({ estabelecimentoId });
 
   // Mutation
   const criarGabarito = trpc.padroesCobranca.criarGabarito.useMutation({
@@ -75,6 +79,7 @@ export default function CriarGabarito() {
     }
     criarGabarito.mutate({
       estabelecimentoId,
+      convenioId: selectedConvenioId ? Number(selectedConvenioId) : undefined,
       setor: selectedSetor || undefined,
       codigoProcedimentoPrincipal: codigoCombinado,
       descricaoProcedimentoPrincipal: descricaoCombinada,
@@ -172,6 +177,38 @@ export default function CriarGabarito() {
                 <p className="text-base font-semibold mt-1">{codigoCombinado || "..."}</p>
                 <p className="text-sm text-muted-foreground">{descricaoCombinada || "..."}</p>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Convênio */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Convênio (opcional)
+            </CardTitle>
+            <CardDescription>
+              Vincule este gabarito a um convênio específico. Cada convênio pode ter composições diferentes para o mesmo procedimento.
+              Se não selecionado, o gabarito será aplicado para todos os convênios.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedConvenioId} onValueChange={(v) => setSelectedConvenioId(v === "todos" ? "" : v)}>
+              <SelectTrigger className="w-[400px]">
+                <SelectValue placeholder="Todos os convênios" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os convênios</SelectItem>
+                {(conveniosSafatle.data as any[])?.map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.nome}{c.codigo ? ` (${c.codigo})` : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedConvenioId && (
+              <p className="text-sm text-blue-500 mt-2">
+                Este gabarito será vinculado ao convênio <strong>{(conveniosSafatle.data as any[])?.find((c: any) => String(c.id) === selectedConvenioId)?.nome || selectedConvenioId}</strong>.
+              </p>
             )}
           </CardContent>
         </Card>

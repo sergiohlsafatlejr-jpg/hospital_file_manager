@@ -2540,3 +2540,8 @@
 - [x] Criar relatório de itens auditados na tela Conta Convênio Detalhes
 - [x] Backend: reutiliza queries existentes (divergências, falhas, ajustes) consolidadas no frontend
 - [x] Frontend: nova aba 'Rel. Faturista' com tabela consolidada, cards resumo e export Excel
+- [x] Adicionar campo de convênio na tela de criação de gabaritos para vincular regra ao convênio
+- [x] Adicionar campo de convênio na tela de edição de gabaritos (EditarPadrao)
+- [x] Exibir badge de convênio na listagem de gabaritos e composições
+- [x] Backend: editarPadrao aceita convenioId para alterar convênio vinculado
+- [x] Botão de ajuste/edição das regras já existia (Editar), agora com campo de convênio

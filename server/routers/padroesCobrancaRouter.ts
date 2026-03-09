@@ -1042,9 +1042,10 @@ export const padroesCobrancaRouter = router({
   /**
    * Editar itens associados de um padrão (ajustar quantidades, remover itens, etc.)
    */
-  editarPadrao: protectedProcedure
+   editarPadrao: protectedProcedure
     .input(z.object({
       id: z.number(),
+      convenioId: z.number().nullable().optional(),
       itensAssociados: z.array(z.object({
         codigo: z.string(),
         descricao: z.string(),
@@ -1064,6 +1065,7 @@ export const padroesCobrancaRouter = router({
       await db.update(padroesCobranca)
         .set({
           itensAssociados: input.itensAssociados,
+          convenioId: input.convenioId !== undefined ? (input.convenioId || null) : undefined,
           validadoPor: ctx.user.id,
           dataValidacao: new Date(),
           observacoesValidacao: input.observacoes || null,
