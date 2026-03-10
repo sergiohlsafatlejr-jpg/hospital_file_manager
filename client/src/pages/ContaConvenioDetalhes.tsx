@@ -233,7 +233,7 @@ export default function ContaConvenioDetalhes() {
   // Estado para aba de Ajustes de Itens
   const [ajusteDialog, setAjusteDialog] = useState<{
     open: boolean;
-    tipo: "ALTERAR_QUANTIDADE" | "ALTERAR_VALOR" | "ADICIONAR_ITEM" | "REMOVER_ITEM";
+    tipo: "ALTERAR_QUANTIDADE" | "ALTERAR_VALOR" | "ADICIONAR_ITEM" | "REMOVER_ITEM" | "ALTERAR_SETOR";
     item?: any;
   }>({ open: false, tipo: "ALTERAR_QUANTIDADE" });
   const [ajusteQtd, setAjusteQtd] = useState("");
@@ -242,6 +242,11 @@ export default function ContaConvenioDetalhes() {
   const [ajusteDescricao, setAjusteDescricao] = useState("");
   const [ajusteTipoItem, setAjusteTipoItem] = useState("PROCEDIMENTO");
   const [ajusteJustificativa, setAjusteJustificativa] = useState("");
+  const [ajusteSetor, setAjusteSetor] = useState("");
+
+  // Filtros para a tabela de itens na aba Ajustes
+  const [filtroSetorAjuste, setFiltroSetorAjuste] = useState<string>("todos");
+  const [filtroDataAjuste, setFiltroDataAjuste] = useState<string>("");
 
   // Buscar itens da conta na nova tabela
   const { data: itensData, isLoading, refetch } = trpc.contasConvenio.listarItens.useQuery(
@@ -319,7 +324,7 @@ export default function ContaConvenioDetalhes() {
       toast.success("Ajuste registrado com sucesso!");
       setAjusteDialog({ open: false, tipo: "ALTERAR_QUANTIDADE" });
       setAjusteQtd(""); setAjusteValor(""); setAjusteCodigo("");
-      setAjusteDescricao(""); setAjusteJustificativa("");
+      setAjusteDescricao(""); setAjusteJustificativa(""); setAjusteSetor("");
       refetchAjustes();
       refetch(); // Recarregar itens
     },
@@ -552,6 +557,9 @@ export default function ContaConvenioDetalhes() {
         } else if (ajuste.tipoAjuste === 'REMOVER_ITEM') {
           descricao = `Item removido da conta`;
           impacto = -(parseFloat(ajuste.valorOriginal || '0') * parseFloat(ajuste.quantidadeOriginal || '1'));
+        } else if (ajuste.tipoAjuste === 'ALTERAR_SETOR') {
+          descricao = `Setor alterado: ${ajuste.setorOriginal || 'N/D'} → ${ajuste.setorAjustado || 'N/D'}`;
+          impacto = null;
         }
 
         if (ajuste.justificativa) {
@@ -1579,11 +1587,73 @@ export default function ContaConvenioDetalhes() {
                   </div>
                 )}
 
+                {/* Filtros para a tabela de itens */}
+                <div className="mb-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex-1 min-w-[180px]">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Filtrar por Setor</Label>
+                      <Select value={filtroSetorAjuste} onValueChange={setFiltroSetorAjuste}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Todos os setores" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos os setores</SelectItem>
+                          <SelectItem value="sem_setor">Sem setor definido</SelectItem>
+                          {(() => {
+                            const setores = new Set<string>();
+                            itensData?.items?.forEach((item: any) => {
+                              if (item.setor) setores.add(item.setor);
+                            });
+                            return Array.from(setores).sort().map(s => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ));
+                          })()}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1 min-w-[180px]">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Filtrar por Data</Label>
+                      <Input
+                        type="date"
+                        className="h-9"
+                        value={filtroDataAjuste}
+                        onChange={(e) => setFiltroDataAjuste(e.target.value)}
+                      />
+                    </div>
+                    {(filtroSetorAjuste !== "todos" || filtroDataAjuste) && (
+                      <Button variant="ghost" size="sm" className="h-9" onClick={() => { setFiltroSetorAjuste("todos"); setFiltroDataAjuste(""); }}>
+                        <XCircle className="h-4 w-4 mr-1" /> Limpar filtros
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
                 {/* Tabela de itens editáveis */}
                 <div className="mb-6">
                   <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     Itens da Conta (clique para ajustar)
+                    {(() => {
+                      const filtered = itensData?.items?.filter((item: any) => {
+                        if (filtroSetorAjuste !== "todos") {
+                          if (filtroSetorAjuste === "sem_setor") { if (item.setor) return false; }
+                          else { if (item.setor !== filtroSetorAjuste) return false; }
+                        }
+                        if (filtroDataAjuste && item.dataExecucao) {
+                          const itemDate = new Date(item.dataExecucao).toISOString().split("T")[0];
+                          if (itemDate !== filtroDataAjuste) return false;
+                        } else if (filtroDataAjuste && !item.dataExecucao) {
+                          return false;
+                        }
+                        return true;
+                      });
+                      const total = itensData?.items?.length || 0;
+                      const shown = filtered?.length || 0;
+                      if (filtroSetorAjuste !== "todos" || filtroDataAjuste) {
+                        return <Badge variant="secondary" className="text-xs ml-2">{shown} de {total}</Badge>;
+                      }
+                      return null;
+                    })()}
                   </h4>
                   {isLoading ? (
                     <div className="space-y-2">
@@ -1598,6 +1668,8 @@ export default function ContaConvenioDetalhes() {
                           <TableRow>
                             <TableHead>Código</TableHead>
                             <TableHead>Descrição</TableHead>
+                            <TableHead>Setor</TableHead>
+                            <TableHead>Data</TableHead>
                             <TableHead className="text-right">Qtd</TableHead>
                             <TableHead className="text-right">Valor Unit.</TableHead>
                             <TableHead className="text-right">Valor Total</TableHead>
@@ -1605,10 +1677,30 @@ export default function ContaConvenioDetalhes() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {itensData.items.map((item: any, index: number) => (
+                          {itensData.items
+                            .filter((item: any) => {
+                              if (filtroSetorAjuste !== "todos") {
+                                if (filtroSetorAjuste === "sem_setor") { if (item.setor) return false; }
+                                else { if (item.setor !== filtroSetorAjuste) return false; }
+                              }
+                              if (filtroDataAjuste && item.dataExecucao) {
+                                const itemDate = new Date(item.dataExecucao).toISOString().split("T")[0];
+                                if (itemDate !== filtroDataAjuste) return false;
+                              } else if (filtroDataAjuste && !item.dataExecucao) {
+                                return false;
+                              }
+                              return true;
+                            })
+                            .map((item: any, index: number) => (
                             <TableRow key={item.id || index}>
                               <TableCell className="font-mono text-sm">{item.codigoItem || "-"}</TableCell>
-                              <TableCell className="max-w-xs truncate">{item.descricaoItem || "-"}</TableCell>
+                              <TableCell className="max-w-[200px] truncate">{item.descricaoItem || "-"}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
+                                  {item.setor || "N/D"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm whitespace-nowrap">{item.dataExecucao ? formatDate(item.dataExecucao) : "-"}</TableCell>
                               <TableCell className="text-right">{item.quantidade || 1}</TableCell>
                               <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
                               <TableCell className="text-right font-semibold">{formatCurrency(item.valorTotal)}</TableCell>
@@ -1652,6 +1744,24 @@ export default function ContaConvenioDetalhes() {
                                       <TooltipContent>Alterar valor</TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7"
+                                          onClick={() => {
+                                            setAjusteDialog({ open: true, tipo: "ALTERAR_SETOR", item });
+                                            setAjusteSetor(item.setor || "");
+                                          }}
+                                        >
+                                          <Bed className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Alterar setor</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -1682,7 +1792,8 @@ export default function ContaConvenioDetalhes() {
                                 <Badge variant="outline" className="text-xs">
                                   {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE" ? "Qtd" :
                                    ajuste.tipoAjuste === "ALTERAR_VALOR" ? "Valor" :
-                                   ajuste.tipoAjuste === "ADICIONAR_ITEM" ? "+ Item" : "- Item"}
+                                   ajuste.tipoAjuste === "ADICIONAR_ITEM" ? "+ Item" :
+                                   ajuste.tipoAjuste === "ALTERAR_SETOR" ? "Setor" : "- Item"}
                                 </Badge>
                                 <Badge className={`text-xs ${
                                   ajuste.status === "aplicado" ? "bg-green-100 text-green-800" :
@@ -1700,6 +1811,11 @@ export default function ContaConvenioDetalhes() {
                               {ajuste.tipoAjuste === "ALTERAR_VALOR" && (
                                 <p className="text-xs text-muted-foreground">
                                   Valor: {formatCurrency(ajuste.valorOriginal)} → {formatCurrency(ajuste.valorAjustado)}
+                                </p>
+                              )}
+                              {ajuste.tipoAjuste === "ALTERAR_SETOR" && (
+                                <p className="text-xs text-muted-foreground">
+                                  Setor: {ajuste.setorOriginal || "N/D"} → {ajuste.setorAjustado || "N/D"}
                                 </p>
                               )}
                               {ajuste.justificativa && (
@@ -2231,11 +2347,14 @@ export default function ContaConvenioDetalhes() {
                 <Wrench className="h-5 w-5 text-blue-500" />
                 {ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Adicionar Item Faltante" :
                  ajusteDialog.tipo === "ALTERAR_QUANTIDADE" ? "Alterar Quantidade" :
+                 ajusteDialog.tipo === "ALTERAR_SETOR" ? "Alterar Setor" :
                  "Alterar Valor"}
               </DialogTitle>
               <DialogDescription>
                 {ajusteDialog.tipo === "ADICIONAR_ITEM"
                   ? "Adicione um item que está faltando na conta."
+                  : ajusteDialog.tipo === "ALTERAR_SETOR"
+                  ? "Corrija o setor do item para o setor correto."
                   : `Ajuste ${ajusteDialog.tipo === "ALTERAR_QUANTIDADE" ? "a quantidade" : "o valor"} do item.`}
               </DialogDescription>
             </DialogHeader>
@@ -2243,7 +2362,11 @@ export default function ContaConvenioDetalhes() {
               {ajusteDialog.item && (
                 <div className="bg-muted/50 p-3 rounded-lg">
                   <p className="text-sm"><strong>Item:</strong> {ajusteDialog.item.codigoItem} - {ajusteDialog.item.descricaoItem}</p>
-                  <p className="text-sm"><strong>Qtd atual:</strong> {ajusteDialog.item.quantidade} | <strong>Valor atual:</strong> {formatCurrency(ajusteDialog.item.valorUnitario)}</p>
+                  {ajusteDialog.tipo === "ALTERAR_SETOR" ? (
+                    <p className="text-sm"><strong>Setor atual:</strong> {ajusteDialog.item.setor || "Não definido"} | <strong>Data:</strong> {ajusteDialog.item.dataExecucao ? formatDate(ajusteDialog.item.dataExecucao) : "-"}</p>
+                  ) : (
+                    <p className="text-sm"><strong>Qtd atual:</strong> {ajusteDialog.item.quantidade} | <strong>Valor atual:</strong> {formatCurrency(ajusteDialog.item.valorUnitario)}</p>
+                  )}
                 </div>
               )}
               {ajusteDialog.tipo === "ADICIONAR_ITEM" && (
@@ -2284,6 +2407,12 @@ export default function ContaConvenioDetalhes() {
                   <Input type="number" step="0.01" value={ajusteValor} onChange={(e) => setAjusteValor(e.target.value)} placeholder="Ex: 150.00" />
                 </div>
               )}
+              {ajusteDialog.tipo === "ALTERAR_SETOR" && (
+                <div className="space-y-2">
+                  <Label>Novo Setor</Label>
+                  <Input value={ajusteSetor} onChange={(e) => setAjusteSetor(e.target.value)} placeholder="Ex: UTI, Centro Cirúrgico, Enfermaria..." />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Justificativa</Label>
                 <Textarea
@@ -2310,13 +2439,15 @@ export default function ContaConvenioDetalhes() {
                     quantidadeAjustada: ajusteQtd || undefined,
                     valorAjustado: ajusteValor || undefined,
                     tipoItemAdicionado: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteTipoItem : undefined,
+                    setorOriginal: ajusteDialog.tipo === "ALTERAR_SETOR" ? (ajusteDialog.item?.setor || "") : undefined,
+                    setorAjustado: ajusteDialog.tipo === "ALTERAR_SETOR" ? ajusteSetor : undefined,
                     justificativa: ajusteJustificativa || undefined,
                   });
                 }}
                 disabled={registrarAjusteMutation.isPending}
               >
                 {registrarAjusteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Adicionar Item" : "Salvar Ajuste"}
+                {ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Adicionar Item" : ajusteDialog.tipo === "ALTERAR_SETOR" ? "Salvar Setor" : "Salvar Ajuste"}
               </Button>
             </DialogFooter>
           </DialogContent>

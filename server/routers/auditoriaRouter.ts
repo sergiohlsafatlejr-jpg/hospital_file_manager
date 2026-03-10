@@ -274,7 +274,7 @@ export const auditoriaRouter = router({
     .input(z.object({
       numeroConta: z.string().min(1),
       estabelecimentoId: z.number(),
-      tipoAjuste: z.enum(["ALTERAR_QUANTIDADE", "ALTERAR_VALOR", "ADICIONAR_ITEM", "REMOVER_ITEM"]),
+      tipoAjuste: z.enum(["ALTERAR_QUANTIDADE", "ALTERAR_VALOR", "ADICIONAR_ITEM", "REMOVER_ITEM", "ALTERAR_SETOR"]),
       itemId: z.number().optional(),
       codigoItem: z.string().optional(),
       descricaoItem: z.string().optional(),
@@ -283,6 +283,8 @@ export const auditoriaRouter = router({
       quantidadeAjustada: z.string().optional(),
       valorAjustado: z.string().optional(),
       tipoItemAdicionado: z.string().optional(),
+      setorOriginal: z.string().optional(),
+      setorAjustado: z.string().optional(),
       justificativa: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -301,6 +303,8 @@ export const auditoriaRouter = router({
         quantidadeAjustada: input.quantidadeAjustada || null,
         valorAjustado: input.valorAjustado || null,
         tipoItemAdicionado: input.tipoItemAdicionado || null,
+        setorOriginal: input.setorOriginal || null,
+        setorAjustado: input.setorAjustado || null,
         justificativa: input.justificativa || null,
         status: "pendente",
         usuarioId: ctx.user.id,
@@ -328,6 +332,20 @@ export const auditoriaRouter = router({
           updateData.statusAnalise = "revisado";
           await db.update(contasConvenioItens).set(updateData).where(eq(contasConvenioItens.id, input.itemId));
         }
+        // Marcar como aplicado
+        const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
+          .orderBy(desc(ajustesAuditoria.id)).limit(1);
+        if (ajuste) {
+          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(eq(ajustesAuditoria.id, ajuste.id));
+        }
+      }
+
+      // Alterar setor
+      if (input.tipoAjuste === "ALTERAR_SETOR" && input.itemId && input.setorAjustado) {
+        await db.update(contasConvenioItens).set({
+          setor: input.setorAjustado,
+          statusAnalise: "revisado",
+        }).where(eq(contasConvenioItens.id, input.itemId));
         // Marcar como aplicado
         const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
           .orderBy(desc(ajustesAuditoria.id)).limit(1);
@@ -452,6 +470,9 @@ export const auditoriaRouter = router({
           if (item?.quantidade) {
             updateData.valorTotal = (parseFloat(item.quantidade) * parseFloat(ajuste.valorOriginal)).toFixed(2);
           }
+        }
+        if (ajuste.tipoAjuste === "ALTERAR_SETOR" && ajuste.setorOriginal !== undefined) {
+          updateData.setor = ajuste.setorOriginal;
         }
         await db.update(contasConvenioItens).set(updateData).where(eq(contasConvenioItens.id, ajuste.itemId));
       }

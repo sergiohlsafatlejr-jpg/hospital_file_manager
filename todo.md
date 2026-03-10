@@ -2568,3 +2568,9 @@
 - [x] Frontend: modal/wizard de criação de mapeamento com seletor de template e preview dos campos
 - [x] Testes vitest para templates de mapeamento (32 testes passando)
 - [x] Bug: Erro de query na tabela integracao_conexoes na página /integracao (estabelecimentoId=4) - Adicionado retry automático com reconexão para erros transitórios (ECONNRESET, etc.)
+- [x] Ajustes de Auditoria: Adicionar coluna de Setor na tabela de itens
+- [x] Ajustes de Auditoria: Adicionar coluna de Data do Item na tabela de itens
+- [x] Ajustes de Auditoria: Implementar filtro por dia (data)
+- [x] Ajustes de Auditoria: Implementar filtro por setor
+- [x] Ajustes de Auditoria: Ação de alterar setor do item pela auditoria (ALTERAR_SETOR)
+- [x] Testes vitest para ALTERAR_SETOR e validação de schema (8 testes passando)

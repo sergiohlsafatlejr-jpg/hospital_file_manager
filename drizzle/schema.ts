@@ -3527,6 +3527,7 @@ export const ajustesAuditoria = mysqlTable("ajustes_auditoria", {
     "ALTERAR_VALOR",
     "ADICIONAR_ITEM",
     "REMOVER_ITEM",
+    "ALTERAR_SETOR",
   ]).notNull(),
   
   // Item afetado (null se for adição de novo item)
@@ -3544,6 +3545,10 @@ export const ajustesAuditoria = mysqlTable("ajustes_auditoria", {
   
   // Para itens adicionados
   tipoItemAdicionado: varchar("tipoItemAdicionado", { length: 50 }),
+  
+  // Para alteração de setor
+  setorOriginal: varchar("setorOriginal", { length: 255 }),
+  setorAjustado: varchar("setorAjustado", { length: 255 }),
   
   // Justificativa do ajuste
   justificativa: text("justificativa"),
