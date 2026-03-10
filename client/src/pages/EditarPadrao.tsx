@@ -29,6 +29,9 @@ export default function EditarPadrao() {
   const [itens, setItens] = useState<any[]>([]);
   const [observacoes, setObservacoes] = useState("");
   const [selectedConvenioId, setSelectedConvenioId] = useState<string>("");
+  const [codigoPrincipal, setCodigoPrincipal] = useState("");
+  const [descricaoPrincipal, setDescricaoPrincipal] = useState("");
+  const [setorPadrao, setSetorPadrao] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   // Query de convênios cadastrados
@@ -50,6 +53,9 @@ export default function EditarPadrao() {
       setItens(itensRaw.map((i: any) => ({ ...i })));
       setObservacoes((padrao as any).observacoes || padrao.observacoesValidacao || "");
       setSelectedConvenioId(padrao.convenioId ? String(padrao.convenioId) : "");
+      setCodigoPrincipal(padrao.codigoProcedimentoPrincipal || "");
+      setDescricaoPrincipal(padrao.descricaoProcedimentoPrincipal || "");
+      setSetorPadrao((padrao as any).setor || null);
       setLoaded(true);
     }
   }, [padraoDetalhes.data, loaded]);
@@ -85,6 +91,9 @@ export default function EditarPadrao() {
     editarPadrao.mutate({
       id: padraoId,
       convenioId: selectedConvenioId ? Number(selectedConvenioId) : null,
+      codigoProcedimentoPrincipal: codigoPrincipal || undefined,
+      descricaoProcedimentoPrincipal: descricaoPrincipal || undefined,
+      setor: setorPadrao,
       itensAssociados: itens.map(item => ({
         ...item,
         quantidadeMedia: ((item.quantidadeMin ?? item.quantidadeMedia ?? 1) + (item.quantidadeMax ?? item.quantidadeMedia ?? 1)) / 2,
@@ -185,14 +194,24 @@ export default function EditarPadrao() {
             <CardTitle className="text-lg">Informações do Padrão</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div>
-                <Label className="text-xs text-muted-foreground">Código</Label>
-                <p className="font-mono font-semibold">{padrao.codigoProcedimentoPrincipal}</p>
+                <Label className="text-xs text-muted-foreground">Código do Procedimento</Label>
+                <Input
+                  value={codigoPrincipal}
+                  onChange={(e) => setCodigoPrincipal(e.target.value)}
+                  className="font-mono font-semibold h-9 mt-1"
+                  placeholder="Ex: 31102360 + 31102050"
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Descrição</Label>
-                <p className="font-medium">{padrao.descricaoProcedimentoPrincipal}</p>
+                <Input
+                  value={descricaoPrincipal}
+                  onChange={(e) => setDescricaoPrincipal(e.target.value)}
+                  className="font-medium h-9 mt-1"
+                  placeholder="Descrição do procedimento"
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Status / Confiança</Label>
@@ -204,6 +223,15 @@ export default function EditarPadrao() {
               <div>
                 <Label className="text-xs text-muted-foreground">Ocorrências / Valor Médio</Label>
                 <p className="text-sm">{padrao.totalOcorrencias} ocorrências | {formatCurrency(padrao.valorMedioConta)}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Setor</Label>
+                <Input
+                  value={setorPadrao || ""}
+                  onChange={(e) => setSetorPadrao(e.target.value || null)}
+                  className="h-9 mt-1"
+                  placeholder="Ex: CENTRO CIRURGICO"
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" /> Convênio</Label>

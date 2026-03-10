@@ -1046,6 +1046,9 @@ export const padroesCobrancaRouter = router({
     .input(z.object({
       id: z.number(),
       convenioId: z.number().nullable().optional(),
+      codigoProcedimentoPrincipal: z.string().optional(),
+      descricaoProcedimentoPrincipal: z.string().optional(),
+      setor: z.string().nullable().optional(),
       itensAssociados: z.array(z.object({
         codigo: z.string(),
         descricao: z.string(),
@@ -1062,16 +1065,28 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const updateData: any = {
+        itensAssociados: input.itensAssociados,
+        convenioId: input.convenioId !== undefined ? (input.convenioId || null) : undefined,
+        validadoPor: ctx.user.id,
+        dataValidacao: new Date(),
+        observacoesValidacao: input.observacoes || null,
+        status: "ativo",
+        confianca: 100,
+      };
+      // Permitir edição do código e descrição do procedimento principal
+      if (input.codigoProcedimentoPrincipal !== undefined) {
+        updateData.codigoProcedimentoPrincipal = input.codigoProcedimentoPrincipal;
+      }
+      if (input.descricaoProcedimentoPrincipal !== undefined) {
+        updateData.descricaoProcedimentoPrincipal = input.descricaoProcedimentoPrincipal;
+      }
+      if (input.setor !== undefined) {
+        updateData.setor = input.setor || null;
+      }
+
       await db.update(padroesCobranca)
-        .set({
-          itensAssociados: input.itensAssociados,
-          convenioId: input.convenioId !== undefined ? (input.convenioId || null) : undefined,
-          validadoPor: ctx.user.id,
-          dataValidacao: new Date(),
-          observacoesValidacao: input.observacoes || null,
-          status: "ativo",
-          confianca: 100,
-        })
+        .set(updateData)
         .where(eq(padroesCobranca.id, input.id));
 
       logger.info({ message: `Padrão ${input.id} editado manualmente`, userId: ctx.user.id });
