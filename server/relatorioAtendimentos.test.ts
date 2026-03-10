@@ -24,19 +24,23 @@ vi.mock("./_core/env", () => ({
   },
 }));
 
-describe("Relatório de Atendimentos", () => {
+// Mock getDb to return null (force PostgreSQL fallback)
+vi.mock("./db", () => ({
+  getDb: vi.fn().mockResolvedValue(null),
+}));
+
+describe("Relatório de Atendimentos - Cache Local + Fallback PostgreSQL", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConnect.mockResolvedValue({ query: mockQuery, release: mockRelease });
   });
 
-  describe("buscarAtendimentos", () => {
-    it("deve retornar atendimentos com paginação", async () => {
-      // Import after mocks are set up
+  describe("buscarAtendimentos - Fallback PostgreSQL", () => {
+    it("deve retornar atendimentos com paginação via PostgreSQL quando cache está vazio", async () => {
       const { buscarAtendimentos } = await import("./relatorioAtendimentos");
 
       mockQuery
-        .mockResolvedValueOnce({ rows: [{ total: "150" }] }) // count query
+        .mockResolvedValueOnce({ rows: [{ total: "150" }] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -82,10 +86,11 @@ describe("Relatório de Atendimentos", () => {
       expect(resultado.dados[0].plano_convenio).toBe("UNIMED");
       expect(resultado.dados[0].prestador).toBe("DR. SILVA");
       expect(resultado.dados[0].paciente).toBe("JOAO DA SILVA");
+      expect(resultado.fonte).toBe("postgresql_direto");
       expect(mockRelease).toHaveBeenCalled();
     });
 
-    it("deve aplicar filtros opcionais na query", async () => {
+    it("deve aplicar filtros opcionais na query PostgreSQL", async () => {
       const { buscarAtendimentos } = await import("./relatorioAtendimentos");
 
       mockQuery
@@ -103,9 +108,8 @@ describe("Relatório de Atendimentos", () => {
         carater: "EL",
       });
 
-      // Verify count query was called with all filter params
       const countCall = mockQuery.mock.calls[0];
-      expect(countCall[1]).toHaveLength(8); // 2 dates + 6 filters
+      expect(countCall[1]).toHaveLength(8);
       expect(countCall[1]).toContain("I");
       expect(countCall[1]).toContain("01");
       expect(countCall[1]).toContain("001");
@@ -113,9 +117,8 @@ describe("Relatório de Atendimentos", () => {
       expect(countCall[1]).toContain("CC01");
       expect(countCall[1]).toContain("EL");
 
-      // Verify main query includes limit and offset
       const mainCall = mockQuery.mock.calls[1];
-      expect(mainCall[1]).toHaveLength(10); // 8 params + limit + offset
+      expect(mainCall[1]).toHaveLength(10);
     });
 
     it("deve usar valores padrão para limit e offset", async () => {
@@ -130,12 +133,12 @@ describe("Relatório de Atendimentos", () => {
         dataFim: "2025-12-31",
       });
 
-      // Default limit=100, offset=0
       const mainCall = mockQuery.mock.calls[1];
       const params = mainCall[1];
-      expect(params[params.length - 2]).toBe(100); // default limit
-      expect(params[params.length - 1]).toBe(0); // default offset
+      expect(params[params.length - 2]).toBe(100);
+      expect(params[params.length - 1]).toBe(0);
       expect(resultado.pagina).toBe(1);
+      expect(resultado.fonte).toBe("postgresql_direto");
     });
 
     it("deve calcular totalPaginas corretamente", async () => {
@@ -153,8 +156,8 @@ describe("Relatório de Atendimentos", () => {
       });
 
       expect(resultado.total).toBe(251);
-      expect(resultado.totalPaginas).toBe(6); // ceil(251/50) = 6
-      expect(resultado.pagina).toBe(3); // floor(100/50) + 1 = 3
+      expect(resultado.totalPaginas).toBe(6);
+      expect(resultado.pagina).toBe(3);
     });
 
     it("deve liberar a conexão mesmo em caso de erro", async () => {
@@ -173,8 +176,8 @@ describe("Relatório de Atendimentos", () => {
     });
   });
 
-  describe("buscarOpcoesFiltro", () => {
-    it("deve retornar todas as opções de filtro", async () => {
+  describe("buscarOpcoesFiltro - Fallback PostgreSQL", () => {
+    it("deve retornar todas as opções de filtro via PostgreSQL", async () => {
       const { buscarOpcoesFiltro } = await import("./relatorioAtendimentos");
 
       mockQuery
@@ -193,7 +196,45 @@ describe("Relatório de Atendimentos", () => {
       expect(opcoes.centrosCusto[0].nomecc).toBe("CENTRO CIRURGICO");
       expect(opcoes.prestadores).toHaveLength(1);
       expect(opcoes.prestadores[0].nomeprest).toBe("DR. SILVA");
+      expect(opcoes.fonte).toBe("postgresql_direto");
       expect(mockRelease).toHaveBeenCalled();
+    });
+  });
+
+  describe("Resultado inclui campo fonte", () => {
+    it("buscarAtendimentos deve retornar fonte postgresql_direto quando cache vazio", async () => {
+      const { buscarAtendimentos } = await import("./relatorioAtendimentos");
+
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ total: "0" }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const resultado = await buscarAtendimentos({
+        dataInicio: "2025-01-01",
+        dataFim: "2025-12-31",
+      });
+
+      expect(resultado.fonte).toBe("postgresql_direto");
+    });
+  });
+
+  describe("obterStatusSincronizacao", () => {
+    it("deve retornar null quando banco local não disponível", async () => {
+      const { obterStatusSincronizacao } = await import("./relatorioAtendimentos");
+
+      const status = await obterStatusSincronizacao(1);
+      expect(status).toBeNull();
+    });
+  });
+
+  describe("sincronizarRelatorioAtendimentos", () => {
+    it("deve retornar erro quando banco local não disponível", async () => {
+      const { sincronizarRelatorioAtendimentos } = await import("./relatorioAtendimentos");
+
+      const result = await sincronizarRelatorioAtendimentos(1, "2025-01-01", "2025-12-31");
+      expect(result.sucesso).toBe(false);
+      expect(result.mensagem).toContain("não disponível");
+      expect(result.totalRegistros).toBe(0);
     });
   });
 });

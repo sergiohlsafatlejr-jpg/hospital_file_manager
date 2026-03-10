@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
-import { buscarAtendimentos, buscarOpcoesFiltro } from "../relatorioAtendimentos";
+import {
+  buscarAtendimentos,
+  buscarOpcoesFiltro,
+  sincronizarRelatorioAtendimentos,
+  obterStatusSincronizacao,
+} from "../relatorioAtendimentos";
 
 export const relatorioAtendimentosRouter = router({
   buscar: protectedProcedure
@@ -25,4 +30,34 @@ export const relatorioAtendimentosRouter = router({
   opcoesFiltro: protectedProcedure.query(async () => {
     return buscarOpcoesFiltro();
   }),
+
+  // Sincronizar dados do Warleine para cache local
+  sincronizar: protectedProcedure
+    .input(
+      z.object({
+        dataInicio: z.string(),
+        dataFim: z.string(),
+        estabelecimentoId: z.number(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      return sincronizarRelatorioAtendimentos(
+        input.estabelecimentoId,
+        input.dataInicio,
+        input.dataFim,
+        ctx.user.id,
+        ctx.user.name || undefined
+      );
+    }),
+
+  // Obter status da última sincronização
+  statusSincronizacao: protectedProcedure
+    .input(
+      z.object({
+        estabelecimentoId: z.number(),
+      })
+    )
+    .query(async ({ input }) => {
+      return obterStatusSincronizacao(input.estabelecimentoId);
+    }),
 });

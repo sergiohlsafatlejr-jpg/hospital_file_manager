@@ -2606,3 +2606,16 @@
 - [x] Criar relatório de atendimentos usando banco PostgreSQL do Urológico - query com JOINs para trazer descrições ao invés de códigos
 - [x] Tela de relatório de atendimentos no sistema com filtros e exportação
 - [x] Testes vitest para relatório de atendimentos (6 testes passando)
+
+## Refatoração Relatório de Atendimentos - Cache Local
+- [x] Criar tabela `relatorio_atendimentos_cache` no schema com todos os campos descritivos
+- [x] Criar tabela `relatorio_atendimentos_sync_meta` para metadados de sincronização
+- [x] Migrar schema (tabelas criadas via SQL + journal atualizado)
+- [x] Implementar sincronização no backend: extrair dados do Warleine e popular tabela local
+- [x] Refatorar relatorioAtendimentos.ts para consultar tabela local (com fallback PostgreSQL direto)
+- [x] Refatorar buscarOpcoesFiltro para extrair opções da tabela local (com fallback)
+- [x] Adicionar endpoints sincronizar e statusSincronizacao no router
+- [x] Atualizar frontend com indicador de última sincronização e botão de sync manual
+- [x] Frontend mostra fonte dos dados (Cache Local vs PostgreSQL Direto)
+- [x] Escrever testes vitest para a nova implementação (9 testes passando)
+- [x] Manter fallback para PostgreSQL direto quando cache estiver vazio

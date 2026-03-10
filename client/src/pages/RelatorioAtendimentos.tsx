@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, ChevronLeft, ChevronRight, FileSpreadsheet, Users, Calendar, Filter, X, Activity } from "lucide-react";
+import {
+  Search, Download, ChevronLeft, ChevronRight, Users, Calendar, Filter, X,
+  Activity, RefreshCw, Database, Cloud, CheckCircle2, AlertCircle, Clock, Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 function formatDate(dateStr: string | null) {
@@ -34,6 +38,9 @@ function getTipoColor(tipo: string) {
 }
 
 export default function RelatorioAtendimentos() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id || 0;
+
   // Filtros
   const hoje = new Date();
   const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
@@ -48,6 +55,41 @@ export default function RelatorioAtendimentos() {
   const [pagina, setPagina] = useState(1);
   const [buscaAtiva, setBuscaAtiva] = useState(false);
   const itensPorPagina = 50;
+
+  // Sync period inputs
+  const [syncDataInicio, setSyncDataInicio] = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().split("T")[0];
+  });
+  const [syncDataFim, setSyncDataFim] = useState(hoje.toISOString().split("T")[0]);
+
+  // Status de sincronização
+  const statusSyncInput = useMemo(() => ({ estabelecimentoId }), [estabelecimentoId]);
+  const { data: statusSync, refetch: refetchStatus } = trpc.relatorioAtendimentos.statusSincronizacao.useQuery(
+    statusSyncInput,
+    { enabled: estabelecimentoId > 0 }
+  );
+
+  // Mutation de sincronização
+  const syncMutation = trpc.relatorioAtendimentos.sincronizar.useMutation({
+    onSuccess: (result) => {
+      if (result.sucesso) {
+        toast.success(result.mensagem);
+        refetchStatus();
+        // Se já tinha busca ativa, refaz a busca para usar cache novo
+        if (buscaAtiva) {
+          setBuscaAtiva(false);
+          setTimeout(() => setBuscaAtiva(true), 100);
+        }
+      } else {
+        toast.error(`Erro na sincronização: ${result.mensagem}`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro: ${error.message}`);
+    },
+  });
 
   // Buscar opções de filtro
   const { data: opcoesFiltro, isLoading: loadingFiltros } = trpc.relatorioAtendimentos.opcoesFiltro.useQuery();
@@ -86,17 +128,28 @@ export default function RelatorioAtendimentos() {
     setPagina(1);
   };
 
+  const handleSincronizar = () => {
+    if (estabelecimentoId <= 0) {
+      toast.error("Selecione um estabelecimento para sincronizar");
+      return;
+    }
+    syncMutation.mutate({
+      estabelecimentoId,
+      dataInicio: syncDataInicio,
+      dataFim: syncDataFim + "T23:59:59",
+    });
+  };
+
   const handleExportarExcel = () => {
     if (!resultado?.dados || resultado.dados.length === 0) {
       toast.error("Nenhum dado para exportar");
       return;
     }
 
-    // Gerar CSV
     const headers = [
-      "Nº Atendimento", "Tipo", "Serviço", "Plano/Convênio", "Proveniente",
-      "Data Atendimento", "Data Saída", "Centro de Custo", "Prestador",
-      "Procedimento Principal", "CID", "Diagnóstico", "Caráter", "Paciente"
+      "N Atendimento", "Tipo", "Servico", "Plano/Convenio", "Proveniente",
+      "Data Atendimento", "Data Saida", "Centro de Custo", "Prestador",
+      "Procedimento Principal", "CID", "Diagnostico", "Carater", "Paciente"
     ];
 
     const rows = resultado.dados.map(a => [
@@ -129,10 +182,65 @@ export default function RelatorioAtendimentos() {
     link.download = `relatorio_atendimentos_${dataInicio}_${dataFim}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success("Relatório exportado com sucesso!");
+    toast.success("Relatorio exportado com sucesso!");
   };
 
   const totalFiltrosAtivos = [tipoAtendimento, codServ, codPlaco, codPrest, codCc, carater].filter(Boolean).length;
+
+  // Render sync status badge
+  const renderSyncStatus = () => {
+    if (!statusSync) return null;
+
+    const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
+      sucesso: {
+        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+        label: "Sincronizado",
+        color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+      },
+      em_andamento: {
+        icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
+        label: "Sincronizando...",
+        color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+      },
+      erro: {
+        icon: <AlertCircle className="h-3.5 w-3.5" />,
+        label: "Erro",
+        color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+      },
+      nunca: {
+        icon: <Clock className="h-3.5 w-3.5" />,
+        label: "Nunca sincronizado",
+        color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+      },
+      pendente: {
+        icon: <Clock className="h-3.5 w-3.5" />,
+        label: "Pendente",
+        color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+      },
+    };
+
+    const config = statusConfig[statusSync.status] || statusConfig.pendente;
+
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary" className={`text-xs py-1 px-2 ${config.color}`}>
+          {config.icon}
+          <span className="ml-1">{config.label}</span>
+        </Badge>
+        {statusSync.totalRegistrosCache > 0 && (
+          <Badge variant="outline" className="text-xs py-1 px-2">
+            <Database className="h-3 w-3 mr-1" />
+            {statusSync.totalRegistrosCache.toLocaleString("pt-BR")} em cache
+          </Badge>
+        )}
+        {statusSync.ultimaSincronizacao && (
+          <span className="text-xs text-muted-foreground">
+            Atualizado em {formatDate(new Date(statusSync.ultimaSincronizacao).toISOString())}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <DashboardLayout>
@@ -142,7 +250,7 @@ export default function RelatorioAtendimentos() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Activity className="h-6 w-6 text-primary" />
-              Relatório de Atendimentos
+              Relatorio de Atendimentos
             </h1>
             <p className="text-muted-foreground mt-1">
               Consulte os atendimentos realizados com dados descritivos completos
@@ -154,6 +262,21 @@ export default function RelatorioAtendimentos() {
                 <Users className="h-3.5 w-3.5 mr-1" />
                 {resultado.total.toLocaleString("pt-BR")} atendimentos
               </Badge>
+              {/* Fonte dos dados */}
+              <Badge
+                variant="secondary"
+                className={`text-xs py-1 px-2 ${
+                  resultado.fonte === "cache_local"
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                    : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                }`}
+              >
+                {resultado.fonte === "cache_local" ? (
+                  <><Database className="h-3 w-3 mr-1" /> Cache Local</>
+                ) : (
+                  <><Cloud className="h-3 w-3 mr-1" /> PostgreSQL Direto</>
+                )}
+              </Badge>
               <Button variant="outline" size="sm" onClick={handleExportarExcel} disabled={!resultado.dados.length}>
                 <Download className="h-4 w-4 mr-1" />
                 Exportar CSV
@@ -161,6 +284,63 @@ export default function RelatorioAtendimentos() {
             </div>
           )}
         </div>
+
+        {/* Sincronização */}
+        <Card className="border-dashed">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Sincronizacao de Dados
+              </div>
+              {renderSyncStatus()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row items-end gap-3">
+              <div className="space-y-1.5 flex-1">
+                <Label className="text-xs font-medium">Periodo Inicio</Label>
+                <Input
+                  type="date"
+                  value={syncDataInicio}
+                  onChange={(e) => setSyncDataInicio(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <Label className="text-xs font-medium">Periodo Fim</Label>
+                <Input
+                  type="date"
+                  value={syncDataFim}
+                  onChange={(e) => setSyncDataFim(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <Button
+                onClick={handleSincronizar}
+                disabled={syncMutation.isPending || estabelecimentoId <= 0}
+                className="h-9"
+              >
+                {syncMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                {syncMutation.isPending ? "Sincronizando..." : "Sincronizar Agora"}
+              </Button>
+            </div>
+            {statusSync?.status === "erro" && statusSync.mensagemErro && (
+              <div className="mt-3 p-2 rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-xs">
+                <AlertCircle className="h-3.5 w-3.5 inline mr-1" />
+                Ultimo erro: {statusSync.mensagemErro}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">
+              A sincronizacao copia os dados do Warleine (PostgreSQL) para o cache local, permitindo consultas mais rapidas e disponiveis mesmo offline.
+              {statusSync?.status === "nunca" && " Recomendamos sincronizar antes de usar o relatorio."}
+            </p>
+          </CardContent>
+        </Card>
 
         {/* Filtros */}
         <Card>
@@ -177,7 +357,7 @@ export default function RelatorioAtendimentos() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Período */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Data Início</Label>
+                <Label className="text-xs font-medium">Data Inicio</Label>
                 <Input
                   type="date"
                   value={dataInicio}
@@ -204,24 +384,24 @@ export default function RelatorioAtendimentos() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="I">Internação</SelectItem>
+                    <SelectItem value="I">Internacao</SelectItem>
                     <SelectItem value="A">Ambulatorial</SelectItem>
-                    <SelectItem value="E">Emergência</SelectItem>
-                    <SelectItem value="U">Urgência</SelectItem>
+                    <SelectItem value="E">Emergencia</SelectItem>
+                    <SelectItem value="U">Urgencia</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {/* Caráter */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Caráter</Label>
+                <Label className="text-xs font-medium">Carater</Label>
                 <Select value={carater} onValueChange={setCarater}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="UR">Urgência</SelectItem>
+                    <SelectItem value="UR">Urgencia</SelectItem>
                     <SelectItem value="EL">Eletivo</SelectItem>
                   </SelectContent>
                 </Select>
@@ -229,7 +409,7 @@ export default function RelatorioAtendimentos() {
 
               {/* Serviço */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Serviço</Label>
+                <Label className="text-xs font-medium">Servico</Label>
                 <Select value={codServ} onValueChange={setCodServ}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Todos" />
@@ -247,7 +427,7 @@ export default function RelatorioAtendimentos() {
 
               {/* Plano/Convênio */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Plano/Convênio</Label>
+                <Label className="text-xs font-medium">Plano/Convenio</Label>
                 <Select value={codPlaco} onValueChange={setCodPlaco}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Todos" />
@@ -320,9 +500,11 @@ export default function RelatorioAtendimentos() {
           <Card>
             <CardContent className="py-16 text-center">
               <Calendar className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground">Selecione o período e clique em Buscar</h3>
+              <h3 className="text-lg font-medium text-muted-foreground">Selecione o periodo e clique em Buscar</h3>
               <p className="text-sm text-muted-foreground/70 mt-1">
-                Os dados serão consultados diretamente do banco de dados do hospital
+                {statusSync?.totalRegistrosCache && statusSync.totalRegistrosCache > 0
+                  ? `${statusSync.totalRegistrosCache.toLocaleString("pt-BR")} atendimentos em cache local disponiveis`
+                  : "Os dados serao consultados diretamente do banco de dados do hospital"}
               </p>
             </CardContent>
           </Card>
@@ -347,18 +529,18 @@ export default function RelatorioAtendimentos() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="whitespace-nowrap font-semibold">Nº Atend.</TableHead>
+                      <TableHead className="whitespace-nowrap font-semibold">N Atend.</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Tipo</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Paciente</TableHead>
-                      <TableHead className="whitespace-nowrap font-semibold">Plano/Convênio</TableHead>
-                      <TableHead className="whitespace-nowrap font-semibold">Serviço</TableHead>
+                      <TableHead className="whitespace-nowrap font-semibold">Plano/Convenio</TableHead>
+                      <TableHead className="whitespace-nowrap font-semibold">Servico</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Data Atend.</TableHead>
-                      <TableHead className="whitespace-nowrap font-semibold">Data Saída</TableHead>
+                      <TableHead className="whitespace-nowrap font-semibold">Data Saida</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Centro Custo</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Prestador</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Procedimento</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">CID</TableHead>
-                      <TableHead className="whitespace-nowrap font-semibold">Caráter</TableHead>
+                      <TableHead className="whitespace-nowrap font-semibold">Carater</TableHead>
                       <TableHead className="whitespace-nowrap font-semibold">Proveniente</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -422,7 +604,7 @@ export default function RelatorioAtendimentos() {
               {resultado.totalPaginas > 1 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t">
                   <p className="text-sm text-muted-foreground">
-                    Página {resultado.pagina} de {resultado.totalPaginas} ({resultado.total.toLocaleString("pt-BR")} registros)
+                    Pagina {resultado.pagina} de {resultado.totalPaginas} ({resultado.total.toLocaleString("pt-BR")} registros)
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -440,7 +622,7 @@ export default function RelatorioAtendimentos() {
                       onClick={() => setPagina(p => Math.min(resultado.totalPaginas, p + 1))}
                       disabled={pagina >= resultado.totalPaginas || isFetching}
                     >
-                      Próxima
+                      Proxima
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
@@ -461,11 +643,11 @@ export default function RelatorioAtendimentos() {
             </Card>
             <Card>
               <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Internações</p>
+                <p className="text-xs text-muted-foreground">Internacoes</p>
                 <p className="text-2xl font-bold text-blue-600">
                   {resultado.dados.filter(d => d.tipo_atendimento === "Internação").length}
                 </p>
-                <p className="text-xs text-muted-foreground">(nesta página)</p>
+                <p className="text-xs text-muted-foreground">(nesta pagina)</p>
               </CardContent>
             </Card>
             <Card>
@@ -474,16 +656,16 @@ export default function RelatorioAtendimentos() {
                 <p className="text-2xl font-bold text-green-600">
                   {resultado.dados.filter(d => d.tipo_atendimento === "Ambulatorial").length}
                 </p>
-                <p className="text-xs text-muted-foreground">(nesta página)</p>
+                <p className="text-xs text-muted-foreground">(nesta pagina)</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Emergências</p>
+                <p className="text-xs text-muted-foreground">Emergencias</p>
                 <p className="text-2xl font-bold text-red-600">
                   {resultado.dados.filter(d => d.tipo_atendimento === "Emergência").length}
                 </p>
-                <p className="text-xs text-muted-foreground">(nesta página)</p>
+                <p className="text-xs text-muted-foreground">(nesta pagina)</p>
               </CardContent>
             </Card>
           </div>
