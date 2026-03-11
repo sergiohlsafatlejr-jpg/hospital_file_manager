@@ -169,15 +169,15 @@ const StatusBadge = ({ status }: { status: string }) => {
 const SeveridadeBadge = ({ severidade }: { severidade: string }) => {
   switch (severidade) {
     case "critico":
-      return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Crítico</Badge>;
+      return <Badge variant="destructive" className="text-sm px-3 py-1 font-bold shadow-sm"><XCircle className="h-4 w-4 mr-1.5" />Crítico</Badge>;
     case "alerta":
-      return <Badge className="bg-orange-100 text-orange-800 border-orange-200"><AlertTriangle className="h-3 w-3 mr-1" />Alerta</Badge>;
+      return <Badge className="bg-orange-200 text-orange-900 border-orange-400 dark:bg-orange-900 dark:text-orange-100 dark:border-orange-600 text-sm px-3 py-1 font-bold shadow-sm"><AlertTriangle className="h-4 w-4 mr-1.5" />Alerta</Badge>;
     case "aviso":
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><AlertTriangle className="h-3 w-3 mr-1" />Aviso</Badge>;
+      return <Badge className="bg-yellow-200 text-yellow-900 border-yellow-400 dark:bg-yellow-900 dark:text-yellow-100 dark:border-yellow-600 text-sm px-3 py-1 font-bold shadow-sm"><AlertTriangle className="h-4 w-4 mr-1.5" />Aviso</Badge>;
     case "info":
-      return <Badge className="bg-blue-100 text-blue-800 border-blue-200"><Info className="h-3 w-3 mr-1" />Info</Badge>;
+      return <Badge className="bg-blue-200 text-blue-900 border-blue-400 dark:bg-blue-900 dark:text-blue-100 dark:border-blue-600 text-sm px-3 py-1 font-bold shadow-sm"><Info className="h-4 w-4 mr-1.5" />Info</Badge>;
     default:
-      return <Badge variant="outline"><Info className="h-3 w-3 mr-1" />{severidade || "Info"}</Badge>;
+      return <Badge variant="outline" className="text-sm px-3 py-1 font-bold"><Info className="h-4 w-4 mr-1.5" />{severidade || "Info"}</Badge>;
   }
 };
 
@@ -186,24 +186,24 @@ const DecisaoBadge = ({ decisao }: { decisao: string }) => {
   switch (decisao) {
     case "aceitar":
       return (
-        <Badge className="bg-green-100 text-green-700 border-green-200">
-          <ThumbsUp className="h-3 w-3 mr-1" />Aceita
+        <Badge className="bg-green-200 text-green-900 border-green-400 dark:bg-green-900 dark:text-green-100 dark:border-green-600 text-sm px-3 py-1 font-bold shadow-sm">
+          <ThumbsUp className="h-4 w-4 mr-1.5" />Aceita
         </Badge>
       );
     case "rejeitar":
       return (
-        <Badge className="bg-red-100 text-red-700 border-red-200">
-          <ThumbsDown className="h-3 w-3 mr-1" />Rejeitada
+        <Badge className="bg-red-200 text-red-900 border-red-400 dark:bg-red-900 dark:text-red-100 dark:border-red-600 text-sm px-3 py-1 font-bold shadow-sm">
+          <ThumbsDown className="h-4 w-4 mr-1.5" />Rejeitada
         </Badge>
       );
     case "ignorar":
       return (
-        <Badge className="bg-gray-100 text-gray-700 border-gray-200">
-          <XCircle className="h-3 w-3 mr-1" />Ignorada
+        <Badge className="bg-gray-200 text-gray-900 border-gray-400 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-500 text-sm px-3 py-1 font-bold shadow-sm">
+          <XCircle className="h-4 w-4 mr-1.5" />Ignorada
         </Badge>
       );
     default:
-      return <Badge variant="outline">{decisao}</Badge>;
+      return <Badge variant="outline" className="text-sm px-3 py-1 font-bold">{decisao}</Badge>;
   }
 };
 
@@ -262,6 +262,7 @@ export default function ContaConvenioDetalhes() {
       tipoAjuste: string;
       codigoItem: string;
       descricaoItem: string;
+      dataExecucao: string | null;
       quantidadeOriginal: string | null;
       quantidadeAjustada: string | null;
       valorOriginal: string | null;
@@ -1246,14 +1247,15 @@ export default function ContaConvenioDetalhes() {
                   <div className="rounded-md border border-purple-200 overflow-hidden">
                     <Table>
                       <TableHeader>
-                        <TableRow className="bg-purple-50 dark:bg-purple-950/20">
-                          <TableHead className="font-semibold">Status</TableHead>
-                          <TableHead className="font-semibold">Tipo</TableHead>
-                          <TableHead className="font-semibold">Código</TableHead>
-                          <TableHead className="font-semibold">Descrição</TableHead>
-                          <TableHead className="font-semibold text-center">Auditoria</TableHead>
-                          <TableHead className="font-semibold text-center">Atual (Banco)</TableHead>
-                          <TableHead className="font-semibold">Observação</TableHead>
+                        <TableRow className="bg-purple-100 dark:bg-purple-950/40">
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Status</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Tipo</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Código</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Data Exec.</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Descrição</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">Auditoria</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">Atual (Banco)</TableHead>
+                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Observação</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1305,21 +1307,24 @@ export default function ContaConvenioDetalhes() {
                                   : aj.tipoAjuste;
 
                           return (
-                            <TableRow key={idx} className={statusColor}>
+                            <TableRow key={idx} className={`${statusColor} border-b-2 border-opacity-30 ${aj.status === 'corrigido' ? 'border-green-400' : aj.status === 'parcialmente_corrigido' ? 'border-amber-400' : 'border-red-400'}`}>
                               <TableCell>
-                                <div className="flex items-center gap-1.5">
-                                  {statusIcon}
-                                  <span className="text-xs font-medium">{statusLabel}</span>
+                                <div className="flex items-center gap-2 min-w-[120px]">
+                                  <div className={`p-1.5 rounded-full ${aj.status === 'corrigido' ? 'bg-green-200 dark:bg-green-900' : aj.status === 'parcialmente_corrigido' ? 'bg-amber-200 dark:bg-amber-900' : 'bg-red-200 dark:bg-red-900'}`}>
+                                    {statusIcon}
+                                  </div>
+                                  <span className="text-sm font-bold">{statusLabel}</span>
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className="text-xs">{tipoBadge}</Badge>
+                                <Badge variant="outline" className={`text-xs font-bold px-2 py-1 ${aj.tipoAjuste === 'ADICIONAR_ITEM' ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900 dark:text-blue-200' : aj.tipoAjuste === 'REMOVER_ITEM' ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200' : 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200'}`}>{tipoBadge}</Badge>
                               </TableCell>
-                              <TableCell className="font-mono text-sm">{aj.codigoItem}</TableCell>
-                              <TableCell className="text-sm max-w-[180px] truncate">{aj.descricaoItem}</TableCell>
-                              <TableCell className="text-center text-sm font-medium">{auditoriaTexto}</TableCell>
-                              <TableCell className="text-center text-sm">{atualTexto}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-[200px]">{aj.observacao}</TableCell>
+                              <TableCell className="font-mono text-sm font-bold">{aj.codigoItem}</TableCell>
+                              <TableCell className="text-sm font-medium text-blue-700 dark:text-blue-300">{aj.dataExecucao || '-'}</TableCell>
+                              <TableCell className="text-sm max-w-[200px] truncate font-medium">{aj.descricaoItem}</TableCell>
+                              <TableCell className="text-center text-sm font-bold">{auditoriaTexto}</TableCell>
+                              <TableCell className="text-center text-sm font-bold">{atualTexto}</TableCell>
+                              <TableCell className="text-sm max-w-[220px] font-medium">{aj.observacao}</TableCell>
                             </TableRow>
                           );
                         })}

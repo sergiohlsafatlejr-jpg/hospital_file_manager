@@ -290,6 +290,7 @@ export const contasConvenioRouter = router({
         // CAPTURAR DADOS ANTIGOS ANTES DO DELETE (para comparativo)
         // ============================================================
         const dadosAntigos = await db.select({
+          id: contasConvenioItens.id,
           codigoItem: contasConvenioItens.codigoItem,
           descricaoItem: contasConvenioItens.descricaoItem,
           quantidade: contasConvenioItens.quantidade,
@@ -658,17 +659,26 @@ export const contasConvenioRouter = router({
           );
 
           // Criar mapa dos novos itens por código para cruzamento
-          const mapaNovosPorCodigo = new Map<string, Array<{ quantidade: string | null; valorUnitario: string | null; valorTotal: string | null; descricaoItem: string | null }>>();
+          const mapaNovosPorCodigo = new Map<string, Array<{ quantidade: string | null; valorUnitario: string | null; valorTotal: string | null; descricaoItem: string | null; dataExecucao: Date | null }>>();
           for (const item of dadosNovos) {
             const cod = item.codigoItem || '';
             if (!mapaNovosPorCodigo.has(cod)) mapaNovosPorCodigo.set(cod, []);
             mapaNovosPorCodigo.get(cod)!.push(item);
           }
 
+          // Criar mapa de itemId -> dataExecucao dos itens antigos (para cruzar com ajustes)
+          const mapaItemIdData = new Map<number, string>();
+          for (const item of dadosAntigos) {
+            if (item.id && item.dataExecucao) {
+              mapaItemIdData.set(item.id, new Date(item.dataExecucao).toLocaleDateString('pt-BR'));
+            }
+          }
+
           const statusAjustes: Array<{
             tipoAjuste: string;
             codigoItem: string;
             descricaoItem: string;
+            dataExecucao: string | null;
             quantidadeOriginal: string | null;
             quantidadeAjustada: string | null;
             valorOriginal: string | null;
@@ -683,6 +693,8 @@ export const contasConvenioRouter = router({
             const cod = aj.codigoItem || '';
             const itensNovos = mapaNovosPorCodigo.get(cod) || [];
             const itemNovo = itensNovos[0];
+            // Obter data de execução do item (do ajuste via itemId, ou do item novo)
+            const dataExecItem = aj.itemId ? (mapaItemIdData.get(aj.itemId) || null) : (itemNovo?.dataExecucao ? new Date(itemNovo.dataExecucao).toLocaleDateString('pt-BR') : null);
 
             if (aj.tipoAjuste === 'ADICIONAR_ITEM') {
               // Verificar se o item foi adicionado
@@ -691,6 +703,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: null,
                   quantidadeAjustada: aj.quantidadeAjustada,
                   valorOriginal: null,
@@ -705,6 +718,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: null,
                   quantidadeAjustada: aj.quantidadeAjustada,
                   valorOriginal: null,
@@ -721,6 +735,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: aj.quantidadeOriginal,
                   quantidadeAjustada: '0',
                   valorOriginal: aj.valorOriginal,
@@ -735,6 +750,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: aj.quantidadeOriginal,
                   quantidadeAjustada: '0',
                   valorOriginal: aj.valorOriginal,
@@ -751,6 +767,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: aj.quantidadeOriginal,
                   quantidadeAjustada: aj.quantidadeAjustada,
                   valorOriginal: aj.valorOriginal,
@@ -769,6 +786,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,
@@ -783,6 +801,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,
@@ -797,6 +816,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,
@@ -814,6 +834,7 @@ export const contasConvenioRouter = router({
                   tipoAjuste: aj.tipoAjuste,
                   codigoItem: cod,
                   descricaoItem: aj.descricaoItem || '-',
+                  dataExecucao: dataExecItem,
                   quantidadeOriginal: aj.quantidadeOriginal,
                   quantidadeAjustada: aj.quantidadeAjustada,
                   valorOriginal: aj.valorOriginal,
@@ -832,6 +853,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,
@@ -846,6 +868,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,
@@ -860,6 +883,7 @@ export const contasConvenioRouter = router({
                     tipoAjuste: aj.tipoAjuste,
                     codigoItem: cod,
                     descricaoItem: aj.descricaoItem || '-',
+                    dataExecucao: dataExecItem,
                     quantidadeOriginal: aj.quantidadeOriginal,
                     quantidadeAjustada: aj.quantidadeAjustada,
                     valorOriginal: aj.valorOriginal,

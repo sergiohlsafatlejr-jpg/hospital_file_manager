@@ -2746,3 +2746,5 @@
 - [x] Seção 'Verificação dos Ajustes da Auditoria' no card de comparativo
 - [x] Cruzamento automático: ajustes da auditoria vs dados reimportados (corrigido/parcial/não corrigido)
 - [x] 34 testes unitários passando (incluindo 11 novos para cruzamento de ajustes)
+- [x] Adicionar data do item nas colunas Auditoria e Atual (Banco) na Verificação dos Ajustes
+- [x] Melhorar visibilidade dos marcadores/badges na tela de Divergências e Composição (texto maior, contraste melhor)
