@@ -748,8 +748,9 @@ export default function ContaConvenioDetalhes() {
           </div>
           <div className="flex gap-2">
             <Button 
-              variant="outline" 
               size="sm" 
+              variant="outline"
+              className="border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
               onClick={() => {
                 compararMutation.mutate({ numeroConta, estabelecimentoId });
               }}
@@ -758,9 +759,9 @@ export default function ContaConvenioDetalhes() {
               {compararMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
-                <BarChart3 className="mr-2 h-4 w-4" />
+                <ShieldAlert className="mr-2 h-4 w-4" />
               )}
-              Comparar com Padrões
+              Reanalisar
             </Button>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="mr-2 h-4 w-4" />

@@ -2792,3 +2792,8 @@
 ## Bug - Reimportação de Conta do Banco
 - [x] Corrigir reimportação do banco: campos Conformes/Divergentes ficam zerados após reimportar
 - [x] Garantir que a reimportação preserve/recalcule comparações e ajustes de auditoria
+
+## Melhorias Análise de Contas
+- [x] Bug: Dados de Conformes/Divergentes não persistem ao sair e voltar na conta (dados já persistiam, contas antigas precisam de reanálise)
+- [x] Adicionar botão "Reanalisar" na tela de detalhes da conta
+- [x] Exibir badge colorido de score de risco na listagem de contas (já existia)
