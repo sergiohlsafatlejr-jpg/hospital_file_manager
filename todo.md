@@ -2855,3 +2855,8 @@
 - [x] Backend: endpoint tRPC para buscar pacientes internados em tempo real
 - [x] Frontend: KPI e tabela de pacientes internados na aba Análise Operacional
 - [x] Testes unitários para buscarPacientesInternados
+
+## Novos Motivos e Setor em Notificações de Atendimentos Parados
+- [x] Adicionar motivo "Enviado ao faturamento" nas opções de notificação
+- [x] Adicionar motivo "Pendência UTI" nas opções de notificação
+- [x] Setor "UTI" já existia nas opções de setor (confirmado)

@@ -33,6 +33,8 @@ const MOTIVOS = [
   { value: "exames", label: "Falta de Exames" },
   { value: "autorizacao", label: "Falta Autorização" },
   { value: "autorizacao_prorr", label: "Falta Autorização de Prorr." },
+  { value: "enviado_faturamento", label: "Enviado ao Faturamento" },
+  { value: "pendencia_uti", label: "Pendência UTI" },
   { value: "outro", label: "Outro" },
 ];
 
