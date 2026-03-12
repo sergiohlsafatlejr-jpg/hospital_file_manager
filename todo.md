@@ -2773,3 +2773,9 @@
 - [ ] Otimizar performance da query custosPorConvenio (demora a abrir)
 - [ ] Bug: Verificar e corrigir exibição de custo unitário vs valor unitário por convênio na aba Custos por Convênio
 - [x] Bug: Corrigido erro feedback_divergencias - query SQL raw usava 'padrao_id' (nome errado) em vez da API Drizzle com feedbackDivergencias.padraoId
+- [x] Reorganizar menu Relatórios BI em subpastas: Faturamento (Faturado x Recebido, Recebimentos Geral), Recepção (Rel. Atendimento), Compras (Rel. Custo)
+- [x] Criar schema de permissões por relatório no banco de dados (7 novos campos na tabela permissoesEstabelecimento)
+- [x] Implementar backend - endpoints de gerenciamento de permissões por relatório
+- [x] Refatorar menu lateral com subpastas hierárquicas expansíveis (3 níveis)
+- [x] Implementar frontend - tela de gerenciamento de permissões por usuário/relatório (seção Relatórios BI em laranja)
+- [x] Integrar permissões no menu e nas rotas (filtrar relatórios visíveis por permissão do usuário)

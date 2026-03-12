@@ -6431,6 +6431,14 @@ export async function getPermissoesUsuario(userId: number) {
       acessoRecursos: permissoesEstabelecimento.acessoRecursos,
       acessoAtendimentos: permissoesEstabelecimento.acessoAtendimentos,
       acessoAtendimentosFaturar: permissoesEstabelecimento.acessoAtendimentosFaturar,
+      // Permissões granulares por relatório
+      acessoRelFaturadoRecebido: permissoesEstabelecimento.acessoRelFaturadoRecebido,
+      acessoRelRecebimentoGeral: permissoesEstabelecimento.acessoRelRecebimentoGeral,
+      acessoRelFaturamento: permissoesEstabelecimento.acessoRelFaturamento,
+      acessoRelAtendimentos: permissoesEstabelecimento.acessoRelAtendimentos,
+      acessoRelCustos: permissoesEstabelecimento.acessoRelCustos,
+      acessoRelNaoRecebidos: permissoesEstabelecimento.acessoRelNaoRecebidos,
+      acessoRelPrevisaoGlosa: permissoesEstabelecimento.acessoRelPrevisaoGlosa,
       estabelecimentoNome: estabelecimentos.nome,
     })
     .from(permissoesEstabelecimento)
@@ -6574,6 +6582,14 @@ export async function upsertPermissaoEstabelecimento(data: InsertPermissaoEstabe
         acessoRecursos: data.acessoRecursos,
         acessoAtendimentos: data.acessoAtendimentos,
         acessoAtendimentosFaturar: data.acessoAtendimentosFaturar,
+        // Permissões granulares por relatório
+        acessoRelFaturadoRecebido: data.acessoRelFaturadoRecebido,
+        acessoRelRecebimentoGeral: data.acessoRelRecebimentoGeral,
+        acessoRelFaturamento: data.acessoRelFaturamento,
+        acessoRelAtendimentos: data.acessoRelAtendimentos,
+        acessoRelCustos: data.acessoRelCustos,
+        acessoRelNaoRecebidos: data.acessoRelNaoRecebidos,
+        acessoRelPrevisaoGlosa: data.acessoRelPrevisaoGlosa,
       })
       .where(eq(permissoesEstabelecimento.id, existente.id));
     return { id: existente.id, updated: true };
@@ -6693,6 +6709,14 @@ export async function getUsuariosEstabelecimento(estabelecimentoId: number) {
       acessoRecursos: permissoesEstabelecimento.acessoRecursos,
       acessoAtendimentos: permissoesEstabelecimento.acessoAtendimentos,
       acessoAtendimentosFaturar: permissoesEstabelecimento.acessoAtendimentosFaturar,
+      // Permissões granulares por relatório
+      acessoRelFaturadoRecebido: permissoesEstabelecimento.acessoRelFaturadoRecebido,
+      acessoRelRecebimentoGeral: permissoesEstabelecimento.acessoRelRecebimentoGeral,
+      acessoRelFaturamento: permissoesEstabelecimento.acessoRelFaturamento,
+      acessoRelAtendimentos: permissoesEstabelecimento.acessoRelAtendimentos,
+      acessoRelCustos: permissoesEstabelecimento.acessoRelCustos,
+      acessoRelNaoRecebidos: permissoesEstabelecimento.acessoRelNaoRecebidos,
+      acessoRelPrevisaoGlosa: permissoesEstabelecimento.acessoRelPrevisaoGlosa,
       userName: users.name,
       userEmail: users.email,
       userRole: users.role,
@@ -7644,6 +7668,14 @@ export async function verificarAcessoModulo(
     recursos: "acessoRecursos",
     atendimentos: "acessoAtendimentos",
     atendimentosFaturar: "acessoAtendimentosFaturar",
+    // Permissões granulares por relatório
+    relFaturadoRecebido: "acessoRelFaturadoRecebido",
+    relRecebimentoGeral: "acessoRelRecebimentoGeral",
+    relFaturamento: "acessoRelFaturamento",
+    relAtendimentos: "acessoRelAtendimentos",
+    relCustos: "acessoRelCustos",
+    relNaoRecebidos: "acessoRelNaoRecebidos",
+    relPrevisaoGlosa: "acessoRelPrevisaoGlosa",
   };
 
   const campo = moduloMap[modulo];
@@ -7680,6 +7712,14 @@ export function getModulosPermitidosPorGrupo(grupoServico: string): Record<strin
     acessoRecursos: "nao" as const,
     acessoAtendimentos: "nao" as const,
     acessoAtendimentosFaturar: "nao" as const,
+    // Permissões granulares por relatório
+    acessoRelFaturadoRecebido: "nao" as const,
+    acessoRelRecebimentoGeral: "nao" as const,
+    acessoRelFaturamento: "nao" as const,
+    acessoRelAtendimentos: "nao" as const,
+    acessoRelCustos: "nao" as const,
+    acessoRelNaoRecebidos: "nao" as const,
+    acessoRelPrevisaoGlosa: "nao" as const,
   };
 
   switch (grupoServico) {
@@ -7751,6 +7791,14 @@ export function getModulosTasyUser(): Record<string, "sim" | "nao"> {
     acessoRecursos: "nao",
     acessoAtendimentos: "nao",
     acessoAtendimentosFaturar: "nao",
+    // Permissões granulares por relatório - Tasy user tem acesso a todos os relatórios BI
+    acessoRelFaturadoRecebido: "sim",
+    acessoRelRecebimentoGeral: "sim",
+    acessoRelFaturamento: "sim",
+    acessoRelAtendimentos: "sim",
+    acessoRelCustos: "sim",
+    acessoRelNaoRecebidos: "sim",
+    acessoRelPrevisaoGlosa: "sim",
   };
 }
 

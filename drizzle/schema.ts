@@ -948,6 +948,15 @@ export const permissoesEstabelecimento = mysqlTable("permissoesEstabelecimento",
   acessoAtendimentos: mysqlEnum("acessoAtendimentos", ["sim", "nao"]).default("nao").notNull(),
   acessoAtendimentosFaturar: mysqlEnum("acessoAtendimentosFaturar", ["sim", "nao"]).default("nao").notNull(),
   
+  // Permissões granulares por relatório individual (dentro de Relatórios BI)
+  acessoRelFaturadoRecebido: mysqlEnum("acessoRelFaturadoRecebido", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelRecebimentoGeral: mysqlEnum("acessoRelRecebimentoGeral", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelFaturamento: mysqlEnum("acessoRelFaturamento", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelAtendimentos: mysqlEnum("acessoRelAtendimentos", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelCustos: mysqlEnum("acessoRelCustos", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelNaoRecebidos: mysqlEnum("acessoRelNaoRecebidos", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelPrevisaoGlosa: mysqlEnum("acessoRelPrevisaoGlosa", ["sim", "nao"]).default("nao").notNull(),
+  
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

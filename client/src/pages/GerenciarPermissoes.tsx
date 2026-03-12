@@ -145,6 +145,14 @@ const MODULOS = [
   { key: "acessoRecursos", label: "Recursos", icon: Briefcase, category: "recebimento" },
   { key: "acessoAtendimentos", label: "Atendimentos", icon: Users, category: "atendimento" },
   { key: "acessoAtendimentosFaturar", label: "Atendimentos a Faturar", icon: FileText, category: "atendimento" },
+  // Permissões granulares por relatório
+  { key: "acessoRelFaturadoRecebido", label: "Rel. Faturado x Recebido", icon: BarChart3, category: "relatorio" },
+  { key: "acessoRelRecebimentoGeral", label: "Rel. Recebimento Geral", icon: DollarSign, category: "relatorio" },
+  { key: "acessoRelFaturamento", label: "Rel. Faturamento", icon: FileText, category: "relatorio" },
+  { key: "acessoRelAtendimentos", label: "Rel. Atendimentos", icon: Users, category: "relatorio" },
+  { key: "acessoRelCustos", label: "Rel. Custos", icon: DollarSign, category: "relatorio" },
+  { key: "acessoRelNaoRecebidos", label: "Rel. Não Recebidos", icon: AlertCircle, category: "relatorio" },
+  { key: "acessoRelPrevisaoGlosa", label: "Rel. Previsão de Glosa", icon: BarChart3, category: "relatorio" },
 ];
 
 // Cores disponíveis para grupos
@@ -223,6 +231,13 @@ export default function GerenciarPermissoes() {
     acessoRecursos: "nao" as "sim" | "nao",
     acessoAtendimentos: "nao" as "sim" | "nao",
     acessoAtendimentosFaturar: "nao" as "sim" | "nao",
+    acessoRelFaturadoRecebido: "sim" as "sim" | "nao",
+    acessoRelRecebimentoGeral: "sim" as "sim" | "nao",
+    acessoRelFaturamento: "sim" as "sim" | "nao",
+    acessoRelAtendimentos: "sim" as "sim" | "nao",
+    acessoRelCustos: "sim" as "sim" | "nao",
+    acessoRelNaoRecebidos: "sim" as "sim" | "nao",
+    acessoRelPrevisaoGlosa: "sim" as "sim" | "nao",
   });
 
   // Verificar se é gestor
@@ -506,6 +521,13 @@ export default function GerenciarPermissoes() {
       acessoRecursos: user.acessoRecursos || "nao",
       acessoAtendimentos: user.acessoAtendimentos || "nao",
       acessoAtendimentosFaturar: user.acessoAtendimentosFaturar || "nao",
+      acessoRelFaturadoRecebido: user.acessoRelFaturadoRecebido || "sim",
+      acessoRelRecebimentoGeral: user.acessoRelRecebimentoGeral || "sim",
+      acessoRelFaturamento: user.acessoRelFaturamento || "sim",
+      acessoRelAtendimentos: user.acessoRelAtendimentos || "sim",
+      acessoRelCustos: user.acessoRelCustos || "sim",
+      acessoRelNaoRecebidos: user.acessoRelNaoRecebidos || "sim",
+      acessoRelPrevisaoGlosa: user.acessoRelPrevisaoGlosa || "sim",
     });
     setShowEditDialog(true);
   };
@@ -808,6 +830,13 @@ export default function GerenciarPermissoes() {
                       acessoRecursos: "nao",
                       acessoAtendimentos: "nao",
                       acessoAtendimentosFaturar: "nao",
+                      acessoRelFaturadoRecebido: "sim",
+                      acessoRelRecebimentoGeral: "sim",
+                      acessoRelFaturamento: "sim",
+                      acessoRelAtendimentos: "sim",
+                      acessoRelCustos: "sim",
+                      acessoRelNaoRecebidos: "sim",
+                      acessoRelPrevisaoGlosa: "sim",
                     });
                     setShowAddDialog(true);
                   }}>
@@ -1660,6 +1689,24 @@ export default function GerenciarPermissoes() {
                   );
                 })}
               </div>
+
+              <h4 className="font-semibold text-sm text-orange-600 uppercase tracking-wider mt-4">Relatórios BI (Permissões Individuais)</h4>
+              <p className="text-xs text-muted-foreground mb-2">Controle quais relatórios específicos este usuário pode acessar dentro de Relatórios BI.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {MODULOS.filter(m => (m as any).category === "relatorio").map((modulo) => {
+                  const Icon = modulo.icon;
+                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
+                  return (
+                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-orange-200">
+                      <div className="flex items-center gap-3">
+                        <Icon className="h-4 w-4 text-orange-600" />
+                        <span className="font-medium">{modulo.label}</span>
+                      </div>
+                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
+                    </div>
+                  );
+                })}
+              </div>
             </TabsContent>
           </Tabs>
 
@@ -1793,6 +1840,24 @@ export default function GerenciarPermissoes() {
                     <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-purple-200">
                       <div className="flex items-center gap-3">
                         <Icon className="h-4 w-4 text-purple-600" />
+                        <span className="font-medium">{modulo.label}</span>
+                      </div>
+                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <h4 className="font-semibold text-sm text-orange-600 uppercase tracking-wider mt-4">Relatórios BI (Permissões Individuais)</h4>
+              <p className="text-xs text-muted-foreground mb-2">Controle quais relatórios específicos este usuário pode acessar dentro de Relatórios BI.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {MODULOS.filter(m => (m as any).category === "relatorio").map((modulo) => {
+                  const Icon = modulo.icon;
+                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
+                  return (
+                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-orange-200">
+                      <div className="flex items-center gap-3">
+                        <Icon className="h-4 w-4 text-orange-600" />
                         <span className="font-medium">{modulo.label}</span>
                       </div>
                       <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />

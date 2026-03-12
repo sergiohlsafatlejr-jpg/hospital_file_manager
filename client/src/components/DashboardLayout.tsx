@@ -149,15 +149,24 @@ const menuItems: MenuItem[] = [
     { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
   ]},
 
-// Módulo 5 - Relatórios BI
-   { icon: PieChart, label: "Relatórios BI", path: "/relatorios-bi", modulo: "relatoriosBi", children: [
-     { icon: BarChart3, label: "Faturado x Recebido x Glosado", path: "/relatorios-bi", modulo: "relatoriosBi" },
-    { icon: Receipt, label: "Recebimento Geral", path: "/relatorio-recebimento-geral", modulo: "relatoriosBi" },
-    { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relatoriosBi" },
-    { icon: Users, label: "Rel. Atendimentos", path: "/relatorio-atendimentos", modulo: "relatoriosBi" },
-    { icon: DollarSign, label: "Rel. Custos", path: "/relatorio-custos", modulo: "relatoriosBi" },
-    { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "faturamento" },
-    { icon: TrendingUp, label: "Previsão de Glosa", path: "/previsao-glosa", modulo: "relatoriosBi" },
+// Módulo 5 - Relatórios BI (com subpastas)
+  { icon: PieChart, label: "Relatórios BI", path: "/relatorios-bi", modulo: "relatoriosBi", children: [
+    // Subpasta: Faturamento
+    { icon: Receipt, label: "Faturamento", path: "/relatorios-bi", modulo: "relatoriosBi", children: [
+      { icon: BarChart3, label: "Faturado x Recebido x Glosado", path: "/relatorios-bi", modulo: "relFaturadoRecebido" },
+      { icon: Receipt, label: "Recebimento Geral", path: "/relatorio-recebimento-geral", modulo: "relRecebimentoGeral" },
+      { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relFaturamento" },
+      { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "relNaoRecebidos" },
+      { icon: TrendingUp, label: "Previsão de Glosa", path: "/previsao-glosa", modulo: "relPrevisaoGlosa" },
+    ]},
+    // Subpasta: Recepção
+    { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [
+      { icon: Users, label: "Rel. Atendimentos", path: "/relatorio-atendimentos", modulo: "relAtendimentos" },
+    ]},
+    // Subpasta: Compras
+    { icon: Package, label: "Compras", path: "/relatorio-custos", modulo: "relatoriosBi", children: [
+      { icon: DollarSign, label: "Rel. Custos", path: "/relatorio-custos", modulo: "relCustos" },
+    ]},
   ]},
 
   // Módulo 5b - Atendimentos
@@ -529,11 +538,18 @@ function DashboardLayoutContent({
                   return temAcessoModulo(item.modulo!);
                 })
                 .map(item => {
+                // Função recursiva para verificar se algum filho está ativo
+                const isAnyChildActive = (menuItem: MenuItem): boolean => {
+                  if (location === menuItem.path) return true;
+                  if (menuItem.children) return menuItem.children.some(c => isAnyChildActive(c));
+                  return false;
+                };
+
                 // Se tem children, renderizar como grupo expansível
                 if (item.children && item.children.length > 0) {
-                  const isChildActive = item.children.some(child => location === child.path);
+                  const isChildActive = isAnyChildActive(item);
                   return (
-                    <Collapsible key={item.path} asChild defaultOpen={isChildActive} className="group/collapsible">
+                    <Collapsible key={item.label} asChild defaultOpen={isChildActive} className="group/collapsible">
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
                           <SidebarMenuButton
@@ -557,6 +573,52 @@ function DashboardLayoutContent({
                                 return temAcessoModulo(child.modulo!);
                               })
                               .map(child => {
+                                // Nível 3: Se o child também tem children (subpasta dentro de subpasta)
+                                if (child.children && child.children.length > 0) {
+                                  const isSubChildActive = isAnyChildActive(child);
+                                  return (
+                                    <Collapsible key={child.label} asChild defaultOpen={isSubChildActive}>
+                                      <SidebarMenuSubItem>
+                                        <CollapsibleTrigger asChild>
+                                          <SidebarMenuSubButton
+                                            className={`cursor-pointer font-medium ${isSubChildActive ? "text-primary" : "text-sidebar-foreground/70"}`}
+                                          >
+                                            <child.icon className={`h-3.5 w-3.5 ${isSubChildActive ? "text-primary" : ""}`} />
+                                            <span>{child.label}</span>
+                                            <ChevronRight className="ml-auto h-3 w-3 transition-transform duration-200 data-[state=open]:rotate-90" />
+                                          </SidebarMenuSubButton>
+                                        </CollapsibleTrigger>
+                                        <CollapsibleContent>
+                                          <SidebarMenuSub className="ml-2 border-l border-sidebar-border/50">
+                                            {child.children
+                                              .filter(grandchild => {
+                                                if (!grandchild.modulo && !grandchild.adminOnly) return true;
+                                                if (grandchild.adminOnly) return isGestor;
+                                                return temAcessoModulo(grandchild.modulo!);
+                                              })
+                                              .map(grandchild => {
+                                                const isGrandchildActive = location === grandchild.path;
+                                                return (
+                                                  <SidebarMenuSubItem key={grandchild.path}>
+                                                    <SidebarMenuSubButton
+                                                      onClick={() => setLocation(grandchild.path)}
+                                                      data-active={isGrandchildActive}
+                                                      className={`cursor-pointer text-xs ${isGrandchildActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}`}
+                                                    >
+                                                      <grandchild.icon className={`h-3 w-3 ${isGrandchildActive ? "text-primary-foreground" : ""}`} />
+                                                      <span>{grandchild.label}</span>
+                                                    </SidebarMenuSubButton>
+                                                  </SidebarMenuSubItem>
+                                                );
+                                              })}
+                                          </SidebarMenuSub>
+                                        </CollapsibleContent>
+                                      </SidebarMenuSubItem>
+                                    </Collapsible>
+                                  );
+                                }
+
+                                // Nível 2: Item normal sem sub-children
                                 const isSubActive = location === child.path;
                                 return (
                                   <SidebarMenuSubItem key={child.path}>
