@@ -2891,3 +2891,10 @@
 
 ## Filtro PARIII em Pacientes Internados
 - [x] Excluir codplano = 'PARIII' da lista de pacientes internados (hemodiálise)
+
+## Indicador de Hemodiálise
+- [x] Backend: query de pacientes PARIII com contagem e frequência de sessões
+- [x] Backend: endpoint tRPC para buscar dados de hemodiálise
+- [x] Frontend: seção de hemodiálise na aba Análise Operacional com KPIs e tabela
+- [x] Correção de erro TypeScript nas queries de data (gte/lte com strings)
+- [x] Testes unitários para buscarPacientesHemodialise (5 testes passando)

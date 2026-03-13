@@ -229,6 +229,12 @@ export default function RelatorioAtendimentos() {
     { enabled: dashboardAtivo && (abaAtiva === "operacional" || abaAtiva === "dashboard") }
   );
 
+  // Buscar pacientes de hemodiálise (PARIII)
+  const { data: hemodialiseData, isLoading: loadingHemodialise } = trpc.relatorioAtendimentos.pacientesHemodialise.useQuery(
+    undefined,
+    { enabled: dashboardAtivo && (abaAtiva === "operacional" || abaAtiva === "dashboard") }
+  );
+
   // ===== HANDLERS =====
 
   const handleBuscar = () => {
@@ -536,6 +542,8 @@ export default function RelatorioAtendimentos() {
               isLoading={loadingOperacionais && dashboardAtivo}
               internadosData={internadosData}
               loadingInternados={loadingInternados && dashboardAtivo}
+              hemodialiseData={hemodialiseData}
+              loadingHemodialise={loadingHemodialise && dashboardAtivo}
             />
           </TabsContent>
 

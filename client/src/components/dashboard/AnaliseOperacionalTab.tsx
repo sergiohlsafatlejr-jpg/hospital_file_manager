@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { motion } from "framer-motion";
-import { Building2, Briefcase, ArrowRightLeft, Stethoscope, Layers, BedDouble, Clock, Heart, ChevronDown, ChevronUp } from "lucide-react";
+import { Building2, Briefcase, ArrowRightLeft, Stethoscope, Layers, BedDouble, Clock, Heart, ChevronDown, ChevronUp, Droplets, CalendarClock, Users } from "lucide-react";
 import KpiCard from "@/components/dashboard/KpiCard";
 import ChartCard from "@/components/dashboard/ChartCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,11 +54,32 @@ interface InternadosData {
   fonte: string;
 }
 
+interface PacienteHemodialise {
+  numatend: string;
+  paciente: string;
+  turno: string;
+  prestador: string;
+  dataEntrada: string;
+  diasTratamento: number;
+}
+
+interface HemodialiseData {
+  totalPacientes: number;
+  pacientes: PacienteHemodialise[];
+  porTurno: Array<{ nome: string; total: number }>;
+  porPrestador: Array<{ nome: string; total: number }>;
+  sessoesNoMes: number;
+  mediaDiasTratamento: number;
+  fonte: string;
+}
+
 interface Props {
   data: OperacionaisData | null | undefined;
   isLoading: boolean;
   internadosData?: InternadosData | null | undefined;
   loadingInternados?: boolean;
+  hemodialiseData?: HemodialiseData | null | undefined;
+  loadingHemodialise?: boolean;
 }
 
 const CustomTooltipContent = ({ active, payload, label }: any) => {
@@ -406,7 +427,257 @@ function PacientesInternadosSection({
   );
 }
 
-export default function AnaliseOperacionalTab({ data, isLoading, internadosData, loadingInternados }: Props) {
+// Seção de Hemodiálise
+function HemodialiseSection({
+  data,
+  isLoading,
+}: {
+  data: HemodialiseData | null | undefined;
+  isLoading: boolean;
+}) {
+  const [expandido, setExpandido] = useState(false);
+  const [mostrarTodos, setMostrarTodos] = useState(false);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-64 rounded-lg" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || data.totalPacientes === 0) return null;
+
+  const pacientesVisiveis = mostrarTodos ? data.pacientes : data.pacientes.slice(0, 10);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-4"
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between cursor-pointer group"
+        onClick={() => setExpandido(!expandido)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-cyan-500/10">
+            <Droplets className="h-5 w-5 text-cyan-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              Hemodiálise
+              <Badge className="text-base px-3 py-0.5 bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+                {data.totalPacientes} pacientes
+              </Badge>
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Pacientes em tratamento de hemodiálise (PARIII)
+            </p>
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" className="gap-1">
+          {expandido ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          {expandido ? "Recolher" : "Expandir"}
+        </Button>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          title="Pacientes Ativos"
+          value={data.totalPacientes.toLocaleString("pt-BR")}
+          subtitle="Em tratamento"
+          icon={Users}
+          gradient="blue"
+        />
+        <KpiCard
+          title="Sessões no Mês"
+          value={data.sessoesNoMes.toLocaleString("pt-BR")}
+          subtitle="Mês atual"
+          icon={CalendarClock}
+          gradient="emerald"
+        />
+        <KpiCard
+          title="Turnos"
+          value={data.porTurno.length.toLocaleString("pt-BR")}
+          subtitle="Turnos distintos"
+          icon={Clock}
+          gradient="violet"
+        />
+        <KpiCard
+          title="Média Tratamento"
+          value={`${data.mediaDiasTratamento} dias`}
+          subtitle="Tempo médio em tratamento"
+          icon={Droplets}
+          gradient="amber"
+        />
+      </div>
+
+      {/* Detalhes expandíveis */}
+      {expandido && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-4"
+        >
+          {/* Gráficos: Por Turno e Por Prestador */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ChartCard title="Pacientes por Turno" icon={Clock}>
+              {data.porTurno.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={data.porTurno}
+                      dataKey="total"
+                      nameKey="nome"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      innerRadius={50}
+                      paddingAngle={3}
+                      label={({ nome, total }) => `${nome} (${total})`}
+                      labelLine={true}
+                    >
+                      {data.porTurno.map((_, i) => (
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      content={({ active, payload }: any) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0];
+                        return (
+                          <div className="bg-popover text-popover-foreground border rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-semibold">{d.name}</p>
+                            <p>{d.value} pacientes</p>
+                          </div>
+                        );
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                  Sem dados
+                </div>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Top Prestadores" icon={Stethoscope}>
+              {data.porPrestador.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(200, data.porPrestador.length * 32)}>
+                  <BarChart
+                    data={data.porPrestador.map(c => ({
+                      ...c,
+                      nome: c.nome.length > 22 ? c.nome.slice(0, 22) + "..." : c.nome,
+                    }))}
+                    layout="vertical"
+                    margin={{ left: 10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="nome" width={160} tick={{ fontSize: 11 }} />
+                    <Tooltip content={<CustomTooltipContent />} />
+                    <Bar dataKey="total" name="Pacientes" radius={[0, 6, 6, 0]}>
+                      {data.porPrestador.map((_, i) => (
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[200px] text-muted-foreground">
+                  Sem dados
+                </div>
+              )}
+            </ChartCard>
+          </div>
+
+          {/* Tabela de pacientes hemodiálise */}
+          <ChartCard title={`Lista de Pacientes em Hemodiálise (${data.totalPacientes})`} icon={Droplets}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Atend.</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Paciente</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Turno</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Prestador</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Início Tratamento</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Dias em Tratamento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pacientesVisiveis.map((p, i) => (
+                    <tr key={i} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <td className="py-2 px-3 font-mono text-xs">{p.numatend}</td>
+                      <td className="py-2 px-3 max-w-[200px] truncate" title={p.paciente}>{p.paciente}</td>
+                      <td className="py-2 px-3">
+                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+                          {p.turno}
+                        </Badge>
+                      </td>
+                      <td className="py-2 px-3 max-w-[180px] truncate" title={p.prestador}>{p.prestador}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        {new Date(p.dataEntrada).toLocaleDateString("pt-BR")}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        <Badge variant="secondary">
+                          {p.diasTratamento} dias
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                  {data.pacientes.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                        Nenhum paciente em hemodiálise encontrado
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {data.pacientes.length > 10 && (
+              <div className="flex justify-center pt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMostrarTodos(!mostrarTodos)}
+                  className="gap-1"
+                >
+                  {mostrarTodos ? (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      Mostrar menos
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      Ver todos ({data.pacientes.length})
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </ChartCard>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
+export default function AnaliseOperacionalTab({ data, isLoading, internadosData, loadingInternados, hemodialiseData, loadingHemodialise }: Props) {
   // Prepare stacked bar data for Proveniência × Tipo
   const provTipoData = useMemo(() => {
     if (!data?.porProvenienciaTipo?.length) return { chartData: [], tipos: [] };
@@ -471,6 +742,14 @@ export default function AnaliseOperacionalTab({ data, isLoading, internadosData,
         <PacientesInternadosSection
           data={internadosData}
           isLoading={loadingInternados || false}
+        />
+      </div>
+
+      {/* ===== HEMODIÁLISE ===== */}
+      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+        <HemodialiseSection
+          data={hemodialiseData}
+          isLoading={loadingHemodialise || false}
         />
       </div>
 

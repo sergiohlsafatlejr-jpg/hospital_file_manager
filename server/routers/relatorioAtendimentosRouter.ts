@@ -12,6 +12,7 @@ import {
   buscarAnaliticasOperacionais,
   buscarDadosMapaCalor,
   buscarPacientesInternados,
+  buscarPacientesHemodialise,
 } from "../relatorioAtendimentos";
 
 const filtrosDashboardSchema = z.object({
@@ -122,6 +123,12 @@ export const relatorioAtendimentosRouter = router({
   pacientesInternados: protectedProcedure
     .query(async () => {
       return buscarPacientesInternados();
+    }),
+
+  // Pacientes de hemodiálise (PARIII)
+  pacientesHemodialise: protectedProcedure
+    .query(async () => {
+      return buscarPacientesHemodialise();
     }),
 
   // Obter status da última sincronização

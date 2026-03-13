@@ -2724,3 +2724,193 @@ async function buscarInternadosDoPostgresql(): Promise<DadosInternadosResult> {
     client.release();
   }
 }
+
+// ==========================================
+// HEMODIÁLISE - Indicador Separado
+// ==========================================
+
+export interface PacienteHemodialise {
+  numatend: string;
+  paciente: string;
+  turno: string;
+  prestador: string;
+  dataEntrada: string;
+  diasTratamento: number;
+}
+
+export interface DadosHemodialiseResult {
+  totalPacientes: number;
+  pacientes: PacienteHemodialise[];
+  porTurno: Array<{ nome: string; total: number }>;
+  porPrestador: Array<{ nome: string; total: number }>;
+  sessoesNoMes: number;
+  mediaDiasTratamento: number;
+  fonte: "cache_local" | "postgresql_direto";
+}
+
+export async function buscarPacientesHemodialise(): Promise<DadosHemodialiseResult> {
+  // Tentar cache local primeiro
+  try {
+    const db = await getDb();
+    if (db) {
+      const cacheCount = await db
+        .select({ total: count() })
+        .from(relatorioAtendimentosCache);
+
+      if (cacheCount[0]?.total > 0) {
+        return buscarHemodialiseDoCache(db);
+      }
+    }
+  } catch (e) {
+    console.warn("[Hemodialise] Cache indisponível, usando PostgreSQL:", (e as Error).message);
+  }
+  return buscarHemodialiseDoPostgresql();
+}
+
+function extrairTurno(centroCusto: string): string {
+  const cc = centroCusto.toUpperCase();
+  if (cc.includes("MATUTINO")) return "Matutino";
+  if (cc.includes("VESPERTINO")) return "Vespertino";
+  if (cc.includes("NOTURNO")) return "Noturno";
+  if (cc.includes("HEMODIALISE") || cc.includes("HEMODIÁLISE")) return "Hemodiálise";
+  return centroCusto;
+}
+
+async function buscarHemodialiseDoCache(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>
+): Promise<DadosHemodialiseResult> {
+  // Pacientes PARIII ativos (sem data de saída)
+  const ativos = await db
+    .select({
+      numatend: relatorioAtendimentosCache.numatend,
+      paciente: sql<string>`COALESCE(${relatorioAtendimentosCache.paciente}, 'Não informado')`,
+      centroCusto: sql<string>`COALESCE(${relatorioAtendimentosCache.centroCusto}, 'Não informado')`,
+      prestador: sql<string>`COALESCE(${relatorioAtendimentosCache.prestador}, 'Não informado')`,
+      dataEntrada: relatorioAtendimentosCache.dataAtendimento,
+    })
+    .from(relatorioAtendimentosCache)
+    .where(
+      and(
+        sql`COALESCE(${relatorioAtendimentosCache.codplaco}, '') = 'PARIII'`,
+        sql`${relatorioAtendimentosCache.dataSaida} IS NULL`
+      )
+    )
+    .orderBy(relatorioAtendimentosCache.dataAtendimento);
+
+  // Contar sessões no mês atual (PARIII com data de saída)
+  const mesAtual = new Date();
+  const inicioMes = new Date(mesAtual.getFullYear(), mesAtual.getMonth(), 1).toISOString().split("T")[0];
+  const fimMes = new Date(mesAtual.getFullYear(), mesAtual.getMonth() + 1, 0).toISOString().split("T")[0];
+
+  const sessoesResult = await db
+    .select({ total: count() })
+    .from(relatorioAtendimentosCache)
+    .where(
+      and(
+        sql`COALESCE(${relatorioAtendimentosCache.codplaco}, '') = 'PARIII'`,
+        sql`${relatorioAtendimentosCache.dataSaida} IS NOT NULL`,
+        sql`${relatorioAtendimentosCache.dataAtendimento} >= ${inicioMes}`,
+        sql`${relatorioAtendimentosCache.dataAtendimento} <= ${fimMes}`
+      )
+    );
+
+  return processarDadosHemodialise(ativos, sessoesResult[0]?.total || 0, "cache_local");
+}
+
+async function buscarHemodialiseDoPostgresql(): Promise<DadosHemodialiseResult> {
+  const pool = getWarleinePool();
+  const client = await pool.connect();
+  try {
+    // Pacientes PARIII ativos (sem alta)
+    const result = await client.query(`
+      SELECT 
+        a.numatend,
+        COALESCE(cpc.nomepac, 'Não informado') as paciente,
+        COALESCE(cc.nomecc, 'Não informado') as centro_custo,
+        COALESCE(pr.nomeprest, 'Não informado') as prestador,
+        a.datatend as data_entrada
+      FROM arqatend a
+      LEFT JOIN cadpac cpc ON cpc.codpac = a.codpac
+      LEFT JOIN cadcc cc ON cc.codcc = a.codcc
+      LEFT JOIN cadprest pr ON pr.codprest = a.codprest
+      WHERE a.codplaco = 'PARIII'
+        AND a.datasai IS NULL
+      ORDER BY a.datatend ASC
+    `);
+
+    // Sessões no mês atual (com alta)
+    const sessoesResult = await client.query(`
+      SELECT COUNT(*) as total
+      FROM arqatend a
+      WHERE a.codplaco = 'PARIII'
+        AND a.datasai IS NOT NULL
+        AND a.datatend >= DATE_TRUNC('month', CURRENT_DATE)
+        AND a.datatend < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+    `);
+
+    const ativos = result.rows.map((r: any) => ({
+      numatend: r.numatend,
+      paciente: r.paciente,
+      centroCusto: r.centro_custo,
+      prestador: r.prestador,
+      dataEntrada: r.data_entrada,
+    }));
+
+    return processarDadosHemodialise(ativos, parseInt(sessoesResult.rows[0]?.total || "0", 10), "postgresql_direto");
+  } finally {
+    client.release();
+  }
+}
+
+function processarDadosHemodialise(
+  ativos: Array<{ numatend: string; paciente: string; centroCusto: string; prestador: string; dataEntrada: any }>,
+  sessoesNoMes: number,
+  fonte: "cache_local" | "postgresql_direto"
+): DadosHemodialiseResult {
+  const agora = new Date();
+  const pacientes: PacienteHemodialise[] = ativos.map(r => {
+    const dataEntrada = r.dataEntrada ? new Date(r.dataEntrada) : agora;
+    const diasTratamento = Math.max(1, Math.floor((agora.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24)));
+    return {
+      numatend: r.numatend,
+      paciente: r.paciente,
+      turno: extrairTurno(r.centroCusto),
+      prestador: r.prestador,
+      dataEntrada: dataEntrada.toISOString().split("T")[0],
+      diasTratamento,
+    };
+  });
+
+  // Agrupar por turno
+  const turnoMap = new Map<string, number>();
+  for (const p of pacientes) {
+    turnoMap.set(p.turno, (turnoMap.get(p.turno) || 0) + 1);
+  }
+  const porTurno = [...turnoMap.entries()]
+    .map(([nome, total]) => ({ nome, total }))
+    .sort((a, b) => b.total - a.total);
+
+  // Agrupar por prestador (top 10)
+  const prestMap = new Map<string, number>();
+  for (const p of pacientes) {
+    prestMap.set(p.prestador, (prestMap.get(p.prestador) || 0) + 1);
+  }
+  const porPrestador = [...prestMap.entries()]
+    .map(([nome, total]) => ({ nome, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
+
+  const mediaDiasTratamento = pacientes.length > 0
+    ? Math.round(pacientes.reduce((s, p) => s + p.diasTratamento, 0) / pacientes.length * 10) / 10
+    : 0;
+
+  return {
+    totalPacientes: pacientes.length,
+    pacientes,
+    porTurno,
+    porPrestador,
+    sessoesNoMes,
+    mediaDiasTratamento,
+    fonte,
+  };
+}
