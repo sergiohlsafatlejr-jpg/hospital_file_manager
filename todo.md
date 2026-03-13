@@ -2956,3 +2956,8 @@
 - [x] Atualizar log de sincronização com progresso por mês
 - [x] Feedback visual no frontend mostrando qual mês está sendo importado (via campo erroMensagem do log)
 - [x] Timeout de 5 min por fatia (não global)
+- [x] Mudar coluna de controle incremental de numconta para datainclu (timestamp da contas)
+- [x] Adicionar b.datainclu na query SELECT e GROUP BY
+- [x] Criar coluna datainclu na tabela integ_faturado e no config de colunas
+- [x] Criar mapeamento de campo datainclu (origem -> destino)
+- [x] Resetar ultimoValorControle para NULL (primeira execução será completa particionada)
