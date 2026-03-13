@@ -2154,7 +2154,7 @@ export const integradorDadosRouter = router({
         });
 
         const inicio = Date.now();
-        const FATIA_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos de timeout POR FATIA
+        const FATIA_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutos de timeout POR FATIA
 
         // Helper: mapear dados da origem para o formato destino
         const colunasMap = new Map(colunasDestino.map(c => [c.id, c.nome]));
@@ -2215,12 +2215,51 @@ export const integradorDadosRouter = router({
           }
         };
 
-        // Helper: executar query com timeout por fatia
+        // Helper: executar query com timeout por fatia - usa conexão dedicada que é destruída no timeout
         const executarComTimeout = async (query: string, label: string): Promise<any[]> => {
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Timeout na fatia ${label}: excedeu ${FATIA_TIMEOUT_MS / 1000}s`)), FATIA_TIMEOUT_MS);
-          });
-          return await Promise.race([executarQueryOrigem(query), timeoutPromise]);
+          if (conexao.tipo === "postgresql") {
+            const pgLib = await import("pg");
+            const client = new pgLib.default.Client({
+              host: conexao.host,
+              port: conexao.porta,
+              database: conexao.banco,
+              user: conexao.usuario,
+              password: Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8"),
+              ssl: conexao.ssl ? { rejectUnauthorized: false } : false,
+              connectionTimeoutMillis: 10000,
+              statement_timeout: FATIA_TIMEOUT_MS,
+              query_timeout: FATIA_TIMEOUT_MS,
+            });
+
+            let timedOut = false;
+            const timer = setTimeout(() => {
+              timedOut = true;
+              logger.warn({ message: `Timeout na fatia ${label}: forçando desconexão após ${FATIA_TIMEOUT_MS / 1000}s` });
+              try { client.end().catch(() => {}); } catch {}
+            }, FATIA_TIMEOUT_MS);
+
+            try {
+              await client.connect();
+              await client.query(`SET statement_timeout = ${FATIA_TIMEOUT_MS}`);
+              const result = await client.query(query);
+              clearTimeout(timer);
+              await client.end().catch(() => {});
+              return result.rows;
+            } catch (err) {
+              clearTimeout(timer);
+              try { await client.end().catch(() => {}); } catch {}
+              if (timedOut) {
+                throw new Error(`Timeout na fatia ${label}: excedeu ${FATIA_TIMEOUT_MS / 1000}s`);
+              }
+              throw err;
+            }
+          } else {
+            // Para outros tipos de conexão, manter o Promise.race
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => reject(new Error(`Timeout na fatia ${label}: excedeu ${FATIA_TIMEOUT_MS / 1000}s`)), FATIA_TIMEOUT_MS);
+            });
+            return await Promise.race([executarQueryOrigem(query), timeoutPromise]);
+          }
         };
 
         const nomeReal = `integ_${tabela.nome}`;
