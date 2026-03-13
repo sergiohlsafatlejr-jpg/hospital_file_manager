@@ -735,6 +735,7 @@ interface ConciliacaoResultado {
     conciliadosPorGuiaCodigoTuss: number;
     conciliadosPorVinculacao: number;
     conciliadosPorPacienteCodigo: number;
+    conciliadosPorCarteiraCodigo: number;
   };
   divergencias: Array<{
     faturamentoId: number;
@@ -755,6 +756,7 @@ interface ConciliacaoResultado {
  * 2. Match TUSS: numero_guia + codigoItemTuss
  * 3. Match com vinculacao_codigos (tabela de-para): numero_guia + código traduzido
  * 4. Match por paciente: pacienteNome + codigoItem (fallback quando guia diverge)
+ * 5. Match por carteira: carteiraBeneficiario + codigoItem (fallback quando guias são incompatíveis)
  * 
  * Status resultante:
  * - conciliado: match encontrado e valores compatíveis (diferença < 1%)
@@ -783,6 +785,7 @@ export async function executarConciliacaoAutomatica(params: {
       conciliadosPorGuiaCodigoTuss: 0,
       conciliadosPorVinculacao: 0,
       conciliadosPorPacienteCodigo: 0,
+      conciliadosPorCarteiraCodigo: 0,
     },
     divergencias: [],
   };
@@ -879,6 +882,8 @@ export async function executarConciliacaoAutomatica(params: {
   const indexGuiaCodigo = new Map<string, any[]>();
   // Índice por paciente+código → lista de recebimentos
   const indexPacienteCodigo = new Map<string, any[]>();
+  // Índice por carteira+código → lista de recebimentos
+  const indexCarteiraCodigo = new Map<string, any[]>();
   // Set de recebimentos já usados (para evitar match duplo)
   const recebimentosUsados = new Set<number>();
 
@@ -897,6 +902,14 @@ export async function executarConciliacaoAutomatica(params: {
       const chave = `${paciente}|${codigo}`;
       if (!indexPacienteCodigo.has(chave)) indexPacienteCodigo.set(chave, []);
       indexPacienteCodigo.get(chave)!.push(rec);
+    }
+
+    // Indexar por carteira (beneficiario) + código
+    const carteira = String(rec.carteira || '').trim();
+    if (carteira && codigo) {
+      const chave = `${carteira}|${codigo}`;
+      if (!indexCarteiraCodigo.has(chave)) indexCarteiraCodigo.set(chave, []);
+      indexCarteiraCodigo.get(chave)!.push(rec);
     }
   }
 
@@ -984,6 +997,19 @@ export async function executarConciliacaoAutomatica(params: {
       }
     }
 
+    // Estratégia 5: Match por carteiraBeneficiário + código (fallback quando guias são incompatíveis)
+    if (!matchEncontrado && codigoItem) {
+      const carteiraBenef = String(fat.carteiraBeneficiario || '').trim();
+      if (carteiraBenef) {
+        const chave = `${carteiraBenef}|${codigoItem}`;
+        recMatch = encontrarMelhorMatch(indexCarteiraCodigo.get(chave), recebimentosUsados, valorFaturado);
+        if (recMatch) {
+          matchEncontrado = true;
+          metodo = 'carteira_codigo';
+        }
+      }
+    }
+
     // Dados base do faturamento para o INSERT
     const descricaoFat = String(fat.descricaoItem || '');
     const tipoItemFat = String(fat.tipoItem || '');
@@ -1057,6 +1083,7 @@ export async function executarConciliacaoAutomatica(params: {
         case 'guia_codigo_tuss': resultado.detalhes.conciliadosPorGuiaCodigoTuss++; break;
         case 'vinculacao': resultado.detalhes.conciliadosPorVinculacao++; break;
         case 'paciente_codigo': resultado.detalhes.conciliadosPorPacienteCodigo++; break;
+        case 'carteira_codigo': resultado.detalhes.conciliadosPorCarteiraCodigo++; break;
       }
     } else {
       // Não encontrou match: não recebido

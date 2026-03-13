@@ -2868,3 +2868,13 @@
 - [x] Filtrar somente procedimentos nos padrões de cobrança (excluir materiais, medicamentos, exames)
 - [x] Igualar comportamento ao Hospital Urológico
 - [x] Testes unitários para filtro de tipoItem
+
+## Bug: Conciliação Cruzada - Convênio 30001 OX UTI
+- [x] Investigar por que nenhuma conta está sendo conciliada (todas "Não Recebido")
+- [x] Corrigir o cruzamento de dados para o convênio 30001 (Estratégia 5 implementada)
+
+## Estratégia 5 - Conciliação por Carteira Beneficiário
+- [x] Adicionar Estratégia 5 (carteiraBeneficiário + código) na conciliação automática
+- [x] Adicionar índice por carteira+código nos recebimentos
+- [x] Atualizar detalhes do resultado com nova estratégia
+- [x] Testes unitários para Estratégia 5 (8 testes passando)

@@ -1258,6 +1258,10 @@ export default function ConciliacaoCruzada() {
                         <span className="text-muted-foreground">Paciente + Código:</span>
                         <span className="font-medium">{resultadoConciliacao.detalhes?.conciliadosPorPacienteCodigo || 0}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Carteira + Código:</span>
+                        <span className="font-medium">{resultadoConciliacao.detalhes?.conciliadosPorCarteiraCodigo || 0}</span>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
