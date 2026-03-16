@@ -3020,3 +3020,7 @@
 
 ## Bug - Tela Maternidade Ela
 - [x] Tela de Atendimentos Parados da Maternidade Ela não funciona corretamente - mostra mesmo modelo do Warleine em vez do layout TASY (corrigido: integrado layout TASY no componente Atendimentos.tsx principal + cálculo diasParado com dtEntrega)
+
+## Filtro por Etapa Conta - TASY
+- [x] Criar seção de cards "Quantidade por Etapa Conta" no mesmo estilo dos cards de Plano (Convênio), posicionado abaixo
+- [x] Clicar no card filtra a tabela por aquela etapa conta

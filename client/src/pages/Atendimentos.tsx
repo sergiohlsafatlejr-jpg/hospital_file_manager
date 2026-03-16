@@ -300,6 +300,8 @@ export default function Atendimentos() {
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
   // Filtro por nome_protocolo (TASY)
   const [filtroProtocolo, setFiltroProtocolo] = useState<string>("todos");
+  // Filtro por etapa conta (TASY)
+  const [filtroEtapa, setFiltroEtapa] = useState<string | null>(null);
 
   // Seleção múltipla
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
@@ -610,6 +612,26 @@ export default function Atendimentos() {
     return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
   }, [atendimentos, isTasyLayout, filtroOrigem, filtroProtocolo]);
 
+  // Contagem por Etapa Conta (TASY)
+  const etapaContagem = useMemo(() => {
+    if (!atendimentos || !isTasyLayout) return [];
+    let dados = [...atendimentos];
+    if (filtroOrigem !== "todos") dados = dados.filter(d => d.origemSistema === filtroOrigem);
+    if (filtroProtocolo !== "todos") {
+      if (filtroProtocolo === "__sem_protocolo__") {
+        dados = dados.filter(d => !d.nomeProtocolo || d.nomeProtocolo.trim() === "");
+      } else {
+        dados = dados.filter(d => d.nomeProtocolo === filtroProtocolo);
+      }
+    }
+    const contagem: Record<string, number> = {};
+    dados.forEach(d => {
+      const etapa = d.etapaConta || "Sem Etapa";
+      contagem[etapa] = (contagem[etapa] || 0) + 1;
+    });
+    return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
+  }, [atendimentos, isTasyLayout, filtroOrigem, filtroProtocolo]);
+
   // Filtro e ordenação
   const dadosFiltrados = useMemo(() => {
     if (!atendimentos) return [];
@@ -646,6 +668,10 @@ export default function Atendimentos() {
     }
     if (filtroPlano) {
       filtrados = filtrados.filter(d => (d.nomeplaco || "Sem Plano") === filtroPlano);
+    }
+    // Filtro por etapa conta (TASY)
+    if (filtroEtapa) {
+      filtrados = filtrados.filter(d => (d.etapaConta || "Sem Etapa") === filtroEtapa);
     }
     if (pesquisa) {
       const termo = pesquisa.toLowerCase();
@@ -686,7 +712,7 @@ export default function Atendimentos() {
     });
 
     return filtrados;
-  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, isTasyLayout]);
+  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, filtroEtapa, isTasyLayout]);
 
   function handleSort(col: SortColumn) {
     if (sortColumn === col) {
@@ -1204,6 +1230,34 @@ export default function Atendimentos() {
             </Card>
           )}
 
+          {/* Quantidade por Etapa Conta (TASY) */}
+          {isTasyLayout && etapaContagem.length > 0 && (
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Activity className="w-4 h-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold text-muted-foreground">Quantidade por Etapa Conta</h2>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {etapaContagem.map(([etapa, qtd]) => (
+                    <div
+                      key={etapa}
+                      className={`flex items-center justify-between px-3 py-2 rounded-lg border text-sm cursor-pointer transition-all hover:border-cyan-500/50 hover:bg-cyan-500/5 ${
+                        filtroEtapa === etapa
+                          ? "bg-cyan-500/10 border-cyan-500 ring-1 ring-cyan-500/30"
+                          : "bg-muted/50"
+                      }`}
+                      onClick={() => setFiltroEtapa(prev => prev === etapa ? null : etapa)}
+                    >
+                      <span className={`truncate mr-2 text-xs ${filtroEtapa === etapa ? "text-cyan-400 font-medium" : "text-muted-foreground"}`}>{etapa}</span>
+                      <span className="font-bold text-cyan-400">{qtd}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Quantidade por Serviço / Descrição */}
           {servicosContagem.length > 0 && (
             <Card>
@@ -1321,7 +1375,7 @@ export default function Atendimentos() {
             </Button>
           </div>
 
-          {(filtroTipo !== "todos" || filtroServico || filtroPlano || filtroOrigem !== "todos" || filtroProtocolo !== "todos") && (
+          {(filtroTipo !== "todos" || filtroServico || filtroPlano || filtroOrigem !== "todos" || filtroProtocolo !== "todos" || filtroEtapa) && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-blue-400 bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-500/20">
               <AlertTriangle className="w-4 h-4" />
               <span>Filtros ativos:</span>
@@ -1350,7 +1404,12 @@ export default function Atendimentos() {
                   Plano: {filtroPlano} <X className="w-3 h-3" />
                 </Badge>
               )}
-              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); setFiltroOrigem("todos"); setFiltroProtocolo("todos"); }}>
+              {filtroEtapa && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroEtapa(null)}>
+                  Etapa: {filtroEtapa} <X className="w-3 h-3" />
+                </Badge>
+              )}
+              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); setFiltroOrigem("todos"); setFiltroProtocolo("todos"); setFiltroEtapa(null); }}>
                 <X className="w-3 h-3 mr-1" /> Limpar Todos
               </Button>
             </div>
