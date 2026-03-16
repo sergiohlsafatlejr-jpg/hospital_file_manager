@@ -6674,7 +6674,15 @@ export const appRouter = router({
               procprin: d.codigo_procedimento || "",
               codcc_destino: d.destino_conta || "",
               motivo: motivosMap[d.numero_atendimento || ""] || null,
-              diasParado: calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+              diasParado: d.origemSistema === 'tasy'
+                ? calcularDiasParadoUnificado(
+                    d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                    d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                    d.origemSistema || '',
+                    d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+                    d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
+                  )
+                : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
               origemSistema: d.origemSistema,
               // Novos campos Tasy
               dsCategoria: d.dsCategoria || "",

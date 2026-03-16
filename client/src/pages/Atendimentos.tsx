@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   Users, Building2, Stethoscope, FlaskConical,
   ArrowUpDown, Download, Plus, X, RefreshCw,
   Search, Bell, AlertTriangle, Clock, Timer, ArrowLeft, Shield,
-  CheckSquare, FileText, Mail, Send
+  CheckSquare, FileText, Mail, Send, Activity
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -80,7 +80,7 @@ const MEDICOS = [
   { value: "outros", label: "Outros" },
 ];
 
-type SortColumn = "numatend" | "nomepac" | "nomeplaco" | "datatend" | "datasai" | "diasParado" | "tipoatendimentodescricao" | "codserv" | "codcc_destino" | "motivo";
+type SortColumn = string;
 type SortOrder = "asc" | "desc";
 
 interface NotificacaoLinha {
@@ -100,6 +100,14 @@ interface AtendimentoData {
   codserv: string;
   codcc_destino: string;
   motivo: string | null;
+  origemSistema?: string;
+  tipoatend?: string;
+  etapaConta?: string;
+  setorEtapa?: string;
+  dtEtapa?: string | null;
+  userEtapa?: string;
+  codServico?: string;
+  nomeProtocolo?: string | null;
   [key: string]: any;
 }
 
@@ -110,12 +118,12 @@ function getDiasParadoColor(dias: number): string {
 }
 
 function getTipoBadgeColor(tipo: string | null): string {
-  switch (tipo?.toUpperCase()) {
-    case "INTERNACAO": return "bg-amber-500 text-white";
-    case "EXAME": return "bg-violet-500 text-white";
-    case "AMBULATORIO": return "bg-blue-500 text-white";
-    default: return "bg-slate-500 text-white";
-  }
+  const t = tipo?.toUpperCase() || "";
+  if (t.includes("INTERNADO") || t.includes("INTERNACAO") || t.includes("INTERNAÇÃO")) return "bg-amber-500 text-white";
+  if (t.includes("EXAME")) return "bg-violet-500 text-white";
+  if (t.includes("AMBULAT")) return "bg-blue-500 text-white";
+  if (t.includes("PRONTO") || t.includes("SOCORRO")) return "bg-orange-500 text-white";
+  return "bg-slate-500 text-white";
 }
 
 function getMotivoLabel(value: string): string {
@@ -150,7 +158,6 @@ async function gerarPDFNotificacao(
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 15;
 
-  // Carregar logo
   let logoImg: HTMLImageElement | null = null;
   try {
     logoImg = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -162,18 +169,12 @@ async function gerarPDFNotificacao(
     });
   } catch { /* fallback sem logo */ }
 
-  // Função para desenhar header em cada página
   function drawHeader(doc: jsPDF) {
-    // Faixa azul escuro no topo
-    doc.setFillColor(15, 23, 42); // slate-900
+    doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, pageWidth, 32, "F");
-
-    // Logo
     if (logoImg) {
       doc.addImage(logoImg, "PNG", margin, 4, 24, 24);
     }
-
-    // Título
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
@@ -181,159 +182,98 @@ async function gerarPDFNotificacao(
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.text("Gerenciamento Hospitalar", margin + (logoImg ? 28 : 0), 20);
-
-    // Data
     doc.setFontSize(8);
     doc.setTextColor(200, 200, 200);
     const dataAtual = new Date().toLocaleDateString("pt-BR", {
       day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
     });
     doc.text(dataAtual, pageWidth - margin, 14, { align: "right" });
-    doc.text("Instituto do Rim", pageWidth - margin, 20, { align: "right" });
+    doc.text("Notificação de Atendimentos", pageWidth - margin, 20, { align: "right" });
   }
 
-  // Função para desenhar footer em cada página
   function drawFooter(doc: jsPDF, pageNum: number, totalPages: number) {
-    // Linha separadora
     doc.setDrawColor(200, 200, 200);
     doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-
     doc.setFontSize(7);
-    doc.setTextColor(128, 128, 128);
-    doc.text(
-      `© ${new Date().getFullYear()} Safatle Gerenciamento Hospitalar — Documento gerado automaticamente`,
-      margin,
-      pageHeight - 10
-    );
-    doc.text(
-      `Página ${pageNum} de ${totalPages}`,
-      pageWidth - margin,
-      pageHeight - 10,
-      { align: "right" }
-    );
+    doc.setTextColor(150, 150, 150);
+    doc.text("Safatle Sistemas - Gerenciamento Hospitalar", margin, pageHeight - 10);
+    doc.text(`Página ${pageNum} de ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: "right" });
   }
 
-  // ===== Página 1: Cabeçalho e dados =====
   drawHeader(doc);
 
-  let y = 40;
+  let startY = 40;
 
-  // Título do documento
-  doc.setTextColor(15, 23, 42);
+  // Título
+  doc.setTextColor(30, 30, 30);
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
-  doc.text("NOTIFICAÇÃO DE ATENDIMENTOS PARADOS", margin, y);
-  y += 8;
+  doc.text("Notificação de Atendimentos Parados", margin, startY);
+  startY += 8;
 
-  // Linha decorativa
-  doc.setFillColor(220, 38, 38); // red-600
-  doc.rect(margin, y, 50, 1.5, "F");
-  y += 6;
-
-  // Resumo
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100, 100, 100);
-  doc.text(`Total de atendimentos notificados: ${atendimentos.length}`, margin, y);
-  y += 10;
-
-  // Motivos da notificação
-  if (notificacaoLinhas.some(l => l.motivo || l.setor || l.medico)) {
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(15, 23, 42);
-    doc.text("MOTIVOS DA NOTIFICAÇÃO", margin, y);
-    y += 6;
-
-    autoTable(doc, {
-      startY: y,
-      head: [["Motivo", "Setor", "Médico"]],
-      body: notificacaoLinhas
-        .filter(l => l.motivo || l.setor || l.medico)
-        .map(l => [
-          getMotivoLabel(l.motivo),
-          getSetorLabel(l.setor),
-          getMedicoLabel(l.medico),
-        ]),
-      theme: "grid",
-      headStyles: {
-        fillColor: [15, 23, 42],
-        textColor: [255, 255, 255],
-        fontStyle: "bold",
-        fontSize: 8,
-      },
-      bodyStyles: { fontSize: 8, textColor: [50, 50, 50] },
-      alternateRowStyles: { fillColor: [245, 247, 250] },
-      margin: { left: margin, right: margin },
-    });
-
-    y = (doc as any).lastAutoTable.finalY + 8;
-  }
-
-  // Observação
-  if (observacao) {
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(15, 23, 42);
-    doc.text("OBSERVAÇÃO", margin, y);
-    y += 5;
-
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 80, 80);
-    const lines = doc.splitTextToSize(observacao, pageWidth - 2 * margin);
-    doc.text(lines, margin, y);
-    y += lines.length * 4 + 8;
-  }
+  doc.text(`Total de atendimentos: ${atendimentos.length}`, margin, startY);
+  startY += 8;
 
   // Tabela de atendimentos
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(15, 23, 42);
-  doc.text("ATENDIMENTOS", margin, y);
-  y += 6;
+  const tableData = atendimentos.map(a => [
+    a.numatend,
+    (a.nomepac || "").substring(0, 30),
+    a.nomeplaco || "-",
+    a.datatend ? new Date(a.datatend).toLocaleDateString("pt-BR") : "-",
+    getDataSaida(a),
+    `${a.diasParado} dias`,
+    a.tipoatendimentodescricao || a.tipoatend || "-",
+    a.codserv || a.codServico || "-",
+  ]);
 
   autoTable(doc, {
-    startY: y,
-    head: [["Nº Atend.", "Paciente", "Plano", "Data Entrada", "Data Saída", "Dias", "Tipo", "Serviço", "Observação"]],
-    body: atendimentos.map(d => [
-      d.numatend,
-      d.nomepac,
-      d.nomeplaco,
-      d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "-",
-      getDataSaida(d),
-      String(d.diasParado),
-      d.tipoatendimentodescricao || "-",
-      d.codserv || "-",
-      d.motivo || "-",
-    ]),
+    startY,
+    head: [["Nº Atend.", "Paciente", "Plano", "Entrada", "Saída", "Dias", "Tipo", "Serviço"]],
+    body: tableData,
     theme: "grid",
-    headStyles: {
-      fillColor: [15, 23, 42],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 7,
-    },
-    bodyStyles: { fontSize: 7, textColor: [50, 50, 50] },
-    alternateRowStyles: { fillColor: [245, 247, 250] },
-    margin: { left: margin, right: margin },
-    columnStyles: {
-      0: { cellWidth: 16 },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 20 },
-      3: { cellWidth: 18 },
-      4: { cellWidth: 18 },
-      5: { cellWidth: 10, halign: "center" },
-      6: { cellWidth: 18 },
-      7: { cellWidth: 20 },
-      8: { cellWidth: 30 },
-    },
+    styles: { fontSize: 7, cellPadding: 2 },
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
     didDrawPage: () => {
       drawHeader(doc);
     },
   });
 
-  // Adicionar footer em todas as páginas
+  // Notificações
+  if (notificacaoLinhas.length > 0 && notificacaoLinhas.some(n => n.motivo)) {
+    const currentY = (doc as any).lastAutoTable?.finalY || startY + 20;
+    const notifData = notificacaoLinhas.filter(n => n.motivo).map(n => [
+      getMotivoLabel(n.motivo),
+      getSetorLabel(n.setor),
+      getMedicoLabel(n.medico),
+    ]);
+    autoTable(doc, {
+      startY: currentY + 8,
+      head: [["Motivo", "Setor", "Médico"]],
+      body: notifData,
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [234, 88, 12], textColor: [255, 255, 255], fontStyle: "bold" },
+    });
+  }
+
+  // Observação
+  if (observacao) {
+    const obsY = (doc as any).lastAutoTable?.finalY || startY + 20;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 30, 30);
+    doc.text("Observação:", margin, obsY + 10);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    const lines = doc.splitTextToSize(observacao, pageWidth - 2 * margin);
+    doc.text(lines, margin, obsY + 16);
+  }
+
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
@@ -356,10 +296,15 @@ export default function Atendimentos() {
   const [filtroServico, setFiltroServico] = useState<string | null>(null);
   const [filtroPlano, setFiltroPlano] = useState<string | null>(null);
 
+  // Filtro por sistema de origem (TASY)
+  const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
+  // Filtro por nome_protocolo (TASY)
+  const [filtroProtocolo, setFiltroProtocolo] = useState<string>("todos");
+
   // Seleção múltipla
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
 
-  // Notificação em lote - linhas e observação separadas
+  // Notificação em lote
   const [loteNotificacaoLinhas, setLoteNotificacaoLinhas] = useState<NotificacaoLinha[]>([{ motivo: "", setor: "", medico: "" }]);
   const [loteObservacao, setLoteObservacao] = useState("");
 
@@ -371,7 +316,7 @@ export default function Atendimentos() {
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("atendimentos");
 
-  // Histórico de notificações geradas - agora carregado do banco
+  // Histórico de notificações
   const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
@@ -382,7 +327,6 @@ export default function Atendimentos() {
     },
   });
 
-  // Combinar histórico do banco com notificações da sessão (para exibição imediata)
   const notificacoesGeradas = useMemo(() => {
     if (!historicoNotificacoes) return [];
     return historicoNotificacoes.map(h => ({
@@ -402,7 +346,7 @@ export default function Atendimentos() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id;
 
-  const POLLING_INTERVAL = 60 * 60 * 1000; // 60 minutos em ms
+  const POLLING_INTERVAL = 60 * 60 * 1000;
 
   const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listar.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
     refetchOnWindowFocus: false,
@@ -433,6 +377,45 @@ export default function Atendimentos() {
     return () => clearInterval(interval);
   }, [ultimaAtualizacao]);
 
+  // ===== Detectar se é layout TASY =====
+  const isTasyLayout = useMemo(() => {
+    if (filtroOrigem === "tasy") return true;
+    if (filtroOrigem !== "todos") return false;
+    // Se todos os dados são TASY, ativar layout TASY
+    if (atendimentos && atendimentos.length > 0) {
+      return atendimentos.every(d => d.origemSistema === "tasy");
+    }
+    return false;
+  }, [filtroOrigem, atendimentos]);
+
+  // Origens disponíveis
+  const origensDisponiveis = useMemo(() => {
+    if (!atendimentos) return [];
+    const origens = new Set(atendimentos.map(d => d.origemSistema || "desconhecido"));
+    return Array.from(origens).sort();
+  }, [atendimentos]);
+
+  // Protocolos disponíveis (TASY)
+  const protocolosDisponiveis = useMemo(() => {
+    if (!atendimentos) return [];
+    const protocolos = new Set<string>();
+    atendimentos
+      .filter(d => d.origemSistema === "tasy")
+      .forEach(d => {
+        const prot = d.nomeProtocolo;
+        if (prot && prot.trim() !== "") {
+          protocolos.add(prot);
+        }
+      });
+    return Array.from(protocolos).sort();
+  }, [atendimentos]);
+
+  // Contar TASY sem protocolo
+  const tasyTotalSemProtocolo = useMemo(() => {
+    if (!atendimentos) return 0;
+    return atendimentos.filter(d => d.origemSistema === "tasy" && (!d.nomeProtocolo || d.nomeProtocolo.trim() === "")).length;
+  }, [atendimentos]);
+
   const registrarNotificacao = trpc.atendimentos.registrarNotificacao.useMutation({
     onSuccess: () => {
       requestAnimationFrame(() => {
@@ -450,7 +433,6 @@ export default function Atendimentos() {
 
   const registrarNotificacaoLote = trpc.atendimentos.registrarNotificacaoEmLote.useMutation({
     onSuccess: (result) => {
-      // Salvar histórico completo no banco com dados dos atendimentos
       const atendimentosSelecionadosData = dadosFiltrados.filter(d => selecionados.has(d.numatend));
       salvarHistoricoMutation.mutate({
         qtdAtendimentos: result.count,
@@ -486,11 +468,8 @@ export default function Atendimentos() {
     },
   });
 
-  // Mutation de envio de e-mail
   const enviarEmailMutation = trpc.atendimentos.enviarNotificacaoEmail.useMutation({
-    onSuccess: (result) => {
-      // Usar requestAnimationFrame para evitar conflito de DOM (NotFoundError: insertBefore)
-      // O toast precisa ser renderizado antes de remover o painel do DOM
+    onSuccess: () => {
       requestAnimationFrame(() => {
         toast.success(`E-mail enviado com sucesso!`);
         setEmailDestinatario("");
@@ -512,7 +491,6 @@ export default function Atendimentos() {
       toast.error("Informe o e-mail do destinatário");
       return;
     }
-    // Validação básica de e-mail
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(emailDestinatario.trim())) {
       toast.error("E-mail inválido. Verifique o endereço informado.");
@@ -540,49 +518,131 @@ export default function Atendimentos() {
 
   const [, navigate] = useLocation();
 
-  // KPIs
+  // ===== KPIs =====
   const kpis = useMemo(() => {
-    if (!atendimentos) return { total: 0, internacao: 0, exame: 0, ambulatorio: 0 };
+    if (!atendimentos) return { total: 0, internacao: 0, exame: 0, ambulatorio: 0, prontoSocorro: 0 };
+    // Filtrar por origem se necessário
+    let dados = [...atendimentos];
+    if (filtroOrigem !== "todos") {
+      dados = dados.filter(d => d.origemSistema === filtroOrigem);
+    }
+    if (filtroProtocolo !== "todos") {
+      if (filtroProtocolo === "__sem_protocolo__") {
+        dados = dados.filter(d => !d.nomeProtocolo || d.nomeProtocolo.trim() === "");
+      } else {
+        dados = dados.filter(d => d.nomeProtocolo === filtroProtocolo);
+      }
+    }
+
+    if (isTasyLayout) {
+      // TASY: usar tipo_atendimento (campo tipoatend no retorno da procedure)
+      return {
+        total: dados.length,
+        internacao: dados.filter(d => {
+          const tipo = (d.tipoatend || d.tipoatendimentodescricao || "").toUpperCase();
+          return tipo.includes("INTERNADO") || tipo.includes("INTERNACAO") || tipo.includes("INTERNAÇÃO");
+        }).length,
+        prontoSocorro: dados.filter(d => {
+          const tipo = (d.tipoatend || d.tipoatendimentodescricao || "").toUpperCase();
+          return tipo.includes("PRONTO") || tipo.includes("SOCORRO");
+        }).length,
+        ambulatorio: dados.filter(d => {
+          const tipo = (d.tipoatend || d.tipoatendimentodescricao || "").toUpperCase();
+          return tipo.includes("AMBULAT");
+        }).length,
+        exame: dados.filter(d => {
+          const tipo = (d.tipoatend || d.tipoatendimentodescricao || "").toUpperCase();
+          return tipo.includes("EXAME");
+        }).length,
+      };
+    }
+
+    // Layout padrão (Warleine/EasyVision)
     return {
-      total: atendimentos.length,
-      internacao: atendimentos.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("INTERNACAO")).length,
-      exame: atendimentos.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("EXAME")).length,
-      ambulatorio: atendimentos.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("AMBULATORIO") || d.tipoatendimentodescricao?.toUpperCase().includes("AMBULATÓRIO")).length,
+      total: dados.length,
+      internacao: dados.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("INTERNACAO")).length,
+      exame: dados.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("EXAME")).length,
+      ambulatorio: dados.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes("AMBULATORIO") || d.tipoatendimentodescricao?.toUpperCase().includes("AMBULATÓRIO")).length,
+      prontoSocorro: 0,
     };
-  }, [atendimentos]);
+  }, [atendimentos, isTasyLayout, filtroOrigem, filtroProtocolo]);
 
   // KPIs por plano
   const planosContagem = useMemo(() => {
     if (!atendimentos) return [];
+    let dados = [...atendimentos];
+    if (filtroOrigem !== "todos") dados = dados.filter(d => d.origemSistema === filtroOrigem);
+    if (filtroProtocolo !== "todos") {
+      if (filtroProtocolo === "__sem_protocolo__") {
+        dados = dados.filter(d => !d.nomeProtocolo || d.nomeProtocolo.trim() === "");
+      } else {
+        dados = dados.filter(d => d.nomeProtocolo === filtroProtocolo);
+      }
+    }
     const contagem: Record<string, number> = {};
-    atendimentos.forEach(d => {
+    dados.forEach(d => {
       const plano = d.nomeplaco || "Sem Plano";
       contagem[plano] = (contagem[plano] || 0) + 1;
     });
     return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
-  }, [atendimentos]);
+  }, [atendimentos, filtroOrigem, filtroProtocolo]);
 
   // Contagem por serviço
   const servicosContagem = useMemo(() => {
     if (!atendimentos) return [];
+    let dados = [...atendimentos];
+    if (filtroOrigem !== "todos") dados = dados.filter(d => d.origemSistema === filtroOrigem);
+    if (filtroProtocolo !== "todos") {
+      if (filtroProtocolo === "__sem_protocolo__") {
+        dados = dados.filter(d => !d.nomeProtocolo || d.nomeProtocolo.trim() === "");
+      } else {
+        dados = dados.filter(d => d.nomeProtocolo === filtroProtocolo);
+      }
+    }
     const contagem: Record<string, number> = {};
-    atendimentos.forEach(d => {
-      const servico = d.codserv || "Sem Serviço";
+    dados.forEach(d => {
+      // Para TASY: usar descricao_atendimento; para outros: usar codserv
+      const servico = isTasyLayout
+        ? (d.tipoatendimentodescricao || "Sem Descrição")
+        : (d.codserv || "Sem Serviço");
       contagem[servico] = (contagem[servico] || 0) + 1;
     });
     return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
-  }, [atendimentos]);
+  }, [atendimentos, isTasyLayout, filtroOrigem, filtroProtocolo]);
 
   // Filtro e ordenação
   const dadosFiltrados = useMemo(() => {
     if (!atendimentos) return [];
     let filtrados = [...atendimentos] as AtendimentoData[];
 
+    // Filtro por origem
+    if (filtroOrigem !== "todos") {
+      filtrados = filtrados.filter(d => d.origemSistema === filtroOrigem);
+    }
+
+    // Filtro por protocolo (TASY)
+    if (filtroProtocolo !== "todos") {
+      if (filtroProtocolo === "__sem_protocolo__") {
+        filtrados = filtrados.filter(d => !d.nomeProtocolo || d.nomeProtocolo.trim() === "");
+      } else {
+        filtrados = filtrados.filter(d => d.nomeProtocolo === filtroProtocolo);
+      }
+    }
+
     if (filtroTipo !== "todos") {
-      filtrados = filtrados.filter(d => d.tipoatendimentodescricao?.toUpperCase().includes(filtroTipo.toUpperCase()));
+      filtrados = filtrados.filter(d => {
+        const tipo = isTasyLayout
+          ? (d.tipoatend || d.tipoatendimentodescricao || "").toUpperCase()
+          : (d.tipoatendimentodescricao || "").toUpperCase();
+        return tipo.includes(filtroTipo.toUpperCase());
+      });
     }
     if (filtroServico) {
-      filtrados = filtrados.filter(d => (d.codserv || "Sem Serviço") === filtroServico);
+      if (isTasyLayout) {
+        filtrados = filtrados.filter(d => (d.tipoatendimentodescricao || "Sem Descrição") === filtroServico);
+      } else {
+        filtrados = filtrados.filter(d => (d.codserv || "Sem Serviço") === filtroServico);
+      }
     }
     if (filtroPlano) {
       filtrados = filtrados.filter(d => (d.nomeplaco || "Sem Plano") === filtroPlano);
@@ -596,6 +656,8 @@ export default function Atendimentos() {
           getDataSaida(d),
           String(d.diasParado),
           d.tipoatendimentodescricao, d.codserv, d.codcc_destino, d.motivo,
+          d.tipoatend, d.etapaConta, d.setorEtapa, d.userEtapa, d.codServico,
+          d.nomeProtocolo,
         ];
         return campos.some(c => (c || "").toLowerCase().includes(termo));
       });
@@ -607,9 +669,9 @@ export default function Atendimentos() {
       if (valA == null) valA = "";
       if (valB == null) valB = "";
 
-      if (sortColumn === "datatend" || sortColumn === "datasai") {
-        valA = new Date(valA).getTime();
-        valB = new Date(valB).getTime();
+      if (sortColumn === "datatend" || sortColumn === "datasai" || sortColumn === "dtEtapa") {
+        valA = valA ? new Date(valA).getTime() : 0;
+        valB = valB ? new Date(valB).getTime() : 0;
       } else if (sortColumn === "diasParado" || sortColumn === "numatend") {
         valA = Number(valA) || 0;
         valB = Number(valB) || 0;
@@ -624,7 +686,7 @@ export default function Atendimentos() {
     });
 
     return filtrados;
-  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano]);
+  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, isTasyLayout]);
 
   function handleSort(col: SortColumn) {
     if (sortColumn === col) {
@@ -737,11 +799,7 @@ export default function Atendimentos() {
   async function baixarPDFNotificacao(notif: { data: Date; qtdAtendimentos: number; atendimentos: AtendimentoData[]; notificacoes: NotificacaoLinha[]; observacao: string }) {
     try {
       toast.info("Gerando PDF...");
-      const doc = await gerarPDFNotificacao(
-        notif.atendimentos,
-        notif.notificacoes,
-        notif.observacao
-      );
+      const doc = await gerarPDFNotificacao(notif.atendimentos, notif.notificacoes, notif.observacao);
       const dataStr = notif.data.toLocaleDateString("pt-BR").replace(/\//g, "-");
       doc.save(`notificacao_${dataStr}_${notif.qtdAtendimentos}_atendimentos.pdf`);
       toast.success("PDF gerado com sucesso!");
@@ -759,11 +817,7 @@ export default function Atendimentos() {
     try {
       toast.info("Gerando PDF...");
       const atendimentosSelecionados = dadosFiltrados.filter(d => selecionados.has(d.numatend));
-      const doc = await gerarPDFNotificacao(
-        atendimentosSelecionados,
-        [],
-        ""
-      );
+      const doc = await gerarPDFNotificacao(atendimentosSelecionados, [], "");
       const dataStr = new Date().toLocaleDateString("pt-BR").replace(/\//g, "-");
       doc.save(`atendimentos_parados_${dataStr}.pdf`);
       toast.success("PDF gerado com sucesso!");
@@ -774,18 +828,38 @@ export default function Atendimentos() {
   }
 
   function exportarExcel() {
-    const dadosExport = dadosFiltrados.map(d => ({
-      "Nº Atend.": d.numatend,
-      "Paciente": d.nomepac,
-      "Plano": d.nomeplaco,
-      "Data Entrada": d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "",
-      "Data Saída": getDataSaida(d),
-      "Dias Parado": d.diasParado,
-      "Tipo": d.tipoatendimentodescricao || "-",
-      "Serviço": d.codserv,
-      "CC Destino": d.codcc_destino || "-",
-      "Motivo": d.motivo || "-",
-    }));
+    let dadosExport;
+    if (isTasyLayout) {
+      dadosExport = dadosFiltrados.map(d => ({
+        "Nº Atend.": d.numatend,
+        "Paciente": d.nomepac,
+        "Plano": d.nomeplaco,
+        "Data Entrada": d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "",
+        "Data Saída": getDataSaida(d),
+        "Dias Parado": d.diasParado,
+        "Tipo Atend.": d.tipoatend || d.tipoatendimentodescricao || "-",
+        "Etapa Conta": d.etapaConta || "-",
+        "Setor Etapa": d.setorEtapa || "-",
+        "Dt. Etapa": d.dtEtapa ? new Date(d.dtEtapa).toLocaleDateString("pt-BR") : "-",
+        "User Etapa": d.userEtapa || "-",
+        "Cód. Serviço": d.codServico || d.codserv || "-",
+        "Descrição Atend.": d.tipoatendimentodescricao || "-",
+        "Nome Protocolo": d.nomeProtocolo || "-",
+      }));
+    } else {
+      dadosExport = dadosFiltrados.map(d => ({
+        "Nº Atend.": d.numatend,
+        "Paciente": d.nomepac,
+        "Plano": d.nomeplaco,
+        "Data Entrada": d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "",
+        "Data Saída": getDataSaida(d),
+        "Dias Parado": d.diasParado,
+        "Tipo": d.tipoatendimentodescricao || "-",
+        "Serviço": d.codserv,
+        "CC Destino": d.codcc_destino || "-",
+        "Motivo": d.motivo || "-",
+      }));
+    }
     const ws = XLSX.utils.json_to_sheet(dadosExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Atendimentos");
@@ -806,6 +880,100 @@ export default function Atendimentos() {
         <span className="ml-3 text-muted-foreground">Carregando atendimentos...</span>
       </div>
     );
+  }
+
+  // ===== Colunas da tabela =====
+  const tasyColumns = [
+    { col: "numatend", label: "Nº Atend." },
+    { col: "nomepac", label: "Paciente" },
+    { col: "nomeplaco", label: "Plano" },
+    { col: "datatend", label: "Data Entrada" },
+    { col: "datasai", label: "Data Saída" },
+    { col: "diasParado", label: "Dias Parado" },
+    { col: "tipoatend", label: "Tipo Atend." },
+    { col: "etapaConta", label: "Etapa Conta" },
+    { col: "setorEtapa", label: "Setor Etapa" },
+    { col: "dtEtapa", label: "Dt. Etapa" },
+    { col: "userEtapa", label: "User Etapa" },
+    { col: "codServico", label: "Cód. Serviço" },
+    { col: "tipoatendimentodescricao", label: "Descrição Atend." },
+  ];
+
+  const defaultColumns = [
+    { col: "numatend", label: "Nº Atend." },
+    { col: "nomepac", label: "Paciente" },
+    { col: "nomeplaco", label: "Plano" },
+    { col: "datatend", label: "Data Entrada" },
+    { col: "datasai", label: "Data Saída" },
+    { col: "diasParado", label: "Dias Parado" },
+    { col: "tipoatendimentodescricao", label: "Tipo" },
+    { col: "codserv", label: "Serviço" },
+    { col: "codcc_destino", label: "CC Destino" },
+    { col: "motivo", label: "Motivo" },
+  ];
+
+  const columns = isTasyLayout ? tasyColumns : defaultColumns;
+
+  function renderCellValue(d: AtendimentoData, col: string) {
+    switch (col) {
+      case "numatend":
+        return <span className="font-mono font-medium">{d.numatend}</span>;
+      case "nomepac":
+        return <span className="max-w-[180px] truncate block" title={d.nomepac}>{d.nomepac}</span>;
+      case "nomeplaco":
+        return <span className="max-w-[130px] truncate block" title={d.nomeplaco}>{d.nomeplaco}</span>;
+      case "datatend":
+        return <span className="whitespace-nowrap">{d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "-"}</span>;
+      case "datasai":
+        return <span className="whitespace-nowrap">{getDataSaida(d)}</span>;
+      case "diasParado":
+        return (
+          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold border ${getDiasParadoColor(d.diasParado)}`}>
+            <Clock className="w-3 h-3" />
+            {d.diasParado} {d.diasParado === 1 ? "dia" : "dias"}
+          </span>
+        );
+      case "tipoatend":
+        return (
+          <Badge className={`${getTipoBadgeColor(d.tipoatend || d.tipoatendimentodescricao)} text-xs`}>
+            {d.tipoatend || d.tipoatendimentodescricao || "-"}
+          </Badge>
+        );
+      case "tipoatendimentodescricao":
+        if (isTasyLayout) {
+          // No layout TASY, esta coluna é "Descrição Atend."
+          return <span className="max-w-[250px] truncate block text-xs" title={d.tipoatendimentodescricao}>{d.tipoatendimentodescricao || "-"}</span>;
+        }
+        return (
+          <Badge className={`${getTipoBadgeColor(d.tipoatendimentodescricao)} text-xs`}>
+            {d.tipoatendimentodescricao || "-"}
+          </Badge>
+        );
+      case "codserv":
+        return <span>{d.codserv || "-"}</span>;
+      case "codServico":
+        return <span>{d.codServico || d.codserv || "-"}</span>;
+      case "codcc_destino":
+        return <span>{d.codcc_destino || "-"}</span>;
+      case "motivo":
+        return d.motivo ? (
+          <Badge variant="secondary" className="text-xs bg-amber-500/20 text-amber-400 border-amber-500/30">
+            {getMotivoLabel(d.motivo)}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        );
+      case "etapaConta":
+        return <span className="text-xs">{d.etapaConta || "-"}</span>;
+      case "setorEtapa":
+        return <span className="text-xs">{d.setorEtapa || "-"}</span>;
+      case "dtEtapa":
+        return <span className="whitespace-nowrap text-xs">{d.dtEtapa ? new Date(d.dtEtapa).toLocaleDateString("pt-BR") : "-"}</span>;
+      case "userEtapa":
+        return <span className="text-xs max-w-[120px] truncate block" title={d.userEtapa}>{d.userEtapa || "-"}</span>;
+      default:
+        return <span>{d[col] || "-"}</span>;
+    }
   }
 
   return (
@@ -841,6 +1009,55 @@ export default function Atendimentos() {
         </div>
       </div>
 
+      {/* Filtros de Origem e Protocolo */}
+      {origensDisponiveis.length > 1 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground font-medium">Sistema:</span>
+            <div className="flex gap-1">
+              <Button
+                variant={filtroOrigem === "todos" ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => { setFiltroOrigem("todos"); setFiltroProtocolo("todos"); }}
+              >
+                Todos
+              </Button>
+              {origensDisponiveis.map(origem => (
+                <Button
+                  key={origem}
+                  variant={filtroOrigem === origem ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => { setFiltroOrigem(origem); if (origem !== "tasy") setFiltroProtocolo("todos"); }}
+                >
+                  {origem.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filtro por Protocolo (só aparece quando TASY está ativo) */}
+          {isTasyLayout && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground font-medium">Protocolo:</span>
+              <Select value={filtroProtocolo} onValueChange={setFiltroProtocolo}>
+                <SelectTrigger className="h-7 text-xs w-[220px]">
+                  <SelectValue placeholder="Todos os protocolos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Protocolos</SelectItem>
+                  <SelectItem value="__sem_protocolo__">Sem Protocolo ({tasyTotalSemProtocolo})</SelectItem>
+                  {protocolosDisponiveis.map(prot => (
+                    <SelectItem key={prot} value={prot}>{prot}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
         <TabsList>
@@ -857,7 +1074,7 @@ export default function Atendimentos() {
 
         <TabsContent value="atendimentos" className="space-y-6 mt-4">
           {/* KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${isTasyLayout ? "lg:grid-cols-4" : "lg:grid-cols-4"} gap-4`}>
             <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setFiltroTipo("todos")}>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
@@ -871,45 +1088,92 @@ export default function Atendimentos() {
                 </div>
               </CardContent>
             </Card>
-            <Card className={`cursor-pointer hover:border-amber-500/50 transition-colors ${filtroTipo === "INTERNACAO" ? "border-amber-500" : ""}`} onClick={() => setFiltroTipo(f => f === "INTERNACAO" ? "todos" : "INTERNACAO")}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Internação</p>
-                    <p className="text-3xl font-bold mt-1 text-amber-500">{kpis.internacao}</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                    <Building2 className="w-6 h-6 text-amber-500" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className={`cursor-pointer hover:border-violet-500/50 transition-colors ${filtroTipo === "EXAME" ? "border-violet-500" : ""}`} onClick={() => setFiltroTipo(f => f === "EXAME" ? "todos" : "EXAME")}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Exame</p>
-                    <p className="text-3xl font-bold mt-1 text-violet-500">{kpis.exame}</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-violet-500/10 flex items-center justify-center">
-                    <FlaskConical className="w-6 h-6 text-violet-500" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className={`cursor-pointer hover:border-blue-500/50 transition-colors ${filtroTipo === "AMBULATORIO" ? "border-blue-500" : ""}`} onClick={() => setFiltroTipo(f => f === "AMBULATORIO" ? "todos" : "AMBULATORIO")}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Ambulatório</p>
-                    <p className="text-3xl font-bold mt-1 text-blue-500">{kpis.ambulatorio}</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                    <Stethoscope className="w-6 h-6 text-blue-500" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+
+            {isTasyLayout ? (
+              <>
+                <Card className={`cursor-pointer hover:border-amber-500/50 transition-colors ${filtroTipo === "INTERNADO" ? "border-amber-500" : ""}`} onClick={() => setFiltroTipo(f => f === "INTERNADO" ? "todos" : "INTERNADO")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Internado</p>
+                        <p className="text-3xl font-bold mt-1 text-amber-500">{kpis.internacao}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                        <Building2 className="w-6 h-6 text-amber-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={`cursor-pointer hover:border-orange-500/50 transition-colors ${filtroTipo === "PRONTO SOCORRO" ? "border-orange-500" : ""}`} onClick={() => setFiltroTipo(f => f === "PRONTO SOCORRO" ? "todos" : "PRONTO SOCORRO")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Pronto Socorro</p>
+                        <p className="text-3xl font-bold mt-1 text-orange-500">{kpis.prontoSocorro}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                        <Activity className="w-6 h-6 text-orange-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={`cursor-pointer hover:border-blue-500/50 transition-colors ${filtroTipo === "AMBULAT" ? "border-blue-500" : ""}`} onClick={() => setFiltroTipo(f => f === "AMBULAT" ? "todos" : "AMBULAT")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Ambulatorial</p>
+                        <p className="text-3xl font-bold mt-1 text-blue-500">{kpis.ambulatorio}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                        <Stethoscope className="w-6 h-6 text-blue-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <>
+                <Card className={`cursor-pointer hover:border-amber-500/50 transition-colors ${filtroTipo === "INTERNACAO" ? "border-amber-500" : ""}`} onClick={() => setFiltroTipo(f => f === "INTERNACAO" ? "todos" : "INTERNACAO")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Internação</p>
+                        <p className="text-3xl font-bold mt-1 text-amber-500">{kpis.internacao}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                        <Building2 className="w-6 h-6 text-amber-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={`cursor-pointer hover:border-violet-500/50 transition-colors ${filtroTipo === "EXAME" ? "border-violet-500" : ""}`} onClick={() => setFiltroTipo(f => f === "EXAME" ? "todos" : "EXAME")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Exame</p>
+                        <p className="text-3xl font-bold mt-1 text-violet-500">{kpis.exame}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                        <FlaskConical className="w-6 h-6 text-violet-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className={`cursor-pointer hover:border-blue-500/50 transition-colors ${filtroTipo === "AMBULATORIO" ? "border-blue-500" : ""}`} onClick={() => setFiltroTipo(f => f === "AMBULATORIO" ? "todos" : "AMBULATORIO")}>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Ambulatório</p>
+                        <p className="text-3xl font-bold mt-1 text-blue-500">{kpis.ambulatorio}</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                        <Stethoscope className="w-6 h-6 text-blue-500" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
 
           {/* KPIs por Plano */}
@@ -940,11 +1204,13 @@ export default function Atendimentos() {
             </Card>
           )}
 
-          {/* Quantidade por Serviço */}
+          {/* Quantidade por Serviço / Descrição */}
           {servicosContagem.length > 0 && (
             <Card>
               <CardContent className="p-5">
-                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Quantidade por Serviço</h2>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">
+                  {isTasyLayout ? "Quantidade por Descrição de Atendimento" : "Quantidade por Serviço"}
+                </h2>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                   {servicosContagem.map(([servico, qtd]) => (
                     <div
@@ -956,7 +1222,7 @@ export default function Atendimentos() {
                       }`}
                       onClick={() => setFiltroServico(prev => prev === servico ? null : servico)}
                     >
-                      <span className={`truncate mr-2 ${filtroServico === servico ? "text-primary font-medium" : "text-muted-foreground"}`}>{servico}</span>
+                      <span className={`truncate mr-2 text-xs ${filtroServico === servico ? "text-primary font-medium" : "text-muted-foreground"}`}>{servico}</span>
                       <span className="font-bold text-primary">{qtd}</span>
                     </div>
                   ))}
@@ -974,19 +1240,10 @@ export default function Atendimentos() {
                   {selecionados.size} atendimento{selecionados.size > 1 ? "s" : ""} selecionado{selecionados.size > 1 ? "s" : ""}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 h-8"
-                    onClick={baixarPDFSelecionados}
-                  >
+                  <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={baixarPDFSelecionados}>
                     <FileText className="w-3.5 h-3.5" /> Baixar PDF
                   </Button>
-                  <Button
-                    size="sm"
-                    className="gap-1.5 h-8 bg-amber-600 hover:bg-amber-700"
-                    onClick={abrirModalLote}
-                  >
+                  <Button size="sm" className="gap-1.5 h-8 bg-amber-600 hover:bg-amber-700" onClick={abrirModalLote}>
                     <Bell className="w-3.5 h-3.5" /> Notificar Selecionados
                   </Button>
                   <Button
@@ -997,72 +1254,48 @@ export default function Atendimentos() {
                   >
                     <Mail className="w-3.5 h-3.5" /> Enviar por E-mail
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-muted-foreground"
-                    onClick={() => setSelecionados(new Set())}
-                  >
-                    <X className="w-3.5 h-3.5" /> Limpar
+                  <Button variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={() => setSelecionados(new Set())}>
+                    <X className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               </div>
 
-              {/* Painel de envio por e-mail expandível */}
+              {/* Painel de e-mail expandido */}
               {emailExpandido && (
-                <div className="bg-background/60 rounded-lg border border-border/50 p-4 space-y-3 animate-in fade-in slide-in-from-top-1">
-                  <div className="flex items-center gap-2 text-sm font-medium text-blue-400">
-                    <Mail className="w-4 h-4" />
-                    Enviar {selecionados.size} atendimento{selecionados.size > 1 ? 's' : ''} por e-mail
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="flex-1">
-                      <label className="text-xs text-muted-foreground mb-1 block">E-mail do destinatário *</label>
+                <div className="bg-background/50 rounded-lg p-4 border space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">E-mail do Destinatário *</label>
                       <Input
-                        type="email"
-                        placeholder="exemplo@email.com"
+                        placeholder="email@exemplo.com"
                         value={emailDestinatario}
                         onChange={e => setEmailDestinatario(e.target.value)}
-                        className="h-9"
+                        type="email"
                       />
                     </div>
-                    <div className="flex-1">
-                      <label className="text-xs text-muted-foreground mb-1 block">Mensagem personalizada (opcional)</label>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Mensagem Personalizada (opcional)</label>
                       <Input
-                        placeholder="Mensagem adicional para o e-mail..."
+                        placeholder="Mensagem adicional no corpo do e-mail..."
                         value={emailMensagem}
                         onChange={e => setEmailMensagem(e.target.value)}
-                        className="h-9"
                       />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      O e-mail será enviado via <strong>notificacoes@safatle.com.br</strong> com a lista dos atendimentos selecionados.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8"
-                        onClick={() => { setEmailExpandido(false); setEmailDestinatario(""); setEmailMensagem(""); }}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="gap-1.5 h-8 bg-blue-600 hover:bg-blue-700"
-                        onClick={enviarEmailSelecionados}
-                        disabled={enviarEmailMutation.isPending || !emailDestinatario.trim()}
-                      >
-                        {enviarEmailMutation.isPending ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Send className="w-3.5 h-3.5" />
-                        )}
-                        {enviarEmailMutation.isPending ? 'Enviando...' : 'Enviar E-mail'}
-                      </Button>
-                    </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      className="gap-1.5 h-8 bg-blue-600 hover:bg-blue-700"
+                      onClick={enviarEmailSelecionados}
+                      disabled={enviarEmailMutation.isPending || !emailDestinatario.trim()}
+                    >
+                      {enviarEmailMutation.isPending ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      {enviarEmailMutation.isPending ? 'Enviando...' : 'Enviar E-mail'}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1074,7 +1307,10 @@ export default function Atendimentos() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por Nº Atend., Paciente, Plano, Data, Tipo, Serviço, Motivo..."
+                placeholder={isTasyLayout
+                  ? "Buscar por Nº Atend., Paciente, Plano, Tipo, Serviço, Etapa, Setor..."
+                  : "Buscar por Nº Atend., Paciente, Plano, Data, Tipo, Serviço, Motivo..."
+                }
                 value={pesquisa}
                 onChange={e => setPesquisa(e.target.value)}
                 className="pl-10"
@@ -1085,10 +1321,20 @@ export default function Atendimentos() {
             </Button>
           </div>
 
-          {(filtroTipo !== "todos" || filtroServico || filtroPlano) && (
+          {(filtroTipo !== "todos" || filtroServico || filtroPlano || filtroOrigem !== "todos" || filtroProtocolo !== "todos") && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-blue-400 bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-500/20">
               <AlertTriangle className="w-4 h-4" />
               <span>Filtros ativos:</span>
+              {filtroOrigem !== "todos" && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => { setFiltroOrigem("todos"); setFiltroProtocolo("todos"); }}>
+                  Sistema: {filtroOrigem.toUpperCase()} <X className="w-3 h-3" />
+                </Badge>
+              )}
+              {filtroProtocolo !== "todos" && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroProtocolo("todos")}>
+                  Protocolo: {filtroProtocolo === "__sem_protocolo__" ? "Sem Protocolo" : filtroProtocolo} <X className="w-3 h-3" />
+                </Badge>
+              )}
               {filtroTipo !== "todos" && (
                 <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroTipo("todos")}>
                   Tipo: {filtroTipo} <X className="w-3 h-3" />
@@ -1096,7 +1342,7 @@ export default function Atendimentos() {
               )}
               {filtroServico && (
                 <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroServico(null)}>
-                  Serviço: {filtroServico} <X className="w-3 h-3" />
+                  {isTasyLayout ? "Descrição" : "Serviço"}: {filtroServico} <X className="w-3 h-3" />
                 </Badge>
               )}
               {filtroPlano && (
@@ -1104,7 +1350,7 @@ export default function Atendimentos() {
                   Plano: {filtroPlano} <X className="w-3 h-3" />
                 </Badge>
               )}
-              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); }}>
+              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); setFiltroOrigem("todos"); setFiltroProtocolo("todos"); }}>
                 <X className="w-3 h-3 mr-1" /> Limpar Todos
               </Button>
             </div>
@@ -1123,18 +1369,7 @@ export default function Atendimentos() {
                         aria-label="Selecionar todos"
                       />
                     </th>
-                    {[
-                      { col: "numatend" as SortColumn, label: "Nº Atend." },
-                      { col: "nomepac" as SortColumn, label: "Paciente" },
-                      { col: "nomeplaco" as SortColumn, label: "Plano" },
-                      { col: "datatend" as SortColumn, label: "Data Entrada" },
-                      { col: "datasai" as SortColumn, label: "Data Saída" },
-                      { col: "diasParado" as SortColumn, label: "Dias Parado" },
-                      { col: "tipoatendimentodescricao" as SortColumn, label: "Tipo" },
-                      { col: "codserv" as SortColumn, label: "Serviço" },
-                      { col: "codcc_destino" as SortColumn, label: "CC Destino" },
-                      { col: "motivo" as SortColumn, label: "Motivo" },
-                    ].map(({ col, label }) => (
+                    {columns.map(({ col, label }) => (
                       <th
                         key={col}
                         className="px-4 py-3 text-left font-semibold cursor-pointer hover:bg-muted/50 select-none whitespace-nowrap"
@@ -1150,7 +1385,7 @@ export default function Atendimentos() {
                 <tbody>
                   {dadosFiltrados.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={columns.length + 2} className="px-4 py-12 text-center text-muted-foreground">
                         Nenhum atendimento encontrado
                       </td>
                     </tr>
@@ -1167,46 +1402,22 @@ export default function Atendimentos() {
                             aria-label={`Selecionar ${d.nomepac}`}
                           />
                         </td>
-                        <td className="px-4 py-3 font-mono font-medium">{d.numatend}</td>
-                        <td className="px-4 py-3 max-w-[200px] truncate" title={d.nomepac}>{d.nomepac}</td>
-                        <td className="px-4 py-3 max-w-[150px] truncate" title={d.nomeplaco}>{d.nomeplaco}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {d.datatend ? new Date(d.datatend).toLocaleDateString("pt-BR") : "-"}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {getDataSaida(d)}
-                        </td>
+                        {columns.map(({ col }) => (
+                          <td key={col} className="px-4 py-3">
+                            {renderCellValue(d, col)}
+                          </td>
+                        ))}
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold border ${getDiasParadoColor(d.diasParado)}`}>
-                            <Clock className="w-3 h-3" />
-                            {d.diasParado} {d.diasParado === 1 ? "dia" : "dias"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge className={`${getTipoBadgeColor(d.tipoatendimentodescricao)} text-xs`}>
-                            {d.tipoatendimentodescricao || "-"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">{d.codserv}</td>
-                        <td className="px-4 py-3">{d.codcc_destino || "-"}</td>
-                        <td className="px-4 py-3 max-w-[150px] truncate" title={d.motivo ? getMotivoLabel(d.motivo) : ""}>
-                          {d.motivo ? (
-                            <Badge variant="secondary" className="text-xs bg-amber-500/20 text-amber-400 border-amber-500/30">
-                              {getMotivoLabel(d.motivo)}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1 h-7 text-xs"
-                            onClick={() => abrirModal(d.numatend, d.nomepac)}
-                          >
-                            <Bell className="w-3 h-3" /> Notificar
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 h-7 text-xs"
+                              onClick={() => abrirModal(d.numatend, d.nomepac)}
+                            >
+                              <Bell className="w-3 h-3" /> Notificar
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1262,7 +1473,7 @@ export default function Atendimentos() {
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Gerada em {notif.data.toLocaleDateString("pt-BR")} às {notif.data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                            {(notif as any).usuario ? ` por ${(notif as any).usuario}` : ""}
+                            {notif.usuario ? ` por ${notif.usuario}` : ""}
                           </p>
                           {notif.notificacoes.filter(n => n.motivo).length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1.5">

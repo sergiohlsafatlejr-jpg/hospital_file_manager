@@ -3017,3 +3017,6 @@
 - [x] Implementar envio de email com PDF da notificação TASY
 - [x] Conectar botões da tabela TASY às procedures reais (notificação + email)
 - [x] Suporte a notificação em lote (selecionar múltiplos atendimentos)
+
+## Bug - Tela Maternidade Ela
+- [x] Tela de Atendimentos Parados da Maternidade Ela não funciona corretamente - mostra mesmo modelo do Warleine em vez do layout TASY (corrigido: integrado layout TASY no componente Atendimentos.tsx principal + cálculo diasParado com dtEntrega)
