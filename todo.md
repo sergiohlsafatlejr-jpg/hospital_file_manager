@@ -3050,3 +3050,4 @@
 - [x] Sincronizar acessoRelatoriosBi automaticamente ao salvar permissões com relatórios individuais habilitados
 - [x] Banco corrigido: acessoRelatoriosBi setado para 'sim' para aragraciotte
 - [x] 17 testes vitest para permissões de Relatórios BI
+- [x] Criar nova aba "Custos por Setor" no Relatório de Custos com análise de custos agrupados por setor hospitalar (backend + frontend + 14 testes)

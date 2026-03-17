@@ -10,6 +10,7 @@ import {
   buscarCustosPorConvenio,
   buscarCustosPorConta,
   buscarDetalheContaCusto,
+  buscarCustosPorSetor,
 } from "../relatorioCustos";
 
 export const relatorioCustosRouter = router({
@@ -133,5 +134,20 @@ export const relatorioCustosRouter = router({
     )
     .query(async ({ input }) => {
       return buscarDetalheContaCusto(input.estabelecimentoId, input.numconta);
+    }),
+
+  custosPorSetor: protectedProcedure
+    .input(
+      z.object({
+        estabelecimentoId: z.number(),
+        setor: z.string().optional(),
+        convenio: z.string().optional(),
+        competencia: z.string().optional(),
+        busca: z.string().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const { estabelecimentoId, ...filtros } = input;
+      return buscarCustosPorSetor(estabelecimentoId, filtros);
     }),
 });

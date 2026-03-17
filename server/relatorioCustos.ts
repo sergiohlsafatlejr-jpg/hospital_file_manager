@@ -2174,3 +2174,349 @@ export async function buscarDetalheContaCusto(
     client.release();
   }
 }
+
+
+// ============================================================
+// CUSTOS POR SETOR - Dados diretos do PostgreSQL Warleine
+// Agrupa lançamentos por setor/centro de custo para análise setorial
+// ============================================================
+
+export interface FiltroCustoPorSetor {
+  setor?: string;
+  convenio?: string;
+  competencia?: string; // formato YYYY-MM
+  busca?: string;
+}
+
+export interface ResumoSetor {
+  setor: string;
+  totalLancamentos: number;
+  totalItens: number;
+  totalContas: number;
+  totalFaturado: number;
+  totalCusto: number;
+  margem: number;
+  margemPercent: number;
+  resultado: "lucro" | "prejuizo" | "empate";
+  topItens: { descricao: string; quantidade: number; custoTotal: number; valorCobrado: number; margem: number }[];
+}
+
+export interface ItemDetalhadoSetor {
+  codprod: string;
+  descricao: string;
+  tipoItem: string;
+  tipoItemLabel: string;
+  setor: string;
+  unidade: string;
+  quantidade: number;
+  custoUnitario: number;
+  custoTotal: number;
+  valorCobradoUnitario: number;
+  valorCobradoTotal: number;
+  margem: number;
+  resultado: "lucro" | "prejuizo" | "empate";
+}
+
+export interface CustoPorSetorResult {
+  resumoPorSetor: ResumoSetor[];
+  itensDetalhados: ItemDetalhadoSetor[];
+  totalItensDetalhados: number;
+  kpis: {
+    totalSetores: number;
+    totalLancamentos: number;
+    valorFaturadoTotal: number;
+    custoTotal: number;
+    margemTotal: number;
+    margemMediaPercent: number;
+    setoresComLucro: number;
+    setoresComPrejuizo: number;
+  };
+  topSetoresPrejuizo: ResumoSetor[];
+  topSetoresLucro: ResumoSetor[];
+  setoresDisponiveis: string[];
+  conveniosDisponiveis: { codplaco: string; nome: string }[];
+  competenciasDisponiveis: string[];
+  fonte: string;
+}
+
+export async function buscarCustosPorSetor(
+  _estabelecimentoId: number,
+  filtros: FiltroCustoPorSetor
+): Promise<CustoPorSetorResult> {
+  const pool = getWarleinePool();
+  const client = await pool.connect();
+
+  try {
+    await client.query("SET statement_timeout = '120s'");
+
+    // ---- Filtros dinâmicos ----
+    const conditions: string[] = [
+      `L.vltotreais::numeric > 0`,
+    ];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (filtros.competencia) {
+      conditions.push(`TO_CHAR(L.data, 'YYYY-MM') = $${paramIdx}`);
+      params.push(filtros.competencia);
+      paramIdx++;
+    } else {
+      conditions.push(`L.data >= NOW() - INTERVAL '12 months'`);
+    }
+
+    if (filtros.convenio) {
+      conditions.push(`CP.codplaco = $${paramIdx}`);
+      params.push(filtros.convenio);
+      paramIdx++;
+    }
+
+    if (filtros.setor) {
+      conditions.push(`COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') = $${paramIdx}`);
+      params.push(filtros.setor);
+      paramIdx++;
+    }
+
+    if (filtros.busca) {
+      conditions.push(`(L.descricao ILIKE $${paramIdx} OR L.codprod ILIKE $${paramIdx})`);
+      params.push(`%${filtros.busca}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.join(" AND ");
+
+    // ---- 1. Buscar convênios disponíveis ----
+    const conveniosResult = await client.query(
+      `SELECT codplaco, nomeplaco FROM "PACIENTE".cadplaco WHERE inativo IS NULL ORDER BY nomeplaco`
+    );
+    const conveniosDisponiveis = conveniosResult.rows.map((r: any) => ({
+      codplaco: r.codplaco,
+      nome: r.nomeplaco,
+    }));
+
+    // ---- 2. Buscar competências disponíveis ----
+    const compResult = await client.query(
+      `SELECT DISTINCT TO_CHAR(L.data, 'YYYY-MM') as comp
+       FROM "PACIENTE".lancamen L
+       WHERE L.data >= NOW() - INTERVAL '24 months'
+       ORDER BY comp DESC`
+    );
+    const competenciasDisponiveis = compResult.rows.map((r: any) => r.comp);
+
+    // ---- 3. Buscar setores disponíveis ----
+    const setoresResult = await client.query(
+      `SELECT DISTINCT COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor
+       FROM "PACIENTE".lancamen L
+       LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+       WHERE L.data >= NOW() - INTERVAL '24 months'
+         AND L.vltotreais::numeric > 0
+       ORDER BY setor`
+    );
+    const setoresDisponiveis = setoresResult.rows.map((r: any) => r.setor);
+
+    // ---- 4. Query resumo por setor ----
+    const resumoQuery = `
+      SELECT
+        COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor,
+        COUNT(*) as total_lancamentos,
+        COUNT(DISTINCT TRIM(L.codprod)) as total_itens,
+        COUNT(DISTINCT L.numconta) as total_contas,
+        SUM(L.vltotreais::numeric) as total_faturado,
+        SUM(L.vlcusto::numeric) as total_vlcusto,
+        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as total_custo_estoque
+      FROM "PACIENTE".lancamen L
+      JOIN "PACIENTE".contas C ON L.numconta = C.numconta
+      LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
+      LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      WHERE ${whereClause}
+        AND L.codprod IS NOT NULL
+        AND TRIM(L.codprod) != ''
+      GROUP BY COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor')
+      ORDER BY total_faturado DESC
+    `;
+    const resumoResult = await client.query(resumoQuery, params);
+
+    // ---- 5. Query detalhada por item + setor ----
+    const detalhadoQuery = `
+      SELECT
+        TRIM(L.codprod) as codprod,
+        L.descricao,
+        L.tipoitem,
+        COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor,
+        COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade,
+        SUM(L.quantidade::numeric) as total_quantidade,
+        AVG(L.vlunitab::numeric) as vlunitab_medio,
+        SUM(L.vltotreais::numeric) as total_cobrado,
+        SUM(L.vlcusto::numeric) as total_vlcusto,
+        COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario,
+        COUNT(*) as num_lancamentos
+      FROM "PACIENTE".lancamen L
+      JOIN "PACIENTE".contas C ON L.numconta = C.numconta
+      LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
+      LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      WHERE ${whereClause}
+        AND L.codprod IS NOT NULL
+        AND TRIM(L.codprod) != ''
+      GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor'),
+               COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND'), TP.custoatual
+      ORDER BY total_cobrado DESC
+      LIMIT 1000
+    `;
+    const detalhadoResult = await client.query(detalhadoQuery, params);
+
+    // ---- 6. Top itens por setor ----
+    const topItensPorSetorQuery = `
+      SELECT
+        COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor,
+        L.descricao,
+        SUM(L.quantidade::numeric) as quantidade,
+        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as custo_total,
+        SUM(L.vltotreais::numeric) as valor_cobrado
+      FROM "PACIENTE".lancamen L
+      JOIN "PACIENTE".contas C ON L.numconta = C.numconta
+      LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
+      LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      WHERE ${whereClause}
+        AND L.codprod IS NOT NULL
+        AND TRIM(L.codprod) != ''
+      GROUP BY COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor'), L.descricao
+      ORDER BY custo_total DESC
+    `;
+    const topItensResult = await client.query(topItensPorSetorQuery, params);
+
+    // ---- Processar top itens por setor ----
+    const topItensPorSetorMap = new Map<string, { descricao: string; quantidade: number; custoTotal: number; valorCobrado: number; margem: number }[]>();
+    for (const row of topItensResult.rows) {
+      const setor = row.setor || "Sem Setor";
+      const custoTotal = parseFloat(row.custo_total || "0");
+      const valorCobrado = parseFloat(row.valor_cobrado || "0");
+      if (!topItensPorSetorMap.has(setor)) {
+        topItensPorSetorMap.set(setor, []);
+      }
+      const arr = topItensPorSetorMap.get(setor)!;
+      if (arr.length < 5) {
+        arr.push({
+          descricao: (row.descricao || "").trim(),
+          quantidade: parseFloat(row.quantidade || "0"),
+          custoTotal: Math.round(custoTotal * 100) / 100,
+          valorCobrado: Math.round(valorCobrado * 100) / 100,
+          margem: Math.round((valorCobrado - custoTotal) * 100) / 100,
+        });
+      }
+    }
+
+    // ---- Processar resumo por setor ----
+    let valorFaturadoTotal = 0;
+    let custoTotalGeral = 0;
+    let setoresComLucro = 0;
+    let setoresComPrejuizo = 0;
+    let totalLancamentos = 0;
+
+    const resumoPorSetor: ResumoSetor[] = resumoResult.rows.map((r: any) => {
+      const setor = r.setor || "Sem Setor";
+      const totalFaturado = parseFloat(r.total_faturado || "0");
+      const totalCustoEstoque = parseFloat(r.total_custo_estoque || "0");
+      const totalVlcusto = parseFloat(r.total_vlcusto || "0");
+      const totalCusto = totalCustoEstoque > 0 ? totalCustoEstoque : totalVlcusto;
+      const margem = totalFaturado - totalCusto;
+      const lancamentos = parseInt(r.total_lancamentos || "0");
+
+      valorFaturadoTotal += totalFaturado;
+      custoTotalGeral += totalCusto;
+      totalLancamentos += lancamentos;
+
+      if (margem > 0.01) setoresComLucro++;
+      if (margem < -0.01) setoresComPrejuizo++;
+
+      return {
+        setor,
+        totalLancamentos: lancamentos,
+        totalItens: parseInt(r.total_itens || "0"),
+        totalContas: parseInt(r.total_contas || "0"),
+        totalFaturado: Math.round(totalFaturado * 100) / 100,
+        totalCusto: Math.round(totalCusto * 100) / 100,
+        margem: Math.round(margem * 100) / 100,
+        margemPercent: totalCusto > 0 ? Math.round((margem / totalCusto) * 10000) / 100 : 0,
+        resultado: margem > 0.01 ? "lucro" as const : margem < -0.01 ? "prejuizo" as const : "empate" as const,
+        topItens: topItensPorSetorMap.get(setor) || [],
+      };
+    });
+
+    // ---- Processar itens detalhados ----
+    const TIPO_ITEM_LABEL: Record<string, string> = {
+      M: "Medicamento",
+      T: "Taxa",
+      P: "Produto",
+      S: "Serviço",
+      O: "Outros",
+    };
+
+    const itensDetalhados: ItemDetalhadoSetor[] = detalhadoResult.rows.map((row: any) => {
+      const quantidade = parseFloat(row.total_quantidade || "0");
+      const vlunitabMedio = parseFloat(row.vlunitab_medio || "0");
+      const valorCobradoTotal = parseFloat(row.total_cobrado || "0");
+      const vlcusto = parseFloat(row.total_vlcusto || "0");
+      const custoEstoqueUnit = parseFloat(row.custo_estoque_unitario || "0");
+      const custoTotal = custoEstoqueUnit > 0 ? custoEstoqueUnit * quantidade : vlcusto;
+      const margem = valorCobradoTotal - custoTotal;
+      const tipoItem = row.tipoitem || "P";
+
+      return {
+        codprod: (row.codprod || "").trim(),
+        descricao: (row.descricao || "").trim(),
+        tipoItem,
+        tipoItemLabel: TIPO_ITEM_LABEL[tipoItem] || tipoItem,
+        setor: row.setor || "Sem Setor",
+        unidade: (row.unidade || "UND").trim(),
+        quantidade: Math.round(quantidade * 100) / 100,
+        custoUnitario: Math.round(custoEstoqueUnit * 100) / 100,
+        custoTotal: Math.round(custoTotal * 100) / 100,
+        valorCobradoUnitario: Math.round(vlunitabMedio * 100) / 100,
+        valorCobradoTotal: Math.round(valorCobradoTotal * 100) / 100,
+        margem: Math.round(margem * 100) / 100,
+        resultado: margem > 0.01 ? "lucro" as const : margem < -0.01 ? "prejuizo" as const : "empate" as const,
+      };
+    });
+
+    // Top setores
+    const topSetoresPrejuizo = [...resumoPorSetor]
+      .filter((s) => s.margem < -0.01)
+      .sort((a, b) => a.margem - b.margem)
+      .slice(0, 10);
+
+    const topSetoresLucro = [...resumoPorSetor]
+      .filter((s) => s.margem > 0.01)
+      .sort((a, b) => b.margem - a.margem)
+      .slice(0, 10);
+
+    const margemTotal = valorFaturadoTotal - custoTotalGeral;
+
+    return {
+      resumoPorSetor,
+      itensDetalhados,
+      totalItensDetalhados: detalhadoResult.rows.length,
+      kpis: {
+        totalSetores: resumoPorSetor.length,
+        totalLancamentos,
+        valorFaturadoTotal: Math.round(valorFaturadoTotal * 100) / 100,
+        custoTotal: Math.round(custoTotalGeral * 100) / 100,
+        margemTotal: Math.round(margemTotal * 100) / 100,
+        margemMediaPercent: custoTotalGeral > 0
+          ? Math.round((margemTotal / custoTotalGeral) * 10000) / 100
+          : 0,
+        setoresComLucro,
+        setoresComPrejuizo,
+      },
+      topSetoresPrejuizo,
+      topSetoresLucro,
+      setoresDisponiveis,
+      conveniosDisponiveis,
+      competenciasDisponiveis,
+      fonte: "postgresql_warleine_direto",
+    };
+  } finally {
+    client.release();
+  }
+}
