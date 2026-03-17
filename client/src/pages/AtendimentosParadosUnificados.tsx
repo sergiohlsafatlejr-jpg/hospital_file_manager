@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -336,8 +336,36 @@ export default function AtendimentosParadosUnificados() {
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("atendimentos");
 
-  // Buscar dados
-  const { data: atendimentos = [], isLoading, refetch } = trpc.atendimentos.listarParadosUnificados.useQuery();
+  // Debounce para busca textual
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Buscar dados com paginação server-side
+  const queryInput = useMemo(() => ({
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+    origemSistema: filtroOrigem !== "all" ? filtroOrigem : undefined,
+    tipo: filtroTipo || undefined,
+    convenio: filtroConvenio || undefined,
+    etapa: filtroEtapa || undefined,
+    protocolo: filtroProtocolo !== "all" ? filtroProtocolo : undefined,
+    ano: filtroAno || undefined,
+    mes: filtroMes || undefined,
+    busca: debouncedSearch || undefined,
+    descricao: filtroServico || undefined,
+    sortColumn,
+    sortOrder,
+  }), [currentPage, filtroOrigem, filtroTipo, filtroConvenio, filtroEtapa, filtroProtocolo, filtroAno, filtroMes, debouncedSearch, filtroServico, sortColumn, sortOrder]);
+
+  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(queryInput);
+
+  const atendimentos = paginatedResult?.items || [];
+  const serverTotal = paginatedResult?.total || 0;
+  const serverTotalPages = paginatedResult?.totalPages || 0;
+  const aggregations = paginatedResult?.aggregations;
 
   // Histórico de notificações
   const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
@@ -424,111 +452,37 @@ export default function AtendimentosParadosUnificados() {
     }));
   }, [historicoNotificacoes]);
 
-  // Filtrar e ordenar dados
-  const filteredData = useMemo(() => {
-    let filtered = [...atendimentos];
-
-    if (filtroOrigem !== "all") {
-      filtered = filtered.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase());
-    }
-
-    if (filtroProtocolo !== "all") {
-      if (filtroProtocolo === "null") {
-        filtered = filtered.filter(a => !(a as any).nomeProtocolo);
-      } else if (filtroProtocolo === "com_protocolo") {
-        filtered = filtered.filter(a => !!(a as any).nomeProtocolo);
-      } else {
-        filtered = filtered.filter(a => (a as any).nomeProtocolo === filtroProtocolo);
-      }
-    }
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(a =>
-        (a.numero_atendimento?.toLowerCase().includes(term)) ||
-        (a.paciente?.toLowerCase().includes(term)) ||
-        (a.convenio?.toLowerCase().includes(term)) ||
-        ((a as any).matricula?.toLowerCase().includes(term)) ||
-        ((a as any).conta?.toLowerCase().includes(term)) ||
-        ((a as any).medicoResp?.toLowerCase().includes(term)) ||
-        ((a as any).descricao_atendimento?.toLowerCase().includes(term)) ||
-        ((a as any).codigo_servico?.toLowerCase().includes(term)) ||
-        ((a as any).etapaConta?.toLowerCase().includes(term)) ||
-        ((a as any).setorEtapa?.toLowerCase().includes(term)) ||
-        ((a as any).userEtapa?.toLowerCase().includes(term))
-      );
-    }
-
-    if (filtroTipo) { filtered = filtered.filter(a => a.tipo_atendimento === filtroTipo); }
-    if (filtroConvenio) { filtered = filtered.filter(a => a.convenio === filtroConvenio); }
-    if (filtroServico) { filtered = filtered.filter(a => a.descricao_atendimento === filtroServico); }
-    if (filtroEtapa) { filtered = filtered.filter(a => (a as any).etapaConta === filtroEtapa); }
-
-    // Filtro por Ano/Mês (competência ou data_entrada como fallback)
-    if (filtroAno || filtroMes) {
-      filtered = filtered.filter(a => {
-        let ano = "", mes = "";
-        const comp = (a as any).competencia;
-        if (comp && comp !== "NULL" && comp.includes("/")) {
-          const parts = comp.split("/");
-          ano = parts[0];
-          mes = parts[1];
-        } else if (a.data_entrada) {
-          const d = new Date(a.data_entrada);
-          if (!isNaN(d.getTime())) {
-            ano = String(d.getFullYear());
-            mes = String(d.getMonth() + 1).padStart(2, "0");
-          }
-        }
-        if (filtroAno && ano !== filtroAno) return false;
-        if (filtroMes && mes !== filtroMes) return false;
-        return true;
-      });
-    }
-
-    filtered.sort((a: any, b: any) => {
-      let aVal = a[sortColumn];
-      let bVal = b[sortColumn];
-      if (sortColumn === 'valorConta') { aVal = parseFloat(aVal) || 0; bVal = parseFloat(bVal) || 0; }
-      const comparison = (aVal ?? '') < (bVal ?? '') ? -1 : (aVal ?? '') > (bVal ?? '') ? 1 : 0;
-      return sortOrder === "asc" ? comparison : -comparison;
-    });
-
-    return filtered;
-  }, [atendimentos, searchTerm, filtroTipo, filtroConvenio, filtroServico, filtroEtapa, filtroOrigem, filtroProtocolo, filtroAno, filtroMes, sortColumn, sortOrder]);
+  // Com paginação server-side, filteredData = atendimentos (já filtrados e ordenados pelo servidor)
+  const filteredData = atendimentos;
 
   const origemDetectada = useMemo((): OrigemSistema => {
     if (filtroOrigem !== "all") return filtroOrigem;
-    const origens = new Set(filteredData.map(a => a.origemSistema?.toLowerCase()));
-    if (origens.size === 1) {
-      const unica = [...origens][0];
-      if (unica === "tasy") return "tasy";
-      if (unica === "tasy_hemolabor") return "tasy_hemolabor";
-      if (unica === "warleine") return "WARLEINE";
-      if (unica === "easyvision") return "EASYVISION";
+    // Usar agregações do servidor para detectar origem
+    if (aggregations?.origens?.length === 1) {
+      const o = aggregations.origens[0].value.toLowerCase();
+      if (o === "tasy") return "tasy";
+      if (o === "tasy_hemolabor") return "tasy_hemolabor";
+      if (o === "warleine") return "WARLEINE";
+      if (o === "easyvision") return "EASYVISION";
     }
     return "all";
-  }, [filteredData, filtroOrigem]);
+  }, [aggregations, filtroOrigem]);
 
   const quantidadePorDescricao = useMemo(() => {
     const map: Record<string, number> = {};
-    const baseData = (filtroOrigem === "tasy" || filtroOrigem === "tasy_hemolabor")
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : filteredData;
-    baseData.forEach(a => {
+    atendimentos.forEach(a => {
       const desc = (a as any).descricao_atendimento || "Sem descrição";
       map[desc] = (map[desc] || 0) + 1;
     });
     return map;
-  }, [atendimentos, filteredData, filtroOrigem]);
+  }, [atendimentos]);
 
-  const totalPages = Math.ceil(filteredData.length / PAGE_SIZE);
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredData.slice(start, start + PAGE_SIZE);
-  }, [filteredData, currentPage]);
+  // Paginação controlada pelo servidor
+  const totalPages = serverTotalPages;
+  const paginatedData = atendimentos; // Já vem paginado do servidor
 
-  useMemo(() => { setCurrentPage(1); }, [searchTerm, filtroTipo, filtroConvenio, filtroServico, filtroEtapa, filtroOrigem, filtroProtocolo, filtroAno, filtroMes]);
+  // Reset de página quando filtros mudam
+  useEffect(() => { setCurrentPage(1); }, [filtroTipo, filtroConvenio, filtroServico, filtroEtapa, filtroOrigem, filtroProtocolo, filtroAno, filtroMes, debouncedSearch]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) { setSortOrder(sortOrder === "asc" ? "desc" : "asc"); }
@@ -545,14 +499,25 @@ export default function AtendimentosParadosUnificados() {
   }, []);
 
   const selecionarTodos = useCallback(() => {
-    if (selecionados.size === filteredData.length) {
-      setSelecionados(new Set());
+    // Selecionar/desselecionar todos da página atual
+    const pageItems = new Set(paginatedData.map(d => d.numero_atendimento || ""));
+    const allSelected = paginatedData.every(d => selecionados.has(d.numero_atendimento || ""));
+    if (allSelected) {
+      setSelecionados(prev => {
+        const next = new Set(prev);
+        pageItems.forEach(item => next.delete(item));
+        return next;
+      });
     } else {
-      setSelecionados(new Set(filteredData.map(d => d.numero_atendimento || "")));
+      setSelecionados(prev => {
+        const next = new Set(prev);
+        pageItems.forEach(item => next.add(item));
+        return next;
+      });
     }
-  }, [filteredData, selecionados.size]);
+  }, [paginatedData, selecionados]);
 
-  const todosSelecionados = filteredData.length > 0 && selecionados.size === filteredData.length;
+  const todosSelecionados = paginatedData.length > 0 && paginatedData.every(d => selecionados.has(d.numero_atendimento || ""));
 
   // ===== Notificação individual =====
   function abrirModalNotificacao(atendimento: any) {
@@ -688,77 +653,28 @@ export default function AtendimentosParadosUnificados() {
     toast.success("Arquivo exportado com sucesso!");
   };
 
-  // Calcular KPIs
+  // KPIs baseados nas agregações do servidor
   const getQuantidadePorTipo = () => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
-    const tipos = [...new Set(baseData.map(a => a.tipo_atendimento).filter(Boolean))];
-    return tipos.map(tipo => ({
-      tipo, quantidade: baseData.filter(a => a.tipo_atendimento === tipo).length
-    })).sort((a, b) => b.quantidade - a.quantidade);
+    return (aggregations?.tipos || []).map(t => ({ tipo: t.value, quantidade: t.count }));
   };
 
   const getQuantidadePorPlano = () => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
-    const planos = [...new Set(baseData.map(a => a.convenio).filter(Boolean))];
-    return planos.map(plano => ({
-      plano, quantidade: baseData.filter(a => a.convenio === plano).length
-    })).sort((a, b) => b.quantidade - a.quantidade);
+    return (aggregations?.convenios || []).map(c => ({ plano: c.value, quantidade: c.count }));
   };
 
   const getQuantidadePorEtapa = () => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
-    const etapas = [...new Set(baseData.map((a: any) => a.etapaConta).filter(Boolean))];
-    return etapas.map(etapa => ({
-      etapa, quantidade: baseData.filter((a: any) => a.etapaConta === etapa).length
-    })).sort((a: any, b: any) => b.quantidade - a.quantidade);
+    return (aggregations?.etapas || []).map(e => ({ etapa: e.value, quantidade: e.count }));
   };
 
-  // Helper para extrair ano/mês de um atendimento
-  const extrairAnoMes = (a: any): { ano: string; mes: string } | null => {
-    const comp = a.competencia;
-    if (comp && comp !== "NULL" && comp.includes("/")) {
-      const parts = comp.split("/");
-      return { ano: parts[0], mes: parts[1] };
-    } else if (a.data_entrada) {
-      const d = new Date(a.data_entrada);
-      if (!isNaN(d.getTime())) {
-        return { ano: String(d.getFullYear()), mes: String(d.getMonth() + 1).padStart(2, "0") };
-      }
-    }
-    return null;
-  };
-
+  // Anos e meses disponíveis baseados nas agregações do servidor
   const anosDisponiveis = useMemo(() => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
-    const anos = new Set<string>();
-    baseData.forEach(a => {
-      const am = extrairAnoMes(a);
-      if (am) anos.add(am.ano);
-    });
-    return [...anos].filter(a => a.length === 4 && !isNaN(Number(a))).sort().reverse();
-  }, [atendimentos, filtroOrigem]);
+    return (aggregations?.anos || []).map(a => a.value).filter(a => a.length === 4 && !isNaN(Number(a))).sort().reverse();
+  }, [aggregations]);
 
   const mesesDisponiveis = useMemo(() => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
-    const mesesSet = new Set<string>();
-    baseData.forEach(a => {
-      const am = extrairAnoMes(a);
-      if (am && (!filtroAno || am.ano === filtroAno)) {
-        mesesSet.add(am.mes);
-      }
-    });
-    return [...mesesSet].sort();
-  }, [atendimentos, filtroOrigem, filtroAno]);
+    // Retornar todos os 12 meses quando um ano está selecionado (o servidor já filtra)
+    return ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+  }, []);
 
   const MESES_NOMES: Record<string, string> = {
     "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
@@ -767,55 +683,41 @@ export default function AtendimentosParadosUnificados() {
   };
 
   const getQuantidadePorMes = useMemo(() => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
+    // Contagem por mês não está disponível nas agregações do servidor
+    // Retornar vazio (o filtro de mês funciona sem contagem)
     const contagem: Record<string, number> = {};
-    baseData.forEach(a => {
-      const am = extrairAnoMes(a);
-      if (am && (!filtroAno || am.ano === filtroAno)) {
-        contagem[am.mes] = (contagem[am.mes] || 0) + 1;
-      }
-    });
     return contagem;
-  }, [atendimentos, filtroOrigem, filtroAno]);
+  }, []);
 
   const getQuantidadePorOrigem = () => {
-    const origens = [...new Set(atendimentos.map(a => a.origemSistema).filter(Boolean))];
-    return origens.map(origem => ({
-      origem, quantidade: atendimentos.filter(a => a.origemSistema === origem).length
-    })).sort((a, b) => b.quantidade - a.quantidade);
+    return (aggregations?.origens || []).map(o => ({ origem: o.value, quantidade: o.count }));
   };
 
   const getQuantidadePorProtocolo = useMemo(() => {
-    const baseData = (filtroOrigem === "tasy" || filtroOrigem === "tasy_hemolabor")
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
     const protocolos: Record<string, number> = {};
-    let nullCount = 0;
     let comProtocoloCount = 0;
-    baseData.forEach((a: any) => {
-      if (!a.nomeProtocolo) { nullCount++; }
-      else { comProtocoloCount++; protocolos[a.nomeProtocolo] = (protocolos[a.nomeProtocolo] || 0) + 1; }
+    (aggregations?.protocolos || []).forEach(p => {
+      protocolos[p.value] = p.count;
+      comProtocoloCount += p.count;
     });
+    const totalBase = (aggregations?.origens || []).reduce((sum, o) => sum + o.count, 0);
+    const nullCount = totalBase - comProtocoloCount;
     return { nullCount, comProtocoloCount, protocolos: Object.entries(protocolos).sort((a, b) => b[1] - a[1]) };
-  }, [atendimentos, filtroOrigem]);
+  }, [aggregations]);
 
   const getQuantidadePorDescricao = useMemo(() => {
-    const baseData = filtroOrigem !== "all"
-      ? atendimentos.filter(a => a.origemSistema?.toLowerCase() === filtroOrigem.toLowerCase())
-      : atendimentos;
+    // Usar dados da página atual para descrições (não temos agregação server-side para isso)
     const descs: Record<string, number> = {};
-    baseData.forEach((a: any) => {
+    atendimentos.forEach((a: any) => {
       const desc = a.descricao_atendimento || "Sem descrição";
       descs[desc] = (descs[desc] || 0) + 1;
     });
     return Object.entries(descs).sort((a, b) => b[1] - a[1]);
-  }, [atendimentos, filtroOrigem]);
+  }, [atendimentos]);
 
   const valorTotal = useMemo(() => {
-    return filteredData.reduce((sum, a: any) => sum + (parseFloat(a.valorConta) || 0), 0);
-  }, [filteredData]);
+    return aggregations?.totalValor || 0;
+  }, [aggregations]);
 
   const getTypeColor = (tipo?: string | null) => {
     const t = tipo?.toUpperCase() || '';
@@ -1485,7 +1387,7 @@ export default function AtendimentosParadosUnificados() {
 
                 {/* Paginação */}
                 <div className="mt-4 flex items-center justify-between text-slate-400 text-sm">
-                  <span>Exibindo {((currentPage - 1) * PAGE_SIZE) + 1}-{Math.min(currentPage * PAGE_SIZE, filteredData.length)} de {filteredData.length} atendimentos</span>
+                  <span>Exibindo {serverTotal > 0 ? ((currentPage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(currentPage * PAGE_SIZE, serverTotal)} de {serverTotal} atendimentos</span>
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" className="bg-slate-700 border-slate-600 text-white hover:bg-slate-600" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}><ChevronLeft className="w-4 h-4" /></Button>
                     <span className="text-white">Página {currentPage} de {totalPages || 1}</span>

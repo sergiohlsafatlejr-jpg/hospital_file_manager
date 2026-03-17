@@ -7027,6 +7027,286 @@ export const appRouter = router({
         }
       }),
 
+    listarPaginado: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(10).max(200).default(50),
+        origemSistema: z.string().optional(),
+        tipo: z.string().optional(),
+        convenio: z.string().optional(),
+        etapa: z.string().optional(),
+        protocolo: z.string().optional(),
+        ano: z.string().optional(),
+        mes: z.string().optional(),
+        busca: z.string().optional(),
+        descricao: z.string().optional(),
+        sortColumn: z.string().default("data_entrada"),
+        sortOrder: z.enum(["asc", "desc"]).default("desc"),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const dbInstance = await getDb();
+          if (!dbInstance) {
+            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, aggregations: { tipos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
+          }
+          const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
+          const { eq, and, notLike, or, isNull, like, sql, desc: descOrd, asc: ascOrd, count } = await import("drizzle-orm");
+
+          // Condições base (mesmas da procedure listar)
+          const baseConditions: any[] = [];
+          if (input.estabelecimentoId) {
+            baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
+          }
+          baseConditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+          baseConditions.push(
+            or(
+              sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
+              isNull(atendimentosUnificados.nomeProtocolo),
+              eq(atendimentosUnificados.nomeProtocolo, '')
+            )!
+          );
+          baseConditions.push(
+            or(
+              eq(atendimentosUnificados.origemSistema, 'tasy'),
+              eq(atendimentosUnificados.origemSistema, 'tasy_hemolabor'),
+              isNull(atendimentosUnificados.data_saida)
+            )!
+          );
+
+          // Condições de filtro
+          const filterConditions: any[] = [...baseConditions];
+          if (input.origemSistema && input.origemSistema !== 'all') {
+            filterConditions.push(eq(atendimentosUnificados.origemSistema, input.origemSistema));
+          }
+          if (input.tipo) {
+            filterConditions.push(eq(atendimentosUnificados.tipo_atendimento, input.tipo));
+          }
+          if (input.convenio) {
+            filterConditions.push(eq(atendimentosUnificados.convenio, input.convenio));
+          }
+          if (input.etapa) {
+            filterConditions.push(eq(atendimentosUnificados.etapaConta, input.etapa));
+          }
+          if (input.descricao) {
+            filterConditions.push(eq(atendimentosUnificados.descricao_atendimento, input.descricao));
+          }
+          if (input.protocolo && input.protocolo !== 'all') {
+            if (input.protocolo === 'null') {
+              filterConditions.push(or(isNull(atendimentosUnificados.nomeProtocolo), eq(atendimentosUnificados.nomeProtocolo, ''))!);
+            } else if (input.protocolo === 'com_protocolo') {
+              filterConditions.push(sql`${atendimentosUnificados.nomeProtocolo} IS NOT NULL AND ${atendimentosUnificados.nomeProtocolo} != ''`);
+            } else {
+              filterConditions.push(eq(atendimentosUnificados.nomeProtocolo, input.protocolo));
+            }
+          }
+          if (input.ano || input.mes) {
+            if (input.ano && input.mes) {
+              const compVal = `${input.ano}/${input.mes}`;
+              filterConditions.push(
+                or(
+                  eq(atendimentosUnificados.competencia, compVal),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`,
+                    sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
+                  )!
+                )!
+              );
+            } else if (input.ano) {
+              filterConditions.push(
+                or(
+                  like(atendimentosUnificados.competencia, `${input.ano}/%`),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`
+                  )!
+                )!
+              );
+            } else if (input.mes) {
+              filterConditions.push(
+                or(
+                  like(atendimentosUnificados.competencia, `%/${input.mes}`),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
+                  )!
+                )!
+              );
+            }
+          }
+          if (input.busca) {
+            const term = `%${input.busca}%`;
+            filterConditions.push(
+              or(
+                like(atendimentosUnificados.numero_atendimento, term),
+                like(atendimentosUnificados.paciente, term),
+                like(atendimentosUnificados.convenio, term),
+                like(atendimentosUnificados.matricula, term),
+                like(atendimentosUnificados.conta, term),
+                like(atendimentosUnificados.medicoResp, term),
+                like(atendimentosUnificados.descricao_atendimento, term),
+                like(atendimentosUnificados.codigo_servico, term),
+                like(atendimentosUnificados.etapaConta, term),
+                like(atendimentosUnificados.setorEtapa, term),
+                like(atendimentosUnificados.userEtapa, term)
+              )!
+            );
+          }
+
+          const whereClause = and(...filterConditions);
+          const baseWhereClause = and(...baseConditions);
+
+          // Mapeamento de colunas para ordenação
+          const sortColumnMap: Record<string, any> = {
+            data_entrada: atendimentosUnificados.data_entrada,
+            paciente: atendimentosUnificados.paciente,
+            convenio: atendimentosUnificados.convenio,
+            tipo_atendimento: atendimentosUnificados.tipo_atendimento,
+            numero_atendimento: atendimentosUnificados.numero_atendimento,
+            valorConta: atendimentosUnificados.valorConta,
+            etapaConta: atendimentosUnificados.etapaConta,
+            setorEtapa: atendimentosUnificados.setorEtapa,
+            origemSistema: atendimentosUnificados.origemSistema,
+            descricao_atendimento: atendimentosUnificados.descricao_atendimento,
+            codigo_servico: atendimentosUnificados.codigo_servico,
+            dtEntrega: atendimentosUnificados.dtEntrega,
+            dtEtapa: atendimentosUnificados.dtEtapa,
+            competencia: atendimentosUnificados.competencia,
+            medicoResp: atendimentosUnificados.medicoResp,
+            conta: atendimentosUnificados.conta,
+            matricula: atendimentosUnificados.matricula,
+          };
+          const sortCol = sortColumnMap[input.sortColumn] || atendimentosUnificados.data_entrada;
+          const orderFn = input.sortOrder === 'asc' ? ascOrd : descOrd;
+
+          // Queries em paralelo
+          const [totalResult, dataResult, valorResult] = await Promise.all([
+            dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
+            dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
+            dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(15,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
+          ]);
+
+          const total = (totalResult[0] as any)?.count || 0;
+          const totalPages = Math.ceil(total / input.pageSize);
+          const totalValor = parseFloat((valorResult as any)?.[0]?.[0]?.totalValor || (valorResult as any)?.[0]?.totalValor || '0');
+
+          // Agregações para filtros (sobre dados base, sem filtros de usuário)
+          const [tiposR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
+            dbInstance.execute(sql`SELECT tipo_atendimento as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND tipo_atendimento IS NOT NULL AND tipo_atendimento != '' GROUP BY tipo_atendimento ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`),
+            dbInstance.execute(sql`SELECT nomeProtocolo as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND nomeProtocolo IS NOT NULL AND nomeProtocolo != '' GROUP BY nomeProtocolo ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT CASE WHEN competencia IS NOT NULL AND competencia != '' AND competencia != 'NULL' AND competencia LIKE '%/%' THEN SUBSTRING_INDEX(competencia, '/', 1) WHEN data_entrada IS NOT NULL THEN CAST(YEAR(data_entrada) AS CHAR) ELSE NULL END as ano, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY ano HAVING ano IS NOT NULL ORDER BY ano DESC`),
+          ]);
+
+          const parseAgg = (rows: any) => {
+            const data = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+            return data.map((r: any) => ({ value: r.val || r.ano || '', count: parseInt(r.cnt) || 0 })).filter((r: any) => r.value);
+          };
+
+          // Buscar motivos de notificação para os registros da página
+          const numatends = dataResult.map(d => d.numero_atendimento || "").filter(n => n !== "");
+          let motivosMap: Record<string, string> = {};
+          if (numatends.length > 0) {
+            try {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+                motivosMap[numatend] = notif.motivo;
+              }
+            } catch (err) {
+              try { motivosMap = await buscarMotivosNotificacao(numatends); } catch (err2) { /* silenciar */ }
+            }
+          }
+
+          // Mapear dados
+          const items = dataResult.map(d => ({
+            id: d.id,
+            origemSistema: d.origemSistema,
+            origemId: d.origemId,
+            estabelecimentoId: d.estabelecimentoId,
+            numero_atendimento: d.numero_atendimento || "",
+            codigo_saida: d.codigo_saida || "",
+            convenio: d.convenio || "",
+            paciente: d.paciente || "",
+            caracter_atendimento: d.caracter_atendimento || "",
+            data_entrada: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
+            data_saida: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+            tipo_atendimento: d.tipo_atendimento || "",
+            descricao_atendimento: d.descricao_atendimento || "",
+            codigo_servico: d.codigo_servico || "",
+            codigo_procedimento: d.codigo_procedimento || "",
+            destino_conta: d.destino_conta || "",
+            motivo: motivosMap[d.numero_atendimento || ""] || null,
+            diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+              ? calcularDiasParadoUnificado(
+                  d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                  d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                  d.origemSistema || '',
+                  d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+                  d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
+                )
+              : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+            dsCategoria: d.dsCategoria || "",
+            dsPlano: d.dsPlano || "",
+            competencia: d.competencia || "",
+            referencia: d.referencia || "",
+            protTasy: d.protTasy || "",
+            nomeProtocolo: d.nomeProtocolo || "",
+            protConv: d.protConv || "",
+            dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+            protStatus: d.protStatus || "",
+            titulo: d.titulo || "",
+            dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
+            dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+            dsSetorEntrada: d.dsSetorEntrada || "",
+            dsSetorLeito: d.dsSetorLeito || "",
+            etapaConta: d.etapaConta || "",
+            setorEtapa: d.setorEtapa || "",
+            dtEtapa: d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null,
+            userEtapa: d.userEtapa || "",
+            motivoDevolucao: d.motivoDevolucao || "",
+            conta: d.conta || "",
+            autorizacao: d.autorizacao || "",
+            valorConta: d.valorConta ? String(d.valorConta) : "",
+            matricula: d.matricula || "",
+            sexo: d.sexo || "",
+            idade: d.idade || "",
+            medicoResp: d.medicoResp || "",
+            crm: d.crm || "",
+            dsMotivoAlta: d.dsMotivoAlta || "",
+            dataInicio: d.dataInicio || "",
+            dataFim: d.dataFim || "",
+            codServico: d.codServico || "",
+            centroCusto: d.centroCusto || "",
+            dataSincronizacao: d.dataSincronizacao ? new Date(d.dataSincronizacao).toISOString() : null,
+          }));
+
+          return {
+            items,
+            total,
+            page: input.page,
+            pageSize: input.pageSize,
+            totalPages,
+            aggregations: {
+              tipos: parseAgg(tiposR),
+              convenios: parseAgg(conveniosR),
+              etapas: parseAgg(etapasR),
+              origens: parseAgg(origensR),
+              protocolos: parseAgg(protocolosR),
+              anos: parseAgg(anosR),
+              totalValor,
+            },
+          };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos paginados: ${err.message}`,
+          });
+        }
+      }),
+
     getKPIs: protectedProcedure
       .query(async ({ ctx }) => {
         try {

@@ -3071,3 +3071,5 @@
 - [x] Criar filtro por mês/ano na tela de atendimentos (campos separados para Ano e Mês, formato MM/AAAA)
 
 - [x] Bug: Tela de atendimentos do Hemolabor não segue o mesmo layout TASY da Maternidade Ela - corrigir para que tasy_hemolabor use o mesmo modelo/layout TASY
+
+- [x] Implementar paginação server-side na tela de atendimentos para todos os estabelecimentos (LIMIT/OFFSET no banco, filtros server-side, agregações para KPIs)
