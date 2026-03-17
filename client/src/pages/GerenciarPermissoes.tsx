@@ -504,13 +504,25 @@ export default function GerenciarPermissoes() {
 
   const handleAddPermissao = () => {
     if (!selectedEstabelecimento || !newPermissao.userId) {
-      toast.error("Selecione um usuário");
+      toast.error("Selecione um usu\u00e1rio");
       return;
     }
+    
+    // Sincronizar acessoRelatoriosBi: se qualquer relat\u00f3rio individual estiver habilitado, o m\u00f3dulo pai deve ser "sim"
+    const temAlgumRelBi = (
+      newPermissao.acessoRelFaturadoRecebido === "sim" ||
+      newPermissao.acessoRelRecebimentoGeral === "sim" ||
+      newPermissao.acessoRelFaturamento === "sim" ||
+      newPermissao.acessoRelAtendimentos === "sim" ||
+      newPermissao.acessoRelCustos === "sim" ||
+      newPermissao.acessoRelNaoRecebidos === "sim" ||
+      newPermissao.acessoRelPrevisaoGlosa === "sim"
+    );
     
     upsertPermissao.mutate({
       ...newPermissao,
       estabelecimentoId: selectedEstabelecimento,
+      acessoRelatoriosBi: temAlgumRelBi ? "sim" as const : newPermissao.acessoRelatoriosBi,
     });
   };
 
@@ -562,10 +574,25 @@ export default function GerenciarPermissoes() {
   const handleSaveEdit = () => {
     if (!selectedEstabelecimento || !editingUser) return;
     
-    upsertPermissao.mutate({
+    // Sincronizar acessoRelatoriosBi: se qualquer relatório individual estiver habilitado, o módulo pai deve ser "sim"
+    const temAlgumRelBi = (
+      newPermissao.acessoRelFaturadoRecebido === "sim" ||
+      newPermissao.acessoRelRecebimentoGeral === "sim" ||
+      newPermissao.acessoRelFaturamento === "sim" ||
+      newPermissao.acessoRelAtendimentos === "sim" ||
+      newPermissao.acessoRelCustos === "sim" ||
+      newPermissao.acessoRelNaoRecebidos === "sim" ||
+      newPermissao.acessoRelPrevisaoGlosa === "sim"
+    );
+    
+    const permissaoFinal = {
       ...newPermissao,
       estabelecimentoId: selectedEstabelecimento,
-    });
+      // Se qualquer relatório individual está habilitado, habilitar o módulo pai automaticamente
+      acessoRelatoriosBi: temAlgumRelBi ? "sim" as const : newPermissao.acessoRelatoriosBi,
+    };
+    
+    upsertPermissao.mutate(permissaoFinal);
   };
 
   const handleCreateUser = () => {

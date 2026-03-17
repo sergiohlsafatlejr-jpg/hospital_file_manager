@@ -302,6 +302,17 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
     };
   })();
 
+  // Campos de relatórios BI individuais
+  const camposRelatoriosBiIndividuais: (keyof PermissoesModulo)[] = [
+    "acessoRelFaturadoRecebido",
+    "acessoRelRecebimentoGeral",
+    "acessoRelFaturamento",
+    "acessoRelAtendimentos",
+    "acessoRelCustos",
+    "acessoRelNaoRecebidos",
+    "acessoRelPrevisaoGlosa",
+  ];
+
   // Função para verificar acesso a um módulo
   const temAcessoModulo = (modulo: ModuloPermissao): boolean => {
     // Admin sempre tem acesso
@@ -315,6 +326,13 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
     
     // Administrador do estabelecimento tem acesso total
     if (permissoesModulo.grupoServico === "administrador") return true;
+
+    // Para o módulo relatoriosBi, verificar se o campo pai OU qualquer relatório individual está habilitado
+    if (modulo === "relatoriosBi") {
+      if (permissoesModulo.acessoRelatoriosBi === "sim") return true;
+      // Se qualquer relatório individual estiver habilitado, o módulo pai deve aparecer
+      return camposRelatoriosBiIndividuais.some(campo => permissoesModulo[campo] === "sim");
+    }
 
     const campo = moduloParaCampo[modulo];
     return permissoesModulo[campo] === "sim";

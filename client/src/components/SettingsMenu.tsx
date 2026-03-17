@@ -127,6 +127,7 @@ const settingsMenuItems: SettingsMenuItem[] = [
     path: "/configuracoes/notificacoes",
     description: "Alertas e canais de notificação",
     section: "Comunicação",
+    adminOnly: true,
   },
   // Sistema
   {

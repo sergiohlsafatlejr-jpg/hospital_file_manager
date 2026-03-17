@@ -2,15 +2,15 @@ import { describe, it, expect } from "vitest";
 
 /**
  * Testes para validar que os defaults de permissões de relatórios BI
- * são "nao" (sem acesso) por padrão, e não "sim" (com acesso).
- * 
- * Bug corrigido: Os defaults estavam como "sim", fazendo com que
- * relatórios desativados continuassem aparecendo para o usuário.
+ * são "nao" (sem acesso) por padrão, e que o módulo pai relatoriosBi
+ * aparece quando qualquer relatório individual está habilitado.
  */
 
 // Simular a lógica de resolução de permissões do EstabelecimentoContext
 function resolverPermissoesRelatoriosBi(permissao: Record<string, any>) {
   return {
+    acessoDashboard: permissao.acessoDashboard || "nao",
+    acessoRelatoriosBi: permissao.acessoRelatoriosBi || "nao",
     acessoRelFaturadoRecebido: permissao.acessoRelFaturadoRecebido || "nao",
     acessoRelRecebimentoGeral: permissao.acessoRelRecebimentoGeral || "nao",
     acessoRelFaturamento: permissao.acessoRelFaturamento || "nao",
@@ -18,11 +18,25 @@ function resolverPermissoesRelatoriosBi(permissao: Record<string, any>) {
     acessoRelCustos: permissao.acessoRelCustos || "nao",
     acessoRelNaoRecebidos: permissao.acessoRelNaoRecebidos || "nao",
     acessoRelPrevisaoGlosa: permissao.acessoRelPrevisaoGlosa || "nao",
+    grupoServico: permissao.grupoServico || null,
   };
 }
 
-// Simular a lógica de verificação de acesso do temAcessoModulo
+// Campos de relatórios BI individuais (mesma lista do EstabelecimentoContext)
+const camposRelatoriosBiIndividuais = [
+  "acessoRelFaturadoRecebido",
+  "acessoRelRecebimentoGeral",
+  "acessoRelFaturamento",
+  "acessoRelAtendimentos",
+  "acessoRelCustos",
+  "acessoRelNaoRecebidos",
+  "acessoRelPrevisaoGlosa",
+];
+
+// Simular a lógica corrigida de temAcessoModulo
 const moduloParaCampo: Record<string, string> = {
+  dashboard: "acessoDashboard",
+  relatoriosBi: "acessoRelatoriosBi",
   relFaturadoRecebido: "acessoRelFaturadoRecebido",
   relRecebimentoGeral: "acessoRelRecebimentoGeral",
   relFaturamento: "acessoRelFaturamento",
@@ -32,16 +46,43 @@ const moduloParaCampo: Record<string, string> = {
   relPrevisaoGlosa: "acessoRelPrevisaoGlosa",
 };
 
-function temAcessoModulo(permissoesModulo: Record<string, any>, modulo: string): boolean {
+function temAcessoModulo(
+  permissoesModulo: Record<string, any>,
+  modulo: string,
+  isAdmin = false,
+  isGestor = false
+): boolean {
+  if (isAdmin) return true;
+  if (isGestor) return true;
+  if (!permissoesModulo) return false;
+  if (permissoesModulo.grupoServico === "administrador") return true;
+
+  // Para relatoriosBi: verificar campo pai OU qualquer relatório individual
+  if (modulo === "relatoriosBi") {
+    if (permissoesModulo.acessoRelatoriosBi === "sim") return true;
+    return camposRelatoriosBiIndividuais.some(
+      (campo) => permissoesModulo[campo] === "sim"
+    );
+  }
+
   const campo = moduloParaCampo[modulo];
   return permissoesModulo[campo] === "sim";
 }
 
+// Simular sincronização de acessoRelatoriosBi ao salvar
+function sincronizarRelatoriosBi(permissao: Record<string, any>) {
+  const temAlgumRelBi = camposRelatoriosBiIndividuais.some(
+    (campo) => permissao[campo] === "sim"
+  );
+  return {
+    ...permissao,
+    acessoRelatoriosBi: temAlgumRelBi ? "sim" : permissao.acessoRelatoriosBi,
+  };
+}
+
 describe("Permissões Relatórios BI - Defaults", () => {
   it("deve negar acesso a todos os relatórios quando campos são undefined", () => {
-    const permissao = {}; // Simula permissão sem campos de relatório
-    const resolvido = resolverPermissoesRelatoriosBi(permissao);
-
+    const resolvido = resolverPermissoesRelatoriosBi({});
     expect(resolvido.acessoRelFaturadoRecebido).toBe("nao");
     expect(resolvido.acessoRelRecebimentoGeral).toBe("nao");
     expect(resolvido.acessoRelFaturamento).toBe("nao");
@@ -49,193 +90,143 @@ describe("Permissões Relatórios BI - Defaults", () => {
     expect(resolvido.acessoRelCustos).toBe("nao");
     expect(resolvido.acessoRelNaoRecebidos).toBe("nao");
     expect(resolvido.acessoRelPrevisaoGlosa).toBe("nao");
+    expect(resolvido.acessoDashboard).toBe("nao");
+    expect(resolvido.acessoRelatoriosBi).toBe("nao");
   });
 
-  it("deve negar acesso a todos os relatórios quando campos são null", () => {
-    const permissao = {
+  it("deve negar acesso quando campos são null", () => {
+    const resolvido = resolverPermissoesRelatoriosBi({
       acessoRelFaturadoRecebido: null,
       acessoRelRecebimentoGeral: null,
-      acessoRelFaturamento: null,
-      acessoRelAtendimentos: null,
-      acessoRelCustos: null,
-      acessoRelNaoRecebidos: null,
-      acessoRelPrevisaoGlosa: null,
-    };
-    const resolvido = resolverPermissoesRelatoriosBi(permissao);
-
+      acessoDashboard: null,
+      acessoRelatoriosBi: null,
+    });
     expect(resolvido.acessoRelFaturadoRecebido).toBe("nao");
     expect(resolvido.acessoRelRecebimentoGeral).toBe("nao");
-    expect(resolvido.acessoRelFaturamento).toBe("nao");
-    expect(resolvido.acessoRelAtendimentos).toBe("nao");
-    expect(resolvido.acessoRelCustos).toBe("nao");
-    expect(resolvido.acessoRelNaoRecebidos).toBe("nao");
-    expect(resolvido.acessoRelPrevisaoGlosa).toBe("nao");
+    expect(resolvido.acessoDashboard).toBe("nao");
+    expect(resolvido.acessoRelatoriosBi).toBe("nao");
   });
 
   it("deve permitir acesso somente aos relatórios explicitamente habilitados", () => {
-    const permissao = {
-      acessoRelFaturadoRecebido: "nao",
-      acessoRelRecebimentoGeral: "nao",
+    const resolvido = resolverPermissoesRelatoriosBi({
       acessoRelFaturamento: "sim",
       acessoRelAtendimentos: "sim",
       acessoRelCustos: "sim",
-      acessoRelNaoRecebidos: "nao",
-      acessoRelPrevisaoGlosa: "nao",
-    };
-    const resolvido = resolverPermissoesRelatoriosBi(permissao);
-
-    expect(resolvido.acessoRelFaturadoRecebido).toBe("nao");
-    expect(resolvido.acessoRelRecebimentoGeral).toBe("nao");
+    });
     expect(resolvido.acessoRelFaturamento).toBe("sim");
     expect(resolvido.acessoRelAtendimentos).toBe("sim");
     expect(resolvido.acessoRelCustos).toBe("sim");
-    expect(resolvido.acessoRelNaoRecebidos).toBe("nao");
-    expect(resolvido.acessoRelPrevisaoGlosa).toBe("nao");
+    expect(resolvido.acessoRelFaturadoRecebido).toBe("nao");
+    expect(resolvido.acessoRelRecebimentoGeral).toBe("nao");
+  });
+});
+
+describe("Permissões Relatórios BI - temAcessoModulo com lógica de módulo pai", () => {
+  it("deve mostrar módulo relatoriosBi quando campo pai é 'sim'", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({
+      acessoRelatoriosBi: "sim",
+    });
+    expect(temAcessoModulo(permissoes, "relatoriosBi")).toBe(true);
   });
 
-  it("deve permitir acesso a todos quando todos são 'sim'", () => {
-    const permissao = {
-      acessoRelFaturadoRecebido: "sim",
+  it("deve mostrar módulo relatoriosBi quando qualquer relatório individual está habilitado (mesmo com campo pai 'nao')", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({
+      acessoRelatoriosBi: "nao",
+      acessoRelFaturamento: "sim",
+    });
+    expect(temAcessoModulo(permissoes, "relatoriosBi")).toBe(true);
+  });
+
+  it("deve ocultar módulo relatoriosBi quando nenhum relatório está habilitado", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({
+      acessoRelatoriosBi: "nao",
+    });
+    expect(temAcessoModulo(permissoes, "relatoriosBi")).toBe(false);
+  });
+
+  it("cenário aragraciotte: módulo BI deve aparecer com relatórios individuais habilitados", () => {
+    // Simula exatamente os dados do banco do aragraciotte
+    const permissoes = resolverPermissoesRelatoriosBi({
+      acessoDashboard: "nao",
+      acessoRelatoriosBi: "nao", // Campo pai estava "nao" no banco!
+      acessoRelFaturadoRecebido: "nao",
       acessoRelRecebimentoGeral: "sim",
       acessoRelFaturamento: "sim",
       acessoRelAtendimentos: "sim",
       acessoRelCustos: "sim",
-      acessoRelNaoRecebidos: "sim",
-      acessoRelPrevisaoGlosa: "sim",
-    };
-    const resolvido = resolverPermissoesRelatoriosBi(permissao);
-
-    Object.values(resolvido).forEach(val => {
-      expect(val).toBe("sim");
-    });
-  });
-});
-
-describe("Permissões Relatórios BI - temAcessoModulo", () => {
-  it("deve negar acesso quando permissão é 'nao'", () => {
-    const permissoes = resolverPermissoesRelatoriosBi({
-      acessoRelFaturadoRecebido: "nao",
-      acessoRelCustos: "nao",
+      acessoRelNaoRecebidos: "nao",
+      acessoRelPrevisaoGlosa: "nao",
     });
 
-    expect(temAcessoModulo(permissoes, "relFaturadoRecebido")).toBe(false);
-    expect(temAcessoModulo(permissoes, "relCustos")).toBe(false);
-  });
-
-  it("deve permitir acesso quando permissão é 'sim'", () => {
-    const permissoes = resolverPermissoesRelatoriosBi({
-      acessoRelFaturamento: "sim",
-      acessoRelAtendimentos: "sim",
-    });
-
+    // Módulo pai deve aparecer (porque tem relatórios individuais habilitados)
+    expect(temAcessoModulo(permissoes, "relatoriosBi")).toBe(true);
+    // Dashboard deve estar oculto
+    expect(temAcessoModulo(permissoes, "dashboard")).toBe(false);
+    // Relatórios individuais corretos
+    expect(temAcessoModulo(permissoes, "relRecebimentoGeral")).toBe(true);
     expect(temAcessoModulo(permissoes, "relFaturamento")).toBe(true);
     expect(temAcessoModulo(permissoes, "relAtendimentos")).toBe(true);
-  });
-
-  it("deve negar acesso quando campo não existe (default 'nao')", () => {
-    const permissoes = resolverPermissoesRelatoriosBi({});
-
+    expect(temAcessoModulo(permissoes, "relCustos")).toBe(true);
     expect(temAcessoModulo(permissoes, "relFaturadoRecebido")).toBe(false);
-    expect(temAcessoModulo(permissoes, "relRecebimentoGeral")).toBe(false);
-    expect(temAcessoModulo(permissoes, "relFaturamento")).toBe(false);
-    expect(temAcessoModulo(permissoes, "relAtendimentos")).toBe(false);
-    expect(temAcessoModulo(permissoes, "relCustos")).toBe(false);
     expect(temAcessoModulo(permissoes, "relNaoRecebidos")).toBe(false);
     expect(temAcessoModulo(permissoes, "relPrevisaoGlosa")).toBe(false);
   });
 
-  it("cenário do bug: usuário com apenas alguns relatórios habilitados", () => {
-    // Simula o caso do usuário aragraciotte que deveria ver apenas Faturamento, Atendimentos e Custos
-    const permissao = {
-      acessoRelFaturadoRecebido: "nao",
-      acessoRelRecebimentoGeral: "nao",
-      acessoRelFaturamento: "sim",
-      acessoRelAtendimentos: "sim",
-      acessoRelCustos: "sim",
-      acessoRelNaoRecebidos: "nao",
-      acessoRelPrevisaoGlosa: "nao",
-    };
-    const permissoes = resolverPermissoesRelatoriosBi(permissao);
+  it("admin sempre tem acesso a tudo", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({});
+    expect(temAcessoModulo(permissoes, "relatoriosBi", true)).toBe(true);
+    expect(temAcessoModulo(permissoes, "dashboard", true)).toBe(true);
+  });
 
-    // Deve ter acesso apenas a 3 relatórios
-    const relatorios = [
-      "relFaturadoRecebido", "relRecebimentoGeral", "relFaturamento",
-      "relAtendimentos", "relCustos", "relNaoRecebidos", "relPrevisaoGlosa"
-    ];
-    
-    const comAcesso = relatorios.filter(r => temAcessoModulo(permissoes, r));
-    const semAcesso = relatorios.filter(r => !temAcessoModulo(permissoes, r));
+  it("gestor sempre tem acesso a tudo", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({});
+    expect(temAcessoModulo(permissoes, "relatoriosBi", false, true)).toBe(true);
+  });
 
-    expect(comAcesso).toHaveLength(3);
-    expect(comAcesso).toContain("relFaturamento");
-    expect(comAcesso).toContain("relAtendimentos");
-    expect(comAcesso).toContain("relCustos");
-
-    expect(semAcesso).toHaveLength(4);
-    expect(semAcesso).toContain("relFaturadoRecebido");
-    expect(semAcesso).toContain("relRecebimentoGeral");
-    expect(semAcesso).toContain("relNaoRecebidos");
-    expect(semAcesso).toContain("relPrevisaoGlosa");
+  it("administrador do estabelecimento tem acesso total", () => {
+    const permissoes = resolverPermissoesRelatoriosBi({
+      grupoServico: "administrador",
+    });
+    expect(temAcessoModulo(permissoes, "relatoriosBi")).toBe(true);
+    expect(temAcessoModulo(permissoes, "dashboard")).toBe(true);
   });
 });
 
-describe("Permissões Relatórios BI - Formulário de Edição", () => {
-  // Simular handleEditPermissao com os defaults corrigidos
-  function handleEditPermissao(user: Record<string, any>) {
-    return {
-      acessoDashboard: user.acessoDashboard || "nao",
-      acessoRelFaturadoRecebido: user.acessoRelFaturadoRecebido || "nao",
-      acessoRelRecebimentoGeral: user.acessoRelRecebimentoGeral || "nao",
-      acessoRelFaturamento: user.acessoRelFaturamento || "nao",
-      acessoRelAtendimentos: user.acessoRelAtendimentos || "nao",
-      acessoRelCustos: user.acessoRelCustos || "nao",
-      acessoRelNaoRecebidos: user.acessoRelNaoRecebidos || "nao",
-      acessoRelPrevisaoGlosa: user.acessoRelPrevisaoGlosa || "nao",
+describe("Sincronização acessoRelatoriosBi ao salvar permissões", () => {
+  it("deve setar acessoRelatoriosBi para 'sim' quando relatório individual está habilitado", () => {
+    const permissao = {
+      acessoRelatoriosBi: "nao",
+      acessoRelFaturamento: "sim",
+      acessoRelAtendimentos: "nao",
     };
-  }
-
-  it("deve carregar toggles desligados quando usuário não tem campos de relatório", () => {
-    const user = { userName: "aragraciotte" };
-    const form = handleEditPermissao(user);
-
-    Object.values(form).forEach(val => {
-      expect(val).toBe("nao");
-    });
+    const resultado = sincronizarRelatoriosBi(permissao);
+    expect(resultado.acessoRelatoriosBi).toBe("sim");
   });
 
-  it("deve carregar toggles corretamente quando usuário tem permissões mistas", () => {
-    const user = {
-      userName: "aragraciotte",
-      acessoDashboard: "nao",
+  it("deve manter acessoRelatoriosBi como 'nao' quando nenhum relatório individual está habilitado", () => {
+    const permissao = {
+      acessoRelatoriosBi: "nao",
+      acessoRelFaturamento: "nao",
+      acessoRelAtendimentos: "nao",
+    };
+    const resultado = sincronizarRelatoriosBi(permissao);
+    expect(resultado.acessoRelatoriosBi).toBe("nao");
+  });
+
+  it("deve sincronizar corretamente com múltiplos relatórios habilitados", () => {
+    const permissao = {
+      acessoRelatoriosBi: "nao",
+      acessoRelRecebimentoGeral: "sim",
       acessoRelFaturamento: "sim",
       acessoRelAtendimentos: "sim",
       acessoRelCustos: "sim",
-      acessoRelFaturadoRecebido: "nao",
-      acessoRelRecebimentoGeral: "nao",
-      acessoRelNaoRecebidos: "nao",
-      acessoRelPrevisaoGlosa: "nao",
     };
-    const form = handleEditPermissao(user);
-
-    expect(form.acessoDashboard).toBe("nao");
-    expect(form.acessoRelFaturamento).toBe("sim");
-    expect(form.acessoRelAtendimentos).toBe("sim");
-    expect(form.acessoRelCustos).toBe("sim");
-    expect(form.acessoRelFaturadoRecebido).toBe("nao");
-    expect(form.acessoRelRecebimentoGeral).toBe("nao");
-    expect(form.acessoRelNaoRecebidos).toBe("nao");
-    expect(form.acessoRelPrevisaoGlosa).toBe("nao");
-  });
-
-  it("acessoDashboard default deve ser 'nao' (não 'sim')", () => {
-    const user = { userName: "aragraciotte" };
-    const form = handleEditPermissao(user);
-    expect(form.acessoDashboard).toBe("nao");
+    const resultado = sincronizarRelatoriosBi(permissao);
+    expect(resultado.acessoRelatoriosBi).toBe("sim");
   });
 });
 
 describe("SettingsMenu - Filtragem por Permissão", () => {
-  // Simular a lógica de filtragem do SettingsMenu
   type SettingsMenuItem = {
     label: string;
     adminOnly?: boolean;
@@ -252,7 +243,7 @@ describe("SettingsMenu - Filtragem por Permissão", () => {
     { label: "Regras de IA", adminOnly: true },
     { label: "Dicionário de Glosas", modulo: "dicionarioGlosas" },
     { label: "Avisos Internos", adminOnly: true },
-    { label: "Notificações" },
+    { label: "Notificações", adminOnly: true },
     { label: "Backup e Dados", adminOnly: true },
   ];
 
@@ -261,16 +252,16 @@ describe("SettingsMenu - Filtragem por Permissão", () => {
     isGestor: boolean,
     temAcesso: (modulo: string) => boolean
   ) {
-    return items.filter(item => {
+    return items.filter((item) => {
       if (item.adminOnly) return isGestor;
       if (item.modulo) return temAcesso(item.modulo);
       return true;
     });
   }
 
-  it("deve mostrar apenas Notificações para usuário sem permissões", () => {
+  it("deve retornar lista vazia para usuário sem permissões (Notificações agora é adminOnly)", () => {
     const filtered = filterSettingsItems(settingsMenuItems, false, () => false);
-    expect(filtered.map(i => i.label)).toEqual(["Notificações"]);
+    expect(filtered).toHaveLength(0);
   });
 
   it("deve mostrar todos os itens para gestor", () => {
@@ -280,17 +271,21 @@ describe("SettingsMenu - Filtragem por Permissão", () => {
 
   it("deve mostrar apenas itens com módulo permitido para usuário com permissões parciais", () => {
     const permissoes = new Set(["estabelecimentos", "convenios"]);
-    const filtered = filterSettingsItems(
-      settingsMenuItems,
-      false,
-      (modulo) => permissoes.has(modulo)
+    const filtered = filterSettingsItems(settingsMenuItems, false, (modulo) =>
+      permissoes.has(modulo)
     );
-    const labels = filtered.map(i => i.label);
+    const labels = filtered.map((i) => i.label);
     expect(labels).toContain("Estabelecimentos");
     expect(labels).toContain("Convênios");
-    expect(labels).toContain("Notificações");
+    expect(labels).not.toContain("Notificações");
     expect(labels).not.toContain("Tabelas de Preço");
     expect(labels).not.toContain("Integrador de Dados");
     expect(labels).not.toContain("Backup e Dados");
+  });
+
+  it("Configurações não deve aparecer quando lista filtrada está vazia", () => {
+    const filtered = filterSettingsItems(settingsMenuItems, false, () => false);
+    // Se filteredItems.length === 0, o SettingsMenu retorna null
+    expect(filtered.length).toBe(0);
   });
 });

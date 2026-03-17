@@ -3043,3 +3043,10 @@
 - [x] BUG: Permissões de Relatórios BI não estão funcionando - relatórios desativados continuam aparecendo para o usuário (corrigido defaults || "sim" para || "nao" em 3 arquivos)
 - [x] BUG: Menu lateral mostra todos os módulos mesmo quando usuário tem apenas permissão de Relatórios BI - corrigido: defaults acessoDashboard "sim"->"nao", SettingsMenu agora filtra por permissão
 
+- [x] BUG: Relatórios BI não aparece no menu lateral mesmo quando usuário tem permissão habilitada
+- [x] BUG: Gerenciamento mostra Dashboard Auditoria e Conferência Pós-Correção mesmo sem permissão (corrigido: acessoDashboard default "nao")
+- [x] BUG: Configurações > Notificações aparece mesmo sem permissão específica (corrigido: adminOnly: true)
+- [x] Corrigir temAcessoModulo para relatoriosBi: verificar se qualquer relatório individual está habilitado
+- [x] Sincronizar acessoRelatoriosBi automaticamente ao salvar permissões com relatórios individuais habilitados
+- [x] Banco corrigido: acessoRelatoriosBi setado para 'sim' para aragraciotte
+- [x] 17 testes vitest para permissões de Relatórios BI
