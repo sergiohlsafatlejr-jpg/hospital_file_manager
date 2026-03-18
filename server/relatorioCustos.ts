@@ -1718,15 +1718,35 @@ export async function buscarCustosPorConvenio(
         SUM(L.vltotreais::numeric) as total_cobrado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
         COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario,
+        COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) as mult_cobr,
+        CASE
+          WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0 THEN TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)
+          ELSE COALESCE(TP.custoatual::numeric, 0)
+        END as custo_mult_fat,
+        COALESCE(NULLIF(TRIM(TMP.unidade), ''), NULLIF(TRIM(TMP_FALLBACK.unidade), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade_faturas,
         COUNT(*) as num_lancamentos
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
-      GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, CP.codplaco, CP.nomeplaco, COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND'), TP.custoatual
+      GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, CP.codplaco, CP.nomeplaco,
+               COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND'),
+               TP.custoatual, TP.unidade, TMP.multcobr, TMP.unidade, TMP_FALLBACK.multcobr, TMP_FALLBACK.unidade
       ORDER BY L.descricao ASC, CP.nomeplaco ASC
       LIMIT 1000
     `;
@@ -1743,16 +1763,34 @@ export async function buscarCustosPorConvenio(
         SUM(L.quantidade::numeric) as total_quantidade,
         SUM(L.vltotreais::numeric) as total_cobrado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
-        TP.custoatual::numeric as custo_estoque_unitario,
+        COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario,
+        COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) as mult_cobr,
+        CASE
+          WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0 THEN TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)
+          ELSE COALESCE(TP.custoatual::numeric, 0)
+        END as custo_mult_fat,
         COUNT(*) as num_lancamentos
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
-      GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, CP.codplaco, CP.nomeplaco, TP.custoatual
+      GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, CP.codplaco, CP.nomeplaco,
+               TP.custoatual, TMP.multcobr, TMP_FALLBACK.multcobr
       ORDER BY total_cobrado DESC
     `;
     const mainResult = await client.query(mainQuery, params);
@@ -1765,11 +1803,29 @@ export async function buscarCustosPorConvenio(
         COUNT(*) as total_lancamentos,
         SUM(L.vltotreais::numeric) as total_faturado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
-        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as total_custo_estoque
+        SUM(
+          CASE
+            WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0
+              THEN (TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)) * L.quantidade::numeric
+            ELSE COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric
+          END
+        ) as total_custo_estoque
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
       GROUP BY CP.codplaco, CP.nomeplaco
       ORDER BY total_faturado DESC
@@ -1796,8 +1852,8 @@ export async function buscarCustosPorConvenio(
       const vlunitabMedio = parseFloat(row.vlunitab_medio || "0");
       const valorCobradoTotal = parseFloat(row.total_cobrado || "0");
       const vlcusto = parseFloat(row.total_vlcusto || "0");
-      const custoEstoqueUnit = parseFloat(row.custo_estoque_unitario || "0");
-      const custoTotal = custoEstoqueUnit > 0 ? custoEstoqueUnit * quantidade : vlcusto;
+      const custoMultFat = parseFloat(row.custo_mult_fat || "0");
+      const custoTotal = custoMultFat > 0 ? custoMultFat * quantidade : vlcusto;
       const margem = valorCobradoTotal - custoTotal;
 
       return {
@@ -1807,9 +1863,9 @@ export async function buscarCustosPorConvenio(
         tipoItemLabel: TIPO_ITEM_LABEL[tipoItem] || tipoItem,
         convenio,
         codplaco,
-        unidade,
+        unidade: (row.unidade_faturas || unidade).trim(),
         quantidade: Math.round(quantidade * 100) / 100,
-        custoUnitario: Math.round(custoEstoqueUnit * 100) / 100,
+        custoUnitario: Math.round(custoMultFat * 100) / 100,
         custoTotal: Math.round(custoTotal * 100) / 100,
         valorCobradoUnitario: Math.round(vlunitabMedio * 100) / 100,
         valorCobradoTotal: Math.round(valorCobradoTotal * 100) / 100,
@@ -1834,11 +1890,11 @@ export async function buscarCustosPorConvenio(
       const quantidade = parseFloat(row.total_quantidade || "0");
       const valorCobrado = parseFloat(row.total_cobrado || "0");
       const vlcusto = parseFloat(row.total_vlcusto || "0");
-      const custoEstoqueUnit = parseFloat(row.custo_estoque_unitario || "0");
-      const custoTotal = custoEstoqueUnit > 0 ? custoEstoqueUnit * quantidade : vlcusto;
+      const custoMultFat = parseFloat(row.custo_mult_fat || "0");
+      const custoTotal = custoMultFat > 0 ? custoMultFat * quantidade : vlcusto;
       const margem = valorCobrado - custoTotal;
 
-      if (custoEstoqueUnit === 0 && vlcusto === 0) {
+      if (custoMultFat === 0 && vlcusto === 0) {
         totalItensSemCusto++;
       }
 
@@ -1850,7 +1906,7 @@ export async function buscarCustosPorConvenio(
           codprod,
           descricao,
           tipoItem,
-          custoEstoque: custoEstoqueUnit,
+          custoEstoque: custoMultFat,
           convenios: [],
         });
       }
@@ -2099,12 +2155,30 @@ export async function buscarCustosPorConta(
         COUNT(*) as total_itens,
         SUM(L.vltotreais::numeric) as total_cobrado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
-        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as total_custo_estoque
+        SUM(
+          CASE
+            WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0
+              THEN (TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)) * L.quantidade::numeric
+            ELSE COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric
+          END
+        ) as total_custo_estoque
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadpac PAC ON C.prontuario = PAC.codpac
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
@@ -2229,14 +2303,32 @@ export async function buscarDetalheContaCusto(
         TRIM(L.codprod) as codprod,
         L.descricao,
         L.tipoitem,
-        COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade,
+        COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TMP.unidade), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade,
         L.quantidade::numeric as quantidade,
         L.vlunitab::numeric as vlunitab,
         L.vltotreais::numeric as vltotreais,
         L.vlcusto::numeric as vlcusto,
-        COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario
+        COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario,
+        CASE
+          WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0 THEN TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)
+          ELSE COALESCE(TP.custoatual::numeric, 0)
+        END as custo_mult_fat
       FROM "PACIENTE".lancamen L
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
+      LEFT JOIN "PACIENTE".contas CT ON L.numconta = CT.numconta
+      LEFT JOIN "PACIENTE".cadplaco CTP ON CT.codplaco = CTP.codplaco
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CTP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE L.numconta = $1
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
@@ -2255,15 +2347,15 @@ export async function buscarDetalheContaCusto(
       const vlunitab = parseFloat(row.vlunitab || "0");
       const vltotreais = parseFloat(row.vltotreais || "0");
       const vlcusto = parseFloat(row.vlcusto || "0");
-      const custoEstoqueUnit = parseFloat(row.custo_estoque_unitario || "0");
-      const custoItem = custoEstoqueUnit > 0 ? custoEstoqueUnit * quantidade : vlcusto;
+      const custoMultFat = parseFloat(row.custo_mult_fat || "0");
+      const custoItem = custoMultFat > 0 ? custoMultFat * quantidade : vlcusto;
       const margem = vltotreais - custoItem;
 
       custoTotal += custoItem;
       valorCobrado += vltotreais;
       if (margem > 0.01) itensLucro++;
       if (margem < -0.01) itensPrejuizo++;
-      if (custoEstoqueUnit === 0 && vlcusto === 0) itensSemCusto++;
+      if (custoMultFat === 0 && vlcusto === 0) itensSemCusto++;
 
       return {
         codprod: (row.codprod || "").trim(),
@@ -2272,7 +2364,7 @@ export async function buscarDetalheContaCusto(
         tipoItemLabel: TIPO_ITEM_LABEL[row.tipoitem] || row.tipoitem || "Outros",
         unidade: (row.unidade || "UND").trim(),
         quantidade: Math.round(quantidade * 100) / 100,
-        custoUnitario: Math.round(custoEstoqueUnit * 100) / 100,
+        custoUnitario: Math.round(custoMultFat * 100) / 100,
         custoTotal: Math.round(custoItem * 100) / 100,
         valorCobradoUnitario: Math.round(vlunitab * 100) / 100,
         valorCobradoTotal: Math.round(vltotreais * 100) / 100,
@@ -2452,12 +2544,30 @@ export async function buscarCustosPorSetor(
         COUNT(DISTINCT L.numconta) as total_contas,
         SUM(L.vltotreais::numeric) as total_faturado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
-        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as total_custo_estoque
+        SUM(
+          CASE
+            WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0
+              THEN (TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)) * L.quantidade::numeric
+            ELSE COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric
+          END
+        ) as total_custo_estoque
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
       LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
@@ -2473,23 +2583,40 @@ export async function buscarCustosPorSetor(
         L.descricao,
         L.tipoitem,
         COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor,
-        COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade,
+        COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TMP.unidade), ''), NULLIF(TRIM(TP.unidade), ''), 'UND') as unidade,
         SUM(L.quantidade::numeric) as total_quantidade,
         AVG(L.vlunitab::numeric) as vlunitab_medio,
         SUM(L.vltotreais::numeric) as total_cobrado,
         SUM(L.vlcusto::numeric) as total_vlcusto,
         COALESCE(TP.custoatual::numeric, 0) as custo_estoque_unitario,
+        CASE
+          WHEN COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric, 0) > 0 THEN TP.custoatual::numeric / COALESCE(TMP.multcobr::numeric, TMP_FALLBACK.multcobr::numeric)
+          ELSE COALESCE(TP.custoatual::numeric, 0)
+        END as custo_mult_fat,
         COUNT(*) as num_lancamentos
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
       LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
+      LEFT JOIN LATERAL (
+        SELECT multcobr, unidade FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+        ORDER BY multcobr DESC
+        LIMIT 1
+      ) TMP_FALLBACK ON TMP.multcobr IS NULL
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
       GROUP BY TRIM(L.codprod), L.descricao, L.tipoitem, COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor'),
-               COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TP.unidade), ''), 'UND'), TP.custoatual
+               COALESCE(NULLIF(TRIM(L.unimatmed), ''), NULLIF(TRIM(TMP.unidade), ''), NULLIF(TRIM(TP.unidade), ''), 'UND'),
+               TP.custoatual, TP.unidade, TMP.multcobr, TMP.unidade, TMP_FALLBACK.multcobr, TMP_FALLBACK.unidade
       ORDER BY total_cobrado DESC
       LIMIT 1000
     `;
@@ -2501,13 +2628,25 @@ export async function buscarCustosPorSetor(
         COALESCE(NULLIF(TRIM(CC.nomecc), ''), 'Sem Setor') as setor,
         L.descricao,
         SUM(L.quantidade::numeric) as quantidade,
-        SUM(COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric) as custo_total,
+        SUM(
+          CASE
+            WHEN COALESCE(TMP.multcobr::numeric, 0) > 0
+              THEN (TP.custoatual::numeric / TMP.multcobr::numeric) * L.quantidade::numeric
+            ELSE COALESCE(TP.custoatual::numeric, 0) * L.quantidade::numeric
+          END
+        ) as custo_total,
         SUM(L.vltotreais::numeric) as valor_cobrado
       FROM "PACIENTE".lancamen L
       JOIN "PACIENTE".contas C ON L.numconta = C.numconta
       LEFT JOIN "PACIENTE".cadplaco CP ON C.codplaco = CP.codplaco
       LEFT JOIN "PACIENTE".tabprod TP ON TRIM(L.codprod) = TRIM(TP.codprod)
       LEFT JOIN "PACIENTE".cadcc CC ON L.codcc = CC.codcc
+      LEFT JOIN LATERAL (
+        SELECT multcobr FROM "PACIENTE".tabmprop
+        WHERE codprod = TRIM(L.codprod)
+          AND codtbmm = CP.codtbmm
+        LIMIT 1
+      ) TMP ON true
       WHERE ${whereClause}
         AND L.codprod IS NOT NULL
         AND TRIM(L.codprod) != ''
@@ -2588,8 +2727,8 @@ export async function buscarCustosPorSetor(
       const vlunitabMedio = parseFloat(row.vlunitab_medio || "0");
       const valorCobradoTotal = parseFloat(row.total_cobrado || "0");
       const vlcusto = parseFloat(row.total_vlcusto || "0");
-      const custoEstoqueUnit = parseFloat(row.custo_estoque_unitario || "0");
-      const custoTotal = custoEstoqueUnit > 0 ? custoEstoqueUnit * quantidade : vlcusto;
+      const custoMultFat = parseFloat(row.custo_mult_fat || "0");
+      const custoTotal = custoMultFat > 0 ? custoMultFat * quantidade : vlcusto;
       const margem = valorCobradoTotal - custoTotal;
       const tipoItem = row.tipoitem || "P";
 
@@ -2601,7 +2740,7 @@ export async function buscarCustosPorSetor(
         setor: row.setor || "Sem Setor",
         unidade: (row.unidade || "UND").trim(),
         quantidade: Math.round(quantidade * 100) / 100,
-        custoUnitario: Math.round(custoEstoqueUnit * 100) / 100,
+        custoUnitario: Math.round(custoMultFat * 100) / 100,
         custoTotal: Math.round(custoTotal * 100) / 100,
         valorCobradoUnitario: Math.round(vlunitabMedio * 100) / 100,
         valorCobradoTotal: Math.round(valorCobradoTotal * 100) / 100,

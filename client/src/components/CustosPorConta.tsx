@@ -154,6 +154,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                         <TableHead>Descrição</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead className="text-right">Qtd</TableHead>
+                        <TableHead className="text-center">Un. Fat.</TableHead>
                         <TableHead className="text-right">Custo Unit.</TableHead>
                         <TableHead className="text-right">Custo Total</TableHead>
                         <TableHead className="text-right">Cobrado Unit.</TableHead>
@@ -171,6 +172,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                             <Badge variant="outline" className="text-xs">{item.tipoItemLabel}</Badge>
                           </TableCell>
                           <TableCell className="text-right font-mono text-sm">{item.quantidade}</TableCell>
+                          <TableCell className="text-center text-xs text-muted-foreground">{item.unidade}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(item.custoUnitario)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-red-500">{formatCurrency(item.custoTotal)}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(item.valorCobradoUnitario)}</TableCell>

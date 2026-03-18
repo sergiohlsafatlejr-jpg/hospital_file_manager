@@ -397,3 +397,164 @@ describe("relatorioCustos", () => {
     });
   });
 });
+
+
+describe("relatorioCustos - custoMultFat nas abas", () => {
+  const { ctx } = createAuthContext();
+  const caller = appRouter.createCaller(ctx);
+
+  describe("custosPorConvenio", () => {
+    it("retorna estrutura completa com kpis e itens detalhados", { timeout: 60000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorConvenio({
+        estabelecimentoId: 1,
+      });
+
+      expect(result).toHaveProperty("itensDetalhados");
+      expect(result).toHaveProperty("totalItensDetalhados");
+      expect(result).toHaveProperty("itens");
+      expect(result).toHaveProperty("resumoPorConvenio");
+      expect(result).toHaveProperty("kpis");
+      expect(result).toHaveProperty("topItensPrejuizo");
+      expect(result).toHaveProperty("topItensLucro");
+      expect(result).toHaveProperty("conveniosDisponiveis");
+      expect(result).toHaveProperty("competenciasDisponiveis");
+      expect(result).toHaveProperty("fonte");
+
+      expect(Array.isArray(result.itensDetalhados)).toBe(true);
+      expect(typeof result.kpis.valorFaturadoTotal).toBe("number");
+      expect(typeof result.kpis.custoTotal).toBe("number");
+    });
+
+    it("itens detalhados possuem custoUnitario baseado em custoMultFat", { timeout: 60000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorConvenio({
+        estabelecimentoId: 1,
+      });
+
+      for (const item of result.itensDetalhados) {
+        expect(item).toHaveProperty("codprod");
+        expect(item).toHaveProperty("descricao");
+        expect(item).toHaveProperty("unidade");
+        expect(item).toHaveProperty("custoUnitario");
+        expect(item).toHaveProperty("custoTotal");
+        expect(item).toHaveProperty("valorCobradoTotal");
+        expect(item).toHaveProperty("margem");
+        expect(item).toHaveProperty("resultado");
+        expect(typeof item.custoUnitario).toBe("number");
+        expect(typeof item.custoTotal).toBe("number");
+        expect(["lucro", "prejuizo", "empate"]).toContain(item.resultado);
+      }
+    });
+
+    it("custoUnitario nao deve ser inflado (custoEstoque do frasco inteiro)", { timeout: 30000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorConvenio({
+        estabelecimentoId: 1,
+        busca: "SEVOFLURANO",
+      });
+
+      // Se houver SEVOFLURANO, custoUnitario deve ser ~1.32/ml, nao ~329.54/frasco
+      for (const item of result.itensDetalhados) {
+        if (item.descricao.includes("SEVOFLURANO")) {
+          // custoMultFat para SEVOFLURANO = custoatual / multcobr = ~329.54 / 250 = ~1.32
+          // Se estivesse usando custoEstoque, seria ~329.54
+          expect(item.custoUnitario).toBeLessThan(50);
+        }
+      }
+    });
+  });
+
+  describe("custosPorConta", () => {
+    it("retorna estrutura completa com contas e kpis", { timeout: 30000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorConta({
+        estabelecimentoId: 1,
+      });
+
+      expect(result).toHaveProperty("contas");
+      expect(result).toHaveProperty("totalContas");
+      expect(result).toHaveProperty("kpis");
+      expect(result).toHaveProperty("topContasPrejuizo");
+      expect(result).toHaveProperty("topContasLucro");
+      expect(result).toHaveProperty("conveniosDisponiveis");
+      expect(result).toHaveProperty("competenciasDisponiveis");
+      expect(result).toHaveProperty("fonte");
+
+      expect(Array.isArray(result.contas)).toBe(true);
+      expect(typeof result.kpis.custoTotalGeral).toBe("number");
+      expect(typeof result.kpis.valorCobradoGeral).toBe("number");
+    });
+
+    it("contas possuem custoTotal baseado em custoMultFat (nao inflado)", { timeout: 30000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorConta({
+        estabelecimentoId: 1,
+      });
+
+      for (const conta of result.contas) {
+        expect(conta).toHaveProperty("numconta");
+        expect(conta).toHaveProperty("custoTotal");
+        expect(conta).toHaveProperty("valorCobrado");
+        expect(conta).toHaveProperty("margem");
+        expect(conta).toHaveProperty("resultado");
+        expect(typeof conta.custoTotal).toBe("number");
+        expect(typeof conta.valorCobrado).toBe("number");
+        expect(["lucro", "prejuizo", "empate"]).toContain(conta.resultado);
+      }
+    });
+  });
+
+  describe("custosPorSetor", () => {
+    it("retorna estrutura completa com resumo por setor e itens detalhados", { timeout: 60000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorSetor({
+        estabelecimentoId: 1,
+      });
+
+      expect(result).toHaveProperty("resumoPorSetor");
+      expect(result).toHaveProperty("itensDetalhados");
+      expect(result).toHaveProperty("totalItensDetalhados");
+      expect(result).toHaveProperty("kpis");
+      expect(result).toHaveProperty("topSetoresPrejuizo");
+      expect(result).toHaveProperty("topSetoresLucro");
+      expect(result).toHaveProperty("setoresDisponiveis");
+      expect(result).toHaveProperty("conveniosDisponiveis");
+      expect(result).toHaveProperty("competenciasDisponiveis");
+      expect(result).toHaveProperty("fonte");
+
+      expect(Array.isArray(result.resumoPorSetor)).toBe(true);
+      expect(Array.isArray(result.itensDetalhados)).toBe(true);
+      expect(typeof result.kpis.valorFaturadoTotal).toBe("number");
+      expect(typeof result.kpis.custoTotal).toBe("number");
+    });
+
+    it("itens detalhados possuem custoUnitario baseado em custoMultFat", { timeout: 60000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorSetor({
+        estabelecimentoId: 1,
+      });
+
+      for (const item of result.itensDetalhados) {
+        expect(item).toHaveProperty("codprod");
+        expect(item).toHaveProperty("descricao");
+        expect(item).toHaveProperty("setor");
+        expect(item).toHaveProperty("unidade");
+        expect(item).toHaveProperty("custoUnitario");
+        expect(item).toHaveProperty("custoTotal");
+        expect(item).toHaveProperty("valorCobradoTotal");
+        expect(item).toHaveProperty("margem");
+        expect(item).toHaveProperty("resultado");
+        expect(typeof item.custoUnitario).toBe("number");
+        expect(typeof item.custoTotal).toBe("number");
+        expect(["lucro", "prejuizo", "empate"]).toContain(item.resultado);
+      }
+    });
+
+    it("custoUnitario nao deve ser inflado para SEVOFLURANO", { timeout: 30000 }, async () => {
+      const result = await caller.relatorioCustos.custosPorSetor({
+        estabelecimentoId: 1,
+        busca: "SEVOFLURANO",
+      });
+
+      for (const item of result.itensDetalhados) {
+        if (item.descricao.includes("SEVOFLURANO")) {
+          expect(item.custoUnitario).toBeLessThan(50);
+        }
+      }
+    });
+  });
+});

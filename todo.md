@@ -3103,3 +3103,8 @@
 
 - [x] Adicionar coluna "Unidade de Fatura" na tabela de comparação do Rel. Custos
 - [x] Analisar e corrigir itens com valores discrepantes no Rel. Custos (ex: SEVOFLURANO capacidade 80 x custo R$329,54 = R$26.363,20) - Confirmado: valores corretos no backend usando custoMultFat
+
+- [x] Corrigir valores inflados na aba Custos por Convênio - usar custoMultFat ao invés de custoEstoque (LATERAL JOIN fallback com TMP_FALLBACK)
+- [x] Corrigir valores inflados na aba Custos por Conta - usar custoMultFat ao invés de custoEstoque (LATERAL JOIN fallback com TMP_FALLBACK)
+- [x] Corrigir valores inflados na aba Custos por Setor - usar custoMultFat ao invés de custoEstoque (LATERAL JOIN fallback com TMP_FALLBACK)
+- [x] Adicionar coluna Unidade de Fatura nas abas Custos por Convênio, Custos por Conta e Custos por Setor
