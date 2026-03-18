@@ -3095,3 +3095,5 @@
 - [x] Criar tela de upload de planilha Excel para importação de dados de faturamento externo
 - [x] Integrar dados importados no Relatório de Faturamento (Rel.Faturamento)
 - [x] Importar dados iniciais da planilha UrologicoSUS2025.xlsx (12 meses, 2 convênios)
+
+- [x] Adicionar filtros de mês/ano na tela de Atendimentos (Atendimentos Parados) para facilitar busca e filtragem

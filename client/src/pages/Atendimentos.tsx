@@ -15,7 +15,7 @@ import {
   ArrowUpDown, Download, Plus, X, RefreshCw,
   Search, Bell, AlertTriangle, Clock, Timer, ArrowLeft, Shield,
   CheckSquare, FileText, Mail, Send, Activity, DollarSign, CircleCheck,
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calendar, Filter
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -304,6 +304,10 @@ export default function Atendimentos() {
   const [filtroProtocolo, setFiltroProtocolo] = useState<string>("todos");
   // Filtro por etapa conta (TASY)
   const [filtroEtapa, setFiltroEtapa] = useState<string | null>(null);
+
+  // Filtros de mês e ano (data de entrada)
+  const [filtroMes, setFiltroMes] = useState<string>("todos");
+  const [filtroAno, setFiltroAno] = useState<string>("todos");
 
   // Paginação client-side
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -696,6 +700,38 @@ export default function Atendimentos() {
     return Object.entries(contagem).sort((a, b) => b[1] - a[1]);
   }, [atendimentos, isTasyLayout, filtroOrigem, filtroProtocolo]);
 
+  // Anos e meses disponíveis para filtro (baseado nos dados)
+  const anosDisponiveis = useMemo(() => {
+    if (!atendimentos) return [];
+    const anos = new Set<string>();
+    atendimentos.forEach(d => {
+      if (d.datatend) {
+        const dt = new Date(d.datatend);
+        if (!isNaN(dt.getTime())) {
+          anos.add(String(dt.getFullYear()));
+        }
+      }
+    });
+    return Array.from(anos).sort((a, b) => Number(b) - Number(a));
+  }, [atendimentos]);
+
+  const mesesDisponiveis = useMemo(() => {
+    return [
+      { value: "01", label: "Janeiro" },
+      { value: "02", label: "Fevereiro" },
+      { value: "03", label: "Março" },
+      { value: "04", label: "Abril" },
+      { value: "05", label: "Maio" },
+      { value: "06", label: "Junho" },
+      { value: "07", label: "Julho" },
+      { value: "08", label: "Agosto" },
+      { value: "09", label: "Setembro" },
+      { value: "10", label: "Outubro" },
+      { value: "11", label: "Novembro" },
+      { value: "12", label: "Dezembro" },
+    ];
+  }, []);
+
   // Filtro e ordenação
   const dadosFiltrados = useMemo(() => {
     if (!atendimentos) return [];
@@ -744,6 +780,23 @@ export default function Atendimentos() {
     if (filtroEtapa) {
       filtrados = filtrados.filter(d => (d.etapaConta || "Sem Etapa") === filtroEtapa);
     }
+    // Filtro por ano (data de entrada)
+    if (filtroAno !== "todos") {
+      filtrados = filtrados.filter(d => {
+        if (!d.datatend) return false;
+        const dt = new Date(d.datatend);
+        return !isNaN(dt.getTime()) && String(dt.getFullYear()) === filtroAno;
+      });
+    }
+    // Filtro por mês (data de entrada)
+    if (filtroMes !== "todos") {
+      filtrados = filtrados.filter(d => {
+        if (!d.datatend) return false;
+        const dt = new Date(d.datatend);
+        return !isNaN(dt.getTime()) && String(dt.getMonth() + 1).padStart(2, "0") === filtroMes;
+      });
+    }
+
     if (pesquisa) {
       const termo = pesquisa.toLowerCase();
       filtrados = filtrados.filter(d => {
@@ -783,12 +836,12 @@ export default function Atendimentos() {
     });
 
     return filtrados;
-  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, filtroEtapa, isTasyLayout]);
+  }, [atendimentos, pesquisa, sortColumn, sortOrder, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, filtroEtapa, filtroMes, filtroAno, isTasyLayout]);
 
   // Reset página quando filtros mudam
   useEffect(() => {
     setPaginaAtual(1);
-  }, [pesquisa, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, filtroEtapa]);
+  }, [pesquisa, filtroTipo, filtroServico, filtroPlano, filtroOrigem, filtroProtocolo, filtroEtapa, filtroMes, filtroAno]);
 
   // Dados paginados para a tabela
   const totalPaginas = Math.ceil(dadosFiltrados.length / ITENS_POR_PAGINA);
@@ -1513,12 +1566,36 @@ export default function Atendimentos() {
                 className="pl-10"
               />
             </div>
+            <Select value={filtroAno} onValueChange={setFiltroAno}>
+              <SelectTrigger className="w-[120px]">
+                <Calendar className="w-4 h-4 mr-1 text-muted-foreground" />
+                <SelectValue placeholder="Ano" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos Anos</SelectItem>
+                {anosDisponiveis.map(ano => (
+                  <SelectItem key={ano} value={ano}>{ano}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filtroMes} onValueChange={setFiltroMes}>
+              <SelectTrigger className="w-[150px]">
+                <Filter className="w-4 h-4 mr-1 text-muted-foreground" />
+                <SelectValue placeholder="Mês" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos Meses</SelectItem>
+                {mesesDisponiveis.map(m => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={exportarExcel} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
               <Download className="w-4 h-4" /> Exportar Excel
             </Button>
           </div>
 
-          {(filtroTipo !== "todos" || filtroServico || filtroPlano || filtroOrigem !== "todos" || filtroProtocolo !== "todos" || filtroEtapa) && (
+          {(filtroTipo !== "todos" || filtroServico || filtroPlano || filtroOrigem !== "todos" || filtroProtocolo !== "todos" || filtroEtapa || filtroMes !== "todos" || filtroAno !== "todos") && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-blue-400 bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-500/20">
               <AlertTriangle className="w-4 h-4" />
               <span>Filtros ativos:</span>
@@ -1552,7 +1629,17 @@ export default function Atendimentos() {
                   Etapa: {filtroEtapa} <X className="w-3 h-3" />
                 </Badge>
               )}
-              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); setFiltroOrigem("todos"); setFiltroProtocolo("todos"); setFiltroEtapa(null); }}>
+              {filtroAno !== "todos" && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroAno("todos")}>
+                  Ano: {filtroAno} <X className="w-3 h-3" />
+                </Badge>
+              )}
+              {filtroMes !== "todos" && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => setFiltroMes("todos")}>
+                  Mês: {mesesDisponiveis.find(m => m.value === filtroMes)?.label || filtroMes} <X className="w-3 h-3" />
+                </Badge>
+              )}
+              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={() => { setFiltroTipo("todos"); setFiltroServico(null); setFiltroPlano(null); setFiltroOrigem("todos"); setFiltroProtocolo("todos"); setFiltroEtapa(null); setFiltroMes("todos"); setFiltroAno("todos"); }}>
                 <X className="w-3 h-3 mr-1" /> Limpar Todos
               </Button>
             </div>
