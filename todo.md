@@ -3087,3 +3087,5 @@
 - [x] Melhorar feedback ao usuário durante sincronização (progresso, timeout, erro)
 
 - [x] Corrigir telas de Atendimentos que usam Warleine (Atendimentos Parados, Atendimentos Não Faturados) - não retornam dados para Instituto do Rim e outros estabelecimentos
+- [x] Corrigir filtro valorConta > 0.1 que eliminava todos os registros WARLEINE/EASYVISION (aplicar apenas para TASY)
+- [x] Remover filtro data_saida IS NULL para sistemas não-TASY (WARLEINE/EASYVISION mostram todos os registros)
