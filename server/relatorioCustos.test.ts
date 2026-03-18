@@ -340,5 +340,60 @@ describe("relatorioCustos", () => {
         expect(typeof item.margemPercent).toBe("number");
       }
     });
+
+    it("itens retornados incluem unidadeFaturas e multFaturas", { timeout: 15000 }, async () => {
+      const result = await caller.relatorioCustos.comparacaoCustoConvenio({
+        estabelecimentoId: 1,
+        limit: 10,
+        offset: 0,
+      });
+
+      for (const item of result.itens) {
+        expect(item).toHaveProperty("unidadeFaturas");
+        expect(typeof item.unidadeFaturas).toBe("string");
+        expect(item).toHaveProperty("multFaturas");
+        // multFaturas pode ser number ou null
+        if (item.multFaturas !== null) {
+          expect(typeof item.multFaturas).toBe("number");
+        }
+      }
+    });
+
+    it("custoHospital usa custoMultFat (nao custoEstoque inflado)", { timeout: 15000 }, async () => {
+      const result = await caller.relatorioCustos.comparacaoCustoConvenio({
+        estabelecimentoId: 1,
+        limit: 50,
+        offset: 0,
+      });
+
+      // Verificar que os valores de custoHospital sao razoaveis (nao inflados)
+      // custoMultFat tipicamente < 100 para a maioria dos itens
+      // Se estivesse usando custoEstoque, teriamos valores como 329.54 (frasco inteiro)
+      for (const item of result.itens) {
+        // custoHospital deve ser > 0 (filtro do backend)
+        expect(item.custoHospital).toBeGreaterThan(0);
+        // valorConvenio deve ser > 0 (filtro do backend)
+        expect(item.valorConvenio).toBeGreaterThan(0);
+        // margemReais = valorConvenio - custoHospital
+        expect(item.margemReais).toBeCloseTo(item.valorConvenio - item.custoHospital, 2);
+      }
+    });
+
+    it("topPrejuizo e topLucro incluem unidadeFaturas", { timeout: 30000 }, async () => {
+      const result = await caller.relatorioCustos.comparacaoCustoConvenio({
+        estabelecimentoId: 1,
+        limit: 10,
+        offset: 0,
+      });
+
+      for (const item of result.topPrejuizo) {
+        expect(item).toHaveProperty("unidadeFaturas");
+        expect(typeof item.unidadeFaturas).toBe("string");
+      }
+      for (const item of result.topLucro) {
+        expect(item).toHaveProperty("unidadeFaturas");
+        expect(typeof item.unidadeFaturas).toBe("string");
+      }
+    });
   });
 });

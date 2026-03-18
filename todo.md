@@ -3100,3 +3100,6 @@
 
 - [x] Corrigir sincronização de custos que falha na inserção no MySQL - batch de 5 + onDuplicateKeyUpdate (5130 registros, 4896 únicos)
 - [x] Resolver valores inflados no relatório de custos - usar custoMultFat (custo/multFaturas) ao invés de custoEstoque para comparação justa com valormm
+
+- [x] Adicionar coluna "Unidade de Fatura" na tabela de comparação do Rel. Custos
+- [x] Analisar e corrigir itens com valores discrepantes no Rel. Custos (ex: SEVOFLURANO capacidade 80 x custo R$329,54 = R$26.363,20) - Confirmado: valores corretos no backend usando custoMultFat

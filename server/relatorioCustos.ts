@@ -1062,6 +1062,8 @@ export interface ComparacaoCustoConvenio {
     margemReais: number;
     margemPercent: number;
     status: "lucro" | "prejuizo" | "neutro";
+    unidadeFaturas: string;
+    multFaturas: number | null;
   }[];
   total: number;
   pagina: number;
@@ -1076,8 +1078,8 @@ export interface ComparacaoCustoConvenio {
     custoTotalHospital: number;
     valorTotalConvenio: number;
   };
-  topPrejuizo: { codprod: string; descricao: string; tipoprod: string; codtbmm: string; tabelaPrecoDesc: string; nomeConvenio: string; custoHospital: number; valorConvenio: number; margemReais: number; margemPercent: number }[];
-  topLucro: { codprod: string; descricao: string; tipoprod: string; codtbmm: string; tabelaPrecoDesc: string; nomeConvenio: string; custoHospital: number; valorConvenio: number; margemReais: number; margemPercent: number }[];
+  topPrejuizo: { codprod: string; descricao: string; tipoprod: string; codtbmm: string; tabelaPrecoDesc: string; nomeConvenio: string; custoHospital: number; valorConvenio: number; margemReais: number; margemPercent: number; unidadeFaturas: string }[];
+  topLucro: { codprod: string; descricao: string; tipoprod: string; codtbmm: string; tabelaPrecoDesc: string; nomeConvenio: string; custoHospital: number; valorConvenio: number; margemReais: number; margemPercent: number; unidadeFaturas: string }[];
   margemPorTipo: { tipo: string; margemMedia: number; custoMedio: number; valorMedio: number; total: number }[];
   margemPorTabela: { tabela: string; codigo: string; margemMedia: number; custoMedio: number; valorMedio: number; total: number }[];
   margemPorConvenio: { convenio: string; codplaco: string; margemMedia: number; custoMedio: number; valorMedio: number; total: number }[];
@@ -1185,6 +1187,8 @@ async function buscarComparacaoDoCache(
       margemReais,
       margemPercent,
       status: (margemReais > 0.01 ? "lucro" : margemReais < -0.01 ? "prejuizo" : "neutro") as "lucro" | "prejuizo" | "neutro",
+      unidadeFaturas: d.unidadeFaturas || "-",
+      multFaturas: d.multFaturas ? parseFloat(d.multFaturas) : null,
     };
   });
 
@@ -1281,6 +1285,7 @@ async function buscarComparacaoDoCache(
       valorConvenio: vc,
       margemReais: mr,
       margemPercent: ch > 0 ? (mr / ch) * 100 : 0,
+      unidadeFaturas: d.unidadeFaturas || "-",
     };
   };
 
@@ -1402,7 +1407,9 @@ async function buscarComparacaoDoPostgresql(
           ELSE A.custoatual 
         END) AS margem_reais,
         PL.codplaco,
-        C.nomeconv AS nome_convenio
+        C.nomeconv AS nome_convenio,
+        B.unidade AS unidade_faturas,
+        B.multcobr AS mult_faturas
       FROM "PACIENTE".tabprod A
       INNER JOIN "PACIENTE".tabmprop B ON A.codprod = B.codprod
       INNER JOIN "PACIENTE".cadplaco PL ON PL.codtbmm = B.codtbmm AND PL.inativo IS NULL
@@ -1463,6 +1470,8 @@ async function buscarComparacaoDoPostgresql(
         margemReais: mr,
         margemPercent: ch > 0 ? (mr / ch) * 100 : 0,
         status: (mr > 0.01 ? "lucro" : mr < -0.01 ? "prejuizo" : "neutro") as "lucro" | "prejuizo" | "neutro",
+        unidadeFaturas: r.unidade_faturas || "-",
+        multFaturas: r.mult_faturas ? parseFloat(r.mult_faturas) : null,
       };
     };
 
@@ -1481,6 +1490,7 @@ async function buscarComparacaoDoPostgresql(
         valorConvenio: vc,
         margemReais: mr,
         margemPercent: ch > 0 ? (mr / ch) * 100 : 0,
+        unidadeFaturas: r.unidade_faturas || "-",
       };
     };
 

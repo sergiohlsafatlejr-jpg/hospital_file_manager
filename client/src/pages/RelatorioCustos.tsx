@@ -543,6 +543,7 @@ export default function RelatorioCustos() {
                             <th className="pb-2 font-medium">Tipo</th>
                             <th className="pb-2 font-medium">Convênio</th>
                             <th className="pb-2 font-medium">Tabela</th>
+                            <th className="pb-2 font-medium">Un. Fat.</th>
                             <th className="pb-2 font-medium text-right">Custo Hospital</th>
                             <th className="pb-2 font-medium text-right">Valor Convenio</th>
                             <th className="pb-2 font-medium text-right">Margem R$</th>
@@ -558,6 +559,7 @@ export default function RelatorioCustos() {
                               <td className="py-1.5">{item.tipoprodDesc}</td>
                               <td className="py-1.5 max-w-[120px] truncate" title={item.nomeConvenio}>{item.nomeConvenio || "-"}</td>
                               <td className="py-1.5">{item.tabelaPrecoDesc}</td>
+                              <td className="py-1.5 text-xs text-muted-foreground">{item.unidadeFaturas || "-"}</td>
                               <td className="py-1.5 text-right font-mono">{formatCurrency(item.custoHospital)}</td>
                               <td className="py-1.5 text-right font-mono">{formatCurrency(item.valorConvenio)}</td>
                               <td className={`py-1.5 text-right font-mono font-medium ${item.margemReais >= 0 ? "text-green-600" : "text-red-600"}`}>
@@ -578,7 +580,7 @@ export default function RelatorioCustos() {
                           ))}
                           {comparacaoData.data.itens.length === 0 && (
                             <tr>
-                              <td colSpan={10} className="py-8 text-center text-muted-foreground">Nenhum item encontrado com os filtros selecionados</td>
+                              <td colSpan={11} className="py-8 text-center text-muted-foreground">Nenhum item encontrado com os filtros selecionados</td>
                             </tr>
                           )}
                         </tbody>
