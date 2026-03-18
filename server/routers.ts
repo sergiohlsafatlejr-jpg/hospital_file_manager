@@ -30,6 +30,9 @@ import { relatorioCustosRouter } from "./routers/relatorioCustosRouter";
 import { relatorioFaturamentoRouter } from "./routers/relatorioFaturamentoRouter";
 import { faturamentoExternoRouter } from "./routers/faturamentoExternoRouter";
 import { nfseRouter } from "./routers/nfseRouter";
+import { financeiroRouter } from "./routers/financeiroRouter";
+import { contratosRouter } from "./routers/contratosRouter";
+import { propostasRouter } from "./routers/propostasRouter";
 import * as dbRecebGeral from "./db-recebimentoGeral";
 import * as dbConvMap from "./db-convenioMapeamento";
 
@@ -95,6 +98,9 @@ export const appRouter = router({
   relatorioFaturamento: relatorioFaturamentoRouter,
   faturamentoExterno: faturamentoExternoRouter,
   nfse: nfseRouter,
+  financeiro: financeiroRouter,
+  contratos: contratosRouter,
+  propostas: propostasRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

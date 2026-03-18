@@ -185,6 +185,18 @@ const menuItems: MenuItem[] = [
   // Módulo 8 - NFS-e
   { icon: Receipt, label: "NFS-e", path: "/nfse", modulo: "faturamento" },
 
+  // Módulo 9 - Financeiro
+  { icon: DollarSign, label: "Financeiro", path: "/financeiro" },
+
+  // Módulo 10 - Contratos
+  { icon: FileText, label: "Contratos", path: "/contratos" },
+
+  // Módulo 11 - Propostas
+  { icon: FileSpreadsheet, label: "Propostas", path: "/propostas" },
+
+  // Painel Executivo (admin only)
+  { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", adminOnly: true },
+
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

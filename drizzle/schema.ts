@@ -3893,3 +3893,338 @@ export const nfseNotas = mysqlTable("nfse_notas", {
 
 export type NfseNota = typeof nfseNotas.$inferSelect;
 export type InsertNfseNota = typeof nfseNotas.$inferInsert;
+
+
+// ============================================================
+// MÓDULO FINANCEIRO
+// ============================================================
+
+/**
+ * Empresas/CNPJs do módulo financeiro (vinculadas a estabelecimentos)
+ */
+export const finEmpresas = mysqlTable("fin_empresas", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId"), // FK para estabelecimentos (opcional)
+  nome: varchar("nome", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabIdx: index("idx_fin_empresa_estab").on(table.estabelecimentoId),
+}));
+
+export type FinEmpresa = typeof finEmpresas.$inferSelect;
+export type InsertFinEmpresa = typeof finEmpresas.$inferInsert;
+
+/**
+ * Clientes do módulo financeiro
+ */
+export const finClientes = mysqlTable("fin_clientes", {
+  id: int("id").autoincrement().primaryKey(),
+  empresaId: int("empresaId"), // FK para fin_empresas
+  nome: varchar("nome", { length: 255 }).notNull(),
+  cnpj: varchar("cnpj", { length: 20 }),
+  email: varchar("email", { length: 320 }),
+  telefone: varchar("telefone", { length: 20 }),
+  valorContrato: decimal("valorContrato", { precision: 15, scale: 2 }),
+  cep: varchar("cep", { length: 10 }),
+  endereco: text("endereco"),
+  cidade: varchar("cidade", { length: 100 }),
+  uf: varchar("uf", { length: 2 }),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  empresaIdx: index("idx_fin_cliente_empresa").on(table.empresaId),
+}));
+
+export type FinCliente = typeof finClientes.$inferSelect;
+export type InsertFinCliente = typeof finClientes.$inferInsert;
+
+/**
+ * Categorias de despesa do módulo financeiro
+ */
+export const finCategorias = mysqlTable("fin_categorias", {
+  id: int("id").autoincrement().primaryKey(),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FinCategoria = typeof finCategorias.$inferSelect;
+export type InsertFinCategoria = typeof finCategorias.$inferInsert;
+
+/**
+ * Tipos de pagamento
+ */
+export const finTiposPagamento = mysqlTable("fin_tipos_pagamento", {
+  id: int("id").autoincrement().primaryKey(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  categoriaId: int("categoriaId"), // FK para fin_categorias
+  custoId: int("custoId"), // FK para fin_custos
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FinTipoPagamento = typeof finTiposPagamento.$inferSelect;
+export type InsertFinTipoPagamento = typeof finTiposPagamento.$inferInsert;
+
+/**
+ * Tipos de recebível
+ */
+export const finTiposRecebivel = mysqlTable("fin_tipos_recebivel", {
+  id: int("id").autoincrement().primaryKey(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FinTipoRecebivel = typeof finTiposRecebivel.$inferSelect;
+export type InsertFinTipoRecebivel = typeof finTiposRecebivel.$inferInsert;
+
+/**
+ * Contas bancárias
+ */
+export const finBancos = mysqlTable("fin_bancos", {
+  id: int("id").autoincrement().primaryKey(),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  cor: varchar("cor", { length: 20 }).default("#3b82f6"),
+  saldoInicial: decimal("saldoInicial", { precision: 15, scale: 2 }).default("0"),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FinBanco = typeof finBancos.$inferSelect;
+export type InsertFinBanco = typeof finBancos.$inferInsert;
+
+/**
+ * Custos fixos e variáveis
+ */
+export const finCustos = mysqlTable("fin_custos", {
+  id: int("id").autoincrement().primaryKey(),
+  categoriaId: int("categoriaId"), // FK para fin_categorias
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).default("0").notNull(),
+  tipo: mysqlEnum("tipo", ["fixo", "variavel"]).default("fixo").notNull(),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type FinCusto = typeof finCustos.$inferSelect;
+export type InsertFinCusto = typeof finCustos.$inferInsert;
+
+/**
+ * Transações (Contas a Pagar)
+ */
+export const finTransacoes = mysqlTable("fin_transacoes", {
+  id: int("id").autoincrement().primaryKey(),
+  empresaId: int("empresaId"), // FK para fin_empresas
+  categoriaId: int("categoriaId"), // FK para fin_categorias
+  tipoId: int("tipoId"), // FK para fin_tipos_pagamento
+  custoId: int("custoId"), // FK para fin_custos
+  bancoId: int("bancoId"), // FK para fin_bancos
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).default("0").notNull(),
+  dataVencimento: date("dataVencimento").notNull(),
+  dataPagamento: date("dataPagamento"),
+  pago: mysqlEnum("pago", ["sim", "nao"]).default("nao").notNull(),
+  observacoes: text("observacoes"),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  empresaIdx: index("idx_fin_transacao_empresa").on(table.empresaId),
+  categoriaIdx: index("idx_fin_transacao_categoria").on(table.categoriaId),
+  vencimentoIdx: index("idx_fin_transacao_vencimento").on(table.dataVencimento),
+  pagoIdx: index("idx_fin_transacao_pago").on(table.pago),
+}));
+
+export type FinTransacao = typeof finTransacoes.$inferSelect;
+export type InsertFinTransacao = typeof finTransacoes.$inferInsert;
+
+/**
+ * Recebíveis (Contas a Receber)
+ */
+export const finRecebiveis = mysqlTable("fin_recebiveis", {
+  id: int("id").autoincrement().primaryKey(),
+  empresaId: int("empresaId"), // FK para fin_empresas
+  clienteId: int("clienteId"), // FK para fin_clientes
+  tipoId: int("tipoId"), // FK para fin_tipos_recebivel
+  bancoId: int("bancoId"), // FK para fin_bancos
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).default("0").notNull(),
+  dataVencimento: date("dataVencimento").notNull(),
+  dataRecebimento: date("dataRecebimento"),
+  recebido: mysqlEnum("recebido", ["sim", "nao"]).default("nao").notNull(),
+  observacoes: text("observacoes"),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  empresaIdx: index("idx_fin_recebivel_empresa").on(table.empresaId),
+  clienteIdx: index("idx_fin_recebivel_cliente").on(table.clienteId),
+  vencimentoIdx: index("idx_fin_recebivel_vencimento").on(table.dataVencimento),
+  recebidoIdx: index("idx_fin_recebivel_recebido").on(table.recebido),
+}));
+
+export type FinRecebivel = typeof finRecebiveis.$inferSelect;
+export type InsertFinRecebivel = typeof finRecebiveis.$inferInsert;
+
+/**
+ * Extratos bancários
+ */
+export const finExtratos = mysqlTable("fin_extratos", {
+  id: int("id").autoincrement().primaryKey(),
+  bancoId: int("bancoId").notNull(), // FK para fin_bancos
+  data: date("data").notNull(),
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  valor: decimal("valor", { precision: 15, scale: 2 }).default("0").notNull(),
+  tipo: mysqlEnum("tipo", ["credito", "debito"]).notNull(),
+  conciliado: mysqlEnum("conciliado", ["sim", "nao"]).default("nao").notNull(),
+  transacaoId: int("transacaoId"), // FK para fin_transacoes (quando conciliado)
+  recebivelId: int("recebivelId"), // FK para fin_recebiveis (quando conciliado)
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  bancoIdx: index("idx_fin_extrato_banco").on(table.bancoId),
+  dataIdx: index("idx_fin_extrato_data").on(table.data),
+  conciliadoIdx: index("idx_fin_extrato_conciliado").on(table.conciliado),
+}));
+
+export type FinExtrato = typeof finExtratos.$inferSelect;
+export type InsertFinExtrato = typeof finExtratos.$inferInsert;
+
+/**
+ * Previsão de receita/faturamento
+ */
+export const finPrevisaoReceita = mysqlTable("fin_previsao_receita", {
+  id: int("id").autoincrement().primaryKey(),
+  empresaId: int("empresaId"), // FK para fin_empresas
+  dataPrevisao: date("dataPrevisao").notNull(),
+  valorPrevisto: decimal("valorPrevisto", { precision: 15, scale: 2 }).default("0").notNull(),
+  valorRealizado: decimal("valorRealizado", { precision: 15, scale: 2 }),
+  descricao: varchar("descricao", { length: 500 }),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  empresaIdx: index("idx_fin_previsao_empresa").on(table.empresaId),
+  dataIdx: index("idx_fin_previsao_data").on(table.dataPrevisao),
+}));
+
+export type FinPrevisaoReceita = typeof finPrevisaoReceita.$inferSelect;
+export type InsertFinPrevisaoReceita = typeof finPrevisaoReceita.$inferInsert;
+
+// ============================================================
+// MÓDULO CONTRATOS
+// ============================================================
+
+/**
+ * Contratos hospitalares
+ */
+export const contratos = mysqlTable("contratos", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId"), // FK para estabelecimentos
+  contratanteNome: varchar("contratanteNome", { length: 255 }).notNull(),
+  contratanteCnpj: varchar("contratanteCnpj", { length: 20 }),
+  contratadaNome: varchar("contratadaNome", { length: 255 }),
+  contratadaCnpj: varchar("contratadaCnpj", { length: 20 }),
+  servicos: json("servicos"), // Array de serviços selecionados
+  modelosCobranca: json("modelosCobranca"), // Array de modelos de cobrança
+  valorMensal: decimal("valorMensal", { precision: 15, scale: 2 }),
+  valorHora: decimal("valorHora", { precision: 15, scale: 2 }),
+  valorPercentualConvenio: decimal("valorPercentualConvenio", { precision: 5, scale: 2 }),
+  prazoContrato: int("prazoContrato"), // Em meses
+  dataInicio: date("dataInicio"),
+  dataFim: date("dataFim"),
+  status: mysqlEnum("status", ["rascunho", "ativo", "suspenso", "encerrado", "renovacao"]).default("rascunho").notNull(),
+  dadosCompletos: json("dadosCompletos"), // JSON com todas as cláusulas e seções
+  docxUrl: text("docxUrl"), // URL do DOCX no S3
+  docxKey: varchar("docxKey", { length: 512 }),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabIdx: index("idx_contrato_estab").on(table.estabelecimentoId),
+  statusIdx: index("idx_contrato_status").on(table.status),
+  dataFimIdx: index("idx_contrato_data_fim").on(table.dataFim),
+}));
+
+export type Contrato = typeof contratos.$inferSelect;
+export type InsertContrato = typeof contratos.$inferInsert;
+
+/**
+ * Histórico de alterações e reajustes de contratos
+ */
+export const contratosHistorico = mysqlTable("contratos_historico", {
+  id: int("id").autoincrement().primaryKey(),
+  contratoId: int("contratoId").notNull(), // FK para contratos
+  tipo: mysqlEnum("tipo", ["criacao", "alteracao", "reajuste", "renovacao", "suspensao", "encerramento"]).notNull(),
+  descricao: text("descricao"),
+  valorAnterior: decimal("valorAnterior", { precision: 15, scale: 2 }),
+  valorNovo: decimal("valorNovo", { precision: 15, scale: 2 }),
+  indiceReajuste: varchar("indiceReajuste", { length: 50 }), // IGPM, IPCA, etc.
+  percentualReajuste: decimal("percentualReajuste", { precision: 5, scale: 2 }),
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  contratoIdx: index("idx_contrato_hist_contrato").on(table.contratoId),
+}));
+
+export type ContratoHistorico = typeof contratosHistorico.$inferSelect;
+export type InsertContratoHistorico = typeof contratosHistorico.$inferInsert;
+
+// ============================================================
+// MÓDULO PROPOSTAS
+// ============================================================
+
+/**
+ * Propostas comerciais
+ */
+export const propostas = mysqlTable("propostas", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId"), // FK para estabelecimentos
+  numero: varchar("numero", { length: 50 }).notNull(), // Ex: PROP-2026-0001
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  cliente: varchar("cliente", { length: 255 }).notNull(),
+  tipoCliente: mysqlEnum("tipoCliente", ["hospital", "clinica", "laboratorio", "plano_saude", "governo"]).default("hospital").notNull(),
+  responsavel: varchar("responsavel", { length: 255 }),
+  status: mysqlEnum("status", ["rascunho", "aguardando", "aprovada", "recusada", "negociando"]).default("rascunho").notNull(),
+  valorTotal: decimal("valorTotal", { precision: 15, scale: 2 }).default("0").notNull(),
+  condicoesPagamento: varchar("condicoesPagamento", { length: 255 }),
+  validadeDias: int("validadeDias").default(30),
+  dataExpiracao: date("dataExpiracao"),
+  observacoes: text("observacoes"),
+  contratoId: int("contratoId"), // FK para contratos (quando convertida)
+  userId: int("userId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabIdx: index("idx_proposta_estab").on(table.estabelecimentoId),
+  statusIdx: index("idx_proposta_status").on(table.status),
+  clienteIdx: index("idx_proposta_cliente").on(table.cliente),
+}));
+
+export type Proposta = typeof propostas.$inferSelect;
+export type InsertProposta = typeof propostas.$inferInsert;
+
+/**
+ * Itens de serviço das propostas
+ */
+export const propostaItens = mysqlTable("proposta_itens", {
+  id: int("id").autoincrement().primaryKey(),
+  propostaId: int("propostaId").notNull(), // FK para propostas
+  codigo: varchar("codigo", { length: 50 }),
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  categoria: varchar("categoria", { length: 100 }),
+  unidade: varchar("unidade", { length: 50 }).default("Unidade"),
+  quantidade: int("quantidade").default(1).notNull(),
+  precoUnitario: decimal("precoUnitario", { precision: 15, scale: 2 }).default("0").notNull(),
+  desconto: decimal("desconto", { precision: 5, scale: 2 }).default("0"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  propostaIdx: index("idx_proposta_item_proposta").on(table.propostaId),
+}));
+
+export type PropostaItem = typeof propostaItens.$inferSelect;
+export type InsertPropostaItem = typeof propostaItens.$inferInsert;

@@ -3120,3 +3120,34 @@
 - [x] Módulo NFS-e: Importação de PDF com IA (OCR via invokeLLM)
 - [x] Módulo NFS-e: Integração no menu lateral e rotas App.tsx
 - [x] Módulo NFS-e: Testes vitest para procedures (21 testes passando)
+
+- [x] Módulo Financeiro: Schema Drizzle (11 tabelas fin_*)
+- [x] Módulo Financeiro: Procedures tRPC CRUD completo (financeiroRouter)
+- [x] Módulo Financeiro: Dashboard financeiro com KPIs e gráficos
+- [x] Módulo Financeiro: Contas a Pagar (CRUD + filtros)
+- [x] Módulo Financeiro: Contas a Receber (CRUD + filtros)
+- [x] Módulo Financeiro: Custos fixos/variáveis
+- [x] Módulo Financeiro: Extratos Bancários
+- [x] Módulo Financeiro: DRE - Demonstrativo de Resultado
+- [x] Módulo Financeiro: Relatórios comparativos
+- [x] Módulo Financeiro: Previsão de Faturamento
+- [x] Módulo Financeiro: Configuração de empresas e clientes
+- [x] Módulo Contratos: Schema Drizzle (contratos)
+- [x] Módulo Contratos: Procedures tRPC CRUD (contratosRouter)
+- [x] Módulo Contratos: Dashboard de Contratos com KPIs
+- [x] Módulo Contratos: Formulário de Contrato com seções ativáveis
+- [x] Módulo Contratos: Visualizador de Contrato formatado
+- [x] Módulo Contratos: Exportação DOCX (procedure gerarDocx)
+- [x] Módulo Contratos: Alertas de vencimento
+- [x] Módulo Propostas: Schema Drizzle (propostas, proposta_itens)
+- [x] Módulo Propostas: Procedures tRPC CRUD (propostasRouter)
+- [x] Módulo Propostas: Lista de Propostas com filtros e KPIs
+- [x] Módulo Propostas: Formulário Nova Proposta com itens TUSS
+- [x] Módulo Propostas: Conversão Proposta → Contrato
+- [x] Painel Executivo: Dashboard consolidado multi-estabelecimento
+- [x] Painel Executivo: KPIs financeiros (Faturado x Recebido x Glosado x Recursado)
+- [x] Painel Executivo: Atendimentos consolidados de todos os locais
+- [x] Painel Executivo: Tabela comparativa entre estabelecimentos
+- [x] Painel Executivo: Alertas inteligentes
+- [x] Integração: Menu lateral + rotas App.tsx para todos os módulos
+- [x] Testes vitest para procedures dos 3 módulos (15 testes passando)

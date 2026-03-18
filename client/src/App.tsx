@@ -78,6 +78,10 @@ const RelatorioCustos = lazy(() => import("./pages/RelatorioCustos"));
 const RelatorioFaturamento = lazy(() => import("./pages/RelatorioFaturamento"));
 const FaturamentoExterno = lazy(() => import("./pages/FaturamentoExterno"));
 const NfseModule = lazy(() => import("./pages/NfseModule"));
+const FinanceiroModule = lazy(() => import("./pages/FinanceiroModule"));
+const ContratosModule = lazy(() => import("./pages/ContratosModule"));
+const PropostasModule = lazy(() => import("./pages/PropostasModule"));
+const PainelExecutivo = lazy(() => import("./pages/PainelExecutivo"));
 
 function PageLoader() {
   return (
@@ -178,6 +182,10 @@ function Router() {
         <Route path={"/relatorio-atendimentos"} component={RelatorioAtendimentos} />
         <Route path={"/relatorio-custos"} component={RelatorioCustos} />
         <Route path={"/nfse"} component={NfseModule} />
+        <Route path={"/financeiro"} component={FinanceiroModule} />
+        <Route path={"/contratos"} component={ContratosModule} />
+        <Route path={"/propostas"} component={PropostasModule} />
+        <Route path={"/painel-executivo"} component={PainelExecutivo} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>
