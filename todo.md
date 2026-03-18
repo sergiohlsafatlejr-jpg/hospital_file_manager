@@ -3167,3 +3167,4 @@
 - [x] Criar tela de gerenciamento de permissões dentro do Painel Executivo Safatle (aba Permissões)
 - [x] Aplicar verificação de permissão por módulo no frontend (PainelExecutivo.tsx)
 - [x] Testes vitest para permissões granulares (25 testes passando)
+- [x] BUG: Corrigir erro de hooks no VisaoGeral do PainelExecutivo - 'Rendered more hooks than during the previous render'

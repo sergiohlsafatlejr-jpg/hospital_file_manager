@@ -69,6 +69,19 @@ function VisaoGeral({ onNavigate }: { onNavigate: (tab: PainelTab) => void }) {
   const finDashboard = trpc.financeiro.dashboard.resumo.useQuery({});
   const contratosQuery = trpc.contratos.listar.useQuery({});
 
+  // Resumo de contratos - DEVE ficar antes de qualquer early return
+  const contratosResumo = useMemo(() => {
+    if (!contratosQuery.data?.items) return { total: 0, ativos: 0, vencendo: 0 };
+    const items = contratosQuery.data.items;
+    const hoje = new Date();
+    const em30dias = new Date(); em30dias.setDate(em30dias.getDate() + 30);
+    return {
+      total: items.length,
+      ativos: items.filter((c: any) => c.status === "ativo").length,
+      vencendo: items.filter((c: any) => { if (!c.dataFim) return false; const fim = new Date(c.dataFim); return fim >= hoje && fim <= em30dias; }).length,
+    };
+  }, [contratosQuery.data]);
+
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
       <div className="flex flex-col items-center gap-3">
@@ -81,19 +94,6 @@ function VisaoGeral({ onNavigate }: { onNavigate: (tab: PainelTab) => void }) {
   const dados = dadosConsolidados;
   const fin = finDashboard.data;
   const rec = recursadoData;
-
-  // Resumo de contratos
-  const contratosResumo = useMemo(() => {
-    if (!contratosQuery.data?.items) return { total: 0, ativos: 0, vencendo: 0 };
-    const items = contratosQuery.data.items;
-    const hoje = new Date();
-    const em30dias = new Date(); em30dias.setDate(em30dias.getDate() + 30);
-    return {
-      total: items.length,
-      ativos: items.filter((c: any) => c.status === "ativo").length,
-      vencendo: items.filter((c: any) => { if (!c.dataFim) return false; const fim = new Date(c.dataFim); return fim >= hoje && fim <= em30dias; }).length,
-    };
-  }, [contratosQuery.data]);
 
   return (
     <div className="space-y-6">
