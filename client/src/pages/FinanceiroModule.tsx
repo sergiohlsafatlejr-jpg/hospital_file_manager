@@ -190,6 +190,8 @@ function ContasPagar() {
   const [filtroCategoria, setFiltroCategoria] = useState("todas");
   const [filtroCentroCusto, setFiltroCentroCusto] = useState("todos");
   const [filtroPeriodo, setFiltroPeriodo] = useState("todo");
+  const [dataInicioPers, setDataInicioPers] = useState("");
+  const [dataFimPers, setDataFimPers] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -200,6 +202,9 @@ function ContasPagar() {
   // Calcular datas do período
   const periodoFiltro = useMemo(() => {
     const hoje = new Date();
+    if (filtroPeriodo === "personalizado" && dataInicioPers && dataFimPers) {
+      return { dataInicio: dataInicioPers, dataFim: dataFimPers };
+    }
     if (filtroPeriodo === "mes") {
       return { dataInicio: new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10), dataFim: new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10) };
     }
@@ -212,7 +217,7 @@ function ContasPagar() {
       return { dataInicio: `${hoje.getFullYear()}-01-01`, dataFim: `${hoje.getFullYear()}-12-31` };
     }
     return {};
-  }, [filtroPeriodo]);
+  }, [filtroPeriodo, dataInicioPers, dataFimPers]);
 
   const lista = trpc.financeiro.transacoes.listar.useQuery({
     busca: busca || undefined,
@@ -245,6 +250,10 @@ function ContasPagar() {
   });
   const duplicar = trpc.financeiro.transacoes.duplicar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta duplicada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const duplicarEmLote = trpc.financeiro.transacoes.duplicarEmLote.useMutation({
+    onSuccess: (data) => { utils.financeiro.invalidate(); setSelectedIds(new Set()); toast.success(`${data.count} conta(s) duplicada(s)!`); },
     onError: (e) => toast.error(e.message),
   });
   const excluirEmLote = trpc.financeiro.transacoes.excluirEmLote.useMutation({
@@ -286,7 +295,7 @@ function ContasPagar() {
   const temFiltrosAtivos = filtroEmpresa !== "todas" || filtroCategoria !== "todas" || filtroCentroCusto !== "todos" || filtroPeriodo !== "todo" || filtroStatus !== "todos";
 
   const limparFiltros = () => {
-    setFiltroEmpresa("todas"); setFiltroCategoria("todas"); setFiltroCentroCusto("todos"); setFiltroPeriodo("todo"); setFiltroStatus("todos"); setBusca("");
+    setFiltroEmpresa("todas"); setFiltroCategoria("todas"); setFiltroCentroCusto("todos"); setFiltroPeriodo("todo"); setFiltroStatus("todos"); setBusca(""); setDataInicioPers(""); setDataFimPers("");
   };
 
   // Importar Excel
@@ -426,8 +435,15 @@ function ContasPagar() {
           <span className="text-sm font-medium text-muted-foreground">Filtros:</span>
           <Select value={filtroPeriodo} onValueChange={setFiltroPeriodo}>
             <SelectTrigger className="w-36 h-8 text-xs"><Calendar className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="todo">Todo período</SelectItem><SelectItem value="mes">Este mês</SelectItem><SelectItem value="trimestre">Este trimestre</SelectItem><SelectItem value="ano">Este ano</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="todo">Todo período</SelectItem><SelectItem value="mes">Este mês</SelectItem><SelectItem value="trimestre">Este trimestre</SelectItem><SelectItem value="ano">Este ano</SelectItem><SelectItem value="personalizado">Personalizado</SelectItem></SelectContent>
           </Select>
+          {filtroPeriodo === "personalizado" && (
+            <div className="flex items-center gap-1">
+              <Input type="date" value={dataInicioPers} onChange={e => setDataInicioPers(e.target.value)} className="h-8 text-xs w-32" />
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input type="date" value={dataFimPers} onChange={e => setDataFimPers(e.target.value)} className="h-8 text-xs w-32" />
+            </div>
+          )}
           <Select value={filtroEmpresa} onValueChange={setFiltroEmpresa}>
             <SelectTrigger className="w-36 h-8 text-xs"><Building2 className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="todas">Safatle</SelectItem>{(empresas.data || []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.nome}</SelectItem>)}</SelectContent>
@@ -505,6 +521,7 @@ function ContasPagar() {
           <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} conta(s)?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLote.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
             <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} conta(s)?`)) excluirEmLote.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>
@@ -552,6 +569,8 @@ function ContasReceber() {
   const [filtroTipoServico, setFiltroTipoServico] = useState("todos");
   const [filtroCliente, setFiltroCliente] = useState("todos");
   const [filtroPeriodo, setFiltroPeriodo] = useState("todo");
+  const [dataInicioPers, setDataInicioPers] = useState("");
+  const [dataFimPers, setDataFimPers] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -562,6 +581,9 @@ function ContasReceber() {
   // Calcular datas do período
   const periodoFiltro = useMemo(() => {
     const hoje = new Date();
+    if (filtroPeriodo === "personalizado" && dataInicioPers && dataFimPers) {
+      return { dataInicio: dataInicioPers, dataFim: dataFimPers };
+    }
     if (filtroPeriodo === "mes") {
       return { dataInicio: new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10), dataFim: new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10) };
     }
@@ -574,7 +596,7 @@ function ContasReceber() {
       return { dataInicio: `${hoje.getFullYear()}-01-01`, dataFim: `${hoje.getFullYear()}-12-31` };
     }
     return {};
-  }, [filtroPeriodo]);
+  }, [filtroPeriodo, dataInicioPers, dataFimPers]);
 
   const lista = trpc.financeiro.recebiveis.listar.useQuery({
     busca: busca || undefined,
@@ -607,6 +629,10 @@ function ContasReceber() {
   });
   const duplicarRecebivel = trpc.financeiro.recebiveis.duplicar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível duplicado!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const duplicarEmLoteRecebivel = trpc.financeiro.recebiveis.duplicarEmLote.useMutation({
+    onSuccess: (data) => { utils.financeiro.invalidate(); setSelectedIds(new Set()); toast.success(`${data.count} recebível(is) duplicado(s)!`); },
     onError: (e) => toast.error(e.message),
   });
   const excluirEmLoteRecebivel = trpc.financeiro.recebiveis.excluirEmLote.useMutation({
@@ -645,7 +671,7 @@ function ContasReceber() {
   const temFiltrosAtivos = filtroEmpresa !== "todas" || filtroTipoServico !== "todos" || filtroCliente !== "todos" || filtroPeriodo !== "todo" || filtroStatus !== "todos";
 
   const limparFiltros = () => {
-    setFiltroEmpresa("todas"); setFiltroTipoServico("todos"); setFiltroCliente("todos"); setFiltroPeriodo("todo"); setFiltroStatus("todos"); setBusca("");
+    setFiltroEmpresa("todas"); setFiltroTipoServico("todos"); setFiltroCliente("todos"); setFiltroPeriodo("todo"); setFiltroStatus("todos"); setBusca(""); setDataInicioPers(""); setDataFimPers("");
   };
 
   // Tipos de serviço pré-definidos para o select do formulário
@@ -795,8 +821,15 @@ function ContasReceber() {
           <span className="text-sm font-medium text-muted-foreground">Filtros:</span>
           <Select value={filtroPeriodo} onValueChange={setFiltroPeriodo}>
             <SelectTrigger className="w-36 h-8 text-xs"><Calendar className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="todo">Todo período</SelectItem><SelectItem value="mes">Este mês</SelectItem><SelectItem value="trimestre">Este trimestre</SelectItem><SelectItem value="ano">Este ano</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="todo">Todo período</SelectItem><SelectItem value="mes">Este mês</SelectItem><SelectItem value="trimestre">Este trimestre</SelectItem><SelectItem value="ano">Este ano</SelectItem><SelectItem value="personalizado">Personalizado</SelectItem></SelectContent>
           </Select>
+          {filtroPeriodo === "personalizado" && (
+            <div className="flex items-center gap-1">
+              <Input type="date" value={dataInicioPers} onChange={e => setDataInicioPers(e.target.value)} className="h-8 text-xs w-32" />
+              <span className="text-xs text-muted-foreground">até</span>
+              <Input type="date" value={dataFimPers} onChange={e => setDataFimPers(e.target.value)} className="h-8 text-xs w-32" />
+            </div>
+          )}
           <Select value={filtroEmpresa} onValueChange={setFiltroEmpresa}>
             <SelectTrigger className="w-36 h-8 text-xs"><Building2 className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="todas">Todas</SelectItem>{(empresas.data || []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.nome}</SelectItem>)}</SelectContent>
@@ -873,6 +906,7 @@ function ContasReceber() {
           <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is)?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLoteRecebivel.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
             <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} recebível(is)?`)) excluirEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>

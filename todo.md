@@ -3215,3 +3215,8 @@
 - [x] Barra de ações em lote (excluir selecionados) em Contas a Pagar e Contas a Receber
 - [x] Mutations duplicar e excluirEmLote no backend (transacoes e recebiveis)
 - [x] Testes vitest para duplicar e excluirEmLote (28 testes passando)
+- [x] Filtro por período personalizado (datas de/até) em Contas a Pagar e Contas a Receber
+- [x] Botão duplicar todos os selecionados em lote (Contas a Pagar e Contas a Receber)
+- [x] Mutations duplicarEmLote no backend (transacoes e recebiveis)
+- [x] Testes vitest para período personalizado e duplicarEmLote (35 testes passando)
+- [ ] Integração API Banco Inter para emissão de boletos (aguardando Client ID e Client Secret)

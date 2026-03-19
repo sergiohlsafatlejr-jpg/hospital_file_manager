@@ -338,6 +338,21 @@ const transacoesRouter = router({
     });
     return { id: result.insertId };
   }),
+  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input, ctx }) => {
+    const db = (await getDb())!;
+    const originais = await db.select().from(finTransacoes).where(inArray(finTransacoes.id, input.ids));
+    if (originais.length === 0) throw new Error("Nenhum registro encontrado");
+    for (const original of originais) {
+      await db.insert(finTransacoes).values({
+        empresaId: original.empresaId, categoriaId: original.categoriaId, tipoId: original.tipoId,
+        custoId: original.custoId, bancoId: original.bancoId, centroCustoId: original.centroCustoId,
+        descricao: `${original.descricao} (cópia)`, valor: original.valor,
+        dataVencimento: original.dataVencimento, dataPagamento: null,
+        pago: "nao", observacoes: original.observacoes, userId: ctx.user.id,
+      });
+    }
+    return { count: originais.length };
+  }),
   marcarPago: protectedProcedure.input(z.object({ id: z.number(), dataPagamento: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(finTransacoes).set({ pago: "sim", dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : new Date() }).where(eq(finTransacoes.id, input.id));
@@ -509,6 +524,21 @@ const recebiveisRouter = router({
       observacoes: original.observacoes, userId: ctx.user.id,
     });
     return { id: result.insertId };
+  }),
+  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input, ctx }) => {
+    const db = (await getDb())!;
+    const originais = await db.select().from(finRecebiveis).where(inArray(finRecebiveis.id, input.ids));
+    if (originais.length === 0) throw new Error("Nenhum registro encontrado");
+    for (const original of originais) {
+      await db.insert(finRecebiveis).values({
+        empresaId: original.empresaId, clienteId: original.clienteId, tipoId: original.tipoId,
+        bancoId: original.bancoId, descricao: `${original.descricao} (cópia)`, valor: original.valor,
+        dataVencimento: original.dataVencimento, dataRecebimento: null,
+        recebido: "nao", tipoServico: original.tipoServico, descricaoServico: original.descricaoServico,
+        observacoes: original.observacoes, userId: ctx.user.id,
+      });
+    }
+    return { count: originais.length };
   }),
   excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input }) => {
     const db = (await getDb())!;

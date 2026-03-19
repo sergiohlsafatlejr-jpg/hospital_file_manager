@@ -1,0 +1,38 @@
+API Banco Inter - Cobrança V3 (Boleto com Pix)
+
+AUTENTICAÇÃO:
+- URL Produção: POST https://cdpj.partners.bancointer.com.br/oauth/v2/token
+- Body: application/x-www-form-urlencoded
+  - client_id (required): Client Id obtido no detalhe da tela de aplicações no IB
+  - client_secret (required): Client Secret obtido no detalhe da tela de aplicações no IB
+  - grant_type (required): "client_credentials"
+  - scope (required): "boleto-cobranca.write boleto-cobranca.read"
+- Resposta: { access_token, token_type, expires_in, scope }
+- Token válido por 1 hora
+- Rate limit: 5 chamadas por minuto
+- REQUER certificado mTLS (certificado .crt e chave .key)
+
+EMITIR COBRANÇA:
+- URL Produção: POST https://cdpj.partners.bancointer.com.br/cobranca/v3/cobrancas
+- Headers: Authorization: Bearer {access_token}
+- Body JSON:
+  - seuNumero (required): string <= 15 chars
+  - valorNominal (required): number [2.5 .. 99999999.99]
+  - dataVencimento (required): string YYYY-MM-DD
+  - numDiasAgenda (required): integer [0..60] (dias após vencimento para cancelamento)
+  - pagador (required): { cpfCnpj, tipoPessoa, nome, endereco, cidade, uf, cep, email }
+  - desconto (optional)
+  - multa (optional)
+  - mora (optional)
+  - mensagem (optional)
+  - formasRecebimento: ["BOLETO", "PIX"] (default)
+- Resposta 200: { codigoSolicitacao: "uuid" }
+
+CONSULTAR COBRANÇA:
+- URL: GET https://cdpj.partners.bancointer.com.br/cobranca/v3/cobrancas/{codigoSolicitacao}
+- Escopo: boleto-cobranca.read
+
+NOTA: A API Boleto antiga será descontinuada em 31/12/2025. Usar API Cobrança V3.
+
+CONTA INTER DO USUÁRIO: 48020230
+OPERADOR: 34082224
