@@ -1,0 +1,6 @@
+Status: Servidor compilando sem erros (LSP e TypeScript OK)
+- Edit icon já importado no lucide-react (linha 18)
+- ContasPagar: editItem, editDialogOpen, atualizar mutation, handleEditar, abrirEdicao, Dialog de edição
+- ContasReceber: editItem, editDialogOpen, atualizarRecebivel mutation, handleEditarRecebivel, abrirEdicaoRecebivel, Dialog de edição
+- 15 registros de exemplo inseridos em fin_recebiveis
+- Categorias e centros de custo preenchidos em fin_transacoes existentes

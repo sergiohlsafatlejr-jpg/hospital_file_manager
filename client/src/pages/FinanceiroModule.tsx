@@ -190,6 +190,8 @@ function ContasPagar() {
   const [filtroCentroCusto, setFiltroCentroCusto] = useState("todos");
   const [filtroPeriodo, setFiltroPeriodo] = useState("todo");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [ordenacao, setOrdenacao] = useState<"data" | "az" | "valor">("data");
   const utils = trpc.useUtils();
 
@@ -231,6 +233,10 @@ function ContasPagar() {
   });
   const marcarPago = trpc.financeiro.transacoes.marcarPago.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Marcado como pago!"); },
+  });
+  const atualizar = trpc.financeiro.transacoes.atualizar.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta atualizada!"); setEditDialogOpen(false); setEditItem(null); },
+    onError: (e) => toast.error(e.message),
   });
   const excluir = trpc.financeiro.transacoes.excluir.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta excluída!"); },
@@ -323,6 +329,30 @@ function ContasPagar() {
       dataPagamento: (fd.get("dataPagamento") as string) || undefined,
       observacoes: (fd.get("observacoes") as string) || undefined,
     });
+  };
+
+  const handleEditar = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editItem) return;
+    const fd = new FormData(e.currentTarget);
+    atualizar.mutate({
+      id: editItem.id,
+      descricao: fd.get("descricao") as string,
+      valor: fd.get("valor") as string,
+      dataVencimento: fd.get("dataVencimento") as string,
+      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
+      categoriaId: fd.get("categoriaId") ? Number(fd.get("categoriaId")) : undefined,
+      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
+      centroCustoId: fd.get("centroCustoId") ? Number(fd.get("centroCustoId")) : undefined,
+      dataPagamento: (fd.get("dataPagamento") as string) || undefined,
+      pago: (fd.get("pago") as string) as any || "nao",
+      observacoes: (fd.get("observacoes") as string) || undefined,
+    });
+  };
+
+  const abrirEdicao = (item: any) => {
+    setEditItem(item);
+    setEditDialogOpen(true);
   };
 
   return (
@@ -429,6 +459,7 @@ function ContasPagar() {
                     <td className="px-2 py-3">{t.pago === "sim" ? <span className="inline-flex items-center gap-1 rounded-full bg-green-50 dark:bg-green-900/20 px-2 py-0.5 text-xs font-semibold text-green-600"><CheckCircle className="h-3 w-3" /> Pago</span> : vencido ? <span className="inline-flex items-center gap-1 rounded-full bg-red-50 dark:bg-red-900/20 px-2 py-0.5 text-xs font-semibold text-red-500"><AlertTriangle className="h-3 w-3" /> Vencido</span> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-xs font-semibold text-amber-600"><Clock className="h-3 w-3" /> Pendente</span>}</td>
                     <td className="py-3 pl-2 pr-4 text-right">
                       <div className="flex gap-1 justify-end">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicao(t)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
                         {t.pago === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarPago.mutate({ id: t.id })}><Check className="h-3 w-3 mr-1" /> Pagar</Button>}
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: t.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
@@ -441,6 +472,36 @@ function ContasPagar() {
         </div>
       </div>
       <div className="text-xs text-muted-foreground text-right">{items.length} registro(s) encontrado(s)</div>
+
+      {/* Dialog de Edição - Contas a Pagar */}
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setEditItem(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Editar Conta a Pagar</DialogTitle><DialogDescription>Altere os dados da conta.</DialogDescription></DialogHeader>
+          {editItem && (
+            <form onSubmit={handleEditar} className="space-y-3">
+              <div><Label>Descrição *</Label><Input name="descricao" defaultValue={editItem.descricao} required /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" defaultValue={Number(editItem.valor)} required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" defaultValue={editItem.dataVencimento ? new Date(editItem.dataVencimento).toISOString().slice(0, 10) : ""} required /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" defaultValue={editItem.dataPagamento ? new Date(editItem.dataPagamento).toISOString().slice(0, 10) : ""} /></div>
+                <div><Label>Status</Label><select name="pago" defaultValue={editItem.pago || "nao"} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Pago</option></select></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Centro de Custo</Label><select name="centroCustoId" defaultValue={editItem.centroCustoId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(centrosCusto.data || []).map((cc: any) => <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>)}</select></div>
+                <div><Label>Categoria</Label><select name="categoriaId" defaultValue={editItem.categoriaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(categorias.data || []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Empresa</Label><select name="empresaId" defaultValue={editItem.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><select name="bancoId" defaultValue={editItem.bancoId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
+              </div>
+              <div><Label>Observações</Label><Textarea name="observacoes" rows={2} defaultValue={editItem.observacoes || ""} /></div>
+              <DialogFooter><Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button><Button type="submit" disabled={atualizar.isPending}>{atualizar.isPending ? "Salvando..." : "Salvar Alterações"}</Button></DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -454,6 +515,8 @@ function ContasReceber() {
   const [filtroCliente, setFiltroCliente] = useState("todos");
   const [filtroPeriodo, setFiltroPeriodo] = useState("todo");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [ordenacao, setOrdenacao] = useState<"data" | "az" | "valor">("data");
   const utils = trpc.useUtils();
 
@@ -495,6 +558,10 @@ function ContasReceber() {
   });
   const marcarRecebido = trpc.financeiro.recebiveis.marcarRecebido.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Marcado como recebido!"); },
+  });
+  const atualizarRecebivel = trpc.financeiro.recebiveis.atualizar.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível atualizado!"); setEditDialogOpen(false); setEditItem(null); },
+    onError: (e) => toast.error(e.message),
   });
   const excluir = trpc.financeiro.recebiveis.excluir.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível excluído!"); },
@@ -593,6 +660,31 @@ function ContasReceber() {
       descricaoServico: (fd.get("descricaoServico") as string) || undefined,
       observacoes: (fd.get("observacoes") as string) || undefined,
     });
+  };
+
+  const handleEditarRecebivel = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editItem) return;
+    const fd = new FormData(e.currentTarget);
+    atualizarRecebivel.mutate({
+      id: editItem.id,
+      descricao: fd.get("descricao") as string,
+      valor: fd.get("valor") as string,
+      dataVencimento: fd.get("dataVencimento") as string,
+      dataRecebimento: (fd.get("dataRecebimento") as string) || undefined,
+      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
+      clienteId: fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined,
+      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
+      tipoServico: (fd.get("tipoServico") as string) || undefined,
+      descricaoServico: (fd.get("descricaoServico") as string) || undefined,
+      recebido: (fd.get("recebido") as string) as any || "nao",
+      observacoes: (fd.get("observacoes") as string) || undefined,
+    });
+  };
+
+  const abrirEdicaoRecebivel = (item: any) => {
+    setEditItem(item);
+    setEditDialogOpen(true);
   };
 
   return (
@@ -699,6 +791,7 @@ function ContasReceber() {
                   <td className="px-2 py-3">{r.recebido === "sim" ? <span className="inline-flex items-center gap-1 rounded-full bg-green-50 dark:bg-green-900/20 px-2 py-0.5 text-xs font-semibold text-green-600"><CheckCircle className="h-3 w-3" /> Recebido</span> : <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 text-xs font-semibold text-blue-600"><Clock className="h-3 w-3" /> Pendente</span>}</td>
                   <td className="py-3 pl-2 pr-4 text-right">
                     <div className="flex gap-1 justify-end">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicaoRecebivel(r)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
                       {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: r.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
@@ -710,6 +803,37 @@ function ContasReceber() {
         </div>
       </div>
       <div className="text-xs text-muted-foreground text-right">{items.length} registro(s) encontrado(s)</div>
+
+      {/* Dialog de Edição - Contas a Receber */}
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setEditItem(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Editar Recebível</DialogTitle><DialogDescription>Altere os dados do recebível.</DialogDescription></DialogHeader>
+          {editItem && (
+            <form onSubmit={handleEditarRecebivel} className="space-y-3">
+              <div><Label>Descrição *</Label><Input name="descricao" defaultValue={editItem.descricao} required /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" defaultValue={Number(editItem.valor)} required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" defaultValue={editItem.dataVencimento ? new Date(editItem.dataVencimento).toISOString().slice(0, 10) : ""} required /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Data de Recebimento</Label><Input name="dataRecebimento" type="date" defaultValue={editItem.dataRecebimento ? new Date(editItem.dataRecebimento).toISOString().slice(0, 10) : ""} /></div>
+                <div><Label>Status</Label><select name="recebido" defaultValue={editItem.recebido || "nao"} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Recebido</option></select></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Tipo de Serviço</Label><select name="tipoServico" defaultValue={editItem.tipoServico || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{tiposServicoPadrao.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                <div><Label>Cliente</Label><select name="clienteId" defaultValue={editItem.clienteId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(clientes.data || []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
+              </div>
+              <div><Label>Descrição do Serviço</Label><Textarea name="descricaoServico" rows={2} defaultValue={editItem.descricaoServico || ""} placeholder="Descreva detalhes do serviço prestado..." /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Empresa</Label><select name="empresaId" defaultValue={editItem.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><select name="bancoId" defaultValue={editItem.bancoId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
+              </div>
+              <div><Label>Observações</Label><Textarea name="observacoes" rows={2} defaultValue={editItem.observacoes || ""} /></div>
+              <DialogFooter><Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button><Button type="submit" disabled={atualizarRecebivel.isPending}>{atualizarRecebivel.isPending ? "Salvando..." : "Salvar Alterações"}</Button></DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

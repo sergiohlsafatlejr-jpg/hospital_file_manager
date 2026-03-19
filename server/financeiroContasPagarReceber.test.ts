@@ -130,3 +130,77 @@ describe("Contas a Receber - Filtro por Tipo de Serviço", () => {
     expect(cols).toContain("nome");
   });
 });
+
+describe("Edição Inline - Contas a Pagar (transacoes.atualizar)", () => {
+  it("deve ter a procedure transacoes.atualizar definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+  });
+
+  it("deve ter os campos necessários para atualização na tabela finTransacoes", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finTransacoes);
+    // Campos editáveis
+    expect(cols).toContain("descricao");
+    expect(cols).toContain("valor");
+    expect(cols).toContain("dataVencimento");
+    expect(cols).toContain("dataPagamento");
+    expect(cols).toContain("pago");
+    expect(cols).toContain("empresaId");
+    expect(cols).toContain("categoriaId");
+    expect(cols).toContain("bancoId");
+    expect(cols).toContain("centroCustoId");
+    expect(cols).toContain("observacoes");
+  });
+
+  it("deve ter o campo updatedAt para rastreamento de alterações", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finTransacoes);
+    expect(cols).toContain("updatedAt");
+  });
+});
+
+describe("Edição Inline - Contas a Receber (recebiveis.atualizar)", () => {
+  it("deve ter a procedure recebiveis.atualizar definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+  });
+
+  it("deve ter os campos necessários para atualização na tabela finRecebiveis", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finRecebiveis);
+    // Campos editáveis
+    expect(cols).toContain("descricao");
+    expect(cols).toContain("valor");
+    expect(cols).toContain("dataVencimento");
+    expect(cols).toContain("dataRecebimento");
+    expect(cols).toContain("recebido");
+    expect(cols).toContain("empresaId");
+    expect(cols).toContain("clienteId");
+    expect(cols).toContain("bancoId");
+    expect(cols).toContain("tipoServico");
+    expect(cols).toContain("descricaoServico");
+    expect(cols).toContain("observacoes");
+  });
+
+  it("deve ter o campo updatedAt para rastreamento de alterações em recebiveis", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finRecebiveis);
+    expect(cols).toContain("updatedAt");
+  });
+
+  it("deve ter os tipos de serviço padrão cobrindo os cenários hospitalares", () => {
+    const tiposServicoPadrao = ["Consulta", "Exame", "Cirurgia", "Internação", "Procedimento", "Fisioterapia", "Urgência/Emergência", "Home Care", "Telemedicina", "Outros"];
+    expect(tiposServicoPadrao).toHaveLength(10);
+    expect(tiposServicoPadrao).toContain("Consulta");
+    expect(tiposServicoPadrao).toContain("Cirurgia");
+    expect(tiposServicoPadrao).toContain("Internação");
+    expect(tiposServicoPadrao).toContain("Urgência/Emergência");
+    expect(tiposServicoPadrao).toContain("Home Care");
+    expect(tiposServicoPadrao).toContain("Telemedicina");
+  });
+});

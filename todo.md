@@ -3194,3 +3194,10 @@
 - [x] Exibir colunas Tipo de Serviço e Descrição de Serviço na tabela de Contas a Receber
 - [x] Adicionar filtros e botões de ação em Contas a Receber (similar a Contas a Pagar)
 - [x] Testes vitest para Contas a Pagar e Contas a Receber (14 testes passando)
+- [x] Botão de editar em cada linha da tabela de Contas a Pagar com dialog pré-preenchido
+- [x] Botão de editar em cada linha da tabela de Contas a Receber com dialog pré-preenchido
+- [x] Mutation de atualização integrada nos dialogs de edição
+- [x] Testes vitest para edição inline
+- [x] Inserir dados de exemplo em Contas a Receber via SQL (com tipoServico e descricaoServico)
+- [x] Preencher categorias e centros de custo em Contas a Pagar existentes via SQL
+- [x] Testes vitest para edição inline (21 testes passando)
