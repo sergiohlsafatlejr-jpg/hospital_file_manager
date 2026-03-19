@@ -325,6 +325,19 @@ const transacoesRouter = router({
     if (input.ids.length > 0) await db.delete(finTransacoes).where(inArray(finTransacoes.id, input.ids));
     return { success: true };
   }),
+  duplicar: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    const db = (await getDb())!;
+    const [original] = await db.select().from(finTransacoes).where(eq(finTransacoes.id, input.id)).limit(1);
+    if (!original) throw new Error("Registro não encontrado");
+    const [result] = await db.insert(finTransacoes).values({
+      empresaId: original.empresaId, categoriaId: original.categoriaId, tipoId: original.tipoId,
+      custoId: original.custoId, bancoId: original.bancoId, centroCustoId: original.centroCustoId,
+      descricao: `${original.descricao} (cópia)`, valor: original.valor,
+      dataVencimento: original.dataVencimento, dataPagamento: null,
+      pago: "nao", observacoes: original.observacoes, userId: ctx.user.id,
+    });
+    return { id: result.insertId };
+  }),
   marcarPago: protectedProcedure.input(z.object({ id: z.number(), dataPagamento: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(finTransacoes).set({ pago: "sim", dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : new Date() }).where(eq(finTransacoes.id, input.id));
@@ -482,6 +495,24 @@ const recebiveisRouter = router({
   marcarRecebido: protectedProcedure.input(z.object({ id: z.number(), dataRecebimento: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(finRecebiveis).set({ recebido: "sim", dataRecebimento: input.dataRecebimento ? new Date(input.dataRecebimento) : new Date() }).where(eq(finRecebiveis.id, input.id));
+    return { success: true };
+  }),
+  duplicar: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    const db = (await getDb())!;
+    const [original] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.id)).limit(1);
+    if (!original) throw new Error("Registro não encontrado");
+    const [result] = await db.insert(finRecebiveis).values({
+      empresaId: original.empresaId, clienteId: original.clienteId, tipoId: original.tipoId,
+      bancoId: original.bancoId, descricao: `${original.descricao} (cópia)`, valor: original.valor,
+      dataVencimento: original.dataVencimento, dataRecebimento: null,
+      recebido: "nao", tipoServico: original.tipoServico, descricaoServico: original.descricaoServico,
+      observacoes: original.observacoes, userId: ctx.user.id,
+    });
+    return { id: result.insertId };
+  }),
+  excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input }) => {
+    const db = (await getDb())!;
+    if (input.ids.length > 0) await db.delete(finRecebiveis).where(inArray(finRecebiveis.id, input.ids));
     return { success: true };
   }),
   dashboard: protectedProcedure

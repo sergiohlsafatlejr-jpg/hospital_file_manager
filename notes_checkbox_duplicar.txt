@@ -1,0 +1,6 @@
+Estado: Servidor compilando sem erros (TypeScript OK, LSP OK)
+Implementações:
+- Backend: mutations duplicar e excluirEmLote em transacoesRouter e recebiveisRouter
+- Frontend ContasPagar: checkbox em cada linha, toggleSelectAll, totalSelecionado, botão duplicar (violeta), barra de ações em lote
+- Frontend ContasReceber: checkbox em cada linha, toggleSelectAll, totalSelecionado, botão duplicar (violeta), barra de ações em lote
+- Import Copy e Checkbox adicionados

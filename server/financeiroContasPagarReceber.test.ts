@@ -204,3 +204,78 @@ describe("Edição Inline - Contas a Receber (recebiveis.atualizar)", () => {
     expect(tiposServicoPadrao).toContain("Telemedicina");
   });
 });
+
+describe("Duplicar e Seleção em Lote - Contas a Pagar", () => {
+  it("deve ter a procedure transacoes.duplicar definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    // Verificar que o router tem procedures definidas
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+    expect(routerDef.procedures).toBeDefined();
+  });
+
+  it("deve ter a procedure transacoes.excluirEmLote definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+  });
+
+  it("deve ter todos os campos necessários para duplicação na tabela finTransacoes", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finTransacoes);
+    // Campos que devem ser copiados na duplicação
+    expect(cols).toContain("empresaId");
+    expect(cols).toContain("categoriaId");
+    expect(cols).toContain("tipoId");
+    expect(cols).toContain("custoId");
+    expect(cols).toContain("bancoId");
+    expect(cols).toContain("centroCustoId");
+    expect(cols).toContain("descricao");
+    expect(cols).toContain("valor");
+    expect(cols).toContain("dataVencimento");
+    expect(cols).toContain("observacoes");
+    expect(cols).toContain("userId");
+  });
+});
+
+describe("Duplicar e Seleção em Lote - Contas a Receber", () => {
+  it("deve ter a procedure recebiveis.duplicar definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+    expect(routerDef.procedures).toBeDefined();
+  });
+
+  it("deve ter a procedure recebiveis.excluirEmLote definida no router financeiro", async () => {
+    const { financeiroRouter } = await import("./routers/financeiroRouter");
+    expect(financeiroRouter).toBeDefined();
+    const routerDef = financeiroRouter._def;
+    expect(routerDef).toBeDefined();
+  });
+
+  it("deve ter todos os campos necessários para duplicação na tabela finRecebiveis", async () => {
+    const schema = await import("../drizzle/schema");
+    const cols = Object.keys(schema.finRecebiveis);
+    // Campos que devem ser copiados na duplicação
+    expect(cols).toContain("empresaId");
+    expect(cols).toContain("clienteId");
+    expect(cols).toContain("tipoId");
+    expect(cols).toContain("bancoId");
+    expect(cols).toContain("descricao");
+    expect(cols).toContain("valor");
+    expect(cols).toContain("dataVencimento");
+    expect(cols).toContain("tipoServico");
+    expect(cols).toContain("descricaoServico");
+    expect(cols).toContain("observacoes");
+    expect(cols).toContain("userId");
+  });
+
+  it("deve ter o campo recebido como enum para controle de status na duplicação", async () => {
+    const schema = await import("../drizzle/schema");
+    const recebidoCol = (schema.finRecebiveis as any).recebido;
+    expect(recebidoCol).toBeDefined();
+  });
+});

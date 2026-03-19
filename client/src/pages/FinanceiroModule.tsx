@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DollarSign, TrendingUp, TrendingDown, AlertTriangle, Plus, Search, Check,
   Wallet, CreditCard, BarChart3, PiggyBank, Trash2, Building2, Users,
@@ -17,7 +18,7 @@ import {
   Banknote, Receipt, CircleDollarSign, Percent, ArrowDownRight, ArrowUpRight,
   Clock, CheckCircle, XCircle, Eye, Landmark, List, Upload, Target, Edit, ToggleLeft,
   RefreshCw, AlertCircle, CheckCircle2, WifiOff, ExternalLink, Loader2, MapPin,
-  Filter, SortAsc, X, FileSpreadsheet
+  Filter, SortAsc, X, FileSpreadsheet, Copy
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -193,6 +194,7 @@ function ContasPagar() {
   const [editItem, setEditItem] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [ordenacao, setOrdenacao] = useState<"data" | "az" | "valor">("data");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const utils = trpc.useUtils();
 
   // Calcular datas do período
@@ -241,6 +243,13 @@ function ContasPagar() {
   const excluir = trpc.financeiro.transacoes.excluir.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta excluída!"); },
   });
+  const duplicar = trpc.financeiro.transacoes.duplicar.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta duplicada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const excluirEmLote = trpc.financeiro.transacoes.excluirEmLote.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Contas excluídas!"); setSelectedIds(new Set()); },
+  });
 
   const rawItems = lista.data?.items || [];
   const hoje = new Date().toISOString().slice(0, 10);
@@ -257,6 +266,22 @@ function ContasPagar() {
   const totalPendente = items.filter((t: any) => t.pago === "nao").reduce((s: number, t: any) => s + Number(t.valor), 0);
   const totalVencido = items.filter((t: any) => t.pago === "nao" && t.dataVencimento && new Date(t.dataVencimento) < new Date(hoje)).reduce((s: number, t: any) => s + Number(t.valor), 0);
   const totalPago = items.filter((t: any) => t.pago === "sim").reduce((s: number, t: any) => s + Number(t.valor), 0);
+
+  const totalSelecionado = useMemo(() => {
+    return items.filter((t: any) => selectedIds.has(t.id)).reduce((s: number, t: any) => s + Number(t.valor), 0);
+  }, [items, selectedIds]);
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(items.map((t: any) => t.id)));
+  };
 
   const temFiltrosAtivos = filtroEmpresa !== "todas" || filtroCategoria !== "todas" || filtroCentroCusto !== "todos" || filtroPeriodo !== "todo" || filtroStatus !== "todos";
 
@@ -365,6 +390,7 @@ function ContasPagar() {
             <span className="text-sm text-muted-foreground">Pendente: <span className="font-semibold text-amber-600">{formatCurrency(totalPendente)}</span></span>
             {totalVencido > 0 && <span className="text-sm text-red-500 font-medium">Vencido: {formatCurrency(totalVencido)}</span>}
             <span className="text-sm text-muted-foreground">Pago: <span className="font-semibold text-green-600">{formatCurrency(totalPago)}</span></span>
+            {selectedIds.size > 0 && <span className="text-sm font-medium text-primary">Selecionado ({selectedIds.size}): <span className="font-bold">{formatCurrency(totalSelecionado)}</span></span>}
           </div>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -437,7 +463,8 @@ function ContasPagar() {
           ) : (
             <table className="w-full text-left text-sm">
               <thead><tr className="border-b border-border bg-muted/30">
-                <th className="py-3 pl-4 pr-2 text-xs font-semibold text-muted-foreground">Descrição</th>
+                <th className="py-3 pl-3 pr-1 w-8"><Checkbox checked={items.length > 0 && selectedIds.size === items.length} onCheckedChange={toggleSelectAll} /></th>
+                <th className="py-3 pl-2 pr-2 text-xs font-semibold text-muted-foreground">Descrição</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground text-right">Valor</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground">Vencimento</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground">Categoria</th>
@@ -449,8 +476,9 @@ function ContasPagar() {
               <tbody>{items.map((t: any) => {
                 const vencido = t.pago === "nao" && t.dataVencimento && new Date(t.dataVencimento) < new Date(hoje);
                 return (
-                  <tr key={t.id} className={cn("border-b border-border hover:bg-muted/30 transition-colors", vencido && "bg-red-50/50 dark:bg-red-900/10")}>
-                    <td className="py-3 pl-4 pr-2"><p className="font-medium">{t.descricao}</p>{t.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{t.observacoes}</p>}</td>
+                  <tr key={t.id} className={cn("border-b border-border hover:bg-muted/30 transition-colors", vencido && "bg-red-50/50 dark:bg-red-900/10", selectedIds.has(t.id) && "bg-primary/5")}>
+                    <td className="py-3 pl-3 pr-1 w-8"><Checkbox checked={selectedIds.has(t.id)} onCheckedChange={() => toggleSelect(t.id)} /></td>
+                    <td className="py-3 pl-2 pr-2"><p className="font-medium">{t.descricao}</p>{t.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{t.observacoes}</p>}</td>
                     <td className="px-2 py-3 text-right font-semibold text-red-600 whitespace-nowrap">{formatCurrency(t.valor)}</td>
                     <td className="px-2 py-3 whitespace-nowrap"><span className={cn(vencido && "text-red-500 font-medium")}>{formatDate(t.dataVencimento)}</span></td>
                     <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{t.categoriaNome || <span className="text-muted-foreground/50">—</span>}</td>
@@ -460,6 +488,7 @@ function ContasPagar() {
                     <td className="py-3 pl-2 pr-4 text-right">
                       <div className="flex gap-1 justify-end">
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicao(t)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicar.mutate({ id: t.id })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
                         {t.pago === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarPago.mutate({ id: t.id })}><Check className="h-3 w-3 mr-1" /> Pagar</Button>}
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: t.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
@@ -471,6 +500,15 @@ function ContasPagar() {
           )}
         </div>
       </div>
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} conta(s)?`)) excluirEmLote.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
+          </div>
+        </div>
+      )}
       <div className="text-xs text-muted-foreground text-right">{items.length} registro(s) encontrado(s)</div>
 
       {/* Dialog de Edição - Contas a Pagar */}
@@ -518,6 +556,7 @@ function ContasReceber() {
   const [editItem, setEditItem] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [ordenacao, setOrdenacao] = useState<"data" | "az" | "valor">("data");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const utils = trpc.useUtils();
 
   // Calcular datas do período
@@ -566,6 +605,13 @@ function ContasReceber() {
   const excluir = trpc.financeiro.recebiveis.excluir.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível excluído!"); },
   });
+  const duplicarRecebivel = trpc.financeiro.recebiveis.duplicar.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível duplicado!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const excluirEmLoteRecebivel = trpc.financeiro.recebiveis.excluirEmLote.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebíveis excluídos!"); setSelectedIds(new Set()); },
+  });
 
   const rawItems = lista.data?.items || [];
 
@@ -579,6 +625,22 @@ function ContasReceber() {
 
   const totalPendente = items.filter((r: any) => r.recebido === "nao").reduce((s: number, r: any) => s + Number(r.valor), 0);
   const totalRecebido = items.filter((r: any) => r.recebido === "sim").reduce((s: number, r: any) => s + Number(r.valor), 0);
+
+  const totalSelecionado = useMemo(() => {
+    return items.filter((r: any) => selectedIds.has(r.id)).reduce((s: number, r: any) => s + Number(r.valor), 0);
+  }, [items, selectedIds]);
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(items.map((r: any) => r.id)));
+  };
 
   const temFiltrosAtivos = filtroEmpresa !== "todas" || filtroTipoServico !== "todos" || filtroCliente !== "todos" || filtroPeriodo !== "todo" || filtroStatus !== "todos";
 
@@ -696,6 +758,7 @@ function ContasReceber() {
           <div className="flex gap-4 mt-1 flex-wrap">
             <span className="text-sm text-muted-foreground">Pendente: <span className="font-semibold text-blue-600">{formatCurrency(totalPendente)}</span></span>
             <span className="text-sm text-muted-foreground">Recebido: <span className="font-semibold text-green-600">{formatCurrency(totalRecebido)}</span></span>
+            {selectedIds.size > 0 && <span className="text-sm font-medium text-primary">Selecionado ({selectedIds.size}): <span className="font-bold">{formatCurrency(totalSelecionado)}</span></span>}
           </div>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -769,7 +832,8 @@ function ContasReceber() {
           ) : (
             <table className="w-full text-left text-sm">
               <thead><tr className="border-b border-border bg-muted/30">
-                <th className="py-3 pl-4 pr-2 text-xs font-semibold text-muted-foreground">Descrição</th>
+                <th className="py-3 pl-3 pr-1 w-8"><Checkbox checked={items.length > 0 && selectedIds.size === items.length} onCheckedChange={toggleSelectAll} /></th>
+                <th className="py-3 pl-2 pr-2 text-xs font-semibold text-muted-foreground">Descrição</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground text-right">Valor</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground">Vencimento</th>
                 <th className="px-2 py-3 text-xs font-semibold text-muted-foreground">Tipo de Serviço</th>
@@ -780,8 +844,9 @@ function ContasReceber() {
                 <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground text-right">Ações</th>
               </tr></thead>
               <tbody>{items.map((r: any) => (
-                <tr key={r.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                  <td className="py-3 pl-4 pr-2"><p className="font-medium">{r.descricao}</p>{r.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{r.observacoes}</p>}</td>
+                <tr key={r.id} className={cn("border-b border-border hover:bg-muted/30 transition-colors", selectedIds.has(r.id) && "bg-primary/5")}>
+                  <td className="py-3 pl-3 pr-1 w-8"><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} /></td>
+                  <td className="py-3 pl-2 pr-2"><p className="font-medium">{r.descricao}</p>{r.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{r.observacoes}</p>}</td>
                   <td className="px-2 py-3 text-right font-semibold text-green-600 whitespace-nowrap">{formatCurrency(r.valor)}</td>
                   <td className="px-2 py-3 whitespace-nowrap">{formatDate(r.dataVencimento)}</td>
                   <td className="px-2 py-3 text-xs whitespace-nowrap">{r.tipoServico ? <span className="inline-flex items-center rounded-full bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">{r.tipoServico}</span> : <span className="text-muted-foreground/50">—</span>}</td>
@@ -792,6 +857,7 @@ function ContasReceber() {
                   <td className="py-3 pl-2 pr-4 text-right">
                     <div className="flex gap-1 justify-end">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicaoRecebivel(r)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicarRecebivel.mutate({ id: r.id })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
                       {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: r.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
@@ -802,6 +868,15 @@ function ContasReceber() {
           )}
         </div>
       </div>
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} recebível(is)?`)) excluirEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
+          </div>
+        </div>
+      )}
       <div className="text-xs text-muted-foreground text-right">{items.length} registro(s) encontrado(s)</div>
 
       {/* Dialog de Edição - Contas a Receber */}

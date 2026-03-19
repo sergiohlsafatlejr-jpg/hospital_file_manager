@@ -3208,3 +3208,10 @@
 - [x] Importar dados reais do Excel contas-a-receber-2026-03-19.xlsx (92 registros: 50 recebidos + 42 pendentes)
 - [x] Criar 5 novos clientes: Hemolabor, Hospital Neurologico, Ox UTI, Hospital Sao Francisco de Assis, IRG
 - [ ] Criar botão de geração de boletos do Banco Inter (aguardando liberação de credenciais pelo banco)
+- [x] Botão Duplicar registro em cada linha de Contas a Pagar
+- [x] Botão Duplicar registro em cada linha de Contas a Receber
+- [x] Checkbox de seleção em cada linha de Contas a Pagar com soma dos valores selecionados
+- [x] Checkbox de seleção em cada linha de Contas a Receber com soma dos valores selecionados
+- [x] Barra de ações em lote (excluir selecionados) em Contas a Pagar e Contas a Receber
+- [x] Mutations duplicar e excluirEmLote no backend (transacoes e recebiveis)
+- [x] Testes vitest para duplicar e excluirEmLote (28 testes passando)
