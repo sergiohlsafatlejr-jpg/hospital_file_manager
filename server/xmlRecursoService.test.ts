@@ -1,5 +1,6 @@
 /**
  * Testes para o serviço de geração de XML de recurso de glosa
+ * O XML agora inclui TODOS os itens da guia (pagos e glosados)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -27,10 +28,10 @@ describe('xmlRecursoService', () => {
   });
 
   describe('gerarXmlRecurso', () => {
-    it('deve lançar erro quando não há itens glosados', async () => {
-      // Mock: retorna vazio para itens glosados
+    it('deve lançar erro quando não há itens encontrados', async () => {
+      // Mock: retorna vazio para itens
       mockExecute
-        .mockResolvedValueOnce([[]])  // buscarDadosGuiasGlosadas - itens
+        .mockResolvedValueOnce([[]])  // buscarDadosGuiasCompletas - itens
         ;
 
       await expect(
@@ -38,11 +39,11 @@ describe('xmlRecursoService', () => {
           estabelecimentoId: 6,
           guias: ['99999999'],
         })
-      ).rejects.toThrow('Nenhum item glosado encontrado');
+      ).rejects.toThrow('Nenhum item encontrado');
     });
 
-    it('deve gerar XML com dados corretos para uma guia', async () => {
-      // Mock: itens glosados
+    it('deve gerar XML com TODOS os itens da guia (pagos e glosados)', async () => {
+      // Mock: TODOS os itens da guia (pagos + glosados)
       mockExecute
         .mockResolvedValueOnce([[
           {
@@ -53,12 +54,15 @@ describe('xmlRecursoService', () => {
             tipoItem: 'Procedimento',
             dataExecucao: '2025-12-01',
             valorFaturado: 100.00,
-            valorPago: 0,
-            valorGlosa: 100.00,
+            valorPago: 100.00,
+            valorGlosa: 0,
             quantidade: 1,
             competencia: '2025-12',
             convenio: 'IPASGO',
             convenioId: 1,
+            statusConciliacao: 'conciliado',
+            codigoGlosa: null,
+            pacienteNome: 'MARIA ABADIA DOS SANTOS',
           },
           {
             id: 2,
@@ -74,6 +78,27 @@ describe('xmlRecursoService', () => {
             competencia: '2025-12',
             convenio: 'IPASGO',
             convenioId: 1,
+            statusConciliacao: 'glosado',
+            codigoGlosa: '1015',
+            pacienteNome: 'MARIA ABADIA DOS SANTOS',
+          },
+          {
+            id: 3,
+            numeroGuia: '18414424',
+            codigoItem: '20104294',
+            descricaoItem: 'TERAPIA ONCOLOGICA',
+            tipoItem: 'Procedimento',
+            dataExecucao: '2025-12-01',
+            valorFaturado: 200.00,
+            valorPago: 200.00,
+            valorGlosa: 0,
+            quantidade: 1,
+            competencia: '2025-12',
+            convenio: 'IPASGO',
+            convenioId: 1,
+            statusConciliacao: 'conciliado',
+            codigoGlosa: null,
+            pacienteNome: 'MARIA ABADIA DOS SANTOS',
           },
         ]])
         // Mock: dados do faturamento_unificado
@@ -94,6 +119,7 @@ describe('xmlRecursoService', () => {
         .mockResolvedValueOnce([[
           { numeroGuia: '18414424', codigoItem: '10101012', codigoTabela: '04' },
           { numeroGuia: '18414424', codigoItem: '30101012', codigoTabela: '04' },
+          { numeroGuia: '18414424', codigoItem: '20104294', codigoTabela: '04' },
         ]])
         // Mock: buscarDadosPrestador
         .mockResolvedValueOnce([[
@@ -107,11 +133,10 @@ describe('xmlRecursoService', () => {
         .mockResolvedValueOnce([[
           { codigoPrestador: 'PREST001' },
         ]])
-        // Mock: lotePrestador query (não precisa pois já tem)
         // Mock: INSERT xml_recursos_gerados
         .mockResolvedValueOnce([{ insertId: 1 }])
-        // Mock: UPDATE conciliados_automatico
-        .mockResolvedValueOnce([{ affectedRows: 2 }]);
+        // Mock: UPDATE conciliados_automatico (marca todos os itens, não só glosados)
+        .mockResolvedValueOnce([{ affectedRows: 3 }]);
 
       const result = await gerarXmlRecurso({
         estabelecimentoId: 6,
@@ -121,30 +146,43 @@ describe('xmlRecursoService', () => {
         cnpjOperadora: '01234567000100',
       });
 
+      // Deve incluir TODOS os 3 itens (2 pagos + 1 glosado)
       expect(result.totalGuias).toBe(1);
-      expect(result.totalItens).toBe(2);
-      expect(result.valorTotalGlosado).toBe(150.00);
+      expect(result.totalItens).toBe(3);
+      expect(result.totalItensGlosados).toBe(1);
+      expect(result.valorTotalGlosado).toBe(50.00);
+      expect(result.valorTotalFaturado).toBe(350.00);
       expect(result.xmlUrl).toBe('https://storage.example.com/xml-recursos/test.xml');
       expect(result.nomeArquivo).toContain('recurso_guia_18414424');
     });
 
-    it('deve gerar XML em lote para múltiplas guias', async () => {
-      // Mock: itens glosados de 2 guias
+    it('deve gerar XML em lote para múltiplas guias com todos os itens', async () => {
+      // Mock: todos os itens de 2 guias
       mockExecute
         .mockResolvedValueOnce([[
           {
             id: 1, numeroGuia: '18414424', codigoItem: '10101012',
             descricaoItem: 'CONSULTA', tipoItem: 'Procedimento',
-            dataExecucao: '2025-12-01', valorFaturado: 100, valorPago: 0,
-            valorGlosa: 100, quantidade: 1, competencia: '2025-12',
-            convenio: 'IPASGO', convenioId: 1,
+            dataExecucao: '2025-12-01', valorFaturado: 100, valorPago: 100,
+            valorGlosa: 0, quantidade: 1, competencia: '2025-12',
+            convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'conciliado',
+            codigoGlosa: null, pacienteNome: 'MARIA',
           },
           {
-            id: 2, numeroGuia: '18560945', codigoItem: '20101012',
+            id: 2, numeroGuia: '18414424', codigoItem: '30101012',
+            descricaoItem: 'HEMOGRAMA', tipoItem: 'Procedimento',
+            dataExecucao: '2025-12-01', valorFaturado: 50, valorPago: 0,
+            valorGlosa: 50, quantidade: 1, competencia: '2025-12',
+            convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'glosado',
+            codigoGlosa: '1015', pacienteNome: 'MARIA',
+          },
+          {
+            id: 3, numeroGuia: '18560945', codigoItem: '20101012',
             descricaoItem: 'EXAME', tipoItem: 'Procedimento',
             dataExecucao: '2025-12-05', valorFaturado: 80, valorPago: 0,
             valorGlosa: 80, quantidade: 1, competencia: '2025-12',
-            convenio: 'IPASGO', convenioId: 1,
+            convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'glosado',
+            codigoGlosa: '2001', pacienteNome: 'JOAO',
           },
         ]])
         .mockResolvedValueOnce([[
@@ -156,7 +194,7 @@ describe('xmlRecursoService', () => {
         .mockResolvedValueOnce([[ { nome: 'IPASGO', codigo: '346659' } ]])  // convênio
         .mockResolvedValueOnce([[ { codigoPrestador: 'P001' } ]])  // cep
         .mockResolvedValueOnce([{ insertId: 2 }])  // INSERT
-        .mockResolvedValueOnce([{ affectedRows: 2 }]);  // UPDATE
+        .mockResolvedValueOnce([{ affectedRows: 3 }]);  // UPDATE
 
       const result = await gerarXmlRecurso({
         estabelecimentoId: 6,
@@ -165,14 +203,15 @@ describe('xmlRecursoService', () => {
       });
 
       expect(result.totalGuias).toBe(2);
-      expect(result.totalItens).toBe(2);
-      expect(result.valorTotalGlosado).toBe(180.00);
+      expect(result.totalItens).toBe(3); // 2 itens guia 1 + 1 item guia 2
+      expect(result.totalItensGlosados).toBe(2); // 1 glosado guia 1 + 1 glosado guia 2
+      expect(result.valorTotalGlosado).toBe(130.00);
       expect(result.nomeArquivo).toContain('recurso_lote_2guias');
     });
   });
 
   describe('guiasGlosadasDisponiveis', () => {
-    it('deve retornar guias glosadas agrupadas', async () => {
+    it('deve retornar guias com itens glosados incluindo totais de todos os itens', async () => {
       mockExecute.mockResolvedValueOnce([[
         {
           numeroGuia: '18414424',
@@ -180,9 +219,11 @@ describe('xmlRecursoService', () => {
           convenioId: 1,
           competencia: '2025-12',
           pacienteNome: 'MARIA',
-          totalItens: 5,
-          valorFaturado: 500,
-          valorGlosa: 500,
+          totalItens: 10,
+          totalItensGlosados: 3,
+          valorFaturado: 1000,
+          valorPago: 700,
+          valorGlosa: 300,
           xmlGerado: 0,
           xmlGeradoEm: null,
           xmlLoteId: null,
@@ -195,22 +236,35 @@ describe('xmlRecursoService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].numeroGuia).toBe('18414424');
-      expect(result[0].totalItens).toBe(5);
+      expect(result[0].totalItens).toBe(10);
+      expect(result[0].totalItensGlosados).toBe(3);
+      expect(result[0].valorGlosa).toBe(300);
     });
 
-    it('deve filtrar por convênio quando fornecido', async () => {
-      mockExecute.mockResolvedValueOnce([[]]);
+    it('deve filtrar apenas não geradas quando solicitado', async () => {
+      mockExecute.mockResolvedValueOnce([[
+        {
+          numeroGuia: '18414424', convenio: 'IPASGO', convenioId: 1,
+          competencia: '2025-12', pacienteNome: 'MARIA', totalItens: 5,
+          totalItensGlosados: 2, valorFaturado: 500, valorPago: 300,
+          valorGlosa: 200, xmlGerado: 0, xmlGeradoEm: null, xmlLoteId: null,
+        },
+        {
+          numeroGuia: '18560945', convenio: 'IPASGO', convenioId: 1,
+          competencia: '2025-12', pacienteNome: 'JOAO', totalItens: 3,
+          totalItensGlosados: 1, valorFaturado: 300, valorPago: 220,
+          valorGlosa: 80, xmlGerado: 1, xmlGeradoEm: '2026-03-19', xmlLoteId: 1,
+        },
+      ]]);
 
       const result = await guiasGlosadasDisponiveis({
         estabelecimentoId: 6,
-        convenioId: 1,
-        competencia: '2025-12',
+        apenasNaoGeradas: true,
       });
 
-      expect(result).toHaveLength(0);
-      // Verificar que a query inclui o filtro de convênio
-      const queryCall = mockExecute.mock.calls[0][0];
-      expect(queryCall.queryChunks || queryCall.strings || JSON.stringify(queryCall)).toBeDefined();
+      // Apenas a guia não gerada deve ser retornada
+      expect(result).toHaveLength(1);
+      expect(result[0].numeroGuia).toBe('18414424');
     });
   });
 
@@ -219,8 +273,8 @@ describe('xmlRecursoService', () => {
       mockExecute
         .mockResolvedValueOnce([[ { total: 2 } ]])  // COUNT
         .mockResolvedValueOnce([[
-          { id: 1, nomeArquivo: 'recurso_guia_123.xml', convenioNome: 'IPASGO', tipo: 'individual', totalGuias: 1, totalItens: 5, valorTotalGlosado: 500, createdAt: new Date() },
-          { id: 2, nomeArquivo: 'recurso_lote_3guias.xml', convenioNome: 'IPASGO', tipo: 'lote', totalGuias: 3, totalItens: 15, valorTotalGlosado: 1500, createdAt: new Date() },
+          { id: 1, nomeArquivo: 'recurso_guia_123.xml', convenioNome: 'IPASGO', tipo: 'individual', totalGuias: 1, totalItens: 10, valorTotalGlosado: 500, createdAt: new Date() },
+          { id: 2, nomeArquivo: 'recurso_lote_3guias.xml', convenioNome: 'IPASGO', tipo: 'lote', totalGuias: 3, totalItens: 30, valorTotalGlosado: 1500, createdAt: new Date() },
         ]]);
 
       const result = await listarXmlsGerados({

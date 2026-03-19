@@ -2,6 +2,10 @@
  * Service para geração de XML de recurso de glosa
  * Formato: TISS 3.03.01 - DEMONSTRATIVO_ANALISE_CONTA
  * Baseado no modelo de importação do TASY
+ * 
+ * IMPORTANTE: O XML gerado contém TODA a guia (itens pagos e glosados),
+ * não apenas os itens glosados. Os itens glosados são identificados
+ * pelo código de glosa numérico.
  */
 
 import { getDb } from "./db";
@@ -13,7 +17,7 @@ import * as crypto from "crypto";
 // TIPOS
 // ============================================================
 
-interface GuiaGlosada {
+interface GuiaCompleta {
   numeroGuia: string;
   numeroGuiaOperadora: string | null;
   senha: string | null;
@@ -21,13 +25,14 @@ interface GuiaGlosada {
   carteiraBeneficiario: string | null;
   dataInicioFat: string | null;
   dataFimFat: string | null;
-  itens: ItemGlosado[];
+  itens: ItemGuia[];
   valorInformadoGuia: number;
   valorProcessadoGuia: number;
   valorLiberadoGuia: number;
+  temGlosa: boolean;
 }
 
-interface ItemGlosado {
+interface ItemGuia {
   id: number;
   codigoItem: string;
   descricaoItem: string;
@@ -37,6 +42,8 @@ interface ItemGlosado {
   valorPago: number;
   valorGlosa: number;
   quantidade: number;
+  statusConciliacao: string;
+  codigoGlosa: string | null; // Código numérico da glosa
 }
 
 interface DadosPrestador {
@@ -110,15 +117,6 @@ function formatarData(data: string | Date | null): string {
   return d.toISOString().split('T')[0];
 }
 
-function formatarHora(data: string | Date | null): string {
-  if (!data) return '00:00:00.0000000-03:00';
-  const d = new Date(data);
-  const h = d.getHours().toString().padStart(2, '0');
-  const m = d.getMinutes().toString().padStart(2, '0');
-  const s = d.getSeconds().toString().padStart(2, '0');
-  return `${h}:${m}:${s}.0000000-03:00`;
-}
-
 function formatarValor(valor: number | null | undefined): string {
   if (valor === null || valor === undefined) return '0';
   return Number(valor).toFixed(2);
@@ -133,25 +131,36 @@ function gerarHashMD5(conteudo: string): string {
   return crypto.createHash('md5').update(conteudo).digest('hex');
 }
 
+/**
+ * Extrai apenas o código numérico da glosa (remove texto)
+ */
+function extrairCodigoGlosaNumerico(codigoGlosa: string | null): string | null {
+  if (!codigoGlosa) return null;
+  // Extrair apenas dígitos
+  const numeros = codigoGlosa.replace(/[^\d]/g, '');
+  return numeros || null;
+}
+
 // ============================================================
 // BUSCAR DADOS PARA GERAÇÃO DO XML
 // ============================================================
 
 /**
- * Busca os itens glosados de guias específicas na conciliados_automatico
+ * Busca TODOS os itens das guias selecionadas na conciliados_automatico
+ * (pagos, glosados, divergentes - tudo)
  * e enriquece com dados do faturamento_unificado e faturamento_tiss
  */
-async function buscarDadosGuiasGlosadas(
+async function buscarDadosGuiasCompletas(
   estabelecimentoId: number,
   guias: string[]
-): Promise<GuiaGlosada[]> {
+): Promise<GuiaCompleta[]> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
   const esc = (v: string) => `'${v.replace(/'/g, "''")}'`;
   const guiasStr = guias.map(g => esc(g)).join(',');
 
-  // Buscar itens glosados da conciliados_automatico
+  // Buscar TODOS os itens da guia (não apenas glosados)
   const [itensResult] = await db.execute(sql.raw(`
     SELECT 
       ca.id,
@@ -166,11 +175,13 @@ async function buscarDadosGuiasGlosadas(
       ca.quantidade,
       ca.competencia,
       ca.convenio,
-      ca.convenioId
+      ca.convenioId,
+      ca.statusConciliacao,
+      ca.codigoGlosa,
+      ca.pacienteNome
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${estabelecimentoId}
       AND ca.numeroGuia IN (${guiasStr})
-      AND ca.statusConciliacao = 'glosado'
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
   `));
 
@@ -217,19 +228,20 @@ async function buscarDadosGuiasGlosadas(
   }
 
   // Agrupar itens por guia
-  const guiasMap = new Map<string, GuiaGlosada>();
+  const guiasMap = new Map<string, GuiaCompleta>();
 
   for (const item of itens) {
     const guia = String(item.numeroGuia);
     const fu = fuMap.get(guia);
     const codigoTabelaOriginal = ftMap.get(`${guia}|${item.codigoItem}`);
+    const statusConc = String(item.statusConciliacao || '');
 
     if (!guiasMap.has(guia)) {
       guiasMap.set(guia, {
         numeroGuia: guia,
         numeroGuiaOperadora: fu?.numeroGuiaOperadora ? String(fu.numeroGuiaOperadora) : `0${guia}`,
         senha: fu?.senha ? String(fu.senha) : null,
-        pacienteNome: fu?.pacienteNome ? String(fu.pacienteNome) : null,
+        pacienteNome: fu?.pacienteNome ? String(fu.pacienteNome) : (item.pacienteNome ? String(item.pacienteNome) : null),
         carteiraBeneficiario: fu?.carteiraBeneficiario ? String(fu.carteiraBeneficiario) : null,
         dataInicioFat: fu?.dataInicioFat ? formatarData(fu.dataInicioFat) : null,
         dataFimFat: fu?.dataFimFat ? formatarData(fu.dataFimFat) : null,
@@ -237,12 +249,19 @@ async function buscarDadosGuiasGlosadas(
         valorInformadoGuia: 0,
         valorProcessadoGuia: 0,
         valorLiberadoGuia: 0,
+        temGlosa: false,
       });
     }
 
     const guiaObj = guiasMap.get(guia)!;
     const valorFaturado = Number(item.valorFaturado) || 0;
     const valorPago = Number(item.valorPago) || 0;
+    const valorGlosa = Number(item.valorGlosa) || 0;
+    const isGlosado = statusConc === 'glosado' || valorGlosa > 0;
+
+    if (isGlosado) {
+      guiaObj.temGlosa = true;
+    }
 
     guiaObj.itens.push({
       id: Number(item.id),
@@ -252,8 +271,10 @@ async function buscarDadosGuiasGlosadas(
       dataExecucao: item.dataExecucao ? formatarData(item.dataExecucao) : null,
       valorFaturado,
       valorPago,
-      valorGlosa: Number(item.valorGlosa) || 0,
+      valorGlosa,
       quantidade: Number(item.quantidade) || 1,
+      statusConciliacao: statusConc,
+      codigoGlosa: extrairCodigoGlosaNumerico(item.codigoGlosa ? String(item.codigoGlosa) : null),
     });
 
     guiaObj.valorInformadoGuia += valorFaturado;
@@ -278,8 +299,6 @@ async function buscarDadosPrestador(estabelecimentoId: number): Promise<DadosPre
   const estab = (result as any[])[0];
   if (!estab) throw new Error(`Estabelecimento ${estabelecimentoId} não encontrado`);
 
-  // Buscar CNES (pode estar em uma tabela de configuração ou ser fixo)
-  // Por enquanto, usar um valor padrão baseado no Hemolabor
   return {
     cnpj: limparCnpj(estab.cnpj),
     nome: String(estab.nome || ''),
@@ -316,9 +335,9 @@ async function buscarDadosConvenio(
 
   return {
     convenio: {
-      registroANS: '', // Será preenchido pelo XML original ou configuração
-      nome: String(conv.nome || '').trim(),
-      cnpj: '', // Será preenchido pela configuração
+      registroANS: '',
+      nome: String(conv.nome || ''),
+      cnpj: '',
     },
     codigoPrestador: cep ? String(cep.codigoPrestador) : '',
   };
@@ -331,9 +350,12 @@ async function buscarDadosConvenio(
 /**
  * Gera o XML no formato TISS DEMONSTRATIVO_ANALISE_CONTA
  * seguindo o modelo do TASY/IPASGO
+ * 
+ * INCLUI TODOS OS ITENS DA GUIA (pagos e glosados)
+ * Itens glosados são identificados pelo código de glosa numérico
  */
 function gerarXmlDemonstrativo(
-  guias: GuiaGlosada[],
+  guias: GuiaCompleta[],
   prestador: DadosPrestador,
   convenioNome: string,
   codigoPrestador: string,
@@ -364,6 +386,10 @@ function gerarXmlDemonstrativo(
   for (const guia of guias) {
     let detalhesXml = '';
     for (const item of guia.itens) {
+      // Para itens glosados: valorProcessado e valorLiberado = valorPago (que pode ser 0)
+      // Para itens pagos: valorProcessado e valorLiberado = valorPago (= valorFaturado)
+      const isGlosado = item.statusConciliacao === 'glosado' || item.valorGlosa > 0;
+      
       detalhesXml += `
             <ans:detalhesGuia>
               <ans:dataRealizacao>${item.dataExecucao || dataRegistro}</ans:dataRealizacao>
@@ -379,6 +405,7 @@ function gerarXmlDemonstrativo(
             </ans:detalhesGuia>`;
     }
 
+    // Determinar situacaoGuia: 6 = processado normalmente
     guiasXml += `
           <ans:relacaoGuias>
             <ans:numeroGuiaPrestador>${escapeXml(guia.numeroGuia)}</ans:numeroGuiaPrestador>
@@ -465,7 +492,8 @@ function gerarXmlDemonstrativo(
 // ============================================================
 
 /**
- * Gera XML de recurso para uma ou mais guias glosadas
+ * Gera XML de recurso para uma ou mais guias
+ * O XML contém TODOS os itens da guia (pagos e glosados)
  */
 export async function gerarXmlRecurso(params: {
   estabelecimentoId: number;
@@ -484,17 +512,19 @@ export async function gerarXmlRecurso(params: {
   nomeArquivo: string;
   totalGuias: number;
   totalItens: number;
+  totalItensGlosados: number;
+  valorTotalFaturado: number;
   valorTotalGlosado: number;
   registroId: number;
 }> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  // 1. Buscar dados das guias glosadas
-  const guiasData = await buscarDadosGuiasGlosadas(params.estabelecimentoId, params.guias);
+  // 1. Buscar TODOS os dados das guias (pagos + glosados)
+  const guiasData = await buscarDadosGuiasCompletas(params.estabelecimentoId, params.guias);
   
   if (guiasData.length === 0) {
-    throw new Error("Nenhum item glosado encontrado para as guias selecionadas");
+    throw new Error("Nenhum item encontrado para as guias selecionadas");
   }
 
   // 2. Buscar dados do prestador
@@ -529,7 +559,7 @@ export async function gerarXmlRecurso(params: {
   const numeroProtocolo = params.numeroProtocolo || lotePrestador || `${Date.now()}`;
   const dataProtocolo = params.dataProtocolo || new Date().toISOString().split('T')[0];
 
-  // 6. Gerar o XML
+  // 6. Gerar o XML com TODOS os itens
   const xmlContent = gerarXmlDemonstrativo(
     guiasData,
     prestador,
@@ -545,11 +575,17 @@ export async function gerarXmlRecurso(params: {
 
   // 7. Calcular totais
   let totalItens = 0;
+  let totalItensGlosados = 0;
+  let valorTotalFaturado = 0;
   let valorTotalGlosado = 0;
   for (const guia of guiasData) {
     totalItens += guia.itens.length;
+    valorTotalFaturado += guia.valorInformadoGuia;
     for (const item of guia.itens) {
-      valorTotalGlosado += item.valorGlosa;
+      if (item.statusConciliacao === 'glosado' || item.valorGlosa > 0) {
+        totalItensGlosados++;
+        valorTotalGlosado += item.valorGlosa;
+      }
     }
   }
 
@@ -586,7 +622,7 @@ export async function gerarXmlRecurso(params: {
 
   const registroId = (insertResult as any)?.insertId || 0;
 
-  // 10. Marcar itens como XML gerado
+  // 10. Marcar as guias como XML gerado na conciliados_automatico
   const idsItens: number[] = [];
   for (const guia of guiasData) {
     for (const item of guia.itens) {
@@ -614,6 +650,8 @@ export async function gerarXmlRecurso(params: {
     nomeArquivo,
     totalGuias: guiasData.length,
     totalItens,
+    totalItensGlosados,
+    valorTotalFaturado,
     valorTotalGlosado,
     registroId,
   };
@@ -659,8 +697,8 @@ export async function listarXmlsGerados(params: {
 }
 
 /**
- * Busca guias glosadas disponíveis para geração de XML
- * (que ainda não tiveram XML gerado)
+ * Busca guias disponíveis para geração de XML de recurso
+ * Mostra guias que TÊM itens glosados (mas o XML incluirá todos os itens)
  */
 export async function guiasGlosadasDisponiveis(params: {
   estabelecimentoId: number;
@@ -671,7 +709,8 @@ export async function guiasGlosadasDisponiveis(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId} AND ca.statusConciliacao = 'glosado'`;
+  // Buscar guias que possuem pelo menos um item glosado
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
   
   if (params.convenioId) {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
@@ -679,10 +718,8 @@ export async function guiasGlosadasDisponiveis(params: {
   if (params.competencia && params.competencia !== 'todos') {
     whereClause += ` AND ca.competencia = '${params.competencia.replace(/'/g, "''")}'`;
   }
-  if (params.apenasNaoGeradas) {
-    whereClause += ` AND (ca.xmlRecursoGerado = 0 OR ca.xmlRecursoGerado IS NULL)`;
-  }
 
+  // Buscar todas as guias que têm pelo menos um item glosado
   const [result] = await db.execute(sql.raw(`
     SELECT 
       ca.numeroGuia,
@@ -691,18 +728,28 @@ export async function guiasGlosadasDisponiveis(params: {
       ca.competencia,
       MAX(ca.pacienteNome) as pacienteNome,
       COUNT(*) as totalItens,
+      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as totalItensGlosados,
       SUM(ca.valorFaturado) as valorFaturado,
-      SUM(ca.valorGlosa) as valorGlosa,
+      SUM(ca.valorPago) as valorPago,
+      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN ca.valorGlosa ELSE 0 END) as valorGlosa,
       MAX(ca.xmlRecursoGerado) as xmlGerado,
       MAX(ca.xmlRecursoData) as xmlGeradoEm,
       MAX(ca.xmlRecursoLoteId) as xmlLoteId
     FROM conciliados_automatico ca
     ${whereClause}
     GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia
+    HAVING SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) > 0
     ORDER BY ca.competencia DESC, ca.numeroGuia
   `));
 
-  return result as any[];
+  let guias = result as any[];
+
+  // Filtrar apenas não geradas se solicitado
+  if (params.apenasNaoGeradas) {
+    guias = guias.filter((g: any) => !g.xmlGerado || g.xmlGerado === 0);
+  }
+
+  return guias;
 }
 
 /**

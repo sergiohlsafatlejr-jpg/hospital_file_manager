@@ -3261,3 +3261,7 @@
 - [x] Salvar XMLs gerados no S3 com link para consulta futura
 
 - [x] Corrigir erro "Cannot access 'convenioIdNum' before initialization" na página de Conciliação Cruzada
+
+- [x] Corrigir geração de XML de recurso: incluir TODOS os itens da guia (pagos e glosados), não apenas glosados
+- [x] Código de glosa no XML deve ser apenas número (não texto)
+- [x] Seguir exatamente o formato do XML modelo (demonstrativo de análise de conta TISS)
