@@ -740,7 +740,7 @@ const dashboardRouter = router({
         .where(and(
           eq(finTransacoes.pago, "nao"),
           gte(finTransacoes.dataVencimento, new Date(hoje)),
-          lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000).toISOString().slice(0, 10)),
+          lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
         ))
         .orderBy(asc(finTransacoes.dataVencimento))
         .limit(10);
@@ -751,7 +751,7 @@ const dashboardRouter = router({
       }).from(finTransacoes).where(and(
         eq(finTransacoes.pago, "nao"),
         gte(finTransacoes.dataVencimento, new Date(hoje)),
-        lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000).toISOString().slice(0, 10)),
+        lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
       ));
 
       // Próximos recebimentos (7 dias)
@@ -766,7 +766,7 @@ const dashboardRouter = router({
         .where(and(
           eq(finRecebiveis.recebido, "nao"),
           gte(finRecebiveis.dataVencimento, new Date(hoje)),
-          lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000).toISOString().slice(0, 10)),
+          lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
         ))
         .orderBy(asc(finRecebiveis.dataVencimento))
         .limit(10);
@@ -777,7 +777,7 @@ const dashboardRouter = router({
       }).from(finRecebiveis).where(and(
         eq(finRecebiveis.recebido, "nao"),
         gte(finRecebiveis.dataVencimento, new Date(hoje)),
-        lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000).toISOString().slice(0, 10)),
+        lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
       ));
 
       // Top 5 maiores pagamentos do mês

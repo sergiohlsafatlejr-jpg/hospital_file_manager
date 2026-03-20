@@ -759,6 +759,7 @@ interface ConciliacaoResultado {
   totalConciliados: number;
   totalDivergentes: number;
   totalNaoRecebidos: number;
+  totalGlosados: number;
   totalJaConciliados: number;
   detalhes: {
     conciliadosPorGuiaCodigo: number;
@@ -808,7 +809,7 @@ export async function executarConciliacaoAutomatica(params: {
     const [compRows] = await db.execute(sql.raw(
       `SELECT DISTINCT competencia FROM faturamento_unificado WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao = 'pendente' ORDER BY competencia`
     ));
-    const competencias = (compRows as any[]).map((r: any) => r.competencia).filter(Boolean);
+    const competencias = (compRows as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
     
     if (competencias.length > 1) {
       // Processar cada competência separadamente e agregar resultados
@@ -817,6 +818,7 @@ export async function executarConciliacaoAutomatica(params: {
         totalConciliados: 0,
         totalDivergentes: 0,
         totalNaoRecebidos: 0,
+        totalGlosados: 0,
         totalJaConciliados: 0,
         detalhes: {
           conciliadosPorGuiaCodigo: 0,
@@ -857,6 +859,7 @@ export async function executarConciliacaoAutomatica(params: {
     totalConciliados: 0,
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
+    totalGlosados: 0,
     totalJaConciliados: 0,
     detalhes: {
       conciliadosPorGuiaCodigo: 0,
@@ -1409,7 +1412,7 @@ export async function resetarConciliacao(params: {
   const [idsRows] = await db.execute(sql.raw(
     `SELECT DISTINCT faturamentoUnificadoId FROM conciliados_automatico ${whereClause}`
   ));
-  const idsAfetados = (idsRows as any[]).map((r: any) => r.faturamentoUnificadoId).filter(Boolean);
+  const idsAfetados = (idsRows as unknown as any[]).map((r: any) => r.faturamentoUnificadoId).filter(Boolean);
   
   if (idsAfetados.length > 0) {
     // Atualizar em batches de 500

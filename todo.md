@@ -3289,3 +3289,4 @@
 - [x] Adicionar colunas Lote e Protocolo na tabela de Guias Conciliadas (aba Conciliados)
 - [x] Adicionar colunas Lote e Protocolo na tabela de Guias Glosadas (aba XML Recurso)
 - [x] Corrigir filtro de Lote XML que não está filtrando na aba XML Recurso
+- [x] Corrigir erros de TypeScript no financeiroRouter.ts e faturamentoUnificadoService.ts que travam a publicação
