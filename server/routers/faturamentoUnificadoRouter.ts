@@ -7,6 +7,9 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import * as faturamentoService from "../faturamentoUnificadoService";
 import * as xmlRecursoService from "../xmlRecursoService";
+import { convenioEstabelecimentoPrestador } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
+import { getDb } from "../db";
 
 export const faturamentoUnificadoRouter = router({
   /**
@@ -434,5 +437,28 @@ export const faturamentoUnificadoRouter = router({
     }))
     .query(async ({ input }) => {
       return await faturamentoService.lotesXmlTissDisponiveis(input);
+    }),
+
+  /**
+   * Buscar códigos de prestador cadastrados para o estabelecimento
+   * Usado para separar itens próprios vs terceiros na conciliação
+   */
+  codigosPrestadorEstabelecimento: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database não disponível");
+      const result = await db
+        .select({
+          codigoPrestador: convenioEstabelecimentoPrestador.codigoPrestador,
+          convenioId: convenioEstabelecimentoPrestador.convenioId,
+        })
+        .from(convenioEstabelecimentoPrestador)
+        .where(eq(convenioEstabelecimentoPrestador.estabelecimentoId, input.estabelecimentoId));
+      // Retornar lista única de códigos
+      const codigos = [...new Set(result.map((r: any) => r.codigoPrestador))];
+      return { codigos, detalhes: result };
     }),
 });

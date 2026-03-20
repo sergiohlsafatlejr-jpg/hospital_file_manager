@@ -250,6 +250,7 @@ export async function popularDeXmlTiss(
       tipoItem, codigoItem,
       descricaoItem, dataExecucao, quantidade,
       valorUnitario, valorFaturado,
+      codigoPrestadorExecutante,
       dataSincronizacao
     )
     SELECT
@@ -272,6 +273,7 @@ export async function popularDeXmlTiss(
       dedup.quantidade,
       dedup.valor_unitario,
       dedup.valor_faturado,
+      dedup.codigo_prestador_executante,
       NOW()
     FROM (
       SELECT ft.*,
@@ -887,7 +889,7 @@ export async function executarConciliacaoAutomatica(params: {
       fu.id, fu.codigoItem, fu.codigoItemTuss, fu.numeroGuia, fu.contaNumero,
       fu.pacienteNome, fu.carteiraBeneficiario, fu.convenioId, fu.competencia,
       fu.convenio, fu.origemSistema, fu.descricaoItem, fu.tipoItem,
-      fu.dataExecucao,
+      fu.dataExecucao, fu.codigoPrestadorExecutante,
       COALESCE(fu.valorFaturado, 0) as valorFaturado,
       COALESCE(fu.quantidade, 0) as quantidade
     FROM faturamento_unificado fu
@@ -1107,6 +1109,7 @@ export async function executarConciliacaoAutomatica(params: {
       tipoItem: tipoItemFat,
       origemSistema: String(fat.origemSistema || ''),
       dataExecucao: fat.dataExecucao ? new Date(fat.dataExecucao).toISOString().slice(0, 19).replace('T', ' ') : null,
+      codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
       valorFaturado,
       quantidade: Number(fat.quantidade) || 0,
       codigoGlosa: null as string | null,
@@ -1343,12 +1346,12 @@ export async function executarConciliacaoAutomatica(params: {
 
     const values = batch.map(r => {
       const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}'` : 'NULL';
-      return `(${r.faturamentoUnificadoId}, ${params.estabelecimentoId}, ${esc(r.contaNumero)}, ${esc(r.numeroGuia)}, ${esc(r.pacienteNome)}, ${esc(r.convenio)}, ${r.convenioId ?? 'NULL'}, ${esc(r.competencia)}, ${esc(r.codigoItem)}, ${esc(r.codigoItemTuss)}, ${esc(r.descricaoItem)}, ${esc(r.tipoItem)}, ${esc(r.origemSistema)}, ${esc(r.dataExecucao)}, ${r.valorFaturado}, ${r.quantidade}, ${r.recebimentoId ?? 'NULL'}, ${r.recebimentoOrigem ? esc(r.recebimentoOrigem) : 'NULL'}, ${r.valorPago}, ${r.valorGlosa}, ${esc(r.codigoGlosa)}, ${esc(r.motivoGlosa)}, ${esc(r.statusConciliacao)}, ${r.metodoConciliacao ? esc(r.metodoConciliacao) : 'NULL'}, ${r.diferenca}, ${r.percentualDiferenca}, ${tolerancia}, NOW())`;
+      return `(${r.faturamentoUnificadoId}, ${params.estabelecimentoId}, ${esc(r.contaNumero)}, ${esc(r.numeroGuia)}, ${esc(r.pacienteNome)}, ${esc(r.convenio)}, ${r.convenioId ?? 'NULL'}, ${esc(r.competencia)}, ${esc(r.codigoItem)}, ${esc(r.codigoItemTuss)}, ${esc(r.descricaoItem)}, ${esc(r.tipoItem)}, ${esc(r.origemSistema)}, ${esc(r.dataExecucao)}, ${esc((r as any).codigoPrestadorExecutante)}, ${r.valorFaturado}, ${r.quantidade}, ${r.recebimentoId ?? 'NULL'}, ${r.recebimentoOrigem ? esc(r.recebimentoOrigem) : 'NULL'}, ${r.valorPago}, ${r.valorGlosa}, ${esc(r.codigoGlosa)}, ${esc(r.motivoGlosa)}, ${esc(r.statusConciliacao)}, ${r.metodoConciliacao ? esc(r.metodoConciliacao) : 'NULL'}, ${r.diferenca}, ${r.percentualDiferenca}, ${tolerancia}, NOW())`;
     }).join(',\n');
 
     const insertQuery = `
       INSERT INTO conciliados_automatico 
-        (faturamentoUnificadoId, estabelecimentoId, contaNumero, numeroGuia, pacienteNome, convenio, convenioId, competencia, codigoItem, codigoItemTuss, descricaoItem, tipoItem, origemSistema, dataExecucao, valorFaturado, quantidade, recebimentoId, recebimentoOrigem, valorPago, valorGlosa, codigoGlosa, motivoGlosa, statusConciliacao, metodoConciliacao, diferenca, percentualDiferenca, toleranciaUsada, criadoEm)
+        (faturamentoUnificadoId, estabelecimentoId, contaNumero, numeroGuia, pacienteNome, convenio, convenioId, competencia, codigoItem, codigoItemTuss, descricaoItem, tipoItem, origemSistema, dataExecucao, codigoPrestadorExecutante, valorFaturado, quantidade, recebimentoId, recebimentoOrigem, valorPago, valorGlosa, codigoGlosa, motivoGlosa, statusConciliacao, metodoConciliacao, diferenca, percentualDiferenca, toleranciaUsada, criadoEm)
       VALUES ${values}
     `;
     await db.execute(sql.raw(insertQuery));
@@ -1706,7 +1709,8 @@ export async function resumoConciliadosPorGuia(params: {
       SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
       SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as itensNaoRecebidos,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
-      COUNT(DISTINCT ca.contaNumero) as totalContas
+      COUNT(DISTINCT ca.contaNumero) as totalContas,
+      MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${whereClause}

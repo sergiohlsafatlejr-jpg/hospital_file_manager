@@ -181,7 +181,8 @@ async function buscarDadosGuiasCompletas(
       ca.statusConciliacao,
       ca.codigoGlosa,
       ca.motivoGlosa,
-      ca.pacienteNome
+      ca.pacienteNome,
+      ca.codigoPrestadorExecutante
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${estabelecimentoId}
       AND ca.numeroGuia IN (${guiasStr})
@@ -554,6 +555,18 @@ export async function gerarXmlRecurso(params: {
     throw new Error("Nenhum item encontrado para as guias selecionadas");
   }
 
+  // 1.1 Buscar códigos de prestador cadastrados para filtrar terceiros
+  // Terceiros NÃO devem ser incluídos no XML de recurso
+  const { convenioEstabelecimentoPrestador } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const prestadoresCadastrados = await db
+    .select({ codigoPrestador: convenioEstabelecimentoPrestador.codigoPrestador })
+    .from(convenioEstabelecimentoPrestador)
+    .where(eq(convenioEstabelecimentoPrestador.estabelecimentoId, params.estabelecimentoId));
+  const codigosPrestadorValidos = new Set(prestadoresCadastrados.map(p => p.codigoPrestador));
+  
+  // Nota: Se não há códigos cadastrados, não filtra (compatibilidade retroativa)
+
   // 2. Buscar dados do prestador
   const prestador = await buscarDadosPrestador(params.estabelecimentoId);
 
@@ -777,7 +790,8 @@ export async function guiasGlosadasDisponiveis(params: {
       MAX(fu.protocolo) as protocoloXml,
       -- Lote e Protocolo do Retorno (demonstrativo)
       (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
-      (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno
+      (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
+      MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${whereClause}

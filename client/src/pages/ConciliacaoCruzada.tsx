@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -115,6 +115,23 @@ export default function ConciliacaoCruzada() {
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
     { enabled: estabelecimentoId > 0 }
   );
+
+  // ===== QUERY PARA SEPARAÇÃO PRÓPRIO/TERCEIRO =====
+  const { data: codigosPrestador } = trpc.faturamentoUnificado.codigosPrestadorEstabelecimento.useQuery(
+    { estabelecimentoId },
+    { enabled: estabelecimentoId > 0 }
+  );
+
+  // Filtro de tipo de prestador (próprio/terceiro)
+  const [filtroPrestador, setFiltroPrestador] = useState<'todos' | 'proprio' | 'terceiro'>('todos');
+
+  // Função para verificar se uma guia é de terceiro
+  const isTerceiro = useCallback((guia: any) => {
+    if (!codigosPrestador?.codigos?.length) return false; // Se não tem códigos cadastrados, não pode separar
+    const codExec = guia.codigoPrestadorExecutante;
+    if (!codExec) return false; // Se não tem código, assume que é próprio (dados antigos)
+    return !codigosPrestador.codigos.includes(codExec);
+  }, [codigosPrestador]);
 
   // ===== QUERIES PARA ABA XML RECURSO =====
 
@@ -492,7 +509,16 @@ export default function ConciliacaoCruzada() {
   const contas = dadosGuias?.contas || [];
   const totalPaginas = Math.ceil((dadosGuias?.total || 0) / ITENS_POR_PAGINA);
 
-  const guiasConciliadas = dadosGuiasConciliadas?.items || [];
+  const guiasConciliadasTodas = dadosGuiasConciliadas?.items || [];
+  const guiasConciliadas = useMemo(() => {
+    if (filtroPrestador === 'todos') return guiasConciliadasTodas;
+    return guiasConciliadasTodas.filter((g: any) => {
+      const terceiro = isTerceiro(g);
+      return filtroPrestador === 'terceiro' ? terceiro : !terceiro;
+    });
+  }, [guiasConciliadasTodas, filtroPrestador, isTerceiro]);
+  const guiasTerceiros = useMemo(() => guiasConciliadasTodas.filter((g: any) => isTerceiro(g)), [guiasConciliadasTodas, isTerceiro]);
+  const guiasProprias = useMemo(() => guiasConciliadasTodas.filter((g: any) => !isTerceiro(g)), [guiasConciliadasTodas, isTerceiro]);
   const totalPaginasConciliados = Math.ceil((dadosGuiasConciliadas?.total || 0) / ITENS_POR_PAGINA);
 
   // Competências e convênios dependem da aba ativa
@@ -675,6 +701,21 @@ export default function ConciliacaoCruzada() {
                   />
                 </div>
               </div>
+              {(abaAtiva === 'conciliados' || abaAtiva === 'xml_recurso') && (
+                <div>
+                  <Label>Prestador</Label>
+                  <Select value={filtroPrestador} onValueChange={(v) => setFiltroPrestador(v as any)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="proprio">Próprio</SelectItem>
+                      <SelectItem value="terceiro">Terceiros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1106,6 +1147,9 @@ export default function ConciliacaoCruzada() {
                                     {Number(guia.itensAgrupados) > 0 && (
                                       <Badge variant="outline" className="ml-1 text-[10px] bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">{guia.itensAgrupados} agrup.</Badge>
                                     )}
+                                    {isTerceiro(guia) && (
+                                      <Badge variant="outline" className="ml-1 text-[10px] bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Terceiro</Badge>
+                                    )}
                                   </td>
                                   <td className="p-3 text-sm">{formatarCompetencia(guia.competencia)}</td>
                                   <td className="p-3 text-sm font-mono">
@@ -1423,7 +1467,7 @@ export default function ConciliacaoCruzada() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const naoGeradas = guiasGlosadas?.filter((g: any) => !Number(g.xmlGerado)).map((g: any) => String(g.numeroGuia)) || [];
+                        const naoGeradas = guiasGlosadas?.filter((g: any) => !Number(g.xmlGerado) && !isTerceiro(g)).map((g: any) => String(g.numeroGuia)) || [];
                         setGuiasSelecionadasXml(new Set(naoGeradas));
                       }}
                     >
@@ -1433,7 +1477,7 @@ export default function ConciliacaoCruzada() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const todas = guiasGlosadas?.map((g: any) => String(g.numeroGuia)) || [];
+                        const todas = guiasGlosadas?.filter((g: any) => !isTerceiro(g)).map((g: any) => String(g.numeroGuia)) || [];
                         setGuiasSelecionadasXml(new Set(todas));
                       }}
                     >
@@ -1454,10 +1498,10 @@ export default function ConciliacaoCruzada() {
                         <tr className="border-b bg-muted/50">
                           <th className="p-2 w-10">
                             <Checkbox
-                              checked={guiasSelecionadasXml.size > 0 && guiasSelecionadasXml.size === guiasGlosadas.length}
+                              checked={guiasSelecionadasXml.size > 0 && guiasSelecionadasXml.size === guiasGlosadas.filter((g: any) => !isTerceiro(g)).length}
                               onCheckedChange={(checked) => {
                                 if (checked) {
-                                  const todas = guiasGlosadas.map((g: any) => String(g.numeroGuia));
+                                  const todas = guiasGlosadas.filter((g: any) => !isTerceiro(g)).map((g: any) => String(g.numeroGuia));
                                   setGuiasSelecionadasXml(new Set(todas));
                                 } else {
                                   setGuiasSelecionadasXml(new Set());
@@ -1478,23 +1522,37 @@ export default function ConciliacaoCruzada() {
                         </tr>
                       </thead>
                       <tbody>
-                        {guiasGlosadas.map((guia: any) => {
+                        {guiasGlosadas.filter((g: any) => {
+                          if (filtroPrestador === 'todos') return true;
+                          const terceiro = isTerceiro(g);
+                          return filtroPrestador === 'terceiro' ? terceiro : !terceiro;
+                        }).map((guia: any) => {
                           const xmlGerado = Number(guia.xmlGerado) > 0;
                           const guiaKey = String(guia.numeroGuia);
+                          const terceiro = isTerceiro(guia);
                           return (
-                            <tr key={guiaKey} className={`border-b hover:bg-muted/30 ${xmlGerado ? 'bg-green-50/50 dark:bg-green-950/20' : ''}`}>
+                            <tr key={guiaKey} className={`border-b hover:bg-muted/30 ${terceiro ? 'bg-orange-50/50 dark:bg-orange-950/20' : ''} ${xmlGerado ? 'bg-green-50/50 dark:bg-green-950/20' : ''}`}>
                               <td className="p-2">
-                                <Checkbox
-                                  checked={guiasSelecionadasXml.has(guiaKey)}
-                                  onCheckedChange={(checked) => {
-                                    const newSet = new Set(guiasSelecionadasXml);
-                                    if (checked) newSet.add(guiaKey);
-                                    else newSet.delete(guiaKey);
-                                    setGuiasSelecionadasXml(newSet);
-                                  }}
-                                />
+                                {!terceiro ? (
+                                  <Checkbox
+                                    checked={guiasSelecionadasXml.has(guiaKey)}
+                                    onCheckedChange={(checked) => {
+                                      const newSet = new Set(guiasSelecionadasXml);
+                                      if (checked) newSet.add(guiaKey);
+                                      else newSet.delete(guiaKey);
+                                      setGuiasSelecionadasXml(newSet);
+                                    }}
+                                  />
+                                ) : (
+                                  <span className="text-muted-foreground text-xs" title="Terceiros não podem ser incluídos no XML">-</span>
+                                )}
                               </td>
-                              <td className="p-2 font-mono text-sm font-medium">{guia.numeroGuia}</td>
+                              <td className="p-2 font-mono text-sm font-medium">
+                                {guia.numeroGuia}
+                                {terceiro && (
+                                  <Badge variant="outline" className="ml-1 text-[10px] bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Terceiro</Badge>
+                                )}
+                              </td>
                               <td className="p-2 text-sm">{guia.convenio || '-'}</td>
                               <td className="p-2 text-sm">{formatarCompetencia(guia.competencia)}</td>
                               <td className="p-2 text-sm font-mono">{guia.loteXml || guia.loteRetorno || '-'}</td>

@@ -2196,6 +2196,9 @@ export const faturamentoTiss = mysqlTable("faturamento_tiss", {
   // Data de importação
   dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
 
+  // Código do prestador executante (codigoPrestadorNaOperadora do XML)
+  codigoPrestadorExecutante: varchar("codigo_prestador_executante", { length: 50 }),
+
   // Colunas legadas (existem no banco, mantidas para compatibilidade)
   valorTotalItem: decimal("valor_total_item", { precision: 12, scale: 2 }),
   estabelecimento_id_legacy: int("estabelecimento_id"),

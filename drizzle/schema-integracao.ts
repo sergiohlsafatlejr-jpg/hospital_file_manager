@@ -463,6 +463,9 @@ export const faturamento = mysqlTable(
     retorno: varchar({ length: 50 }),
     dataPagamento: timestamp(),
     
+    // Código do prestador executante (codigoPrestadorNaOperadora do XML)
+    codigoPrestadorExecutante: varchar({ length: 50 }),
+    
     // Status da conciliação
     statusConciliacao: varchar({ length: 50 }).default('pendente'), // pendente, conciliado, divergente, nao_recebido
     recebimentoVinculadoId: int(), // ID do recebimento vinculado (recebimentos_excel ou recebimento_tiss)
@@ -745,6 +748,10 @@ export const conciliadosAutomatico = mysqlTable(
     descricaoItem: text(),
     tipoItem: varchar({ length: 50 }), // MED, MAT, EXA, PROC, TAXA, etc.
     origemSistema: varchar({ length: 50 }), // WARLEINE ou XML_TISS
+    dataExecucao: timestamp(), // Data de execução do item
+    
+    // Código do prestador executante (para separação próprio/terceiro)
+    codigoPrestadorExecutante: varchar({ length: 50 }),
     
     // Valores do faturamento
     valorFaturado: decimal({ precision: 12, scale: 4 }),

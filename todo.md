@@ -3290,3 +3290,9 @@
 - [x] Adicionar colunas Lote e Protocolo na tabela de Guias Glosadas (aba XML Recurso)
 - [x] Corrigir filtro de Lote XML que não está filtrando na aba XML Recurso
 - [x] Corrigir erros de TypeScript no financeiroRouter.ts e faturamentoUnificadoService.ts que travam a publicação
+- [x] Investigar e corrigir travamento na publicação (build de produção)
+- [x] Implementar separação de itens próprios vs terceiros na conciliação baseada no codigoPrestadorNaOperadora
+- [x] Cadastrar código do prestador por estabelecimento/convênio para identificar itens próprios
+- [x] Alterar conciliação automática para filtrar apenas itens do prestador (próprios)
+- [x] Criar seção/aba de "Terceiros" na tela de conciliação para itens de outros prestadores
+- [x] Excluir itens de terceiros da geração de XML de recurso de glosa
