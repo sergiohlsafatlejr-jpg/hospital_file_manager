@@ -3286,3 +3286,6 @@
 - [x] Classificar automaticamente itens faturados não encontrados no demonstrativo como glosados com código 5007 (em vez de nao_recebido)
 - [x] Corrigir tela de NFS-e que não está funcionando corretamente por estabelecimentos
 - [x] Corrigir problema de fuso horário que faz datas aparecerem com um dia a menos em todo o sistema (centralizado em dateUtils.ts com safeParseDate/formatDateBR)
+- [x] Adicionar colunas Lote e Protocolo na tabela de Guias Conciliadas (aba Conciliados)
+- [x] Adicionar colunas Lote e Protocolo na tabela de Guias Glosadas (aba XML Recurso)
+- [x] Corrigir filtro de Lote XML que não está filtrando na aba XML Recurso

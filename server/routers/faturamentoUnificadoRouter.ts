@@ -392,6 +392,8 @@ export const faturamentoUnificadoRouter = router({
       convenioId: z.number().optional(),
       competencia: z.string().optional(),
       apenasNaoGeradas: z.boolean().optional(),
+      loteXml: z.string().optional(),
+      loteRetorno: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await xmlRecursoService.guiasGlosadasDisponiveis(input);

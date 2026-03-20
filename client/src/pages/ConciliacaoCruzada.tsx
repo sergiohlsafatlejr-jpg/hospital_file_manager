@@ -124,6 +124,8 @@ export default function ConciliacaoCruzada() {
       estabelecimentoId,
       convenioId: convenioIdNum,
       competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
+      loteXml: loteXmlFiltro !== "todos" ? loteXmlFiltro : undefined,
+      loteRetorno: loteRetornoFiltro !== "todos" ? loteRetornoFiltro : undefined,
     },
     { enabled: estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
   );
@@ -415,6 +417,8 @@ export default function ConciliacaoCruzada() {
       'Paciente': g.pacienteNome || '-',
       'Convênio': g.convenio || String(g.convenioId || '-'),
       'Competência': formatarCompetencia(g.competencia),
+      'Lote': g.loteXml || g.loteRetorno || '-',
+      'Protocolo': g.protocoloXml || g.protocoloRetorno || '-',
       'Origem': g.origemSistema || '-',
       'Total Itens': Number(g.totalItens || 0),
       'Valor Faturado': Number(g.valorFaturado || 0),
@@ -1076,6 +1080,8 @@ export default function ConciliacaoCruzada() {
                                 <th className="text-left p-3 font-medium">Guia</th>
                                 <th className="text-left p-3 font-medium max-w-[200px]">Paciente</th>
                                 <th className="text-left p-3 font-medium">Comp.</th>
+                                <th className="text-left p-3 font-medium">Lote</th>
+                                <th className="text-left p-3 font-medium">Protocolo</th>
                                 <th className="text-center p-3 font-medium">Itens</th>
                                 <th className="text-right p-3 font-medium">Faturado</th>
                                 <th className="text-right p-3 font-medium">Recebido</th>
@@ -1102,6 +1108,12 @@ export default function ConciliacaoCruzada() {
                                     )}
                                   </td>
                                   <td className="p-3 text-sm">{formatarCompetencia(guia.competencia)}</td>
+                                  <td className="p-3 text-sm font-mono">
+                                    {guia.loteXml || guia.loteRetorno || '-'}
+                                  </td>
+                                  <td className="p-3 text-sm font-mono">
+                                    {guia.protocoloXml || guia.protocoloRetorno || '-'}
+                                  </td>
                                   <td className="p-3 text-center">
                                     <span className="text-sm">{guia.totalItens}</span>
                                     {(Number(guia.itensDivergentes) > 0 || Number(guia.itensNaoRecebidos) > 0) && (
@@ -1456,6 +1468,8 @@ export default function ConciliacaoCruzada() {
                           <th className="text-left p-2 font-medium">Guia</th>
                           <th className="text-left p-2 font-medium">Convênio</th>
                           <th className="text-left p-2 font-medium">Competência</th>
+                          <th className="text-left p-2 font-medium">Lote</th>
+                          <th className="text-left p-2 font-medium">Protocolo</th>
                           <th className="text-center p-2 font-medium">Itens</th>
                           <th className="text-right p-2 font-medium">Valor Faturado</th>
                           <th className="text-right p-2 font-medium">Valor Glosado</th>
@@ -1483,6 +1497,8 @@ export default function ConciliacaoCruzada() {
                               <td className="p-2 font-mono text-sm font-medium">{guia.numeroGuia}</td>
                               <td className="p-2 text-sm">{guia.convenio || '-'}</td>
                               <td className="p-2 text-sm">{formatarCompetencia(guia.competencia)}</td>
+                              <td className="p-2 text-sm font-mono">{guia.loteXml || guia.loteRetorno || '-'}</td>
+                              <td className="p-2 text-sm font-mono">{guia.protocoloXml || guia.protocoloRetorno || '-'}</td>
                               <td className="p-2 text-center">{guia.totalItens}</td>
                               <td className="p-2 text-right text-blue-600 font-medium">{formatarMoeda(Number(guia.valorFaturado))}</td>
                               <td className="p-2 text-right text-red-600 font-medium">{formatarMoeda(Number(guia.valorGlosa))}</td>

@@ -733,6 +733,8 @@ export async function guiasGlosadasDisponiveis(params: {
   convenioId?: number;
   competencia?: string;
   apenasNaoGeradas?: boolean;
+  loteXml?: string;
+  loteRetorno?: string;
 }): Promise<any[]> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
@@ -745,6 +747,13 @@ export async function guiasGlosadasDisponiveis(params: {
   }
   if (params.competencia && params.competencia !== 'todos') {
     whereClause += ` AND ca.competencia = '${params.competencia.replace(/'/g, "''")}'`;
+  }
+  if (params.loteXml) {
+    whereClause += ` AND ca.faturamentoUnificadoId IN (SELECT fu2.id FROM faturamento_unificado fu2 WHERE fu2.lotePrestador = '${params.loteXml.replace(/'/g, "''")}' AND fu2.estabelecimentoId = ${params.estabelecimentoId})`;
+  }
+  if (params.loteRetorno) {
+    const lr = params.loteRetorno.replace(/'/g, "''");
+    whereClause += ` AND ca.numeroGuia IN (SELECT DISTINCT d2.numero_guia FROM demonstrativo d2 WHERE d2.estabelecimentoId = ${params.estabelecimentoId} AND d2.lote_prestador = '${lr}')`;
   }
 
   // Buscar todas as guias que têm pelo menos um item glosado
@@ -762,10 +771,17 @@ export async function guiasGlosadasDisponiveis(params: {
       SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN ca.valorGlosa ELSE 0 END) as valorGlosa,
       MAX(ca.xmlRecursoGerado) as xmlGerado,
       MAX(ca.xmlRecursoData) as xmlGeradoEm,
-      MAX(ca.xmlRecursoLoteId) as xmlLoteId
+      MAX(ca.xmlRecursoLoteId) as xmlLoteId,
+      -- Lote e Protocolo do XML (faturamento_unificado)
+      MAX(fu.lotePrestador) as loteXml,
+      MAX(fu.protocolo) as protocoloXml,
+      -- Lote e Protocolo do Retorno (demonstrativo)
+      (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
+      (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno
     FROM conciliados_automatico ca
+    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${whereClause}
-    GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia
+    GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia, ca.estabelecimentoId
     HAVING SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) > 0
     ORDER BY ca.competencia DESC, ca.numeroGuia
   `));

@@ -1687,6 +1687,12 @@ export async function resumoConciliadosPorGuia(params: {
       COALESCE(SUM(ca.valorPago), 0) as valorPago,
       COALESCE(SUM(ca.valorGlosa), 0) as valorGlosa,
       COALESCE(SUM(ca.diferenca), 0) as diferenca,
+      -- Lote e Protocolo do XML (faturamento_unificado)
+      MAX(fu.lotePrestador) as loteXml,
+      MAX(fu.protocolo) as protocoloXml,
+      -- Lote e Protocolo do Retorno (demonstrativo) via subquery
+      (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
+      (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
       -- Status da guia: se tem algum divergente=divergente, se tem algum nao_recebido=nao_recebido, senão=conciliado
       CASE
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) > 0 THEN 'divergente'
@@ -1699,8 +1705,9 @@ export async function resumoConciliadosPorGuia(params: {
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
       COUNT(DISTINCT ca.contaNumero) as totalContas
     FROM conciliados_automatico ca
+    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${whereClause}
-    GROUP BY COALESCE(ca.numeroGuia, ca.contaNumero), ca.numeroGuia, ca.contaNumero
+    GROUP BY COALESCE(ca.numeroGuia, ca.contaNumero), ca.numeroGuia, ca.contaNumero, ca.estabelecimentoId
     ORDER BY SUM(ABS(ca.diferenca)) DESC, guia
     LIMIT ${limit} OFFSET ${offset}
   `;
