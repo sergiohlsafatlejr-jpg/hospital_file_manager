@@ -31,6 +31,7 @@ function DashboardTab() {
   const { data: hospitais } = trpc.nfse.hospitais.listar.useQuery(estabId ? { estabelecimentoId: estabId } : undefined);
   const { data: dashboard, isLoading } = trpc.nfse.notas.dashboard.useQuery({
     hospitalId: hospitalFilter,
+    estabelecimentoId: estabId,
   });
 
   if (isLoading) {
@@ -208,6 +209,7 @@ function NotasFiscaisTab() {
   const { data: convenios } = trpc.nfse.convenios.listar.useQuery();
   const { data: notasData, isLoading } = trpc.nfse.notas.listar.useQuery({
     hospitalId: hospitalFilter,
+    estabelecimentoId: estabId,
     nfEmitida: statusFilter,
     busca: busca || undefined,
     limit: 20,
@@ -544,6 +546,7 @@ function PendentesTab() {
   const { data: hospitais } = trpc.nfse.hospitais.listar.useQuery(estabId ? { estabelecimentoId: estabId } : undefined);
   const { data: pendentesData, isLoading } = trpc.nfse.notas.pendentes.useQuery({
     hospitalId: hospitalFilter,
+    estabelecimentoId: estabId,
   });
   const utils = trpc.useUtils();
   const toggleNfMutation = trpc.nfse.notas.toggleNfEmitida.useMutation({
@@ -678,6 +681,7 @@ function AcompanhamentoTab() {
   const { data: hospitais } = trpc.nfse.hospitais.listar.useQuery(estabId ? { estabelecimentoId: estabId } : undefined);
   const { data: acompData, isLoading } = trpc.nfse.notas.acompanhamentoEnvios.useQuery({
     hospitalId: hospitalFilter,
+    estabelecimentoId: estabId,
     mes,
     ano,
   });

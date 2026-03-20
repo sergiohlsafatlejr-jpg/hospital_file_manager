@@ -155,6 +155,7 @@ const notasRouter = router({
     .input(z.object({
       hospitalId: z.number().optional(),
       convenioId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
       dataInicio: z.string().optional(),
       dataFim: z.string().optional(),
       nfEmitida: z.enum(["sim", "nao"]).optional(),
@@ -166,6 +167,10 @@ const notasRouter = router({
       const db = (await getDb())!;
       const conditions: any[] = [];
 
+      // Filtrar por estabelecimento via JOIN com nfseHospitais
+      if (input.estabelecimentoId) {
+        conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
       if (input.convenioId) conditions.push(eq(nfseNotas.convenioId, input.convenioId));
       if (input.nfEmitida) conditions.push(eq(nfseNotas.nfEmitida, input.nfEmitida));
@@ -209,6 +214,7 @@ const notasRouter = router({
           .offset(input.offset),
         db.select({ count: sql<number>`COUNT(*)` })
           .from(nfseNotas)
+          .leftJoin(nfseHospitais, eq(nfseNotas.hospitalId, nfseHospitais.id))
           .where(whereClause),
       ]);
 
@@ -363,12 +369,16 @@ const notasRouter = router({
   dashboard: protectedProcedure
     .input(z.object({
       hospitalId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
       dataInicio: z.string().optional(),
       dataFim: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = (await getDb())!;
       const conditions: any[] = [];
+      if (input.estabelecimentoId) {
+        conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
       if (input.dataInicio) {
         conditions.push(gte(nfseNotas.dataEmissao, new Date(input.dataInicio)));
@@ -386,10 +396,14 @@ const notasRouter = router({
         totalEmitidas: sql<number>`SUM(CASE WHEN ${nfseNotas.nfEmitida} = 'sim' THEN 1 ELSE 0 END)`,
         totalPendentes: sql<number>`SUM(CASE WHEN ${nfseNotas.nfEmitida} = 'nao' THEN 1 ELSE 0 END)`,
         totalXmlPendentes: sql<number>`SUM(CASE WHEN ${nfseNotas.xmlDemonstrativoEmitido} = 'nao' THEN 1 ELSE 0 END)`,
-      }).from(nfseNotas).where(whereClause);
+      }).from(nfseNotas)
+        .leftJoin(nfseHospitais, eq(nfseNotas.hospitalId, nfseHospitais.id))
+        .where(whereClause);
 
-      // Contadores
-      const [hospitalCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(nfseHospitais).where(eq(nfseHospitais.ativo, "sim"));
+      // Contadores (filtrar por estabelecimento se necessário)
+      const hospitalConditions: any[] = [eq(nfseHospitais.ativo, "sim")];
+      if (input.estabelecimentoId) hospitalConditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      const [hospitalCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(nfseHospitais).where(and(...hospitalConditions));
       const [convenioCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(convenios).where(eq(convenios.ativo, "sim"));
 
       // Últimas notas
@@ -446,10 +460,14 @@ const notasRouter = router({
   pendentes: protectedProcedure
     .input(z.object({
       hospitalId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
     }))
     .query(async ({ input }) => {
       const db = (await getDb())!;
       const conditions: any[] = [eq(nfseNotas.nfEmitida, "nao")];
+      if (input.estabelecimentoId) {
+        conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
 
       const pendentes = await db.select({
@@ -499,6 +517,7 @@ const notasRouter = router({
   acompanhamentoEnvios: protectedProcedure
     .input(z.object({
       hospitalId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
       mes: z.number().min(1).max(12),
       ano: z.number(),
     }))
@@ -512,6 +531,9 @@ const notasRouter = router({
         gte(nfseNotas.dataEmissao, new Date(dataInicio)),
         lte(nfseNotas.dataEmissao, new Date(dataFim)),
       ];
+      if (input.estabelecimentoId) {
+        conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
 
       // Resumo por hospital e convênio
@@ -693,12 +715,16 @@ Retorne APENAS um JSON válido com os campos que conseguir identificar. Se não 
   exportar: protectedProcedure
     .input(z.object({
       hospitalId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
       dataInicio: z.string().optional(),
       dataFim: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = (await getDb())!;
       const conditions: any[] = [];
+      if (input.estabelecimentoId) {
+        conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
       if (input.dataInicio) {
         conditions.push(gte(nfseNotas.dataEmissao, new Date(input.dataInicio)));

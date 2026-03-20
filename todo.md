@@ -3284,3 +3284,4 @@
 - [x] Corrigir código de tabela incorreto no XML de recurso (ex: 07 em vez de 18 para procedimento 60023406)
 - [x] Corrigir conciliação automática para agrupar itens duplicados do demonstrativo (mesmo código/guia) antes de comparar com faturado (ex: Gencitabina 2x500mg = 1000mg)
 - [x] Classificar automaticamente itens faturados não encontrados no demonstrativo como glosados com código 5007 (em vez de nao_recebido)
+- [x] Corrigir tela de NFS-e que não está funcionando corretamente por estabelecimentos
