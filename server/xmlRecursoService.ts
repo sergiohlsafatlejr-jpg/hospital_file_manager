@@ -29,6 +29,7 @@ interface GuiaCompleta {
   valorInformadoGuia: number;
   valorProcessadoGuia: number;
   valorLiberadoGuia: number;
+  valorGlosaGuia: number;
   temGlosa: boolean;
 }
 
@@ -44,6 +45,7 @@ interface ItemGuia {
   quantidade: number;
   statusConciliacao: string;
   codigoGlosa: string | null; // Código numérico da glosa
+  motivoGlosa: string | null; // Descrição do motivo da glosa
 }
 
 interface DadosPrestador {
@@ -178,6 +180,7 @@ async function buscarDadosGuiasCompletas(
       ca.convenioId,
       ca.statusConciliacao,
       ca.codigoGlosa,
+      ca.motivoGlosa,
       ca.pacienteNome
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${estabelecimentoId}
@@ -249,6 +252,7 @@ async function buscarDadosGuiasCompletas(
         valorInformadoGuia: 0,
         valorProcessadoGuia: 0,
         valorLiberadoGuia: 0,
+        valorGlosaGuia: 0,
         temGlosa: false,
       });
     }
@@ -275,11 +279,15 @@ async function buscarDadosGuiasCompletas(
       quantidade: Number(item.quantidade) || 1,
       statusConciliacao: statusConc,
       codigoGlosa: extrairCodigoGlosaNumerico(item.codigoGlosa ? String(item.codigoGlosa) : null),
+      motivoGlosa: item.motivoGlosa ? String(item.motivoGlosa) : null,
     });
 
     guiaObj.valorInformadoGuia += valorFaturado;
     guiaObj.valorProcessadoGuia += valorPago;
     guiaObj.valorLiberadoGuia += valorPago;
+    if (isGlosado) {
+      guiaObj.valorGlosaGuia += valorGlosa > 0 ? valorGlosa : (valorFaturado - valorPago);
+    }
   }
 
   return Array.from(guiasMap.values());
@@ -401,7 +409,11 @@ function gerarXmlDemonstrativo(
               <ans:valorInformado>${formatarValor(item.valorFaturado)}</ans:valorInformado>
               <ans:qtdExecutada>${item.quantidade}</ans:qtdExecutada>
               <ans:valorProcessado>${formatarValor(item.valorPago)}</ans:valorProcessado>
-              <ans:valorLiberado>${formatarValor(item.valorPago)}</ans:valorLiberado>
+              <ans:valorLiberado>${formatarValor(item.valorPago)}</ans:valorLiberado>${isGlosado && item.codigoGlosa ? `
+              <ans:relacaoGlosa>
+                <ans:valorGlosa>${formatarValor(item.valorGlosa > 0 ? item.valorGlosa : (item.valorFaturado - item.valorPago))}</ans:valorGlosa>
+                <ans:tipoGlosa>${escapeXml(item.codigoGlosa)}</ans:tipoGlosa>
+              </ans:relacaoGlosa>` : ''}
             </ans:detalhesGuia>`;
     }
 
@@ -420,7 +432,8 @@ function gerarXmlDemonstrativo(
             <ans:situacaoGuia>6</ans:situacaoGuia>${detalhesXml}
             <ans:valorInformadoGuia>${formatarValor(guia.valorInformadoGuia)}</ans:valorInformadoGuia>
             <ans:valorProcessadoGuia>${formatarValor(guia.valorProcessadoGuia)}</ans:valorProcessadoGuia>
-            <ans:valorLiberadoGuia>${formatarValor(guia.valorLiberadoGuia)}</ans:valorLiberadoGuia>
+            <ans:valorLiberadoGuia>${formatarValor(guia.valorLiberadoGuia)}</ans:valorLiberadoGuia>${guia.valorGlosaGuia > 0 ? `
+            <ans:valorGlosaGuia>${formatarValor(guia.valorGlosaGuia)}</ans:valorGlosaGuia>` : ''}
           </ans:relacaoGuias>`;
   }
 

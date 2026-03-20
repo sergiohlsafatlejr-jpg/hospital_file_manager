@@ -3268,3 +3268,5 @@
 
 - [x] Tratar itens divergentes como glosados na conciliação cruzada (permitir adicionar motivo de glosa)
 - [x] Incluir itens divergentes na geração de XML de recurso
+
+- [x] Corrigir XML de recurso: incluir motivo de glosa (código numérico) e valorGlosa nos itens glosados dentro do XML (tags relacaoGlosa/tipoGlosa/valorGlosa e valorGlosaGuia)

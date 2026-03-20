@@ -62,6 +62,7 @@ describe('xmlRecursoService', () => {
             convenioId: 1,
             statusConciliacao: 'conciliado',
             codigoGlosa: null,
+            motivoGlosa: null,
             pacienteNome: 'MARIA ABADIA DOS SANTOS',
           },
           {
@@ -80,6 +81,7 @@ describe('xmlRecursoService', () => {
             convenioId: 1,
             statusConciliacao: 'glosado',
             codigoGlosa: '1015',
+            motivoGlosa: 'Item não recebido no demonstrativo',
             pacienteNome: 'MARIA ABADIA DOS SANTOS',
           },
           {
@@ -98,6 +100,7 @@ describe('xmlRecursoService', () => {
             convenioId: 1,
             statusConciliacao: 'conciliado',
             codigoGlosa: null,
+            motivoGlosa: null,
             pacienteNome: 'MARIA ABADIA DOS SANTOS',
           },
         ]])
@@ -166,7 +169,7 @@ describe('xmlRecursoService', () => {
             dataExecucao: '2025-12-01', valorFaturado: 100, valorPago: 100,
             valorGlosa: 0, quantidade: 1, competencia: '2025-12',
             convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'conciliado',
-            codigoGlosa: null, pacienteNome: 'MARIA',
+            codigoGlosa: null, motivoGlosa: null, pacienteNome: 'MARIA',
           },
           {
             id: 2, numeroGuia: '18414424', codigoItem: '30101012',
@@ -174,7 +177,7 @@ describe('xmlRecursoService', () => {
             dataExecucao: '2025-12-01', valorFaturado: 50, valorPago: 0,
             valorGlosa: 50, quantidade: 1, competencia: '2025-12',
             convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'glosado',
-            codigoGlosa: '1015', pacienteNome: 'MARIA',
+            codigoGlosa: '1015', motivoGlosa: 'Item não recebido', pacienteNome: 'MARIA',
           },
           {
             id: 3, numeroGuia: '18560945', codigoItem: '20101012',
@@ -182,7 +185,7 @@ describe('xmlRecursoService', () => {
             dataExecucao: '2025-12-05', valorFaturado: 80, valorPago: 0,
             valorGlosa: 80, quantidade: 1, competencia: '2025-12',
             convenio: 'IPASGO', convenioId: 1, statusConciliacao: 'glosado',
-            codigoGlosa: '2001', pacienteNome: 'JOAO',
+            codigoGlosa: '2001', motivoGlosa: 'Procedimento não autorizado', pacienteNome: 'JOAO',
           },
         ]])
         .mockResolvedValueOnce([[
