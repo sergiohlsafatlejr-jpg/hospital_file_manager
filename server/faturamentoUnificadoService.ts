@@ -762,6 +762,7 @@ interface ConciliacaoResultado {
   totalDivergentes: number;
   totalNaoRecebidos: number;
   totalGlosados: number;
+  totalTerceiros: number;
   totalJaConciliados: number;
   detalhes: {
     conciliadosPorGuiaCodigo: number;
@@ -821,6 +822,7 @@ export async function executarConciliacaoAutomatica(params: {
         totalDivergentes: 0,
         totalNaoRecebidos: 0,
         totalGlosados: 0,
+        totalTerceiros: 0,
         totalJaConciliados: 0,
         detalhes: {
           conciliadosPorGuiaCodigo: 0,
@@ -841,6 +843,7 @@ export async function executarConciliacaoAutomatica(params: {
         resultadoTotal.totalConciliados += parcial.totalConciliados;
         resultadoTotal.totalDivergentes += parcial.totalDivergentes;
         resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+        resultadoTotal.totalTerceiros += parcial.totalTerceiros;
         resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
         resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
         resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
@@ -862,6 +865,7 @@ export async function executarConciliacaoAutomatica(params: {
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
     totalGlosados: 0,
+    totalTerceiros: 0,
     totalJaConciliados: 0,
     detalhes: {
       conciliadosPorGuiaCodigo: 0,
@@ -904,6 +908,17 @@ export async function executarConciliacaoAutomatica(params: {
   if (itensFaturamento.length === 0) {
     return resultado;
   }
+
+  // -------------------------------------------------------
+  // PASSO 1.5: Buscar códigos de prestadores terceiros cadastrados
+  // Itens de terceiros que não aparecem no retorno devem ser marcados
+  // como 'terceiro' em vez de 'glosado'
+  // -------------------------------------------------------
+  const [terceirosRows] = await db.execute(sql.raw(
+    `SELECT DISTINCT codigoPrestador FROM convenioEstabelecimentoPrestador 
+     WHERE estabelecimentoId = ${params.estabelecimentoId} AND tipoPrestador = 'terceiro' AND ativo = 'sim'`
+  ));
+  const codigosTerceiros = new Set((terceirosRows as unknown as any[]).map(r => String(r.codigoPrestador)));
 
   // -------------------------------------------------------
   // PASSO 2: Buscar recebimentos_excel do mesmo estabelecimento/convênio
@@ -1169,9 +1184,20 @@ export async function executarConciliacaoAutomatica(params: {
         case 'carteira_codigo': resultado.detalhes.conciliadosPorCarteiraCodigo++; break;
       }
     } else {
-      // Não encontrou match no demonstrativo: considerar como glosado automaticamente com motivo 5007
-      inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: valorFaturado, statusConciliacao: 'glosado', metodoConciliacao: null, diferenca: valorFaturado, percentualDiferenca: 100, codigoGlosa: '5007' });
-      resultado.totalNaoRecebidos++;
+      // Não encontrou match no demonstrativo
+      // Verificar se o item é de um prestador terceiro
+      const codPrestExec = baseInsert.codigoPrestadorExecutante;
+      const isTerceiro = codPrestExec && codigosTerceiros.has(codPrestExec);
+      
+      if (isTerceiro) {
+        // Item de terceiro: convênio paga diretamente ao terceiro, não é glosa
+        inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: 0, statusConciliacao: 'terceiro', metodoConciliacao: null, diferenca: 0, percentualDiferenca: 0, codigoGlosa: null });
+        resultado.totalTerceiros = (resultado.totalTerceiros || 0) + 1;
+      } else {
+        // Item próprio sem match: considerar como glosado automaticamente com motivo 5007
+        inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: valorFaturado, statusConciliacao: 'glosado', metodoConciliacao: null, diferenca: valorFaturado, percentualDiferenca: 100, codigoGlosa: '5007' });
+        resultado.totalNaoRecebidos++;
+      }
     }
   }
 
@@ -1510,6 +1536,7 @@ export async function resumoConciliadosAutomatico(params: {
   totalConciliados: number;
   totalDivergentes: number;
   totalNaoRecebidos: number;
+  totalTerceiros: number;
   valorTotalFaturado: number;
   valorTotalPago: number;
   valorTotalGlosa: number;
@@ -1546,6 +1573,7 @@ export async function resumoConciliadosAutomatico(params: {
     totalConciliados: 0,
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
+    totalTerceiros: 0,
     valorTotalFaturado: 0,
     valorTotalPago: 0,
     valorTotalGlosa: 0,
@@ -1568,6 +1596,7 @@ export async function resumoConciliadosAutomatico(params: {
       case 'conciliado': resumo.totalConciliados = count; break;
       case 'divergente': resumo.totalDivergentes = count; break;
       case 'nao_recebido': resumo.totalNaoRecebidos = count; break;
+      case 'terceiro': resumo.totalTerceiros = count; break;
     }
   }
 
@@ -1699,15 +1728,19 @@ export async function resumoConciliadosPorGuia(params: {
       -- Lote e Protocolo do Retorno (demonstrativo) via subquery
       (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
       (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
-      -- Status da guia: se tem algum divergente=divergente, se tem algum nao_recebido=nao_recebido, senão=conciliado
+      -- Status da guia: prioridade: divergente > glosado > nao_recebido > terceiro > conciliado
       CASE
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) > 0 THEN 'divergente'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) > 0 THEN 'glosado'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) > 0 THEN 'nao_recebido'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN ca.statusConciliacao != 'terceiro' THEN 1 ELSE 0 END) = 0 THEN 'terceiro'
         ELSE 'conciliado'
       END as statusGuia,
       SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
       SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
       SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as itensNaoRecebidos,
+      SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) as itensTerceiros,
+      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as itensGlosados,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
       COUNT(DISTINCT ca.contaNumero) as totalContas,
       MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante

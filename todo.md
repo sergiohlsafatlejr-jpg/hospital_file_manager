@@ -350,6 +350,13 @@
 - [x] Testar com a guia 66883762 e código 1902776626
 
 
+## Classificação de Terceiros na Conciliação
+- [x] Itens de terceiros não encontrados no retorno devem ser marcados como "terceiro" em vez de "glosado" na conciliação automática
+- [x] Itens de terceiros não devem entrar no XML de recurso de glosa
+- [x] Frontend deve exibir itens de terceiros separadamente (não como glosados)
+- [x] Novo status "terceiro" no enum statusConciliacao
+
+
 ## Coluna de Lote na Tela de Comparativo
 - [x] Adicionar campo numeroLote na interface ItemConciliacao
 - [x] Exibir coluna Lote na tabela de comparativo

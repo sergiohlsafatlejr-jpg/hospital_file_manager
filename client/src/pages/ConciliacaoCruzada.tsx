@@ -126,11 +126,15 @@ export default function ConciliacaoCruzada() {
   const [filtroPrestador, setFiltroPrestador] = useState<'todos' | 'proprio' | 'terceiro'>('todos');
 
   // Função para verificar se uma guia é de terceiro
+  // Agora usa a lista de códigos terceiros (tipoPrestador='terceiro') em vez de verificar se não está cadastrado
   const isTerceiro = useCallback((guia: any) => {
-    if (!codigosPrestador?.codigos?.length) return false; // Se não tem códigos cadastrados, não pode separar
+    // Primeiro: verificar pelo statusGuia se disponível (vem do backend)
+    if (guia.statusGuia === 'terceiro') return true;
+    // Segundo: verificar pelo código do prestador executante
+    if (!codigosPrestador?.codigosTerceiros?.length) return false;
     const codExec = guia.codigoPrestadorExecutante;
-    if (!codExec) return false; // Se não tem código, assume que é próprio (dados antigos)
-    return !codigosPrestador.codigos.includes(codExec);
+    if (!codExec) return false;
+    return codigosPrestador.codigosTerceiros.includes(codExec);
   }, [codigosPrestador]);
 
   // ===== QUERIES PARA ABA XML RECURSO =====
@@ -266,7 +270,7 @@ export default function ConciliacaoCruzada() {
     onSuccess: (data) => {
       setResultadoConciliacao(data);
       setModalResultadoAberto(true);
-      toast.success(`Conciliação concluída: ${data.totalConciliados} conciliados, ${data.totalDivergentes} divergentes, ${data.totalNaoRecebidos} não recebidos`);
+      toast.success(`Conciliação concluída: ${data.totalConciliados} conciliados, ${data.totalDivergentes} divergentes, ${data.totalNaoRecebidos} glosados${data.totalTerceiros ? `, ${data.totalTerceiros} terceiros` : ''}`);
       refetch();
       refetchGuiasConciliadas();
       refetchResumo();
@@ -360,6 +364,8 @@ export default function ConciliacaoCruzada() {
         return <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Recebido</Badge>;
       case 'glosado':
         return <Badge className="bg-purple-600 hover:bg-purple-700"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
+      case 'terceiro':
+        return <Badge className="bg-orange-500 hover:bg-orange-600"><ExternalLink className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'pendente':
       default:
         return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Pendente</Badge>;
@@ -624,6 +630,7 @@ export default function ConciliacaoCruzada() {
                     <SelectItem value="divergente">Divergente</SelectItem>
                     <SelectItem value="nao_recebido">Não Recebido</SelectItem>
                     <SelectItem value="glosado">Glosado</SelectItem>
+                    <SelectItem value="terceiro">Terceiro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -997,7 +1004,7 @@ export default function ConciliacaoCruzada() {
               /* Lista de guias agrupadas */
               <>
                 {/* Cards de Resumo da Conciliação */}
-                {resumoConciliados && (resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos) > 0 ? (
+                {resumoConciliados && (resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos + (resumoConciliados.totalTerceiros || 0)) > 0 ? (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                       <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
@@ -1039,6 +1046,21 @@ export default function ConciliacaoCruzada() {
                         </CardContent>
                       </Card>
 
+                      {(resumoConciliados.totalTerceiros || 0) > 0 && (
+                        <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm opacity-80">Terceiros</p>
+                                <p className="text-2xl font-bold">{resumoConciliados.totalTerceiros}</p>
+                                <p className="text-xs opacity-70">Pago direto ao terceiro</p>
+                              </div>
+                              <ExternalLink className="w-10 h-10 opacity-50" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
                       <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
@@ -1055,7 +1077,7 @@ export default function ConciliacaoCruzada() {
 
                     {/* Barra de progresso */}
                     {(() => {
-                      const total = resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos;
+                      const total = resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos + (resumoConciliados.totalTerceiros || 0);
                       if (total === 0) return null;
                       return (
                         <div className="space-y-2">
@@ -1078,11 +1100,18 @@ export default function ConciliacaoCruzada() {
                                 {((resumoConciliados.totalNaoRecebidos / total) * 100).toFixed(0)}%
                               </div>
                             )}
+                            {(resumoConciliados.totalTerceiros || 0) > 0 && (
+                              <div className="bg-orange-500 flex items-center justify-center text-white text-xs font-medium"
+                                style={{ width: `${((resumoConciliados.totalTerceiros || 0) / total) * 100}%` }}>
+                                {(((resumoConciliados.totalTerceiros || 0) / total) * 100).toFixed(0)}%
+                              </div>
+                            )}
                           </div>
                           <div className="flex gap-4 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Conciliado</span>
                             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> Divergente</span>
                             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Não Recebido</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Terceiro</span>
                           </div>
                         </div>
                       );
@@ -1135,8 +1164,9 @@ export default function ConciliacaoCruzada() {
                             <tbody>
                               {guiasConciliadas.map((guia: any, index: number) => (
                                 <tr key={`${guia.guia}-${index}`} className={`border-b hover:bg-muted/50 cursor-pointer ${
+                                  guia.statusGuia === 'terceiro' ? 'bg-orange-50/50 dark:bg-orange-950/20' :
                                   guia.statusGuia === 'divergente' ? 'bg-yellow-50/50 dark:bg-yellow-950/20' :
-                                  guia.statusGuia === 'nao_recebido' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
+                                  guia.statusGuia === 'nao_recebido' || guia.statusGuia === 'glosado' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
                                 }`} onClick={() => setGuiaConciliadaSelecionada(guia)}>
                                   <td className="p-3 font-mono text-sm font-medium">{guia.guia || '-'}</td>
                                   <td className="p-3 text-sm max-w-[200px] truncate" title={guia.pacienteNome}>
@@ -1160,11 +1190,13 @@ export default function ConciliacaoCruzada() {
                                   </td>
                                   <td className="p-3 text-center">
                                     <span className="text-sm">{guia.totalItens}</span>
-                                    {(Number(guia.itensDivergentes) > 0 || Number(guia.itensNaoRecebidos) > 0) && (
+                                    {(Number(guia.itensDivergentes) > 0 || Number(guia.itensNaoRecebidos) > 0 || Number(guia.itensTerceiros) > 0 || Number(guia.itensGlosados) > 0) && (
                                       <div className="flex gap-1 justify-center mt-0.5">
                                         {Number(guia.itensConciliados) > 0 && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title={`${guia.itensConciliados} OK`} />}
                                         {Number(guia.itensDivergentes) > 0 && <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" title={`${guia.itensDivergentes} div.`} />}
                                         {Number(guia.itensNaoRecebidos) > 0 && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title={`${guia.itensNaoRecebidos} N/R`} />}
+                                        {Number(guia.itensTerceiros) > 0 && <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" title={`${guia.itensTerceiros} terceiro(s)`} />}
+                                        {Number(guia.itensGlosados) > 0 && <span className="w-2 h-2 rounded-full bg-red-700 inline-block" title={`${guia.itensGlosados} glosado(s)`} />}
                                       </div>
                                     )}
                                   </td>
@@ -1922,10 +1954,18 @@ export default function ConciliacaoCruzada() {
                   </Card>
                   <Card className="bg-red-50 dark:bg-red-950">
                     <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Não Recebidos</p>
+                      <p className="text-xs text-muted-foreground">Glosados</p>
                       <p className="text-2xl font-bold text-red-600">{resultadoConciliacao.totalNaoRecebidos}</p>
                     </CardContent>
                   </Card>
+                  {(resultadoConciliacao.totalTerceiros || 0) > 0 && (
+                    <Card className="bg-orange-50 dark:bg-orange-950">
+                      <CardContent className="p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Terceiros</p>
+                        <p className="text-2xl font-bold text-orange-600">{resultadoConciliacao.totalTerceiros}</p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
 
                 {/* Métodos de matching */}

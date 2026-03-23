@@ -470,7 +470,8 @@ export const appRouter = router({
           if (prestadoresNaoCadastrados.length > 0 && estabelecimentoSugerido && input.convenioId) {
             const { convenioEstabelecimentoPrestador } = await import("../drizzle/schema");
             const { getDb } = await import("./db");
-            const drizzleDb = getDb();
+            const drizzleDb = await getDb();
+            if (!drizzleDb) throw new Error("Database não disponível");
             
             for (const codigo of prestadoresNaoCadastrados) {
               try {

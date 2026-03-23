@@ -264,6 +264,11 @@ async function buscarDadosGuiasCompletas(
     const valorGlosa = Number(item.valorGlosa) || 0;
     const isGlosado = statusConc === 'glosado' || valorGlosa > 0;
 
+    // Itens de terceiros NÃO devem entrar no XML de recurso
+    if (statusConc === 'terceiro') {
+      continue;
+    }
+
     if (isGlosado) {
       guiaObj.temGlosa = true;
     }
@@ -796,7 +801,7 @@ export async function guiasGlosadasDisponiveis(params: {
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${whereClause}
     GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia, ca.estabelecimentoId
-    HAVING SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) > 0
+    HAVING SUM(CASE WHEN ca.statusConciliacao = 'glosado' AND ca.statusConciliacao != 'terceiro' THEN 1 ELSE 0 END) > 0
     ORDER BY ca.competencia DESC, ca.numeroGuia
   `));
 

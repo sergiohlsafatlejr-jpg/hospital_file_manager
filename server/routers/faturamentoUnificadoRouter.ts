@@ -454,11 +454,15 @@ export const faturamentoUnificadoRouter = router({
         .select({
           codigoPrestador: convenioEstabelecimentoPrestador.codigoPrestador,
           convenioId: convenioEstabelecimentoPrestador.convenioId,
+          tipoPrestador: convenioEstabelecimentoPrestador.tipoPrestador,
         })
         .from(convenioEstabelecimentoPrestador)
         .where(eq(convenioEstabelecimentoPrestador.estabelecimentoId, input.estabelecimentoId));
-      // Retornar lista única de códigos
+      // Retornar lista única de códigos próprios (não terceiros)
+      const codigosProprios = [...new Set(result.filter((r: any) => r.tipoPrestador === 'proprio').map((r: any) => r.codigoPrestador))];
+      const codigosTerceiros = [...new Set(result.filter((r: any) => r.tipoPrestador === 'terceiro').map((r: any) => r.codigoPrestador))];
+      // 'codigos' mantém compatibilidade retroativa (todos os códigos cadastrados)
       const codigos = [...new Set(result.map((r: any) => r.codigoPrestador))];
-      return { codigos, detalhes: result };
+      return { codigos, codigosProprios, codigosTerceiros, detalhes: result };
     }),
 });
