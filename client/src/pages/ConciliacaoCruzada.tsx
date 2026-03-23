@@ -1500,7 +1500,7 @@ export default function ConciliacaoCruzada() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const naoGeradas = guiasGlosadas?.filter((g: any) => !Number(g.xmlGerado) && !isTerceiro(g)).map((g: any) => String(g.numeroGuia)) || [];
+                        const naoGeradas = guiasGlosadas?.filter((g: any) => !Number(g.xmlGerado)).map((g: any) => String(g.numeroGuia)) || [];
                         setGuiasSelecionadasXml(new Set(naoGeradas));
                       }}
                     >
@@ -1510,7 +1510,7 @@ export default function ConciliacaoCruzada() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const todas = guiasGlosadas?.filter((g: any) => !isTerceiro(g)).map((g: any) => String(g.numeroGuia)) || [];
+                        const todas = guiasGlosadas?.map((g: any) => String(g.numeroGuia)) || [];
                         setGuiasSelecionadasXml(new Set(todas));
                       }}
                     >
@@ -1531,10 +1531,10 @@ export default function ConciliacaoCruzada() {
                         <tr className="border-b bg-muted/50">
                           <th className="p-2 w-10">
                             <Checkbox
-                              checked={guiasSelecionadasXml.size > 0 && guiasSelecionadasXml.size === guiasGlosadas.filter((g: any) => !isTerceiro(g)).length}
+                              checked={guiasSelecionadasXml.size > 0 && guiasSelecionadasXml.size === guiasGlosadas.length}
                               onCheckedChange={(checked) => {
                                 if (checked) {
-                                  const todas = guiasGlosadas.filter((g: any) => !isTerceiro(g)).map((g: any) => String(g.numeroGuia));
+                                  const todas = guiasGlosadas.map((g: any) => String(g.numeroGuia));
                                   setGuiasSelecionadasXml(new Set(todas));
                                 } else {
                                   setGuiasSelecionadasXml(new Set());
@@ -1567,19 +1567,15 @@ export default function ConciliacaoCruzada() {
                           return (
                             <tr key={guiaKey} className={`border-b hover:bg-muted/30 ${terceiro ? 'bg-orange-50/50 dark:bg-orange-950/20' : ''} ${xmlGerado ? 'bg-green-50/50 dark:bg-green-950/20' : ''}`}>
                               <td className="p-2">
-                                {!terceiro ? (
-                                  <Checkbox
-                                    checked={guiasSelecionadasXml.has(guiaKey)}
-                                    onCheckedChange={(checked) => {
-                                      const newSet = new Set(guiasSelecionadasXml);
-                                      if (checked) newSet.add(guiaKey);
-                                      else newSet.delete(guiaKey);
-                                      setGuiasSelecionadasXml(newSet);
-                                    }}
-                                  />
-                                ) : (
-                                  <span className="text-muted-foreground text-xs" title="Terceiros não podem ser incluídos no XML">-</span>
-                                )}
+                                <Checkbox
+                                  checked={guiasSelecionadasXml.has(guiaKey)}
+                                  onCheckedChange={(checked) => {
+                                    const newSet = new Set(guiasSelecionadasXml);
+                                    if (checked) newSet.add(guiaKey);
+                                    else newSet.delete(guiaKey);
+                                    setGuiasSelecionadasXml(newSet);
+                                  }}
+                                />
                               </td>
                               <td className="p-2 font-mono text-sm font-medium">
                                 {guia.numeroGuia}

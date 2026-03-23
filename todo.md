@@ -3324,3 +3324,8 @@
 - [x] Gerar XML de retorno com todos os itens conciliados (não apenas glosados) - removido HAVING que filtrava só glosados
 - [x] XML inclui itens conciliados para reimportação no sistema de gestão (exceto terceiros)
 - [x] Aba renomeada para "XML Retorno" e disponível para todas as guias conciliadas
+
+## Seleção de todas as guias no XML Retorno
+- [x] Permitir selecionar guias com badge "Terceiro" na aba XML Retorno (checkbox desbloqueado)
+- [x] Botão "Selecionar Todas" e "Selecionar Todas Pendentes" incluem todas as guias
+- [x] Gerar XML de todas as guias do lote de uma vez (itens de terceiros excluídos automaticamente no backend)
