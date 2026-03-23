@@ -592,6 +592,65 @@ export const appRouter = router({
           // Excluir faturamento_tiss antigo (para reimportação de XML enviado)
           await db.deleteFaturamentoTissByArquivo(arquivoId);
           
+          // Excluir contas_convenio_itens antigos deste arquivo
+          try {
+            const { contasConvenioItens: cciTable, contasConvenioResumo: ccrTable } = await import('../drizzle/schema');
+            const { eq, and } = await import('drizzle-orm');
+            const dbReimport = await getDb();
+            if (dbReimport) {
+              // Buscar guias afetadas antes de deletar
+              const guiasAfetadas = await dbReimport.selectDistinct({ 
+                numeroConta: cciTable.numeroConta,
+                estabelecimentoId: cciTable.estabelecimentoId 
+              }).from(cciTable).where(
+                eq(cciTable.arquivoId, arquivoId)
+              );
+              
+              // Deletar itens do arquivo
+              await dbReimport.delete(cciTable).where(
+                eq(cciTable.arquivoId, arquivoId)
+              );
+              
+              // Recalcular resumos das guias afetadas
+              for (const guia of guiasAfetadas) {
+                const itensRestantes = await dbReimport.select().from(cciTable).where(
+                  and(
+                    eq(cciTable.numeroConta, guia.numeroConta),
+                    eq(cciTable.estabelecimentoId, guia.estabelecimentoId),
+                  )
+                );
+                
+                if (itensRestantes.length === 0) {
+                  await dbReimport.delete(ccrTable).where(
+                    and(
+                      eq(ccrTable.numeroConta, guia.numeroConta),
+                      eq(ccrTable.estabelecimentoId, guia.estabelecimentoId),
+                    )
+                  );
+                } else {
+                  let valorTotal = 0;
+                  for (const item of itensRestantes) {
+                    valorTotal += parseFloat(String(item.valorTotal || 0));
+                  }
+                  await dbReimport.update(ccrTable)
+                    .set({
+                      totalItens: itensRestantes.length,
+                      valorTotal: String(valorTotal.toFixed(2)),
+                    })
+                    .where(
+                      and(
+                        eq(ccrTable.numeroConta, guia.numeroConta),
+                        eq(ccrTable.estabelecimentoId, guia.estabelecimentoId),
+                      )
+                    );
+                }
+              }
+              console.log(`[Reimport] contas_convenio limpo para ${guiasAfetadas.length} guias do arquivo ${arquivoId}`);
+            }
+          } catch (ccErr) {
+            console.error('[Reimport] Erro ao limpar contas_convenio:', ccErr);
+          }
+          
           // Atualizar registro do arquivo
           await db.updateArquivo(arquivoId, {
             s3Key,
@@ -1232,8 +1291,7 @@ export const appRouter = router({
         if (arquivo.userId !== ctx.user.id && ctx.user.role !== 'admin') {
           throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para excluir este arquivo" });
         }
-        
-        // Delete associated faturamento_tiss
+               // Delete associated faturamento_tiss
         await db.deleteFaturamentoTissByArquivo(input.id);
         
         // Delete associated recebimento_tiss (XML retornados)
@@ -1245,11 +1303,71 @@ export const appRouter = router({
         // Delete associated demonstrativo entries
         const demo = await db.deleteDemonstrativoByArquivo(input.id);
         
+        // Delete associated contas_convenio_itens
+        try {
+          const { contasConvenioItens, contasConvenioResumo } = await import('../drizzle/schema');
+          const { eq, and, sql: sqlDrizzle } = await import('drizzle-orm');
+          const dbCC = await getDb();
+          if (dbCC) {
+            // Buscar guias afetadas antes de deletar para recalcular resumos
+            const guiasAfetadas = await dbCC.selectDistinct({ 
+              numeroConta: contasConvenioItens.numeroConta,
+              estabelecimentoId: contasConvenioItens.estabelecimentoId 
+            }).from(contasConvenioItens).where(
+              eq(contasConvenioItens.arquivoId, input.id)
+            );
+            
+            // Deletar itens do arquivo
+            await dbCC.delete(contasConvenioItens).where(
+              eq(contasConvenioItens.arquivoId, input.id)
+            );
+            
+            // Recalcular resumos das guias afetadas
+            for (const guia of guiasAfetadas) {
+              const itensRestantes = await dbCC.select().from(contasConvenioItens).where(
+                and(
+                  eq(contasConvenioItens.numeroConta, guia.numeroConta),
+                  eq(contasConvenioItens.estabelecimentoId, guia.estabelecimentoId),
+                )
+              );
+              
+              if (itensRestantes.length === 0) {
+                // Sem itens restantes: deletar resumo
+                await dbCC.delete(contasConvenioResumo).where(
+                  and(
+                    eq(contasConvenioResumo.numeroConta, guia.numeroConta),
+                    eq(contasConvenioResumo.estabelecimentoId, guia.estabelecimentoId),
+                  )
+                );
+              } else {
+                // Recalcular totais
+                let valorTotal = 0;
+                for (const item of itensRestantes) {
+                  valorTotal += parseFloat(String(item.valorTotal || 0));
+                }
+                await dbCC.update(contasConvenioResumo)
+                  .set({
+                    totalItens: itensRestantes.length,
+                    valorTotal: String(valorTotal.toFixed(2)),
+                  })
+                  .where(
+                    and(
+                      eq(contasConvenioResumo.numeroConta, guia.numeroConta),
+                      eq(contasConvenioResumo.estabelecimentoId, guia.estabelecimentoId),
+                    )
+                  );
+              }
+            }
+            console.log(`[Arquivo Delete] contas_convenio limpo para ${guiasAfetadas.length} guias`);
+          }
+        } catch (ccError) {
+          console.error('[Arquivo Delete] Erro ao limpar contas_convenio:', ccError);
+        }
+        
         // Delete the arquivo record itself
         await db.deleteArquivo(input.id);
         
-        console.log(`[Arquivo Delete] Arquivo ${input.id} (${arquivo.nome}) excluído em cascata: recebimentoTiss=${recTiss}, recebimentosExcel=${recExcel}, demonstrativo=${demo}`);
-        
+        console.log(`[Arquivo Delete] Arquivo ${input.id} (${arquivo.nome}) exclu\u00eddo em cascata: recebimentoTiss=${recTiss}, recebimentosExcel=${recExcel}, demonstrativo=${demo}`);      
         return { success: true };
       }),
 
@@ -1394,6 +1512,35 @@ export const appRouter = router({
           } else {
             // === REPROCESSAR ARQUIVO DE ENVIO (fluxo original) ===
             await db.deleteFaturamentoTissByArquivo(input.id);
+            
+            // Limpar contas_convenio_itens do arquivo
+            try {
+              const { contasConvenioItens: cciR, contasConvenioResumo: ccrR } = await import('../drizzle/schema');
+              const { eq, and } = await import('drizzle-orm');
+              const dbReproc = await getDb();
+              if (dbReproc) {
+                const guiasAf = await dbReproc.selectDistinct({ 
+                  numeroConta: cciR.numeroConta, estabelecimentoId: cciR.estabelecimentoId 
+                }).from(cciR).where(eq(cciR.arquivoId, input.id));
+                await dbReproc.delete(cciR).where(eq(cciR.arquivoId, input.id));
+                for (const g of guiasAf) {
+                  const rest = await dbReproc.select().from(cciR).where(
+                    and(eq(cciR.numeroConta, g.numeroConta), eq(cciR.estabelecimentoId, g.estabelecimentoId))
+                  );
+                  if (rest.length === 0) {
+                    await dbReproc.delete(ccrR).where(
+                      and(eq(ccrR.numeroConta, g.numeroConta), eq(ccrR.estabelecimentoId, g.estabelecimentoId))
+                    );
+                  } else {
+                    let vt = 0;
+                    for (const i of rest) vt += parseFloat(String(i.valorTotal || 0));
+                    await dbReproc.update(ccrR).set({ totalItens: rest.length, valorTotal: String(vt.toFixed(2)) })
+                      .where(and(eq(ccrR.numeroConta, g.numeroConta), eq(ccrR.estabelecimentoId, g.estabelecimentoId)));
+                  }
+                }
+                console.log(`[Reprocessar] contas_convenio limpo para ${guiasAf.length} guias`);
+              }
+            } catch (e) { console.error('[Reprocessar] Erro contas_convenio:', e); }
             
             console.log('[Reprocessar] Parsing file:', arquivo.nome);
             const parseResult = await parseFile(buffer, arquivo.nome);
@@ -6747,6 +6894,38 @@ export const appRouter = router({
       .input(z.object({ arquivoId: z.number() }))
       .mutation(async ({ input }) => {
         const deleted = await db.deleteFaturamentoTissByArquivo(input.arquivoId);
+        
+        // Limpar contas_convenio_itens também
+        try {
+          const { contasConvenioItens: cciT, contasConvenioResumo: ccrT } = await import('../drizzle/schema');
+          const { eq, and } = await import('drizzle-orm');
+          const dbExcl = await getDb();
+          if (dbExcl) {
+            const guiasAfetadas = await dbExcl.selectDistinct({ 
+              numeroConta: cciT.numeroConta,
+              estabelecimentoId: cciT.estabelecimentoId 
+            }).from(cciT).where(eq(cciT.arquivoId, input.arquivoId));
+            
+            await dbExcl.delete(cciT).where(eq(cciT.arquivoId, input.arquivoId));
+            
+            for (const guia of guiasAfetadas) {
+              const restantes = await dbExcl.select().from(cciT).where(
+                and(eq(cciT.numeroConta, guia.numeroConta), eq(cciT.estabelecimentoId, guia.estabelecimentoId))
+              );
+              if (restantes.length === 0) {
+                await dbExcl.delete(ccrT).where(
+                  and(eq(ccrT.numeroConta, guia.numeroConta), eq(ccrT.estabelecimentoId, guia.estabelecimentoId))
+                );
+              } else {
+                let vt = 0;
+                for (const i of restantes) vt += parseFloat(String(i.valorTotal || 0));
+                await dbExcl.update(ccrT).set({ totalItens: restantes.length, valorTotal: String(vt.toFixed(2)) })
+                  .where(and(eq(ccrT.numeroConta, guia.numeroConta), eq(ccrT.estabelecimentoId, guia.estabelecimentoId)));
+              }
+            }
+          }
+        } catch (e) { console.error('[excluirPorArquivo] Erro contas_convenio:', e); }
+        
         return { success: true, deleted };
       }),
   }),
