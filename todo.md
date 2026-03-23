@@ -3299,3 +3299,5 @@
 - [x] Corrigir formato de datas incorreto em todo o sistema (garantir DD/MM/AAAA)
 - [x] Exportar código para GitHub (repositório hospital_file_manager)
 - [x] Criar CONTRIBUTING.md com instruções de setup local para onboarding de novos desenvolvedores
+- [x] Investigar e corrigir por que a guia 17007812 não aparece na conciliação cruzada após Popular Dados e Conciliar Automático (causa: competência errada 2026-12, corrigida para 2025-12)
+- [x] Implementar cadastro automático de prestadores não cadastrados como terceiros durante o upload de XML

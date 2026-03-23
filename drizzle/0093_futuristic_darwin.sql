@@ -1,0 +1,1 @@
+ALTER TABLE `convenioEstabelecimentoPrestador` ADD `tipoPrestador` enum('proprio','terceiro') DEFAULT 'proprio' NOT NULL;

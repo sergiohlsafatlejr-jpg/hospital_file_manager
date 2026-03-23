@@ -63,6 +63,7 @@ export const convenioEstabelecimentoPrestador = mysqlTable("convenioEstabelecime
   estabelecimentoId: int("estabelecimentoId").notNull(),
   codigoPrestador: varchar("codigoPrestador", { length: 50 }).notNull(), // Código do prestador na operadora (CNPJ ou código interno)
   nomePrestador: varchar("nomePrestador", { length: 255 }), // Nome amigável do prestador (opcional)
+  tipoPrestador: mysqlEnum("tipoPrestador", ["proprio", "terceiro"]).default("proprio").notNull(), // Tipo: próprio (hospital) ou terceiro (médico/profissional externo)
   ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

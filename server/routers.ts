@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { storagePut, storageGet } from "./storage";
 import { parseFile } from "./parsers";
@@ -458,14 +459,58 @@ export const appRouter = router({
             ? estabelecimentosEncontrados[0]
             : null;
           
+          // Identificar prestadores não cadastrados
+          const prestadoresNaoCadastrados = codigosPrestadores.filter(
+            codigo => !estabelecimentosEncontrados.find(e => e.codigoPrestador === codigo)
+          );
+          
+          // Cadastrar automaticamente prestadores não cadastrados como "terceiros"
+          // Usa o mesmo convênio e estabelecimento do prestador principal detectado
+          const prestadoresCadastradosAuto: string[] = [];
+          if (prestadoresNaoCadastrados.length > 0 && estabelecimentoSugerido && input.convenioId) {
+            const { convenioEstabelecimentoPrestador } = await import("../drizzle/schema");
+            const { getDb } = await import("./db");
+            const drizzleDb = getDb();
+            
+            for (const codigo of prestadoresNaoCadastrados) {
+              try {
+                // Verificar se já não existe (pode ter sido cadastrado entre a detecção e agora)
+                const existente = await drizzleDb.select()
+                  .from(convenioEstabelecimentoPrestador)
+                  .where(
+                    and(
+                      eq(convenioEstabelecimentoPrestador.codigoPrestador, codigo),
+                      eq(convenioEstabelecimentoPrestador.convenioId, input.convenioId),
+                      eq(convenioEstabelecimentoPrestador.estabelecimentoId, estabelecimentoSugerido.estabelecimentoId)
+                    )
+                  )
+                  .limit(1);
+                
+                if (existente.length === 0) {
+                  await drizzleDb.insert(convenioEstabelecimentoPrestador).values({
+                    convenioId: input.convenioId,
+                    estabelecimentoId: estabelecimentoSugerido.estabelecimentoId,
+                    codigoPrestador: codigo,
+                    nomePrestador: `Terceiro - ${codigo}`,
+                    tipoPrestador: "terceiro",
+                    ativo: "sim",
+                  });
+                  prestadoresCadastradosAuto.push(codigo);
+                  console.log(`[detectarPrestadores] Prestador terceiro cadastrado automaticamente: ${codigo} (conv: ${input.convenioId}, estab: ${estabelecimentoSugerido.estabelecimentoId})`);
+                }
+              } catch (err) {
+                console.error(`[detectarPrestadores] Erro ao cadastrar prestador ${codigo}:`, err);
+              }
+            }
+          }
+          
           return {
             success: true,
             codigosPrestadores,
             estabelecimentosEncontrados,
             estabelecimentoSugerido,
-            prestadoresNaoCadastrados: codigosPrestadores.filter(
-              codigo => !estabelecimentosEncontrados.find(e => e.codigoPrestador === codigo)
-            ),
+            prestadoresNaoCadastrados,
+            prestadoresCadastradosAuto,
           };
         } catch (error) {
           console.error("[detectarPrestadores] Erro:", error);

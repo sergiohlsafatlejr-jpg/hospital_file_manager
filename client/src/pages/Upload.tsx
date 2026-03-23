@@ -100,12 +100,26 @@ export default function Upload() {
         );
       }
 
-      if (result.prestadoresNaoCadastrados && result.prestadoresNaoCadastrados.length > 0) {
-        setPrestadoresNaoCadastrados(result.prestadoresNaoCadastrados);
-        toast.warning(
-          `${result.prestadoresNaoCadastrados.length} prestador(es) não cadastrado(s): ${result.prestadoresNaoCadastrados.join(", ")}`,
+      // Mostrar mensagem sobre prestadores cadastrados automaticamente como terceiros
+      if (result.prestadoresCadastradosAuto && result.prestadoresCadastradosAuto.length > 0) {
+        toast.success(
+          `${result.prestadoresCadastradosAuto.length} prestador(es) terceiro(s) cadastrado(s) automaticamente: ${result.prestadoresCadastradosAuto.join(", ")}`,
           { duration: 8000 }
         );
+      }
+      
+      // Mostrar aviso para prestadores que não puderam ser cadastrados (sem prestador principal detectado)
+      const naoCadastrados = result.prestadoresNaoCadastrados?.filter(
+        (c: string) => !result.prestadoresCadastradosAuto?.includes(c)
+      ) || [];
+      if (naoCadastrados.length > 0) {
+        setPrestadoresNaoCadastrados(naoCadastrados);
+        toast.warning(
+          `${naoCadastrados.length} prestador(es) não cadastrado(s): ${naoCadastrados.join(", ")}`,
+          { duration: 8000 }
+        );
+      } else {
+        setPrestadoresNaoCadastrados([]);
       }
     } catch (error) {
       console.error("Erro ao detectar prestador:", error);
@@ -643,7 +657,7 @@ export default function Upload() {
                     <span className="font-medium">Prestadores não cadastrados</span>
                   </div>
                   <p className="text-sm text-yellow-600 mt-1">
-                    Os seguintes códigos de prestador não estão cadastrados no sistema:
+                    Os seguintes códigos de prestador não puderam ser cadastrados automaticamente (nenhum prestador principal detectado):
                   </p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {prestadoresNaoCadastrados.map((codigo) => (
@@ -653,7 +667,7 @@ export default function Upload() {
                     ))}
                   </div>
                   <p className="text-xs text-yellow-600 mt-2">
-                    Cadastre os prestadores em Configurações → Prestadores para detecção automática.
+                    Selecione um convênio para que os terceiros sejam cadastrados automaticamente, ou cadastre manualmente em Configurações → Prestadores.
                   </p>
                 </div>
               )}

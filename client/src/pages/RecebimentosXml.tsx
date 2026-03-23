@@ -158,6 +158,13 @@ export default function RecebimentosXml() {
         setEstabelecimentoSelecionado(result.estabelecimentoSugerido.estabelecimentoId.toString());
         toast.success(`Prestador detectado: ${result.estabelecimentoSugerido.codigoPrestador} - ${result.estabelecimentoSugerido.estabelecimentoNome}`);
       }
+      // Mostrar mensagem sobre terceiros cadastrados automaticamente
+      if (result.prestadoresCadastradosAuto && result.prestadoresCadastradosAuto.length > 0) {
+        toast.success(
+          `${result.prestadoresCadastradosAuto.length} prestador(es) terceiro(s) cadastrado(s) automaticamente`,
+          { duration: 8000 }
+        );
+      }
     } catch (error) {
       console.error("Erro ao detectar prestador:", error);
     } finally {
