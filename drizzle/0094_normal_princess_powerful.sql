@@ -1,0 +1,1 @@
+ALTER TABLE `faturamento_tiss` ADD `competencia` varchar(7);

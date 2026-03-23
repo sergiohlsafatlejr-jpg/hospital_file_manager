@@ -830,6 +830,10 @@ export const appRouter = router({
                         arquivoId: arquivoId,
                         convenioId: input.convenioId,
                         dataReferencia: dataReferenciaUpload || undefined,
+                        // Competência no formato AAAA/MM derivada da dataReferencia do upload
+                        competencia: dataReferenciaUpload 
+                          ? `${dataReferenciaUpload.getUTCFullYear()}/${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                          : undefined,
                       });
                     }
                   }
@@ -1575,6 +1579,10 @@ export const appRouter = router({
                 arquivoId: input.id,
                 convenioId: arquivo.convenioId,
                 dataReferencia: arquivo.dataReferencia || undefined,
+                // Competência no formato AAAA/MM derivada da dataReferencia do arquivo
+                competencia: arquivo.dataReferencia 
+                  ? `${new Date(arquivo.dataReferencia).getUTCFullYear()}/${String(new Date(arquivo.dataReferencia).getUTCMonth() + 1).padStart(2, '0')}`
+                  : undefined,
               }));
               
               await db.insertFaturamentoTissBatch(faturamentoRecords);

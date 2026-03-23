@@ -13069,19 +13069,61 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
 
   const { estabelecimentoId, mesReferencia, anoReferencia, convenioId, tipo, setor, paciente, procedimento, codigoPrestadorExecutante } = filtros;
 
-  // Buscar prestadores vinculados ao estabelecimento para filtrar automaticamente
-  let prestadoresVinculados: string[] = [];
-  if (estabelecimentoId && estabelecimentoId > 0) {
-    const prestadoresCadastrados = await db
-      .select({ codigoPrestador: convenioEstabelecimentoPrestador.codigoPrestador })
-      .from(convenioEstabelecimentoPrestador)
-      .where(eq(convenioEstabelecimentoPrestador.estabelecimentoId, estabelecimentoId));
-    prestadoresVinculados = prestadoresCadastrados.map(p => p.codigoPrestador);
+  // ===== NOVA LÓGICA: Filtrar diretamente por competencia (AAAA/MM) da faturamento_tiss =====
+  // Construir competência no formato AAAA/MM
+  let competenciaFiltro: string | undefined;
+  if (mesReferencia && anoReferencia) {
+    competenciaFiltro = `${anoReferencia}/${String(mesReferencia).padStart(2, '0')}`;
   }
 
-  // Condições base para arquivos
+  console.log('[getDadosBI] Filtros recebidos:', JSON.stringify(filtros));
+  console.log('[getDadosBI] Competência filtro:', competenciaFiltro);
+  console.log('[getDadosBI] Estabelecimento:', estabelecimentoId);
+
+  // Mapear convênios
+  const todosConvenios = await db.select().from(convenios);
+  const convenioMap = new Map(todosConvenios.map(c => [c.id, c.nome]));
+
+  // ===== BUSCAR FATURAMENTO diretamente da faturamento_tiss por competencia =====
+  const faturamentoConditions: any[] = [];
+  
+  if (estabelecimentoId && estabelecimentoId > 0) {
+    faturamentoConditions.push(eq(faturamentoTiss.estabelecimentoId, estabelecimentoId));
+  }
+  
+  if (convenioId) {
+    faturamentoConditions.push(eq(faturamentoTiss.convenioId, convenioId));
+  }
+
+  if (competenciaFiltro) {
+    faturamentoConditions.push(eq(faturamentoTiss.competencia, competenciaFiltro));
+  } else if (anoReferencia) {
+    // Filtrar por ano: competencia LIKE 'AAAA/%'
+    faturamentoConditions.push(sql`${faturamentoTiss.competencia} LIKE ${anoReferencia + '/%'}`);
+  }
+
+  let itensFaturados: any[] = [];
+  if (faturamentoConditions.length > 0) {
+    itensFaturados = await db
+      .select()
+      .from(faturamentoTiss)
+      .where(and(...faturamentoConditions));
+  } else {
+    // Sem filtros específicos, buscar tudo do estabelecimento
+    itensFaturados = await db
+      .select()
+      .from(faturamentoTiss)
+      .where(estabelecimentoId && estabelecimentoId > 0 
+        ? eq(faturamentoTiss.estabelecimentoId, estabelecimentoId)
+        : sql`1=1`);
+  }
+
+  console.log('[getDadosBI] Itens faturados encontrados:', itensFaturados.length);
+
+  // ===== BUSCAR DEMONSTRATIVO (recebidos) - ainda usa arquivos pois demonstrativo não tem competencia =====
   const arquivosConditions: any[] = [
     eq(arquivos.status, "processado"),
+    eq(arquivos.direcao, "retornado"),
   ];
   
   if (estabelecimentoId && estabelecimentoId > 0) {
@@ -13092,15 +13134,9 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
     arquivosConditions.push(eq(arquivos.convenioId, convenioId));
   }
 
-  // Filtro de período - usar dataReferencia OU createdAt como fallback
-  // Usar Date.UTC para garantir que as datas sejam criadas em UTC
   if (mesReferencia && anoReferencia) {
-    // Criar datas em UTC para evitar problemas de timezone
     const dataInicio = new Date(Date.UTC(anoReferencia, mesReferencia - 1, 1, 0, 0, 0));
-    // Último dia do mês às 23:59:59 UTC
     const dataFim = new Date(Date.UTC(anoReferencia, mesReferencia, 0, 23, 59, 59));
-    console.log('[getDadosBI] Filtro mês - Data início:', dataInicio.toISOString(), 'Data fim:', dataFim.toISOString());
-    // Usar OR para incluir arquivos sem dataReferencia (usando createdAt)
     arquivosConditions.push(
       or(
         and(gte(arquivos.dataReferencia, dataInicio), lte(arquivos.dataReferencia, dataFim)),
@@ -13108,11 +13144,8 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
       )
     );
   } else if (anoReferencia) {
-    // Criar datas em UTC para o ano inteiro
     const dataInicio = new Date(Date.UTC(anoReferencia, 0, 1, 0, 0, 0));
     const dataFim = new Date(Date.UTC(anoReferencia, 11, 31, 23, 59, 59));
-    console.log('[getDadosBI] Filtro ano - Data início:', dataInicio.toISOString(), 'Data fim:', dataFim.toISOString());
-    // Usar OR para incluir arquivos sem dataReferencia (usando createdAt)
     arquivosConditions.push(
       or(
         and(gte(arquivos.dataReferencia, dataInicio), lte(arquivos.dataReferencia, dataFim)),
@@ -13121,60 +13154,13 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
     );
   }
 
-  // Buscar arquivos enviados (faturados)
-  console.log('[getDadosBI] Filtros recebidos:', JSON.stringify(filtros));
-  console.log('[getDadosBI] Condições de arquivos:', arquivosConditions.length);
-  console.log('[getDadosBI] Ano:', anoReferencia, 'Mês:', mesReferencia);
-  console.log('[getDadosBI] Estabelecimento:', estabelecimentoId);
-  
-  const arquivosEnviados = await db
-    .select()
-    .from(arquivos)
-    .where(and(
-      ...arquivosConditions,
-      eq(arquivos.direcao, "enviado")
-    ));
-  
-  console.log('[getDadosBI] Arquivos enviados encontrados:', arquivosEnviados.length);
-  if (arquivosEnviados.length === 0) {
-    // Buscar sem filtro de data para debug
-    const arquivosSemFiltroData = await db
-      .select()
-      .from(arquivos)
-      .where(and(
-        eq(arquivos.status, "processado"),
-        eq(arquivos.estabelecimentoId, estabelecimentoId || 0),
-        eq(arquivos.direcao, "enviado")
-      ));
-    console.log('[getDadosBI] Arquivos enviados sem filtro de data:', arquivosSemFiltroData.length);
-    if (arquivosSemFiltroData.length > 0) {
-      console.log('[getDadosBI] Primeiro arquivo:', JSON.stringify({ id: arquivosSemFiltroData[0].id, createdAt: arquivosSemFiltroData[0].createdAt, dataReferencia: arquivosSemFiltroData[0].dataReferencia }));
-    }
-  }
-
-  // Buscar arquivos retornados (recebidos)
   const arquivosRetornados = await db
     .select()
     .from(arquivos)
-    .where(and(...arquivosConditions, eq(arquivos.direcao, "retornado")));
+    .where(and(...arquivosConditions));
   
   console.log('[getDadosBI] Arquivos retornados encontrados:', arquivosRetornados.length);
 
-  // Mapear convênios
-  const todosConvenios = await db.select().from(convenios);
-  const convenioMap = new Map(todosConvenios.map(c => [c.id, c.nome]));
-
-  // Buscar dados de FATURAMENTO (faturamento_tiss) dos arquivos enviados
-  const enviadosIds = arquivosEnviados.map(a => a.id);
-  let itensFaturados: any[] = [];
-  if (enviadosIds.length > 0) {
-    itensFaturados = await db
-      .select()
-      .from(faturamentoTiss)
-      .where(inArray(faturamentoTiss.arquivoId, enviadosIds));
-  }
-
-  // Buscar dados de DEMONSTRATIVO (demonstrativo) dos arquivos retornados
   const retornadosIds = arquivosRetornados.map(a => a.id);
   let itensRecebidos: any[] = [];
   if (retornadosIds.length > 0) {
@@ -13184,12 +13170,21 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
       .where(inArray(demonstrativo.arquivoId, retornadosIds));
   }
 
-  // Criar mapa de arquivo para convênio
+  // Criar mapa de arquivo para convênio (para demonstrativos)
   const arquivoConvenioMap = new Map<number, number>();
   const arquivoDataMap = new Map<number, Date | null>();
-  for (const arq of [...arquivosEnviados, ...arquivosRetornados]) {
+  for (const arq of arquivosRetornados) {
     arquivoConvenioMap.set(arq.id, arq.convenioId);
     arquivoDataMap.set(arq.id, arq.dataReferencia);
+  }
+  // Também mapear convênio dos itens faturados (direto do item)
+  for (const item of itensFaturados) {
+    if (item.convenioId && !arquivoConvenioMap.has(item.arquivoId)) {
+      arquivoConvenioMap.set(item.arquivoId, item.convenioId);
+    }
+    if (item.dataReferencia && !arquivoDataMap.has(item.arquivoId)) {
+      arquivoDataMap.set(item.arquivoId, item.dataReferencia);
+    }
   }
 
   // Aplicar filtros adicionais para itens faturados (faturamento_tiss)
@@ -13238,7 +13233,7 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
     totalProcedimentos++;
     if (item.carteiraBeneficiario) pacientesSet.add(item.carteiraBeneficiario);
     if (item.numeroGuiaPrestador) guiasSet.add(item.numeroGuiaPrestador);
-    const convId = arquivoConvenioMap.get(item.arquivoId);
+    const convId = item.convenioId || arquivoConvenioMap.get(item.arquivoId);
     if (convId) conveniosSet.add(convId);
   }
 
@@ -13261,7 +13256,7 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
   // Agrupar por convênio
   const porConvenioMap = new Map<string, DadosBIAgrupado>();
   for (const item of itensFaturadosFiltrados) {
-    const convId = arquivoConvenioMap.get(item.arquivoId) || item.convenioId;
+    const convId = item.convenioId || arquivoConvenioMap.get(item.arquivoId);
     const chave = convenioMap.get(convId || 0) || "Sem Convênio";
     if (!porConvenioMap.has(chave)) {
       porConvenioMap.set(chave, { chave, valorFaturado: 0, valorRecebido: 0, valorGlosado: 0, valorPendente: 0, quantidade: 0, registros: 0 });
@@ -13312,11 +13307,11 @@ export async function getDadosBI(filtros: DadosBIFiltros): Promise<{
     entry.valorPendente = entry.valorFaturado - entry.valorRecebido - entry.valorGlosado;
   }
 
-  // Agrupar por mês
+  // Agrupar por mês (usando campo competencia do item)
   const porMesMap = new Map<string, DadosBIAgrupado>();
   for (const item of itensFaturadosFiltrados) {
-    const dataRef = arquivoDataMap.get(item.arquivoId);
-    const chave = dataRef ? `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}` : 'Sem Data';
+    // Usar competencia do item (AAAA/MM) convertendo para AAAA-MM para display
+    const chave = item.competencia ? item.competencia.replace('/', '-') : 'Sem Data';
     if (!porMesMap.has(chave)) {
       porMesMap.set(chave, { chave, valorFaturado: 0, valorRecebido: 0, valorGlosado: 0, valorPendente: 0, quantidade: 0, registros: 0 });
     }
@@ -13730,8 +13725,27 @@ export async function getOpcoesFiltroBi(estabelecimentoId: number): Promise<{
     tiposUnicos = Array.from(tiposSet).sort();
   }
 
-  // Buscar meses disponíveis
+  // Buscar meses disponíveis a partir do campo competencia da faturamento_tiss
   const mesesSet = new Set<string>();
+  
+  // Buscar competências únicas diretamente da faturamento_tiss
+  if (arquivoIds.length > 0) {
+    const competenciasResult = await db
+      .selectDistinct({ competencia: faturamentoTiss.competencia })
+      .from(faturamentoTiss)
+      .where(and(
+        inArray(faturamentoTiss.arquivoId, arquivoIds),
+        sql`${faturamentoTiss.competencia} IS NOT NULL`
+      ));
+    for (const row of competenciasResult) {
+      if (row.competencia) {
+        // Converter AAAA/MM para AAAA-MM para manter compatível
+        mesesSet.add(row.competencia.replace('/', '-'));
+      }
+    }
+  }
+  
+  // Fallback: também incluir meses dos arquivos (para demonstrativos)
   for (const arq of arquivosEstab) {
     if (arq.dataReferencia) {
       const mes = arq.dataReferencia.getMonth() + 1;
@@ -16861,14 +16875,12 @@ export async function getFaturamentoTiss(params: {
     conditions.push(eq(faturamentoTiss.convenioId, convenioId));
   }
 
-  // Filtro por mês/ano de referência (baseado na data de referência)
+  // Filtro por mês/ano de referência (usando campo competencia AAAA/MM)
   if (mesReferencia && anoReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
-  } else if (mesReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
+    const competenciaFiltro = `${anoReferencia}/${String(mesReferencia).padStart(2, '0')}`;
+    conditions.push(eq(faturamentoTiss.competencia, competenciaFiltro));
   } else if (anoReferencia) {
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
+    conditions.push(sql`${faturamentoTiss.competencia} LIKE ${anoReferencia + '/%'}`);
   }
 
   // Busca textual
@@ -17023,14 +17035,12 @@ export async function getFaturamentoTissResumo(params: {
     conditions.push(eq(faturamentoTiss.convenioId, convenioId));
   }
 
-  // Filtro por mês/ano de referência (baseado na data de referência)
+  // Filtro por mês/ano de referência (usando campo competencia AAAA/MM)
   if (mesReferencia && anoReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
-  } else if (mesReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
+    const competenciaFiltro = `${anoReferencia}/${String(mesReferencia).padStart(2, '0')}`;
+    conditions.push(eq(faturamentoTiss.competencia, competenciaFiltro));
   } else if (anoReferencia) {
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
+    conditions.push(sql`${faturamentoTiss.competencia} LIKE ${anoReferencia + '/%'}`);
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -17087,13 +17097,12 @@ export async function getGuiasMultiplosLotes(params: {
     conditions.push(eq(faturamentoTiss.convenioId, convenioId));
   }
 
+  // Filtro por competência (AAAA/MM)
   if (mesReferencia && anoReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
-  } else if (mesReferencia) {
-    conditions.push(sql`MONTH(${faturamentoTiss.dataReferencia}) = ${mesReferencia}`);
+    const competenciaFiltro = `${anoReferencia}/${String(mesReferencia).padStart(2, '0')}`;
+    conditions.push(eq(faturamentoTiss.competencia, competenciaFiltro));
   } else if (anoReferencia) {
-    conditions.push(sql`YEAR(${faturamentoTiss.dataReferencia}) = ${anoReferencia}`);
+    conditions.push(sql`${faturamentoTiss.competencia} LIKE ${anoReferencia + '/%'}`);
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

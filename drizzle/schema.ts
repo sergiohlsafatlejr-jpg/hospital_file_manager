@@ -2197,6 +2197,9 @@ export const faturamentoTiss = mysqlTable("faturamento_tiss", {
   // Data de importação
   dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
 
+  // Competência no formato AAAA/MM (derivada da dataReferencia do arquivo)
+  competencia: varchar("competencia", { length: 7 }),
+
   // Código do prestador executante (codigoPrestadorNaOperadora do XML)
   codigoPrestadorExecutante: varchar("codigo_prestador_executante", { length: 50 }),
 

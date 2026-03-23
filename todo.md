@@ -3329,3 +3329,23 @@
 - [x] Permitir selecionar guias com badge "Terceiro" na aba XML Retorno (checkbox desbloqueado)
 - [x] Botão "Selecionar Todas" e "Selecionar Todas Pendentes" incluem todas as guias
 - [x] Gerar XML de todas as guias do lote de uma vez (itens de terceiros excluídos automaticamente no backend)
+
+## Análise: Divergência de valores Conta Convênio vs BI
+- [ ] Investigar por que Unimed mostra R$ 200.918,67 na Conta Convênio e R$ 292.790,41 no BI
+- [ ] Verificar se a divergência ocorre em outros convênios (Ipasgo, Vivacom, Saude Caixa)
+- [ ] Identificar causa raiz (tabelas diferentes, filtros diferentes, dados duplicados, etc.)
+- [ ] Corrigir se necessário para que ambas as telas mostrem valores consistentes
+
+## Padronização de Competência MM/AAAA em todo o sistema
+- [x] Mapear como cada tabela armazena competência (faturamento_tiss, contas_convenio_resumo, recebimento_geral, faturamento_unificado, etc.)
+- [x] Adicionar campo competencia na tabela faturamento_tiss (atualmente usa dataReferencia do arquivo)
+- [x] Padronizar formato de competência como AAAA/MM em todas as tabelas
+- [x] Atualizar getDadosBI para filtrar por campo competencia em vez de dataReferencia do arquivo
+- [x] Atualizar queries de Conta Convênio para usar mesma lógica de competência
+- [ ] Atualizar queries de Conciliação Cruzada para usar mesma lógica de competência
+- [ ] Atualizar queries de Demonstrativo para usar mesma lógica de competência
+- [ ] Atualizar queries de recebimento_geral para usar formato padronizado
+- [x] Garantir que importação de XML popule campo competencia corretamente
+- [x] Corrigir dados existentes no banco para preencher competência onde está faltando
+- [x] Escrever testes para validar consistência de valores entre telas
+- [x] Validar que BI e Conta Convênio mostram os mesmos valores para mesmo filtro
