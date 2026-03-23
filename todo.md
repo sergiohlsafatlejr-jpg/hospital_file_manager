@@ -3308,3 +3308,7 @@
 - [x] Criar CONTRIBUTING.md com instruções de setup local para onboarding de novos desenvolvedores
 - [x] Investigar e corrigir por que a guia 17007812 não aparece na conciliação cruzada após Popular Dados e Conciliar Automático (causa: competência errada 2026-12, corrigida para 2025-12)
 - [x] Implementar cadastro automático de prestadores não cadastrados como terceiros durante o upload de XML
+
+## Bug: Terceiros ainda aparecendo como glosados
+- [x] Investigar por que item 20104294 (Erich Pires Marota) na guia 17007812 ainda aparece como glosado
+- [x] Corrigir lógica de classificação de terceiros na conciliação automática (causa: nenhum terceiro cadastrado, invertida lógica para usar códigos próprios)

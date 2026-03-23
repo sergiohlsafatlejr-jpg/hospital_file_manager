@@ -12,9 +12,10 @@ import { describe, expect, it } from "vitest";
  */
 
 // Simula a lógica de classificação de terceiros extraída do faturamentoUnificadoService
+// Lógica: se o código do prestador executante NÃO está entre os códigos PRÓPRIOS, é terceiro
 function classificarItemSemMatch(params: {
   codigoPrestadorExecutante: string | null;
-  codigosTerceiros: Set<string>;
+  codigosProprios: Set<string>;
   valorFaturado: number;
 }): {
   statusConciliacao: string;
@@ -22,8 +23,8 @@ function classificarItemSemMatch(params: {
   diferenca: number;
   codigoGlosa: string | null;
 } {
-  const { codigoPrestadorExecutante, codigosTerceiros, valorFaturado } = params;
-  const isTerceiro = codigoPrestadorExecutante && codigosTerceiros.has(codigoPrestadorExecutante);
+  const { codigoPrestadorExecutante, codigosProprios, valorFaturado } = params;
+  const isTerceiro = codigoPrestadorExecutante && codigosProprios.size > 0 && !codigosProprios.has(codigoPrestadorExecutante);
 
   if (isTerceiro) {
     return {
@@ -48,25 +49,27 @@ function deveIncluirNoXmlRecurso(statusConciliacao: string): boolean {
 }
 
 // Simula a lógica isTerceiro do frontend
+// Lógica: se statusGuia é 'terceiro' OU se o código NÃO está nos próprios
 function isTerceiroFrontend(params: {
   statusGuia?: string;
   codigoPrestadorExecutante?: string;
-  codigosTerceiros: string[];
+  codigosProprios: string[];
 }): boolean {
   if (params.statusGuia === 'terceiro') return true;
-  if (!params.codigosTerceiros.length) return false;
+  if (!params.codigosProprios.length) return false;
   if (!params.codigoPrestadorExecutante) return false;
-  return params.codigosTerceiros.includes(params.codigoPrestadorExecutante);
+  return !params.codigosProprios.includes(params.codigoPrestadorExecutante);
 }
 
 describe("Classificação de Terceiros na Conciliação", () => {
-  const codigosTerceiros = new Set(["05046748622", "12345678901"]);
+  // Códigos próprios do hospital (CNPJ e códigos cadastrados)
+  const codigosProprios = new Set(["00418954000119", "3201151"]);
 
   describe("classificarItemSemMatch", () => {
-    it("deve classificar como 'terceiro' quando o prestador é terceiro", () => {
+    it("deve classificar como 'terceiro' quando o prestador NÃO está nos próprios", () => {
       const result = classificarItemSemMatch({
-        codigoPrestadorExecutante: "05046748622",
-        codigosTerceiros,
+        codigoPrestadorExecutante: "05046748622", // CPF do médico terceiro
+        codigosProprios,
         valorFaturado: 50.54,
       });
 
@@ -78,8 +81,8 @@ describe("Classificação de Terceiros na Conciliação", () => {
 
     it("deve classificar como 'glosado' quando o prestador é próprio", () => {
       const result = classificarItemSemMatch({
-        codigoPrestadorExecutante: "99999999999",
-        codigosTerceiros,
+        codigoPrestadorExecutante: "00418954000119", // CNPJ do hospital
+        codigosProprios,
         valorFaturado: 100.00,
       });
 
@@ -92,7 +95,7 @@ describe("Classificação de Terceiros na Conciliação", () => {
     it("deve classificar como 'glosado' quando não tem código de prestador", () => {
       const result = classificarItemSemMatch({
         codigoPrestadorExecutante: null,
-        codigosTerceiros,
+        codigosProprios,
         valorFaturado: 75.00,
       });
 
@@ -102,10 +105,10 @@ describe("Classificação de Terceiros na Conciliação", () => {
       expect(result.codigoGlosa).toBe("5007");
     });
 
-    it("deve classificar como 'glosado' quando não há terceiros cadastrados", () => {
+    it("deve classificar como 'glosado' quando não há próprios cadastrados (sem referência)", () => {
       const result = classificarItemSemMatch({
         codigoPrestadorExecutante: "05046748622",
-        codigosTerceiros: new Set(),
+        codigosProprios: new Set(),
         valorFaturado: 50.54,
       });
 
@@ -136,48 +139,49 @@ describe("Classificação de Terceiros na Conciliação", () => {
     it("deve retornar true quando statusGuia é 'terceiro'", () => {
       expect(isTerceiroFrontend({
         statusGuia: "terceiro",
-        codigosTerceiros: [],
+        codigosProprios: [],
       })).toBe(true);
     });
 
-    it("deve retornar true quando código está na lista de terceiros", () => {
+    it("deve retornar true quando código NÃO está nos próprios", () => {
       expect(isTerceiroFrontend({
         codigoPrestadorExecutante: "05046748622",
-        codigosTerceiros: ["05046748622", "12345678901"],
+        codigosProprios: ["00418954000119", "3201151"],
       })).toBe(true);
     });
 
-    it("deve retornar false quando código NÃO está na lista de terceiros", () => {
+    it("deve retornar false quando código ESTÁ nos próprios", () => {
       expect(isTerceiroFrontend({
-        codigoPrestadorExecutante: "99999999999",
-        codigosTerceiros: ["05046748622", "12345678901"],
+        codigoPrestadorExecutante: "00418954000119",
+        codigosProprios: ["00418954000119", "3201151"],
       })).toBe(false);
     });
 
     it("deve retornar false quando não tem código de prestador", () => {
       expect(isTerceiroFrontend({
         codigoPrestadorExecutante: undefined,
-        codigosTerceiros: ["05046748622"],
+        codigosProprios: ["00418954000119"],
       })).toBe(false);
     });
 
-    it("deve retornar false quando lista de terceiros está vazia", () => {
+    it("deve retornar false quando lista de próprios está vazia (sem referência)", () => {
       expect(isTerceiroFrontend({
         codigoPrestadorExecutante: "05046748622",
-        codigosTerceiros: [],
+        codigosProprios: [],
       })).toBe(false);
     });
   });
 
   describe("Cenário da guia 17007812 (Erich Pires Marota)", () => {
     it("deve classificar o item do médico terceiro como 'terceiro' e não 'glosado'", () => {
-      // Dados reais da guia mencionada pelo usuário
-      const codigoMedicoTerceiro = "05046748622"; // Erich Pires Marota
-      const codigosTerceirosCadastrados = new Set(["05046748622"]);
+      // Dados reais: hospital tem CNPJ 00418954000119 como próprio
+      // Médico Erich Pires Marota tem CPF 05046748622 (NÃO é próprio)
+      const codigoMedicoTerceiro = "05046748622";
+      const codigosPropriosHospital = new Set(["00418954000119", "3201151"]);
       
       const result = classificarItemSemMatch({
         codigoPrestadorExecutante: codigoMedicoTerceiro,
-        codigosTerceiros: codigosTerceirosCadastrados,
+        codigosProprios: codigosPropriosHospital,
         valorFaturado: 50.54, // Valor do procedimento 20104294
       });
 
@@ -191,6 +195,19 @@ describe("Classificação de Terceiros na Conciliação", () => {
       expect(result.diferenca).toBe(0);
       // Não deve ter código de glosa
       expect(result.codigoGlosa).toBeNull();
+    });
+
+    it("item próprio do hospital deve ser glosado normalmente", () => {
+      const codigosPropriosHospital = new Set(["00418954000119", "3201151"]);
+      
+      const result = classificarItemSemMatch({
+        codigoPrestadorExecutante: "00418954000119", // CNPJ do hospital
+        codigosProprios: codigosPropriosHospital,
+        valorFaturado: 73.51,
+      });
+
+      expect(result.statusConciliacao).toBe("glosado");
+      expect(result.valorGlosa).toBe(73.51);
     });
 
     it("o item do terceiro NÃO deve ser incluído no XML de recurso", () => {

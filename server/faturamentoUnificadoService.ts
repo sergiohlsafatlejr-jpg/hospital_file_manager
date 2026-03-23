@@ -910,15 +910,15 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
-  // PASSO 1.5: Buscar códigos de prestadores terceiros cadastrados
-  // Itens de terceiros que não aparecem no retorno devem ser marcados
-  // como 'terceiro' em vez de 'glosado'
+  // PASSO 1.5: Buscar códigos de prestadores PRÓPRIOS cadastrados
+  // Itens cujo codigoPrestadorExecutante NÃO está entre os próprios
+  // são considerados terceiros e não devem ser glosados
   // -------------------------------------------------------
-  const [terceirosRows] = await db.execute(sql.raw(
+  const [propriosRows] = await db.execute(sql.raw(
     `SELECT DISTINCT codigoPrestador FROM convenioEstabelecimentoPrestador 
-     WHERE estabelecimentoId = ${params.estabelecimentoId} AND tipoPrestador = 'terceiro' AND ativo = 'sim'`
+     WHERE estabelecimentoId = ${params.estabelecimentoId} AND tipoPrestador = 'proprio' AND ativo = 'sim'`
   ));
-  const codigosTerceiros = new Set((terceirosRows as unknown as any[]).map(r => String(r.codigoPrestador)));
+  const codigosProprios = new Set((propriosRows as unknown as any[]).map(r => String(r.codigoPrestador)));
 
   // -------------------------------------------------------
   // PASSO 2: Buscar recebimentos_excel do mesmo estabelecimento/convênio
@@ -1186,8 +1186,9 @@ export async function executarConciliacaoAutomatica(params: {
     } else {
       // Não encontrou match no demonstrativo
       // Verificar se o item é de um prestador terceiro
+      // Terceiro = código do prestador executante NÃO está entre os códigos próprios cadastrados
       const codPrestExec = baseInsert.codigoPrestadorExecutante;
-      const isTerceiro = codPrestExec && codigosTerceiros.has(codPrestExec);
+      const isTerceiro = codPrestExec && codigosProprios.size > 0 && !codigosProprios.has(codPrestExec);
       
       if (isTerceiro) {
         // Item de terceiro: convênio paga diretamente ao terceiro, não é glosa

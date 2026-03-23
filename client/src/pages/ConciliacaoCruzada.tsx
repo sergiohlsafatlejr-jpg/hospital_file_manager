@@ -126,15 +126,16 @@ export default function ConciliacaoCruzada() {
   const [filtroPrestador, setFiltroPrestador] = useState<'todos' | 'proprio' | 'terceiro'>('todos');
 
   // Função para verificar se uma guia é de terceiro
-  // Agora usa a lista de códigos terceiros (tipoPrestador='terceiro') em vez de verificar se não está cadastrado
+  // Terceiro = código do prestador executante NÃO está entre os códigos PRÓPRIOS cadastrados
   const isTerceiro = useCallback((guia: any) => {
     // Primeiro: verificar pelo statusGuia se disponível (vem do backend)
     if (guia.statusGuia === 'terceiro') return true;
-    // Segundo: verificar pelo código do prestador executante
-    if (!codigosPrestador?.codigosTerceiros?.length) return false;
+    // Segundo: verificar pelo código do prestador executante vs próprios
+    if (!codigosPrestador?.codigosProprios?.length) return false;
     const codExec = guia.codigoPrestadorExecutante;
     if (!codExec) return false;
-    return codigosPrestador.codigosTerceiros.includes(codExec);
+    // Se o código NÃO está nos próprios, é terceiro
+    return !codigosPrestador.codigosProprios.includes(codExec);
   }, [codigosPrestador]);
 
   // ===== QUERIES PARA ABA XML RECURSO =====
