@@ -252,7 +252,11 @@ export default function ConciliacaoCruzada() {
 
   const popularTudo = trpc.faturamentoUnificado.popularTudo.useMutation({
     onSuccess: (data) => {
-      toast.success(`Faturamento unificado atualizado: ${data.warleine.inseridos} itens Warleine + ${data.xmlTiss.inseridos} itens XML TISS`);
+      const partes = [];
+      if (data.warleine.total > 0) partes.push(`${data.warleine.total} Warleine`);
+      if (data.xmlTiss.total > 0) partes.push(`${data.xmlTiss.total} XML TISS`);
+      if (data.tasyStaging?.total > 0) partes.push(`${data.tasyStaging.total} Tasy`);
+      toast.success(`Faturamento unificado: ${partes.join(' + ')} = ${data.totalGeral} itens`);
       refetch();
     },
     onError: (err) => toast.error(`Erro ao popular: ${err.message}`),

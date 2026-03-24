@@ -3438,3 +3438,9 @@
 - [x] Limpar faturamento_tiss do Hemolabor (22.038 registros)
 - [x] Limpar arquivos enviados do Hemolabor (228 registros)
 - [x] Validar dados após limpeza: TASY_STAGING preservado (1.337.761), retorno preservado (1)
+
+## Bugs: Popular Dados e Conciliação Hemolabor (24/03/2026 - 2)
+- [x] Popular Dados retorna 0 itens para Hemolabor: agora conta dados TASY_STAGING existentes e exibe no toast
+- [x] Conciliação retorna "Service Unavailable": otimizado para processar em lotes por competência (sempre, com try/catch por lote)
+- [x] Ajustar popularTudo para incluir contagem de dados TASY_STAGING no resultado
+- [x] Ajustar conciliação para funcionar com dados TASY_STAGING (busca todas competências, não só pendentes)

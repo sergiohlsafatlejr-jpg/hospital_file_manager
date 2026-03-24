@@ -211,6 +211,38 @@ export async function popularDeTasy(
 }
 
 // ============================================================
+// CONTAGEM DE DADOS TASY STAGING (já populados via importação)
+// ============================================================
+
+/**
+ * Conta os dados TASY_STAGING já existentes na faturamento_unificado.
+ * Os dados do tasy_faturado_staging são importados diretamente para a
+ * faturamento_unificado via processo de importação, não precisam ser
+ * re-populados como Warleine ou XML_TISS.
+ */
+export async function contarTasyStaging(
+  estabelecimentoId: number,
+  competencia?: string
+): Promise<{ total: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  const compFilter = competencia
+    ? `AND competencia LIKE '${competencia.replace(/'/g, "''")}%'`
+    : '';
+
+  const countQuery = `
+    SELECT COUNT(*) as total FROM faturamento_unificado 
+    WHERE origemSistema = 'TASY_STAGING' AND estabelecimentoId = ${estabelecimentoId}
+    ${compFilter}
+  `;
+  const [countResult] = await db.execute(sql.raw(countQuery));
+  const total = (countResult as any)?.[0]?.total || 0;
+
+  return { total: Number(total) };
+}
+
+// ============================================================
 // POPULAÇÃO A PARTIR DO XML TISS (faturamento_tiss)
 // ============================================================
 
@@ -316,21 +348,24 @@ export async function popularDeXmlTiss(
 // ============================================================
 
 /**
- * Popula faturamento_unificado a partir de ambas as fontes:
+ * Popula faturamento_unificado a partir de todas as fontes:
  * - WARLEINE (integ_faturado): dados do faturamento do hospital
  * - XML_TISS (faturamento_tiss): dados dos XMLs enviados aos convênios
+ * - TASY_STAGING: dados já importados do Tasy (apenas contagem, não re-popula)
  */
 export async function popularFaturamentoUnificado(
   estabelecimentoId: number,
   competencia?: string
-): Promise<{ warleine: { inseridos: number; total: number }; xmlTiss: { inseridos: number; total: number }; totalGeral: number }> {
+): Promise<{ warleine: { inseridos: number; total: number }; xmlTiss: { inseridos: number; total: number }; tasyStaging: { total: number }; totalGeral: number }> {
   const warleine = await popularDeIntegFaturado(estabelecimentoId, competencia);
   const xmlTiss = await popularDeXmlTiss(estabelecimentoId, competencia);
+  const tasyStaging = await contarTasyStaging(estabelecimentoId, competencia);
 
   return {
     warleine,
     xmlTiss,
-    totalGeral: warleine.total + xmlTiss.total,
+    tasyStaging,
+    totalGeral: warleine.total + xmlTiss.total + tasyStaging.total,
   };
 }
 
@@ -807,14 +842,14 @@ export async function executarConciliacaoAutomatica(params: {
   if (!db) throw new Error("Database não disponível");
 
   // Se não há filtro de competência, processar em lotes por competência
-  // para evitar timeout com muitos itens
+  // para evitar timeout com muitos itens (1M+ registros)
   if (!params.competencia) {
     const [compRows] = await db.execute(sql.raw(
-      `SELECT DISTINCT competencia FROM faturamento_unificado WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao = 'pendente' ORDER BY competencia`
+      `SELECT DISTINCT competencia FROM faturamento_unificado WHERE estabelecimentoId = ${params.estabelecimentoId} ORDER BY competencia`
     ));
     const competencias = (compRows as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
     
-    if (competencias.length > 1) {
+    if (competencias.length >= 1) {
       // Processar cada competência separadamente e agregar resultados
       const resultadoTotal: ConciliacaoResultado = {
         totalProcessados: 0,
@@ -835,24 +870,31 @@ export async function executarConciliacaoAutomatica(params: {
       };
       
       for (const comp of competencias) {
-        const parcial = await executarConciliacaoAutomatica({
-          ...params,
-          competencia: comp,
-        });
-        resultadoTotal.totalProcessados += parcial.totalProcessados;
-        resultadoTotal.totalConciliados += parcial.totalConciliados;
-        resultadoTotal.totalDivergentes += parcial.totalDivergentes;
-        resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
-        resultadoTotal.totalTerceiros += parcial.totalTerceiros;
-        resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
-        resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
-        resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
-        resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
-        resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
-        resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
-        resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 20)); // limitar divergências
+        try {
+          const parcial = await executarConciliacaoAutomatica({
+            ...params,
+            competencia: comp,
+          });
+          resultadoTotal.totalProcessados += parcial.totalProcessados;
+          resultadoTotal.totalConciliados += parcial.totalConciliados;
+          resultadoTotal.totalDivergentes += parcial.totalDivergentes;
+          resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+          resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+          resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
+          resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
+          resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
+          resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
+          resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
+          resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
+          resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 10));
+        } catch (err) {
+          console.error(`Erro ao conciliar competência ${comp}:`, err);
+          // Continua com as próximas competências
+        }
       }
       
+      // Limitar divergências totais
+      resultadoTotal.divergencias = resultadoTotal.divergencias.slice(0, 100);
       return resultadoTotal;
     }
   }
