@@ -3415,3 +3415,12 @@
 - [x] Atualizar testes unitários para refletir nova sequência de queries
 - [x] Limpar 600 registros duplicados do banco (2026/01)
 - [ ] 18 itens com pacienteNome NULL faltando na conciliados_automatico (serão processados na próxima execução)
+
+## Popular faturamento_unificado via tasy_faturado_staging (07/2025 a 03/2026)
+- [x] Analisar estrutura da tasy_faturado_staging vs faturamento_unificado
+- [x] Mapear campos entre as duas tabelas (31 campos mapeados)
+- [x] Mapear convênios (19 convênios com match, 27 sem cadastro ficam com convenioId NULL)
+- [x] Executar migração INSERT...SELECT para 9 competências (07/2025 a 03/2026)
+- [x] Validar dados migrados: 1.337.761 registros = 100% match com staging
+- [x] Total faturado migrado: R$ 70.711.689,72
+- [ ] Criar endpoint no backend para futuras migrações automatizadas
