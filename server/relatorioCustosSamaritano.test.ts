@@ -93,25 +93,25 @@ describe("relatorioCustosSamaritano", () => {
       expect(result.kpis.valorFaturadoTotal).toBe(1500);
     });
 
-    it("deve aplicar filtros de competência e convênio", async () => {
+    it("deve aplicar filtros de competência e convênio (usando codplaco)", async () => {
       // Mock all 4 queries
       mockExecute.mockResolvedValue(mysqlResult([]));
 
       await buscarCustosPorConvenioSamaritano(2280016, {
         competencia: "2026/01",
-        convenio: "Ipasgo Novo",
+        convenio: "IPN",
       });
 
       // Verify the detalhado query includes filters
       expect(mockExecute).toHaveBeenCalledTimes(4);
       const detalhadoCall = mockExecute.mock.calls[2][0];
       expect(detalhadoCall).toContain("competencia = '2026/01'");
-      expect(detalhadoCall).toContain("convenio = 'Ipasgo Novo'");
+      expect(detalhadoCall).toContain("codplaco = 'IPN'");
     });
   });
 
   describe("buscarCustosPorContaSamaritano", () => {
-    it("deve retornar contas agrupadas com kpis", async () => {
+    it("deve retornar contas agrupadas com kpis e setoresDisponiveis", async () => {
       // Mock convenios
       mockExecute.mockResolvedValueOnce(mysqlResult([
         { convenio: "Ipasgo Novo", codplaco: "IP01" },
@@ -119,6 +119,11 @@ describe("relatorioCustosSamaritano", () => {
       // Mock competencias
       mockExecute.mockResolvedValueOnce(mysqlResult([
         { competencia: "2026/01" },
+      ]));
+      // Mock setores
+      mockExecute.mockResolvedValueOnce(mysqlResult([
+        { setor: "Ambulatório" },
+        { setor: "Bloco Cirúrgico" },
       ]));
       // Mock contas
       mockExecute.mockResolvedValueOnce(mysqlResult([
@@ -139,7 +144,10 @@ describe("relatorioCustosSamaritano", () => {
 
       expect(result).toHaveProperty("contas");
       expect(result).toHaveProperty("kpis");
+      expect(result).toHaveProperty("setoresDisponiveis");
       expect(result.fonte).toBe("samaritano_custo_staging");
+      expect(result.setoresDisponiveis).toHaveLength(2);
+      expect(result.setoresDisponiveis[0]).toBe("Ambulatório");
       expect(result.contas).toHaveLength(1);
       expect(result.contas[0].numconta).toBe("12345");
       expect(result.contas[0].paciente).toBe("João Silva");
@@ -147,6 +155,22 @@ describe("relatorioCustosSamaritano", () => {
       expect(result.contas[0].resultado).toBe("lucro");
       expect(result.kpis.totalContas).toBe(1);
       expect(result.kpis.contasComLucro).toBe(1);
+    });
+
+    it("deve aplicar filtro de setor (usando codplaco para convênio)", async () => {
+      // Mock all 4 queries (convenios, competencias, setores, contas)
+      mockExecute.mockResolvedValue(mysqlResult([]));
+
+      await buscarCustosPorContaSamaritano(2280016, {
+        convenio: "IPN",
+        setor: "Ambulatório",
+      });
+
+      // Verify the main query includes setor and codplaco filters
+      expect(mockExecute).toHaveBeenCalledTimes(4);
+      const mainCall = mockExecute.mock.calls[3][0];
+      expect(mainCall).toContain("codplaco = 'IPN'");
+      expect(mainCall).toContain("setor = 'Ambulatório'");
     });
   });
 

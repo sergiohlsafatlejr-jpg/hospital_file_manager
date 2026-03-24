@@ -26,17 +26,22 @@ interface CustosPorContaProps {
 export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProps) {
   const [convenio, setConvenio] = useState("");
   const [competencia, setCompetencia] = useState("");
+  const [setor, setSetor] = useState("");
   const [busca, setBusca] = useState("");
   const [buscaInput, setBuscaInput] = useState("");
   const [contaSelecionada, setContaSelecionada] = useState<string | null>(null);
+
+  // Samaritano = 2280016
+  const isSamaritano = estabelecimentoId === 2280016;
 
   // Query principal - lista de contas
   const contasInput = useMemo(() => ({
     estabelecimentoId,
     convenio: convenio || undefined,
     competencia: competencia || undefined,
+    setor: setor || undefined,
     busca: busca || undefined,
-  }), [estabelecimentoId, convenio, competencia, busca]);
+  }), [estabelecimentoId, convenio, competencia, setor, busca]);
 
   const contasQuery = trpc.relatorioCustos.custosPorConta.useQuery(
     contasInput,
@@ -61,6 +66,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
   const handleClear = () => {
     setConvenio("");
     setCompetencia("");
+    setSetor("");
     setBusca("");
     setBuscaInput("");
   };
@@ -152,6 +158,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                       <TableRow>
                         <TableHead>Código</TableHead>
                         <TableHead>Descrição</TableHead>
+                        {isSamaritano && <TableHead>Setor</TableHead>}
                         <TableHead>Tipo</TableHead>
                         <TableHead className="text-right">Qtd</TableHead>
                         <TableHead className="text-center">Un. Fat.</TableHead>
@@ -168,6 +175,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                         <TableRow key={`${item.codprod}-${idx}`} className={item.resultado === "prejuizo" ? "bg-red-500/5" : item.resultado === "lucro" ? "bg-emerald-500/5" : ""}>
                           <TableCell className="font-mono text-xs">{item.codprod}</TableCell>
                           <TableCell className="text-sm max-w-[250px] truncate" title={item.descricao}>{item.descricao}</TableCell>
+                          {isSamaritano && <TableCell className="text-xs">{(item as any).setor || "-"}</TableCell>}
                           <TableCell>
                             <Badge variant="outline" className="text-xs">{item.tipoItemLabel}</Badge>
                           </TableCell>
@@ -222,7 +230,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
             <h3 className="font-semibold">Custos por Conta</h3>
           </div>
           <p className="text-sm text-muted-foreground">
-            Dados do Warleine (PostgreSQL). Cada linha é uma conta (numconta) com paciente, convênio, custo total vs valor cobrado = <span className="text-emerald-500 font-medium">lucro</span> ou <span className="text-red-500 font-medium">prejuízo</span>. Clique em uma conta para ver os itens detalhados.
+            {isSamaritano ? "Dados importados do Excel (Samaritano)." : "Dados do Warleine (PostgreSQL)."} Cada linha é uma conta (numconta) com paciente, convênio, custo total vs valor cobrado = <span className="text-emerald-500 font-medium">lucro</span> ou <span className="text-red-500 font-medium">prejuízo</span>. Clique em uma conta para ver os itens detalhados.
           </p>
         </CardContent>
       </Card>
@@ -245,6 +253,22 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                 </SelectContent>
               </Select>
             </div>
+            {isSamaritano && (data as any)?.setoresDisponiveis?.length > 0 && (
+              <div className="w-48">
+                <Label className="text-xs text-muted-foreground">Setor</Label>
+                <Select value={setor || "all"} onValueChange={(v) => setSetor(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {(data as any).setoresDisponiveis.map((s: string) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="w-48">
               <Label className="text-xs text-muted-foreground">Competência</Label>
               <Select value={competencia || "all"} onValueChange={(v) => setCompetencia(v === "all" ? "" : v)}>

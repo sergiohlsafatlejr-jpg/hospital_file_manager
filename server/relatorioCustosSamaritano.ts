@@ -73,7 +73,7 @@ export async function buscarCustosPorConvenioSamaritano(
   }
 
   if (filtros.convenio) {
-    conditions.push(`convenio = '${filtros.convenio.replace(/'/g, "''")}'`);
+    conditions.push(`codplaco = '${filtros.convenio.replace(/'/g, "''")}'`);
   }
 
   if (filtros.tipoItem) {
@@ -291,7 +291,7 @@ export async function buscarCustosPorConvenioSamaritano(
 
 export async function buscarCustosPorContaSamaritano(
   estabelecimentoId: number,
-  filtros: { convenio?: string; competencia?: string; busca?: string }
+  filtros: { convenio?: string; competencia?: string; busca?: string; setor?: string }
 ) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -303,7 +303,11 @@ export async function buscarCustosPorContaSamaritano(
   }
 
   if (filtros.convenio) {
-    conditions.push(`convenio = '${filtros.convenio.replace(/'/g, "''")}'`);
+    conditions.push(`codplaco = '${filtros.convenio.replace(/'/g, "''")}'`);
+  }
+
+  if (filtros.setor) {
+    conditions.push(`setor = '${filtros.setor.replace(/'/g, "''")}'`);
   }
 
   if (filtros.busca) {
@@ -327,6 +331,12 @@ export async function buscarCustosPorContaSamaritano(
     sql.raw(`SELECT DISTINCT competencia FROM samaritano_custo_staging WHERE estabelecimentoId = ${SAMARITANO_ID} AND competencia IS NOT NULL ORDER BY competencia DESC`)
   );
   const competenciasDisponiveis = extractRows(compRaw).map((r: any) => r.competencia);
+
+  // Setores disponíveis
+  const setoresRaw = await db.execute(
+    sql.raw(`SELECT DISTINCT setor FROM samaritano_custo_staging WHERE estabelecimentoId = ${SAMARITANO_ID} AND setor IS NOT NULL AND setor != '' ORDER BY setor`)
+  );
+  const setoresDisponiveis = extractRows(setoresRaw).map((r: any) => r.setor);
 
   // Contas agrupadas
   const mainSql = `
@@ -415,6 +425,7 @@ export async function buscarCustosPorContaSamaritano(
     topContasLucro,
     conveniosDisponiveis,
     competenciasDisponiveis,
+    setoresDisponiveis,
     fonte: "samaritano_custo_staging",
   };
 }
@@ -489,6 +500,7 @@ export async function buscarDetalheContaCustoSamaritano(
       descricao: (row.descricao || "").trim(),
       tipoItem: row.tipoitem || "PR",
       tipoItemLabel: TIPO_ITEM_LABEL[row.tipoitem] || row.tipoitem || "Outros",
+      setor: (row.setor || "Sem Setor").trim(),
       unidade: "UN",
       quantidade: Math.round(quantidade * 100) / 100,
       custoUnitario: Math.round(custoUnitario * 100) / 100,
@@ -539,7 +551,7 @@ export async function buscarCustosPorSetorSamaritano(
   }
 
   if (filtros.convenio) {
-    conditions.push(`convenio = '${filtros.convenio.replace(/'/g, "''")}'`);
+    conditions.push(`codplaco = '${filtros.convenio.replace(/'/g, "''")}'`);
   }
 
   if (filtros.setor) {

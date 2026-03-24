@@ -3488,3 +3488,8 @@
 
 ## Bug - Rel. Custos Samaritano (24/03/2026)
 - [x] Corrigir erro "Cannot read properties of undefined (reading 'map')" na página /relatorio-custos ao selecionar Samaritano (causa: MySQL/Drizzle retorna [rows, fields] em vez de {rows}, criado extractRows helper)
+
+## Melhorias Rel. Custos Samaritano (24/03/2026 - 2)
+- [x] Corrigir filtro por convênio que retorna 0 resultados (causa: backend filtrava por coluna 'convenio' mas frontend enviava 'codplaco'; corrigido para usar codplaco em todas as funções)
+- [x] Adicionar coluna setor no detalhe da conta (ex: conta 1171424) - campo setor adicionado no retorno do backend e coluna no frontend
+- [x] Adicionar filtro por setor na aba Custos por Conta - dropdown de setor + setoresDisponiveis no backend
