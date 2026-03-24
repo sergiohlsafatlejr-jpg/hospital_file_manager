@@ -3424,3 +3424,9 @@
 - [x] Validar dados migrados: 1.337.761 registros = 100% match com staging
 - [x] Total faturado migrado: R$ 70.711.689,72
 - [ ] Criar endpoint no backend para futuras migrações automatizadas
+
+## Bugs Reportados (24/03/2026)
+- [x] Convênios não carregam na tela do Hemolabor após popular dados (resolvido: cache de compilação antigo, restart corrigiu)
+- [x] Erro na conciliação: "Unexpected token '<', '<!DOCTYPE '... is not valid JSON" (resolvido: mesmo problema de cache de compilação)
+- [x] Adicionado índice composto idx_fatur_estab_convenio para otimizar queries
+- [x] Adicionado índice composto idx_conciliados_estab_comp para otimizar queries de conciliação
