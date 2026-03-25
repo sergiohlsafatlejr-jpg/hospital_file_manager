@@ -2,7 +2,7 @@
  * Dashboard Samaritano - Backend
  * 
  * Fornece dados agregados para KPIs e gráficos de evolução mensal
- * por convênio, setor, custo e valor faturado.
+ * por convênio, setor, custo, valor faturado, recebido e glosado.
  */
 
 import { getDb } from "./db";
@@ -25,7 +25,7 @@ function extractRows(result: any): any[] {
 
 export async function buscarDashboardSamaritano(
   estabelecimentoId: number,
-  filtros: { competencia?: string; convenio?: string }
+  filtros: { competencia?: string; convenio?: string; tipoAtend?: string; setor?: string }
 ) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -39,10 +39,16 @@ export async function buscarDashboardSamaritano(
   if (filtros.convenio) {
     conditions.push(`codplaco = '${filtros.convenio.replace(/'/g, "''")}'`);
   }
+  if (filtros.tipoAtend) {
+    conditions.push(`tipoatend = '${filtros.tipoAtend.replace(/'/g, "''")}'`);
+  }
+  if (filtros.setor) {
+    conditions.push(`setor = '${filtros.setor.replace(/'/g, "''")}'`);
+  }
 
   const whereClause = conditions.join(" AND ");
 
-  // 1. KPIs gerais
+  // 1. KPIs gerais (agora com recebido e glosado)
   const kpisSql = `
     SELECT
       COUNT(*) as total_registros,
@@ -53,6 +59,8 @@ export async function buscarDashboardSamaritano(
       ROUND(SUM(total_cobrado), 2) as total_faturado,
       ROUND(SUM(total_custo_estoque), 2) as total_custo,
       ROUND(SUM(total_vlcusto), 2) as total_vlcusto,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as total_recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as total_glosado,
       ROUND(SUM(total_cobrado) - SUM(total_custo_estoque), 2) as margem
     FROM samaritano_custo_staging
     WHERE ${whereClause}
@@ -67,6 +75,8 @@ export async function buscarDashboardSamaritano(
   const margem = totalFaturado - custoEfetivo;
   const totalContas = Number(kpisRow.total_contas || 0);
   const ticketMedio = totalContas > 0 ? totalFaturado / totalContas : 0;
+  const totalRecebido = Number(kpisRow.total_recebido || 0);
+  const totalGlosado = Number(kpisRow.total_glosado || 0);
 
   const kpis = {
     totalRegistros: Number(kpisRow.total_registros || 0),
@@ -76,12 +86,17 @@ export async function buscarDashboardSamaritano(
     totalItensUnicos: Number(kpisRow.total_itens_unicos || 0),
     totalFaturado: Math.round(totalFaturado * 100) / 100,
     totalCusto: Math.round(custoEfetivo * 100) / 100,
+    totalRecebido: Math.round(totalRecebido * 100) / 100,
+    totalGlosado: Math.round(totalGlosado * 100) / 100,
     margem: Math.round(margem * 100) / 100,
     margemPercent: custoEfetivo > 0 ? Math.round((margem / custoEfetivo) * 10000) / 100 : 0,
     ticketMedio: Math.round(ticketMedio * 100) / 100,
+    taxaRecebimento: totalFaturado > 0 ? Math.round((totalRecebido / totalFaturado) * 10000) / 100 : 0,
+    taxaGlosa: totalFaturado > 0 ? Math.round((totalGlosado / totalFaturado) * 10000) / 100 : 0,
+    perdaLiquida: Math.round((totalFaturado - totalRecebido) * 100) / 100,
   };
 
-  // 2. Evolução mensal (Custo vs Faturado)
+  // 2. Evolução mensal (Custo vs Faturado vs Recebido vs Glosado)
   const evolucaoSql = `
     SELECT
       competencia,
@@ -90,6 +105,8 @@ export async function buscarDashboardSamaritano(
       ROUND(SUM(total_cobrado), 2) as faturado,
       ROUND(SUM(total_custo_estoque), 2) as custo,
       ROUND(SUM(total_vlcusto), 2) as vlcusto,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado,
       ROUND(SUM(total_cobrado) - SUM(total_custo_estoque), 2) as margem
     FROM samaritano_custo_staging
     WHERE ${whereClause}
@@ -106,18 +123,24 @@ export async function buscarDashboardSamaritano(
     const custoEf = custo > 0 ? custo : vlcusto;
     const margemVal = faturado - custoEf;
     const contas = Number(r.total_contas || 0);
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
     return {
       competencia: r.competencia,
       faturado: Math.round(faturado * 100) / 100,
       custo: Math.round(custoEf * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
       margem: Math.round(margemVal * 100) / 100,
       margemPercent: custoEf > 0 ? Math.round((margemVal / custoEf) * 10000) / 100 : 0,
       totalContas: contas,
       ticketMedio: contas > 0 ? Math.round((faturado / contas) * 100) / 100 : 0,
+      taxaRecebimento: faturado > 0 ? Math.round((recebido / faturado) * 10000) / 100 : 0,
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
     };
   });
 
-  // 3. Top convênios por faturamento
+  // 3. Top convênios por faturamento (com recebido e glosado)
   const topConveniosSql = `
     SELECT
       convenio,
@@ -125,7 +148,9 @@ export async function buscarDashboardSamaritano(
       COUNT(DISTINCT numconta) as total_contas,
       ROUND(SUM(total_cobrado), 2) as faturado,
       ROUND(SUM(total_custo_estoque), 2) as custo,
-      ROUND(SUM(total_vlcusto), 2) as vlcusto
+      ROUND(SUM(total_vlcusto), 2) as vlcusto,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY convenio, codplaco
@@ -140,14 +165,20 @@ export async function buscarDashboardSamaritano(
     const custo = Number(r.custo || 0);
     const vlcusto = Number(r.vlcusto || 0);
     const custoEf = custo > 0 ? custo : vlcusto;
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
     return {
       convenio: r.convenio,
       codplaco: r.codplaco,
       totalContas: Number(r.total_contas || 0),
       faturado: Math.round(faturado * 100) / 100,
       custo: Math.round(custoEf * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
       margem: Math.round((faturado - custoEf) * 100) / 100,
       margemPercent: custoEf > 0 ? Math.round(((faturado - custoEf) / custoEf) * 10000) / 100 : 0,
+      taxaRecebimento: faturado > 0 ? Math.round((recebido / faturado) * 10000) / 100 : 0,
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
     };
   });
 
@@ -158,7 +189,9 @@ export async function buscarDashboardSamaritano(
       convenio,
       codplaco,
       ROUND(SUM(total_cobrado), 2) as faturado,
-      ROUND(SUM(total_custo_estoque), 2) as custo
+      ROUND(SUM(total_custo_estoque), 2) as custo,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY competencia, convenio, codplaco
@@ -167,7 +200,6 @@ export async function buscarDashboardSamaritano(
   const evolConvenioRaw = await db.execute(sql.raw(evolConvenioSql));
   const evolConvenioRows = extractRows(evolConvenioRaw);
 
-  // Agrupar por competência
   const evolConvenioMap = new Map<string, any[]>();
   for (const r of evolConvenioRows) {
     const comp = r.competencia;
@@ -177,6 +209,8 @@ export async function buscarDashboardSamaritano(
       codplaco: r.codplaco,
       faturado: Math.round(Number(r.faturado || 0) * 100) / 100,
       custo: Math.round(Number(r.custo || 0) * 100) / 100,
+      recebido: Math.round(Number(r.recebido || 0) * 100) / 100,
+      glosado: Math.round(Number(r.glosado || 0) * 100) / 100,
     });
   }
 
@@ -185,7 +219,7 @@ export async function buscarDashboardSamaritano(
     convenios: convs,
   }));
 
-  // 5. Top setores por custo
+  // 5. Top setores por custo (com recebido e glosado)
   const topSetoresSql = `
     SELECT
       setor,
@@ -193,7 +227,9 @@ export async function buscarDashboardSamaritano(
       COUNT(DISTINCT codprod) as total_itens,
       ROUND(SUM(total_cobrado), 2) as faturado,
       ROUND(SUM(total_custo_estoque), 2) as custo,
-      ROUND(SUM(total_vlcusto), 2) as vlcusto
+      ROUND(SUM(total_vlcusto), 2) as vlcusto,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY setor
@@ -207,14 +243,19 @@ export async function buscarDashboardSamaritano(
     const custo = Number(r.custo || 0);
     const vlcusto = Number(r.vlcusto || 0);
     const custoEf = custo > 0 ? custo : vlcusto;
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
     return {
       setor: (r.setor || "Sem Setor").trim(),
       totalContas: Number(r.total_contas || 0),
       totalItens: Number(r.total_itens || 0),
       faturado: Math.round(faturado * 100) / 100,
       custo: Math.round(custoEf * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
       margem: Math.round((faturado - custoEf) * 100) / 100,
       margemPercent: custoEf > 0 ? Math.round(((faturado - custoEf) / custoEf) * 10000) / 100 : 0,
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
     };
   });
 
@@ -224,7 +265,9 @@ export async function buscarDashboardSamaritano(
       competencia,
       setor,
       ROUND(SUM(total_cobrado), 2) as faturado,
-      ROUND(SUM(total_custo_estoque), 2) as custo
+      ROUND(SUM(total_custo_estoque), 2) as custo,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY competencia, setor
@@ -241,6 +284,8 @@ export async function buscarDashboardSamaritano(
       setor: (r.setor || "Sem Setor").trim(),
       faturado: Math.round(Number(r.faturado || 0) * 100) / 100,
       custo: Math.round(Number(r.custo || 0) * 100) / 100,
+      recebido: Math.round(Number(r.recebido || 0) * 100) / 100,
+      glosado: Math.round(Number(r.glosado || 0) * 100) / 100,
     });
   }
 
@@ -249,12 +294,14 @@ export async function buscarDashboardSamaritano(
     setores,
   }));
 
-  // 7. Distribuição por tipo de item
+  // 7. Distribuição por tipo de item (com recebido e glosado)
   const tipoItemSql = `
     SELECT
       codserv as tipo,
       ROUND(SUM(total_cobrado), 2) as faturado,
       ROUND(SUM(total_custo_estoque), 2) as custo,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado,
       COUNT(*) as total_registros
     FROM samaritano_custo_staging
     WHERE ${whereClause}
@@ -280,17 +327,99 @@ export async function buscarDashboardSamaritano(
   const distribuicaoTipoItem = tipoItemRows.map((r: any) => {
     const faturado = Number(r.faturado || 0);
     const custo = Number(r.custo || 0);
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
     return {
       tipo: r.tipo || "Outros",
       tipoLabel: TIPO_ITEM_LABEL[r.tipo] || r.tipo || "Outros",
       faturado: Math.round(faturado * 100) / 100,
       custo: Math.round(custo * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
       margem: Math.round((faturado - custo) * 100) / 100,
       totalRegistros: Number(r.total_registros || 0),
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
     };
   });
 
-  // 8. Competências e convênios disponíveis para filtros
+  // 8. Distribuição por tipo de atendimento (I/A/E)
+  const tipoAtendSql = `
+    SELECT
+      tipoatend,
+      COUNT(DISTINCT numconta) as total_contas,
+      ROUND(SUM(total_cobrado), 2) as faturado,
+      ROUND(SUM(total_custo_estoque), 2) as custo,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado
+    FROM samaritano_custo_staging
+    WHERE ${whereClause}
+    GROUP BY tipoatend
+    ORDER BY faturado DESC
+  `;
+  const tipoAtendRaw = await db.execute(sql.raw(tipoAtendSql));
+  const tipoAtendRows = extractRows(tipoAtendRaw);
+
+  const TIPO_ATEND_LABEL: Record<string, string> = {
+    I: "Internação",
+    A: "Ambulatorial",
+    E: "Emergência",
+  };
+
+  const distribuicaoTipoAtend = tipoAtendRows.map((r: any) => {
+    const faturado = Number(r.faturado || 0);
+    const custo = Number(r.custo || 0);
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
+    return {
+      tipo: r.tipoatend || "Outros",
+      tipoLabel: TIPO_ATEND_LABEL[r.tipoatend] || r.tipoatend || "Outros",
+      totalContas: Number(r.total_contas || 0),
+      faturado: Math.round(faturado * 100) / 100,
+      custo: Math.round(custo * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
+      margem: Math.round((faturado - custo) * 100) / 100,
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
+      taxaRecebimento: faturado > 0 ? Math.round((recebido / faturado) * 10000) / 100 : 0,
+    };
+  });
+
+  // 9. Glosa por convênio (ranking de glosa)
+  const glosaConvenioSql = `
+    SELECT
+      convenio,
+      codplaco,
+      ROUND(SUM(total_cobrado), 2) as faturado,
+      ROUND(SUM(COALESCE(recebido, 0)), 2) as recebido,
+      ROUND(SUM(COALESCE(valor_glosada, 0)), 2) as glosado,
+      COUNT(DISTINCT numconta) as total_contas
+    FROM samaritano_custo_staging
+    WHERE ${whereClause}
+    GROUP BY convenio, codplaco
+    HAVING SUM(COALESCE(valor_glosada, 0)) > 0
+    ORDER BY glosado DESC
+    LIMIT 10
+  `;
+  const glosaConvenioRaw = await db.execute(sql.raw(glosaConvenioSql));
+  const glosaConvenioRows = extractRows(glosaConvenioRaw);
+
+  const glosasPorConvenio = glosaConvenioRows.map((r: any) => {
+    const faturado = Number(r.faturado || 0);
+    const recebido = Number(r.recebido || 0);
+    const glosado = Number(r.glosado || 0);
+    return {
+      convenio: r.convenio,
+      codplaco: r.codplaco,
+      totalContas: Number(r.total_contas || 0),
+      faturado: Math.round(faturado * 100) / 100,
+      recebido: Math.round(recebido * 100) / 100,
+      glosado: Math.round(glosado * 100) / 100,
+      taxaGlosa: faturado > 0 ? Math.round((glosado / faturado) * 10000) / 100 : 0,
+      perda: Math.round((faturado - recebido) * 100) / 100,
+    };
+  });
+
+  // 10. Competências e convênios e setores disponíveis para filtros
   const compRaw = await db.execute(
     sql.raw(`SELECT DISTINCT competencia FROM samaritano_custo_staging WHERE ${baseWhere} AND competencia IS NOT NULL ORDER BY competencia DESC`)
   );
@@ -304,6 +433,19 @@ export async function buscarDashboardSamaritano(
     nome: r.convenio,
   }));
 
+  const setoresRaw = await db.execute(
+    sql.raw(`SELECT DISTINCT setor FROM samaritano_custo_staging WHERE ${baseWhere} AND setor IS NOT NULL AND setor != '' ORDER BY setor`)
+  );
+  const setoresDisponiveis = extractRows(setoresRaw).map((r: any) => r.setor);
+
+  const tiposAtendRaw = await db.execute(
+    sql.raw(`SELECT DISTINCT tipoatend FROM samaritano_custo_staging WHERE ${baseWhere} AND tipoatend IS NOT NULL ORDER BY tipoatend`)
+  );
+  const tiposAtendDisponiveis = extractRows(tiposAtendRaw).map((r: any) => ({
+    codigo: r.tipoatend,
+    label: TIPO_ATEND_LABEL[r.tipoatend] || r.tipoatend,
+  }));
+
   return {
     kpis,
     evolucaoMensal,
@@ -312,8 +454,12 @@ export async function buscarDashboardSamaritano(
     topSetores,
     evolucaoPorSetor,
     distribuicaoTipoItem,
+    distribuicaoTipoAtend,
+    glosasPorConvenio,
     competenciasDisponiveis,
     conveniosDisponiveis,
+    setoresDisponiveis,
+    tiposAtendDisponiveis,
     fonte: "samaritano_custo_staging",
   };
 }

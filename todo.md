@@ -3523,3 +3523,12 @@
 - [x] Investigar divergência Vivacom Pronto Socorro: Conta Convênio R$ 19.098,72 vs Rel BI R$ 16.244,41 (causa: guias com itens em múltiplas competências + filtro de convênio no ft excluía itens de outros convênios)
 - [x] Corrigido: subquery para encontrar guias da competência, depois pegar TODOS os itens dessas guias sem filtrar por convênio no faturamento_tiss
 - [x] Testes atualizados (6 passando) validando que convênio é filtrado apenas na subquery (contas_convenio_resumo)
+
+- [x] Adicionar colunas recebido e valor_glosada na tabela samaritano_custo_staging
+- [x] Atualizar backend dashboardSamaritano com novos KPIs (recebido, glosado, % glosa, % recebimento)
+- [x] Adicionar filtro por tipo de atendimento (I/A/E) e setor no dashboard Samaritano
+- [x] Melhorar DashboardSamaritano com novos gráficos: Recebido vs Glosado, análise de glosa por convênio
+- [x] Adicionar KPI de taxa de recebimento e taxa de glosa no dashboard
+- [x] Atualizar importação de dados para incluir campos recebido e valor_glosada (colunas adicionadas no banco, dados serão preenchidos na próxima importação)
+- [ ] Atualizar CustosPorConta e CustosPorConvenio para mostrar recebido e glosado
+- [ ] Atualizar CustosPorSetor para mostrar recebido e glosado
