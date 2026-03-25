@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search, TrendingUp, TrendingDown, DollarSign, AlertTriangle,
   Loader2, Database, ArrowUpDown, ArrowUp, ArrowDown, Building2,
-  ChevronDown, ChevronRight, BarChart3,
+  ChevronDown, ChevronRight, BarChart3, HandCoins, ShieldAlert, Clock,
 } from "lucide-react";
 
 function formatCurrency(value: number | null | undefined): string {
@@ -22,7 +22,7 @@ interface CustosPorSetorProps {
   estabelecimentoId: number;
 }
 
-type SortField = "setor" | "totalLancamentos" | "totalItens" | "totalContas" | "totalFaturado" | "totalCusto" | "margem" | "margemPercent";
+type SortField = "setor" | "totalLancamentos" | "totalItens" | "totalContas" | "totalFaturado" | "totalCusto" | "totalRecebido" | "totalGlosado" | "pendente" | "margem" | "margemPercent" | "taxaRecebimento" | "taxaGlosa";
 type SortDir = "asc" | "desc";
 
 export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProps) {
@@ -73,8 +73,8 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
     if (!data?.resumoPorSetor) return [];
     return [...data.resumoPorSetor].sort((a, b) => {
       let cmp = 0;
-      const fieldA = a[sortField];
-      const fieldB = b[sortField];
+      const fieldA = (a as any)[sortField];
+      const fieldB = (b as any)[sortField];
       if (typeof fieldA === "string" && typeof fieldB === "string") {
         cmp = fieldA.localeCompare(fieldB, "pt-BR");
       } else if (typeof fieldA === "number" && typeof fieldB === "number") {
@@ -128,7 +128,9 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
           <p className="text-sm text-muted-foreground mt-1">
             Análise de custos agrupados por setor/centro de custo. Identifique quais setores geram mais custo,
             quais têm <span className="text-green-600 font-medium">lucro</span> e quais operam com{" "}
-            <span className="text-red-600 font-medium">prejuízo</span>.
+            <span className="text-red-600 font-medium">prejuízo</span>. Inclui valores{" "}
+            <span className="text-blue-600 font-medium">recebidos</span> e{" "}
+            <span className="text-amber-600 font-medium">glosados</span>.
           </p>
         </CardHeader>
       </Card>
@@ -212,7 +214,7 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
         </div>
       ) : data ? (
         <>
-          {/* KPIs */}
+          {/* KPIs - Linha 1: Financeiro */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card>
               <CardContent className="p-4">
@@ -248,6 +250,56 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
             </Card>
           </div>
 
+          {/* KPIs - Linha 2: Recebido / Glosado */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <HandCoins className="h-3.5 w-3.5 text-blue-500" />
+                  <p className="text-xs text-muted-foreground">Total Recebido</p>
+                </div>
+                <p className="text-xl font-bold text-blue-600">{formatCurrency((data.kpis as any).totalRecebido)}</p>
+                <p className="text-xs text-muted-foreground">
+                  Taxa: <span className="font-medium text-blue-600">{(data.kpis as any).taxaRecebimento?.toFixed(1) ?? '0.0'}%</span>
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+                  <p className="text-xs text-muted-foreground">Total Glosado</p>
+                </div>
+                <p className="text-xl font-bold text-amber-600">{formatCurrency((data.kpis as any).totalGlosado)}</p>
+                <p className="text-xs text-muted-foreground">
+                  Taxa: <span className="font-medium text-amber-600">{(data.kpis as any).taxaGlosa?.toFixed(1) ?? '0.0'}%</span>
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Clock className="h-3.5 w-3.5 text-purple-500" />
+                  <p className="text-xs text-muted-foreground">Pendente</p>
+                </div>
+                <p className="text-xl font-bold text-purple-600">
+                  {formatCurrency((data.kpis.valorFaturadoTotal || 0) - ((data.kpis as any).totalRecebido || 0) - ((data.kpis as any).totalGlosado || 0))}
+                </p>
+                <p className="text-xs text-muted-foreground">faturado - recebido - glosado</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                  <p className="text-xs text-muted-foreground">Perda Líquida</p>
+                </div>
+                <p className="text-xl font-bold text-red-600">{formatCurrency((data.kpis as any).perdaLiquida)}</p>
+                <p className="text-xs text-muted-foreground">faturado - recebido</p>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Abas internas */}
           <div className="flex gap-1 border-b">
             {[
@@ -277,7 +329,7 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Resumo por Setor / Centro de Custo</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Visão consolidada por setor. Clique em um setor para ver os top 5 itens de maior custo.
+                  Visão consolidada por setor com faturado, recebido, glosado e margem. Clique em um setor para ver os top 5 itens.
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -287,13 +339,16 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-8"></TableHead>
                         <SortableHead field="setor">Setor</SortableHead>
-                        <SortableHead field="totalLancamentos" className="text-right">Lançamentos</SortableHead>
-                        <SortableHead field="totalItens" className="text-right">Itens</SortableHead>
+                        <SortableHead field="totalLancamentos" className="text-right">Lanç.</SortableHead>
                         <SortableHead field="totalContas" className="text-right">Contas</SortableHead>
-                        <SortableHead field="totalFaturado" className="text-right">Total Faturado</SortableHead>
-                        <SortableHead field="totalCusto" className="text-right">Total Custo</SortableHead>
+                        <SortableHead field="totalFaturado" className="text-right">Faturado</SortableHead>
+                        <SortableHead field="totalRecebido" className="text-right">Recebido</SortableHead>
+                        <SortableHead field="totalGlosado" className="text-right">Glosado</SortableHead>
+                        <SortableHead field="pendente" className="text-right">Pendente</SortableHead>
+                        <SortableHead field="totalCusto" className="text-right">Custo</SortableHead>
                         <SortableHead field="margem" className="text-right">Margem</SortableHead>
-                        <SortableHead field="margemPercent" className="text-right">Margem (%)</SortableHead>
+                        <SortableHead field="taxaRecebimento" className="text-right">% Receb.</SortableHead>
+                        <SortableHead field="taxaGlosa" className="text-right">% Glosa</SortableHead>
                         <TableHead className="text-center">Resultado</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -317,16 +372,17 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                               </div>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{s.totalLancamentos.toLocaleString("pt-BR")}</TableCell>
-                            <TableCell className="text-right tabular-nums">{s.totalItens.toLocaleString("pt-BR")}</TableCell>
                             <TableCell className="text-right tabular-nums">{s.totalContas.toLocaleString("pt-BR")}</TableCell>
                             <TableCell className="text-right tabular-nums font-medium">{formatCurrency(s.totalFaturado)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-blue-600">{formatCurrency((s as any).totalRecebido)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-amber-600">{formatCurrency((s as any).totalGlosado)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-purple-600">{formatCurrency((s as any).pendente)}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatCurrency(s.totalCusto)}</TableCell>
                             <TableCell className={`text-right tabular-nums font-bold ${s.margem >= 0 ? "text-green-600" : "text-red-600"}`}>
                               {formatCurrency(s.margem)}
                             </TableCell>
-                            <TableCell className={`text-right tabular-nums ${s.margemPercent >= 0 ? "text-green-600" : "text-red-600"}`}>
-                              {s.margemPercent.toFixed(1)}%
-                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-blue-600">{(s as any).taxaRecebimento?.toFixed(1) ?? '0.0'}%</TableCell>
+                            <TableCell className="text-right tabular-nums text-amber-600">{(s as any).taxaGlosa?.toFixed(1) ?? '0.0'}%</TableCell>
                             <TableCell className="text-center">
                               <Badge variant={s.resultado === "lucro" ? "default" : s.resultado === "prejuizo" ? "destructive" : "secondary"}
                                 className={s.resultado === "lucro" ? "bg-green-600 hover:bg-green-700" : ""}>
@@ -341,7 +397,7 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                           {/* Expandido: top 5 itens do setor */}
                           {expandedSetor === s.setor && s.topItens.length > 0 && (
                             <TableRow key={`${s.setor}-expanded`}>
-                              <TableCell colSpan={10} className="bg-muted/20 p-0">
+                              <TableCell colSpan={13} className="bg-muted/20 p-0">
                                 <div className="p-3">
                                   <p className="text-xs font-medium text-muted-foreground mb-2">
                                     Top 5 itens de maior custo em "{s.setor}"
@@ -353,11 +409,13 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                                         <TableHead className="text-xs text-right">Quantidade</TableHead>
                                         <TableHead className="text-xs text-right">Custo Total</TableHead>
                                         <TableHead className="text-xs text-right">Valor Cobrado</TableHead>
+                                        <TableHead className="text-xs text-right">Recebido</TableHead>
+                                        <TableHead className="text-xs text-right">Glosado</TableHead>
                                         <TableHead className="text-xs text-right">Margem</TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                      {s.topItens.map((item, idx) => (
+                                      {s.topItens.map((item: any, idx: number) => (
                                         <TableRow key={idx} className="text-xs">
                                           <TableCell className="py-1.5">{item.descricao}</TableCell>
                                           <TableCell className="py-1.5 text-right tabular-nums">
@@ -365,6 +423,8 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                                           </TableCell>
                                           <TableCell className="py-1.5 text-right tabular-nums">{formatCurrency(item.custoTotal)}</TableCell>
                                           <TableCell className="py-1.5 text-right tabular-nums">{formatCurrency(item.valorCobrado)}</TableCell>
+                                          <TableCell className="py-1.5 text-right tabular-nums text-blue-600">{formatCurrency(item.recebido)}</TableCell>
+                                          <TableCell className="py-1.5 text-right tabular-nums text-amber-600">{formatCurrency(item.glosado)}</TableCell>
                                           <TableCell className={`py-1.5 text-right tabular-nums font-medium ${item.margem >= 0 ? "text-green-600" : "text-red-600"}`}>
                                             {formatCurrency(item.margem)}
                                           </TableCell>
@@ -380,7 +440,7 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                       ))}
                       {sortedResumo.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                             Nenhum setor encontrado para os filtros selecionados
                           </TableCell>
                         </TableRow>
@@ -398,7 +458,7 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Tabela Detalhada - Itens por Setor</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Cada linha = 1 item + 1 setor. Mostra custo unitário, valor cobrado e margem.
+                  Cada linha = 1 item + 1 setor. Mostra custo unitário, valor cobrado, recebido, glosado e margem.
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -411,16 +471,16 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                         <TableHead>Descrição</TableHead>
                         <TableHead className="text-center">Tipo</TableHead>
                         <TableHead className="text-right">Qtd</TableHead>
-                        <TableHead className="text-center">Unid.</TableHead>
-                        <TableHead className="text-right">Custo Unit.</TableHead>
                         <TableHead className="text-right">Custo Total</TableHead>
                         <TableHead className="text-right">Vlr Cobrado</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
                         <TableHead className="text-right">Margem</TableHead>
                         <TableHead className="text-center">Resultado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.itensDetalhados.map((item, idx) => (
+                      {data.itensDetalhados.map((item: any, idx: number) => (
                         <TableRow
                           key={`${item.codprod}-${item.setor}-${idx}`}
                           className={item.resultado === "prejuizo" ? "bg-red-50/50 dark:bg-red-950/10" : ""}
@@ -451,10 +511,10 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                           <TableCell className="text-right tabular-nums">
                             {item.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
                           </TableCell>
-                          <TableCell className="text-center text-xs text-muted-foreground">{item.unidade}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatCurrency(item.custoUnitario)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.custoTotal)}</TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{formatCurrency(item.valorCobradoTotal)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-600">{formatCurrency(item.recebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-amber-600">{formatCurrency(item.glosado)}</TableCell>
                           <TableCell className={`text-right tabular-nums font-bold ${
                             item.margem > 0 ? "text-green-600" : item.margem < 0 ? "text-red-600" : "text-muted-foreground"
                           }`}>
@@ -513,15 +573,17 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                       <TableRow className="bg-muted/50">
                         <TableHead>#</TableHead>
                         <TableHead>Setor</TableHead>
-                        <TableHead className="text-right">Lançamentos</TableHead>
-                        <TableHead className="text-right">Total Faturado</TableHead>
-                        <TableHead className="text-right">Total Custo</TableHead>
+                        <TableHead className="text-right">Lanç.</TableHead>
+                        <TableHead className="text-right">Faturado</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
+                        <TableHead className="text-right">Custo</TableHead>
                         <TableHead className="text-right">Prejuízo</TableHead>
-                        <TableHead className="text-right">Margem (%)</TableHead>
+                        <TableHead className="text-right">% Glosa</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.topSetoresPrejuizo.map((s, idx) => (
+                      {data.topSetoresPrejuizo.map((s: any, idx: number) => (
                         <TableRow key={s.setor} className="bg-red-50/30 dark:bg-red-950/10">
                           <TableCell className="font-bold text-red-600">{idx + 1}</TableCell>
                           <TableCell className="font-medium">
@@ -532,14 +594,16 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{s.totalLancamentos.toLocaleString("pt-BR")}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(s.totalFaturado)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-600">{formatCurrency((s as any).totalRecebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-amber-600">{formatCurrency((s as any).totalGlosado)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(s.totalCusto)}</TableCell>
                           <TableCell className="text-right tabular-nums font-bold text-red-600">{formatCurrency(s.margem)}</TableCell>
-                          <TableCell className="text-right tabular-nums text-red-600">{s.margemPercent.toFixed(1)}%</TableCell>
+                          <TableCell className="text-right tabular-nums text-amber-600">{(s as any).taxaGlosa?.toFixed(1) ?? '0.0'}%</TableCell>
                         </TableRow>
                       ))}
                       {data.topSetoresPrejuizo.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                             Nenhum setor com prejuízo encontrado
                           </TableCell>
                         </TableRow>
@@ -570,15 +634,17 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                       <TableRow className="bg-muted/50">
                         <TableHead>#</TableHead>
                         <TableHead>Setor</TableHead>
-                        <TableHead className="text-right">Lançamentos</TableHead>
-                        <TableHead className="text-right">Total Faturado</TableHead>
-                        <TableHead className="text-right">Total Custo</TableHead>
+                        <TableHead className="text-right">Lanç.</TableHead>
+                        <TableHead className="text-right">Faturado</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
+                        <TableHead className="text-right">Custo</TableHead>
                         <TableHead className="text-right">Lucro</TableHead>
-                        <TableHead className="text-right">Margem (%)</TableHead>
+                        <TableHead className="text-right">% Receb.</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.topSetoresLucro.map((s, idx) => (
+                      {data.topSetoresLucro.map((s: any, idx: number) => (
                         <TableRow key={s.setor} className="bg-green-50/30 dark:bg-green-950/10">
                           <TableCell className="font-bold text-green-600">{idx + 1}</TableCell>
                           <TableCell className="font-medium">
@@ -589,14 +655,16 @@ export default function CustosPorSetor({ estabelecimentoId }: CustosPorSetorProp
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{s.totalLancamentos.toLocaleString("pt-BR")}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(s.totalFaturado)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-600">{formatCurrency((s as any).totalRecebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-amber-600">{formatCurrency((s as any).totalGlosado)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(s.totalCusto)}</TableCell>
                           <TableCell className="text-right tabular-nums font-bold text-green-600">{formatCurrency(s.margem)}</TableCell>
-                          <TableCell className="text-right tabular-nums text-green-600">{s.margemPercent.toFixed(1)}%</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-600">{(s as any).taxaRecebimento?.toFixed(1) ?? '0.0'}%</TableCell>
                         </TableRow>
                       ))}
                       {data.topSetoresLucro.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                             Nenhum setor com lucro encontrado
                           </TableCell>
                         </TableRow>

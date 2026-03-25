@@ -3539,3 +3539,13 @@
 - [x] Atualizar frontend CustosPorConta para exibir colunas recebido e glosado
 - [x] Atualizar frontend CustosPorConvenio (aba dentro de RelatorioCustos) para exibir colunas recebido e glosado
 - [x] Atualizar testes unitários
+
+## Importação de Dados Recebido/Glosado da Planilha SamaritanoCUSTO.ods (25/03/2026)
+- [x] Analisar colunas da planilha para mapear recebido e valor_glosada
+- [x] Criar script para limpar tabela e reinserir todos os dados com recebido e valor_glosada
+- [x] Executar importação e verificar dados no banco (411.201 registros, 0 erros, 58s)
+
+## Melhorias Custos por Setor - Recebido/Glosado (25/03/2026)
+- [x] Atualizar backend buscarCustosPorSetorSamaritano para incluir recebido e glosado nas queries
+- [x] Atualizar frontend CustosPorSetor para exibir colunas recebido e glosado
+- [x] Atualizar testes unitários (14 testes passando)

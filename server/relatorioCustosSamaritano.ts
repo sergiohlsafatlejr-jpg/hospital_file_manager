@@ -659,7 +659,9 @@ export async function buscarCustosPorSetorSamaritano(
       COUNT(DISTINCT numconta) as total_contas,
       SUM(total_cobrado) as total_faturado,
       SUM(total_vlcusto) as total_vlcusto,
-      SUM(total_custo_estoque) as total_custo_estoque
+      SUM(total_custo_estoque) as total_custo_estoque,
+      SUM(COALESCE(recebido, 0)) as total_recebido,
+      SUM(COALESCE(valor_glosada, 0)) as total_glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY setor
@@ -675,7 +677,9 @@ export async function buscarCustosPorSetorSamaritano(
       descricao,
       SUM(total_itens) as quantidade,
       SUM(total_custo_estoque) as custo_total,
-      SUM(total_cobrado) as valor_cobrado
+      SUM(total_cobrado) as valor_cobrado,
+      SUM(COALESCE(recebido, 0)) as recebido,
+      SUM(COALESCE(valor_glosada, 0)) as glosado
     FROM samaritano_custo_staging
     WHERE ${whereClause}
     GROUP BY setor, descricao
@@ -694,11 +698,15 @@ export async function buscarCustosPorSetorSamaritano(
     }
     const arr = topItensPorSetorMap.get(setor)!;
     if (arr.length < 5) {
+      const recebido = Number(row.recebido || 0);
+      const glosado = Number(row.glosado || 0);
       arr.push({
         descricao: (row.descricao || "").trim(),
         quantidade: Number(row.quantidade || 0),
         custoTotal: Math.round(custoTotal * 100) / 100,
         valorCobrado: Math.round(valorCobrado * 100) / 100,
+        recebido: Math.round(recebido * 100) / 100,
+        glosado: Math.round(glosado * 100) / 100,
         margem: Math.round((valorCobrado - custoTotal) * 100) / 100,
       });
     }
@@ -706,6 +714,8 @@ export async function buscarCustosPorSetorSamaritano(
 
   let valorFaturadoTotal = 0;
   let custoTotalGeral = 0;
+  let recebidoTotalGeral = 0;
+  let glosadoTotalGeral = 0;
   let setoresComLucro = 0;
   let setoresComPrejuizo = 0;
   let totalLancamentos = 0;
@@ -716,11 +726,15 @@ export async function buscarCustosPorSetorSamaritano(
     const totalCustoEstoque = Number(r.total_custo_estoque || 0);
     const totalVlcusto = Number(r.total_vlcusto || 0);
     const totalCusto = totalCustoEstoque > 0 ? totalCustoEstoque : totalVlcusto;
+    const totalRecebido = Number(r.total_recebido || 0);
+    const totalGlosado = Number(r.total_glosado || 0);
     const margem = totalFaturado - totalCusto;
     const lancamentos = Number(r.total_lancamentos || 0);
 
     valorFaturadoTotal += totalFaturado;
     custoTotalGeral += totalCusto;
+    recebidoTotalGeral += totalRecebido;
+    glosadoTotalGeral += totalGlosado;
     totalLancamentos += lancamentos;
 
     if (margem > 0.01) setoresComLucro++;
@@ -733,6 +747,11 @@ export async function buscarCustosPorSetorSamaritano(
       totalContas: Number(r.total_contas || 0),
       totalFaturado: Math.round(totalFaturado * 100) / 100,
       totalCusto: Math.round(totalCusto * 100) / 100,
+      totalRecebido: Math.round(totalRecebido * 100) / 100,
+      totalGlosado: Math.round(totalGlosado * 100) / 100,
+      pendente: Math.round((totalFaturado - totalRecebido - totalGlosado) * 100) / 100,
+      taxaRecebimento: totalFaturado > 0 ? Math.round((totalRecebido / totalFaturado) * 10000) / 100 : 0,
+      taxaGlosa: totalFaturado > 0 ? Math.round((totalGlosado / totalFaturado) * 10000) / 100 : 0,
       margem: Math.round(margem * 100) / 100,
       margemPercent: totalCusto > 0 ? Math.round((margem / totalCusto) * 10000) / 100 : 0,
       resultado: margem > 0.01 ? "lucro" as const : margem < -0.01 ? "prejuizo" as const : "empate" as const,
@@ -751,6 +770,8 @@ export async function buscarCustosPorSetorSamaritano(
       SUM(total_cobrado) as total_cobrado,
       SUM(total_vlcusto) as total_vlcusto,
       SUM(total_custo_estoque) as total_custo_estoque,
+      SUM(COALESCE(recebido, 0)) as total_recebido,
+      SUM(COALESCE(valor_glosada, 0)) as total_glosado,
       COUNT(*) as num_lancamentos
     FROM samaritano_custo_staging
     WHERE ${whereClause}
@@ -784,6 +805,8 @@ export async function buscarCustosPorSetorSamaritano(
       custoTotal: Math.round(custoTotal * 100) / 100,
       valorCobradoUnitario: Math.round(valorCobradoUnitario * 100) / 100,
       valorCobradoTotal: Math.round(valorCobradoTotal * 100) / 100,
+      recebido: Math.round(Number(row.total_recebido || 0) * 100) / 100,
+      glosado: Math.round(Number(row.total_glosado || 0) * 100) / 100,
       margem: Math.round(margem * 100) / 100,
       resultado: margem > 0.01 ? "lucro" as const : margem < -0.01 ? "prejuizo" as const : "empate" as const,
     };
@@ -810,6 +833,11 @@ export async function buscarCustosPorSetorSamaritano(
       totalLancamentos,
       valorFaturadoTotal: Math.round(valorFaturadoTotal * 100) / 100,
       custoTotal: Math.round(custoTotalGeral * 100) / 100,
+      totalRecebido: Math.round(recebidoTotalGeral * 100) / 100,
+      totalGlosado: Math.round(glosadoTotalGeral * 100) / 100,
+      perdaLiquida: Math.round((valorFaturadoTotal - recebidoTotalGeral) * 100) / 100,
+      taxaRecebimento: valorFaturadoTotal > 0 ? Math.round((recebidoTotalGeral / valorFaturadoTotal) * 10000) / 100 : 0,
+      taxaGlosa: valorFaturadoTotal > 0 ? Math.round((glosadoTotalGeral / valorFaturadoTotal) * 10000) / 100 : 0,
       margemTotal: Math.round(margemTotal * 100) / 100,
       margemMediaPercent: custoTotalGeral > 0
         ? Math.round((margemTotal / custoTotalGeral) * 10000) / 100
