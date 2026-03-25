@@ -219,6 +219,53 @@ describe("dashboardSamaritano", () => {
     expect(sqlStr).toContain("tipoatend = 'I'");
   });
 
+  it("deve aplicar filtro com array (multi-seleção) de competências", async () => {
+    for (let i = 0; i < 13; i++) {
+      mockExecute.mockResolvedValueOnce([[], []]);
+    }
+
+    await buscarDashboardSamaritano(2280016, { competencia: ["2025/12", "2026/01"] });
+
+    expect(mockExecute).toHaveBeenCalled();
+    const firstCallArg = mockExecute.mock.calls[0][0];
+    const sqlStr = JSON.stringify(firstCallArg);
+    expect(sqlStr).toContain("IN");
+    expect(sqlStr).toContain("2025/12");
+    expect(sqlStr).toContain("2026/01");
+  });
+
+  it("deve aplicar filtro com array (multi-seleção) de setores", async () => {
+    for (let i = 0; i < 13; i++) {
+      mockExecute.mockResolvedValueOnce([[], []]);
+    }
+
+    await buscarDashboardSamaritano(2280016, { setor: ["Internação Cirúrgica", "Internação Clínica"] });
+
+    expect(mockExecute).toHaveBeenCalled();
+    const firstCallArg = mockExecute.mock.calls[0][0];
+    const sqlStr = JSON.stringify(firstCallArg);
+    expect(sqlStr).toContain("IN");
+    expect(sqlStr).toContain("Internação Cirúrgica");
+    expect(sqlStr).toContain("Internação Clínica");
+  });
+
+  it("deve ignorar valores 'todos'/'todas' em arrays", async () => {
+    for (let i = 0; i < 13; i++) {
+      mockExecute.mockResolvedValueOnce([[], []]);
+    }
+
+    await buscarDashboardSamaritano(2280016, { competencia: ["todos"], setor: ["todas"] });
+
+    expect(mockExecute).toHaveBeenCalled();
+    const firstCallArg = mockExecute.mock.calls[0][0];
+    const sqlStr = JSON.stringify(firstCallArg);
+    // Não deve conter filtro de competência ou setor pois são "todos"
+    expect(sqlStr).not.toContain("competencia =");
+    expect(sqlStr).not.toContain("competencia IN");
+    expect(sqlStr).not.toContain("setor =");
+    expect(sqlStr).not.toContain("setor IN");
+  });
+
   it("deve aplicar filtro de setor", async () => {
     for (let i = 0; i < 13; i++) {
       mockExecute.mockResolvedValueOnce([[], []]);

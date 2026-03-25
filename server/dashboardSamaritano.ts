@@ -25,7 +25,7 @@ function extractRows(result: any): any[] {
 
 export async function buscarDashboardSamaritano(
   estabelecimentoId: number,
-  filtros: { competencia?: string; convenio?: string; tipoAtend?: string; setor?: string }
+  filtros: { competencia?: string | string[]; convenio?: string | string[]; tipoAtend?: string | string[]; setor?: string | string[] }
 ) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível");
@@ -33,18 +33,23 @@ export async function buscarDashboardSamaritano(
   const baseWhere = `estabelecimentoId = ${SAMARITANO_ID}`;
   const conditions: string[] = [baseWhere];
 
-  if (filtros.competencia) {
-    conditions.push(`competencia = '${filtros.competencia.replace(/'/g, "''")}'`);
+  // Helper para gerar condição IN ou = dependendo se é array ou string
+  function addFilter(field: string, value: string | string[] | undefined) {
+    if (!value) return;
+    const values = Array.isArray(value) ? value.filter(v => v && v !== 'todos' && v !== 'todas') : [value];
+    if (values.length === 0) return;
+    if (values.length === 1) {
+      conditions.push(`${field} = '${values[0].replace(/'/g, "''")}'`);
+    } else {
+      const escaped = values.map(v => `'${v.replace(/'/g, "''")}' `).join(", ");
+      conditions.push(`${field} IN (${escaped})`);
+    }
   }
-  if (filtros.convenio) {
-    conditions.push(`codplaco = '${filtros.convenio.replace(/'/g, "''")}'`);
-  }
-  if (filtros.tipoAtend) {
-    conditions.push(`tipoatend = '${filtros.tipoAtend.replace(/'/g, "''")}'`);
-  }
-  if (filtros.setor) {
-    conditions.push(`setor = '${filtros.setor.replace(/'/g, "''")}'`);
-  }
+
+  addFilter('competencia', filtros.competencia);
+  addFilter('codplaco', filtros.convenio);
+  addFilter('tipoatend', filtros.tipoAtend);
+  addFilter('setor', filtros.setor);
 
   const whereClause = conditions.join(" AND ");
 

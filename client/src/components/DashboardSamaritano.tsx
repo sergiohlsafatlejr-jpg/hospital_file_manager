@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -42,18 +42,18 @@ interface Props {
 }
 
 export default function DashboardSamaritano({ estabelecimentoId }: Props) {
-  const [competencia, setCompetencia] = useState<string>("");
-  const [convenio, setConvenio] = useState<string>("");
-  const [tipoAtend, setTipoAtend] = useState<string>("");
-  const [setor, setSetor] = useState<string>("");
+  const [competencias, setCompetencias] = useState<string[]>([]);
+  const [convenios, setConvenios] = useState<string[]>([]);
+  const [tiposAtend, setTiposAtend] = useState<string[]>([]);
+  const [setores, setSetores] = useState<string[]>([]);
 
   const queryInput = useMemo(() => ({
     estabelecimentoId,
-    competencia: competencia || undefined,
-    convenio: convenio && convenio !== "todos" ? convenio : undefined,
-    tipoAtend: tipoAtend && tipoAtend !== "todos" ? tipoAtend : undefined,
-    setor: setor && setor !== "todos" ? setor : undefined,
-  }), [estabelecimentoId, competencia, convenio, tipoAtend, setor]);
+    competencia: competencias.length > 0 ? competencias : undefined,
+    convenio: convenios.length > 0 ? convenios : undefined,
+    tipoAtend: tiposAtend.length > 0 ? tiposAtend : undefined,
+    setor: setores.length > 0 ? setores : undefined,
+  }), [estabelecimentoId, competencias, convenios, tiposAtend, setores]);
 
   const { data, isLoading, error } = trpc.relatorioCustos.dashboardSamaritano.useQuery(
     queryInput,
@@ -61,13 +61,13 @@ export default function DashboardSamaritano({ estabelecimentoId }: Props) {
   );
 
   const handleClear = () => {
-    setCompetencia("");
-    setConvenio("");
-    setTipoAtend("");
-    setSetor("");
+    setCompetencias([]);
+    setConvenios([]);
+    setTiposAtend([]);
+    setSetores([]);
   };
 
-  const hasFilters = competencia || (convenio && convenio !== "todos") || (tipoAtend && tipoAtend !== "todos") || (setor && setor !== "todos");
+  const hasFilters = competencias.length > 0 || convenios.length > 0 || tiposAtend.length > 0 || setores.length > 0;
 
   if (isLoading) {
     return (
@@ -209,64 +209,48 @@ export default function DashboardSamaritano({ estabelecimentoId }: Props) {
       <Card>
         <CardContent className="pt-4 pb-3">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-40">
-              <label className="text-xs text-muted-foreground block mb-1">Competência</label>
-              <Select value={competencia || "todas"} onValueChange={(v) => setCompetencia(v === "todas" ? "" : v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  {data.competenciasDisponiveis.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-48">
-              <label className="text-xs text-muted-foreground block mb-1">Convênio</label>
-              <Select value={convenio || "todos"} onValueChange={(v) => setConvenio(v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {data.conveniosDisponiveis.map((c) => (
-                    <SelectItem key={c.codplaco} value={c.codplaco}>{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="w-44">
-              <label className="text-xs text-muted-foreground block mb-1">Tipo Atendimento</label>
-              <Select value={tipoAtend || "todos"} onValueChange={(v) => setTipoAtend(v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {(data.tiposAtendDisponiveis || []).map((t) => (
-                    <SelectItem key={t.codigo} value={t.codigo}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="text-xs text-muted-foreground block mb-1">Competência</label>
+              <MultiSelect
+                options={data.competenciasDisponiveis.map((c) => ({ value: c, label: c }))}
+                selected={competencias}
+                onChange={setCompetencias}
+                placeholder="Todas"
+                allLabel="Todas"
+              />
+            </div>
+
+            <div className="w-52">
+              <label className="text-xs text-muted-foreground block mb-1">Convênio</label>
+              <MultiSelect
+                options={data.conveniosDisponiveis.map((c) => ({ value: c.codplaco, label: c.nome }))}
+                selected={convenios}
+                onChange={setConvenios}
+                placeholder="Todos"
+                allLabel="Todos"
+              />
             </div>
 
             <div className="w-48">
+              <label className="text-xs text-muted-foreground block mb-1">Tipo Atendimento</label>
+              <MultiSelect
+                options={(data.tiposAtendDisponiveis || []).map((t) => ({ value: t.codigo, label: t.label }))}
+                selected={tiposAtend}
+                onChange={setTiposAtend}
+                placeholder="Todos"
+                allLabel="Todos"
+              />
+            </div>
+
+            <div className="w-52">
               <label className="text-xs text-muted-foreground block mb-1">Setor</label>
-              <Select value={setor || "todos"} onValueChange={(v) => setSetor(v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {(data.setoresDisponiveis || []).map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelect
+                options={(data.setoresDisponiveis || []).map((s) => ({ value: s, label: s }))}
+                selected={setores}
+                onChange={setSetores}
+                placeholder="Todos"
+                allLabel="Todos"
+              />
             </div>
 
             {hasFilters && (

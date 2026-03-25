@@ -164,10 +164,10 @@ export const relatorioCustosRouter = router({
     .input(
       z.object({
         estabelecimentoId: z.number(),
-        competencia: z.string().optional(),
-        convenio: z.string().optional(),
-        tipoAtend: z.string().optional(),
-        setor: z.string().optional(),
+        competencia: z.union([z.string(), z.array(z.string())]).optional(),
+        convenio: z.union([z.string(), z.array(z.string())]).optional(),
+        tipoAtend: z.union([z.string(), z.array(z.string())]).optional(),
+        setor: z.union([z.string(), z.array(z.string())]).optional(),
       })
     )
     .query(async ({ input }) => {

@@ -3549,3 +3549,9 @@
 - [x] Atualizar backend buscarCustosPorSetorSamaritano para incluir recebido e glosado nas queries
 - [x] Atualizar frontend CustosPorSetor para exibir colunas recebido e glosado
 - [x] Atualizar testes unitários (14 testes passando)
+
+## Multi-seleção nos Filtros do Dashboard Samaritano (25/03/2026)
+- [x] Criar componente MultiSelect reutilizável
+- [x] Atualizar backend dashboardSamaritano para aceitar arrays nos filtros
+- [x] Atualizar frontend DashboardSamaritano para usar MultiSelect nos filtros
+- [ ] Aplicar multi-seleção também nas abas CustosPorConta, CustosPorConvenio e CustosPorSetor (futuro)
