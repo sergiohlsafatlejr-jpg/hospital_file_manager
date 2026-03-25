@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search, ArrowLeft, TrendingUp, TrendingDown, DollarSign, FileText,
-  AlertTriangle, CheckCircle2, Minus, Loader2, X,
+  AlertTriangle, CheckCircle2, Minus, Loader2, X, Ban, Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -106,7 +106,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
         ) : detalhe ? (
           <>
             {/* KPIs da conta */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card>
                 <CardContent className="pt-4 pb-3">
                   <p className="text-xs text-muted-foreground">Custo Total</p>
@@ -131,17 +131,52 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
               </Card>
               <Card>
                 <CardContent className="pt-4 pb-3">
-                  <p className="text-xs text-muted-foreground">Itens c/ Prejuízo</p>
-                  <p className="text-lg font-bold text-red-500">{detalhe.itensPrejuizo}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-4 pb-3">
-                  <p className="text-xs text-muted-foreground">Itens s/ Custo</p>
-                  <p className="text-lg font-bold text-amber-500">{detalhe.itensSemCusto}</p>
+                  <div className="flex justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Itens Prej.</p>
+                      <p className="text-lg font-bold text-red-500">{detalhe.itensPrejuizo}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">S/ Custo</p>
+                      <p className="text-lg font-bold text-amber-500">{detalhe.itensSemCusto}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </div>
+            {/* KPIs Recebido/Glosado */}
+            {isSamaritano && (detalhe as any).recebido !== undefined && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Receipt className="h-3 w-3" /> Recebido</p>
+                    <p className="text-lg font-bold text-blue-500">{formatCurrency((detalhe as any).recebido)}</p>
+                    <p className="text-xs text-muted-foreground">{((detalhe as any).taxaRecebimento || 0).toFixed(1)}% do cobrado</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Ban className="h-3 w-3" /> Glosado</p>
+                    <p className="text-lg font-bold text-orange-500">{formatCurrency((detalhe as any).glosado)}</p>
+                    <p className="text-xs text-muted-foreground">{((detalhe as any).taxaGlosa || 0).toFixed(1)}% do cobrado</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground">Perda Líquida</p>
+                    <p className="text-lg font-bold text-red-400">{formatCurrency(detalhe.valorCobrado - ((detalhe as any).recebido || 0))}</p>
+                    <p className="text-xs text-muted-foreground">Cobrado - Recebido</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <p className="text-xs text-muted-foreground">Pendente</p>
+                    <p className="text-lg font-bold text-amber-500">{formatCurrency(detalhe.valorCobrado - ((detalhe as any).recebido || 0) - ((detalhe as any).glosado || 0))}</p>
+                    <p className="text-xs text-muted-foreground">Não recebido e não glosado</p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Tabela de itens */}
             <Card>
@@ -166,6 +201,8 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                         <TableHead className="text-right">Custo Total</TableHead>
                         <TableHead className="text-right">Cobrado Unit.</TableHead>
                         <TableHead className="text-right">Cobrado Total</TableHead>
+                        {isSamaritano && <TableHead className="text-right">Recebido</TableHead>}
+                        {isSamaritano && <TableHead className="text-right">Glosado</TableHead>}
                         <TableHead className="text-right">Margem</TableHead>
                         <TableHead className="text-center">Status</TableHead>
                       </TableRow>
@@ -185,6 +222,8 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                           <TableCell className="text-right font-mono text-sm text-red-500">{formatCurrency(item.custoTotal)}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(item.valorCobradoUnitario)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-emerald-500">{formatCurrency(item.valorCobradoTotal)}</TableCell>
+                          {isSamaritano && <TableCell className="text-right font-mono text-sm text-blue-500">{formatCurrency((item as any).recebido)}</TableCell>}
+                          {isSamaritano && <TableCell className="text-right font-mono text-sm text-orange-500">{formatCurrency((item as any).glosado)}</TableCell>}
                           <TableCell className={`text-right font-mono text-sm font-semibold ${item.resultado === "lucro" ? "text-emerald-600" : item.resultado === "prejuizo" ? "text-red-600" : "text-muted-foreground"}`}>
                             {formatCurrency(item.margem)}
                           </TableCell>
@@ -308,6 +347,7 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
 
       {/* KPIs */}
       {data?.kpis && (
+        <>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card>
             <CardContent className="pt-4 pb-3">
@@ -347,6 +387,40 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
             </CardContent>
           </Card>
         </div>
+        {/* KPIs Recebido/Glosado - apenas Samaritano */}
+        {isSamaritano && (data.kpis as any).recebidoTotalGeral !== undefined && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-xs text-muted-foreground uppercase flex items-center gap-1"><Receipt className="h-3 w-3" /> Total Recebido</p>
+                <p className="text-xl font-bold text-blue-500">{formatCurrency((data.kpis as any).recebidoTotalGeral)}</p>
+                <p className="text-xs text-muted-foreground">{((data.kpis as any).taxaRecebimento || 0).toFixed(1)}% do cobrado</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-xs text-muted-foreground uppercase flex items-center gap-1"><Ban className="h-3 w-3" /> Total Glosado</p>
+                <p className="text-xl font-bold text-orange-500">{formatCurrency((data.kpis as any).glosadoTotalGeral)}</p>
+                <p className="text-xs text-muted-foreground">{((data.kpis as any).taxaGlosa || 0).toFixed(1)}% do cobrado</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-xs text-muted-foreground uppercase">Perda Líquida</p>
+                <p className="text-xl font-bold text-red-400">{formatCurrency(data.kpis.valorCobradoGeral - ((data.kpis as any).recebidoTotalGeral || 0))}</p>
+                <p className="text-xs text-muted-foreground">Cobrado - Recebido</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-xs text-muted-foreground uppercase">Pendente</p>
+                <p className="text-xl font-bold text-amber-500">{formatCurrency(data.kpis.valorCobradoGeral - ((data.kpis as any).recebidoTotalGeral || 0) - ((data.kpis as any).glosadoTotalGeral || 0))}</p>
+                <p className="text-xs text-muted-foreground">Não recebido e não glosado</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        </>
       )}
 
       {/* Tabela de contas */}
@@ -376,6 +450,8 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                     <TableHead className="text-center">Itens</TableHead>
                     <TableHead className="text-right">Custo Total</TableHead>
                     <TableHead className="text-right">Valor Cobrado</TableHead>
+                    {isSamaritano && <TableHead className="text-right">Recebido</TableHead>}
+                    {isSamaritano && <TableHead className="text-right">Glosado</TableHead>}
                     <TableHead className="text-right">Margem</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                   </TableRow>
@@ -396,6 +472,8 @@ export default function CustosPorConta({ estabelecimentoId }: CustosPorContaProp
                       <TableCell className="text-center font-mono text-sm">{conta.totalItens}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-red-500">{formatCurrency(conta.custoTotal)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-emerald-500">{formatCurrency(conta.valorCobrado)}</TableCell>
+                      {isSamaritano && <TableCell className="text-right font-mono text-sm text-blue-500">{formatCurrency((conta as any).recebido)}</TableCell>}
+                      {isSamaritano && <TableCell className="text-right font-mono text-sm text-orange-500">{formatCurrency((conta as any).glosado)}</TableCell>}
                       <TableCell className={`text-right font-mono text-sm font-semibold ${conta.resultado === "lucro" ? "text-emerald-600" : conta.resultado === "prejuizo" ? "text-red-600" : "text-muted-foreground"}`}>
                         {formatCurrency(conta.margem)}
                         <span className="text-xs ml-1">({conta.margemPercent.toFixed(1)}%)</span>

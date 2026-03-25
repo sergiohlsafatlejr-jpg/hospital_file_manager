@@ -3532,3 +3532,10 @@
 - [x] Atualizar importação de dados para incluir campos recebido e valor_glosada (colunas adicionadas no banco, dados serão preenchidos na próxima importação)
 - [ ] Atualizar CustosPorConta e CustosPorConvenio para mostrar recebido e glosado
 - [ ] Atualizar CustosPorSetor para mostrar recebido e glosado
+
+## Melhorias Custos por Conta e Custos por Convênio - Recebido/Glosado (25/03/2026)
+- [x] Atualizar backend buscarCustosPorConvenioSamaritano para incluir recebido e glosado nas queries
+- [x] Atualizar backend buscarCustosPorContaSamaritano para incluir recebido e glosado nas queries
+- [x] Atualizar frontend CustosPorConta para exibir colunas recebido e glosado
+- [x] Atualizar frontend CustosPorConvenio (aba dentro de RelatorioCustos) para exibir colunas recebido e glosado
+- [x] Atualizar testes unitários

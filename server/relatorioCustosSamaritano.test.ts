@@ -45,7 +45,7 @@ describe("relatorioCustosSamaritano", () => {
         { competencia: "2026/02" },
         { competencia: "2026/01" },
       ]));
-      // Mock detalhado
+      // Mock detalhado (com recebido e glosado)
       mockExecute.mockResolvedValueOnce(mysqlResult([
         {
           codprod: "1001",
@@ -57,10 +57,12 @@ describe("relatorioCustosSamaritano", () => {
           total_cobrado: 1500.00,
           total_vlcusto: 800.00,
           total_custo_estoque: 900.00,
+          total_recebido: 1200.00,
+          total_glosado: 150.00,
           num_lancamentos: 10,
         },
       ]));
-      // Mock resumo
+      // Mock resumo (com recebido e glosado)
       mockExecute.mockResolvedValueOnce(mysqlResult([
         {
           convenio: "Ipasgo Novo",
@@ -69,6 +71,8 @@ describe("relatorioCustosSamaritano", () => {
           total_faturado: 15000.00,
           total_vlcusto: 8000.00,
           total_custo_estoque: 9000.00,
+          total_recebido: 12000.00,
+          total_glosado: 1500.00,
         },
       ]));
 
@@ -87,10 +91,23 @@ describe("relatorioCustosSamaritano", () => {
       expect(result.itensDetalhados[0].descricao).toBe("Consulta Médica");
       expect(result.itensDetalhados[0].margem).toBe(600); // 1500 - 900
       expect(result.itensDetalhados[0].resultado).toBe("lucro");
+      // Verificar recebido e glosado nos itens
+      expect(result.itensDetalhados[0].recebido).toBe(1200);
+      expect(result.itensDetalhados[0].glosado).toBe(150);
       expect(result.resumoPorConvenio).toHaveLength(1);
       expect(result.resumoPorConvenio[0].convenio).toBe("Ipasgo Novo");
+      // Verificar recebido e glosado no resumo
+      expect(result.resumoPorConvenio[0].totalRecebido).toBe(12000);
+      expect(result.resumoPorConvenio[0].totalGlosado).toBe(1500);
+      expect(result.resumoPorConvenio[0].taxaRecebimento).toBe(80); // 12000/15000 * 100
+      expect(result.resumoPorConvenio[0].taxaGlosa).toBe(10); // 1500/15000 * 100
       expect(result.kpis.totalConvenios).toBe(1);
       expect(result.kpis.valorFaturadoTotal).toBe(1500);
+      // Verificar KPIs de recebido e glosado
+      expect(result.kpis.recebidoTotal).toBe(1200);
+      expect(result.kpis.glosadoTotal).toBe(150);
+      expect(result.kpis.taxaRecebimento).toBe(80); // 1200/1500 * 100
+      expect(result.kpis.taxaGlosa).toBe(10); // 150/1500 * 100
     });
 
     it("deve aplicar filtros de competência e convênio (usando codplaco)", async () => {
@@ -125,7 +142,7 @@ describe("relatorioCustosSamaritano", () => {
         { setor: "Ambulatório" },
         { setor: "Bloco Cirúrgico" },
       ]));
-      // Mock contas
+      // Mock contas (com recebido e glosado)
       mockExecute.mockResolvedValueOnce(mysqlResult([
         {
           numconta: 12345,
@@ -137,6 +154,8 @@ describe("relatorioCustosSamaritano", () => {
           total_cobrado: 2000.00,
           total_vlcusto: 1200.00,
           total_custo_estoque: 1300.00,
+          total_recebido: 1600.00,
+          total_glosado: 200.00,
         },
       ]));
 
@@ -153,8 +172,18 @@ describe("relatorioCustosSamaritano", () => {
       expect(result.contas[0].paciente).toBe("João Silva");
       expect(result.contas[0].margem).toBe(700); // 2000 - 1300
       expect(result.contas[0].resultado).toBe("lucro");
+      // Verificar recebido e glosado na conta
+      expect(result.contas[0].recebido).toBe(1600);
+      expect(result.contas[0].glosado).toBe(200);
+      expect(result.contas[0].taxaRecebimento).toBe(80); // 1600/2000 * 100
+      expect(result.contas[0].taxaGlosa).toBe(10); // 200/2000 * 100
       expect(result.kpis.totalContas).toBe(1);
       expect(result.kpis.contasComLucro).toBe(1);
+      // Verificar KPIs de recebido e glosado
+      expect(result.kpis.recebidoTotalGeral).toBe(1600);
+      expect(result.kpis.glosadoTotalGeral).toBe(200);
+      expect(result.kpis.taxaRecebimento).toBe(80);
+      expect(result.kpis.taxaGlosa).toBe(10);
     });
 
     it("deve aplicar filtro de setor (usando codplaco para convênio)", async () => {
@@ -190,6 +219,8 @@ describe("relatorioCustosSamaritano", () => {
           total_cobrado: 200.00,
           total_vlcusto: 100.00,
           total_custo_estoque: 120.00,
+          recebido: 160.00,
+          valor_glosada: 20.00,
         },
         {
           codprod: "2002",
@@ -204,6 +235,8 @@ describe("relatorioCustosSamaritano", () => {
           total_cobrado: 150.00,
           total_vlcusto: 80.00,
           total_custo_estoque: 90.00,
+          recebido: 120.00,
+          valor_glosada: 15.00,
         },
       ]));
 
@@ -218,6 +251,13 @@ describe("relatorioCustosSamaritano", () => {
       expect(result!.valorCobrado).toBe(350); // 200 + 150
       expect(result!.margem).toBe(140); // 350 - 210
       expect(result!.resultado).toBe("lucro");
+      // Verificar recebido e glosado
+      expect(result!.recebido).toBe(280); // 160 + 120
+      expect(result!.glosado).toBe(35); // 20 + 15
+      expect(result!.itens[0].recebido).toBe(160);
+      expect(result!.itens[0].glosado).toBe(20);
+      expect(result!.itens[1].recebido).toBe(120);
+      expect(result!.itens[1].glosado).toBe(15);
     });
 
     it("deve retornar null se conta não encontrada", async () => {

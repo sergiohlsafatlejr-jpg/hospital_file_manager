@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search, TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  Loader2, Database, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronRight,
+  Loader2, Database, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronRight, Receipt, Ban,
 } from "lucide-react";
 
 function formatCurrency(value: number | null | undefined): string {
@@ -26,7 +26,7 @@ interface CustosPorConvenioProps {
   estabelecimentoId: number;
 }
 
-type SortField = "codprod" | "convenio" | "descricao" | "tipoItem" | "quantidade" | "custoUnitario" | "custoTotal" | "valorCobradoUnitario" | "valorCobradoTotal" | "margem";
+type SortField = "codprod" | "convenio" | "descricao" | "tipoItem" | "quantidade" | "custoUnitario" | "custoTotal" | "valorCobradoUnitario" | "valorCobradoTotal" | "recebido" | "glosado" | "margem";
 type SortDir = "asc" | "desc";
 
 export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConvenioProps) {
@@ -77,8 +77,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
     if (!data?.itensDetalhados) return [];
     return [...data.itensDetalhados].sort((a, b) => {
       let cmp = 0;
-      const fieldA = a[sortField];
-      const fieldB = b[sortField];
+      const fieldA = (a as any)[sortField];
+      const fieldB = (b as any)[sortField];
       if (typeof fieldA === "string" && typeof fieldB === "string") {
         cmp = fieldA.localeCompare(fieldB, "pt-BR");
       } else if (typeof fieldA === "number" && typeof fieldB === "number") {
@@ -250,6 +250,39 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
               </CardContent>
             </Card>
           </div>
+          {/* KPIs Recebido/Glosado */}
+          {(data.kpis as any).recebidoTotal !== undefined && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1"><Receipt className="h-3 w-3" /> Total Recebido</p>
+                  <p className="text-xl font-bold text-blue-500">{formatCurrency((data.kpis as any).recebidoTotal)}</p>
+                  <p className="text-xs text-muted-foreground">{((data.kpis as any).taxaRecebimento || 0).toFixed(1)}% do faturado</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1"><Ban className="h-3 w-3" /> Total Glosado</p>
+                  <p className="text-xl font-bold text-orange-500">{formatCurrency((data.kpis as any).glosadoTotal)}</p>
+                  <p className="text-xs text-muted-foreground">{((data.kpis as any).taxaGlosa || 0).toFixed(1)}% do faturado</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Perda Líquida</p>
+                  <p className="text-xl font-bold text-red-400">{formatCurrency(data.kpis.valorFaturadoTotal - ((data.kpis as any).recebidoTotal || 0))}</p>
+                  <p className="text-xs text-muted-foreground">Faturado - Recebido</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Pendente</p>
+                  <p className="text-xl font-bold text-amber-500">{formatCurrency(data.kpis.valorFaturadoTotal - ((data.kpis as any).recebidoTotal || 0) - ((data.kpis as any).glosadoTotal || 0))}</p>
+                  <p className="text-xs text-muted-foreground">Não recebido e não glosado</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Abas */}
           <div className="flex gap-1 border-b">
@@ -298,6 +331,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                         <SortableHead field="custoTotal" className="text-right">Custo Total</SortableHead>
                         <SortableHead field="valorCobradoUnitario" className="text-right">Vlr Cobrado Unit.</SortableHead>
                         <SortableHead field="valorCobradoTotal" className="text-right">Vlr Cobrado Total</SortableHead>
+                        <SortableHead field="recebido" className="text-right">Recebido</SortableHead>
+                        <SortableHead field="glosado" className="text-right">Glosado</SortableHead>
                         <SortableHead field="margem" className="text-right">Margem</SortableHead>
                         <TableHead className="text-center">Resultado</TableHead>
                       </TableRow>
@@ -333,6 +368,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.custoTotal)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.valorCobradoUnitario)}</TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{formatCurrency(item.valorCobradoTotal)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-500">{formatCurrency((item as any).recebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-orange-500">{formatCurrency((item as any).glosado)}</TableCell>
                           <TableCell className={`text-right tabular-nums font-bold ${
                             item.margem > 0 ? "text-green-600" : item.margem < 0 ? "text-red-600" : "text-muted-foreground"
                           }`}>
@@ -355,7 +392,7 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                       ))}
                       {sortedItensDetalhados.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                             Nenhum item encontrado para os filtros selecionados
                           </TableCell>
                         </TableRow>
@@ -391,6 +428,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                         <TableHead className="text-right">Lançamentos</TableHead>
                         <TableHead className="text-right">Total Faturado</TableHead>
                         <TableHead className="text-right">Total Custo</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
                         <TableHead className="text-right">Margem</TableHead>
                         <TableHead className="text-right">Margem (%)</TableHead>
                         <TableHead className="text-center">Resultado</TableHead>
@@ -426,6 +465,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                               <TableCell className="text-right tabular-nums">{conv.totalLancamentos.toLocaleString("pt-BR")}</TableCell>
                               <TableCell className="text-right tabular-nums font-medium">{formatCurrency(conv.totalFaturado)}</TableCell>
                               <TableCell className="text-right tabular-nums">{formatCurrency(conv.totalCusto)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-blue-500">{formatCurrency((conv as any).totalRecebido)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-orange-500">{formatCurrency((conv as any).totalGlosado)}</TableCell>
                               <TableCell className={`text-right tabular-nums font-bold ${conv.margem >= 0 ? "text-green-600" : "text-red-600"}`}>
                                 {formatCurrency(conv.margem)}
                               </TableCell>
@@ -445,7 +486,7 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                             </TableRow>
                             {isExpanded && (
                               <TableRow key={`${conv.codplaco}-detail`}>
-                                <TableCell colSpan={8} className="p-0 bg-muted/10">
+                                <TableCell colSpan={10} className="p-0 bg-muted/10">
                                   <div className="p-3">
                                     <div className="flex items-center gap-2 mb-2">
                                       <DollarSign className="h-4 w-4 text-primary" />
@@ -466,6 +507,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                                             <TableHead className="text-xs text-right">Margem Unit.</TableHead>
                                             <TableHead className="text-xs text-right">Custo Total</TableHead>
                                             <TableHead className="text-xs text-right">Vlr Faturado Total</TableHead>
+                                            <TableHead className="text-xs text-right">Recebido</TableHead>
+                                            <TableHead className="text-xs text-right">Glosado</TableHead>
                                             <TableHead className="text-xs text-right">Margem Total</TableHead>
                                             <TableHead className="text-xs text-center">Resultado</TableHead>
                                           </TableRow>
@@ -496,6 +539,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums text-xs">{formatCurrency(item.custoTotal)}</TableCell>
                                                 <TableCell className="text-right tabular-nums text-xs font-medium">{formatCurrency(item.valorCobradoTotal)}</TableCell>
+                                                <TableCell className="text-right tabular-nums text-xs text-blue-500">{formatCurrency((item as any).recebido)}</TableCell>
+                                                <TableCell className="text-right tabular-nums text-xs text-orange-500">{formatCurrency((item as any).glosado)}</TableCell>
                                                 <TableCell className={`text-right tabular-nums text-xs font-bold ${item.margem > 0 ? "text-green-600" : item.margem < 0 ? "text-red-600" : "text-muted-foreground"}`}>
                                                   {formatCurrency(item.margem)}
                                                 </TableCell>
@@ -517,7 +562,7 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                                           })}
                                           {itensDoConvenio.length === 0 && (
                                             <TableRow>
-                                              <TableCell colSpan={12} className="text-center text-muted-foreground py-4 text-xs">
+                                              <TableCell colSpan={14} className="text-center text-muted-foreground py-4 text-xs">
                                                 Nenhum item detalhado encontrado para este convênio
                                               </TableCell>
                                             </TableRow>
@@ -534,7 +579,7 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                       })}
                       {data.resumoPorConvenio.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                             Nenhum dado encontrado
                           </TableCell>
                         </TableRow>
@@ -570,6 +615,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                         <TableHead className="text-right">Qtd</TableHead>
                         <TableHead className="text-right">Vlr Cobrado</TableHead>
                         <TableHead className="text-right">Custo Total</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
                         <TableHead className="text-right">Prejuízo</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -583,12 +630,14 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                           <TableCell className="text-right tabular-nums">{formatNumber(item.quantidade)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.valorCobrado)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.custoTotal)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-500">{formatCurrency((item as any).recebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-orange-500">{formatCurrency((item as any).glosado)}</TableCell>
                           <TableCell className="text-right tabular-nums font-bold text-red-600">{formatCurrency(item.margem)}</TableCell>
                         </TableRow>
                       ))}
                       {data.topItensPrejuizo.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-green-600 py-8">
+                          <TableCell colSpan={10} className="text-center text-green-600 py-8">
                             Nenhum item com prejuízo encontrado
                           </TableCell>
                         </TableRow>
@@ -624,6 +673,8 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                         <TableHead className="text-right">Qtd</TableHead>
                         <TableHead className="text-right">Vlr Cobrado</TableHead>
                         <TableHead className="text-right">Custo Total</TableHead>
+                        <TableHead className="text-right">Recebido</TableHead>
+                        <TableHead className="text-right">Glosado</TableHead>
                         <TableHead className="text-right">Lucro</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -637,12 +688,14 @@ export default function CustosPorConvenio({ estabelecimentoId }: CustosPorConven
                           <TableCell className="text-right tabular-nums">{formatNumber(item.quantidade)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.valorCobrado)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatCurrency(item.custoTotal)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-blue-500">{formatCurrency((item as any).recebido)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-orange-500">{formatCurrency((item as any).glosado)}</TableCell>
                           <TableCell className="text-right tabular-nums font-bold text-green-600">{formatCurrency(item.margem)}</TableCell>
                         </TableRow>
                       ))}
                       {data.topItensLucro.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                             Nenhum item com lucro encontrado
                           </TableCell>
                         </TableRow>
