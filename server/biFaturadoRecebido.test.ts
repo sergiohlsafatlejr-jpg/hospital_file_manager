@@ -135,8 +135,9 @@ describe("biFaturadoRecebido", () => {
     // A 4ª chamada é faturado por procedimento - deve conter IN clause
     const faturadoQuery = calls[3]?.[0] as string;
     if (faturadoQuery) {
-      expect(faturadoQuery).toContain("'2025-01'");
-      expect(faturadoQuery).toContain("'2025-02'");
+      // Backend normaliza competências para formato YYYY/MM (formato da tabela faturamento_unificado)
+      expect(faturadoQuery).toContain("'2025/01'");
+      expect(faturadoQuery).toContain("'2025/02'");
       expect(faturadoQuery).toContain("'UNIMED'");
     }
   });

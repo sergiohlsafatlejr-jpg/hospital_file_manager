@@ -3573,3 +3573,8 @@
 
 ## Bug Fix - Faturado x Recebido sem dados (31/03/2026)
 - [x] Investigar e corrigir aba Faturado x Recebido que não mostra dados para Pronto Socorro Infantil (GROUP BY incompatível com sql_mode=only_full_group_by)
+
+## Bug Fix - Filtros e dados aba Faturado x Recebido (31/03/2026)
+- [x] Corrigir filtros que não funcionam na aba Faturado x Recebido (incompatibilidade de formato YYYY-MM vs YYYY/MM)
+- [x] Corrigir dados não exibidos (GROUP BY + normalização de competência)
+- [x] Datas corretas: faturamento tem 2025/11, 2025/12, 2026/01; recebimentos têm 2025/12, 2026/01, 2026/02

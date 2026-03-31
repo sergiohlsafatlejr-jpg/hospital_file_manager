@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm";
 
 export interface FiltrosBIFaturadoRecebido {
   estabelecimentoId: number;
-  competencias?: string[];  // formato YYYY-MM
+  competencias?: string[];  // formato YYYY/MM ou YYYY-MM (ambos aceitos)
   convenios?: string[];     // nomes de convênios
   tipoItem?: string;        // P, M, D, etc
   setor?: string;
@@ -77,14 +77,24 @@ export interface BIFaturadoRecebidoResult {
 }
 
 /**
+ * Normaliza competência para o formato da tabela faturamento_unificado: YYYY/MM
+ * Aceita: '2025/12', '2025-12', '2025/1', '2025-1'
+ */
+function normalizarCompetencia(c: string): string {
+  // Substituir hífen por barra
+  const normalized = c.replace('-', '/');
+  // Garantir dois dígitos no mês
+  const parts = normalized.split('/');
+  if (parts.length === 2) {
+    return `${parts[0]}/${parts[1].padStart(2, '0')}`;
+  }
+  return normalized;
+}
+
+/**
  * Busca dados consolidados de Faturado x Recebido
  * Fonte FATURADO: faturamento_unificado (dados unificados de Warleine/Tasy/XML)
  * Fonte RECEBIDO: recebimentos_excel (demonstrativos importados via Excel)
- * 
- * A lógica cruza os dados por:
- * - estabelecimentoId (obrigatório)
- * - competência (mês/ano)
- * - convênio
  */
 export async function getDadosBIFaturadoRecebido(
   filtros: FiltrosBIFaturadoRecebido
@@ -92,7 +102,10 @@ export async function getDadosBIFaturadoRecebido(
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  const { estabelecimentoId, competencias, convenios, tipoItem, setor } = filtros;
+  const { estabelecimentoId, tipoItem, setor } = filtros;
+  // Normalizar competências para o formato YYYY/MM (como está na faturamento_unificado)
+  const competencias = filtros.competencias?.map(normalizarCompetencia);
+  const convenios = filtros.convenios;
 
   // ============================================================
   // 1. BUSCAR FILTROS DISPONÍVEIS
@@ -103,6 +116,7 @@ export async function getDadosBIFaturadoRecebido(
       AND competencia IS NOT NULL AND competencia != ''
     ORDER BY competencia DESC
   `));
+  // Retornar competências no formato YYYY/MM (como estão no banco)
   const competenciasDisponiveis = (compRows as any[]).map((r: any) => r.competencia);
 
   const [convRows] = await db.execute(sql.raw(`
@@ -127,6 +141,7 @@ export async function getDadosBIFaturadoRecebido(
   const whereParts: string[] = [`fu.estabelecimentoId = ${estabelecimentoId}`];
   
   if (competencias && competencias.length > 0) {
+    // Formato na tabela é YYYY/MM
     const compList = competencias.map(c => `'${c.replace(/'/g, "''")}'`).join(',');
     whereParts.push(`fu.competencia IN (${compList})`);
   }
@@ -166,10 +181,13 @@ export async function getDadosBIFaturadoRecebido(
   const whereRecParts: string[] = [`re.estabelecimentoId = ${estabelecimentoId}`];
   
   if (competencias && competencias.length > 0) {
-    // recebimentos_excel usa data_referencia (DATE), converter competência para filtro
+    // recebimentos_excel usa data_referencia (DATE), converter competência YYYY/MM para filtro
     const dateConditions = competencias.map(c => {
-      const [year, month] = c.split('-');
-      return `(YEAR(re.data_referencia) = ${year} AND MONTH(re.data_referencia) = ${parseInt(month)})`;
+      // Suportar tanto 'YYYY/MM' quanto 'YYYY-MM'
+      const parts = c.includes('/') ? c.split('/') : c.split('-');
+      const year = parts[0];
+      const month = parseInt(parts[1]);
+      return `(YEAR(re.data_referencia) = ${year} AND MONTH(re.data_referencia) = ${month})`;
     });
     whereRecParts.push(`(${dateConditions.join(' OR ')})`);
   }
@@ -263,10 +281,10 @@ export async function getDadosBIFaturadoRecebido(
     ORDER BY fu.competencia
   `));
 
-  // RECEBIDO POR MÊS
+  // RECEBIDO POR MÊS - converter data_referencia para formato YYYY/MM igual ao faturamento
   const [recebidoMesRows] = await db.execute(sql.raw(`
     SELECT 
-      CONCAT(YEAR(re.data_referencia), '-', LPAD(MONTH(re.data_referencia), 2, '0')) as competencia,
+      CONCAT(YEAR(re.data_referencia), '/', LPAD(MONTH(re.data_referencia), 2, '0')) as competencia,
       SUM(COALESCE(re.valor_pagamento, 0)) as totalRecebido,
       SUM(COALESCE(re.valor_glosa, 0)) as totalGlosado,
       COUNT(*) as quantidade
@@ -274,7 +292,7 @@ export async function getDadosBIFaturadoRecebido(
     LEFT JOIN convenios c ON re.convenioId = c.id
     WHERE ${whereRecClause}
       AND re.data_referencia IS NOT NULL
-    GROUP BY CONCAT(YEAR(re.data_referencia), '-', LPAD(MONTH(re.data_referencia), 2, '0'))
+    GROUP BY CONCAT(YEAR(re.data_referencia), '/', LPAD(MONTH(re.data_referencia), 2, '0'))
     ORDER BY competencia
   `));
 
