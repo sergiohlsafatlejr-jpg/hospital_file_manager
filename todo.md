@@ -3555,3 +3555,18 @@
 - [x] Atualizar backend dashboardSamaritano para aceitar arrays nos filtros
 - [x] Atualizar frontend DashboardSamaritano para usar MultiSelect nos filtros
 - [ ] Aplicar multi-seleção também nas abas CustosPorConta, CustosPorConvenio e CustosPorSetor (futuro)
+
+## Relatório BI Faturamento por Procedimento (31/03/2026)
+- [ ] Analisar estrutura das tabelas faturamento_unificado e demonstrativo
+- [ ] Criar backend com queries cruzando faturamento e demonstrativo (faturado/recebido/glosado por procedimento/mês)
+- [ ] Criar frontend do relatório BI com filtros (estabelecimento, mês, convênio, prestador) e tabela detalhada
+- [ ] Registrar rota no App.tsx e no menu de navegação
+- [ ] Escrever testes unitários
+
+## Relatório BI - Faturado x Recebido (31/03/2026)
+- [x] Analisar estrutura das tabelas faturamento_unificado e recebimentos_excel
+- [x] Criar backend biFaturadoRecebido com queries por procedimento/mês/convênio/setor
+- [x] Criar componente BIFaturadoRecebido com KPIs, filtros multi-seleção e tabelas
+- [x] Integrar como nova aba 'Faturado x Recebido' no Relatório BI existente
+- [x] Adicionar exportação Excel do relatório
+- [x] Escrever testes unitários (6 testes passando)

@@ -22,6 +22,7 @@ import { ConvenioTable, GlosaTable, DescricaoTable } from "@/components/bi/BITab
 import { StackedProgressChart } from "@/components/bi/StackedProgressChart";
 import { TopGlosasChart } from "@/components/bi/TopGlosasChart";
 import { InsightCards } from "@/components/bi/InsightCards";
+import { BIFaturadoRecebido } from "@/components/bi/BIFaturadoRecebido";
 
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -472,7 +473,10 @@ export default function RelatoriosBI() {
                   <TrendingUp className="h-3.5 w-3.5" />
                   Evolução
                 </TabsTrigger>
-
+                <TabsTrigger value="faturadoRecebido" className="gap-1.5 text-xs">
+                  <DollarSign className="h-3.5 w-3.5" />
+                  Faturado x Recebido
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="graficos" className="space-y-6">
@@ -520,6 +524,9 @@ export default function RelatoriosBI() {
                 </div>
               </TabsContent>
 
+              <TabsContent value="faturadoRecebido" className="space-y-6">
+                <BIFaturadoRecebido />
+              </TabsContent>
 
             </Tabs>
           </>

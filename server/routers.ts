@@ -28,6 +28,7 @@ import { auditoriaRouter } from "./routers/auditoriaRouter";
 import { conferenciaRouter } from "./routers/conferenciaRouter";
 import { relatorioAtendimentosRouter } from "./routers/relatorioAtendimentosRouter";
 import { relatorioCustosRouter } from "./routers/relatorioCustosRouter";
+import { getDadosBIFaturadoRecebido } from "./biFaturadoRecebido";
 import { relatorioFaturamentoRouter } from "./routers/relatorioFaturamentoRouter";
 import { faturamentoExternoRouter } from "./routers/faturamentoExternoRouter";
 import { nfseRouter } from "./routers/nfseRouter";
@@ -6884,6 +6885,19 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return db.getPerformanceMedico(input);
+      }),
+
+    // BI Faturado x Recebido (faturamento_unificado + recebimentos_excel)
+    faturadoRecebido: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        competencias: z.array(z.string()).optional(),
+        convenios: z.array(z.string()).optional(),
+        tipoItem: z.string().optional(),
+        setor: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        return getDadosBIFaturadoRecebido(input);
       }),
   }),
 
