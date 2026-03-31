@@ -3570,3 +3570,6 @@
 - [x] Integrar como nova aba 'Faturado x Recebido' no Relatório BI existente
 - [x] Adicionar exportação Excel do relatório
 - [x] Escrever testes unitários (6 testes passando)
+
+## Bug Fix - Faturado x Recebido sem dados (31/03/2026)
+- [x] Investigar e corrigir aba Faturado x Recebido que não mostra dados para Pronto Socorro Infantil (GROUP BY incompatível com sql_mode=only_full_group_by)

@@ -274,7 +274,7 @@ export async function getDadosBIFaturadoRecebido(
     LEFT JOIN convenios c ON re.convenioId = c.id
     WHERE ${whereRecClause}
       AND re.data_referencia IS NOT NULL
-    GROUP BY YEAR(re.data_referencia), MONTH(re.data_referencia)
+    GROUP BY CONCAT(YEAR(re.data_referencia), '-', LPAD(MONTH(re.data_referencia), 2, '0'))
     ORDER BY competencia
   `));
 
