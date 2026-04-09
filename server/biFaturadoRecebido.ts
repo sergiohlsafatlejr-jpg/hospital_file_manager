@@ -109,23 +109,52 @@ export async function getDadosBIFaturadoRecebido(
 
   // ============================================================
   // 1. BUSCAR FILTROS DISPONÍVEIS
+  // Combina competências do faturamento_unificado E do recebimentos_excel
+  // para garantir que competências com demonstrativo mas sem faturamento apareçam
   // ============================================================
-  const [compRows] = await db.execute(sql.raw(`
+  const [compRowsFU] = await db.execute(sql.raw(`
     SELECT DISTINCT competencia FROM faturamento_unificado 
     WHERE estabelecimentoId = ${estabelecimentoId} 
       AND competencia IS NOT NULL AND competencia != ''
     ORDER BY competencia DESC
   `));
-  // Retornar competências no formato YYYY/MM (como estão no banco)
-  const competenciasDisponiveis = (compRows as any[]).map((r: any) => r.competencia);
+  const compSetFU = new Set<string>((compRowsFU as any[]).map((r: any) => r.competencia as string));
 
+  // Buscar competências do recebimentos_excel (data_referencia → YYYY/MM)
+  const [compRowsRE] = await db.execute(sql.raw(`
+    SELECT DISTINCT CONCAT(YEAR(data_referencia), '/', LPAD(MONTH(data_referencia), 2, '0')) as competencia
+    FROM recebimentos_excel
+    WHERE estabelecimentoId = ${estabelecimentoId}
+      AND data_referencia IS NOT NULL
+    ORDER BY competencia DESC
+  `));
+  for (const r of compRowsRE as any[]) {
+    compSetFU.add(r.competencia as string);
+  }
+  // Ordenar decrescente
+  const competenciasDisponiveis = Array.from(compSetFU).sort((a, b) => b.localeCompare(a));
+
+  // Convênios: combinar faturamento_unificado e recebimentos_excel
   const [convRows] = await db.execute(sql.raw(`
     SELECT DISTINCT convenio FROM faturamento_unificado 
     WHERE estabelecimentoId = ${estabelecimentoId} 
       AND convenio IS NOT NULL AND convenio != ''
     ORDER BY convenio
   `));
-  const conveniosDisponiveis = (convRows as any[]).map((r: any) => r.convenio);
+  const convSet = new Set<string>((convRows as any[]).map((r: any) => r.convenio as string));
+
+  const [convRowsRE] = await db.execute(sql.raw(`
+    SELECT DISTINCT c.nome as convenio
+    FROM recebimentos_excel re
+    LEFT JOIN convenios c ON re.convenioId = c.id
+    WHERE re.estabelecimentoId = ${estabelecimentoId}
+      AND c.nome IS NOT NULL AND c.nome != ''
+    ORDER BY c.nome
+  `));
+  for (const r of convRowsRE as any[]) {
+    convSet.add(r.convenio as string);
+  }
+  const conveniosDisponiveis = Array.from(convSet).sort();
 
   const [setorRows] = await db.execute(sql.raw(`
     SELECT DISTINCT setor FROM faturamento_unificado 

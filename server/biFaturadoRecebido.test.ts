@@ -3,8 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock do getDb
 const mockExecute = vi.fn();
 const mockSelect = vi.fn();
-const mockFrom = vi.fn();
-const mockWhere = vi.fn();
 
 vi.mock("./db", () => ({
   getDb: vi.fn(() => Promise.resolve({
@@ -20,6 +18,20 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import { getDadosBIFaturadoRecebido } from "./biFaturadoRecebido";
+
+// Ordem das chamadas execute após a correção de filtros:
+// 0: competencias FU (faturamento_unificado)
+// 1: competencias RE (recebimentos_excel)
+// 2: convenios FU
+// 3: convenios RE
+// 4: setores FU
+// 5: faturado por procedimento
+// 6: recebido por procedimento
+// 7: faturado por mês
+// 8: recebido por mês
+// 9: faturado por convênio
+// 10: recebido por convênio
+// 11: faturado por setor
 
 describe("biFaturadoRecebido", () => {
   beforeEach(() => {
@@ -60,40 +72,44 @@ describe("biFaturadoRecebido", () => {
   });
 
   it("deve processar dados de faturamento corretamente", async () => {
-    // Mock: filtros disponíveis (3 calls), faturado proc, recebido proc, faturado mes, recebido mes, faturado conv, recebido conv, faturado setor
+    // Ordem: compFU, compRE, convFU, convRE, setores, fatProc, recProc, fatMes, recMes, fatConv, recConv, fatSetor
     mockExecute
-      // competencias
-      .mockResolvedValueOnce([[{ competencia: "2025-01" }, { competencia: "2025-02" }]])
-      // convenios
+      // 0: competencias FU
+      .mockResolvedValueOnce([[{ competencia: "2025/01" }, { competencia: "2025/02" }]])
+      // 1: competencias RE
+      .mockResolvedValueOnce([[]])
+      // 2: convenios FU
       .mockResolvedValueOnce([[{ convenio: "UNIMED" }]])
-      // setores
+      // 3: convenios RE
+      .mockResolvedValueOnce([[]])
+      // 4: setores
       .mockResolvedValueOnce([[{ setor: "UTI" }]])
-      // faturado por procedimento
+      // 5: faturado por procedimento
       .mockResolvedValueOnce([[
         { codigoItem: "10101012", descricaoItem: "Consulta", totalFaturado: "1000.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "10" },
         { codigoItem: "20201014", descricaoItem: "Exame", totalFaturado: "500.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "5" },
       ]])
-      // recebido por procedimento
+      // 6: recebido por procedimento
       .mockResolvedValueOnce([[
         { codigoItem: "10101012", descricaoItem: "Consulta", totalRecebido: "800.00", totalGlosado: "100.00", quantidade: "10" },
       ]])
-      // faturado por mês
+      // 7: faturado por mês
       .mockResolvedValueOnce([[
-        { competencia: "2025-01", totalFaturado: "1500.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "15" },
+        { competencia: "2025/01", totalFaturado: "1500.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "15" },
       ]])
-      // recebido por mês
+      // 8: recebido por mês
       .mockResolvedValueOnce([[
-        { competencia: "2025-01", totalRecebido: "800.00", totalGlosado: "100.00", quantidade: "10" },
+        { competencia: "2025/01", totalRecebido: "800.00", totalGlosado: "100.00", quantidade: "10" },
       ]])
-      // faturado por convênio
+      // 9: faturado por convênio
       .mockResolvedValueOnce([[
         { convenio: "UNIMED", totalFaturado: "1500.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "15" },
       ]])
-      // recebido por convênio
+      // 10: recebido por convênio
       .mockResolvedValueOnce([[
         { convenio: "UNIMED", totalRecebido: "800.00", totalGlosado: "100.00", quantidade: "10" },
       ]])
-      // faturado por setor
+      // 11: faturado por setor
       .mockResolvedValueOnce([[
         { setor: "UTI", totalFaturado: "1500.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "15" },
       ]]);
@@ -117,8 +133,8 @@ describe("biFaturadoRecebido", () => {
     expect(result.resumo.totalRecebido).toBe(800);
     expect(result.resumo.totalGlosado).toBe(100);
 
-    // Verificar filtros disponíveis
-    expect(result.filtrosDisponiveis.competencias).toEqual(["2025-01", "2025-02"]);
+    // Verificar filtros disponíveis (combinados de FU + RE)
+    expect(result.filtrosDisponiveis.competencias).toEqual(["2025/02", "2025/01"]);
     expect(result.filtrosDisponiveis.convenios).toEqual(["UNIMED"]);
     expect(result.filtrosDisponiveis.setores).toEqual(["UTI"]);
   });
@@ -132,8 +148,8 @@ describe("biFaturadoRecebido", () => {
 
     // Verificar que execute foi chamado com queries contendo os filtros
     const calls = mockExecute.mock.calls;
-    // A 4ª chamada é faturado por procedimento - deve conter IN clause
-    const faturadoQuery = calls[3]?.[0] as string;
+    // A 6ª chamada (índice 5) é faturado por procedimento - deve conter IN clause
+    const faturadoQuery = calls[5]?.[0] as string;
     if (faturadoQuery) {
       // Backend normaliza competências para formato YYYY/MM (formato da tabela faturamento_unificado)
       expect(faturadoQuery).toContain("'2025/01'");
@@ -144,15 +160,25 @@ describe("biFaturadoRecebido", () => {
 
   it("deve calcular taxas corretamente", async () => {
     mockExecute
+      // 0: compFU
       .mockResolvedValueOnce([[]])
+      // 1: compRE
       .mockResolvedValueOnce([[]])
+      // 2: convFU
       .mockResolvedValueOnce([[]])
+      // 3: convRE
+      .mockResolvedValueOnce([[]])
+      // 4: setores
+      .mockResolvedValueOnce([[]])
+      // 5: faturado por procedimento
       .mockResolvedValueOnce([[
         { codigoItem: "001", descricaoItem: "Proc A", totalFaturado: "200.00", totalRecebidoFU: "0", totalGlosadoFU: "0", quantidade: "2" },
       ]])
+      // 6: recebido por procedimento
       .mockResolvedValueOnce([[
         { codigoItem: "001", descricaoItem: "Proc A", totalRecebido: "160.00", totalGlosado: "20.00", quantidade: "2" },
       ]])
+      // 7-11: restantes vazios
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[]])
@@ -167,6 +193,25 @@ describe("biFaturadoRecebido", () => {
     expect(proc.taxaRecebimento).toBe(80); // 160/200 * 100
     expect(proc.taxaGlosa).toBe(10); // 20/200 * 100
     expect(proc.totalPendente).toBe(20); // 200 - 160 - 20
+  });
+
+  it("deve combinar competências de FU e RE sem duplicatas", async () => {
+    mockExecute
+      // 0: compFU - tem 2026/01
+      .mockResolvedValueOnce([[{ competencia: "2026/01" }, { competencia: "2025/12" }]])
+      // 1: compRE - tem 2026/03, 2026/02, 2026/01 (duplicado)
+      .mockResolvedValueOnce([[
+        { competencia: "2026/03" },
+        { competencia: "2026/02" },
+        { competencia: "2026/01" },
+      ]])
+      // restantes
+      .mockResolvedValue([[]]);
+
+    const result = await getDadosBIFaturadoRecebido({ estabelecimentoId: 1 });
+
+    // Deve ter 4 competências únicas, ordenadas decrescente
+    expect(result.filtrosDisponiveis.competencias).toEqual(["2026/03", "2026/02", "2026/01", "2025/12"]);
   });
 
   it("deve lançar erro quando database não está disponível", async () => {
