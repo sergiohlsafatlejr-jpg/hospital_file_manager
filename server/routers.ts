@@ -8432,6 +8432,1881 @@ export const appRouter = router({
         return await dbConvMap.estatisticasMapeamento(input.estabelecimentoId);
       }),
   }),
+  relatorioLaboratorio: router({
+    // Lista de convênios disponíveis
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
+             FROM demonstrativo d
+             LEFT JOIN convenios c ON c.id = d.convenio_id
+             WHERE d.estabelecimentoId = ?
+             AND (REPLACE(d.codigo_item,'.','') LIKE '402%' OR REPLACE(d.codigo_item,'.','') LIKE '403%')
+             AND d.convenio_id IS NOT NULL
+             ORDER BY c.nome`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            id: r.convenio_id,
+            nome: r.convenio_nome || `Convênio ${r.convenio_id}`,
+          }));
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+
+    // Dados do relatório
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+        convenioId: z.number().optional(),
+        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
+      }))
+      .query(async ({ input }) => {
+        console.log('[relatorioLaboratorio.dados] Input:', JSON.stringify(input));
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          // Filtro base: faixa TUSS de laboratório (402xx e 403xx)
+          let whereExtra = '';
+          const params: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
+            params.push(input.mesReferencia, input.anoReferencia);
+          }
+          if (input.convenioId) {
+            whereExtra += ` AND d.convenio_id = ?`;
+            params.push(input.convenioId);
+          }
+          if (input.statusFiltro && input.statusFiltro !== 'todos') {
+            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          }
+
+          const baseWhere = `d.estabelecimentoId = ? AND (REPLACE(d.codigo_item,'.','') LIKE '402%' OR REPLACE(d.codigo_item,'.','') LIKE '403%')`;
+          const baseParams = [input.estabelecimentoId];
+
+          // Queries em paralelo
+          const [
+            [porCodigo],
+            [resumoRows],
+            [competencias],
+            [porSituacao],
+            [porConvenio]
+          ] = await Promise.all([
+            conn.execute(
+              `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
+                      COUNT(*) as qtd,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
+                      SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra}
+               GROUP BY d.codigo_item, d.situacao_item ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT COUNT(*) as total_itens,
+                      COUNT(DISTINCT d.codigo_item) as codigos_unicos,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
+                      SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
+                      SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra}`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT DISTINCT DATE_FORMAT(d.data_referencia, '%m-%Y') as competencia,
+                      MONTH(d.data_referencia) as mes, YEAR(d.data_referencia) as ano,
+                      COUNT(*) as total
+               FROM demonstrativo d WHERE ${baseWhere}
+               GROUP BY DATE_FORMAT(d.data_referencia, '%m-%Y'), MONTH(d.data_referencia), YEAR(d.data_referencia)
+               ORDER BY ano DESC, mes DESC`,
+              [...baseParams]
+            ),
+            conn.execute(
+              `SELECT d.situacao_item, COUNT(*) as total,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as vl_pago,
+                      SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as vl_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra}
+               GROUP BY d.situacao_item`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT d.convenio_id, c.nome as convenio_nome,
+                      COUNT(*) as qtd,
+                      COUNT(DISTINCT d.codigo_item) as codigos,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
+                      SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d
+               LEFT JOIN convenios c ON c.id = d.convenio_id
+               WHERE ${baseWhere} ${whereExtra}
+               GROUP BY d.convenio_id, c.nome
+               ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+          ]);
+
+          // Itens individuais apenas com filtro de competência
+          let itens: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            const [itensResult] = await conn.execute(
+              `SELECT d.id, d.codigo_item, d.descricao_item, d.situacao_item,
+                      CAST(d.valor_pago AS DECIMAL(12,2)) as valor_pago,
+                      CAST(d.valor_glosa AS DECIMAL(12,2)) as valor_glosa,
+                      CAST(d.valor_informado AS DECIMAL(12,2)) as valor_informado,
+                      d.numero_guia, d.nome_beneficiario, d.data_execucao, d.data_referencia, d.data_pagamento,
+                      d.codigo_glosa, d.convenio_id, c.nome as convenio_nome
+               FROM demonstrativo d
+               LEFT JOIN convenios c ON c.id = d.convenio_id
+               WHERE ${baseWhere} ${whereExtra}
+               ORDER BY d.codigo_item, d.data_referencia DESC`,
+              [...baseParams, ...params]
+            );
+            itens = itensResult as any[];
+          }
+
+          const r = (resumoRows as any[])[0] || {};
+          console.log('[relatorioLaboratorio.dados] Resumo:', JSON.stringify(r));
+
+          return {
+            itens,
+            porCodigo: porCodigo as any[],
+            porSituacao: porSituacao as any[],
+            porConvenio: (porConvenio as any[]).map((c: any) => ({
+              convenioId: c.convenio_id,
+              convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`,
+              qtd: Number(c.qtd),
+              codigos: Number(c.codigos),
+              totalPago: Number(c.total_pago || 0),
+              totalGlosa: Number(c.total_glosa || 0),
+            })),
+            resumo: {
+              totalItens: Number(r.total_itens || 0),
+              totalPago: Number(r.total_pago || 0),
+              totalGlosa: Number(r.total_glosa || 0),
+              totalInformado: Number(r.total_informado || 0),
+              codigosUnicos: Number(r.codigos_unicos || 0),
+            },
+            competencias: (competencias as any[]).map((c: any) => ({
+              value: `${c.mes}-${c.ano}`,
+              label: `${String(c.mes).padStart(2, '0')}/${c.ano}`,
+              total: Number(c.total),
+              mes: Number(c.mes),
+              ano: Number(c.ano),
+            })),
+          };
+        } catch (err) {
+          console.error('[relatorioLaboratorio.dados] ERRO:', err);
+          throw err;
+    } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+  }),
+
+  // ============ RELATÓRIO VISITA (Pronto Socorro) ============
+  relatorioVisita: router({
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
+             FROM demonstrativo d
+             LEFT JOIN convenios c ON c.id = d.convenio_id
+             WHERE d.estabelecimentoId = ?
+             AND (d.codigo_item = '10102019' OR REPLACE(d.codigo_item,'.','') LIKE '10102%')
+             AND d.convenio_id IS NOT NULL
+             ORDER BY c.nome`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            id: r.convenio_id,
+            nome: r.convenio_nome || `Convênio ${r.convenio_id}`,
+          }));
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+        convenioId: z.number().optional(),
+        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          let whereExtra = '';
+          const params: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
+            params.push(input.mesReferencia, input.anoReferencia);
+          }
+          if (input.convenioId) {
+            whereExtra += ` AND d.convenio_id = ?`;
+            params.push(input.convenioId);
+          }
+          if (input.statusFiltro && input.statusFiltro !== 'todos') {
+            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          }
+
+          const baseWhere = `d.estabelecimentoId = ? AND (d.codigo_item = '10102019' OR REPLACE(d.codigo_item,'.','') LIKE '10102%')`;
+          const baseParams = [input.estabelecimentoId];
+
+          const [
+            [porCodigo],
+            [resumoRows],
+            [competencias],
+            [porSituacao],
+            [porConvenio]
+          ] = await Promise.all([
+            conn.execute(
+              `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
+                      COUNT(*) as qtd, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra} GROUP BY d.codigo_item, d.situacao_item ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT COUNT(*) as total_itens, COUNT(DISTINCT d.codigo_item) as codigos_unicos,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa, SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra}`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT DISTINCT DATE_FORMAT(d.data_referencia, '%m-%Y') as competencia, MONTH(d.data_referencia) as mes, YEAR(d.data_referencia) as ano, COUNT(*) as total
+               FROM demonstrativo d WHERE ${baseWhere} GROUP BY DATE_FORMAT(d.data_referencia, '%m-%Y'), MONTH(d.data_referencia), YEAR(d.data_referencia) ORDER BY ano DESC, mes DESC`,
+              [...baseParams]
+            ),
+            conn.execute(
+              `SELECT d.situacao_item, COUNT(*) as total, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as vl_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as vl_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra} GROUP BY d.situacao_item`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT d.convenio_id, c.nome as convenio_nome, COUNT(*) as qtd, COUNT(DISTINCT d.codigo_item) as codigos, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id WHERE ${baseWhere} ${whereExtra} GROUP BY d.convenio_id, c.nome ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+          ]);
+
+          let itens: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            const [itensResult] = await conn.execute(
+              `SELECT d.id, d.codigo_item, d.descricao_item, d.situacao_item, CAST(d.valor_pago AS DECIMAL(12,2)) as valor_pago, CAST(d.valor_glosa AS DECIMAL(12,2)) as valor_glosa, CAST(d.valor_informado AS DECIMAL(12,2)) as valor_informado, d.numero_guia, d.nome_beneficiario, d.data_execucao, d.data_referencia, d.data_pagamento, d.codigo_glosa, d.convenio_id, c.nome as convenio_nome
+               FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id WHERE ${baseWhere} ${whereExtra} ORDER BY d.codigo_item, d.data_referencia DESC`,
+              [...baseParams, ...params]
+            );
+            itens = itensResult as any[];
+          }
+
+          const r = (resumoRows as any[])[0] || {};
+          return {
+            itens,
+            porCodigo: porCodigo as any[],
+            porSituacao: porSituacao as any[],
+            porConvenio: (porConvenio as any[]).map((c: any) => ({
+              convenioId: c.convenio_id, convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`, qtd: Number(c.qtd), codigos: Number(c.codigos), totalPago: Number(c.total_pago || 0), totalGlosa: Number(c.total_glosa || 0),
+            })),
+            resumo: {
+              totalItens: Number(r.total_itens || 0), totalPago: Number(r.total_pago || 0), totalGlosa: Number(r.total_glosa || 0), totalInformado: Number(r.total_informado || 0), codigosUnicos: Number(r.codigos_unicos || 0),
+            },
+            competencias: (competencias as any[]).map((c: any) => ({
+              value: `${c.mes}-${c.ano}`, label: `${String(c.mes).padStart(2, '0')}/${c.ano}`, total: Number(c.total), mes: Number(c.mes), ano: Number(c.ano),
+            })),
+          };
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+  }),
+
+  // ============ RELATÓRIO VISITA XML (Faturamento/Enviado) ============
+  relatorioVisitaXml: router({
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT s.convenioId, c.nome as convenio_nome
+             FROM staging_faturamento_xml s
+             LEFT JOIN convenios c ON c.id = s.convenioId
+             WHERE (s.estabelecimentoId = ? OR s.estabelecimento_id = ?)
+             AND REPLACE(s.codigo_item, '.', '') = '10102019'
+             AND s.convenioId IS NOT NULL
+             ORDER BY c.nome`,
+            [input.estabelecimentoId, input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            id: r.convenioId,
+            nome: r.convenio_nome || `Convênio ${r.convenioId}`,
+          }));
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+
+    competencias: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT competencia, COUNT(*) as total
+             FROM staging_faturamento_xml
+             WHERE (estabelecimentoId = ? OR estabelecimento_id = ?)
+             AND REPLACE(codigo_item, '.', '') = '10102019'
+             AND competencia IS NOT NULL
+             GROUP BY competencia
+             ORDER BY competencia DESC`,
+            [input.estabelecimentoId, input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => {
+            const parts = (r.competencia || '').split('/');
+            return {
+              value: r.competencia,
+              label: r.competencia,
+              total: Number(r.total),
+              ano: parts[0] ? Number(parts[0]) : 0,
+              mes: parts[1] ? Number(parts[1]) : 0,
+            };
+          });
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        competencia: z.string().optional(),
+        convenioId: z.number().optional(),
+        medico: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          let whereExtra = '';
+          const params: any[] = [input.estabelecimentoId, input.estabelecimentoId];
+
+          if (input.competencia) {
+            whereExtra += ` AND s.competencia = ?`;
+            params.push(input.competencia);
+          }
+          if (input.convenioId) {
+            whereExtra += ` AND s.convenioId = ?`;
+            params.push(input.convenioId);
+          }
+          if (input.medico) {
+            whereExtra += ` AND s.nome_prof = ?`;
+            params.push(input.medico);
+          }
+
+          const baseWhere = `(s.estabelecimentoId = ? OR s.estabelecimento_id = ?) AND REPLACE(s.codigo_item, '.', '') = '10102019'`;
+
+          // Queries em paralelo
+          const [
+            [resumoRows],
+            [porMedico],
+            [porConvenio],
+            [itens]
+          ] = await Promise.all([
+            // Resumo geral
+            conn.execute(
+              `SELECT COUNT(*) as total_visitas,
+                      COUNT(DISTINCT s.numero_guia_prestador) as total_guias,
+                      COUNT(DISTINCT s.nome_prof) as total_medicos,
+                      SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+               FROM staging_faturamento_xml s WHERE ${baseWhere} ${whereExtra}`,
+              [...params]
+            ),
+            // Por médico
+            conn.execute(
+              `SELECT s.nome_prof as medico, s.conselho_prof as crm,
+                      COUNT(*) as qtd_visitas,
+                      COUNT(DISTINCT s.numero_guia_prestador) as qtd_guias,
+                      SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+               FROM staging_faturamento_xml s WHERE ${baseWhere} ${whereExtra}
+               AND s.nome_prof IS NOT NULL AND s.nome_prof != ''
+               GROUP BY s.nome_prof, s.conselho_prof ORDER BY qtd_visitas DESC`,
+              [...params]
+            ),
+            // Por convênio
+            conn.execute(
+              `SELECT s.convenioId, c.nome as convenio_nome,
+                      COUNT(*) as qtd_visitas,
+                      COUNT(DISTINCT s.numero_guia_prestador) as qtd_guias,
+                      SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+               FROM staging_faturamento_xml s
+               LEFT JOIN convenios c ON c.id = s.convenioId
+               WHERE ${baseWhere} ${whereExtra}
+               GROUP BY s.convenioId, c.nome ORDER BY total_faturado DESC`,
+              [...params]
+            ),
+            // Itens individuais
+            conn.execute(
+              `SELECT s.id, s.numero_guia_prestador as guia, s.descricao_item as procedimento,
+                      CAST(s.valor_faturado AS DECIMAL(12,2)) as valor,
+                      s.nome_prof as medico, s.conselho_prof as crm,
+                      s.data_execucao as data_execucao,
+                      s.competencia,
+                      s.convenioId, c.nome as convenio_nome,
+                      s.carteira_beneficiario
+               FROM staging_faturamento_xml s
+               LEFT JOIN convenios c ON c.id = s.convenioId
+               WHERE ${baseWhere} ${whereExtra}
+               ORDER BY s.data_execucao DESC, s.nome_prof`,
+              [...params]
+            ),
+          ]);
+
+          const r = (resumoRows as any[])[0] || {};
+
+          return {
+            resumo: {
+              totalVisitas: Number(r.total_visitas || 0),
+              totalGuias: Number(r.total_guias || 0),
+              totalMedicos: Number(r.total_medicos || 0),
+              totalFaturado: Number(r.total_faturado || 0),
+            },
+            porMedico: (porMedico as any[]).map((m: any) => ({
+              medico: m.medico,
+              crm: m.crm,
+              qtdVisitas: Number(m.qtd_visitas),
+              qtdGuias: Number(m.qtd_guias),
+              totalFaturado: Number(m.total_faturado || 0),
+            })),
+            porConvenio: (porConvenio as any[]).map((c: any) => ({
+              convenioId: c.convenioId,
+              convenioNome: c.convenio_nome || `Convênio ${c.convenioId}`,
+              qtdVisitas: Number(c.qtd_visitas),
+              qtdGuias: Number(c.qtd_guias),
+              totalFaturado: Number(c.total_faturado || 0),
+            })),
+            itens: (itens as any[]).map((i: any) => ({
+              id: i.id,
+              guia: i.guia,
+              procedimento: i.procedimento,
+              valor: Number(i.valor || 0),
+              medico: i.medico,
+              crm: i.crm,
+              dataExecucao: i.data_execucao,
+              competencia: i.competencia,
+              convenioId: i.convenioId,
+              convenioNome: i.convenio_nome,
+              carteira: i.carteira_beneficiario,
+            })),
+          };
+        } catch (err) {
+          console.error('[relatorioVisitaXml.dados] ERRO:', err);
+          throw err;
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+  }),
+
+  // ============ RELATÓRIO ULTRASSOM (Pronto Socorro) ============
+  relatorioUltrassom: router({
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
+             FROM demonstrativo d
+             LEFT JOIN convenios c ON c.id = d.convenio_id
+             WHERE d.estabelecimentoId = ?
+             AND d.codigo_item IN ('40901122', '40901351', '40901769', '40901033', '40901114', '40901386', '40901203', '40901211', '40901181')
+             AND d.convenio_id IS NOT NULL
+             ORDER BY c.nome`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            id: r.convenio_id,
+            nome: r.convenio_nome || `Convênio ${r.convenio_id}`,
+          }));
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+        convenioId: z.number().optional(),
+        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          let whereExtra = '';
+          const params: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
+            params.push(input.mesReferencia, input.anoReferencia);
+          }
+          if (input.convenioId) {
+            whereExtra += ` AND d.convenio_id = ?`;
+            params.push(input.convenioId);
+          }
+          if (input.statusFiltro && input.statusFiltro !== 'todos') {
+            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          }
+
+          const baseWhere = `d.estabelecimentoId = ? AND d.codigo_item IN ('40901122', '40901351', '40901769', '40901033', '40901114', '40901386', '40901203', '40901211', '40901181')`;
+          const baseParams = [input.estabelecimentoId];
+
+          const [
+            [porCodigo],
+            [resumoRows],
+            [competencias],
+            [porSituacao],
+            [porConvenio]
+          ] = await Promise.all([
+            conn.execute(
+              `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
+                      COUNT(*) as qtd, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra} GROUP BY d.codigo_item, d.situacao_item ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT COUNT(*) as total_itens, COUNT(DISTINCT d.codigo_item) as codigos_unicos,
+                      SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa, SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra}`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT DISTINCT DATE_FORMAT(d.data_referencia, '%m-%Y') as competencia, MONTH(d.data_referencia) as mes, YEAR(d.data_referencia) as ano, COUNT(*) as total
+               FROM demonstrativo d WHERE ${baseWhere} GROUP BY DATE_FORMAT(d.data_referencia, '%m-%Y'), MONTH(d.data_referencia), YEAR(d.data_referencia) ORDER BY ano DESC, mes DESC`,
+              [...baseParams]
+            ),
+            conn.execute(
+              `SELECT d.situacao_item, COUNT(*) as total, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as vl_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as vl_glosa
+               FROM demonstrativo d WHERE ${baseWhere} ${whereExtra} GROUP BY d.situacao_item`,
+              [...baseParams, ...params]
+            ),
+            conn.execute(
+              `SELECT d.convenio_id, c.nome as convenio_nome, COUNT(*) as qtd, COUNT(DISTINCT d.codigo_item) as codigos, SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+               FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id WHERE ${baseWhere} ${whereExtra} GROUP BY d.convenio_id, c.nome ORDER BY total_pago DESC`,
+              [...baseParams, ...params]
+            ),
+          ]);
+
+          let itens: any[] = [];
+          if (input.mesReferencia && input.anoReferencia) {
+            const [itensResult] = await conn.execute(
+              `SELECT d.id, d.codigo_item, d.descricao_item, d.situacao_item, CAST(d.valor_pago AS DECIMAL(12,2)) as valor_pago, CAST(d.valor_glosa AS DECIMAL(12,2)) as valor_glosa, CAST(d.valor_informado AS DECIMAL(12,2)) as valor_informado, d.numero_guia, d.nome_beneficiario, d.data_execucao, d.data_referencia, d.data_pagamento, d.codigo_glosa, d.convenio_id, c.nome as convenio_nome
+               FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id WHERE ${baseWhere} ${whereExtra} ORDER BY d.codigo_item, d.data_referencia DESC`,
+              [...baseParams, ...params]
+            );
+            itens = itensResult as any[];
+          }
+
+          const r = (resumoRows as any[])[0] || {};
+          return {
+            itens,
+            porCodigo: porCodigo as any[],
+            porSituacao: porSituacao as any[],
+            porConvenio: (porConvenio as any[]).map((c: any) => ({
+              convenioId: c.convenio_id, convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`, qtd: Number(c.qtd), codigos: Number(c.codigos), totalPago: Number(c.total_pago || 0), totalGlosa: Number(c.total_glosa || 0),
+            })),
+            resumo: {
+              totalItens: Number(r.total_itens || 0), totalPago: Number(r.total_pago || 0), totalGlosa: Number(r.total_glosa || 0), totalInformado: Number(r.total_informado || 0), codigosUnicos: Number(r.codigos_unicos || 0),
+            },
+            competencias: (competencias as any[]).map((c: any) => ({
+              value: `${c.mes}-${c.ano}`, label: `${String(c.mes).padStart(2, '0')}/${c.ano}`, total: Number(c.total), mes: Number(c.mes), ano: Number(c.ano),
+            })),
+          };
+        } finally {
+          if (conn) await conn.end().catch(() => {});
+        }
+      }),
+  }),
+
+  recebimentosExcel: router({
+    // Importar dados de Excel para recebimentos_excel
+    importarExcel: protectedProcedure
+      .input(z.object({
+        arquivoId: z.number(),
+        estabelecimentoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
+        
+        // Buscar arquivo
+        const arquivo = await db.getArquivoById(input.arquivoId);
+        if (!arquivo) {
+          throw new Error('Arquivo não encontrado');
+        }
+        
+        // Baixar conteúdo do S3
+        const response = await fetch(arquivo.s3Url);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        
+        // Parsear Excel
+        const records = parseExcelRecebimentosExcel(buffer, input.arquivoId);
+        
+        if (records.length === 0) {
+          return { success: false, message: 'Nenhum registro encontrado no arquivo', imported: 0 };
+        }
+        
+        // Inserir no banco
+        const imported = await db.insertRecebimentosExcelBatch(records);
+        
+        // Atualizar status do arquivo
+        await db.updateArquivo(input.arquivoId, {
+          status: 'processado',
+          totalItens: records.length,
+          itensProcessados: records.length,
+          progresso: 100,
+        });
+        
+        return { success: true, imported, total: records.length };
+      }),
+    
+    // Listar itens com filtros e paginação
+    list: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        convenioId: z.number().optional(),
+        arquivoId: z.number().optional(),
+        situacaoItem: z.string().optional(),
+        search: z.string().optional(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+        page: z.number().optional(),
+        limit: z.number().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getRecebimentosExcel(input || {});
+      }),
+    
+    // Resumo de recebimentos
+    resumo: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        convenioId: z.number().optional(),
+        mesReferencia: z.number().min(1).max(12).optional(),
+        anoReferencia: z.number().min(2000).max(2100).optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getRecebimentosExcelResumo(input || {});
+      }),
+    
+    // Excluir itens por arquivo
+    excluirPorArquivo: protectedProcedure
+      .input(z.object({ arquivoId: z.number() }))
+      .mutation(async ({ input }) => {
+        const deleted = await db.deleteRecebimentosExcelByArquivo(input.arquivoId);
+        return { success: true, deleted };
+      }),
+  }),
+
+  // ===== ATENDIMENTOS (banco interno com fallback para PostgreSQL externo) =====
+  atendimentos: router({
+    listar: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          const estabId = input?.estabelecimentoId;
+          // Buscar da tabela atendimentos_unificados filtrado por estabelecimento
+          const dbInstance = await getDb();
+          if (dbInstance) {
+            const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
+            const { eq, and, notLike, or, isNull, sql } = await import("drizzle-orm");
+            // Filtrar por estabelecimento e excluir os que são "A_FATURAR" (esses vão para outra tela)
+            let conditions = [];
+            if (estabId) {
+              conditions.push(eq(atendimentosUnificados.estabelecimentoId, estabId));
+            }
+            conditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+            // Para dados TASY: mostrar apenas os que NÃO têm protocolo (nomeProtocolo NULL ou vazio)
+            // Os que têm protocolo vão para a tela "Atendimentos Sem Protocolo"
+            conditions.push(
+              or(
+                sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
+                isNull(atendimentosUnificados.nomeProtocolo),
+                eq(atendimentosUnificados.nomeProtocolo, '')
+              )!
+            );
+            const dadosInternos = await dbInstance.select().from(atendimentosUnificados).where(and(...conditions));
+            
+            // Buscar motivos de notificação do MySQL interno
+            const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
+            let motivosMap: Record<string, string> = {};
+            try {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+                motivosMap[numatend] = notif.motivo;
+              }
+            } catch (err) {
+              console.error("[atendimentos.listar] Erro ao buscar motivos de notificação do MySQL:", err);
+              // Fallback: tentar buscar do PostgreSQL externo
+              try {
+                motivosMap = await buscarMotivosNotificacao(numatends);
+              } catch (err2) {
+                console.error("[atendimentos.listar] Erro ao buscar motivos do PostgreSQL:", err2);
+              }
+            }
+            
+            return dadosInternos.map(d => ({
+              numatend: d.numero_atendimento || "",
+              nomeplaco: d.convenio || "",
+              nomepac: d.paciente || "",
+              carater: d.caracter_atendimento || "",
+              datatend: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
+              datasai: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+              tipoatend: d.tipo_atendimento || "",
+              tipoatendimentodescricao: d.descricao_atendimento || "",
+              codserv: d.codigo_servico || "",
+              procprin: d.codigo_procedimento || "",
+              codcc_destino: d.destino_conta || "",
+              motivo: motivosMap[d.numero_atendimento || ""] || null,
+              diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+                ? calcularDiasParadoUnificado(
+                    d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                    d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                    d.origemSistema || '',
+                    d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+                    d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
+                  )
+                : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+              origemSistema: d.origemSistema,
+              // Novos campos Tasy
+              dsCategoria: d.dsCategoria || "",
+              dsPlano: d.dsPlano || "",
+              competencia: d.competencia || "",
+              referencia: d.referencia || "",
+              protTasy: d.protTasy || "",
+              nomeProtocolo: d.nomeProtocolo || "",
+              protConv: d.protConv || "",
+              dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+              protStatus: d.protStatus || "",
+              titulo: d.titulo || "",
+              dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
+              dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+              dsSetorEntrada: d.dsSetorEntrada || "",
+              dsSetorLeito: d.dsSetorLeito || "",
+              etapaConta: d.etapaConta || "",
+              setorEtapa: d.setorEtapa || "",
+              dtEtapa: d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null,
+              userEtapa: d.userEtapa || "",
+              motivoDevolucao: d.motivoDevolucao || "",
+              conta: d.conta || "",
+              autorizacao: d.autorizacao || "",
+              valorConta: d.valorConta ? String(d.valorConta) : "",
+              matricula: d.matricula || "",
+              sexo: d.sexo || "",
+              idade: d.idade || "",
+              medicoResp: d.medicoResp || "",
+              crm: d.crm || "",
+              dsMotivoAlta: d.dsMotivoAlta || "",
+              dataInicio: d.dataInicio || "",
+              dataFim: d.dataFim || "",
+              codServico: d.codServico || "",
+              centroCusto: d.centroCusto || "",
+            }));
+          }
+          // Fallback: banco interno indisponível, retornar vazio
+          return [];
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos: ${err.message}`,
+          });
+        }
+      }),
+
+    // Listar atendimentos TASY que TÊM protocolo preenchido (para tela Atendimentos Sem Protocolo)
+    listarComProtocolo: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          const estabId = input?.estabelecimentoId;
+          const dbInstance = await getDb();
+          if (dbInstance) {
+            const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
+            const { eq, and, notLike, isNotNull, ne, or } = await import("drizzle-orm");
+            let conditions = [];
+            if (estabId) {
+              conditions.push(eq(atendimentosUnificados.estabelecimentoId, estabId));
+            }
+            // Apenas TASY com nomeProtocolo preenchido
+            conditions.push(or(eq(atendimentosUnificados.origemSistema, 'tasy'), eq(atendimentosUnificados.origemSistema, 'tasy_hemolabor'))!);
+            conditions.push(isNotNull(atendimentosUnificados.nomeProtocolo));
+            conditions.push(ne(atendimentosUnificados.nomeProtocolo, ''));
+            conditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+            const dadosInternos = await dbInstance.select().from(atendimentosUnificados).where(and(...conditions));
+            
+            // Buscar motivos de notificação
+            const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
+            let motivosMap: Record<string, string> = {};
+            try {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+                motivosMap[numatend] = notif.motivo;
+              }
+            } catch (err) {
+              console.error("[atendimentos.listarComProtocolo] Erro ao buscar motivos:", err);
+            }
+            
+            return dadosInternos.map(d => ({
+              numatend: d.numero_atendimento || "",
+              nomeplaco: d.convenio || "",
+              nomepac: d.paciente || "",
+              carater: d.caracter_atendimento || "",
+              datatend: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
+              datasai: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+              tipoatend: d.tipo_atendimento || "",
+              tipoatendimentodescricao: d.descricao_atendimento || "",
+              codserv: d.codigo_servico || "",
+              procprin: d.codigo_procedimento || "",
+              codcc_destino: d.destino_conta || "",
+              motivo: motivosMap[d.numero_atendimento || ""] || null,
+              diasParado: calcularDiasParadoUnificado(
+                d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                d.origemSistema || '',
+                d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+                d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
+              ),
+              origemSistema: d.origemSistema,
+              dsCategoria: d.dsCategoria || "",
+              dsPlano: d.dsPlano || "",
+              competencia: d.competencia || "",
+              referencia: d.referencia || "",
+              protTasy: d.protTasy || "",
+              nomeProtocolo: d.nomeProtocolo || "",
+              protConv: d.protConv || "",
+              dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+              protStatus: d.protStatus || "",
+              titulo: d.titulo || "",
+              dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
+              dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+              dsSetorEntrada: d.dsSetorEntrada || "",
+              dsSetorLeito: d.dsSetorLeito || "",
+              etapaConta: d.etapaConta || "",
+              setorEtapa: d.setorEtapa || "",
+              dtEtapa: d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null,
+              userEtapa: d.userEtapa || "",
+              motivoDevolucao: d.motivoDevolucao || "",
+              conta: d.conta || "",
+              autorizacao: d.autorizacao || "",
+              valorConta: d.valorConta ? String(d.valorConta) : "",
+              matricula: d.matricula || "",
+              sexo: d.sexo || "",
+              idade: d.idade || "",
+              medicoResp: d.medicoResp || "",
+              crm: d.crm || "",
+              dsMotivoAlta: d.dsMotivoAlta || "",
+              dataInicio: d.dataInicio || "",
+              dataFim: d.dataFim || "",
+              codServico: d.codServico || "",
+              centroCusto: d.centroCusto || "",
+            }));
+          }
+          return [];
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos com protocolo: ${err.message}`,
+          });
+        }
+      }),
+
+    registrarNotificacao: protectedProcedure
+      .input(z.object({
+        numatend: z.string(),
+        observacao: z.string(),
+        notificacoes: z.array(z.object({
+          motivo: z.string(),
+          setor: z.string(),
+          medico: z.string(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          // Salvar no MySQL interno (fonte principal)
+          const mysqlId = await salvarNotificacaoAtendimento({
+            numatend: input.numatend,
+            observacao: input.observacao,
+            usuario: ctx.user?.name || "Usu\u00e1rio",
+            itens: input.notificacoes.map(n => ({
+              motivo: n.motivo,
+              setor: n.setor,
+              medico: n.medico,
+            })),
+          });
+
+          // Tentar salvar tamb\u00e9m no PostgreSQL externo (backup)
+          try {
+            await salvarNotificacao(
+              input.numatend,
+              input.observacao,
+              input.notificacoes
+            );
+          } catch (pgErr) {
+            console.warn("[registrarNotificacao] Falha ao salvar no PostgreSQL externo (backup):", pgErr);
+          }
+
+          return { success: true, id: mysqlId };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao registrar notifica\u00e7\u00e3o: ${err.message}`,
+          });
+        }
+      }),
+    registrarNotificacaoEmLote: protectedProcedure
+      .input(z.object({
+        atendimentos: z.array(z.object({
+          numatend: z.string(),
+          nomepac: z.string(),
+        })),
+        observacao: z.string(),
+        notificacoes: z.array(z.object({
+          motivo: z.string(),
+          setor: z.string(),
+          medico: z.string(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          // Salvar no MySQL interno (fonte principal)
+          const dadosLote = input.atendimentos.map(a => ({
+            numatend: a.numatend,
+            observacao: input.observacao,
+            usuario: ctx.user?.name || "Usu\u00e1rio",
+            itens: input.notificacoes.map(n => ({
+              motivo: n.motivo,
+              setor: n.setor,
+              medico: n.medico,
+            })),
+          }));
+
+          const resultadoMySQL = await salvarNotificacoesAtendimentoEmLote(dadosLote);
+
+          // Tentar salvar tamb\u00e9m no PostgreSQL externo (backup)
+          try {
+            await salvarNotificacaoEmLote(
+              input.atendimentos,
+              input.observacao,
+              input.notificacoes
+            );
+          } catch (pgErr) {
+            console.warn("[registrarNotificacaoEmLote] Falha ao salvar no PostgreSQL externo (backup):", pgErr);
+          }
+
+          // Salvar no hist\u00f3rico para persist\u00eancia
+          try {
+            await salvarHistoricoNotificacao(
+              input.atendimentos.length,
+              input.observacao,
+              ctx.user?.name || "Usu\u00e1rio",
+              input.atendimentos.map(a => ({
+                numatend: a.numatend,
+                nomepac: a.nomepac,
+                nomeplaco: "",
+                datatend: "",
+                datasai: null,
+                diasParado: 0,
+                tipoatendimentodescricao: "",
+                codserv: "",
+              })),
+              input.notificacoes
+            );
+          } catch (histErr) {
+            console.error("Erro ao salvar hist\u00f3rico de notifica\u00e7\u00e3o:", histErr);
+          }
+
+          return { success: true, ids: [], count: resultadoMySQL.salvos };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao registrar notifica\u00e7\u00f5es em lote: ${err.message}`,
+          });
+        }
+      }),
+
+    // Salvar histórico de notificação com dados completos dos atendimentos
+    salvarHistorico: protectedProcedure
+      .input(z.object({
+        qtdAtendimentos: z.number(),
+        observacao: z.string(),
+        atendimentos: z.array(z.object({
+          numatend: z.string(),
+          nomepac: z.string(),
+          nomeplaco: z.string(),
+          datatend: z.string(),
+          datasai: z.string().nullable(),
+          diasParado: z.number(),
+          tipoatendimentodescricao: z.string(),
+          codserv: z.string(),
+        })),
+        notificacoes: z.array(z.object({
+          motivo: z.string(),
+          setor: z.string(),
+          medico: z.string(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const id = await salvarHistoricoNotificacao(
+            input.qtdAtendimentos,
+            input.observacao,
+            ctx.user?.name || "Usuário",
+            input.atendimentos,
+            input.notificacoes
+          );
+          return { success: true, id };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao salvar histórico: ${err.message}`,
+          });
+        }
+      }),
+
+    // Listar histórico de notificações
+    listarHistorico: protectedProcedure
+      .query(async () => {
+        try {
+          const historico = await listarHistoricoNotificacoes();
+          return historico.map(h => ({
+            id: h.id,
+            dataGeracao: h.data_geracao,
+            qtdAtendimentos: h.qtd_atendimentos,
+            observacao: h.observacao,
+            usuario: h.usuario,
+            atendimentos: JSON.parse(h.atendimentos_json),
+            notificacoes: JSON.parse(h.notificacoes_json),
+          }));
+        } catch (err: any) {
+          console.error("[atendimentos.listarHistorico] Erro:", err.message);
+          return [];
+        }
+      }),
+
+    listarParadosUnificados: protectedProcedure
+      .query(async ({ ctx }) => {
+        try {
+          // Buscar todos os atendimentos parados da tabela unificada
+          const dados = await getAtendimentosParadosUnificados();
+          return dados.map(d => ({
+            ...d,
+            diasParado: calcularDiasParadoUnificado(d.data_entrada, d.data_saida, d.origemSistema, d.dtEntrega, d.dtEtapa),
+          }));
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos parados unificados: ${err.message}`,
+          });
+        }
+      }),
+
+    listarPaginado: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        page: z.number().min(1).default(1),
+        pageSize: z.number().min(10).max(200).default(50),
+        origemSistema: z.string().optional(),
+        tipo: z.string().optional(),
+        convenio: z.string().optional(),
+        etapa: z.string().optional(),
+        protocolo: z.string().optional(),
+        ano: z.string().optional(),
+        mes: z.string().optional(),
+        busca: z.string().optional(),
+        descricao: z.string().optional(),
+        sortColumn: z.string().default("data_entrada"),
+        sortOrder: z.enum(["asc", "desc"]).default("desc"),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const dbInstance = await getDb();
+          if (!dbInstance) {
+            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, aggregations: { tipos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
+          }
+          const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
+          const { eq, and, notLike, or, isNull, like, sql, desc: descOrd, asc: ascOrd, count } = await import("drizzle-orm");
+
+          // Condições base (mesmas da procedure listar)
+          const baseConditions: any[] = [];
+          if (input.estabelecimentoId) {
+            baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
+          }
+          baseConditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+          baseConditions.push(
+            or(
+              sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
+              isNull(atendimentosUnificados.nomeProtocolo),
+              eq(atendimentosUnificados.nomeProtocolo, '')
+            )!
+          );
+          // Não filtrar por data_saida IS NULL - para WARLEINE/EASYVISION a query externa já traz apenas os atendimentos relevantes
+          // Para TASY o CSV já traz só contas paradas
+
+          // Condições de filtro
+          const filterConditions: any[] = [...baseConditions];
+          if (input.origemSistema && input.origemSistema !== 'all') {
+            filterConditions.push(eq(atendimentosUnificados.origemSistema, input.origemSistema));
+          }
+          if (input.tipo) {
+            filterConditions.push(like(atendimentosUnificados.tipo_atendimento, `%${input.tipo}%`));
+          }
+          if (input.convenio) {
+            filterConditions.push(eq(atendimentosUnificados.convenio, input.convenio));
+          }
+          if (input.etapa) {
+            filterConditions.push(eq(atendimentosUnificados.etapaConta, input.etapa));
+          }
+          if (input.descricao) {
+            filterConditions.push(eq(atendimentosUnificados.dsSetorEntrada, input.descricao));
+          }
+          if (input.protocolo && input.protocolo !== 'all') {
+            if (input.protocolo === 'null') {
+              filterConditions.push(or(isNull(atendimentosUnificados.nomeProtocolo), eq(atendimentosUnificados.nomeProtocolo, ''))!);
+            } else if (input.protocolo === 'com_protocolo') {
+              filterConditions.push(sql`${atendimentosUnificados.nomeProtocolo} IS NOT NULL AND ${atendimentosUnificados.nomeProtocolo} != ''`);
+            } else {
+              filterConditions.push(eq(atendimentosUnificados.nomeProtocolo, input.protocolo));
+            }
+          }
+          if (input.ano || input.mes) {
+            if (input.ano && input.mes) {
+              const compVal = `${input.ano}/${input.mes}`;
+              filterConditions.push(
+                or(
+                  eq(atendimentosUnificados.competencia, compVal),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`,
+                    sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
+                  )!
+                )!
+              );
+            } else if (input.ano) {
+              filterConditions.push(
+                or(
+                  like(atendimentosUnificados.competencia, `${input.ano}/%`),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`
+                  )!
+                )!
+              );
+            } else if (input.mes) {
+              filterConditions.push(
+                or(
+                  like(atendimentosUnificados.competencia, `%/${input.mes}`),
+                  and(
+                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
+                  )!
+                )!
+              );
+            }
+          }
+          if (input.busca) {
+            const term = `%${input.busca}%`;
+            filterConditions.push(
+              or(
+                like(atendimentosUnificados.numero_atendimento, term),
+                like(atendimentosUnificados.paciente, term),
+                like(atendimentosUnificados.convenio, term),
+                like(atendimentosUnificados.matricula, term),
+                like(atendimentosUnificados.conta, term),
+                like(atendimentosUnificados.medicoResp, term),
+                like(atendimentosUnificados.descricao_atendimento, term),
+                like(atendimentosUnificados.codigo_servico, term),
+                like(atendimentosUnificados.etapaConta, term),
+                like(atendimentosUnificados.setorEtapa, term),
+                like(atendimentosUnificados.userEtapa, term)
+              )!
+            );
+          }
+
+          const whereClause = and(...filterConditions);
+          const baseWhereClause = and(...baseConditions);
+
+          // Mapeamento de colunas para ordenação
+          const sortColumnMap: Record<string, any> = {
+            data_entrada: atendimentosUnificados.data_entrada,
+            paciente: atendimentosUnificados.paciente,
+            convenio: atendimentosUnificados.convenio,
+            tipo_atendimento: atendimentosUnificados.tipo_atendimento,
+            numero_atendimento: atendimentosUnificados.numero_atendimento,
+            valorConta: atendimentosUnificados.valorConta,
+            etapaConta: atendimentosUnificados.etapaConta,
+            setorEtapa: atendimentosUnificados.setorEtapa,
+            origemSistema: atendimentosUnificados.origemSistema,
+            descricao_atendimento: atendimentosUnificados.descricao_atendimento,
+            codigo_servico: atendimentosUnificados.codigo_servico,
+            dtEntrega: atendimentosUnificados.dtEntrega,
+            dtEtapa: atendimentosUnificados.dtEtapa,
+            competencia: atendimentosUnificados.competencia,
+            medicoResp: atendimentosUnificados.medicoResp,
+            conta: atendimentosUnificados.conta,
+            matricula: atendimentosUnificados.matricula,
+          };
+          const sortCol = sortColumnMap[input.sortColumn] || atendimentosUnificados.data_entrada;
+          const orderFn = input.sortOrder === 'asc' ? ascOrd : descOrd;
+
+          // Queries em paralelo
+          const [totalResult, dataResult, valorResult] = await Promise.all([
+            dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
+            dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
+            dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(15,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
+          ]);
+
+          const total = (totalResult[0] as any)?.count || 0;
+          const totalPages = Math.ceil(total / input.pageSize);
+          const totalValor = parseFloat((valorResult as any)?.[0]?.[0]?.totalValor || (valorResult as any)?.[0]?.totalValor || '0');
+
+          // Agregações para filtros (sobre dados base, sem filtros de usuário)
+          const [tiposR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
+            dbInstance.execute(sql`SELECT tipo_atendimento as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND tipo_atendimento IS NOT NULL AND tipo_atendimento != '' GROUP BY tipo_atendimento ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`),
+            dbInstance.execute(sql`SELECT nomeProtocolo as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND nomeProtocolo IS NOT NULL AND nomeProtocolo != '' GROUP BY nomeProtocolo ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT CASE WHEN competencia IS NOT NULL AND competencia != '' AND competencia != 'NULL' AND competencia LIKE '%/%' THEN SUBSTRING_INDEX(competencia, '/', 1) WHEN data_entrada IS NOT NULL THEN CAST(YEAR(data_entrada) AS CHAR) ELSE NULL END as ano, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY ano HAVING ano IS NOT NULL ORDER BY ano DESC`),
+          ]);
+
+          const parseAgg = (rows: any) => {
+            const data = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+            return data.map((r: any) => ({ value: r.val || r.ano || '', count: parseInt(r.cnt) || 0 })).filter((r: any) => r.value);
+          };
+
+          // Buscar motivos de notificação para os registros da página
+          const numatends = dataResult.map(d => d.numero_atendimento || "").filter(n => n !== "");
+          let motivosMap: Record<string, string> = {};
+          if (numatends.length > 0) {
+            try {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+                motivosMap[numatend] = notif.motivo;
+              }
+            } catch (err) {
+              try { motivosMap = await buscarMotivosNotificacao(numatends); } catch (err2) { /* silenciar */ }
+            }
+          }
+
+          // Mapear dados
+          const items = dataResult.map(d => ({
+            id: d.id,
+            origemSistema: d.origemSistema,
+            origemId: d.origemId,
+            estabelecimentoId: d.estabelecimentoId,
+            numero_atendimento: d.numero_atendimento || "",
+            codigo_saida: d.codigo_saida || "",
+            convenio: d.convenio || "",
+            paciente: d.paciente || "",
+            caracter_atendimento: d.caracter_atendimento || "",
+            data_entrada: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
+            data_saida: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+            tipo_atendimento: d.tipo_atendimento || "",
+            descricao_atendimento: d.descricao_atendimento || "",
+            codigo_servico: d.codigo_servico || "",
+            codigo_procedimento: d.codigo_procedimento || "",
+            destino_conta: d.destino_conta || "",
+            motivo: motivosMap[d.numero_atendimento || ""] || null,
+            diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+              ? calcularDiasParadoUnificado(
+                  d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                  d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                  d.origemSistema || '',
+                  d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+                  d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
+                )
+              : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+            dsCategoria: d.dsCategoria || "",
+            dsPlano: d.dsPlano || "",
+            competencia: d.competencia || "",
+            referencia: d.referencia || "",
+            protTasy: d.protTasy || "",
+            nomeProtocolo: d.nomeProtocolo || "",
+            protConv: d.protConv || "",
+            dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+            protStatus: d.protStatus || "",
+            titulo: d.titulo || "",
+            dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
+            dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+            dsSetorEntrada: d.dsSetorEntrada || "",
+            dsSetorLeito: d.dsSetorLeito || "",
+            etapaConta: d.etapaConta || "",
+            setorEtapa: d.setorEtapa || "",
+            dtEtapa: d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null,
+            userEtapa: d.userEtapa || "",
+            motivoDevolucao: d.motivoDevolucao || "",
+            conta: d.conta || "",
+            autorizacao: d.autorizacao || "",
+            valorConta: d.valorConta ? String(d.valorConta) : "",
+            matricula: d.matricula || "",
+            sexo: d.sexo || "",
+            idade: d.idade || "",
+            medicoResp: d.medicoResp || "",
+            crm: d.crm || "",
+            dsMotivoAlta: d.dsMotivoAlta || "",
+            dataInicio: d.dataInicio || "",
+            dataFim: d.dataFim || "",
+            codServico: d.codServico || "",
+            centroCusto: d.centroCusto || "",
+            dataSincronizacao: d.dataSincronizacao ? new Date(d.dataSincronizacao).toISOString() : null,
+          }));
+
+          return {
+            items,
+            total,
+            page: input.page,
+            pageSize: input.pageSize,
+            totalPages,
+            aggregations: {
+              tipos: parseAgg(tiposR),
+              convenios: parseAgg(conveniosR),
+              etapas: parseAgg(etapasR),
+              origens: parseAgg(origensR),
+              protocolos: parseAgg(protocolosR),
+              anos: parseAgg(anosR),
+              totalValor,
+            },
+          };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos paginados: ${err.message}`,
+          });
+        }
+      }),
+
+    getKPIs: protectedProcedure
+      .query(async ({ ctx }) => {
+        try {
+          const kpis = await getKPIsPorTipo();
+          return kpis;
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar KPIs: ${err.message}`,
+          });
+        }
+      }),
+
+    getQuantidadePorPlano: protectedProcedure
+      .query(async ({ ctx }) => {
+        try {
+          const dados = await getQuantidadePorPlano();
+          return dados;
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar quantidade por plano: ${err.message}`,
+          });
+        }
+      }),
+
+    getQuantidadePorServico: protectedProcedure
+      .query(async ({ ctx }) => {
+        try {
+          const dados = await getQuantidadePorServico();
+          return dados;
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar quantidade por servico: ${err.message}`,
+          });
+        }
+      }),
+
+    // Verificar conexão SMTP
+    verificarSMTP: protectedProcedure
+      .query(async () => {
+        return await verificarConexaoSMTP();
+      }),
+
+    // Enviar notificação por e-mail
+    enviarNotificacaoEmail: protectedProcedure
+      .input(z.object({
+        destinatarioEmail: z.string().email(),
+        estabelecimentoNome: z.string(),
+        mensagemPersonalizada: z.string().optional(),
+        atendimentos: z.array(z.object({
+          paciente: z.string(),
+          numatend: z.string(),
+          tipoAtendimento: z.string(),
+          plano: z.string(),
+          diasParado: z.number(),
+          dataEntrada: z.string(),
+          observacao: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const html = gerarHtmlNotificacaoAtendimentos({
+            estabelecimentoNome: input.estabelecimentoNome,
+            totalAtendimentos: input.atendimentos.length,
+            atendimentos: input.atendimentos.map(a => ({
+              ...a,
+              observacao: a.observacao || undefined,
+            })),
+            mensagemPersonalizada: input.mensagemPersonalizada,
+          });
+
+          const resultado = await enviarEmail({
+            destinatario: input.destinatarioEmail,
+            assunto: `[Portal Safatle] Notificação de ${input.atendimentos.length} Atendimento${input.atendimentos.length > 1 ? 's' : ''} Parado${input.atendimentos.length > 1 ? 's' : ''} - ${input.estabelecimentoNome}`,
+            conteudoHtml: html,
+            conteudoTexto: `Notificação de ${input.atendimentos.length} atendimentos parados no ${input.estabelecimentoNome}. Acesse o Portal Safatle para mais detalhes.`,
+          });
+
+          if (!resultado.ok) {
+            throw new Error(resultado.error || "Erro desconhecido ao enviar e-mail");
+          }
+
+          return { success: true, messageId: resultado.messageId };
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao enviar e-mail: ${err.message}`,
+          });
+        }
+      }),
+  }),
+
+  // ===== ATENDIMENTOS A FATURAR (banco interno com fallback para PostgreSQL externo) =====
+  atendimentosFaturar: router({
+    listar: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        try {
+          const estabId = input?.estabelecimentoId;
+          // Buscar da tabela atendimentos_a_faturar (tabela própria, separada da unificados)
+          const dbInstance = await getDb();
+          if (dbInstance) {
+            const { atendimentosAFaturar } = await import("../drizzle/schema-integracao");
+            const { eq } = await import("drizzle-orm");
+            let query = dbInstance.select().from(atendimentosAFaturar);
+            if (estabId) {
+              query = query.where(eq(atendimentosAFaturar.estabelecimentoId, estabId)) as any;
+            }
+            const dadosInternos = await query;
+            return dadosInternos.map((d: any) => ({
+              numatend: d.numatend || "",
+              nomeplaco: d.nomeplaco || "",
+              nomepac: d.nomepac || "",
+              carater: d.carater || "",
+              datatend: d.datatend ? new Date(d.datatend).toISOString() : "",
+              datasai: d.datasai ? new Date(d.datasai).toISOString() : null,
+              tipoatend: d.tipoatend || "",
+              tipoatendimentodescricao: d.tipoatendimentodescricao || "",
+              codserv: d.codserv || "",
+              procprin: d.procprin || "",
+              diasParado: calcularDiasParado(d.datasai ? new Date(d.datasai).toISOString() : null),
+              origemSistema: d.origemSistema || "EASYVISION",
+            }));
+          }
+          // Fallback: banco interno indisponível, retornar vazio
+          return [];
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar atendimentos a faturar: ${err.message}`,
+          });
+        }
+      }),
+  }),
+
+  noticias: router({
+    listar: publicProcedure.query(async () => {
+      try {
+        const feeds = [
+          { url: "https://news.google.com/rss/search?q=faturamento+hospitalar+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Faturamento Hospitalar" },
+          { url: "https://news.google.com/rss/search?q=gest%C3%A3o+hospitalar+plano+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Gestão Hospitalar" },
+          { url: "https://news.google.com/rss/search?q=ANS+conv%C3%AAnio+hospital&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Regulação ANS" },
+        ];
+
+        const allNoticias: Array<{
+          titulo: string;
+          link: string;
+          fonte: string;
+          dataPublicacao: string;
+          categoria: string;
+        }> = [];
+
+        for (const feed of feeds) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const response = await fetch(feed.url, {
+              headers: { "User-Agent": "Mozilla/5.0" },
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            const xml = await response.text();
+
+            // Parse RSS XML simples
+            const items = xml.split("<item>").slice(1);
+            for (const item of items.slice(0, 5)) {
+              const titulo = item.match(/<title><!\[CDATA\[(.+?)\]\]><\/title>/)?.[1]
+                || item.match(/<title>(.+?)<\/title>/)?.[1]
+                || "";
+              const link = item.match(/<link>(.+?)<\/link>/)?.[1]
+                || item.match(/<link\/>\s*(.+?)\s*</)?.[1]
+                || "";
+              const fonte = item.match(/<source[^>]*>(.+?)<\/source>/)?.[1]
+                || item.match(/<source[^>]*><!\[CDATA\[(.+?)\]\]><\/source>/)?.[1]
+                || "";
+              const pubDate = item.match(/<pubDate>(.+?)<\/pubDate>/)?.[1] || "";
+
+              if (titulo && link) {
+                allNoticias.push({
+                  titulo: titulo.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'),
+                  link: link.trim(),
+                  fonte: fonte.replace(/&amp;/g, "&"),
+                  dataPublicacao: pubDate,
+                  categoria: feed.categoria,
+                });
+              }
+            }
+          } catch {
+            // Ignora feeds que falharem
+          }
+        }
+
+        // Ordenar por data mais recente e limitar a 12
+        allNoticias.sort((a, b) => {
+          const da = new Date(a.dataPublicacao).getTime() || 0;
+          const db2 = new Date(b.dataPublicacao).getTime() || 0;
+          return db2 - da;
+        });
+
+        return allNoticias.slice(0, 12);
+      } catch (err: any) {
+        // Retorna array vazio em vez de lançar erro para não bloquear a página
+        console.error(`[Noticias] Erro ao buscar notícias: ${err.message}`);
+        return [] as Array<{
+          titulo: string;
+          link: string;
+          fonte: string;
+          dataPublicacao: string;
+          categoria: string;
+        }>;
+      }
+    }),
+  }),
+
+  // ============ MOTOR DE REGRAS ============
+  motorRegras: motorRegrasRouter,
+
+  // ============ PADRÕES DE PROCEDIMENTOS ============
+  padroesProcedimentos: padroesProcedimentosRouter,
+
+  // ============ PADRÕES DE COBRANÇA POR CONVÊNIO ============
+  padroesCobranca: padroesCobrancaRouter,
+
+  // ============ INTEGRADOR DE DADOS ============
+  integradorDados: integradorDadosRouter,
+
+  // ============ CONTAS CONVÊNIO (OPERACIONAL) ============
+  contasConvenio: contasConvenioRouter,
+
+  // ============ FATURAMENTO UNIFICADO & CONCILIAÇÃO CRUZADA ============
+  faturamentoUnificado: faturamentoUnificadoRouter,
+
+  // ============ CBHPM & TABELAS DE PORTE ============
+  cbhpm: cbhpmRouter,
+
+  // ============ AUDITORIA (Falhas de Prontuário, Ajustes, Aprendizado) ============
+  auditoria: auditoriaRouter,
+
+  // ============ CONFERÊNCIA PÓS-CORREÇÃO ============
+  conferencia: conferenciaRouter,
+
+  // ============ RECEBIMENTO GERAL ============
+  recebimentoGeral: router({
+    // Importar dados de integ_faturado_x_recebido para recebimento_geral
+    importar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        limparAntes: z.boolean().optional().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          const hasPermission = await db.verificarPermissaoEstabelecimento(
+            ctx.user.id,
+            input.estabelecimentoId || 0,
+            "gerenciar"
+          );
+          if (!hasPermission) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para importar dados." });
+          }
+        }
+        return await dbRecebGeral.importarIntegFaturadoRecebido(
+          input.estabelecimentoId,
+          input.limparAntes || false
+        );
+      }),
+
+    // Contar registros na recebimento_geral
+    contar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return { total: await dbRecebGeral.contarRecebimentoGeral(input.estabelecimentoId) };
+      }),
+
+    // Listar registros com paginação e filtros
+    listar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        convenio: z.string().optional(),
+        mesProducao: z.string().optional(),
+        protocolo: z.string().optional(),
+        numeroConta: z.string().optional(),
+        receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
+        page: z.number().optional().default(1),
+        pageSize: z.number().optional().default(50),
+      }))
+      .query(async ({ input }) => {
+        return await dbRecebGeral.listarRecebimentoGeral(input);
+      }),
+
+    // Resumo/estatísticas
+    resumo: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
+      }))
+      .query(async ({ input }) => {
+        return await dbRecebGeral.resumoRecebimentoGeral(input.estabelecimentoId, input.receberHospital);
+      }),
+
+    // Dados agregados para Relatório BI de Recebimento
+    dadosBI: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesProducao: z.string().optional(),
+        convenio: z.string().optional(),
+        setor: z.string().optional(),
+        receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
+      }))
+      .query(async ({ input }) => {
+        return await dbRecebGeral.dadosRecebimentoBI(input);
+      }),
+  }),
+
+  // ============ AVISOS INTERNOS ============
+  avisosInternos: router({
+    listarAtivos: publicProcedure.query(async () => {
+      return await db.listarAvisosAtivos();
+    }),
+
+    listarTodos: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem gerenciar avisos." });
+      }
+      return await db.listarAvisosInternos();
+    }),
+
+    criar: protectedProcedure
+      .input(z.object({
+        titulo: z.string().min(1, "Título é obrigatório"),
+        conteudo: z.string().min(1, "Conteúdo é obrigatório"),
+        tipo: z.enum(["informacao", "alerta", "urgente"]),
+        expiraEm: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar avisos." });
+        }
+        await db.criarAvisoInterno({
+          titulo: input.titulo,
+          conteudo: input.conteudo,
+          tipo: input.tipo,
+          criadoPorId: ctx.user.id,
+          criadoPorNome: ctx.user.name || "Admin",
+          expiraEm: input.expiraEm ? new Date(input.expiraEm) : null,
+        });
+        return { success: true };
+      }),
+
+    editar: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        titulo: z.string().min(1).optional(),
+        conteudo: z.string().min(1).optional(),
+        tipo: z.enum(["informacao", "alerta", "urgente"]).optional(),
+        ativo: z.enum(["sim", "nao"]).optional(),
+        expiraEm: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar avisos." });
+        }
+        const { id, ...data } = input;
+        const updateData: any = { ...data };
+        if (data.expiraEm !== undefined) {
+          updateData.expiraEm = data.expiraEm ? new Date(data.expiraEm) : null;
+        }
+        await db.editarAvisoInterno(id, updateData);
+        return { success: true };
+      }),
+
+    excluir: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir avisos." });
+        }
+        await db.excluirAvisoInterno(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ==================== MAPEAMENTO DE CONVÊNIOS ====================
+  convenioMapeamento: router({
+    // Listar convênios não mapeados para um estabelecimento
+    naoMapeados: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return await dbConvMap.listarConveniosNaoMapeados(input.estabelecimentoId);
+      }),
+
+    // Listar convênios do Safatle (globais + do estabelecimento)
+    conveniosSafatle: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return await dbConvMap.listarConveniosSafatle(input?.estabelecimentoId);
+      }),
+
+    // Sugerir mapeamentos automáticos por similaridade
+    sugerir: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return await dbConvMap.sugerirMapeamentos(input.estabelecimentoId);
+      }),
+
+    // Salvar um mapeamento individual
+    salvar: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        nomeOrigem: z.string().min(1),
+        codigoOrigem: z.string().nullable().optional(),
+        convenioId: z.number(),
+        fonte: z.enum(["tasy", "integracao", "xml", "excel", "manual"]).optional(),
+        metodoMatch: z.enum(["automatico", "manual"]).optional(),
+        confianca: z.number().min(0).max(100).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return await dbConvMap.salvarMapeamento({
+          ...input,
+          criadoPor: ctx.user.id,
+        });
+      }),
+
+    // Salvar múltiplos mapeamentos em batch
+    salvarBatch: protectedProcedure
+      .input(z.object({
+        mapeamentos: z.array(z.object({
+          estabelecimentoId: z.number(),
+          nomeOrigem: z.string().min(1),
+          codigoOrigem: z.string().nullable().optional(),
+          convenioId: z.number(),
+          fonte: z.enum(["tasy", "integracao", "xml", "excel", "manual"]).optional(),
+          metodoMatch: z.enum(["automatico", "manual"]).optional(),
+          confianca: z.number().min(0).max(100).optional(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return await dbConvMap.salvarMapeamentosBatch(
+          input.mapeamentos.map(m => ({ ...m, criadoPor: ctx.user.id }))
+        );
+      }),
+
+    // Listar todos os mapeamentos de um estabelecimento
+    listar: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return await dbConvMap.listarMapeamentos(input.estabelecimentoId);
+      }),
+
+    // Remover (desativar) um mapeamento
+    remover: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await dbConvMap.removerMapeamento(input.id);
+        return { success: true };
+      }),
+
+    // Aplicar mapeamentos automáticos com alta confiança
+    aplicarAutomaticos: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        threshold: z.number().min(0).max(100).optional().default(80),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return await dbConvMap.aplicarMapeamentosAutomaticos(
+          input.estabelecimentoId,
+          input.threshold,
+          ctx.user.id
+        );
+      }),
+
+    // Resolver convenioId para um nome de convênio do hospital
+    resolver: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        nomeConvenio: z.string(),
+      }))
+      .query(async ({ input }) => {
+        const convenioId = await dbConvMap.resolverConvenioId(input.estabelecimentoId, input.nomeConvenio);
+        return { convenioId };
+      }),
+
+    // Estatísticas de mapeamento
+    estatisticas: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        return await dbConvMap.estatisticasMapeamento(input.estabelecimentoId);
+      }),
+  }),
 });
 
 function calcularDiasParado(datasai: string | null): number {
