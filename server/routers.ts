@@ -37,6 +37,10 @@ import { contratosRouter } from "./routers/contratosRouter";
 import { propostasRouter } from "./routers/propostasRouter";
 import * as dbRecebGeral from "./db-recebimentoGeral";
 import * as dbConvMap from "./db-convenioMapeamento";
+import { auditSystemRouter } from "./routers/auditSystemRouter";
+import { contratosConveniosRouter } from "./routers/contratosConveniosRouter";
+import { dashboardBiRouter } from "./routers/dashboardBiRouter";
+import { rhRouter } from "./routers/rhRouter";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -103,6 +107,10 @@ export const appRouter = router({
   financeiro: financeiroRouter,
   contratos: contratosRouter,
   propostas: propostasRouter,
+  auditSystem: auditSystemRouter,
+  contratosConvenios: contratosConveniosRouter,
+  dashboardBi: dashboardBiRouter,
+  rh: rhRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

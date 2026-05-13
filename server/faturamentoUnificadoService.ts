@@ -791,7 +791,7 @@ export async function buscarRecebimentosCandidatos(params: {
 // CONCILIAÇÃO AUTOMÁTICA
 // ============================================================
 
-interface ConciliacaoResultado {
+export interface ConciliacaoResultado {
   totalProcessados: number;
   totalConciliados: number;
   totalDivergentes: number;

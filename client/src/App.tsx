@@ -83,6 +83,23 @@ const ContratosModule = lazy(() => import("./pages/ContratosModule"));
 const PropostasModule = lazy(() => import("./pages/PropostasModule"));
 const PainelExecutivo = lazy(() => import("./pages/PainelExecutivo"));
 const PermissoesSafatle = lazy(() => import("./pages/PermissoesSafatle"));
+const RecebimentosPdfSaudeCaixa = lazy(() => import("./pages/RecebimentosPdfSaudeCaixa"));
+const AtendimentosUnificados = lazy(() => import("./pages/AtendimentosUnificados"));
+const ContratosConvenios = lazy(() => import("./pages/ContratosConvenios"));
+const LogAuditoriaSistema = lazy(() => import("./pages/LogAuditoriaSistema"));
+const UploadFolhaRH = lazy(() => import("./pages/rh/UploadFolha"));
+const FolhaPagamento = lazy(() => import("./pages/rh/FolhaPagamento"));
+const Colaboradores = lazy(() => import("./pages/rh/Colaboradores"));
+const PlanoSalarios = lazy(() => import("./pages/rh/PlanoSalarios"));
+const BiFinanceiroTasy = lazy(() => import("./pages/BiFinanceiroTasy"));
+const RelatorioProtocolos = lazy(() => import("./pages/RelatorioProtocolos"));
+const PrevisaoRecebimentos = lazy(() => import("./pages/PrevisaoRecebimentos"));
+const AnaliseFaturamentosBi = lazy(() => import("./pages/AnaliseFaturamentosBi"));
+const FluxoCaixaBI = lazy(() => import("./pages/FluxoCaixaBI"));
+const RelatorioLaboratorio = lazy(() => import("./pages/RelatorioLaboratorio"));
+const RelatorioVisita = lazy(() => import("./pages/RelatorioVisita"));
+const RelatorioVisitaXml = lazy(() => import("./pages/RelatorioVisitaXml"));
+const RelatorioUltrassom = lazy(() => import("./pages/RelatorioUltrassom"));
 
 function PageLoader() {
   return (
@@ -188,6 +205,23 @@ function Router() {
         <Route path={"/propostas"} component={PropostasModule} />
         <Route path={"/painel-executivo"} component={PainelExecutivo} />
         <Route path={"/permissoes-safatle"} component={PermissoesSafatle} />
+        <Route path={"/recebimentos-pdf-saude-caixa"} component={RecebimentosPdfSaudeCaixa} />
+        <Route path={"/atendimentos-unificados"} component={AtendimentosUnificados} />
+        <Route path={"/bi-financeiro-tasy"} component={BiFinanceiroTasy} />
+        <Route path={"/relatorio-protocolos"} component={RelatorioProtocolos} />
+        <Route path={"/previsao-recebimentos"} component={PrevisaoRecebimentos} />
+        <Route path={"/analise-faturamento-itens"} component={AnaliseFaturamentosBi} />
+        <Route path={"/fluxo-caixa-bi"} component={FluxoCaixaBI} />
+        <Route path={"/relatorio-laboratorio"} component={RelatorioLaboratorio} />
+        <Route path={"/relatorio-visita"} component={RelatorioVisita} />
+        <Route path={"/relatorio-visita-xml"} component={RelatorioVisitaXml} />
+        <Route path={"/relatorio-ultrassom"} component={RelatorioUltrassom} />
+        <Route path={"/contratos-convenios"} component={ContratosConvenios} />
+        <Route path={"/auditoria-sistema"} component={LogAuditoriaSistema} />
+        <Route path={"/rh/upload"} component={UploadFolhaRH} />
+        <Route path={"/rh/folha-pagamento"} component={FolhaPagamento} />
+        <Route path={"/rh/colaboradores"} component={Colaboradores} />
+        <Route path={"/rh/plano-salarios"} component={PlanoSalarios} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

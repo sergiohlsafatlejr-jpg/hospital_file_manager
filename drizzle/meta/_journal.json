@@ -99,6 +99,13 @@
       "when": 1774287137845,
       "tag": "0095_messy_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "5",
+      "when": 1778692517149,
+      "tag": "0096_lean_firebrand",
+      "breakpoints": true
     }
   ]
 }

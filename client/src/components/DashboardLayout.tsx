@@ -80,6 +80,10 @@ import {
   Package,
   ClipboardCheck,
   FileCheck,
+  FlaskConical,
+  Stethoscope,
+  CalendarClock,
+  Microscope,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -160,6 +164,15 @@ const menuItems: MenuItem[] = [
       { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "relNaoRecebidos" },
       { icon: TrendingUp, label: "Previsão de Glosa", path: "/previsao-glosa", modulo: "relPrevisaoGlosa" },
       { icon: FileSpreadsheet, label: "Faturamento Externo", path: "/faturamento-externo", modulo: "faturamentoExterno" },
+      { icon: BarChart3, label: "BI Financeiro (TASY)", path: "/bi-financeiro-tasy", modulo: "relFaturadoRecebido" },
+      { icon: Receipt, label: "Protocolos TASY", path: "/relatorio-protocolos", modulo: "relFaturadoRecebido" },
+      { icon: CalendarClock, label: "Previsão Recebimentos", path: "/previsao-recebimentos", modulo: "relFaturadoRecebido" },
+      { icon: FileSearch, label: "Faturado x Recebido (TASY)", path: "/analise-faturamento-itens", modulo: "relFaturadoRecebido" },
+      { icon: BarChart3, label: "Fluxo de Caixa (BI)", path: "/fluxo-caixa-bi", modulo: "relFaturadoRecebido" },
+      { icon: FlaskConical, label: "Rel. Laboratório", path: "/relatorio-laboratorio", modulo: "relFaturadoRecebido" },
+      { icon: Activity, label: "Rel. Ultrassom", path: "/relatorio-ultrassom", modulo: "relFaturadoRecebido" },
+      { icon: Stethoscope, label: "Rel. Visita Hospitalar", path: "/relatorio-visita", modulo: "relFaturadoRecebido" },
+      { icon: Stethoscope, label: "Visitas Faturadas (XML)", path: "/relatorio-visita-xml", modulo: "relFaturadoRecebido" },
     ]},
     // Subpasta: Recepção
     { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [
@@ -172,8 +185,9 @@ const menuItems: MenuItem[] = [
   ]},
 
   // Módulo 5b - Atendimentos
-  { icon: Users, label: "Atendimentos", path: "/atendimentos", modulo: "atendimentos", children: [
-    { icon: Users, label: "Atendimentos", path: "/atendimentos", modulo: "atendimentos" },
+  { icon: Users, label: "Atendimentos", path: "/atendimentos-unificados", modulo: "atendimentos", children: [
+    { icon: LayoutGrid, label: "Visão Unificada", path: "/atendimentos-unificados", modulo: "atendimentos" },
+    { icon: Users, label: "Atendimentos (Legado)", path: "/atendimentos", modulo: "atendimentos" },
     { icon: FileText, label: "Atendimentos a Faturar", path: "/atendimentos-faturar", modulo: "atendimentosFaturar" },
     { icon: Shield, label: "Atendimentos com Protocolo", path: "/atendimentos-com-protocolo", modulo: "atendimentos" },
   ]},
@@ -190,8 +204,17 @@ const menuItems: MenuItem[] = [
   { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: DollarSign, label: "Financeiro", path: "/financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: FileText, label: "Contratos", path: "/contratos", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Building2, label: "Contratos Hosp x Convênio", path: "/contratos-convenios" },
   { icon: FileSpreadsheet, label: "Propostas", path: "/propostas", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: Shield, label: "Permissões Safatle", path: "/permissoes-safatle", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Shield, label: "Logs do Sistema", path: "/auditoria-sistema", adminOnly: true },
+  // Módulo RH
+  { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
+    { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Plano de Salários", path: "/rh/plano-salarios", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: Upload, label: "Importar Folha", path: "/rh/upload", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Folha de Pagamento", path: "/rh/folha-pagamento", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  ]},
 
 ];
 

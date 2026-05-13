@@ -3578,3 +3578,18 @@
 - [x] Corrigir filtros que não funcionam na aba Faturado x Recebido (incompatibilidade de formato YYYY-MM vs YYYY/MM)
 - [x] Corrigir dados não exibidos (GROUP BY + normalização de competência)
 - [x] Datas corretas: faturamento tem 2025/11, 2025/12, 2026/01; recebimentos têm 2025/12, 2026/01, 2026/02
+
+## Importação de Melhorias do Repositório GitHub (safatle-sistema)
+
+- [x] Copiar novos routers: auditSystemRouter, contratosConveniosRouter, dashboardBiRouter, rhRouter
+- [x] Copiar novos arquivos de servidor: rhFolhaParser.ts, atendimentoUnificadoService.ts
+- [x] Atualizar schema com novas tabelas: auditLogs, contratosConvenios, contratosTabelasFechadas, contratosTabelasValores, rhFolhaPagamento, rhCargosSalarios, recebimentoUnificado, staging_faturamento_*
+- [x] Fazer migração do banco (pnpm db:push)
+- [x] Copiar novas páginas: RecebimentosPdfSaudeCaixa, RelatorioLaboratorio, RelatorioUltrassom, RelatorioVisita, RelatorioVisitaXml, RelatorioProtocolos, RelatoriosGlosasBi, AnaliseFaturamentosBi, BiFinanceiroTasy, FluxoCaixaBI, PrevisaoRecebimentos, AtendimentosUnificados, ContratosConvenios, LogAuditoriaSistema
+- [x] Copiar módulo RH: Colaboradores, FolhaPagamento, PlanoSalarios, UploadFolha, CustoReceitaUnidade
+- [x] Atualizar financeiroRouter.ts com melhorias do parser PDF Saúde Caixa
+- [x] Atualizar routers.ts com novos imports e routers
+- [x] Atualizar App.tsx com novas rotas
+- [x] Atualizar DashboardLayout.tsx com novos itens de menu
+- [x] Verificar compilação e corrigir erros
+- [x] Salvar checkpoint

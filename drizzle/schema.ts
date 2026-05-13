@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, date, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, date, datetime, boolean, index } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -4376,3 +4376,293 @@ export const tasyFaturadoStaging = mysqlTable("tasy_faturado_staging", {
 
 export type TasyFaturadoStaging = typeof tasyFaturadoStaging.$inferSelect;
 export type InsertTasyFaturadoStaging = typeof tasyFaturadoStaging.$inferInsert;
+export const auditLogs = mysqlTable("auditLogs", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("userId").notNull(),
+  userNome: varchar("userNome", { length: 255 }),
+  acao: mysqlEnum("acao", ["CRIAR", "EDITAR", "EXCLUIR", "ACESSO", "SISTEMA"]).notNull(),
+  entidade: varchar("entidade", { length: 255 }).notNull(), // ex: 'usuario', 'convenio', 'integrador', 'auth'
+  entidadeId: varchar("entidadeId", { length: 255 }), // ID do registro afetado (opcional)
+  detalhes: json("detalhes"), // Payload JSON com contexto ou diff de mudanças
+  ipAddress: varchar("ipAddress", { length: 45 }), // Para IPv4 ou IPv6
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GlobalAuditLog = typeof auditLogs.$inferSelect;
+export type InsertGlobalAuditLog = typeof auditLogs.$inferInsert;
+
+
+export const recebimentoUnificado = mysqlTable("recebimento_unificado", {
+  id: int("id").primaryKey().autoincrement(),
+  origemSistema: varchar("origemSistema", { length: 50 }).notNull(),
+  origemId: varchar("origemId", { length: 100 }),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  convenioId: int("convenioId"),
+  convenio: varchar("convenio", { length: 255 }),
+  numeroConta: varchar("numeroConta", { length: 100 }),
+  numeroGuia: varchar("numeroGuia", { length: 50 }),
+  numeroGuiaOperadora: varchar("numeroGuiaOperadora", { length: 50 }),
+  pacienteNome: varchar("pacienteNome", { length: 255 }),
+  carteiraBeneficiario: varchar("carteiraBeneficiario", { length: 50 }),
+  competencia: varchar("competencia", { length: 20 }),
+  tipoItem: varchar("tipoItem", { length: 50 }),
+  codigoItem: varchar("codigoItem", { length: 50 }),
+  descricaoItem: text("descricaoItem"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+  valorFaturado: decimal("valorFaturado", { precision: 12, scale: 4 }),
+  valorPago: decimal("valorPago", { precision: 12, scale: 4 }),
+  valorGlosa: decimal("valorGlosa", { precision: 12, scale: 4 }),
+  motivoGlosa: text("motivoGlosa"),
+  codigoGlosa: varchar("codigoGlosa", { length: 50 }),
+  dataExecucao: datetime("dataExecucao"),
+  dataPagamento: datetime("dataPagamento"),
+  codigoPrestadorExecutante: varchar("codigoPrestadorExecutante", { length: 50 }),
+  statusConciliacao: varchar("statusConciliacao", { length: 50 }),
+  arquivoId: int("arquivoId"),
+  criadoEm: timestamp("criadoEm").defaultNow(),
+  atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow(),
+});
+
+export type InsertRecebimentoUnificado = typeof recebimentoUnificado.$inferInsert;
+export type SelectRecebimentoUnificado = typeof recebimentoUnificado.$inferSelect;
+
+
+export const staging_faturamento_warleine = mysqlTable("staging_faturamento_warleine", {
+  id: int("id").primaryKey().autoincrement(),
+  importacaoId: int("importacaoId"),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Mapeamento Primario (Basico para De/Para)
+  numeroConta: varchar("numeroConta", { length: 100 }),
+  numeroGuia: varchar("numeroGuia", { length: 100 }),
+  convenioNome: varchar("convenioNome", { length: 255 }),
+  pacienteNome: varchar("pacienteNome", { length: 255 }),
+  
+  // Dados do Item
+  codigoItem: varchar("codigoItem", { length: 100 }),
+  descricaoItem: text("descricaoItem"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+  valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }),
+  valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }),
+  
+  dataExecucao: datetime("dataExecucao"),
+  competencia: varchar("competencia", { length: 20 }),
+  
+  // Dump Completo do Original
+  rawData: json("rawData"),
+  
+  processado: boolean("processado").default(false),
+  criadoEm: timestamp("criadoEm").defaultNow(),
+});
+export type InsertStagingFaturamentoWarleine = typeof staging_faturamento_warleine.$inferInsert;
+export type SelectStagingFaturamentoWarleine = typeof staging_faturamento_warleine.$inferSelect;
+
+
+export const staging_faturamento_omni = mysqlTable("staging_faturamento_omni", {
+  id: int("id").primaryKey().autoincrement(),
+  importacaoId: int("importacaoId"),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Mapeamento Primario (Basico para De/Para)
+  numeroConta: varchar("numeroConta", { length: 100 }),
+  numeroGuia: varchar("numeroGuia", { length: 100 }),
+  convenioNome: varchar("convenioNome", { length: 255 }),
+  pacienteNome: varchar("pacienteNome", { length: 255 }),
+  
+  // Dados do Item
+  codigoItem: varchar("codigoItem", { length: 100 }),
+  descricaoItem: text("descricaoItem"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+  valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }),
+  valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }),
+  
+  dataExecucao: datetime("dataExecucao"),
+  competencia: varchar("competencia", { length: 20 }),
+  
+  // Dump Completo do Original
+  rawData: json("rawData"),
+  
+  processado: boolean("processado").default(false),
+  criadoEm: timestamp("criadoEm").defaultNow(),
+});
+export type InsertStagingFaturamentoOmni = typeof staging_faturamento_omni.$inferInsert;
+export type SelectStagingFaturamentoOmni = typeof staging_faturamento_omni.$inferSelect;
+
+
+export const staging_faturamento_promedico = mysqlTable("staging_faturamento_promedico", {
+  id: int("id").primaryKey().autoincrement(),
+  importacaoId: int("importacaoId"),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Mapeamento Primario (Basico para De/Para)
+  numeroConta: varchar("numeroConta", { length: 100 }),
+  numeroGuia: varchar("numeroGuia", { length: 100 }),
+  convenioNome: varchar("convenioNome", { length: 255 }),
+  pacienteNome: varchar("pacienteNome", { length: 255 }),
+  
+  // Dados do Item
+  codigoItem: varchar("codigoItem", { length: 100 }),
+  descricaoItem: text("descricaoItem"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+  valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }),
+  valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }),
+  
+  dataExecucao: datetime("dataExecucao"),
+  competencia: varchar("competencia", { length: 20 }),
+  
+  // Dump Completo do Original
+  rawData: json("rawData"),
+  
+  processado: boolean("processado").default(false),
+  criadoEm: timestamp("criadoEm").defaultNow(),
+});
+export type InsertStagingFaturamentoPromedico = typeof staging_faturamento_promedico.$inferInsert;
+export type SelectStagingFaturamentoPromedico = typeof staging_faturamento_promedico.$inferSelect;
+
+
+export const staging_faturamento_easyvision = mysqlTable("staging_faturamento_easyvision", {
+  id: int("id").primaryKey().autoincrement(),
+  importacaoId: int("importacaoId"),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Mapeamento Primario (Basico para De/Para)
+  numeroConta: varchar("numeroConta", { length: 100 }),
+  numeroGuia: varchar("numeroGuia", { length: 100 }),
+  convenioNome: varchar("convenioNome", { length: 255 }),
+  pacienteNome: varchar("pacienteNome", { length: 255 }),
+  
+  // Dados do Item
+  codigoItem: varchar("codigoItem", { length: 100 }),
+  descricaoItem: text("descricaoItem"),
+  quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+  valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }),
+  valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }),
+  
+  dataExecucao: datetime("dataExecucao"),
+  competencia: varchar("competencia", { length: 20 }),
+  
+  // Dump Completo do Original
+  rawData: json("rawData"),
+  
+  processado: boolean("processado").default(false),
+  criadoEm: timestamp("criadoEm").defaultNow(),
+});
+export type InsertStagingFaturamentoEasyvision = typeof staging_faturamento_easyvision.$inferInsert;
+export type SelectStagingFaturamentoEasyvision = typeof staging_faturamento_easyvision.$inferSelect;
+
+
+/**
+ * Contratos entre Hospital (Estabelecimento) e Convênios
+ */
+export const contratosConvenios = mysqlTable("contratos_convenios", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  convenioId: int("convenioId").notNull(),
+  numeroContrato: varchar("numeroContrato", { length: 50 }),
+  dataInicio: date("dataInicio"),
+  dataFim: date("dataFim"),
+  diasAvisoVencimento: int("diasAvisoVencimento").default(45),
+  status: mysqlEnum("status", ["ativo", "vencendo", "vencido", "inativo", "renovado"]).default("ativo"),
+  observacoes: text("observacoes"),
+  
+  // Dados de Negociação
+  emailContato: varchar("emailContato", { length: 255 }),
+  reajusteProposto: decimal("reajusteProposto", { precision: 5, scale: 2 }),
+  modeloEmailProposta: text("modeloEmailProposta"),
+  dataEnvioProposta: date("dataEnvioProposta"),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ContratoConvenio = typeof contratosConvenios.$inferSelect;
+export type InsertContratoConvenio = typeof contratosConvenios.$inferInsert;
+
+/**
+ * Tabelas de Preços Negociadas (Anexas ao Contrato)
+ */
+export const contratosTabelasFechadas = mysqlTable("contratos_tabelas_fechadas", {
+  id: int("id").autoincrement().primaryKey(),
+  contratoId: int("contratoId").notNull(),
+  nomeTabela: varchar("nomeTabela", { length: 255 }).notNull(), // Ex: 'Tabela de Diárias', 'Procedimentos Cirúrgicos'
+  tipoItem: varchar("tipoItem", { length: 100 }), // Ex: DIARIA, MEDICAMENTO, MATERIAL
+  arquivoUrl: text("arquivoUrl"), 
+  observacoes: text("observacoes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ContratoTabelaFechada = typeof contratosTabelasFechadas.$inferSelect;
+export type InsertContratoTabelaFechada = typeof contratosTabelasFechadas.$inferInsert;
+
+/**
+ * Itens Fechados em Contrato Carga (Valores Importados)
+ */
+export const contratosTabelasValores = mysqlTable("contratos_tabelas_valores", {
+  id: int("id").autoincrement().primaryKey(),
+  tabelaId: int("tabelaId").notNull(),
+  codigoProcedimento: varchar("codigoProcedimento", { length: 50 }),
+  nomeProcedimento: varchar("nomeProcedimento", { length: 255 }),
+  valorAcordado: decimal("valorAcordado", { precision: 10, scale: 2 }),
+  codigoPorte: varchar("codigoPorte", { length: 50 }),
+  ativo: boolean("ativo").default(true),
+});
+
+export type ContratoTabelaValor = typeof contratosTabelasValores.$inferSelect;
+export type InsertContratoTabelaValor = typeof contratosTabelasValores.$inferInsert;
+
+
+/**
+ * RH: Dados da Folha de Pagamento
+ */
+export const rhFolhaPagamento = mysqlTable('rh_folha_pagamento', {
+  id: int('id').autoincrement().primaryKey(),
+  arquivoId: int('arquivoId').notNull(),
+  estabelecimentoId: int('estabelecimentoId').notNull(), // Deve ser associado ao estabelecimento (ex: Safatle)
+  competencia: varchar('competencia', { length: 20 }), // Ex: 2026-04
+  colaboradorNome: varchar('colaboradorNome', { length: 255 }),
+  colaboradorEmail: varchar('colaboradorEmail', { length: 255 }),
+  dataAdmissao: datetime('dataAdmissao'),
+  dataDemissao: datetime('dataDemissao'),
+  sexo: varchar('sexo', { length: 20 }),
+  filhos: varchar('filhos', { length: 10 }),
+  tipoContrato: varchar('tipoContrato', { length: 50 }),
+  empresa: varchar('empresa', { length: 255 }),
+  cnpj: varchar('cnpj', { length: 50 }),
+  unidade: varchar('unidade', { length: 255 }),
+  cpf: varchar('cpf', { length: 50 }),
+  dataNascimento: datetime('dataNascimento'),
+  cargo: varchar('cargo', { length: 255 }),
+  salarioBruto: decimal('salarioBruto', { precision: 12, scale: 2 }),
+  diasUteis: int('diasUteis'),
+  correcao: decimal('correcao', { precision: 12, scale: 2 }),
+  valorPagar: decimal('valorPagar', { precision: 12, scale: 2 }),
+  vt: decimal('vt', { precision: 12, scale: 2 }),
+  combustivel: decimal('combustivel', { precision: 12, scale: 2 }),
+  alimentacao: decimal('alimentacao', { precision: 12, scale: 2 }),
+  ajudaCusto: decimal('ajudaCusto', { precision: 12, scale: 2 }),
+  sobreAviso: decimal('sobreAviso', { precision: 12, scale: 2 }),
+  academia: decimal('academia', { precision: 12, scale: 2 }),
+  somaBeneficios: decimal('somaBeneficios', { precision: 12, scale: 2 }),
+  descontoFixo: decimal('descontoFixo', { precision: 12, scale: 2 }),
+  descontosVariaveis: decimal('descontosVariaveis', { precision: 12, scale: 2 }),
+  descontoUniforme: decimal('descontoUniforme', { precision: 12, scale: 2 }),
+  unimed: decimal('unimed', { precision: 12, scale: 2 }),
+  coparticipacao: decimal('coparticipacao', { precision: 12, scale: 2 }),
+  cargoConfianca: varchar('cargoConfianca', { length: 255 }),
+  pontualidade: varchar('pontualidade', { length: 255 }),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type RHFolhaPagamento = typeof rhFolhaPagamento.$inferSelect;
+export type InsertRHFolhaPagamento = typeof rhFolhaPagamento.$inferInsert;
+
+export const rhCargosSalarios = mysqlTable('rh_cargos_salarios', {
+  id: int('id').autoincrement().primaryKey(),
+  estabelecimentoId: int('estabelecimentoId').notNull(),
+  cargo: varchar('cargo', { length: 255 }).notNull(),
+  salarioBase: decimal('salarioBase', { precision: 12, scale: 2 }),
+  tetoSalarial: decimal('tetoSalarial', { precision: 12, scale: 2 }),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+

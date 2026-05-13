@@ -118,7 +118,7 @@ export async function getDadosBIFaturadoRecebido(
       AND competencia IS NOT NULL AND competencia != ''
     ORDER BY competencia DESC
   `));
-  const compSetFU = new Set<string>((compRowsFU as any[]).map((r: any) => r.competencia as string));
+  const compSetFU = new Set<string>((compRowsFU as unknown as any[]).map((r: any) => r.competencia as string));
 
   // Buscar competências do recebimentos_excel (data_referencia → YYYY/MM)
   const [compRowsRE] = await db.execute(sql.raw(`
@@ -128,7 +128,7 @@ export async function getDadosBIFaturadoRecebido(
       AND data_referencia IS NOT NULL
     ORDER BY competencia DESC
   `));
-  for (const r of compRowsRE as any[]) {
+  for (const r of (compRowsRE as unknown as any[])) {
     compSetFU.add(r.competencia as string);
   }
   // Ordenar decrescente
@@ -141,7 +141,7 @@ export async function getDadosBIFaturadoRecebido(
       AND convenio IS NOT NULL AND convenio != ''
     ORDER BY convenio
   `));
-  const convSet = new Set<string>((convRows as any[]).map((r: any) => r.convenio as string));
+  const convSet = new Set<string>((convRows as unknown as any[]).map((r: any) => r.convenio as string));
 
   const [convRowsRE] = await db.execute(sql.raw(`
     SELECT DISTINCT c.nome as convenio
@@ -151,7 +151,7 @@ export async function getDadosBIFaturadoRecebido(
       AND c.nome IS NOT NULL AND c.nome != ''
     ORDER BY c.nome
   `));
-  for (const r of convRowsRE as any[]) {
+  for (const r of (convRowsRE as unknown as any[])) {
     convSet.add(r.convenio as string);
   }
   const conveniosDisponiveis = Array.from(convSet).sort();
@@ -162,7 +162,7 @@ export async function getDadosBIFaturadoRecebido(
       AND setor IS NOT NULL AND setor != ''
     ORDER BY setor
   `));
-  const setoresDisponiveis = (setorRows as any[]).map((r: any) => r.setor);
+  const setoresDisponiveis = (setorRows as unknown as any[]).map((r: any) => r.setor);
 
   // ============================================================
   // 2. CONSTRUIR WHERE CLAUSE PARA FATURAMENTO_UNIFICADO
@@ -247,7 +247,7 @@ export async function getDadosBIFaturadoRecebido(
   // ============================================================
   const procMap = new Map<string, ProcedimentoResumo>();
 
-  for (const row of faturadoProcRows as any[]) {
+  for (const row of (faturadoProcRows as unknown as any[])) {
     const key = row.codigoItem;
     procMap.set(key, {
       codigoItem: row.codigoItem,
@@ -263,7 +263,7 @@ export async function getDadosBIFaturadoRecebido(
   }
 
   // Adicionar/atualizar com dados do recebimentos_excel
-  for (const row of recebidoProcRows as any[]) {
+  for (const row of (recebidoProcRows as unknown as any[])) {
     const key = row.codigoItem;
     if (procMap.has(key)) {
       const entry = procMap.get(key)!;
@@ -326,7 +326,7 @@ export async function getDadosBIFaturadoRecebido(
   `));
 
   const mesMap = new Map<string, MesResumo>();
-  for (const row of faturadoMesRows as any[]) {
+  for (const row of (faturadoMesRows as unknown as any[])) {
     mesMap.set(row.competencia, {
       competencia: row.competencia,
       totalFaturado: parseFloat(row.totalFaturado || '0'),
@@ -336,7 +336,7 @@ export async function getDadosBIFaturadoRecebido(
       quantidade: parseInt(row.quantidade || '0'),
     });
   }
-  for (const row of recebidoMesRows as any[]) {
+  for (const row of (recebidoMesRows as unknown as any[])) {
     const comp = row.competencia;
     if (mesMap.has(comp)) {
       const entry = mesMap.get(comp)!;
@@ -387,7 +387,7 @@ export async function getDadosBIFaturadoRecebido(
   `));
 
   const convMap = new Map<string, ConvenioResumo>();
-  for (const row of faturadoConvRows as any[]) {
+  for (const row of (faturadoConvRows as unknown as any[])) {
     convMap.set(row.convenio, {
       convenio: row.convenio,
       totalFaturado: parseFloat(row.totalFaturado || '0'),
@@ -397,7 +397,7 @@ export async function getDadosBIFaturadoRecebido(
       quantidade: parseInt(row.quantidade || '0'),
     });
   }
-  for (const row of recebidoConvRows as any[]) {
+  for (const row of (recebidoConvRows as unknown as any[])) {
     if (convMap.has(row.convenio)) {
       const entry = convMap.get(row.convenio)!;
       entry.totalRecebido += parseFloat(row.totalRecebido || '0');
@@ -435,7 +435,7 @@ export async function getDadosBIFaturadoRecebido(
   `));
 
   const setorMap = new Map<string, SetorResumo>();
-  for (const row of faturadoSetorRows as any[]) {
+  for (const row of (faturadoSetorRows as unknown as any[])) {
     setorMap.set(row.setor, {
       setor: row.setor,
       totalFaturado: parseFloat(row.totalFaturado || '0'),

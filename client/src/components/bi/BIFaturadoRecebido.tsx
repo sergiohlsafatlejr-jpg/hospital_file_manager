@@ -94,8 +94,8 @@ export function BIFaturadoRecebido() {
       );
     }
     items.sort((a, b) => {
-      const aVal = a[sortField] as number;
-      const bVal = b[sortField] as number;
+      const aVal = a[sortField] as unknown;
+      const bVal = b[sortField] as unknown;
       if (typeof aVal === "string" && typeof bVal === "string") {
         return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }

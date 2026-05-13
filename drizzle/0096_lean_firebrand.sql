@@ -1,0 +1,220 @@
+CREATE TABLE `auditLogs` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`userNome` varchar(255),
+	`acao` enum('CRIAR','EDITAR','EXCLUIR','ACESSO','SISTEMA') NOT NULL,
+	`entidade` varchar(255) NOT NULL,
+	`entidadeId` varchar(255),
+	`detalhes` json,
+	`ipAddress` varchar(45),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `auditLogs_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `contratos_convenios` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`estabelecimentoId` int NOT NULL,
+	`convenioId` int NOT NULL,
+	`numeroContrato` varchar(50),
+	`dataInicio` date,
+	`dataFim` date,
+	`diasAvisoVencimento` int DEFAULT 45,
+	`status` enum('ativo','vencendo','vencido','inativo','renovado') DEFAULT 'ativo',
+	`observacoes` text,
+	`emailContato` varchar(255),
+	`reajusteProposto` decimal(5,2),
+	`modeloEmailProposta` text,
+	`dataEnvioProposta` date,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `contratos_convenios_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `contratos_tabelas_fechadas` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`contratoId` int NOT NULL,
+	`nomeTabela` varchar(255) NOT NULL,
+	`tipoItem` varchar(100),
+	`arquivoUrl` text,
+	`observacoes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `contratos_tabelas_fechadas_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `contratos_tabelas_valores` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`tabelaId` int NOT NULL,
+	`codigoProcedimento` varchar(50),
+	`nomeProcedimento` varchar(255),
+	`valorAcordado` decimal(10,2),
+	`codigoPorte` varchar(50),
+	`ativo` boolean DEFAULT true,
+	CONSTRAINT `contratos_tabelas_valores_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `recebimento_unificado` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`origemSistema` varchar(50) NOT NULL,
+	`origemId` varchar(100),
+	`estabelecimentoId` int NOT NULL,
+	`convenioId` int,
+	`convenio` varchar(255),
+	`numeroConta` varchar(100),
+	`numeroGuia` varchar(50),
+	`numeroGuiaOperadora` varchar(50),
+	`pacienteNome` varchar(255),
+	`carteiraBeneficiario` varchar(50),
+	`competencia` varchar(20),
+	`tipoItem` varchar(50),
+	`codigoItem` varchar(50),
+	`descricaoItem` text,
+	`quantidade` decimal(12,4),
+	`valorFaturado` decimal(12,4),
+	`valorPago` decimal(12,4),
+	`valorGlosa` decimal(12,4),
+	`motivoGlosa` text,
+	`codigoGlosa` varchar(50),
+	`dataExecucao` datetime,
+	`dataPagamento` datetime,
+	`codigoPrestadorExecutante` varchar(50),
+	`statusConciliacao` varchar(50),
+	`arquivoId` int,
+	`criadoEm` timestamp DEFAULT (now()),
+	`atualizadoEm` timestamp DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `recebimento_unificado_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `rh_cargos_salarios` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`estabelecimentoId` int NOT NULL,
+	`cargo` varchar(255) NOT NULL,
+	`salarioBase` decimal(12,2),
+	`tetoSalarial` decimal(12,2),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `rh_cargos_salarios_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `rh_folha_pagamento` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`arquivoId` int NOT NULL,
+	`estabelecimentoId` int NOT NULL,
+	`competencia` varchar(20),
+	`colaboradorNome` varchar(255),
+	`colaboradorEmail` varchar(255),
+	`dataAdmissao` datetime,
+	`dataDemissao` datetime,
+	`sexo` varchar(20),
+	`filhos` varchar(10),
+	`tipoContrato` varchar(50),
+	`empresa` varchar(255),
+	`cnpj` varchar(50),
+	`unidade` varchar(255),
+	`cpf` varchar(50),
+	`dataNascimento` datetime,
+	`cargo` varchar(255),
+	`salarioBruto` decimal(12,2),
+	`diasUteis` int,
+	`correcao` decimal(12,2),
+	`valorPagar` decimal(12,2),
+	`vt` decimal(12,2),
+	`combustivel` decimal(12,2),
+	`alimentacao` decimal(12,2),
+	`ajudaCusto` decimal(12,2),
+	`sobreAviso` decimal(12,2),
+	`academia` decimal(12,2),
+	`somaBeneficios` decimal(12,2),
+	`descontoFixo` decimal(12,2),
+	`descontosVariaveis` decimal(12,2),
+	`descontoUniforme` decimal(12,2),
+	`unimed` decimal(12,2),
+	`coparticipacao` decimal(12,2),
+	`cargoConfianca` varchar(255),
+	`pontualidade` varchar(255),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `rh_folha_pagamento_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `staging_faturamento_easyvision` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`importacaoId` int,
+	`estabelecimentoId` int NOT NULL,
+	`numeroConta` varchar(100),
+	`numeroGuia` varchar(100),
+	`convenioNome` varchar(255),
+	`pacienteNome` varchar(255),
+	`codigoItem` varchar(100),
+	`descricaoItem` text,
+	`quantidade` decimal(12,4),
+	`valorUnitario` decimal(12,4),
+	`valorTotal` decimal(12,4),
+	`dataExecucao` datetime,
+	`competencia` varchar(20),
+	`rawData` json,
+	`processado` boolean DEFAULT false,
+	`criadoEm` timestamp DEFAULT (now()),
+	CONSTRAINT `staging_faturamento_easyvision_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `staging_faturamento_omni` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`importacaoId` int,
+	`estabelecimentoId` int NOT NULL,
+	`numeroConta` varchar(100),
+	`numeroGuia` varchar(100),
+	`convenioNome` varchar(255),
+	`pacienteNome` varchar(255),
+	`codigoItem` varchar(100),
+	`descricaoItem` text,
+	`quantidade` decimal(12,4),
+	`valorUnitario` decimal(12,4),
+	`valorTotal` decimal(12,4),
+	`dataExecucao` datetime,
+	`competencia` varchar(20),
+	`rawData` json,
+	`processado` boolean DEFAULT false,
+	`criadoEm` timestamp DEFAULT (now()),
+	CONSTRAINT `staging_faturamento_omni_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `staging_faturamento_promedico` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`importacaoId` int,
+	`estabelecimentoId` int NOT NULL,
+	`numeroConta` varchar(100),
+	`numeroGuia` varchar(100),
+	`convenioNome` varchar(255),
+	`pacienteNome` varchar(255),
+	`codigoItem` varchar(100),
+	`descricaoItem` text,
+	`quantidade` decimal(12,4),
+	`valorUnitario` decimal(12,4),
+	`valorTotal` decimal(12,4),
+	`dataExecucao` datetime,
+	`competencia` varchar(20),
+	`rawData` json,
+	`processado` boolean DEFAULT false,
+	`criadoEm` timestamp DEFAULT (now()),
+	CONSTRAINT `staging_faturamento_promedico_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `staging_faturamento_warleine` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`importacaoId` int,
+	`estabelecimentoId` int NOT NULL,
+	`numeroConta` varchar(100),
+	`numeroGuia` varchar(100),
+	`convenioNome` varchar(255),
+	`pacienteNome` varchar(255),
+	`codigoItem` varchar(100),
+	`descricaoItem` text,
+	`quantidade` decimal(12,4),
+	`valorUnitario` decimal(12,4),
+	`valorTotal` decimal(12,4),
+	`dataExecucao` datetime,
+	`competencia` varchar(20),
+	`rawData` json,
+	`processado` boolean DEFAULT false,
+	`criadoEm` timestamp DEFAULT (now()),
+	CONSTRAINT `staging_faturamento_warleine_id` PRIMARY KEY(`id`)
+);
