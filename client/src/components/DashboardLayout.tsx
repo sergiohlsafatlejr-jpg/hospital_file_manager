@@ -84,6 +84,7 @@ import {
   Stethoscope,
   CalendarClock,
   Microscope,
+  AlertTriangle,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -143,6 +144,7 @@ const menuItems: MenuItem[] = [
     { icon: FileCode2, label: "Upload XML", path: "/recebimentos-xml", modulo: "recebimentosXml" },
     { icon: FileSpreadsheet, label: "Upload Excel", path: "/recebimentos-excel", modulo: "recebimentosExcel" },
     { icon: FileText, label: "Demonstrativo", path: "/demonstrativo", modulo: "demonstrativo" },
+    { icon: FileText, label: "Importar PDF Saúde Caixa", path: "/recebimentos-pdf-saude-caixa", modulo: "recebimentosExcel" },
     { icon: Receipt, label: "Repasse", path: "/repasse", modulo: "faturamento" },
   ]},
 
@@ -173,6 +175,10 @@ const menuItems: MenuItem[] = [
       { icon: Activity, label: "Rel. Ultrassom", path: "/relatorio-ultrassom", modulo: "relFaturadoRecebido" },
       { icon: Stethoscope, label: "Rel. Visita Hospitalar", path: "/relatorio-visita", modulo: "relFaturadoRecebido" },
       { icon: Stethoscope, label: "Visitas Faturadas (XML)", path: "/relatorio-visita-xml", modulo: "relFaturadoRecebido" },
+    ]},
+    // Subpasta: Glosas BI
+    { icon: AlertTriangle, label: "Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi", children: [
+      { icon: AlertTriangle, label: "Relatório BI de Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi" },
     ]},
     // Subpasta: Recepção
     { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [
