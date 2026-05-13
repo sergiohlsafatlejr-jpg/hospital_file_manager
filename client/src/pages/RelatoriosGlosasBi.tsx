@@ -31,7 +31,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function RelatoriosGlosasBi() {
-  const { estabelecimentoId } = useEstabelecimento();
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id !== 0 ? estabelecimentoAtual.id : undefined;
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [competenciaInicio, setCompetenciaInicio] = useState<string | undefined>();
   const [competenciaFim, setCompetenciaFim] = useState<string | undefined>();

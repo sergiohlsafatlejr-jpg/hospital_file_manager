@@ -564,6 +564,287 @@ const recebiveisRouter = router({
 
       return { mesRef, totalRecebido: totalRecebido.total, totalPendente: totalPendente.total };
     }),
+  importarSaudeCaixaPdf: protectedProcedure
+    .input(z.object({
+      base64File: z.string()
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const buffer = Buffer.from(input.base64File, "base64");
+        const data = await pdfParse(buffer);
+        const lines = data.text.split("\n").map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+        
+        // Helper: parse a Brazilian number string ("1.234,56" -> 1234.56)
+        const parseBR = (s: string) => parseFloat(s.replace(/\./g, "").replace(",", "."));
+
+        // Helper: detect if a string is a "Grau de Participação" (small integer like "12", "00")
+        const isGrauParticipacao = (s: string) => /^\d{1,2}$/.test(s);
+
+        // Helper: detect if a string looks like a procedure code
+        const isProcedureCode = (s: string) => /^(\d\.\d{2}\.\d{2}\.\d{3}|\d{10,})$/.test(s);
+
+        // Helper: detect if string is a date dd/mm/yyyy
+        const isDate = (s: string) => /^\d{2}\/\d{2}\/\d{4}$/.test(s);
+
+        // Helper: detect if string is a time hh:mm
+        const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s);
+
+        // Helper: detect if string is a CNPJ pattern
+        const isCNPJ = (s: string) => /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(s);
+
+        // Helper: detect if string looks like a long number (carteirinha)
+        const isCarteirinha = (s: string) => /^\d{13,}$/.test(s);
+
+        // ============================================================
+        // PASS 1: Extract guia headers
+        // Pattern: After "2338130" (CNES) or after page header, look for:
+        //   [lote] [protocolo] [dataProtocolo] [statusProtocolo]
+        //   [guiaPrestador] [guiaOperadora] [senha]
+        //   [nomePaciente] [carteirinha]
+        //   [dataInicio] [horaInicio] [dataFim] [horaFim] [statusGuia]
+        // ============================================================
+        interface GuiaHeader {
+          lineIndex: number;
+          lote: string;
+          protocolo: string;
+          guiaPrestador: string;
+          guiaOperadora: string;
+          senha: string;
+          pacienteNome: string;
+          carteirinha: string;
+          dataInicio: string;
+          dataFim: string;
+        }
+
+        const guiaHeaders: GuiaHeader[] = [];
+
+        for (let i = 0; i < lines.length - 10; i++) {
+          // Look for CNES "2338130" followed by lote/protocolo pattern
+          // The CNES appears after prestador name at fixed positions in header
+          // After CNES: [lote] [protocolo] [dataProtocolo] [statusCode]
+          // Then:       [guiaPrestador] [guiaOperadora] [senha]
+          // Then:       [pacienteNome] [carteirinha]
+          // Then:       [dataInicio] [horaInicio] [dataFim] [horaFim] [statusGuia]
+
+          // Detect guia section: look for a sequence that matches the pattern
+          // Heuristic: a line that's a long number (lote, ~9+ digits), followed by
+          // another number (protocolo), followed by a date, followed by a status code
+          if (/^\d{6,}$/.test(lines[i]) && // lote (e.g. 130093155)
+              /^\d{5,}$/.test(lines[i+1]) && // protocolo (e.g. 7214460)
+              isDate(lines[i+2]) && // data protocolo
+              /^\d{1}$/.test(lines[i+3]) && // status protocolo (e.g. "6")
+              /^\d{5,}$/.test(lines[i+4]) // guia prestador
+          ) {
+            const lote = lines[i];
+            const protocolo = lines[i+1];
+            // i+2 = data protocolo, i+3 = status
+            const guiaPrestador = lines[i+4];
+            const guiaOperadora = lines[i+5] || "";
+            const senha = lines[i+6] || "";
+
+            // Next should be paciente nome and carteirinha
+            const pacienteNome = lines[i+7] || "";
+            const carteirinha = lines[i+8] || "";
+
+            // Dates
+            let dataInicio = "";
+            let dataFim = "";
+            if (isDate(lines[i+9])) {
+              dataInicio = lines[i+9];
+              // i+10 = hora inicio
+              if (isDate(lines[i+11])) {
+                dataFim = lines[i+11];
+              }
+            }
+
+            guiaHeaders.push({
+              lineIndex: i,
+              lote,
+              protocolo,
+              guiaPrestador,
+              guiaOperadora,
+              senha,
+              pacienteNome: isCarteirinha(pacienteNome) ? "" : pacienteNome, // safety: don't use numbers as names
+              carteirinha: isCarteirinha(carteirinha) ? carteirinha : (isCarteirinha(pacienteNome) ? pacienteNome : ""),
+              dataInicio,
+              dataFim,
+            });
+          }
+        }
+
+        // ============================================================
+        // PASS 2: Extract procedure items and link to nearest guia
+        // ============================================================
+        const extracted = [];
+        let numId = 1;
+
+        // Find the guia header that applies to a given line index
+        const findGuia = (lineIdx: number): GuiaHeader | null => {
+          let best: GuiaHeader | null = null;
+          for (const g of guiaHeaders) {
+            if (g.lineIndex < lineIdx) {
+              if (!best || g.lineIndex > best.lineIndex) best = g;
+            }
+          }
+          return best;
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          // Each item block starts with a date line (dd/mm/yyyy)
+          if (!isDate(lines[i])) continue;
+
+          // lines[i+1] = Tabela (e.g. "22", "18", "19", "20")
+          // lines[i+2] = Código do procedimento
+          const tabelaLine = lines[i + 1];
+          const codeLine = lines[i + 2];
+          if (!tabelaLine || !/^\d{1,2}$/.test(tabelaLine)) continue;
+          if (!codeLine || !isProcedureCode(codeLine)) continue;
+
+          const date = lines[i];
+          const descricao = lines[i + 3] || "";
+
+          // After description, there may or may not be a "Grau de Participação"
+          const field4 = lines[i + 4] || "";
+          let offset: number;
+
+          if (isGrauParticipacao(field4) && !field4.includes(",") && lines[i + 5]?.includes(",")) {
+            offset = i + 5;
+          } else {
+            offset = i + 4;
+          }
+
+          const valorInfStr = lines[offset] || "0";
+          const qtyStr = lines[offset + 1] || "0";
+          const valorProcStr = lines[offset + 2] || "0";
+          const valorLibStr = lines[offset + 3] || "0";
+
+          const isNegative = valorInfStr.startsWith("-");
+          const valorInformado = parseBR(valorInfStr);
+          const quantidade = parseBR(qtyStr);
+          const valorProcessado = parseBR(valorProcStr);
+          const valorLiberado = parseBR(valorLibStr);
+
+          // Detect glosa
+          let valorGlosa = 0;
+          let motivoGlosa = "";
+
+          if (isNegative) {
+            valorGlosa = Math.abs(valorProcessado);
+            const glosaCodeField = lines[offset + 4] || "";
+            if (/^\d+$/.test(glosaCodeField)) motivoGlosa = glosaCodeField;
+          } else {
+            if (valorProcessado > valorLiberado && valorLiberado >= 0) {
+              valorGlosa = valorProcessado - valorLiberado;
+              const possibleGlosaVal = lines[offset + 4] || "";
+              const possibleGlosaCode = lines[offset + 5] || "";
+              if (possibleGlosaVal.includes(",") && parseBR(possibleGlosaVal) < 0) {
+                motivoGlosa = possibleGlosaCode;
+              } else if (/^\d{3,4}$/.test(possibleGlosaCode)) {
+                motivoGlosa = possibleGlosaCode;
+              }
+            }
+          }
+
+          // Link to guia header
+          const guia = findGuia(i);
+
+          extracted.push({
+            id: numId++,
+            dataFaturamento: date,
+            codigo: codeLine,
+            descricao,
+            quantidade: String(Math.abs(quantidade)),
+            valorApresentado: Math.abs(valorProcessado),
+            valorPago: Math.abs(valorLiberado),
+            valorGlosa: Math.abs(valorGlosa),
+            motivoGlosa,
+            isGlosa: isNegative || valorGlosa > 0,
+            isNegativeBlock: isNegative,
+            // Guia metadata
+            guiaPrestador: guia?.guiaPrestador || null,
+            guiaOperadora: guia?.guiaOperadora || null,
+            protocolo: guia?.protocolo || null,
+            lote: guia?.lote || null,
+            pacienteNome: guia?.pacienteNome || null,
+            carteirinha: guia?.carteirinha || null,
+            senha: guia?.senha || null,
+          });
+        }
+        
+        return { success: true, items: extracted };
+      } catch (err: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao processar PDF: " + err.message });
+      }
+    }),
+  salvarSaudeCaixaNoDemonstrativo: protectedProcedure
+    .input(z.object({
+      itens: z.array(z.any()),
+      arquivoId: z.number().optional(), 
+      convenioId: z.number().optional(),
+      dataReferencia: z.string().optional(),
+      dataPagamento: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = (await getDb())!;
+      const { arquivos, demonstrativo } = await import("../../drizzle/schema");
+
+      let arquivoId = input.arquivoId;
+
+      if (!arquivoId) {
+        const [arquivoResult] = await db.insert(arquivos).values({
+          nome: "Demonstrativo_Saude_Caixa_PDF.pdf",
+          tipoArquivo: 'pdf',
+          direcao: 'retornado',
+          convenioId: input.convenioId || null,
+          estabelecimentoId: ctx.user.estabelecimentoId || 1,
+          userId: ctx.user.id,
+          s3Key: "nao_se_aplica",
+          s3Url: "nao_se_aplica",
+          tamanho: 0,
+          status: 'processado',
+          totalItens: input.itens.length,
+          itensProcessados: input.itens.length,
+          dataReferencia: input.dataReferencia ? new Date(input.dataReferencia) : null,
+          dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
+        });
+        arquivoId = arquivoResult.insertId;
+      }
+
+      // Parse dates from input
+      const dataRefGlobal = input.dataReferencia ? new Date(input.dataReferencia) : null;
+      const dataPagGlobal = input.dataPagamento ? new Date(input.dataPagamento) : null;
+
+      // Convert from PDF output to demonstrativo
+      const recordsToInsert = input.itens.map(item => ({
+        arquivoId: arquivoId!,
+        origemTipo: 'excel' as const, // Pretend it's excel since table doesn't have PDF enum
+        convenioId: input.convenioId || null,
+        estabelecimentoId: ctx.user.estabelecimentoId || 1,
+        dataPagamento: dataPagGlobal || (item.dataFaturamento ? new Date(item.dataFaturamento.split('/').reverse().join('-')) : null),
+        dataReferencia: dataRefGlobal || (item.dataFaturamento ? new Date(item.dataFaturamento.split('/').reverse().join('-')) : null),
+        numeroGuia: item.guiaPrestador || null,
+        protocolo: item.protocolo || null,
+        lotePrestador: item.lote || null,
+        nomeBeneficiario: item.pacienteNome || null,
+        carteiraBeneficiario: item.carteirinha || null,
+        codigoItem: item.codigo,
+        descricaoItem: item.descricao,
+        quantidade: String(item.quantidade),
+        valorInformado: String(item.valorApresentado),
+        valorPago: String(item.valorPago),
+        valorGlosa: String(item.valorGlosa), 
+        situacaoItem: item.valorGlosa > 0 && item.valorPago === 0 ? "GLOSADO" : item.valorGlosa > 0 ? "PARCIAL" : "PAGO",
+        codigoGlosa: item.motivoGlosa || null
+      }));
+
+      // chunk insert
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+        await db.insert(demonstrativo).values(recordsToInsert.slice(i, i + BATCH_SIZE));
+      }
+
+      return { success: true, arquivoId };
+    }),
 });
 
 // ============================================================
