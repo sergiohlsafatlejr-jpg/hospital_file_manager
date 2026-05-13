@@ -1,6 +1,6 @@
-import { useState, useContext, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { EstabelecimentoContext } from "@/contexts/EstabelecimentoContext";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function RelatoriosGlosasBi() {
-  const { estabelecimentoId } = useContext(EstabelecimentoContext);
+  const { estabelecimentoId } = useEstabelecimento();
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [competenciaInicio, setCompetenciaInicio] = useState<string | undefined>();
   const [competenciaFim, setCompetenciaFim] = useState<string | undefined>();
