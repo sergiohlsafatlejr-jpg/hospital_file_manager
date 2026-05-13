@@ -1,4 +1,5 @@
 import { z } from "zod";
+import pdfParse from "pdf-parse";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";

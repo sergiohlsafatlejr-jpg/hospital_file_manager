@@ -3598,4 +3598,11 @@
 - [ ] Criar backend relatoriosGlosasBiRouter com queries: KPIs gerais, glosas por convênio, por código, por setor, por mês (tendência), por tipo de item
 - [ ] Criar frontend RelatoriosGlosasBi com KPIs, gráficos de tendência, tabelas detalhadas, filtros por estabelecimento/convênio/período
 - [ ] Registrar router no routers.ts
-- [ ] Salvar checkpoint
+- [x] Salvar checkpoint
+
+## Melhorias no BI de Glosas e PDF Saúde Caixa (2026-05-13)
+
+- [x] Corrigir erro pdfParse is not defined no financeiroRouter
+- [x] Incorporar dados do demonstrativo no Relatório BI de Glosas (em vez de apenas recursosGlosa)
+- [x] Integrar módulo de Recurso de Glosa dentro do BI de Glosas
+- [x] Adicionar IA de análise de devolutivas por motivo de glosa com sugestões de melhoria

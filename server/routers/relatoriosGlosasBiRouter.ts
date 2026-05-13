@@ -1,5 +1,6 @@
 import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
+import { invokeLLM } from "../_core/llm";
 
 // Dicionário TISS de motivos de glosa (principais códigos)
 const MOTIVOS_GLOSA: Record<string, string> = {
@@ -478,6 +479,229 @@ export const relatoriosGlosasBiRouter = router({
       }
     }),
 
+  // Recursos de glosa integrados (cruzando demonstrativo com recursosGlosa)
+  recursosIntegrados: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      competenciaInicio: z.string().optional(),
+      competenciaFim: z.string().optional(),
+      status: z.string().optional(), // 'pendente', 'recurso_criado', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido'
+      limite: z.number().default(50),
+      offset: z.number().default(0),
+    }))
+    .query(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        const params: any[] = [input.estabelecimentoId];
+        let where = "WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0";
+        if (input.convenioId) {
+          where += " AND d.convenio_id = ?";
+          params.push(input.convenioId);
+        }
+        if (input.competenciaInicio) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          params.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          params.push(input.competenciaFim);
+        }
+        if (input.status) {
+          if (input.status === 'pendente') {
+            where += " AND (d.recurso_status IS NULL OR d.recurso_status = 'sem_recurso')";
+          } else {
+            where += " AND d.recurso_status = ?";
+            params.push(input.status);
+          }
+        }
+
+        // Count total
+        const countParams = [...params];
+        const [countRows] = await conn.execute<any[]>(`
+          SELECT COUNT(*) as total FROM demonstrativo d ${where}
+        `, countParams);
+        const total = Number(countRows[0].total);
+
+        params.push(input.limite, input.offset);
+        const [rows] = await conn.execute<any[]>(`
+          SELECT
+            d.id,
+            d.numero_guia,
+            d.nome_beneficiario,
+            d.carteira_beneficiario,
+            d.codigo_item,
+            d.descricao_item,
+            d.tipo_lancamento,
+            d.valor_informado,
+            d.valor_pago,
+            d.valor_glosa,
+            d.codigo_glosa,
+            d.situacao_item,
+            d.recurso_status,
+            d.recurso_id,
+            d.classificacao_glosa,
+            d.data_referencia,
+            d.data_execucao,
+            c.nome as convenio_nome,
+            rg.status as recurso_status_detalhe,
+            rg.justificativaRecurso,
+            rg.protocoloRecurso,
+            rg.dataEnvioRecurso,
+            rg.dataPrazoResposta,
+            rg.respostaConvenio
+          FROM demonstrativo d
+          LEFT JOIN convenios c ON c.id = d.convenio_id
+          LEFT JOIN recursosGlosa rg ON rg.id = d.recurso_id
+          ${where}
+          ORDER BY d.valor_glosa DESC
+          LIMIT ? OFFSET ?
+        `, params);
+
+        return {
+          total,
+          items: rows.map(r => ({
+            id: r.id,
+            numeroGuia: r.numero_guia,
+            nomeBeneficiario: r.nome_beneficiario,
+            carteiraBeneficiario: r.carteira_beneficiario,
+            codigoItem: r.codigo_item,
+            descricaoItem: r.descricao_item,
+            tipoLancamento: r.tipo_lancamento,
+            valorInformado: Number(r.valor_informado || 0),
+            valorPago: Number(r.valor_pago || 0),
+            valorGlosa: Number(r.valor_glosa || 0),
+            codigoGlosa: r.codigo_glosa,
+            descricaoGlosa: getMotivoDescricao(r.codigo_glosa),
+            situacaoItem: r.situacao_item,
+            recursoStatus: r.recurso_status,
+            recursoId: r.recurso_id,
+            classificacaoGlosa: r.classificacao_glosa,
+            dataReferencia: r.data_referencia,
+            dataExecucao: r.data_execucao,
+            convenioNome: r.convenio_nome,
+            recursoDetalhe: r.recurso_id ? {
+              status: r.recurso_status_detalhe,
+              justificativa: r.justificativaRecurso,
+              protocolo: r.protocoloRecurso,
+              dataEnvio: r.dataEnvioRecurso,
+              dataPrazo: r.dataPrazoResposta,
+              resposta: r.respostaConvenio,
+            } : null,
+          })),
+        };
+      } finally {
+        await conn.end();
+      }
+    }),
+
+  // Análise por setor/tipo de lançamento com detalhamento
+  analisePorSetor: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      competenciaInicio: z.string().optional(),
+      competenciaFim: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        const params: any[] = [input.estabelecimentoId];
+        let where = "WHERE d.estabelecimentoId = ?";
+        if (input.convenioId) {
+          where += " AND d.convenio_id = ?";
+          params.push(input.convenioId);
+        }
+        if (input.competenciaInicio) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          params.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          params.push(input.competenciaFim);
+        }
+
+        const [rows] = await conn.execute<any[]>(`
+          SELECT
+            COALESCE(d.tipo_lancamento, 'Não informado') as setor,
+            COUNT(*) as total_itens,
+            SUM(CASE WHEN d.valor_glosa > 0 THEN 1 ELSE 0 END) as total_glosados,
+            SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
+            SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
+            SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN CAST(d.valor_glosa AS DECIMAL(12,2)) ELSE 0 END) as total_recuperado
+          FROM demonstrativo d
+          ${where}
+          GROUP BY d.tipo_lancamento
+          ORDER BY total_glosa DESC
+        `, params);
+
+        return rows.map(r => ({
+          setor: r.setor,
+          totalItens: Number(r.total_itens),
+          totalGlosados: Number(r.total_glosados),
+          totalInformado: Number(r.total_informado),
+          totalPago: Number(r.total_pago),
+          totalGlosa: Number(r.total_glosa),
+          totalRecuperado: Number(r.total_recuperado),
+          taxaGlosa: r.total_informado > 0
+            ? Number(((Number(r.total_glosa) / Number(r.total_informado)) * 100).toFixed(2))
+            : 0,
+          taxaRecuperacao: r.total_glosa > 0
+            ? Number(((Number(r.total_recuperado) / Number(r.total_glosa)) * 100).toFixed(2))
+            : 0,
+        }));
+      } finally {
+        await conn.end();
+      }
+    }),
+
+  // Padrões de glosa por convênio ao longo do tempo
+  padroesPorConvenio: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number(),
+      meses: z.number().default(6),
+    }))
+    .query(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        const [rows] = await conn.execute<any[]>(`
+          SELECT
+            DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
+            COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+            COUNT(*) as total_glosados,
+            SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+          FROM demonstrativo d
+          WHERE d.estabelecimentoId = ? AND d.convenio_id = ? AND d.valor_glosa > 0
+          GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m'), d.codigo_glosa
+          ORDER BY competencia DESC, total_glosa DESC
+          LIMIT ?
+        `, [input.estabelecimentoId, input.convenioId, input.meses * 20]);
+
+        // Agrupar por competência
+        const porCompetencia: Record<string, any[]> = {};
+        for (const r of rows) {
+          if (!porCompetencia[r.competencia]) porCompetencia[r.competencia] = [];
+          porCompetencia[r.competencia].push({
+            codigoGlosa: r.codigo_glosa,
+            descricao: getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa),
+            totalGlosados: Number(r.total_glosados),
+            totalGlosa: Number(r.total_glosa),
+          });
+        }
+
+        return Object.entries(porCompetencia)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([competencia, codigos]) => ({ competencia, codigos }));
+      } finally {
+        await conn.end();
+      }
+    }),
+
   // Filtros disponíveis
   filtros: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
@@ -512,6 +736,188 @@ export const relatoriosGlosasBiRouter = router({
           competencias: competencias.map(c => c.competencia),
           tiposLancamento: tipos.map(t => t.tipo_lancamento),
           categoriasGlosa: Object.keys(CATEGORIAS_GLOSA),
+        };
+      } finally {
+        await conn.end();
+      }
+    }),
+
+  // IA: Análise de devolutivas por motivo de glosa com sugestões de melhoria
+  analisarDevolutiva: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      codigoGlosa: z.string(),
+      convenioId: z.number().optional(),
+      competenciaInicio: z.string().optional(),
+      competenciaFim: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        // Buscar dados reais do demonstrativo para o código de glosa
+        const params: any[] = [input.estabelecimentoId, input.codigoGlosa];
+        let where = "WHERE d.estabelecimentoId = ? AND d.codigo_glosa = ?";
+        if (input.convenioId) {
+          where += " AND d.convenio_id = ?";
+          params.push(input.convenioId);
+        }
+        if (input.competenciaInicio) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          params.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          params.push(input.competenciaFim);
+        }
+
+        const [dadosGlosa] = await conn.execute<any[]>(`
+          SELECT
+            COUNT(*) as total_ocorrencias,
+            SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_valor_glosado,
+            SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN 1 ELSE 0 END) as recursos_deferidos,
+            SUM(CASE WHEN d.recurso_status = 'recurso_indeferido' THEN 1 ELSE 0 END) as recursos_indeferidos,
+            SUM(CASE WHEN d.recurso_status IN ('recurso_criado','recurso_enviado') THEN 1 ELSE 0 END) as recursos_em_andamento,
+            GROUP_CONCAT(DISTINCT d.tipo_lancamento ORDER BY d.tipo_lancamento SEPARATOR ', ') as tipos_lancamento,
+            GROUP_CONCAT(DISTINCT c.nome ORDER BY c.nome SEPARATOR ', ') as convenios_afetados,
+            MIN(DATE_FORMAT(d.data_referencia, '%Y/%m')) as competencia_inicio,
+            MAX(DATE_FORMAT(d.data_referencia, '%Y/%m')) as competencia_fim
+          FROM demonstrativo d
+          LEFT JOIN convenios c ON c.id = d.convenio_id
+          ${where}
+        `, params);
+
+        // Buscar histórico de recursos bem-sucedidos para este código
+        const [historicoBemSucedido] = await conn.execute<any[]>(`
+          SELECT
+            rg.justificativaRecurso,
+            rg.respostaConvenio,
+            rg.status,
+            c.nome as convenio
+          FROM recursosGlosa rg
+          LEFT JOIN convenios c ON c.id = rg.convenioId
+          WHERE rg.estabelecimentoId = ? AND rg.motivoGlosaConvenio LIKE ?
+            AND rg.status = 'deferido'
+          ORDER BY rg.updatedAt DESC
+          LIMIT 5
+        `, [input.estabelecimentoId, `%${input.codigoGlosa}%`]);
+
+        // Buscar aprendizado de auditoria para este código
+        const [aprendizado] = await conn.execute<any[]>(`
+          SELECT dadosAprendizado, confianca, totalOcorrencias
+          FROM aprendizado_auditoria
+          WHERE estabelecimentoId = ? AND codigoItem = ? AND ativo = 1
+          ORDER BY confianca DESC
+          LIMIT 3
+        `, [input.estabelecimentoId, input.codigoGlosa]);
+
+        const kpi = dadosGlosa[0];
+        const descricaoMotivo = getMotivoDescricao(input.codigoGlosa);
+
+        // Montar contexto para a IA
+        const contexto = `
+Código de Glosa: ${input.codigoGlosa}
+Descrição TISS: ${descricaoMotivo}
+Total de Ocorrências: ${kpi.total_ocorrencias}
+Valor Total Glosado: R$ ${Number(kpi.total_valor_glosado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+Recursos Deferidos: ${kpi.recursos_deferidos || 0}
+Recursos Indeferidos: ${kpi.recursos_indeferidos || 0}
+Recursos em Andamento: ${kpi.recursos_em_andamento || 0}
+Tipos de Lançamento Afetados: ${kpi.tipos_lancamento || 'Não informado'}
+Convênios Afetados: ${kpi.convenios_afetados || 'Não informado'}
+Período: ${kpi.competencia_inicio || 'N/A'} a ${kpi.competencia_fim || 'N/A'}
+
+${historicoBemSucedido.length > 0 ? `Histórico de Recursos Deferidos (${historicoBemSucedido.length} casos):
+${historicoBemSucedido.map((r, i) => `${i+1}. Convênio: ${r.convenio} | Justificativa: ${r.justificativaRecurso?.substring(0, 200) || 'N/A'}`).join('\n')}` : 'Sem histórico de recursos deferidos para este código.'}
+
+${aprendizado.length > 0 ? `Aprendizado de IA disponível: ${aprendizado.length} padrões identificados.` : ''}
+        `.trim();
+
+        // Chamar IA para análise
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `Você é um especialista em faturamento hospitalar e gestão de glosas de planos de saúde no Brasil. 
+Analise os dados de glosa fornecidos e retorne uma análise estruturada em JSON com:
+1. Diagnóstico do problema (causa raiz provável)
+2. Impacto financeiro e operacional
+3. Sugestões de melhoria de processo (ações preventivas)
+4. Argumentos para recurso de glosa (baseados no histórico de sucesso)
+5. Prioridade de ação (alta/média/baixa)
+6. Estimativa de recuperabilidade (% do valor que pode ser recuperado via recurso)
+
+Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
+            },
+            {
+              role: "user",
+              content: `Analise os seguintes dados de glosa hospitalar:\n\n${contexto}`,
+            },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "analise_glosa",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  diagnostico: { type: "string", description: "Causa raiz provável do problema de glosa" },
+                  impacto: { type: "string", description: "Impacto financeiro e operacional" },
+                  sugestoesMelhoria: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Lista de ações preventivas para reduzir este tipo de glosa"
+                  },
+                  argumentosRecurso: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Argumentos para usar no recurso de glosa"
+                  },
+                  prioridade: { type: "string", description: "alta, media ou baixa" },
+                  estimativaRecuperabilidade: { type: "number", description: "Percentual estimado de recuperação (0-100)" },
+                  resumoExecutivo: { type: "string", description: "Resumo executivo em 2-3 frases" },
+                },
+                required: ["diagnostico", "impacto", "sugestoesMelhoria", "argumentosRecurso", "prioridade", "estimativaRecuperabilidade", "resumoExecutivo"],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0].message.content;
+        let analise: any;
+        try {
+          analise = typeof content === "string" ? JSON.parse(content) : content;
+        } catch {
+          analise = {
+            diagnostico: "Não foi possível processar a análise automática.",
+            impacto: `${kpi.total_ocorrencias} ocorrências com R$ ${Number(kpi.total_valor_glosado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} glosados.`,
+            sugestoesMelhoria: ["Revisar processo de faturamento para este código", "Verificar documentação exigida pelo convênio"],
+            argumentosRecurso: ["Contestar com base na prestação do serviço documentada"],
+            prioridade: "media",
+            estimativaRecuperabilidade: 30,
+            resumoExecutivo: "Análise automática indisponível. Revisar manualmente.",
+          };
+        }
+
+        return {
+          codigoGlosa: input.codigoGlosa,
+          descricaoMotivo,
+          dados: {
+            totalOcorrencias: Number(kpi.total_ocorrencias),
+            totalValorGlosado: Number(kpi.total_valor_glosado || 0),
+            recursosDeferidos: Number(kpi.recursos_deferidos || 0),
+            recursosIndeferidos: Number(kpi.recursos_indeferidos || 0),
+            recursosEmAndamento: Number(kpi.recursos_em_andamento || 0),
+            tiposLancamento: kpi.tipos_lancamento || '',
+            conveniosAfetados: kpi.convenios_afetados || '',
+          },
+          analise,
+          historicoBemSucedido: historicoBemSucedido.map(r => ({
+            convenio: r.convenio,
+            justificativa: r.justificativaRecurso,
+          })),
         };
       } finally {
         await conn.end();
