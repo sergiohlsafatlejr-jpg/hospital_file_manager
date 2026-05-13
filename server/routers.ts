@@ -41,6 +41,7 @@ import { auditSystemRouter } from "./routers/auditSystemRouter";
 import { contratosConveniosRouter } from "./routers/contratosConveniosRouter";
 import { dashboardBiRouter } from "./routers/dashboardBiRouter";
 import { rhRouter } from "./routers/rhRouter";
+import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -111,6 +112,7 @@ export const appRouter = router({
   contratosConvenios: contratosConveniosRouter,
   dashboardBi: dashboardBiRouter,
   rh: rhRouter,
+  relatoriosGlosasBi: relatoriosGlosasBiRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

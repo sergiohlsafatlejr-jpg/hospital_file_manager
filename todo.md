@@ -3593,3 +3593,9 @@
 - [x] Atualizar DashboardLayout.tsx com novos itens de menu
 - [x] Verificar compilação e corrigir erros
 - [x] Salvar checkpoint
+
+## Relatório BI de Glosas (/relatorios-glosas-bi)
+- [ ] Criar backend relatoriosGlosasBiRouter com queries: KPIs gerais, glosas por convênio, por código, por setor, por mês (tendência), por tipo de item
+- [ ] Criar frontend RelatoriosGlosasBi com KPIs, gráficos de tendência, tabelas detalhadas, filtros por estabelecimento/convênio/período
+- [ ] Registrar router no routers.ts
+- [ ] Salvar checkpoint
