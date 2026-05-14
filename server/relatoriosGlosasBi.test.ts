@@ -43,7 +43,7 @@ describe("relatoriosGlosasBiRouter — lógica de negócio", () => {
         "15": "Documentação incompleta",
       };
       const getMotivoDescricao = (codigo: string | null): string => {
-        if (!codigo) return "Sem código";
+        if (!codigo) return "Sem motivo - GLOSADO";
         const codigos = codigo.split(/[,;|\/]/).map(c => c.trim());
         const descricoes = codigos.map(c => {
           const desc = MOTIVOS[c];
@@ -54,7 +54,7 @@ describe("relatoriosGlosasBiRouter — lógica de negócio", () => {
 
       expect(getMotivoDescricao("24")).toBe("24 - Falta de autorização prévia");
       expect(getMotivoDescricao("15")).toBe("15 - Documentação incompleta");
-      expect(getMotivoDescricao(null)).toBe("Sem código");
+      expect(getMotivoDescricao(null)).toBe("Sem motivo - GLOSADO");
       expect(getMotivoDescricao("99")).toBe("99");
     });
 
@@ -64,7 +64,7 @@ describe("relatoriosGlosasBiRouter — lógica de negócio", () => {
         "15": "Documentação incompleta",
       };
       const getMotivoDescricao = (codigo: string | null): string => {
-        if (!codigo) return "Sem código";
+        if (!codigo) return "Sem motivo - GLOSADO";
         const codigos = codigo.split(/[,;|\/]/).map(c => c.trim());
         const descricoes = codigos.map(c => {
           const desc = MOTIVOS[c];
@@ -80,6 +80,23 @@ describe("relatoriosGlosasBiRouter — lógica de negócio", () => {
   });
 
   describe("cálculo de taxas de glosa", () => {
+    it("calcula taxa de glosa com base no faturamento TISS (XML enviado)", () => {
+      const totalFaturadoTiss = 588461.41; // do faturamento_tiss
+      const totalGlosa = 11337.92;         // do demonstrativo
+      const taxaGlosa = Number(((totalGlosa / totalFaturadoTiss) * 100).toFixed(2));
+      expect(taxaGlosa).toBeGreaterThan(0);
+      expect(taxaGlosa).toBeLessThan(100);
+    });
+
+    it("usa fallback (pago + glosado) quando não há faturamento TISS", () => {
+      const totalFaturadoTiss = 0;
+      const totalPago = 450000;
+      const totalGlosa = 50000;
+      const base = totalFaturadoTiss > 0 ? totalFaturadoTiss : totalPago + totalGlosa;
+      const taxaGlosa = base > 0 ? (totalGlosa / base) * 100 : 0;
+      expect(taxaGlosa).toBeCloseTo(10, 1);
+    });
+
     it("calcula taxa de glosa corretamente", () => {
       const totalInformado = 100000;
       const totalGlosa = 15000;

@@ -3629,3 +3629,10 @@
 - [x] Tabela Top Motivos com colunas Vl Glosa, % e Pareto acumulado
 - [x] Modal de comparação de meses com seleção de dois períodos
 - [x] Seção de Análise Comparativa por IA com 6 cards e tabela de Ações Prioritárias
+
+## Correções BI de Glosas - Valor Cobrado e Motivos (2026-05-14)
+
+- [ ] Corrigir Valor Cobrado no BI de Glosas para buscar do XML enviado (faturamento_tiss) em vez do demonstrativo
+- [ ] Corrigir query de motivos de glosa que retorna vazio com filtro de competência
+- [ ] Corrigir query de evolução mensal que retorna vazio com filtro de competência
+- [ ] Unificar Valor Cobrado (XML) + Valor Pago/Glosado (demonstrativo) nos KPIs do BI

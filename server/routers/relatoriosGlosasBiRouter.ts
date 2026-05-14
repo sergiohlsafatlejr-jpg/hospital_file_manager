@@ -46,7 +46,7 @@ const MOTIVOS_GLOSA: Record<string, string> = {
 };
 
 function getMotivoDescricao(codigo: string | null): string {
-  if (!codigo) return "Sem código";
+  if (!codigo) return "Sem motivo - GLOSADO";
   const codigos = codigo.split(/[,;|\/]/).map(c => c.trim());
   const descricoes = codigos.map(c => {
     const desc = MOTIVOS_GLOSA[c];
@@ -104,7 +104,6 @@ export const relatoriosGlosasBiRouter = router({
           SELECT
             COUNT(*) as total_itens,
             SUM(CASE WHEN d.valor_glosa > 0 THEN 1 ELSE 0 END) as total_glosados,
-            SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
             SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             COUNT(DISTINCT d.numero_guia) as total_guias,
@@ -116,9 +115,35 @@ export const relatoriosGlosasBiRouter = router({
           ${where}
         `, params);
 
+        // Buscar Valor Cobrado do faturamento_tiss (XML enviado)
+        const tissParams: any[] = [input.estabelecimentoId];
+        let tissWhere = "WHERE estabelecimentoId = ?";
+        if (input.convenioId) {
+          tissWhere += " AND convenioId = ?";
+          tissParams.push(input.convenioId);
+        }
+        if (input.competenciaInicio) {
+          tissWhere += " AND competencia >= ?";
+          tissParams.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          tissWhere += " AND competencia <= ?";
+          tissParams.push(input.competenciaFim);
+        }
+        const [tissRows] = await conn.execute<any[]>(`
+          SELECT SUM(CAST(valor_faturado AS DECIMAL(12,2))) as total_faturado
+          FROM faturamento_tiss
+          ${tissWhere}
+        `, tissParams);
+        const totalFaturadoTiss = Number(tissRows[0]?.total_faturado || 0);
+
         const kpi = rows[0];
-        const taxaGlosa = kpi.total_informado > 0
-          ? (Number(kpi.total_glosa) / Number(kpi.total_informado)) * 100
+        // Taxa de glosa: glosado / cobrado (XML). Fallback: glosado / (pago + glosado)
+        const baseTaxa = totalFaturadoTiss > 0
+          ? totalFaturadoTiss
+          : (Number(kpi.total_pago) + Number(kpi.total_glosa));
+        const taxaGlosa = baseTaxa > 0
+          ? (Number(kpi.total_glosa) / baseTaxa) * 100
           : 0;
         const ticketMedioGlosa = kpi.total_glosados > 0
           ? Number(kpi.total_glosa) / Number(kpi.total_glosados)
@@ -130,7 +155,8 @@ export const relatoriosGlosasBiRouter = router({
         return {
           totalItens: Number(kpi.total_itens),
           totalGlosados: Number(kpi.total_glosados),
-          totalInformado: Number(kpi.total_informado),
+          totalInformado: totalFaturadoTiss > 0 ? totalFaturadoTiss : Number(kpi.total_pago) + Number(kpi.total_glosa),
+          totalFaturadoTiss,
           totalPago: Number(kpi.total_pago),
           totalGlosa: Number(kpi.total_glosa),
           totalGuias: Number(kpi.total_guias),
@@ -158,40 +184,69 @@ export const relatoriosGlosasBiRouter = router({
       const mysql2 = await import("mysql2/promise");
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
-        const params: any[] = [input.estabelecimentoId];
-        let where = "WHERE d.estabelecimentoId = ?";
+        // Dados do demonstrativo (pago, glosado) por competência
+        const demoParams: any[] = [input.estabelecimentoId];
+        let demoWhere = "WHERE d.estabelecimentoId = ?";
         if (input.convenioId) {
-          where += " AND d.convenio_id = ?";
-          params.push(input.convenioId);
+          demoWhere += " AND d.convenio_id = ?";
+          demoParams.push(input.convenioId);
         }
-        params.push(input.meses);
+        demoParams.push(input.meses);
 
-        const [rows] = await conn.execute<any[]>(`
+        const [demoRows] = await conn.execute<any[]>(`
           SELECT
             DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
             COUNT(CASE WHEN d.valor_glosa > 0 THEN 1 END) as total_glosados,
-            SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
             COUNT(DISTINCT d.numero_guia) as total_guias
           FROM demonstrativo d
-          ${where}
+          ${demoWhere}
           GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m')
           ORDER BY competencia DESC
           LIMIT ?
-        `, params);
+        `, demoParams);
 
-        return rows.map(r => ({
-          competencia: r.competencia,
-          totalGlosados: Number(r.total_glosados),
-          totalInformado: Number(r.total_informado),
-          totalGlosa: Number(r.total_glosa),
-          totalPago: Number(r.total_pago),
-          totalGuias: Number(r.total_guias),
-          taxaGlosa: r.total_informado > 0
-            ? Number(((Number(r.total_glosa) / Number(r.total_informado)) * 100).toFixed(2))
-            : 0,
-        })).reverse();
+        // Dados do faturamento_tiss (cobrado) por competência
+        const tissParams: any[] = [input.estabelecimentoId];
+        let tissWhere = "WHERE estabelecimentoId = ?";
+        if (input.convenioId) {
+          tissWhere += " AND convenioId = ?";
+          tissParams.push(input.convenioId);
+        }
+        const [tissRows] = await conn.execute<any[]>(`
+          SELECT
+            competencia,
+            SUM(CAST(valor_faturado AS DECIMAL(12,2))) as total_faturado
+          FROM faturamento_tiss
+          ${tissWhere}
+          GROUP BY competencia
+          ORDER BY competencia DESC
+        `, tissParams);
+
+        // Mapear faturamento TISS por competência
+        const tissMap: Record<string, number> = {};
+        for (const r of tissRows) {
+          tissMap[r.competencia] = Number(r.total_faturado || 0);
+        }
+
+        return demoRows.map(r => {
+          const cobrado = tissMap[r.competencia] || 0;
+          const glosa = Number(r.total_glosa);
+          const pago = Number(r.total_pago);
+          const base = cobrado > 0 ? cobrado : pago + glosa;
+          return {
+            competencia: r.competencia,
+            totalGlosados: Number(r.total_glosados),
+            totalInformado: cobrado > 0 ? cobrado : pago + glosa,
+            totalGlosa: glosa,
+            totalPago: pago,
+            totalGuias: Number(r.total_guias),
+            taxaGlosa: base > 0
+              ? Number(((glosa / base) * 100).toFixed(2))
+              : 0,
+          };
+        }).reverse();
       } finally {
         await conn.end();
       }
