@@ -354,6 +354,15 @@ export async function atualizarSincronizacao(id: number, dados: Partial<InsertIn
   });
 }
 
+export async function obterSincronizacao(id: number) {
+  return withRetry(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const [row] = await db.select().from(integracaoSincronizacoes).where(eq(integracaoSincronizacoes.id, id)).limit(1);
+    return row ?? null;
+  });
+}
+
 // =====================================================
 // DDL DINÂMICO - Criar/Alterar tabelas no MySQL
 // =====================================================

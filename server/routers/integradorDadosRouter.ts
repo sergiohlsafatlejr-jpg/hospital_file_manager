@@ -2093,21 +2093,55 @@ export const integradorDadosRouter = router({
           };
         }; // fim executarSync
 
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Timeout: sincronização excedeu ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS);
-          });
-          return await Promise.race([executarSync(), timeoutPromise]);
-        } catch (error) {
+        // ─── EXECUÇÃO ASSÍNCRONA (fire-and-forget) ────────────────────────────────
+        // Retorna imediatamente para evitar timeout do proxy reverso (180s).
+        // A sincronização continua rodando em background no servidor Node.js.
+        // O frontend deve fazer polling em integradorDados.tabelas.statusSincronizacao
+        // para acompanhar o progresso via syncId.
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`Timeout: sincronização excedeu ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS);
+        });
+        Promise.race([executarSync(), timeoutPromise]).catch(async (error) => {
           const duracaoMs = Date.now() - inicio;
-          await dbIntegrador.atualizarSincronizacao(syncId, {
-            status: "erro",
-            finalizadoEm: new Date(),
-            erroMensagem: error instanceof Error ? error.message : String(error),
-            duracaoMs,
-          });
-          throw new Error(`Erro na sincronização: ${error instanceof Error ? error.message : String(error)}`);
-        }
+          try {
+            await dbIntegrador.atualizarSincronizacao(syncId, {
+              status: "erro",
+              finalizadoEm: new Date(),
+              erroMensagem: error instanceof Error ? error.message : String(error),
+              duracaoMs,
+            });
+          } catch (e) {
+            console.error("[sincronizarTabela] Erro ao registrar falha no background:", e);
+          }
+        });
+
+        // Retornar imediatamente com status de "iniciado"
+        return {
+          sucesso: true,
+          mensagem: `Sincronização iniciada em background (ID: ${syncId}). Acompanhe o progresso na aba Logs.`,
+          registrosLidos: 0,
+          registrosInseridos: 0,
+          duracaoMs: 0,
+          modoEfetivo,
+          syncId,
+          emAndamento: true,
+        };
+      }),
+
+    // Polling de status de sincronização em background
+    statusSincronizacao: protectedProcedure
+      .input(z.object({ syncId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (!(await isAdminOrEstabAdmin(ctx))) return { status: "erro", mensagem: "Acesso negado", registrosInseridos: 0 };
+        const sync = await dbIntegrador.obterSincronizacao(input.syncId);
+        if (!sync) return { status: "nao_encontrado", mensagem: "Sincronização não encontrada", registrosInseridos: 0 };
+        return {
+          status: sync.status,
+          mensagem: sync.erroMensagem || `${sync.registrosInseridos ?? 0} registros importados`,
+          registrosInseridos: sync.registrosInseridos ?? 0,
+          registrosLidos: sync.registrosLidos ?? 0,
+          duracaoMs: sync.duracaoMs ?? 0,
+        };
       }),
 
     consultarDados: protectedProcedure
@@ -2120,11 +2154,10 @@ export const integradorDadosRouter = router({
         if (!(await isAdminOrEstabAdmin(ctx))) return { dados: [], total: 0 };
         const tabela = await dbIntegrador.obterTabela(input.id);
         if (!tabela || tabela.criadaNoBanco !== "sim") return { dados: [], total: 0 };
-
         const nomeReal = `integ_${tabela.nome}`;
         const [dados, total] = await Promise.all([
           dbIntegrador.consultarDadosTabela(nomeReal, input.limite, input.offset),
-          dbIntegrador.contarRegistrosTabela(nomeReal),
+          dbIntegrador.contarRegistrosTabela(nomeReal),,
         ]);
         return { dados, total };
       }),

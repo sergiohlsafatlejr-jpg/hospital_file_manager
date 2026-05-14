@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { Button } from "@/components/ui/button";
@@ -137,11 +137,38 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
     onError: (e) => toast.error("Erro ao criar tabela", { description: e.message }),
   });
 
+  // Polling de status para sincronizações em background
+  const [syncEmAndamento, setSyncEmAndamento] = useState<{ syncId: number } | null>(null);
+
+  const statusSincronizacao = trpc.integradorDados.tabelas.statusSincronizacao.useQuery(
+    { syncId: syncEmAndamento?.syncId ?? 0 },
+    { enabled: !!syncEmAndamento, refetchInterval: 3000 }
+  );
+
+  useEffect(() => {
+    if (!syncEmAndamento || !statusSincronizacao.data) return;
+    const { status, registrosInseridos, mensagem } = statusSincronizacao.data;
+    if (status === "sucesso") {
+      toast.success(`Sincronização concluída! ${registrosInseridos ?? 0} registros importados.`, { description: mensagem });
+      setSyncEmAndamento(null);
+      tabelas.refetch();
+    } else if (status === "erro") {
+      toast.error("Sincronização falhou", { description: mensagem || "Verifique os logs para detalhes." });
+      setSyncEmAndamento(null);
+      tabelas.refetch();
+    }
+  }, [statusSincronizacao.data, syncEmAndamento]);
+
   const sincronizarTabela = trpc.integradorDados.tabelas.sincronizarTabela.useMutation({
     onSuccess: (data) => {
       if (data.sucesso) {
-        toast.success("Sincronização concluída!", { description: data.mensagem });
-        tabelas.refetch();
+        if ((data as any).emAndamento && (data as any).syncId) {
+          setSyncEmAndamento({ syncId: (data as any).syncId });
+          toast.info("Sincronização iniciada", { description: "Processando em background... Você será notificado ao concluir." });
+        } else {
+          toast.success("Sincronização concluída!", { description: data.mensagem });
+          tabelas.refetch();
+        }
       }
     },
     onError: (e) => toast.error("Erro na sincronização", { description: e.message }),
@@ -360,7 +387,7 @@ export function TabelasTab({ estabelecimentoId }: TabelasTabProps) {
                       setEditFrequencia(mapeamentoData.frequencia || "manual");
                       setShowEditDialog(true);
                     }}
-                    isSyncing={sincronizarTabela.isPending}
+                    isSyncing={sincronizarTabela.isPending || !!syncEmAndamento}
                   />
                 ))}
               </TableBody>
