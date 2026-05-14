@@ -353,23 +353,31 @@ export const relatoriosGlosasBiRouter = router({
           where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
-         const limite = Math.max(1, Math.min(100, Number(input.limite) || 20));
+        const limite = Math.max(1, Math.min(100, Number(input.limite) || 20));
         const [rows] = await conn.execute<any[]>(`
           SELECT
             COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+            mg.descricao as descricao_dicionario,
+            mg.grupo as grupo_dicionario,
+            mg.descricaoSimplificada as descricao_simplificada,
             COUNT(*) as total_glosados,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN CAST(d.valor_glosa AS DECIMAL(12,2)) ELSE 0 END) as total_recuperado
           FROM demonstrativo d
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
           ${where}
-          GROUP BY d.codigo_glosa
+          GROUP BY d.codigo_glosa, mg.descricao, mg.grupo, mg.descricaoSimplificada
           ORDER BY total_glosa DESC
           LIMIT ${limite}
         `, params);
 
         return rows.map(r => ({
           codigoGlosa: r.codigo_glosa,
-          descricao: getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa),
+          descricao: r.descricao_dicionario
+            ? `${r.codigo_glosa} - ${r.descricao_dicionario}`
+            : getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa),
+          grupo: r.grupo_dicionario || null,
+          descricaoSimplificada: r.descricao_simplificada || null,
           totalGlosados: Number(r.total_glosados),
           totalGlosa: Number(r.total_glosa),
           totalRecuperado: Number(r.total_recuperado),

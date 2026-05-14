@@ -304,7 +304,8 @@ export default function RelatoriosGlosasBi() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
-                    <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Motivo</th>
+                    <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Código</th>
+                    <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Descrição</th>
                     <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Vl Glosa</th>
                     <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>%</th>
                     <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Pareto</th>
@@ -313,9 +314,26 @@ export default function RelatoriosGlosasBi() {
                 <tbody>
                   {topMotivosComPareto.map((r, i) => (
                     <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }} className="hover:bg-[#0d2a3a] transition-colors">
+                      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
+                      </td>
                       <td style={{ color: "#e8f4fd", padding: "10px 12px" }}>
-                        <span style={{ color: "#4fc3f7", marginRight: 8, fontSize: 11 }}>{r.codigoGlosa}</span>
-                        {r.descricao.length > 60 ? r.descricao.substring(0, 60) + "…" : r.descricao}
+                        <div className="flex flex-col gap-1">
+                          <span title={r.descricao} style={{ fontSize: 13 }}>
+                            {r.descricao.length > 80 ? r.descricao.substring(0, 80) + "…" : r.descricao}
+                          </span>
+                          {(r as any).grupo && (
+                            <span style={{
+                              display: "inline-block",
+                              fontSize: 10,
+                              padding: "1px 7px",
+                              borderRadius: 4,
+                              background: "#1e3a5f",
+                              color: "#4fc3f7",
+                              width: "fit-content",
+                            }}>{(r as any).grupo}</span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ color: "#ef5350", textAlign: "right", padding: "10px 12px", fontWeight: 600 }}>
                         {fmtCurrency(r.totalGlosa)}
