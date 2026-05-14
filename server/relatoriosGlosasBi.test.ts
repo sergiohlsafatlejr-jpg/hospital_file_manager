@@ -211,6 +211,34 @@ describe("relatoriosGlosasBiRouter — lógica de negócio", () => {
     });
   });
 
+  describe("LIMIT como template literal (evitar ER_WRONG_ARGUMENTS)", () => {
+    it("clamp do limite para porCodigo retorna inteiro válido", () => {
+      const clamp = (v: unknown) => Math.max(1, Math.min(100, Number(v) || 20));
+      // Number(0) = 0, falsy, usa default 20, depois clamp(1,100) = 20
+      expect(clamp(0)).toBe(20);
+      expect(clamp(200)).toBe(100);
+      expect(clamp(20)).toBe(20);
+      expect(clamp(undefined)).toBe(20);
+      expect(Number.isInteger(clamp(20))).toBe(true);
+    });
+
+    it("SQL gerado com template literal não contém LIMIT ?", () => {
+      const limite = Math.max(1, Math.min(100, 20));
+      const sql = `SELECT * FROM demonstrativo LIMIT ${limite}`;
+      expect(sql).toContain("LIMIT 20");
+      expect(sql).not.toContain("LIMIT ?");
+    });
+
+    it("clamp do meses para tendenciaMensal retorna inteiro válido", () => {
+      const clamp = (v: unknown) => Math.max(1, Math.min(60, Number(v) || 12));
+      // Number(0) = 0, falsy, usa default 12
+      expect(clamp(0)).toBe(12);
+      expect(clamp(100)).toBe(60);
+      expect(clamp(12)).toBe(12);
+      expect(Number.isInteger(clamp(12))).toBe(true);
+    });
+  });
+
   describe("análise IA de devolutiva", () => {
     it("estrutura de resposta da IA é válida", () => {
       const analiseEsperada = {

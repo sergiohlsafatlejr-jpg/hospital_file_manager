@@ -204,8 +204,7 @@ export const relatoriosGlosasBiRouter = router({
           demoWhere += " AND d.convenio_id = ?";
           demoParams.push(input.convenioId);
         }
-        demoParams.push(input.meses);
-
+        const mesesLimite = Math.max(1, Math.min(60, Number(input.meses) || 12));
         const [demoRows] = await conn.execute<any[]>(`
           SELECT
             DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
@@ -218,8 +217,8 @@ export const relatoriosGlosasBiRouter = router({
           AND d.data_referencia IS NOT NULL
           GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m')
           ORDER BY competencia DESC
-          LIMIT ?
-        `, demoParams);
+          LIMIT ${mesesLimite}
+        `, demoParams);;
 
         // Dados do faturamento_tiss (cobrado) por competência
         const tissParams: any[] = [];
@@ -354,8 +353,7 @@ export const relatoriosGlosasBiRouter = router({
           where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
-        params.push(input.limite);
-
+         const limite = Math.max(1, Math.min(100, Number(input.limite) || 20));
         const [rows] = await conn.execute<any[]>(`
           SELECT
             COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
@@ -366,7 +364,7 @@ export const relatoriosGlosasBiRouter = router({
           ${where}
           GROUP BY d.codigo_glosa
           ORDER BY total_glosa DESC
-          LIMIT ?
+          LIMIT ${limite}
         `, params);
 
         return rows.map(r => ({
@@ -521,8 +519,7 @@ export const relatoriosGlosasBiRouter = router({
           where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
-        params.push(input.limite);
-
+        const limiteItem = Math.max(1, Math.min(200, Number(input.limite) || 20));
         const [rows] = await conn.execute<any[]>(`
           SELECT
             d.codigo_item,
@@ -536,8 +533,8 @@ export const relatoriosGlosasBiRouter = router({
           ${where}
           GROUP BY d.codigo_item, d.descricao_item, d.tipo_lancamento
           ORDER BY total_glosa DESC
-          LIMIT ?
-        `, params);
+          LIMIT ${limiteItem}
+        `, params);;
 
         return rows.map(r => ({
           codigoItem: r.codigo_item,
@@ -601,7 +598,8 @@ export const relatoriosGlosasBiRouter = router({
         `, countParams);
         const total = Number(countRows[0].total);
 
-        params.push(input.limite, input.offset);
+        const limitePag = Math.max(1, Math.min(200, Number(input.limite) || 50));
+        const offsetPag = Math.max(0, Number(input.offset) || 0);
         const [rows] = await conn.execute<any[]>(`
           SELECT
             d.id,
@@ -633,7 +631,7 @@ export const relatoriosGlosasBiRouter = router({
           LEFT JOIN recursosGlosa rg ON rg.id = d.recurso_id
           ${where}
           ORDER BY d.valor_glosa DESC
-          LIMIT ? OFFSET ?
+          LIMIT ${limitePag} OFFSET ${offsetPag}
         `, params);
 
         return {
@@ -756,8 +754,8 @@ export const relatoriosGlosasBiRouter = router({
           WHERE d.estabelecimentoId = ? AND d.convenio_id = ? AND d.valor_glosa > 0
           GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m'), d.codigo_glosa
           ORDER BY competencia DESC, total_glosa DESC
-          LIMIT ?
-        `, [input.estabelecimentoId, input.convenioId, input.meses * 20]);
+          LIMIT ${Math.max(1, Math.min(5000, Number(input.meses) * 20 || 240))}
+        `, [input.estabelecimentoId, input.convenioId]);
 
         // Agrupar por competência
         const porCompetencia: Record<string, any[]> = {};
