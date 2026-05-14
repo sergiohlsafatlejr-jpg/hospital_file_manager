@@ -3636,3 +3636,11 @@
 - [ ] Corrigir query de motivos de glosa que retorna vazio com filtro de competência
 - [ ] Corrigir query de evolução mensal que retorna vazio com filtro de competência
 - [ ] Unificar Valor Cobrado (XML) + Valor Pago/Glosado (demonstrativo) nos KPIs do BI
+
+## Correções BI Glosas - estabId=0 (2026-05-14)
+
+- [x] Corrigir frontend: enabled: hasEstab em vez de !!estabId para permitir queries com estabId=0
+- [x] Corrigir backend kpis: WHERE 1=1 + filtro condicional por estabId
+- [x] Corrigir backend tendenciaMensal: WHERE 1=1 + filtro condicional + filtrar data_referencia IS NOT NULL
+- [x] Corrigir backend porCodigo: WHERE valor_glosa > 0 + filtro condicional por estabId
+- [x] Corrigir backend filtros: queries sem filtro fixo de estabId quando estabId=0

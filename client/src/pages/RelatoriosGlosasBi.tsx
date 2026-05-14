@@ -58,8 +58,10 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export default function RelatoriosGlosasBi() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabId = estabelecimentoAtual?.id || 0;
+  const estabId = estabelecimentoAtual?.id ?? 0;
   const estabNome = estabelecimentoAtual?.nome || "—";
+  // hasEstab = true quando há qualquer estabelecimento selecionado (inclusive id=0 = Todos)
+  const hasEstab = estabelecimentoAtual !== null;
 
   const [competenciaInicio, setCompetenciaInicio] = useState<string | undefined>();
   const [convenioId, setConvenioId] = useState<number | undefined>();
@@ -70,17 +72,17 @@ export default function RelatoriosGlosasBi() {
   const [comparativoLoading, setComparativoLoading] = useState(false);
 
   const { data: filtros } = trpc.relatoriosGlosasBi.filtros.useQuery(
-    { estabelecimentoId: estabId }, { enabled: !!estabId }
+    { estabelecimentoId: estabId }, { enabled: hasEstab }
   );
 
   const kpisInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio }), [estabId, convenioId, competenciaInicio]);
-  const { data: kpis, isLoading: kpisLoading } = trpc.relatoriosGlosasBi.kpis.useQuery(kpisInput, { enabled: !!estabId });
+  const { data: kpis, isLoading: kpisLoading } = trpc.relatoriosGlosasBi.kpis.useQuery(kpisInput, { enabled: hasEstab });
 
   const tendenciaInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, meses: 12 }), [estabId, convenioId]);
-  const { data: tendencia } = trpc.relatoriosGlosasBi.tendenciaMensal.useQuery(tendenciaInput, { enabled: !!estabId });
+  const { data: tendencia } = trpc.relatoriosGlosasBi.tendenciaMensal.useQuery(tendenciaInput, { enabled: hasEstab });
 
   const codigoInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 20 }), [estabId, convenioId, competenciaInicio]);
-  const { data: porCodigo } = trpc.relatoriosGlosasBi.porCodigo.useQuery(codigoInput, { enabled: !!estabId });
+  const { data: porCodigo } = trpc.relatoriosGlosasBi.porCodigo.useQuery(codigoInput, { enabled: hasEstab });
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
     onSuccess: (data) => { setComparativoResult(data); setComparativoLoading(false); },
@@ -147,7 +149,7 @@ export default function RelatoriosGlosasBi() {
     toast.success("Excel exportado!");
   };
 
-  if (!estabId) {
+  if (!hasEstab) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64" style={{ color: "#6b8cae" }}>

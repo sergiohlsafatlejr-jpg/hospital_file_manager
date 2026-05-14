@@ -80,9 +80,13 @@ export const relatoriosGlosasBiRouter = router({
       const mysql2 = await import("mysql2/promise");
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
-        const params: any[] = [input.estabelecimentoId];
-        let where = "WHERE d.estabelecimentoId = ?";
-
+        const params: any[] = [];
+        let where = "WHERE 1=1";
+        // estabId=0 significa 'Todos os Estabelecimentos'
+        if (input.estabelecimentoId > 0) {
+          where += " AND d.estabelecimentoId = ?";
+          params.push(input.estabelecimentoId);
+        }
         if (input.convenioId) {
           where += " AND d.convenio_id = ?";
           params.push(input.convenioId);
@@ -116,8 +120,12 @@ export const relatoriosGlosasBiRouter = router({
         `, params);
 
         // Buscar Valor Cobrado do faturamento_tiss (XML enviado)
-        const tissParams: any[] = [input.estabelecimentoId];
-        let tissWhere = "WHERE estabelecimentoId = ?";
+        const tissParams: any[] = [];
+        let tissWhere = "WHERE 1=1";
+        if (input.estabelecimentoId > 0) {
+          tissWhere += " AND estabelecimentoId = ?";
+          tissParams.push(input.estabelecimentoId);
+        }
         if (input.convenioId) {
           tissWhere += " AND convenioId = ?";
           tissParams.push(input.convenioId);
@@ -185,8 +193,12 @@ export const relatoriosGlosasBiRouter = router({
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
         // Dados do demonstrativo (pago, glosado) por competência
-        const demoParams: any[] = [input.estabelecimentoId];
-        let demoWhere = "WHERE d.estabelecimentoId = ?";
+        const demoParams: any[] = [];
+        let demoWhere = "WHERE 1=1";
+        if (input.estabelecimentoId > 0) {
+          demoWhere += " AND d.estabelecimentoId = ?";
+          demoParams.push(input.estabelecimentoId);
+        }
         if (input.convenioId) {
           demoWhere += " AND d.convenio_id = ?";
           demoParams.push(input.convenioId);
@@ -202,14 +214,19 @@ export const relatoriosGlosasBiRouter = router({
             COUNT(DISTINCT d.numero_guia) as total_guias
           FROM demonstrativo d
           ${demoWhere}
+          AND d.data_referencia IS NOT NULL
           GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m')
           ORDER BY competencia DESC
           LIMIT ?
         `, demoParams);
 
         // Dados do faturamento_tiss (cobrado) por competência
-        const tissParams: any[] = [input.estabelecimentoId];
-        let tissWhere = "WHERE estabelecimentoId = ?";
+        const tissParams: any[] = [];
+        let tissWhere = "WHERE 1=1";
+        if (input.estabelecimentoId > 0) {
+          tissWhere += " AND estabelecimentoId = ?";
+          tissParams.push(input.estabelecimentoId);
+        }
         if (input.convenioId) {
           tissWhere += " AND convenioId = ?";
           tissParams.push(input.convenioId);
@@ -318,8 +335,12 @@ export const relatoriosGlosasBiRouter = router({
       const mysql2 = await import("mysql2/promise");
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
-        const params: any[] = [input.estabelecimentoId];
-        let where = "WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0";
+        const params: any[] = [];
+        let where = "WHERE d.valor_glosa > 0";
+        if (input.estabelecimentoId > 0) {
+          where += " AND d.estabelecimentoId = ?";
+          params.push(input.estabelecimentoId);
+        }
         if (input.convenioId) {
           where += " AND d.convenio_id = ?";
           params.push(input.convenioId);
@@ -764,27 +785,30 @@ export const relatoriosGlosasBiRouter = router({
       const mysql2 = await import("mysql2/promise");
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
+        const estabFilter = input.estabelecimentoId > 0 ? "AND d.estabelecimentoId = ?" : "";
+        const estabParams = input.estabelecimentoId > 0 ? [input.estabelecimentoId] : [];
+
         const [convenios] = await conn.execute<any[]>(`
           SELECT DISTINCT c.id, c.nome
           FROM demonstrativo d
           LEFT JOIN convenios c ON c.id = d.convenio_id
-          WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0 AND c.id IS NOT NULL
+          WHERE d.valor_glosa > 0 AND c.id IS NOT NULL ${estabFilter}
           ORDER BY c.nome
-        `, [input.estabelecimentoId]);
+        `, estabParams);
 
         const [competencias] = await conn.execute<any[]>(`
           SELECT DISTINCT DATE_FORMAT(data_referencia, '%Y/%m') as competencia
           FROM demonstrativo
-          WHERE estabelecimentoId = ? AND valor_glosa > 0
+          WHERE valor_glosa > 0 ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
           ORDER BY competencia DESC
-        `, [input.estabelecimentoId]);
+        `, estabParams);
 
         const [tipos] = await conn.execute<any[]>(`
           SELECT DISTINCT tipo_lancamento
           FROM demonstrativo
-          WHERE estabelecimentoId = ? AND valor_glosa > 0 AND tipo_lancamento IS NOT NULL AND tipo_lancamento != ''
+          WHERE valor_glosa > 0 AND tipo_lancamento IS NOT NULL AND tipo_lancamento != '' ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
           ORDER BY tipo_lancamento
-        `, [input.estabelecimentoId]);
+        `, estabParams);
 
         return {
           convenios: convenios.map(c => ({ id: c.id, nome: c.nome })),
