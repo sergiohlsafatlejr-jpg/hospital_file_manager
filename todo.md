@@ -3606,3 +3606,26 @@
 - [x] Incorporar dados do demonstrativo no Relatório BI de Glosas (em vez de apenas recursosGlosa)
 - [x] Integrar módulo de Recurso de Glosa dentro do BI de Glosas
 - [x] Adicionar IA de análise de devolutivas por motivo de glosa com sugestões de melhoria
+
+## Redesign RelatoriosBI.tsx - Modelo Avançado (2026-05-14)
+
+- [ ] Reescrever RelatoriosBI.tsx com design escuro (fundo #0d1b2a) igual ao modelo do outro projeto
+- [ ] Header com título "RELATÓRIO DE ANÁLISE DE GLOSAS", filtros de competência/convênio e botões Excel/PDF/PowerPoint/Comparar Meses
+- [ ] 4 KPI cards escuros: Valor Cobrado, Valor Pago, Valor Glosado, Taxa de Glosa
+- [ ] Barra de resumo: itens analisados, convênios, período, A Receber
+- [ ] Gráfico de barras agrupadas: Evolução Mensal Faturado × Glosado × Pago
+- [ ] Tabela Top Motivos de Glosa com colunas Motivo, Vl Glosa, %, Pareto (análise de Pareto acumulada)
+- [ ] Seção Análise Comparativa por IA: 6 cards (Visão Geral, Análise das Variações, Comparativo de Motivos, Comparativo de Convênios, Diagnóstico, Recomendações)
+- [ ] Tabela Ações Prioritárias com colunas Área, Situação, Ação, Impacto Estimado
+- [ ] Atualizar backend relatoriosGlosasBiRouter com endpoints necessários para o novo design
+
+## Redesign RelatoriosGlosasBi.tsx - Design Escuro Avançado (2026-05-14)
+
+- [x] Redesign RelatoriosGlosasBi.tsx com design escuro igual ao modelo do outro projeto (KPIs, gráfico barras, tabela Pareto, IA comparativa)
+- [x] Adicionar endpoint comparativoMeses no backend com análise de IA entre dois períodos
+- [x] Botões de exportação: Excel, PDF, PowerPoint, Comparar Meses
+- [x] Filtros de competência e convênio no header
+- [x] Barra de resumo com itens analisados, período e valores em recurso
+- [x] Tabela Top Motivos com colunas Vl Glosa, % e Pareto acumulado
+- [x] Modal de comparação de meses com seleção de dois períodos
+- [x] Seção de Análise Comparativa por IA com 6 cards e tabela de Ações Prioritárias

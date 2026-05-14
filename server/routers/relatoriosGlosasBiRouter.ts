@@ -923,4 +923,180 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
         await conn.end();
       }
     }),
+
+  // Comparativo entre dois meses com análise de IA
+  comparativoMeses: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      competencia1: z.string(), // YYYY/MM
+      competencia2: z.string(), // YYYY/MM
+      convenioId: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        const getKpiMes = async (competencia: string) => {
+          const params: any[] = [input.estabelecimentoId, competencia];
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ?";
+          if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
+          const [rows] = await conn.execute<any[]>(`
+            SELECT
+              COUNT(*) as total_itens,
+              SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
+              SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
+              SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
+              COUNT(CASE WHEN d.valor_glosa > 0 THEN 1 END) as total_glosados,
+              COUNT(DISTINCT d.convenio_id) as total_convenios
+            FROM demonstrativo d ${where}
+          `, params);
+          const r = rows[0];
+          const totalInformado = Number(r.total_informado || 0);
+          const totalGlosa = Number(r.total_glosa || 0);
+          return {
+            competencia,
+            totalItens: Number(r.total_itens),
+            totalInformado,
+            totalPago: Number(r.total_pago || 0),
+            totalGlosa,
+            totalGlosados: Number(r.total_glosados),
+            totalConvenios: Number(r.total_convenios),
+            taxaGlosa: totalInformado > 0 ? Number(((totalGlosa / totalInformado) * 100).toFixed(2)) : 0,
+          };
+        };
+
+        const getTopMotivos = async (competencia: string) => {
+          const params: any[] = [input.estabelecimentoId, competencia];
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ? AND d.valor_glosa > 0";
+          if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
+          const [rows] = await conn.execute<any[]>(`
+            SELECT
+              COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+              SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+            FROM demonstrativo d ${where}
+            GROUP BY d.codigo_glosa ORDER BY total_glosa DESC LIMIT 5
+          `, params);
+          return rows.map(r => ({ codigo: r.codigo_glosa, descricao: getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa), valor: Number(r.total_glosa) }));
+        };
+
+        const getTopConvenios = async (competencia: string) => {
+          const params: any[] = [input.estabelecimentoId, competencia];
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ? AND d.valor_glosa > 0";
+          if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
+          const [rows] = await conn.execute<any[]>(`
+            SELECT c.nome as convenio, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
+            FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id ${where}
+            GROUP BY d.convenio_id, c.nome ORDER BY total_glosa DESC LIMIT 5
+          `, params);
+          return rows.map(r => ({ convenio: r.convenio || 'Sem convênio', valor: Number(r.total_glosa) }));
+        };
+
+        const [kpi1, kpi2, motivos1, motivos2, convenios1, convenios2] = await Promise.all([
+          getKpiMes(input.competencia1),
+          getKpiMes(input.competencia2),
+          getTopMotivos(input.competencia1),
+          getTopMotivos(input.competencia2),
+          getTopConvenios(input.competencia1),
+          getTopConvenios(input.competencia2),
+        ]);
+
+        const variacaoGlosa = kpi2.totalGlosa - kpi1.totalGlosa;
+        const variacaoTaxa = kpi2.taxaGlosa - kpi1.taxaGlosa;
+        const variacaoFaturado = kpi2.totalInformado - kpi1.totalInformado;
+
+        const contexto = `
+Comparativo entre ${input.competencia1} e ${input.competencia2}:
+
+PERÍODO 1 (${input.competencia1}):
+- Faturado: R$ ${kpi1.totalInformado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Pago: R$ ${kpi1.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Glosado: R$ ${kpi1.totalGlosa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Taxa de Glosa: ${kpi1.taxaGlosa}%
+- Top Motivos: ${motivos1.map(m => `${m.codigo}: R$ ${m.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`).join(', ')}
+- Top Convênios: ${convenios1.map(c => `${c.convenio}: R$ ${c.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`).join(', ')}
+
+PERÍODO 2 (${input.competencia2}):
+- Faturado: R$ ${kpi2.totalInformado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Pago: R$ ${kpi2.totalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Glosado: R$ ${kpi2.totalGlosa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Taxa de Glosa: ${kpi2.taxaGlosa}%
+- Top Motivos: ${motivos2.map(m => `${m.codigo}: R$ ${m.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`).join(', ')}
+- Top Convênios: ${convenios2.map(c => `${c.convenio}: R$ ${c.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`).join(', ')}
+
+VARIAÇÕES:
+- Variação no Faturado: R$ ${variacaoFaturado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Variação no Glosado: R$ ${variacaoGlosa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+- Variação na Taxa de Glosa: ${variacaoTaxa.toFixed(2)} p.p.
+        `.trim();
+
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: `Você é um especialista em faturamento hospitalar e gestão de glosas. Analise o comparativo entre dois períodos e retorne uma análise estruturada em JSON. Seja específico e use os dados fornecidos.`,
+            },
+            { role: "user", content: contexto },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "comparativo_meses",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  visaoGeral: { type: "string", description: "Resumo comparativo dos dois períodos em 2-3 frases" },
+                  analiseVariacoes: { type: "string", description: "Análise das variações de faturado, pago e glosado" },
+                  comparativoMotivos: { type: "string", description: "Comparação dos principais motivos de glosa entre os períodos" },
+                  comparativoConvenios: { type: "string", description: "Comparação do desempenho por convênio" },
+                  diagnostico: { type: "string", description: "Diagnóstico geral da situação" },
+                  recomendacoes: { type: "string", description: "Recomendações de ações" },
+                  acoesPrioritarias: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        area: { type: "string" },
+                        situacao: { type: "string" },
+                        acao: { type: "string" },
+                        impactoEstimado: { type: "number", description: "Valor em reais estimado de impacto" },
+                      },
+                      required: ["area", "situacao", "acao", "impactoEstimado"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["visaoGeral", "analiseVariacoes", "comparativoMotivos", "comparativoConvenios", "diagnostico", "recomendacoes", "acoesPrioritarias"],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0].message.content;
+        let analise: any;
+        try {
+          analise = typeof content === "string" ? JSON.parse(content) : content;
+        } catch {
+          analise = {
+            visaoGeral: `Comparando ${input.competencia1} com ${input.competencia2}: variação de R$ ${variacaoGlosa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} no valor glosado.`,
+            analiseVariacoes: `Taxa de glosa variou ${variacaoTaxa.toFixed(2)} p.p.`,
+            comparativoMotivos: "Análise de motivos indisponível.",
+            comparativoConvenios: "Análise de convênios indisponível.",
+            diagnostico: "Análise automática indisponível.",
+            recomendacoes: "Revisar manualmente os dados dos dois períodos.",
+            acoesPrioritarias: [],
+          };
+        }
+
+        return {
+          periodo1: { ...kpi1, topMotivos: motivos1, topConvenios: convenios1 },
+          periodo2: { ...kpi2, topMotivos: motivos2, topConvenios: convenios2 },
+          variacoes: { glosa: variacaoGlosa, taxa: variacaoTaxa, faturado: variacaoFaturado },
+          analise,
+        };
+      } finally {
+        await conn.end();
+      }
+    }),
 });
