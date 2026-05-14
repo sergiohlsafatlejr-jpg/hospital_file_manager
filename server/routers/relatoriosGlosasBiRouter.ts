@@ -130,13 +130,14 @@ export const relatoriosGlosasBiRouter = router({
           tissWhere += " AND convenioId = ?";
           tissParams.push(input.convenioId);
         }
-        if (input.competenciaInicio) {
-          tissWhere += " AND competencia >= ?";
+        if (input.competenciaInicio && input.competenciaFim) {
+          // Intervalo: >= inicio AND <= fim
+          tissWhere += " AND competencia >= ? AND competencia <= ?";
+          tissParams.push(input.competenciaInicio, input.competenciaFim);
+        } else if (input.competenciaInicio) {
+          // Competência exata: = competenciaInicio
+          tissWhere += " AND competencia = ?";
           tissParams.push(input.competenciaInicio);
-        }
-        if (input.competenciaFim) {
-          tissWhere += " AND competencia <= ?";
-          tissParams.push(input.competenciaFim);
         }
         const [tissRows] = await conn.execute<any[]>(`
           SELECT SUM(CAST(valor_faturado AS DECIMAL(12,2))) as total_faturado
