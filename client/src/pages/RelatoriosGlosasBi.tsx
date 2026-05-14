@@ -423,6 +423,26 @@ export default function RelatoriosGlosasBi() {
 function ComparativoIASection({ result }: { result: any }) {
   const { analise, periodo1, periodo2, variacoes } = result;
   const fmtC = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  const fmtKLocal = (v: number) => {
+    if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `R$ ${(v / 1_000).toFixed(0)}k`;
+    return `R$ ${v.toFixed(0)}`;
+  };
+
+  const chartComparativo = [
+    {
+      name: periodo1.competencia,
+      Faturado: parseFloat(String(periodo1.totalCobrado ?? periodo1.totalInformado ?? 0)),
+      Recebido: parseFloat(String(periodo1.totalPago ?? 0)),
+      Glosado: parseFloat(String(periodo1.totalGlosa ?? 0)),
+    },
+    {
+      name: periodo2.competencia,
+      Faturado: parseFloat(String(periodo2.totalCobrado ?? periodo2.totalInformado ?? 0)),
+      Recebido: parseFloat(String(periodo2.totalPago ?? 0)),
+      Glosado: parseFloat(String(periodo2.totalGlosa ?? 0)),
+    },
+  ];
 
   const cards = [
     { title: "Visão Geral", content: analise.visaoGeral },
@@ -443,6 +463,29 @@ function ComparativoIASection({ result }: { result: any }) {
         <span className="text-xs ml-2" style={{ color: "#6b8cae" }}>
           {periodo1.competencia} × {periodo2.competencia}
         </span>
+      </div>
+
+      {/* Gráfico Faturado × Recebido × Glosado */}
+      <div style={{ background: "#060f1a", border: "1px solid #1e3a5f", borderRadius: 10, padding: "16px 20px" }} className="mb-5">
+        <div className="text-xs font-semibold mb-3" style={{ color: "#6b8cae", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          FATURADO × RECEBIDO × GLOSADO — COMPARATIVO
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartComparativo} barGap={4} barCategoryGap="35%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" vertical={false} />
+            <XAxis dataKey="name" tick={{ fill: "#6b8cae", fontSize: 12 }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={fmtKLocal} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} width={72} />
+            <RechartsTooltip
+              contentStyle={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: "#e8f4fd", fontWeight: 600 }}
+              formatter={(value: number, name: string) => [fmtC(value), name]}
+            />
+            <Legend wrapperStyle={{ fontSize: 12, color: "#8aaccc", paddingTop: 8 }} />
+            <Bar dataKey="Faturado" fill="#2196f3" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Recebido" fill="#4caf50" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Glosado" fill="#ef5350" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-5">
