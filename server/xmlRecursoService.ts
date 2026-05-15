@@ -753,7 +753,9 @@ export async function guiasGlosadasDisponiveis(params: {
   apenasNaoGeradas?: boolean;
   loteXml?: string;
   loteRetorno?: string;
-}): Promise<any[]> {
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: any[]; total: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
@@ -774,44 +776,53 @@ export async function guiasGlosadasDisponiveis(params: {
     whereClause += ` AND ca.numeroGuia IN (SELECT DISTINCT d2.numero_guia FROM demonstrativo d2 WHERE d2.estabelecimentoId = ${params.estabelecimentoId} AND d2.lote_prestador = '${lr}')`;
   }
 
-  // Buscar todas as guias que têm pelo menos um item glosado
-  const [result] = await db.execute(sql.raw(`
-    SELECT 
-      ca.numeroGuia,
-      ca.convenio,
-      ca.convenioId,
-      ca.competencia,
-      MAX(ca.pacienteNome) as pacienteNome,
-      COUNT(*) as totalItens,
-      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as totalItensGlosados,
-      SUM(ca.valorFaturado) as valorFaturado,
-      SUM(ca.valorPago) as valorPago,
-      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN ca.valorGlosa ELSE 0 END) as valorGlosa,
-      MAX(ca.xmlRecursoGerado) as xmlGerado,
-      MAX(ca.xmlRecursoData) as xmlGeradoEm,
-      MAX(ca.xmlRecursoLoteId) as xmlLoteId,
-      -- Lote e Protocolo do XML (faturamento_unificado)
-      MAX(fu.lotePrestador) as loteXml,
-      MAX(fu.protocolo) as protocoloXml,
-      -- Lote e Protocolo do Retorno (demonstrativo)
-      (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
-      (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
-      MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
-    FROM conciliados_automatico ca
-    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
-    ${whereClause}
-    GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia, ca.estabelecimentoId
-    ORDER BY ca.competencia DESC, ca.numeroGuia
-  `));
-
-  let guias = result as unknown as any[];
-
-  // Filtrar apenas não geradas se solicitado
+  // Filtro adicional para apenasNaoGeradas no WHERE
+  let whereGlosadas = whereClause;
   if (params.apenasNaoGeradas) {
-    guias = guias.filter((g: any) => !g.xmlGerado || g.xmlGerado === 0);
+    whereGlosadas += ` AND (ca.xmlRecursoGerado IS NULL OR ca.xmlRecursoGerado = 0)`;
   }
 
-  return guias;
+  const limit = params.limit || 50;
+  const offset = params.offset || 0;
+
+  // Executar count e query principal em paralelo
+  const [[countResult], [result]] = await Promise.all([
+    db.execute(sql.raw(`
+      SELECT COUNT(DISTINCT CONCAT(ca.numeroGuia, '-', ca.convenioId, '-', ca.competencia)) as total
+      FROM conciliados_automatico ca
+      ${whereGlosadas}
+    `)),
+    db.execute(sql.raw(`
+      SELECT 
+        ca.numeroGuia,
+        ca.convenio,
+        ca.convenioId,
+        ca.competencia,
+        MAX(ca.pacienteNome) as pacienteNome,
+        COUNT(*) as totalItens,
+        SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as totalItensGlosados,
+        SUM(ca.valorFaturado) as valorFaturado,
+        SUM(ca.valorPago) as valorPago,
+        SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN ca.valorGlosa ELSE 0 END) as valorGlosa,
+        MAX(ca.xmlRecursoGerado) as xmlGerado,
+        MAX(ca.xmlRecursoData) as xmlGeradoEm,
+        MAX(ca.xmlRecursoLoteId) as xmlLoteId,
+        MAX(fu.lotePrestador) as loteXml,
+        MAX(fu.protocolo) as protocoloXml,
+        (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
+        (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
+        MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
+      FROM conciliados_automatico ca
+      LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+      ${whereGlosadas}
+      GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia, ca.estabelecimentoId
+      ORDER BY ca.competencia DESC, ca.numeroGuia
+      LIMIT ${limit} OFFSET ${offset}
+    `)),
+  ]);
+
+  const total = Number((countResult as unknown as any[])?.[0]?.total || 0);
+  return { items: result as unknown as any[], total };
 }
 
 /**

@@ -80,6 +80,15 @@ export default function ConciliacaoCruzada() {
   const [xmlNumeroProtocolo, setXmlNumeroProtocolo] = useState("");
   const [xmlDataProtocolo, setXmlDataProtocolo] = useState("");
 
+  // Paginação da aba XML Retorno
+  const [paginaXmlRetorno, setPaginaXmlRetorno] = useState(0);
+  const XML_RETORNO_POR_PAGINA = 50;
+
+  // Resetar página quando filtros mudarem
+  useEffect(() => {
+    setPaginaXmlRetorno(0);
+  }, [competenciaFiltro, convenioFiltro, loteXmlFiltro, loteRetornoFiltro]);
+
   // Glosa de itens não recebidos
   const [itensSelecionadosGlosa, setItensSelecionadosGlosa] = useState<Set<number>>(new Set());
   const [modalGlosaAberto, setModalGlosaAberto] = useState(false);
@@ -144,17 +153,22 @@ export default function ConciliacaoCruzada() {
 
   // ===== QUERIES PARA ABA XML RECURSO =====
 
-  // Guias glosadas disponíveis para geração de XML
-  const { data: guiasGlosadas, isLoading: isLoadingGuiasGlosadas, refetch: refetchGuiasGlosadas } = trpc.faturamentoUnificado.guiasGlosadasDisponiveis.useQuery(
+  // Guias glosadas disponíveis para geração de XML (com paginação)
+  const { data: guiasGlosadasData, isLoading: isLoadingGuiasGlosadas, refetch: refetchGuiasGlosadas } = trpc.faturamentoUnificado.guiasGlosadasDisponiveis.useQuery(
     {
       estabelecimentoId,
       convenioId: convenioIdNum,
       competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
       loteXml: loteXmlFiltro !== "todos" ? loteXmlFiltro : undefined,
       loteRetorno: loteRetornoFiltro !== "todos" ? loteRetornoFiltro : undefined,
+      limit: XML_RETORNO_POR_PAGINA,
+      offset: paginaXmlRetorno * XML_RETORNO_POR_PAGINA,
     },
     { enabled: estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
   );
+  const guiasGlosadas = guiasGlosadasData?.items;
+  const totalGuiasGlosadas = guiasGlosadasData?.total || 0;
+  const totalPaginasXmlRetorno = Math.ceil(totalGuiasGlosadas / XML_RETORNO_POR_PAGINA);
 
   // Histórico de XMLs gerados
   const { data: xmlsGerados, isLoading: isLoadingXmlsGerados, refetch: refetchXmlsGerados } = trpc.faturamentoUnificado.listarXmlsGerados.useQuery(
@@ -1669,6 +1683,35 @@ export default function ConciliacaoCruzada() {
                         })}
                       </tbody>
                     </table>
+                    {/* Controles de paginação */}
+                    {totalPaginasXmlRetorno > 1 && (
+                      <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                        <p className="text-sm text-muted-foreground">
+                          Mostrando {paginaXmlRetorno * XML_RETORNO_POR_PAGINA + 1}–{Math.min((paginaXmlRetorno + 1) * XML_RETORNO_POR_PAGINA, totalGuiasGlosadas)} de {totalGuiasGlosadas} guias
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={paginaXmlRetorno === 0}
+                            onClick={() => setPaginaXmlRetorno(p => p - 1)}
+                          >
+                            Anterior
+                          </Button>
+                          <span className="text-sm font-medium">
+                            Pág. {paginaXmlRetorno + 1} / {totalPaginasXmlRetorno}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={paginaXmlRetorno >= totalPaginasXmlRetorno - 1}
+                            onClick={() => setPaginaXmlRetorno(p => p + 1)}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
