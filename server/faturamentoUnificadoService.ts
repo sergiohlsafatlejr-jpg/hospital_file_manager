@@ -576,9 +576,12 @@ export async function resumoFaturamentoPorGuia(params: {
     ${whereClause}
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
-  const [countRows] = await db.execute(sql.raw(countQuery));
-  const [resumoRows] = await db.execute(sql.raw(resumoQuery));
+  // Executar as 3 queries em paralelo para reduzir latência total
+  const [[rows], [countRows], [resumoRows]] = await Promise.all([
+    db.execute(sql.raw(query)),
+    db.execute(sql.raw(countQuery)),
+    db.execute(sql.raw(resumoQuery)),
+  ]);
 
   const total = (countRows as any)?.[0]?.total || 0;
   const resumo = (resumoRows as any)?.[0] || {};
@@ -1753,13 +1756,6 @@ export async function resumoConciliadosPorGuia(params: {
   const limit = params.limit || 50;
   const offset = params.offset || 0;
 
-  // Contar total de guias distintas
-  const [countRows] = await db.execute(sql.raw(
-    `SELECT COUNT(DISTINCT COALESCE(ca.numeroGuia, ca.contaNumero)) as total
-     FROM conciliados_automatico ca ${whereClause}`
-  ));
-  const total = Number((countRows as unknown as any[])?.[0]?.total || 0);
-
   // Buscar guias agrupadas
   const query = `
     SELECT 
@@ -1806,7 +1802,15 @@ export async function resumoConciliadosPorGuia(params: {
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  // Executar count e query principal em paralelo
+  const [[rows], [countRows]] = await Promise.all([
+    db.execute(sql.raw(query)),
+    db.execute(sql.raw(
+      `SELECT COUNT(DISTINCT COALESCE(ca.numeroGuia, ca.contaNumero)) as total
+       FROM conciliados_automatico ca ${whereClause}`
+    )),
+  ]);
+  const total = Number((countRows as unknown as any[])?.[0]?.total || 0);
   return { items: rows as unknown as any[], total };
 }
 
