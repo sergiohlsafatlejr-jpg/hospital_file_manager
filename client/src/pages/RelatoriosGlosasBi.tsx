@@ -86,7 +86,15 @@ export default function RelatoriosGlosasBi() {
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
     onSuccess: (data) => { setComparativoResult(data); setComparativoLoading(false); },
-    onError: (err) => { toast.error("Erro: " + err.message); setComparativoLoading(false); },
+    onError: (err) => {
+      setComparativoLoading(false);
+      const msg = err.message || "";
+      if (msg.includes("Rate") || msg.includes("rate") || msg.includes("Limite") || msg.includes("429") || msg.includes("exceeded")) {
+        toast.error("⚠️ Limite de requisições de IA atingido. Aguarde 30 segundos e tente novamente.", { duration: 8000 });
+      } else {
+        toast.error("Erro ao gerar análise: " + msg);
+      }
+    },
   });
 
   const handleComparar = () => {

@@ -312,21 +312,44 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  // Retry com backoff exponencial para erros 429 (Rate Limit)
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 5000; // 5s, 10s, 20s
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    const response = await fetch(resolveApiUrl(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ENV.forgeApiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 429) {
+      const errorText = await response.text();
+      lastError = new Error(
+        `Limite de requisições de IA atingido. Tente novamente em alguns instantes. (tentativa ${attempt + 1}/${MAX_RETRIES + 1})`
+      );
+      console.warn(`[LLM] Rate limit atingido, aguardando ${BASE_DELAY_MS * Math.pow(2, attempt)}ms antes de tentar novamente...`);
+      continue;
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+      );
+    }
+
+    return (await response.json()) as InvokeResult;
   }
 
-  return (await response.json()) as InvokeResult;
+  throw lastError ?? new Error("LLM invoke falhou após todas as tentativas");
 }
