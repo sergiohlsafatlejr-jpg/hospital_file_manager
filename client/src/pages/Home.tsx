@@ -19,10 +19,24 @@ import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { SAFATLE_ESTABELECIMENTO_ID } from "@shared/const";
 import { useEffect } from "react";
 import { formatDateBR } from "@/lib/dateUtils";
+import { toast } from "sonner";
 export default function Home() {
   const [, setLocation] = useLocation();
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined;
+
+  // Detectar erros de autenticação via query param e exibir mensagem amigável
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    if (authError === "rate_limit") {
+      toast.error("⚠️ Muitas tentativas de login. Aguarde alguns segundos e tente novamente.", { duration: 10000 });
+      window.history.replaceState({}, "", "/");
+    } else if (authError === "callback_failed") {
+      toast.error("Erro ao realizar login. Por favor, tente novamente.", { duration: 8000 });
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
 
   // Redirecionar para Painel Executivo quando Safatle está selecionado
   useEffect(() => {

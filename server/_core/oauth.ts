@@ -45,9 +45,20 @@ export function registerOAuthRoutes(app: Express) {
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
       res.redirect(302, "/");
-    } catch (error) {
+    } catch (error: any) {
       console.error("[OAuth] Callback failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+      const msg = String(error?.message || error?.response?.data || error || "");
+      const isRateLimit =
+        msg.toLowerCase().includes("rate") ||
+        msg.toLowerCase().includes("exceeded") ||
+        error?.response?.status === 429;
+
+      if (isRateLimit) {
+        // Redireciona para home com parâmetro de erro — o frontend exibe mensagem amigável
+        res.redirect(302, "/?auth_error=rate_limit");
+      } else {
+        res.redirect(302, "/?auth_error=callback_failed");
+      }
     }
   });
 }
