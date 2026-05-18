@@ -80,9 +80,9 @@ function PacienteDetalheModal({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0">
-        {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* Header fixo: nome + carteira */}
+        <div className="px-6 pt-5 pb-4 border-b border-border shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/20">
@@ -99,26 +99,31 @@ function PacienteDetalheModal({
             </div>
             <button
               onClick={onClose}
-              className="text-muted-foreground hover:text-foreground transition-colors mt-1"
+              className="text-muted-foreground hover:text-foreground transition-colors mt-1 shrink-0"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
+        </div>
 
-          {/* Totais gerais */}
+        {/* Conteúdo rolável */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="px-6 py-4 space-y-4">
+
+          {/* KPIs: totais gerais + por tipo */}
           {!isLoading && categorias && (
-            <>
+            <div className="space-y-3">
               {/* Linha 1: totais gerais */}
-              <div className="grid grid-cols-3 gap-3 mt-4">
-                <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2.5">
                   <p className="text-[11px] text-muted-foreground">Vl. Pago Total</p>
                   <p className="text-base font-bold text-green-400">{fmt(totalGeral.pago)}</p>
                 </div>
-                <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2">
+                <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2.5">
                   <p className="text-[11px] text-muted-foreground">Vl. Glosado</p>
                   <p className="text-base font-bold text-red-400">{fmt(totalGeral.glosado)}</p>
                 </div>
-                <div className="rounded-lg bg-muted/30 border border-border px-4 py-2">
+                <div className="rounded-lg bg-muted/30 border border-border px-4 py-2.5">
                   <p className="text-[11px] text-muted-foreground">% Glosa</p>
                   <p className="text-base font-bold text-foreground">
                     {totalGeral.informado > 0
@@ -129,9 +134,9 @@ function PacienteDetalheModal({
               </div>
 
               {/* Linha 2: KPIs por tipo */}
-              <div className="mt-3">
-                <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">Vl. Pago por Tipo</p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-2 font-semibold uppercase tracking-wider">Vl. Pago por Tipo</p>
+                <div className="grid grid-cols-5 gap-2">
                   {[
                     { cat: 'DIARIA',  label: 'Diária',      icon: <Bed className="h-3.5 w-3.5" />,         color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/20' },
                     { cat: 'TAXA',    label: 'Taxa',         icon: <Stethoscope className="h-3.5 w-3.5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
@@ -144,10 +149,10 @@ function PacienteDetalheModal({
                     const glosado = found?.totalGlosa ?? 0;
                     const qtd = found?.totalQuantidade ?? 0;
                     return (
-                      <div key={cat} className={`rounded-lg border px-3 py-2 ${bg}`}>
-                        <div className={`flex items-center gap-1.5 mb-1 ${color}`}>
+                      <div key={cat} className={`rounded-lg border px-3 py-2.5 ${bg}`}>
+                        <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>
                           {icon}
-                          <span className="text-[10px] font-medium">{label}</span>
+                          <span className="text-[10px] font-semibold">{label}</span>
                         </div>
                         <p className={`text-sm font-bold ${color}`}>{pago > 0 ? fmt(pago) : '—'}</p>
                         {glosado > 0 && (
@@ -161,12 +166,12 @@ function PacienteDetalheModal({
                   })}
                 </div>
               </div>
-            </>
-          )}
-        </DialogHeader>
 
-        {/* Conteúdo */}
-        <ScrollArea className="flex-1 px-6 py-4">
+              <Separator />
+            </div>
+          )}
+
+          {/* Detalhes por categoria */}
           {isLoading && (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -251,6 +256,8 @@ function PacienteDetalheModal({
               {catIdx < (categorias.length - 1) && <Separator className="mt-4" />}
             </div>
           ))}
+
+          </div>
         </ScrollArea>
       </DialogContent>
     </Dialog>
