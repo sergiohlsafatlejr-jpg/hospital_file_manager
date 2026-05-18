@@ -10362,19 +10362,24 @@ export const appRouter = router({
                COALESCE(SUM(d.valor_informado), 0) as total_informado,
                COALESCE(SUM(d.valor_pago), 0) as total_pago,
                COALESCE(SUM(d.valor_glosa), 0) as total_glosado,
-               COALESCE(SUM(CASE WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN d.quantidade ELSE 0 END), 0) as total_diarias
+               COALESCE(SUM(CASE WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' OR (d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%') THEN d.quantidade ELSE 0 END), 0) as total_diarias
              FROM demonstrativo d ${baseWhere}${convenioFilter}`,
             baseParams
           );
           const kpi = (kpiRows as any[])[0];
 
-          // Por tipo (DIÁRIA / TAXA / MAT_MED / OUTROS)
+          // Por tipo (DIÁRIA / TAXA / MAT_MED / OUTROS) - categoriza pelo prefixo da descrição
           const [tipoRows] = await conn.execute(
             `SELECT
                CASE
+                 WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' THEN 'DIARIA'
+                 WHEN d.descricao_item REGEXP '^[Tt][[:space:]]*-' THEN 'TAXA'
+                 WHEN d.descricao_item REGEXP '^MED[[:space:]]*-' THEN 'MED'
+                 WHEN d.descricao_item REGEXP '^MAT[[:space:]]*-' THEN 'MAT'
                  WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN 'DIARIA'
-                 WHEN d.tipo_lancamento = 'HOS' AND (d.descricao_item LIKE '%Taxa%' OR d.descricao_item NOT LIKE '%Di%ria%') THEN 'TAXA'
-                 WHEN d.tipo_lancamento IN ('MAT','MED') THEN 'MAT_MED'
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Taxa%' THEN 'TAXA'
+                 WHEN d.tipo_lancamento = 'MED' THEN 'MED'
+                 WHEN d.tipo_lancamento = 'MAT' THEN 'MAT'
                  ELSE 'OUTROS'
                END as categoria,
                COUNT(*) as qtd_itens,
@@ -10394,7 +10399,7 @@ export const appRouter = router({
                d.carteira_beneficiario as carteira,
                COUNT(DISTINCT d.numero_guia) as total_guias,
                COUNT(*) as total_itens,
-               COALESCE(SUM(CASE WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN d.quantidade ELSE 0 END), 0) as qtd_diarias,
+               COALESCE(SUM(CASE WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' OR (d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%') THEN d.quantidade ELSE 0 END), 0) as qtd_diarias,
                COALESCE(SUM(d.valor_informado), 0) as total_informado,
                COALESCE(SUM(d.valor_pago), 0) as total_pago,
                COALESCE(SUM(d.valor_glosa), 0) as total_glosado
@@ -10411,9 +10416,14 @@ export const appRouter = router({
                d.descricao_item as descricao,
                d.tipo_lancamento as tipo_lancamento,
                CASE
+                 WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' THEN 'DIARIA'
+                 WHEN d.descricao_item REGEXP '^[Tt][[:space:]]*-' THEN 'TAXA'
+                 WHEN d.descricao_item REGEXP '^MED[[:space:]]*-' THEN 'MED'
+                 WHEN d.descricao_item REGEXP '^MAT[[:space:]]*-' THEN 'MAT'
                  WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN 'DIARIA'
-                 WHEN d.tipo_lancamento = 'HOS' AND (d.descricao_item LIKE '%Taxa%' OR d.descricao_item NOT LIKE '%Di%ria%') THEN 'TAXA'
-                 WHEN d.tipo_lancamento IN ('MAT','MED') THEN 'MAT_MED'
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Taxa%' THEN 'TAXA'
+                 WHEN d.tipo_lancamento = 'MED' THEN 'MED'
+                 WHEN d.tipo_lancamento = 'MAT' THEN 'MAT'
                  ELSE 'OUTROS'
                END as categoria,
                COUNT(*) as qtd_ocorrencias,

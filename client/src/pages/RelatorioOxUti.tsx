@@ -31,6 +31,8 @@ const fmtMes = (mesRef: string) => {
 const CATEGORIA_LABEL: Record<string, string> = {
   DIARIA: "Diária",
   TAXA: "Taxa",
+  MED: "Medicamento",
+  MAT: "Material",
   MAT_MED: "Mat/Med",
   OUTROS: "Outros",
 };
@@ -38,6 +40,8 @@ const CATEGORIA_LABEL: Record<string, string> = {
 const CATEGORIA_COLOR: Record<string, string> = {
   DIARIA: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   TAXA: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  MED: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  MAT: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   MAT_MED: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   OUTROS: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
@@ -441,6 +445,8 @@ export default function RelatorioOxUti() {
                           <SelectItem value="todos">Todos</SelectItem>
                           <SelectItem value="DIARIA">Diária</SelectItem>
                           <SelectItem value="TAXA">Taxa</SelectItem>
+                          <SelectItem value="MED">Medicamento</SelectItem>
+                          <SelectItem value="MAT">Material</SelectItem>
                           <SelectItem value="MAT_MED">Mat/Med</SelectItem>
                           <SelectItem value="OUTROS">Outros</SelectItem>
                         </SelectContent>
