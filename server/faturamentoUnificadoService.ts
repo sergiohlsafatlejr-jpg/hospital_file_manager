@@ -926,7 +926,9 @@ export async function executarConciliacaoAutomatica(params: {
   const codigosProprios = new Set((propriosRows as unknown as any[]).map(r => String(r.codigoPrestador)));
 
   // -------------------------------------------------------
-  // PASSO 2: Buscar recebimentos_excel do mesmo estabelecimento/convênio
+  // PASSO 2: Buscar recebimentos do mesmo estabelecimento/convênio
+  // Fonte primária: recebimentos_excel (arquivos importados via upload)
+  // Fonte secundária: tabela demonstrativo (importados via CSV/banco externo)
   // NÃO filtra por competência nos recebimentos, pois o pagamento pode
   // vir em mês posterior ao faturamento (ex: faturado 11/2025, pago 01/2026)
   // -------------------------------------------------------
@@ -952,7 +954,37 @@ export async function executarConciliacaoAutomatica(params: {
   `;
 
   const [recRows] = await db.execute(sql.raw(queryRecebimentos));
-  const itensRecebimento = recRows as unknown as any[];
+  const itensRecebimentoExcel = recRows as unknown as any[];
+
+  // Fonte secundária: tabela demonstrativo (dados importados diretamente via CSV/banco externo)
+  // Usada quando não há recebimentos_excel para este estabelecimento/convênio
+  let whereDem = `WHERE d.estabelecimentoId = ${params.estabelecimentoId}`;
+  if (params.convenioId) {
+    whereDem += ` AND d.convenio_id = ${params.convenioId}`;
+  }
+  const queryDemonstrativo = `
+    SELECT 
+      d.id, d.numero_guia as numeroGuia, d.codigo_item as codigoItem,
+      d.nome_beneficiario as nomeBeneficiario, d.carteira_beneficiario as carteira,
+      COALESCE(d.valor_pago, 0) as valorPago,
+      COALESCE(d.valor_glosa, 0) as valorGlosa,
+      d.situacao_item as situacao,
+      COALESCE(d.quantidade, 0) as quantidade,
+      d.descricao_item as descricaoItem,
+      d.tipo_lancamento as tipoLancamento,
+      d.codigo_glosa as codigoGlosa
+    FROM demonstrativo d
+    ${whereDem}
+    ORDER BY d.id
+  `;
+  const [demRows] = await db.execute(sql.raw(queryDemonstrativo));
+  const itensRecebimentoDem = demRows as unknown as any[];
+
+  // Combinar as duas fontes: excel tem prioridade, demonstrativo é complementar
+  // Se há recebimentos_excel, usar apenas eles; caso contrário usar demonstrativo
+  const itensRecebimento = itensRecebimentoExcel.length > 0
+    ? itensRecebimentoExcel
+    : itensRecebimentoDem;
 
   // -------------------------------------------------------
   // PASSO 3: Carregar tabela de vinculação de códigos (de-para)

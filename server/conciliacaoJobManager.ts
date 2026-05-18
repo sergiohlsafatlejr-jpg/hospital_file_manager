@@ -117,29 +117,49 @@ async function executarJobBackground(jobId: string): Promise<void> {
       const db = await getDb();
       if (!db) throw new Error("Database não disponível");
       
-      // FILTRO INTELIGENTE: buscar competências que têm demonstrativos de retorno importados
-      const [compComDemonstrativo] = await db.execute(sql.raw(
-        `SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y/%m') as competencia
+      // FILTRO INTELIGENTE: buscar competências que têm demonstrativos de retorno
+      // Fonte 1: arquivos importados via upload (recebimentos_excel)
+      const [compComRecebimentos] = await db.execute(sql.raw(
+        `SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y-%m') as competencia
          FROM arquivos a
          JOIN recebimentos_excel re ON re.arquivo_id = a.id
          WHERE a.estabelecimentoId = ${job.params.estabelecimentoId}
          AND a.direcao = 'retornado'
          ORDER BY competencia`
       ));
-      const competenciasComRetorno = (compComDemonstrativo as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
+      const compRecebimentos = (compComRecebimentos as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
+
+      // Fonte 2: demonstrativos importados diretamente via CSV/banco externo (tabela demonstrativo)
+      const [compComDemonstrativo] = await db.execute(sql.raw(
+        `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as competencia
+         FROM demonstrativo
+         WHERE estabelecimentoId = ${job.params.estabelecimentoId}
+         AND data_pagamento IS NOT NULL
+         ORDER BY competencia`
+      ));
+      const compDemonstrativo = (compComDemonstrativo as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
+
+      // Unir as duas fontes (sem duplicatas)
+      const competenciasComRetorno = [...new Set([...compRecebimentos, ...compDemonstrativo])];
       
       // Buscar todas as competências do faturamento para informar quais foram puladas
       const [todasComp] = await db.execute(sql.raw(
         `SELECT DISTINCT competencia FROM faturamento_unificado WHERE estabelecimentoId = ${job.params.estabelecimentoId} ORDER BY competencia`
       ));
       const todasCompetencias = (todasComp as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
-      const competenciasPuladas = todasCompetencias.filter((c: string) => !competenciasComRetorno.includes(c));
+
+      // Normalizar competências para comparação (converter '2026/03' → '2026-03')
+      const normalizarComp = (c: string) => c.replace('/', '-');
+      const competenciasComRetornoNorm = competenciasComRetorno.map(normalizarComp);
+      const competenciasPuladas = todasCompetencias.filter((c: string) => !competenciasComRetornoNorm.includes(normalizarComp(c)));
       
       if (competenciasPuladas.length > 0) {
         console.log(`[ConciliacaoJob] Pulando ${competenciasPuladas.length} competências sem demonstrativo: ${competenciasPuladas.join(', ')}`);
       }
       
-      const competencias = competenciasComRetorno;
+      // Usar as competências normalizadas (formato do faturamento_unificado)
+      // Cruzar com as competências disponíveis no faturamento para usar o formato correto
+      const competencias = todasCompetencias.filter((c: string) => competenciasComRetornoNorm.includes(normalizarComp(c)));
       
       if (competencias.length === 0) {
         const msg = todasCompetencias.length > 0
