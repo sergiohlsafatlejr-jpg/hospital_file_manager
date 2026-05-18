@@ -80,7 +80,7 @@ function PacienteDetalheModal({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Header fixo: nome + carteira */}
         <div className="px-6 pt-5 pb-4 border-b border-border shrink-0">
           <div className="flex items-start justify-between gap-4">
