@@ -101,6 +101,7 @@ const RelatorioVisita = lazy(() => import("./pages/RelatorioVisita"));
 const RelatorioVisitaXml = lazy(() => import("./pages/RelatorioVisitaXml"));
 const RelatorioUltrassom = lazy(() => import("./pages/RelatorioUltrassom"));
 const RelatoriosGlosasBi = lazy(() => import("./pages/RelatoriosGlosasBi"));
+const RelatorioOxUti = lazy(() => import("./pages/RelatorioOxUti"));
 
 function PageLoader() {
   return (
@@ -217,6 +218,7 @@ function Router() {
         <Route path={"/relatorio-visita"} component={RelatorioVisita} />
         <Route path={"/relatorio-visita-xml"} component={RelatorioVisitaXml} />
         <Route path={"/relatorio-ultrassom"} component={RelatorioUltrassom} />
+        <Route path={"/relatorio-ox-uti"} component={RelatorioOxUti} />
         <Route path={"/contratos-convenios"} component={ContratosConvenios} />
         <Route path={"/auditoria-sistema"} component={LogAuditoriaSistema} />
         <Route path={"/relatorios-glosas-bi"} component={RelatoriosGlosasBi} />

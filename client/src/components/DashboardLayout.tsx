@@ -85,6 +85,7 @@ import {
   CalendarClock,
   Microscope,
   AlertTriangle,
+  Bed,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -175,6 +176,7 @@ const menuItems: MenuItem[] = [
       { icon: Activity, label: "Rel. Ultrassom", path: "/relatorio-ultrassom", modulo: "relFaturadoRecebido" },
       { icon: Stethoscope, label: "Rel. Visita Hospitalar", path: "/relatorio-visita", modulo: "relFaturadoRecebido" },
       { icon: Stethoscope, label: "Visitas Faturadas (XML)", path: "/relatorio-visita-xml", modulo: "relFaturadoRecebido" },
+      { icon: Bed, label: "Rel. Ox UTI", path: "/relatorio-ox-uti", modulo: "relFaturadoRecebido" },
     ]},
     // Subpasta: Glosas BI
     { icon: AlertTriangle, label: "Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi", children: [

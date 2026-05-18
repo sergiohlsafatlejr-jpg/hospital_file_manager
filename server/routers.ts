@@ -10309,6 +10309,199 @@ export const appRouter = router({
         return await dbConvMap.estatisticasMapeamento(input.estabelecimentoId);
       }),
   }),
+
+  // ============================================================
+  // RELATÓRIO OX UTI
+  // Relatório analítico de diárias de UTI por paciente, item e tipo
+  // ============================================================
+  relatorioOxUti: router({
+    // Meses disponíveis no demonstrativo para o estabelecimento
+    mesesDisponiveis: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as mes_ref
+             FROM demonstrativo
+             WHERE estabelecimentoId = ? AND data_pagamento IS NOT NULL
+             ORDER BY mes_ref DESC`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.mes_ref);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    // Dados principais do relatório Ox UTI
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesRef: z.string(),
+        convenioId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          const baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`;
+          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          const convenioFilter = input.convenioId ? ` AND d.convenio_id = ?` : '';
+          if (input.convenioId) baseParams.push(input.convenioId);
+
+          // KPIs gerais
+          const [kpiRows] = await conn.execute(
+            `SELECT
+               COUNT(DISTINCT d.numero_guia) as total_guias,
+               COUNT(*) as total_itens,
+               COALESCE(SUM(d.valor_informado), 0) as total_informado,
+               COALESCE(SUM(d.valor_pago), 0) as total_pago,
+               COALESCE(SUM(d.valor_glosa), 0) as total_glosado,
+               COALESCE(SUM(CASE WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN d.quantidade ELSE 0 END), 0) as total_diarias
+             FROM demonstrativo d ${baseWhere}${convenioFilter}`,
+            baseParams
+          );
+          const kpi = (kpiRows as any[])[0];
+
+          // Por tipo (DIÁRIA / TAXA / MAT_MED / OUTROS)
+          const [tipoRows] = await conn.execute(
+            `SELECT
+               CASE
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN 'DIARIA'
+                 WHEN d.tipo_lancamento = 'HOS' AND (d.descricao_item LIKE '%Taxa%' OR d.descricao_item NOT LIKE '%Di%ria%') THEN 'TAXA'
+                 WHEN d.tipo_lancamento IN ('MAT','MED') THEN 'MAT_MED'
+                 ELSE 'OUTROS'
+               END as categoria,
+               COUNT(*) as qtd_itens,
+               COALESCE(SUM(d.valor_informado), 0) as total_informado,
+               COALESCE(SUM(d.valor_pago), 0) as total_pago,
+               COALESCE(SUM(d.valor_glosa), 0) as total_glosado,
+               COALESCE(SUM(d.quantidade), 0) as total_quantidade
+             FROM demonstrativo d ${baseWhere}${convenioFilter}
+             GROUP BY categoria ORDER BY total_pago DESC`,
+            baseParams
+          );
+
+          // Por paciente
+          const [pacienteRows] = await conn.execute(
+            `SELECT
+               d.nome_beneficiario as paciente,
+               d.carteira_beneficiario as carteira,
+               COUNT(DISTINCT d.numero_guia) as total_guias,
+               COUNT(*) as total_itens,
+               COALESCE(SUM(CASE WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN d.quantidade ELSE 0 END), 0) as qtd_diarias,
+               COALESCE(SUM(d.valor_informado), 0) as total_informado,
+               COALESCE(SUM(d.valor_pago), 0) as total_pago,
+               COALESCE(SUM(d.valor_glosa), 0) as total_glosado
+             FROM demonstrativo d ${baseWhere}${convenioFilter}
+             GROUP BY d.nome_beneficiario, d.carteira_beneficiario
+             ORDER BY total_pago DESC LIMIT 200`,
+            baseParams
+          );
+
+          // Por item
+          const [itemRows] = await conn.execute(
+            `SELECT
+               d.codigo_item as codigo,
+               d.descricao_item as descricao,
+               d.tipo_lancamento as tipo_lancamento,
+               CASE
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN 'DIARIA'
+                 WHEN d.tipo_lancamento = 'HOS' AND (d.descricao_item LIKE '%Taxa%' OR d.descricao_item NOT LIKE '%Di%ria%') THEN 'TAXA'
+                 WHEN d.tipo_lancamento IN ('MAT','MED') THEN 'MAT_MED'
+                 ELSE 'OUTROS'
+               END as categoria,
+               COUNT(*) as qtd_ocorrencias,
+               COALESCE(SUM(d.quantidade), 0) as total_quantidade,
+               COALESCE(SUM(d.valor_informado), 0) as total_informado,
+               COALESCE(SUM(d.valor_pago), 0) as total_pago,
+               COALESCE(SUM(d.valor_glosa), 0) as total_glosado
+             FROM demonstrativo d ${baseWhere}${convenioFilter}
+             GROUP BY d.codigo_item, d.descricao_item, d.tipo_lancamento
+             ORDER BY total_pago DESC LIMIT 300`,
+            baseParams
+          );
+
+          const totalDiarias = Number(kpi.total_diarias);
+          const totalPago = Number(kpi.total_pago);
+          const totalInformado = Number(kpi.total_informado);
+          const ticketMedio = totalDiarias > 0 ? totalPago / totalDiarias : null;
+          const percGlosa = totalInformado > 0 ? (Number(kpi.total_glosado) / totalInformado) * 100 : 0;
+
+          return {
+            kpi: {
+              totalGuias: Number(kpi.total_guias),
+              totalItens: Number(kpi.total_itens),
+              totalInformado,
+              totalPago,
+              totalGlosado: Number(kpi.total_glosado),
+              totalDiarias,
+              ticketMedio,
+              percGlosa,
+            },
+            porTipo: (tipoRows as any[]).map((r: any) => ({
+              categoria: r.categoria as string,
+              qtdItens: Number(r.qtd_itens),
+              totalInformado: Number(r.total_informado),
+              totalPago: Number(r.total_pago),
+              totalGlosado: Number(r.total_glosado),
+              totalQuantidade: Number(r.total_quantidade),
+            })),
+            porPaciente: (pacienteRows as any[]).map((r: any) => ({
+              paciente: r.paciente as string,
+              carteira: r.carteira as string,
+              totalGuias: Number(r.total_guias),
+              totalItens: Number(r.total_itens),
+              qtdDiarias: Number(r.qtd_diarias),
+              totalInformado: Number(r.total_informado),
+              totalPago: Number(r.total_pago),
+              totalGlosado: Number(r.total_glosado),
+              ticketMedioPaciente: Number(r.qtd_diarias) > 0 ? Number(r.total_pago) / Number(r.qtd_diarias) : null,
+            })),
+            porItem: (itemRows as any[]).map((r: any) => ({
+              codigo: r.codigo as string,
+              descricao: r.descricao as string,
+              tipoLancamento: r.tipo_lancamento as string,
+              categoria: r.categoria as string,
+              qtdOcorrencias: Number(r.qtd_ocorrencias),
+              totalQuantidade: Number(r.total_quantidade),
+              totalInformado: Number(r.total_informado),
+              totalPago: Number(r.total_pago),
+              totalGlosado: Number(r.total_glosado),
+            })),
+          };
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    // Convênios disponíveis para filtro
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT c.id, c.nome
+             FROM demonstrativo d
+             JOIN convenios c ON c.id = d.convenio_id
+             WHERE d.estabelecimentoId = ?
+             ORDER BY c.nome`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => ({ id: Number(r.id), nome: r.nome as string }));
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+  }),
 });
 
 function calcularDiasParado(datasai: string | null): number {

@@ -3644,3 +3644,13 @@
 - [x] Corrigir backend tendenciaMensal: WHERE 1=1 + filtro condicional + filtrar data_referencia IS NOT NULL
 - [x] Corrigir backend porCodigo: WHERE valor_glosa > 0 + filtro condicional por estabId
 - [x] Corrigir backend filtros: queries sem filtro fixo de estabId quando estabId=0
+
+## Relatório Ox UTI
+- [x] Backend: procedure tRPC relatorioOxUti com agrupamento por paciente, item e tipo (DIÁRIA, TAXA, MAT_MED)
+- [x] Backend: cálculo de ticket médio (qtd diárias / valor pago da conta)
+- [x] Frontend: página RelatorioOxUti com filtros de mês/estabelecimento
+- [x] Frontend: cards KPI (total pago, total glosado, % glosa, ticket médio)
+- [x] Frontend: tabela por tipo (DIÁRIA, TAXA, MAT_MED) com Vl. Pago e Vl. Glosado
+- [x] Frontend: tabela por paciente com totais
+- [x] Frontend: tabela por item (código + descrição) com totais
+- [x] Registrar rota no App.tsx e no menu lateral
