@@ -1022,6 +1022,14 @@ export const appRouter = router({
                 } catch (fatError) {
                   console.error('[Upload] Erro ao popular faturamento_tiss:', fatError);
                   // Não falhar o upload se a inserção no faturamento_tiss falhar
+                } finally {
+                  // GARANTIA: sempre marcar como processado, independente de erros na migração
+                  try {
+                    await db.updateArquivoStatus(arquivoId, "processado");
+                    await db.updateArquivoProgresso(arquivoId, 100, totalItensToProcess, totalItensToProcess);
+                  } catch (finalErr) {
+                    console.error('[Upload] Erro ao finalizar status do arquivo:', finalErr);
+                  }
                 }
               }
               
@@ -1029,8 +1037,7 @@ export const appRouter = router({
                 console.log(`[Upload] Arquivo contém ${prestadoresComEstabelecimento.length} prestadores diferentes`);
               }
               
-              await db.updateArquivoStatus(arquivoId, "processado");
-              await db.updateArquivoProgresso(arquivoId, 100, totalItensToProcess, totalItensToProcess);
+              // Status já atualizado no finally acima — garantia de execução mesmo com erros
               
               const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
               console.log(`[Upload] Background processing completed in ${totalTime}s:`, input.nome);
