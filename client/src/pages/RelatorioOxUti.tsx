@@ -16,7 +16,7 @@ import * as XLSX from "xlsx";
 import {
   Bed, Download, Loader2, Search, DollarSign, TrendingDown,
   Calendar, Users, Package, BarChart3, AlertTriangle, Activity,
-  ChevronRight, X, FileText
+  ChevronRight, X, FileText, Pill, Wrench, Stethoscope, LayoutGrid
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -107,24 +107,61 @@ function PacienteDetalheModal({
 
           {/* Totais gerais */}
           {!isLoading && categorias && (
-            <div className="grid grid-cols-3 gap-3 mt-4">
-              <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2">
-                <p className="text-[11px] text-muted-foreground">Vl. Pago</p>
-                <p className="text-base font-bold text-green-400">{fmt(totalGeral.pago)}</p>
+            <>
+              {/* Linha 1: totais gerais */}
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2">
+                  <p className="text-[11px] text-muted-foreground">Vl. Pago Total</p>
+                  <p className="text-base font-bold text-green-400">{fmt(totalGeral.pago)}</p>
+                </div>
+                <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2">
+                  <p className="text-[11px] text-muted-foreground">Vl. Glosado</p>
+                  <p className="text-base font-bold text-red-400">{fmt(totalGeral.glosado)}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 border border-border px-4 py-2">
+                  <p className="text-[11px] text-muted-foreground">% Glosa</p>
+                  <p className="text-base font-bold text-foreground">
+                    {totalGeral.informado > 0
+                      ? `${((totalGeral.glosado / totalGeral.informado) * 100).toFixed(1)}%`
+                      : "0%"}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2">
-                <p className="text-[11px] text-muted-foreground">Vl. Glosado</p>
-                <p className="text-base font-bold text-red-400">{fmt(totalGeral.glosado)}</p>
+
+              {/* Linha 2: KPIs por tipo */}
+              <div className="mt-3">
+                <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">Vl. Pago por Tipo</p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[
+                    { cat: 'DIARIA',  label: 'Diária',      icon: <Bed className="h-3.5 w-3.5" />,         color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/20' },
+                    { cat: 'TAXA',    label: 'Taxa',         icon: <Stethoscope className="h-3.5 w-3.5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
+                    { cat: 'MED',     label: 'Medicamento',  icon: <Pill className="h-3.5 w-3.5" />,        color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
+                    { cat: 'MAT',     label: 'Material',     icon: <Wrench className="h-3.5 w-3.5" />,      color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
+                    { cat: 'OUTROS',  label: 'Outros',       icon: <LayoutGrid className="h-3.5 w-3.5" />,  color: 'text-gray-400',   bg: 'bg-gray-500/10 border-gray-500/20' },
+                  ].map(({ cat, label, icon, color, bg }) => {
+                    const found = categorias.find(c => c.categoria === cat);
+                    const pago = found?.totalPago ?? 0;
+                    const glosado = found?.totalGlosa ?? 0;
+                    const qtd = found?.totalQuantidade ?? 0;
+                    return (
+                      <div key={cat} className={`rounded-lg border px-3 py-2 ${bg}`}>
+                        <div className={`flex items-center gap-1.5 mb-1 ${color}`}>
+                          {icon}
+                          <span className="text-[10px] font-medium">{label}</span>
+                        </div>
+                        <p className={`text-sm font-bold ${color}`}>{pago > 0 ? fmt(pago) : '—'}</p>
+                        {glosado > 0 && (
+                          <p className="text-[10px] text-red-400 mt-0.5">−{fmt(glosado)}</p>
+                        )}
+                        {cat === 'DIARIA' && qtd > 0 && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{qtd.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} diária(s)</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="rounded-lg bg-muted/30 border border-border px-4 py-2">
-                <p className="text-[11px] text-muted-foreground">% Glosa</p>
-                <p className="text-base font-bold text-foreground">
-                  {totalGeral.informado > 0
-                    ? `${((totalGeral.glosado / totalGeral.informado) * 100).toFixed(1)}%`
-                    : "0%"}
-                </p>
-              </div>
-            </div>
+            </>
           )}
         </DialogHeader>
 
