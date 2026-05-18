@@ -6,13 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
   Bed, Download, Loader2, Search, DollarSign, TrendingDown,
-  Calendar, Users, Package, BarChart3, AlertTriangle, Activity
+  Calendar, Users, Package, BarChart3, AlertTriangle, Activity,
+  ChevronRight, X, FileText
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -46,6 +50,176 @@ const CATEGORIA_COLOR: Record<string, string> = {
   OUTROS: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
 
+// ─── Modal de detalhes do paciente ───────────────────────────────────────────
+interface PacienteDetalheModalProps {
+  open: boolean;
+  onClose: () => void;
+  paciente: string;
+  carteira: string;
+  estabelecimentoId: number;
+  mesRef: string;
+  convenioId?: number;
+}
+
+function PacienteDetalheModal({
+  open, onClose, paciente, carteira, estabelecimentoId, mesRef, convenioId
+}: PacienteDetalheModalProps) {
+  const { data: categorias, isLoading } = trpc.relatorioOxUti.itensPorPaciente.useQuery(
+    { estabelecimentoId, mesRef, carteiraBeneficiario: carteira, convenioId },
+    { enabled: open && !!carteira && !!mesRef && estabelecimentoId > 0 }
+  );
+
+  const totalGeral = useMemo(() => {
+    if (!categorias) return { pago: 0, glosado: 0, informado: 0 };
+    return categorias.reduce((acc, c) => ({
+      pago: acc.pago + c.totalPago,
+      glosado: acc.glosado + c.totalGlosa,
+      informado: acc.informado + c.totalInformado,
+    }), { pago: 0, glosado: 0, informado: 0 });
+  }, [categorias]);
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-4xl w-full max-h-[90vh] flex flex-col p-0 gap-0">
+        {/* Header */}
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/20">
+                <FileText className="h-5 w-5 text-blue-400" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold leading-tight">{paciente || "—"}</DialogTitle>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Carteira: <span className="font-mono">{carteira || "—"}</span>
+                  {" · "}
+                  {fmtMes(mesRef)}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground transition-colors mt-1"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Totais gerais */}
+          {!isLoading && categorias && (
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-2">
+                <p className="text-[11px] text-muted-foreground">Vl. Pago</p>
+                <p className="text-base font-bold text-green-400">{fmt(totalGeral.pago)}</p>
+              </div>
+              <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2">
+                <p className="text-[11px] text-muted-foreground">Vl. Glosado</p>
+                <p className="text-base font-bold text-red-400">{fmt(totalGeral.glosado)}</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border px-4 py-2">
+                <p className="text-[11px] text-muted-foreground">% Glosa</p>
+                <p className="text-base font-bold text-foreground">
+                  {totalGeral.informado > 0
+                    ? `${((totalGeral.glosado / totalGeral.informado) * 100).toFixed(1)}%`
+                    : "0%"}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogHeader>
+
+        {/* Conteúdo */}
+        <ScrollArea className="flex-1 px-6 py-4">
+          {isLoading && (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {!isLoading && (!categorias || categorias.length === 0) && (
+            <div className="text-center text-muted-foreground py-12">
+              Nenhum item encontrado para este paciente.
+            </div>
+          )}
+
+          {!isLoading && categorias && categorias.map((cat, catIdx) => (
+            <div key={cat.categoria} className={catIdx > 0 ? "mt-6" : ""}>
+              {/* Cabeçalho da categoria */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Badge className={`${CATEGORIA_COLOR[cat.categoria] ?? ""} border text-xs`}>
+                    {CATEGORIA_LABEL[cat.categoria] ?? cat.categoria}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">{cat.itens.length} item(ns)</span>
+                </div>
+                <div className="flex gap-4 text-xs">
+                  <span className="text-green-400 font-medium">{fmt(cat.totalPago)}</span>
+                  {cat.totalGlosa > 0 && (
+                    <span className="text-red-400">−{fmt(cat.totalGlosa)}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Tabela de itens da categoria */}
+              <div className="rounded-md border border-border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead className="text-xs py-2">Guia</TableHead>
+                      <TableHead className="text-xs py-2">Código</TableHead>
+                      <TableHead className="text-xs py-2">Descrição</TableHead>
+                      <TableHead className="text-xs py-2 text-right">Qtd.</TableHead>
+                      <TableHead className="text-xs py-2 text-right">Vl. Informado</TableHead>
+                      <TableHead className="text-xs py-2 text-right">Vl. Pago</TableHead>
+                      <TableHead className="text-xs py-2 text-right">Vl. Glosado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cat.itens.map((item, itemIdx) => (
+                      <TableRow key={itemIdx} className="hover:bg-muted/20">
+                        <TableCell className="font-mono text-xs text-muted-foreground py-2">{item.numeroGuia ?? "—"}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground py-2">{item.codigo ?? "—"}</TableCell>
+                        <TableCell className="text-xs py-2 max-w-[240px]">
+                          <span className="line-clamp-2 leading-tight">{item.descricao ?? "—"}</span>
+                        </TableCell>
+                        <TableCell className="text-xs py-2 text-right">
+                          {item.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="text-xs py-2 text-right text-muted-foreground">
+                          {fmt(item.valorInformado)}
+                        </TableCell>
+                        <TableCell className="text-xs py-2 text-right text-green-400 font-medium">
+                          {fmt(item.valorPago)}
+                        </TableCell>
+                        <TableCell className="text-xs py-2 text-right">
+                          {item.valorGlosa > 0
+                            ? <span className="text-red-400">{fmt(item.valorGlosa)}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Subtotal da categoria */}
+              <div className="flex justify-end gap-6 mt-1 pr-2 text-xs text-muted-foreground">
+                <span>Subtotal informado: <span className="text-foreground font-medium">{fmt(cat.totalInformado)}</span></span>
+                <span>Pago: <span className="text-green-400 font-medium">{fmt(cat.totalPago)}</span></span>
+                {cat.totalGlosa > 0 && (
+                  <span>Glosado: <span className="text-red-400 font-medium">{fmt(cat.totalGlosa)}</span></span>
+                )}
+              </div>
+
+              {catIdx < (categorias.length - 1) && <Separator className="mt-4" />}
+            </div>
+          ))}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── componente principal ────────────────────────────────────────────────────
 export default function RelatorioOxUti() {
   const { estabelecimentoAtual } = useEstabelecimento();
@@ -56,6 +230,12 @@ export default function RelatorioOxUti() {
   const [buscaPaciente, setBuscaPaciente] = useState("");
   const [buscaItem, setBuscaItem] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todos");
+
+  // Estado do modal
+  const [modalPaciente, setModalPaciente] = useState<{
+    nome: string;
+    carteira: string;
+  } | null>(null);
 
   // ── queries ──
   const { data: meses = [], isLoading: loadingMeses } = trpc.relatorioOxUti.mesesDisponiveis.useQuery(
@@ -68,7 +248,6 @@ export default function RelatorioOxUti() {
     { enabled: estabId > 0 }
   );
 
-  // Selecionar mês mais recente automaticamente
   const mesEfetivo = mesRef || (meses.length > 0 ? meses[0] : "");
 
   const { data, isLoading, isFetching } = trpc.relatorioOxUti.dados.useQuery(
@@ -104,7 +283,6 @@ export default function RelatorioOxUti() {
     if (!data) return;
     const wb = XLSX.utils.book_new();
 
-    // Aba KPIs
     const kpiData = [
       ["Relatório Ox UTI", fmtMes(mesEfetivo)],
       [],
@@ -120,7 +298,6 @@ export default function RelatorioOxUti() {
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kpiData), "KPIs");
 
-    // Aba Por Tipo
     const tipoData = [
       ["Categoria", "Qtd Itens", "Vl. Informado", "Vl. Pago", "Vl. Glosado", "Qtd Total"],
       ...data.porTipo.map(t => [
@@ -130,7 +307,6 @@ export default function RelatorioOxUti() {
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tipoData), "Por Tipo");
 
-    // Aba Por Paciente
     const pacData = [
       ["Paciente", "Carteira", "Guias", "Itens", "Qtd Diárias", "Vl. Informado", "Vl. Pago", "Vl. Glosado", "Ticket Médio"],
       ...data.porPaciente.map(p => [
@@ -141,7 +317,6 @@ export default function RelatorioOxUti() {
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pacData), "Por Paciente");
 
-    // Aba Por Item
     const itemData = [
       ["Código", "Descrição", "Categoria", "Tipo Lanç.", "Ocorrências", "Qtd Total", "Vl. Informado", "Vl. Pago", "Vl. Glosado"],
       ...data.porItem.map(i => [
@@ -183,11 +358,7 @@ export default function RelatorioOxUti() {
             <div className="flex flex-wrap gap-3 items-center">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <Select
-                  value={mesEfetivo}
-                  onValueChange={setMesRef}
-                  disabled={loadingMeses}
-                >
+                <Select value={mesEfetivo} onValueChange={setMesRef} disabled={loadingMeses}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Mês de referência" />
                   </SelectTrigger>
@@ -373,7 +544,10 @@ export default function RelatorioOxUti() {
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">Por Paciente</CardTitle>
+                    <div>
+                      <CardTitle className="text-base">Por Paciente</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">Clique em um paciente para ver os itens detalhados por categoria</p>
+                    </div>
                     <div className="relative w-64">
                       <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -398,13 +572,18 @@ export default function RelatorioOxUti() {
                           <TableHead className="text-right">Vl. Pago</TableHead>
                           <TableHead className="text-right">Vl. Glosado</TableHead>
                           <TableHead className="text-right">Ticket Médio</TableHead>
+                          <TableHead className="w-8"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {pacientesFiltrados.map((p, idx) => (
-                          <TableRow key={idx}>
+                          <TableRow
+                            key={idx}
+                            className="cursor-pointer hover:bg-muted/40 transition-colors"
+                            onClick={() => setModalPaciente({ nome: p.paciente ?? "", carteira: p.carteira ?? "" })}
+                          >
                             <TableCell className="font-medium max-w-[200px] truncate">{p.paciente ?? "—"}</TableCell>
-                            <TableCell className="text-muted-foreground text-sm">{p.carteira ?? "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm font-mono">{p.carteira ?? "—"}</TableCell>
                             <TableCell className="text-right">{p.totalGuias}</TableCell>
                             <TableCell className="text-right text-purple-400 font-medium">{p.qtdDiarias.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}</TableCell>
                             <TableCell className="text-right text-muted-foreground">{fmt(p.totalInformado)}</TableCell>
@@ -413,11 +592,14 @@ export default function RelatorioOxUti() {
                             <TableCell className="text-right text-cyan-400">
                               {p.ticketMedioPaciente != null ? fmt(p.ticketMedioPaciente) : "—"}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </TableCell>
                           </TableRow>
                         ))}
                         {pacientesFiltrados.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                               Nenhum paciente encontrado
                             </TableCell>
                           </TableRow>
@@ -514,6 +696,19 @@ export default function RelatorioOxUti() {
           </Tabs>
         )}
       </div>
+
+      {/* ── Modal de detalhes do paciente ── */}
+      {modalPaciente && (
+        <PacienteDetalheModal
+          open={!!modalPaciente}
+          onClose={() => setModalPaciente(null)}
+          paciente={modalPaciente.nome}
+          carteira={modalPaciente.carteira}
+          estabelecimentoId={estabId}
+          mesRef={mesEfetivo}
+          convenioId={convenioId !== "todos" ? parseInt(convenioId) : undefined}
+        />
+      )}
     </DashboardLayout>
   );
 }

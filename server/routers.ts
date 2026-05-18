@@ -10511,6 +10511,100 @@ export const appRouter = router({
           if (conn) await conn.end();
         }
       }),
+
+    // Itens detalhados de um paciente específico para o modal
+    itensPorPaciente: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesRef: z.string(),
+        carteiraBeneficiario: z.string(),
+        convenioId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          const params: any[] = [input.estabelecimentoId, input.mesRef, input.carteiraBeneficiario];
+          const convenioFilter = input.convenioId ? ' AND d.convenio_id = ?' : '';
+          if (input.convenioId) params.push(input.convenioId);
+
+          const [rows] = await conn.execute(
+            `SELECT
+               d.numero_guia,
+               d.codigo_item,
+               d.descricao_item,
+               d.tipo_lancamento,
+               CASE
+                 WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' THEN 'DIARIA'
+                 WHEN d.descricao_item REGEXP '^[Tt][[:space:]]*-' THEN 'TAXA'
+                 WHEN d.descricao_item REGEXP '^MED[[:space:]]*-' THEN 'MED'
+                 WHEN d.descricao_item REGEXP '^MAT[[:space:]]*-' THEN 'MAT'
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%' THEN 'DIARIA'
+                 WHEN d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Taxa%' THEN 'TAXA'
+                 WHEN d.tipo_lancamento = 'MED' THEN 'MED'
+                 WHEN d.tipo_lancamento = 'MAT' THEN 'MAT'
+                 ELSE 'OUTROS'
+               END as categoria,
+               COALESCE(d.quantidade, 0) as quantidade,
+               COALESCE(d.valor_informado, 0) as valor_informado,
+               COALESCE(d.valor_pago, 0) as valor_pago,
+               COALESCE(d.valor_glosa, 0) as valor_glosa
+             FROM demonstrativo d
+             WHERE d.estabelecimentoId = ?
+               AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?
+               AND d.carteira_beneficiario = ?${convenioFilter}
+             ORDER BY categoria, d.descricao_item`,
+            params
+          );
+
+          // Agrupar por categoria
+          const porCategoria: Record<string, {
+            categoria: string;
+            itens: Array<{
+              numeroGuia: string;
+              codigo: string;
+              descricao: string;
+              quantidade: number;
+              valorInformado: number;
+              valorPago: number;
+              valorGlosa: number;
+            }>;
+            totalInformado: number;
+            totalPago: number;
+            totalGlosa: number;
+            totalQuantidade: number;
+          }> = {};
+
+          for (const r of rows as any[]) {
+            const cat = r.categoria as string;
+            if (!porCategoria[cat]) {
+              porCategoria[cat] = { categoria: cat, itens: [], totalInformado: 0, totalPago: 0, totalGlosa: 0, totalQuantidade: 0 };
+            }
+            porCategoria[cat].itens.push({
+              numeroGuia: r.numero_guia as string,
+              codigo: r.codigo_item as string,
+              descricao: r.descricao_item as string,
+              quantidade: Number(r.quantidade),
+              valorInformado: Number(r.valor_informado),
+              valorPago: Number(r.valor_pago),
+              valorGlosa: Number(r.valor_glosa),
+            });
+            porCategoria[cat].totalInformado += Number(r.valor_informado);
+            porCategoria[cat].totalPago += Number(r.valor_pago);
+            porCategoria[cat].totalGlosa += Number(r.valor_glosa);
+            porCategoria[cat].totalQuantidade += Number(r.quantidade);
+          }
+
+          const ordemCategoria = ['DIARIA', 'TAXA', 'MED', 'MAT', 'OUTROS'];
+          return Object.values(porCategoria).sort((a, b) => {
+            return ordemCategoria.indexOf(a.categoria) - ordemCategoria.indexOf(b.categoria);
+          });
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
   }),
 });
 
