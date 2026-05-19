@@ -3660,3 +3660,7 @@
 - [x] Corrigir query listarContas para detectar Alta Administrativa via campo numeroLote do resumo
 - [x] Atualizar frontend ContaConvenio.tsx para exibir "Lote XXXXX" ao lado do número da conta
 - [x] Corrigir dados existentes no banco: separar contas com múltiplos lotes em linhas distintas
+## Bug - Atendimentos Parados Instituto do Rim em branco (2026-05-19)
+- [x] Identificar causa: staging (atendimentos_sem_conta) tinha 716 registros mas atendimentos_unificados estava vazio para estabId=4
+- [x] Corrigir dados: popular atendimentos_unificados com INSERT IGNORE a partir de atendimentos_sem_conta (713 registros inseridos)
+- [x] Corrigir procedure sincronizarAtendimentosSemConta: deduplicar por numatend + usar INSERT IGNORE para evitar erro de chave duplicada em sincronizações futuras

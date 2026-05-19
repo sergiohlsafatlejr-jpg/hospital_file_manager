@@ -1039,9 +1039,13 @@ export const integradorDadosRouter = router({
         );
 
         // Transformar staging -> unificados
+        // Deduplicar por numatend (pode haver duplicatas na view do Easyvision)
+        const dadosUnicos = dados.filter((row, idx, arr) => 
+          arr.findIndex(r => r.numatend === row.numatend) === idx
+        );
         let registrosUnificados = 0;
-        for (let i = 0; i < dados.length; i += BATCH_SIZE) {
-          const batch = dados.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < dadosUnicos.length; i += BATCH_SIZE) {
+          const batch = dadosUnicos.slice(i, i + BATCH_SIZE);
           const unificados = batch.map((row) => ({
             origemSistema: "EASYVISION",
             origemId: `easyvision-sem-conta-${row.numatend}`,
@@ -1059,7 +1063,10 @@ export const integradorDadosRouter = router({
             codigo_procedimento: row.procprin || null,
             destino_conta: row.codcc_destino || null,
           }));
-          await db.insert(atendimentos).values(unificados);
+          // Usar onDuplicateKeyUpdate para evitar erro de chave duplicada
+          await db.insert(atendimentos).values(unificados).onDuplicateKeyUpdate({
+            set: { descricao_atendimento: sql`VALUES(descricao_atendimento)` }
+          });
           registrosUnificados += unificados.length;
         }
 
