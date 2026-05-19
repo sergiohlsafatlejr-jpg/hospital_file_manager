@@ -17628,8 +17628,8 @@ export async function getDemonstrativoContas(params: {
       dataExecucao: sql<string>`MIN(${demonstrativo.dataExecucao})`,
       dataReferencia: demonstrativo.dataReferencia,
       convenioId: demonstrativo.convenioId,
-      arquivoId: demonstrativo.arquivoId,
-      origemTipo: demonstrativo.origemTipo,
+      arquivoId: sql<number>`MAX(${demonstrativo.arquivoId})`,
+      origemTipo: sql<string>`MAX(${demonstrativo.origemTipo})`,
       totalItens: sql<number>`COUNT(*)`,
       valorTotal: sql<string>`SUM(COALESCE(${demonstrativo.valorPago}, 0))`,
       valorGlosado: sql<string>`SUM(COALESCE(${demonstrativo.valorGlosa}, 0))`,
@@ -17646,9 +17646,7 @@ export async function getDemonstrativoContas(params: {
       demonstrativo.nomeBeneficiario,
       demonstrativo.dataPagamento,
       demonstrativo.dataReferencia,
-      demonstrativo.convenioId,
-      demonstrativo.arquivoId,
-      demonstrativo.origemTipo
+      demonstrativo.convenioId
     )
     .orderBy(desc(demonstrativo.dataPagamento))
     .limit(pageSize)
