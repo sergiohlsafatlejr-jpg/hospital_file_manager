@@ -3671,3 +3671,9 @@
 - [x] Rota /relatorio-ox-uti-faturado registrada no App.tsx
 - [x] Item de menu "Ox UTI - Faturado (XML)" adicionado no DashboardLayout
 - [x] Exportação para Excel com abas KPIs, Por Tipo, Por Paciente, Por Item
+
+## Conciliação - Melhorias para 100% de Cobertura
+
+- [x] Combinar excel + demonstrativo como fontes de recebimento (em vez de escolher apenas uma)
+- [x] Corrigir recebimentoOrigem para registrar 'demonstrativo' quando match vier dessa fonte
+- [x] Corrigir recebimentoId para usar id real (sem offset) ao salvar no banco

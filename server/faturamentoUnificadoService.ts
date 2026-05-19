@@ -980,11 +980,33 @@ export async function executarConciliacaoAutomatica(params: {
   const [demRows] = await db.execute(sql.raw(queryDemonstrativo));
   const itensRecebimentoDem = demRows as unknown as any[];
 
-  // Combinar as duas fontes: excel tem prioridade, demonstrativo é complementar
-  // Se há recebimentos_excel, usar apenas eles; caso contrário usar demonstrativo
-  const itensRecebimento = itensRecebimentoExcel.length > 0
-    ? itensRecebimentoExcel
-    : itensRecebimentoDem;
+  // Combinar as duas fontes: usar AMBAS para maximizar o match
+  // Identificar registros únicos: se um recebimento existe em ambas as fontes
+  // (mesmo guia+código+valor), evitar duplicata preferindo o do excel (tem id menor)
+  // Para o Ipasgo e outros convênios onde o demonstrativo tem mais registros que o excel,
+  // esta combinação é essencial para atingir alta taxa de conciliação.
+  let itensRecebimento: any[];
+  if (itensRecebimentoExcel.length === 0) {
+    // Sem excel: usar apenas demonstrativo
+    itensRecebimento = itensRecebimentoDem;
+  } else if (itensRecebimentoDem.length === 0) {
+    // Sem demonstrativo: usar apenas excel
+    itensRecebimento = itensRecebimentoExcel;
+  } else {
+    // Ambos disponíveis: combinar, adicionando prefixo de origem ao id para evitar colisão
+    // Excel: ids originais (ex: 1001)
+    // Demonstrativo: ids prefixados com 9_000_000 para não colidir com excel
+    const DEM_ID_OFFSET = 9_000_000;
+    const excelSet = new Set(
+      itensRecebimentoExcel.map((r: any) => `${r.numeroGuia}|${r.codigoItem}|${r.valorPago}`)
+    );
+    // Adicionar apenas registros do demonstrativo que NÃO existem no excel
+    const demExtras = itensRecebimentoDem
+      .filter((r: any) => !excelSet.has(`${r.numeroGuia}|${r.codigoItem}|${r.valorPago}`))
+      .map((r: any) => ({ ...r, id: r.id + DEM_ID_OFFSET, _origem: 'demonstrativo' }));
+    itensRecebimento = [...itensRecebimentoExcel, ...demExtras];
+    console.log(`[Conciliacao] Combinando fontes: ${itensRecebimentoExcel.length} excel + ${demExtras.length} demonstrativo extras = ${itensRecebimento.length} total`);
+  }
 
   // -------------------------------------------------------
   // PASSO 3: Carregar tabela de vinculação de códigos (de-para)
@@ -1195,15 +1217,18 @@ export async function executarConciliacaoAutomatica(params: {
         baseInsert.codigoGlosa = String(recMatch.codigoGlosa);
       }
 
+      const origemRec = recMatch._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
+      // Para registros do demonstrativo, o id foi prefixado com DEM_ID_OFFSET; usar o id real
+      const recIdReal = recMatch._origem === 'demonstrativo' ? recMatch.id - 9_000_000 : recMatch.id;
       if (percentualDiferenca <= tolerancia) {
-        inserts.push({ ...baseInsert, recebimentoId: recMatch.id, recebimentoOrigem: 'excel', valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'conciliado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'conciliado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalConciliados++;
       } else {
-        inserts.push({ ...baseInsert, recebimentoId: recMatch.id, recebimentoOrigem: 'excel', valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'divergente', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'divergente', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalDivergentes++;
         resultado.divergencias.push({
           faturamentoId: fat.id,
-          recebimentoId: recMatch.id,
+          recebimentoId: recIdReal,
           codigoItem: codigoItem,
           numeroGuia: guia,
           valorFaturado,
