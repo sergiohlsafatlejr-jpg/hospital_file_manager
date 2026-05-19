@@ -3654,3 +3654,9 @@
 - [x] Frontend: tabela por paciente com totais
 - [x] Frontend: tabela por item (código + descrição) com totais
 - [x] Registrar rota no App.tsx e no menu lateral
+## Alta Administrativa - Separação por Lote na Tela Conta Convênio (2026-05-19)
+- [x] Adicionar campo numeroLote à tabela contas_convenio_resumo (schema + db:push)
+- [x] Corrigir insert/upsert no routers.ts para agrupar por numeroConta+numeroLote (chave composta)
+- [x] Corrigir query listarContas para detectar Alta Administrativa via campo numeroLote do resumo
+- [x] Atualizar frontend ContaConvenio.tsx para exibir "Lote XXXXX" ao lado do número da conta
+- [x] Corrigir dados existentes no banco: separar contas com múltiplos lotes em linhas distintas

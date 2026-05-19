@@ -3298,6 +3298,7 @@ export const contasConvenioResumo = mysqlTable("contas_convenio_resumo", {
   id: int("id").autoincrement().primaryKey(),
   
   numeroConta: varchar("numeroConta", { length: 100 }).notNull(),
+  numeroLote: varchar("numeroLote", { length: 100 }),
   estabelecimentoId: int("estabelecimentoId").notNull(),
   
   // Origem
@@ -3345,6 +3346,7 @@ export const contasConvenioResumo = mysqlTable("contas_convenio_resumo", {
   atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   numContaEstabIdx: index("idx_ccr_numconta_estab").on(table.numeroConta, table.estabelecimentoId),
+  numContaLoteEstabIdx: index("idx_ccr_numconta_lote_estab").on(table.numeroConta, table.numeroLote, table.estabelecimentoId),
   convenioIdx: index("idx_ccr_convenio").on(table.convenio),
   statusIdx: index("idx_ccr_status").on(table.statusAnalise),
 }));

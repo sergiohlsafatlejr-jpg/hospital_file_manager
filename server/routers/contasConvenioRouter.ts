@@ -1173,19 +1173,19 @@ export const contasConvenioRouter = router({
         .where(whereClause);
 
       // Identificar contas com múltiplos lotes (Altas Administrativas)
-      // Busca quais numeroConta da página atual têm mais de 1 lote distinto nos itens
+      // Agora usa o campo numeroLote do próprio resumo: contas com mesmo numeroConta mas lotes diferentes
       const contasNumerosNaPagina = contas.map(c => c.numeroConta);
       let contasComAltaAdm = new Map<string, number>(); // numeroConta -> totalLotes
       
       if (contasNumerosNaPagina.length > 0) {
+        // Contar quantas linhas existem no resumo para cada numeroConta (cada linha = 1 lote)
         const altaAdmResult = await db.execute(
-          sql`SELECT numeroConta, COUNT(DISTINCT numeroLote) as totalLotes
-              FROM contas_convenio_itens
+          sql`SELECT numeroConta, COUNT(*) as totalLotes
+              FROM contas_convenio_resumo
               WHERE numeroConta IN (${sql.join(contasNumerosNaPagina.map(n => sql`${n}`), sql`, `)})
                 AND estabelecimentoId = ${estabelecimentoId || 0}
-                AND numeroLote IS NOT NULL AND numeroLote != '' AND numeroLote != 'null'
               GROUP BY numeroConta
-              HAVING COUNT(DISTINCT numeroLote) > 1`
+              HAVING COUNT(*) > 1`
         );
         const rows = (altaAdmResult as any)[0] as any[];
         if (rows && Array.isArray(rows)) {

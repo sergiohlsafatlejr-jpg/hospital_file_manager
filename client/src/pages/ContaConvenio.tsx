@@ -560,6 +560,11 @@ export default function ContaConvenio() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm text-muted-foreground"># Conta</span>
                             <span className="font-semibold font-mono">{conta.numeroConta}</span>
+                            {(conta as any).numeroLote && (
+                              <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded" title="Número do lote">
+                                Lote {(conta as any).numeroLote}
+                              </span>
+                            )}
                             <OrigemBadge origem={conta.origem} />
                             <StatusBadge status={status} />
                             {(conta as any).isAltaAdministrativa && (

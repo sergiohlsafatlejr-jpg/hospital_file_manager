@@ -1,0 +1,2 @@
+ALTER TABLE `contas_convenio_resumo` ADD `numeroLote` varchar(100);--> statement-breakpoint
+CREATE INDEX `idx_ccr_numconta_lote_estab` ON `contas_convenio_resumo` (`numeroConta`,`numeroLote`,`estabelecimentoId`);

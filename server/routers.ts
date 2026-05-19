@@ -881,12 +881,14 @@ export const appRouter = router({
                         const registrosArquivo = faturamentoRecords.filter(r => r.estabelecimentoId === grupo.estabelecimentoId);
                         if (registrosArquivo.length === 0) continue;
                         
-                        // Agrupar por guia para criar contas
+                        // Agrupar por guia+lote para criar contas (suporte a Alta Administrativa)
                         const porGuia = new Map<string, typeof registrosArquivo>();
                         for (const reg of registrosArquivo) {
                           const guia = reg.numeroGuiaPrestador || reg.numeroGuiaOperadora || 'SEM_GUIA';
-                          if (!porGuia.has(guia)) porGuia.set(guia, []);
-                          porGuia.get(guia)!.push(reg);
+                          const lote = reg.numeroLote ? String(reg.numeroLote) : '';
+                          const chaveGuiaLote = lote ? `${guia}__LOTE__${lote}` : guia;
+                          if (!porGuia.has(chaveGuiaLote)) porGuia.set(chaveGuiaLote, []);
+                          porGuia.get(chaveGuiaLote)!.push(reg);
                         }
                         
                         // Buscar nome do convênio
@@ -951,15 +953,25 @@ export const appRouter = router({
                           totalCC += batch.length;
                         }
                         
-                        // Criar/atualizar resumos por guia
-                        for (const [guia, regs] of porGuia.entries()) {
-                          // Verificar se já existe resumo para esta guia
+                        // Criar/atualizar resumos por guia+lote (suporte a Alta Administrativa)
+                        for (const [chaveGuiaLote, regs] of porGuia.entries()) {
+                          // Extrair guia e lote da chave composta
+                          const [guia, loteStr] = chaveGuiaLote.includes('__LOTE__')
+                            ? chaveGuiaLote.split('__LOTE__')
+                            : [chaveGuiaLote, null];
+                          const loteNumero = loteStr || (regs[0]?.numeroLote ? String(regs[0].numeroLote) : null);
+                          
+                          // Verificar se já existe resumo para esta guia+lote
+                          const whereConditions = [
+                            eq(contasConvenioResumo.numeroConta, guia),
+                            eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
+                            eq(contasConvenioResumo.origem, "XML"),
+                          ];
+                          if (loteNumero) {
+                            whereConditions.push(eq(contasConvenioResumo.numeroLote, loteNumero));
+                          }
                           const existingResumo = await dbCC.select().from(contasConvenioResumo).where(
-                            and(
-                              eq(contasConvenioResumo.numeroConta, guia),
-                              eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
-                              eq(contasConvenioResumo.origem, "XML"),
-                            )
+                            and(...whereConditions)
                           ).limit(1);
                           
                           const totalItensGuia = regs.length;
@@ -996,6 +1008,7 @@ export const appRouter = router({
                             // Criar novo resumo
                             await dbCC.insert(contasConvenioResumo).values({
                               numeroConta: guia,
+                              numeroLote: loteNumero,
                               estabelecimentoId: grupo.estabelecimentoId,
                               origem: "XML" as const,
                               convenio: convenioNome,
