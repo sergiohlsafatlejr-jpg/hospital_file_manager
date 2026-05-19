@@ -10626,6 +10626,173 @@ export const appRouter = router({
         }
       }),
   }),
+
+  // ─── Relatório OX UTI - Faturado (dados do XML enviado) ───────────────────
+  relatorioOxUtiFaturado: router({
+    // Meses disponíveis nos itens enviados via XML
+    mesesDisponiveis: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT DATE_FORMAT(cci.dataExecucao, '%Y-%m') as mes_ref
+             FROM contas_convenio_itens cci
+             WHERE cci.estabelecimentoId = ? AND cci.dataExecucao IS NOT NULL
+             ORDER BY mes_ref DESC`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.mes_ref as string);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    // Convênios disponíveis para filtro
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT convenio FROM contas_convenio_itens
+             WHERE estabelecimentoId = ? AND convenio IS NOT NULL
+             ORDER BY convenio`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.convenio as string);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    // Dados principais do relatório
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesRef: z.string(),
+        convenio: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          const baseWhere = `WHERE cci.estabelecimentoId = ? AND DATE_FORMAT(cci.dataExecucao, '%Y-%m') = ?`;
+          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          const convenioFilter = input.convenio ? ` AND cci.convenio = ?` : '';
+          if (input.convenio) baseParams.push(input.convenio);
+
+          // KPIs gerais
+          const [kpiRows] = await conn.execute(
+            `SELECT
+               COUNT(DISTINCT cci.numeroGuia) as total_guias,
+               COUNT(*) as total_itens,
+               COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
+               COALESCE(SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.quantidade ELSE 0 END), 0) as total_diarias,
+               COUNT(DISTINCT cci.pacienteNome) as total_pacientes
+             FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}`,
+            baseParams
+          );
+          const kpi = (kpiRows as any[])[0];
+
+          // Por tipo (usando tipoItem direto do XML)
+          const [tipoRows] = await conn.execute(
+            `SELECT
+               COALESCE(cci.tipoItem, 'NÃO INFORMADO') as categoria,
+               COUNT(*) as qtd_itens,
+               COALESCE(SUM(cci.quantidade), 0) as total_quantidade,
+               COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
+               COALESCE(SUM(cci.valorUnitario * cci.quantidade), 0) as total_calculado
+             FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}
+             GROUP BY COALESCE(cci.tipoItem, 'NÃO INFORMADO')
+             ORDER BY total_faturado DESC`,
+            baseParams
+          );
+
+          // Por paciente
+          const [pacienteRows] = await conn.execute(
+            `SELECT
+               cci.pacienteNome as paciente,
+               cci.carteiraBeneficiario as carteira,
+               COUNT(DISTINCT cci.numeroGuia) as total_guias,
+               COUNT(*) as total_itens,
+               COALESCE(SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.quantidade ELSE 0 END), 0) as qtd_diarias,
+               COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
+               GROUP_CONCAT(DISTINCT cci.convenio ORDER BY cci.convenio SEPARATOR ', ') as convenios
+             FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}
+             GROUP BY cci.pacienteNome, cci.carteiraBeneficiario
+             ORDER BY total_faturado DESC
+             LIMIT 200`,
+            baseParams
+          );
+
+          // Por item
+          const [itemRows] = await conn.execute(
+            `SELECT
+               cci.codigoItem as codigo,
+               cci.descricaoItem as descricao,
+               COALESCE(cci.tipoItem, 'NÃO INFORMADO') as categoria,
+               COUNT(*) as qtd_ocorrencias,
+               COALESCE(SUM(cci.quantidade), 0) as total_quantidade,
+               COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
+               AVG(cci.valorUnitario) as valor_unitario_medio
+             FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}
+             GROUP BY cci.codigoItem, cci.descricaoItem, COALESCE(cci.tipoItem, 'NÃO INFORMADO')
+             ORDER BY total_faturado DESC
+             LIMIT 300`,
+            baseParams
+          );
+
+          const totalFaturado = Number(kpi.total_faturado);
+          const totalDiarias = Number(kpi.total_diarias);
+          const ticketMedio = totalDiarias > 0 ? totalFaturado / totalDiarias : null;
+
+          return {
+            kpi: {
+              totalGuias: Number(kpi.total_guias),
+              totalItens: Number(kpi.total_itens),
+              totalFaturado,
+              totalDiarias,
+              totalPacientes: Number(kpi.total_pacientes),
+              ticketMedio,
+            },
+            porTipo: (tipoRows as any[]).map((r: any) => ({
+              categoria: r.categoria as string,
+              qtdItens: Number(r.qtd_itens),
+              totalQuantidade: Number(r.total_quantidade),
+              totalFaturado: Number(r.total_faturado),
+            })),
+            porPaciente: (pacienteRows as any[]).map((r: any) => ({
+              paciente: r.paciente as string,
+              carteira: r.carteira as string,
+              totalGuias: Number(r.total_guias),
+              totalItens: Number(r.total_itens),
+              qtdDiarias: Number(r.qtd_diarias),
+              totalFaturado: Number(r.total_faturado),
+              convenios: r.convenios as string,
+              ticketMedioPaciente: Number(r.qtd_diarias) > 0 ? Number(r.total_faturado) / Number(r.qtd_diarias) : null,
+            })),
+            porItem: (itemRows as any[]).map((r: any) => ({
+              codigo: r.codigo as string,
+              descricao: r.descricao as string,
+              categoria: r.categoria as string,
+              qtdOcorrencias: Number(r.qtd_ocorrencias),
+              totalQuantidade: Number(r.total_quantidade),
+              totalFaturado: Number(r.total_faturado),
+              valorUnitarioMedio: Number(r.valor_unitario_medio),
+            })),
+          };
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+  }),
 });
 
 function calcularDiasParado(datasai: string | null): number {

@@ -3664,3 +3664,10 @@
 - [x] Identificar causa: staging (atendimentos_sem_conta) tinha 716 registros mas atendimentos_unificados estava vazio para estabId=4
 - [x] Corrigir dados: popular atendimentos_unificados com INSERT IGNORE a partir de atendimentos_sem_conta (713 registros inseridos)
 - [x] Corrigir procedure sincronizarAtendimentosSemConta: deduplicar por numatend + usar INSERT IGNORE para evitar erro de chave duplicada em sincronizações futuras
+
+## Relatório OX UTI - Faturado (XML Enviado) (2026-05-19)
+- [x] Backend: procedure relatorioOxUtiFaturado (mesesDisponiveis, convenios, dados) em routers.ts
+- [x] Frontend: página RelatorioOxUtiFaturado.tsx com KPIs, Por Tipo, Por Paciente, Por Item
+- [x] Rota /relatorio-ox-uti-faturado registrada no App.tsx
+- [x] Item de menu "Ox UTI - Faturado (XML)" adicionado no DashboardLayout
+- [x] Exportação para Excel com abas KPIs, Por Tipo, Por Paciente, Por Item
