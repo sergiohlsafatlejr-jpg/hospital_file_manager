@@ -11,7 +11,65 @@
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
 import { buscarTotaisFaturamentoExterno, buscarTotaisPorConvenioExterno } from "./faturamentoExterno";
+import { integFaturado } from "../drizzle/schema-integracao";
+import pg from "pg";
+const { Pool } = pg;
 
+// Pool dinâmico para conexões Warleine por estabelecimento
+const dynamicFaturamentoPools = new Map<number, pg.Pool>();
+async function getDynWarleinePool(estabelecimentoId?: number): Promise<pg.Pool> {
+  const { getDb } = await import("./db");
+  const { integracaoConexoes } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  if (!estabelecimentoId) {
+    // Fallback para env vars
+    return new Pool({
+      host: process.env.WARLEINE_DB_HOST || "localhost",
+      port: parseInt(process.env.WARLEINE_DB_PORT || "5432"),
+      database: process.env.WARLEINE_DB_NAME || "warleine",
+      user: process.env.WARLEINE_DB_USER || "postgres",
+      password: process.env.WARLEINE_DB_PASSWORD || "",
+      max: 5,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  if (dynamicFaturamentoPools.has(estabelecimentoId)) {
+    return dynamicFaturamentoPools.get(estabelecimentoId)!;
+  }
+  const db = await getDb();
+  if (db) {
+    const [conexao] = await db.select().from(integracaoConexoes).where(
+      and(
+        eq(integracaoConexoes.estabelecimentoId, estabelecimentoId),
+        eq(integracaoConexoes.tipo, "postgresql"),
+        eq(integracaoConexoes.ativo, "sim")
+      )
+    );
+    if (conexao) {
+      const password = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
+      const pool = new Pool({
+        host: conexao.host,
+        port: conexao.porta,
+        database: conexao.banco,
+        user: conexao.usuario,
+        password,
+        max: 5,
+        ssl: { rejectUnauthorized: false },
+      });
+      dynamicFaturamentoPools.set(estabelecimentoId, pool);
+      return pool;
+    }
+  }
+  return new Pool({
+    host: process.env.WARLEINE_DB_HOST || "localhost",
+    port: parseInt(process.env.WARLEINE_DB_PORT || "5432"),
+    database: process.env.WARLEINE_DB_NAME || "warleine",
+    user: process.env.WARLEINE_DB_USER || "postgres",
+    password: process.env.WARLEINE_DB_PASSWORD || "",
+    max: 5,
+    ssl: { rejectUnauthorized: false },
+  });
+}
 // ============================================================
 // INTERFACES
 // ============================================================
@@ -1107,3 +1165,91 @@ export async function buscarRelatorioFaturamento(
     tabelaComparativa,
   };
 }
+
+// ============================================================
+// SINCRONIZAÇÃO WARLEINE -> LOCAL
+// ============================================================
+
+export async function sincronizarRelatorioFaturamento(
+  estabelecimentoId: number
+): Promise<{ sincronizados: number }> {
+  try {
+    const dbLocal = await getDb();
+    if (!dbLocal) throw new Error("Banco local indisponível");
+
+    const pool = await getDynWarleinePool(estabelecimentoId);
+    if (!pool) throw new Error("Falha ao obter conexão Warleine para o estabelecimento");
+
+    const client = await pool.connect();
+    console.log(`[sincronizarFaturamento] Iniciando extração no estabelecimento ${estabelecimentoId}`);
+
+    // Extrair faturamentos dos últimos 24 meses usando a conta agrupada
+    const query = `
+      SELECT 
+        L.numconta as numconta,
+        MAX(L.data) as max_data,
+        MAX(C.nomeconv) as nomeconv,
+        MAX(C.codconv) as codconv,
+        TO_CHAR(MAX(L.data), 'YYYY/MM') as mesprod,
+        SUM(L.vltotreais) as vl_faturado,
+        SUM(L.quantidade) as quantidade,
+        MAX(a.tipoatend) as tipoatend,
+        MAX(CC.nomecc) as nomecc,
+        MAX(a.guiasolic) as guiacobra,
+        MAX(a.aihguia) as aihguia,
+        MAX(a.matriatend) as matricula
+      FROM "PACIENTE".lancamen L
+      LEFT JOIN "PACIENTE".contas CO ON CO.numconta = L.numconta
+      LEFT JOIN "PACIENTE".cadplaco CP ON CP.codplaco = CO.codplaco
+      LEFT JOIN "PACIENTE".cadconv C ON C.codconv = CP.codconv
+      LEFT JOIN "PACIENTE".arqatend a ON a.numatend = L.numatend
+      LEFT JOIN "PACIENTE".cadcc CC ON CC.codcc = L.codcc
+      WHERE L.data >= NOW() - INTERVAL '25 months'
+      GROUP BY L.numconta
+    `;
+
+    const result = await client.query(query);
+    client.release();
+    
+    const rows = result.rows;
+    console.log(`[sincronizarFaturamento] Encontrados ${rows.length} grupos de faturamento.`);
+
+    if (rows.length > 0) {
+      // Limpar todos os registros antigos desse estabelecimento no cache local
+      await dbLocal.delete(integFaturado).where(sql`estabelecimento_id = ${estabelecimentoId}`);
+
+      const BATCH_SIZE = 1000;
+      let insertedIdSequence = 1;
+
+      for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const batch = rows.slice(i, i + BATCH_SIZE).map((r) => {
+          return {
+            _id: insertedIdSequence++, // ID virtual apenas para atender ao schema sem auto_increment
+            estabelecimento_id: estabelecimentoId,
+            numconta: String(r.numconta || ""),
+            nomeconv: String(r.nomeconv || ""),
+            codconv: String(r.codconv || ""),
+            mesprod: String(r.mesprod || ""),
+            vl_faturado: String(r.vl_faturado || "0"),
+            quantidade: String(r.quantidade || "0"),
+            tipoatend: String(r.tipoatend || ""),
+            nomecc: String(r.nomecc || "Sem Setor"),
+            guiacobra: String(r.guiacobra || ""),
+            aihguia: String(r.aihguia || ""),
+            matricula: String(r.matricula || ""),
+            data: r.max_data,
+            dataint: r.max_data,
+          };
+        });
+        
+        await dbLocal.insert(integFaturado).values(batch);
+      }
+    }
+
+    return { sincronizados: rows.length };
+  } catch (error) {
+    console.error("[sincronizarFaturamento] Erro fatal:", error);
+    throw error;
+  }
+}
+

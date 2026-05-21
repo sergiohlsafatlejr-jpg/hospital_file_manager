@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ export default function Repasse() {
   const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
   const [convenioId, setConvenioId] = useState<string>("");
+  const [tipoRelatorio, setTipoRelatorio] = useState<string>("geral");
   const [dataInicio, setDataInicio] = useState<string>("");
   const [dataFim, setDataFim] = useState<string>("");
   const [busca, setBusca] = useState<string>("");
@@ -44,7 +46,7 @@ export default function Repasse() {
   // Resetar página quando filtros mudam
   useEffect(() => {
     setPage(1);
-  }, [convenioId, dataInicio, dataFim]);
+  }, [convenioId, dataInicio, dataFim, tipoRelatorio]);
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
@@ -57,6 +59,7 @@ export default function Repasse() {
       dataInicio: dataInicio || undefined,
       dataFim: dataFim || undefined,
       search: buscaDebounced || undefined,
+      tipoRelatorio: tipoRelatorio !== "geral" ? tipoRelatorio : undefined,
       page,
       pageSize,
     },
@@ -78,6 +81,7 @@ export default function Repasse() {
       dataInicio: dataInicio || undefined,
       dataFim: dataFim || undefined,
       search: buscaDebounced || undefined,
+      tipoRelatorio: tipoRelatorio !== "geral" ? tipoRelatorio : undefined,
     },
     { enabled: false } // Não executar automaticamente
   );
@@ -170,9 +174,9 @@ export default function Repasse() {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Repasse Médico</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Repasses e Relatórios</h1>
           <p className="text-muted-foreground">
-            Comparativo entre valores faturados e recebidos para repasse aos médicos
+            Comparativo entre valores faturados e recebidos para repasse (Médicos, Laboratório, Ultrassom)
           </p>
         </div>
 
@@ -199,6 +203,21 @@ export default function Repasse() {
                         {c.nome}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Tipo de Relatório</label>
+                <Select value={tipoRelatorio} onValueChange={setTipoRelatorio}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Geral" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="geral">Geral (Procedimentos/Consultas)</SelectItem>
+                    <SelectItem value="exames">Laboratório / Exames</SelectItem>
+                    <SelectItem value="ultrassom">Ultrassom</SelectItem>
+                    <SelectItem value="visitas">Repasse de Visitas (10102019)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -322,6 +341,13 @@ export default function Repasse() {
         )}
 
         {/* Tabela de repasse */}
+        <Tabs defaultValue="detalhado" className="w-full space-y-4">
+          <TabsList>
+            <TabsTrigger value="detalhado">Itens Detalhados</TabsTrigger>
+            <TabsTrigger value="convenio">Resumo por Convênio</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="detalhado" className="m-0">
         <Card>
           <CardHeader>
             <CardTitle>
@@ -439,6 +465,56 @@ export default function Repasse() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+          
+          <TabsContent value="convenio" className="m-0">
+            <Card>
+              <CardHeader>
+                <CardTitle>Resumo Consolidado por Convênio</CardTitle>
+                <CardDescription>Visualização agrupada dos valores por operadora de saúde</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Convênio</TableHead>
+                        <TableHead className="text-right">Quantidade de Itens</TableHead>
+                        <TableHead className="text-right">Total Faturado</TableHead>
+                        <TableHead className="text-right">Total Pago</TableHead>
+                        <TableHead className="text-right">Total Glosado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {resumo?.resumoPorConvenio && Object.keys(resumo.resumoPorConvenio).length > 0 ? (
+                        Object.keys(resumo.resumoPorConvenio).sort().map((conv) => {
+                          const dados = resumo.resumoPorConvenio[conv];
+                          return (
+                            <TableRow key={conv}>
+                              <TableCell className="font-medium">{conv}</TableCell>
+                              <TableCell className="text-right">{dados.itens}</TableCell>
+                              <TableCell className="text-right font-mono">{formatCurrency(dados.faturado)}</TableCell>
+                              <TableCell className="text-right font-mono text-green-600">{formatCurrency(dados.pago)}</TableCell>
+                              <TableCell className="text-right font-mono text-red-600">
+                                {dados.glosado > 0 ? formatCurrency(dados.glosado) : "-"}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                            Nenhum resumo disponível.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   );

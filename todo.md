@@ -3677,3 +3677,27 @@
 - [x] Combinar excel + demonstrativo como fontes de recebimento (em vez de escolher apenas uma)
 - [x] Corrigir recebimentoOrigem para registrar 'demonstrativo' quando match vier dessa fonte
 - [x] Corrigir recebimentoId para usar id real (sem offset) ao salvar no banco
+
+## Integração GitHub (21/mai/2026)
+- [x] RPA: copiar pasta server/rpa/ e rpaRouter.ts do GitHub
+- [x] RPA: instalar puppeteer e adicionar rota /rpa-manager
+- [x] RPA: adicionar menu "Automação RPA" no DashboardLayout
+- [x] RPA: criar tabela credenciais_portais no banco (db:push)
+- [x] Conectores: copiar OracleConnector, MysqlConnector, SqlServerConnector, PostgresConnector
+- [x] Conectores: instalar oracledb, mssql, mysql2
+- [x] integradorDadosRouter: adicionar testarConexao multi-sistema (Oracle/SqlServer/MySQL)
+- [x] integradorDadosRouter: adicionar tipoDados prontuario_prescricoes e prontuario_evolucoes
+- [x] Schema: adicionar tabelas prontuario_prescricoes e prontuario_evolucoes
+- [x] contasConvenioRouter: copiar versão GitHub (buscarProntuario + melhorias)
+- [x] ContaConvenioDetalhes: copiar versão GitHub (aba Apoio Clínico + prontuário)
+- [x] Atendimentos.tsx e AtendimentosParadosUnificados.tsx: copiar versão GitHub
+- [x] conciliacaoJobManager.ts: copiar versão GitHub (processamento por lotes)
+- [x] parsers.ts: copiar versão GitHub (parser PDF Saúde Caixa melhorado)
+- [x] recebimentosExcelParser.ts: copiar versão GitHub (suporte Bradesco + detecção dinâmica)
+- [x] padroesTasyBiService.ts: copiar arquivo novo do GitHub
+- [x] AnaliseGlosa.tsx: aplicar melhorias de IA automática e campos adicionais
+- [x] RelatoriosBI.tsx: copiar versão GitHub (PDF/PPTX com IA + modo comparativo)
+- [x] FinanceiroModule.tsx: copiar versão GitHub (+123 linhas)
+- [x] IntegradorDados.tsx: copiar versão GitHub (+44 linhas)
+- [x] Repasse.tsx: copiar versão GitHub (+76 linhas)
+- [x] Instalar jspdf, jspdf-autotable, pptxgenjs para exportação PDF/PPTX

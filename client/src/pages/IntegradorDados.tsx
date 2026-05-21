@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Trash2, Play, RefreshCw, Plus, AlertCircle, Database, FileText, Download, Pencil, Save, X, Eye, EyeOff } from "lucide-react";
+import { Loader2, Trash2, Play, RefreshCw, Plus, AlertCircle, Database, FileText, Download, Pencil, Save, X, Eye, EyeOff, Eraser } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -86,6 +86,7 @@ export function IntegradorDados() {
     conexaoDatabase: string;
     conexaoUser: string;
     conexaoPassword: string;
+    conexaoTabelaDestinoBi: string;
     showPassword: boolean;
   }>({
     querySql: "",
@@ -98,6 +99,7 @@ export function IntegradorDados() {
     conexaoDatabase: "",
     conexaoUser: "",
     conexaoPassword: "",
+    conexaoTabelaDestinoBi: "",
     showPassword: false,
   });
   const [savingEdit, setSavingEdit] = useState(false);
@@ -131,11 +133,21 @@ export function IntegradorDados() {
   });
 
   const sincronizar = trpc.integradorDados.sincronizar.useMutation({
-    onSuccess: (data) => {
+    onSuccess: async (data, variables) => {
       if (data.sucesso) {
         toast.success("Sincronização Concluída", {
-          description: data.mensagem,
+          description: data.mensagem + " - Iniciando transformação automática...",
         });
+        
+        try {
+          // Apenas iniciar auto-transformação se não for bi_relatorio
+          if (variables.tipoDados !== 'bi_relatorio') {
+            await transformarParaAtendimentos.mutateAsync({ configId: variables.configId });
+          }
+        } catch(e) {
+          console.error("Auto-transform falhou", e);
+        }
+
         listarConfiguracoes.refetch();
         obterLogs.refetch();
         obterStatus.refetch();
@@ -172,9 +184,9 @@ export function IntegradorDados() {
     },
   });
 
-  const handleSincronizar = async (configId: number) => {
+  const handleSincronizar = async (configId: number, tipoDados: string) => {
     try {
-      await sincronizar.mutateAsync({ configId });
+      await sincronizar.mutateAsync({ configId, tipoDados } as any); // cast for extra UI param
     } catch (e) {
       // Error already handled by onError callback
     }
@@ -352,6 +364,7 @@ export function IntegradorDados() {
       conexaoDatabase: conexao.database || "",
       conexaoUser: conexao.user || "",
       conexaoPassword: conexao.password || "",
+      conexaoTabelaDestinoBi: conexao.tabelaDestinoBi || "",
       showPassword: false,
     });
     setEditingConfig(config);
@@ -374,6 +387,7 @@ export function IntegradorDados() {
           database: editForm.conexaoDatabase,
           user: editForm.conexaoUser,
           password: editForm.conexaoPassword,
+          tabelaDestinoBi: editForm.conexaoTabelaDestinoBi,
         },
       });
     } catch (e) {
@@ -643,7 +657,7 @@ export function IntegradorDados() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {TIPO_DADOS_LABELS[config.tipoDados] || config.tipoDados}
+                        {config.tipoDados === 'bi_relatorio' ? 'Relatório Customizado (BI)' : (TIPO_DADOS_LABELS[config.tipoDados] || config.tipoDados)}
                       </TableCell>
                       <TableCell>
                         <select
@@ -658,7 +672,19 @@ export function IntegradorDados() {
                         </select>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {config.descricao || "-"}
+                        <div className="flex flex-col">
+                          <span>{config.descricao || "-"}</span>
+                          {config.tipoDados === 'bi_relatorio' && config.conexaoConfig?.tabelaDestinoBi && (
+                            <span className="text-xs text-blue-600 font-mono mt-1 font-semibold">
+                              Destino: {config.conexaoConfig.tabelaDestinoBi}
+                            </span>
+                          )}
+                          {config.ultimaSincronizacao && (
+                            <span className="text-xs text-muted-foreground mt-1">
+                              Última Sinc.: {formatDateTimeBR(config.ultimaSincronizacao)}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button
@@ -672,7 +698,7 @@ export function IntegradorDados() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleSincronizar(config.id)}
+                          onClick={() => handleSincronizar(config.id, config.tipoDados)}
                           disabled={sincronizar.isPending}
                           title="Sincronizar agora"
                         >
@@ -682,19 +708,21 @@ export function IntegradorDados() {
                             <Play className="h-4 w-4" />
                           )}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleTransformar(config.id)}
-                          disabled={transformarParaAtendimentos.isPending}
-                          title="Transformar para tabela unificada"
-                        >
-                          {transformarParaAtendimentos.isPending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <RefreshCw className="h-4 w-4" />
-                          )}
-                        </Button>
+                        {config.tipoDados !== 'bi_relatorio' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleTransformar(config.id)}
+                            disabled={transformarParaAtendimentos.isPending}
+                            title="Transformar para tabela unificada"
+                          >
+                            {transformarParaAtendimentos.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -706,7 +734,7 @@ export function IntegradorDados() {
                           {limparSincronizacao.isPending ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4" />
+                            <Eraser className="h-4 w-4" />
                           )}
                         </Button>
                         <Button
@@ -863,6 +891,7 @@ export function IntegradorDados() {
                       <SelectItem value="procedimentos">Procedimentos</SelectItem>
                       <SelectItem value="pacientes">Pacientes</SelectItem>
                       <SelectItem value="busca_conta">Busca Conta</SelectItem>
+                      <SelectItem value="bi_relatorio">Relatório Customizado (BI)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -953,6 +982,21 @@ export function IntegradorDados() {
                   </div>
                 </div>
               </div>
+              
+              {editForm.tipoDados === "bi_relatorio" && (
+                <div className="space-y-2 mt-4 pt-4 border-t">
+                  <Label>Nome da Tabela de Destino</Label>
+                  <p className="text-xs text-muted-foreground mb-2">A tabela será criada automaticamente no MySQL.</p>
+                  <Input 
+                    value={editForm.conexaoTabelaDestinoBi}
+                    placeholder="Ex: bi_relatorio_tasy_financeiro" 
+                    onChange={(e) => {
+                      const val = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                      setEditForm(prev => ({ ...prev, conexaoTabelaDestinoBi: val }));
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Query SQL */}

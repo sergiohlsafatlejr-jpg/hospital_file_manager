@@ -113,6 +113,20 @@
       "when": 1779208081591,
       "tag": "0097_outstanding_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "5",
+      "when": 1779389619200,
+      "tag": "0098_typical_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "5",
+      "when": 1779390200353,
+      "tag": "0099_harsh_mantis",
+      "breakpoints": true
     }
   ]
 }

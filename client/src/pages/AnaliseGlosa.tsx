@@ -398,6 +398,21 @@ export default function AnaliseGlosa() {
       prioridade: "media",
     });
     setDialogRecurso(true);
+
+    // Automate AI suggestion using extracted metadata
+    if (primeiroItem) {
+      const codigoGlosa = primeiroItem.codigoGlosa || primeiroItem.motivoGlosa?.match(/\d{4}/)?.[0] || "0000";
+      setCarregandoSugestao(true);
+      sugerirArgumentoMutation.mutate({
+        codigoGlosa,
+        convenioId: primeiroItem.convenioId,
+        codigoProcedimento: primeiroItem.codigo,
+        valorGlosado: primeiroItem.valorGlosado.toString(),
+        pacienteNome: primeiroItem.pacienteNome,
+        pacienteCarteirinha: primeiroItem.pacienteCarteirinha,
+        guiaNumero: primeiroItem.guiaNumero,
+      });
+    }
   };
 
   const handleCriarRecurso = () => {
@@ -440,6 +455,9 @@ export default function AnaliseGlosa() {
       convenioId: primeiroItem.convenioId,
       codigoProcedimento: primeiroItem.codigo,
       valorGlosado: primeiroItem.valorGlosado.toString(),
+      pacienteNome: primeiroItem.pacienteNome,
+      pacienteCarteirinha: primeiroItem.pacienteCarteirinha,
+      guiaNumero: primeiroItem.guiaNumero,
     });
   };
 

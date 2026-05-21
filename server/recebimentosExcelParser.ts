@@ -24,28 +24,39 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   // Guia
   'Número Guia': 'numeroGuia',
   'GUIA': 'numeroGuia', // Formato Vivacom
+  'Guia operadora/Senha': 'numeroGuia', // Bradesco
   'Seq': 'seq',
+  'Doc Original': 'seq', // Bradesco
+  
   
   // Beneficiário
   'Beneficiário': 'beneficiario',
   // 'ASSOCIADO': 'beneficiario', // NÃO MAPEAR - ASSOCIADO é o nome do paciente, não a carteirinha
   'Nome Beneficiário': 'nomeBeneficiario',
   'ASSOCIADO': 'nomeBeneficiario', // Formato Vivacom - ASSOCIADO é o nome do paciente
+  'Nome': 'nomeBeneficiario', // Bradesco
   
   // Execução
   'Data Execução': 'dataExecucao',
   'DATA ATENDIMENTO': 'dataExecucao', // Formato Vivacom
   'Hora Execução': 'horaExecucao',
+  'Data do Evento': 'dataExecucao', // Bradesco
   
   // Item
   'Item': 'item',
   'CODIGO': 'item', // Formato Vivacom
   'Item Desc': 'itemDesc',
   'PROCEDIMENTO': 'itemDesc', // Formato Vivacom
+  'Código do Procedimento': 'item', // Bradesco
+  'CÃ³digo do Procedimento': 'item', // Bradesco (erro de encoding)
+  'Descrição do Procedimento': 'itemDesc', // Bradesco
+  'DescriÃ§Ã£o do Procedimento': 'itemDesc', // Bradesco (erro de encoding)
   'Quantidade': 'quantidade',
   'Valor Pagamento': 'valorPagamento',
   'VALOR PAGO': 'valorPagamento', // Formato Vivacom
   'Pagamento': 'valorPagamento',
+  'Valor (R$)': 'valorPagamento', // Bradesco
+  'Quantidade Liberada': 'quantidade', // Bradesco
   
   // Tipo e Status - CAMPOS IMPORTANTES
   'Tipo Lançamento': 'tipoLancamento',
@@ -54,6 +65,7 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'COD. GLOSA': 'codigoGlosa', // Formato Vivacom - CORRIGIDO: era erroTiss
   'Situação Item': 'situacaoItem',
   'Situacao Item': 'situacaoItem',
+  'Justificativa': 'erroTiss', // Bradesco
   
   // Solicitante
   'Código Solicitante': 'codigoSolicitante',
@@ -135,7 +147,7 @@ const COLUMN_MAPPING: Record<string, keyof InsertRecebimentoExcel> = {
   'Data Baixa': 'dataInicioFaturamentoInternacao', // GEAP
   'Guia Contratado': 'codigoPrestador', // GEAP - armazenar no campo codigoPrestador
   'Valor Glosado Item': 'valorGlosa', // GEAP
-  'Justificativa': 'codigoGlosa', // GEAP
+  // 'Justificativa': 'codigoGlosa', // GEAP (Removido pois já está mapeado para erroTiss acima)
 };
 
 /**
@@ -331,18 +343,13 @@ export function extractRecebimentoExcelFromRow(
     }
   }
   
-  // CORREÇÃO UNIMED: Quando situacaoItem = "PAGO" mas erroTiss está preenchido,
+  // CORREÇÃO GERAL: Quando situacaoItem = "PAGO" (ou vazio) mas erroTiss está preenchido,
   // significa que o convênio glosou o item (total ou parcialmente).
-  // No formato Unimed, o "Valor Pagamento" é o valor efetivamente pago pelo convênio.
-  // A glosa real é a diferença entre o valor apresentado (faturado) e o valor pago,
-  // mas como o Excel Unimed não traz o "Valor Informado", marcamos como "GLOSADO"
-  // para que a conciliação com o faturamento calcule a diferença.
-  // Se o valor pago = 0, é glosa total. Se > 0, é glosa parcial.
   if (record.erroTiss && record.erroTiss.trim() !== '' && 
-      (!record.situacaoItem || record.situacaoItem === 'PAGO')) {
+      (!record.situacaoItem || record.situacaoItem === 'PAGO' || record.situacaoItem === 'NAO_PAGO')) {
     const valorPagoNum = parseNumber(record.valorPagamento);
     
-    // Extrair código de glosa do campo erroTiss (ex: "1702-COBRANÇA DE..." -> "1702")
+    // Extrair código de glosa do campo erroTiss (ex: "1702-COBRANÇA DE..." ou "1407 SERVICO..." -> "1702" ou "1407")
     if (!record.codigoGlosa) {
       const codigoMatch = record.erroTiss.match(/^(\d{3,4})/);
       if (codigoMatch) {
@@ -355,7 +362,6 @@ export function extractRecebimentoExcelFromRow(
       record.situacaoItem = 'GLOSADO';
     } else {
       // Glosa parcial: convênio pagou algo, mas houve glosa
-      // O valor da glosa será calculado na conciliação com o faturamento
       record.situacaoItem = 'GLOSADO';
     }
   }
@@ -407,47 +413,55 @@ export function parseExcelRecebimentosExcel(
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   
-  // Detectar se é arquivo GEAP (cabeçalho na linha 2)
-  const row2Cell = worksheet['A2'];
-  const isGEAP = row2Cell && String(row2Cell.v || row2Cell.t || '').includes('Guia');
+  let headerRowIdx = 0;
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+  
+  // Detecção dinâmica de cabeçalho: procurar linha com mais colunas mapeadas
+  for (let r = 0; r < Math.min(15, range.e.r + 1); r++) {
+    let matches = 0;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      const val = worksheet[cellRef]?.v;
+      if (val && typeof val === 'string') {
+        const trimmed = val.trim();
+        if (COLUMN_MAPPING[trimmed] || trimmed === 'Data do Evento' || trimmed === 'Item') {
+          matches++;
+        }
+      }
+    }
+    // Se achou pelo menos 3 colunas válidas, assume que é o cabeçalho
+    if (matches >= 3) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+  
+  console.log('[Parser] Cabeçalho detectado na linha:', headerRowIdx + 1);
+  
+  const headers: string[] = [];
+  // Extrair cabeçalhos da linha detectada
+  for (let col = range.s.c; col <= range.e.c; col++) {
+    const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
+    const cell = worksheet[cellRef];
+    headers.push(cell?.v ? String(cell.v).trim() : `__EMPTY_${col}`);
+  }
   
   let rows: Record<string, unknown>[] = [];
   
-  if (isGEAP) {
-    // Para GEAP, ler manualmente linha 2 como cabeçalho
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    const headers: string[] = [];
+  // Extrair dados a partir da linha seguinte ao cabeçalho
+  for (let row = headerRowIdx + 1; row <= range.e.r; row++) {
+    const rowData: Record<string, unknown> = {};
+    let hasData = false;
     
-    // Extrair cabeçalhos da linha 2 (índice 1)
     for (let col = range.s.c; col <= range.e.c; col++) {
-      const cellRef = XLSX.utils.encode_cell({ r: 1, c: col });
+      const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
       const cell = worksheet[cellRef];
-      headers.push(cell?.v ? String(cell.v).trim() : `__EMPTY_${col}`);
+      const value = cell?.w || cell?.v || null;
+      rowData[headers[col]] = value;
+      if (value) hasData = true;
     }
     
-    console.log('[Parser GEAP] Cabeçalhos encontrados:', headers.join(', '));
-    
-    // Extrair dados a partir da linha 3 (índice 2)
-    for (let row = 2; row <= range.e.r; row++) {
-      const rowData: Record<string, unknown> = {};
-      let hasData = false;
-      
-      for (let col = range.s.c; col <= range.e.c; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-        const cell = worksheet[cellRef];
-        const value = cell?.v || null;
-        rowData[headers[col]] = value;
-        if (value) hasData = true;
-      }
-      
-      if (hasData) rows.push(rowData);
-    }
-  } else {
-    // Para outros formatos, usar leitura padrão
-    rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-      defval: null,
-      raw: false,
-    });
+    if (hasData) rows.push(rowData);
   }
   
   // Log das colunas encontradas para debug
@@ -464,17 +478,43 @@ export function parseExcelRecebimentosExcel(
   
   const records: InsertRecebimentoExcel[] = [];
   
+  let lastNomeBeneficiario: string | null = null;
+  let lastDataExecucao: Date | null = null;
+  let lastNumeroGuia: string | null = null;
+  let lastProtocoloTiss: string | null = null;
+  let lastSeq: number | null = null;
+  
   for (const row of rows) {
-    // Verificar se a linha tem dados relevantes (pelo menos número da guia ou beneficiário)
-    // Suportar múltiplos formatos: padrão, Vivacom e GEAP
+    // Verificar se a linha tem dados relevantes
     const hasData = row['Número Guia'] || row['Beneficiário'] || row['Item'] || 
                     row['GUIA'] || row['ASSOCIADO'] || row['CODIGO'] ||
                     row['Nº Guia'] || row['Cliente'] || row['Nº Serviço'] ||
-                    row['NUMERO_GUIA_OPERADORA'] || row['NOME_BENEFICIARIO'] || row['CODIGO_PROCEDIMENTO'];
+                    row['NUMERO_GUIA_OPERADORA'] || row['NOME_BENEFICIARIO'] || row['CODIGO_PROCEDIMENTO'] ||
+                    row['Nome'] || row['Código do Procedimento'] || row['CÃ³digo do Procedimento'] || 
+                    row['Guia operadora/Senha'] || row['Valor (R$)'];
     if (!hasData) continue;
     
     const record = extractRecebimentoExcelFromRow(row, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
-    records.push(record);
+    
+    // Carry-over logic
+    if (record.nomeBeneficiario) lastNomeBeneficiario = record.nomeBeneficiario;
+    else if (lastNomeBeneficiario && record.item) record.nomeBeneficiario = lastNomeBeneficiario;
+    
+    if (record.dataExecucao) lastDataExecucao = record.dataExecucao;
+    else if (lastDataExecucao && record.item) record.dataExecucao = lastDataExecucao;
+    
+    if (record.numeroGuia) lastNumeroGuia = record.numeroGuia;
+    else if (lastNumeroGuia && record.item) record.numeroGuia = lastNumeroGuia;
+    
+    if (record.protocoloTiss) lastProtocoloTiss = record.protocoloTiss;
+    else if (lastProtocoloTiss && record.item) record.protocoloTiss = lastProtocoloTiss;
+    
+    if (record.seq) lastSeq = record.seq;
+    else if (lastSeq && record.item) record.seq = lastSeq;
+    
+    if (record.item || record.valorPagamento) {
+      records.push(record);
+    }
   }
   
   // Log do primeiro registro para verificar campos
@@ -506,26 +546,50 @@ export function parseExcelRecebimentosExcelChunked(
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   
-  // Detectar se é arquivo GEAP (cabeçalho na linha 2)
-  const row2Cell = worksheet['A2'];
-  const isGEAP = row2Cell && String(row2Cell.v || row2Cell.t || '').includes('Guia');
-  
+  let headerRowIdx = 0;
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-  const totalRows = range.e.r - (isGEAP ? 2 : 1) + 1; // excluir cabeçalho(s)
+  
+  // Detecção dinâmica de cabeçalho
+  for (let r = 0; r < Math.min(15, range.e.r + 1); r++) {
+    let matches = 0;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      const val = worksheet[cellRef]?.v;
+      if (val && typeof val === 'string') {
+        const trimmed = val.trim();
+        if (COLUMN_MAPPING[trimmed] || trimmed === 'Data do Evento' || trimmed === 'Item') {
+          matches++;
+        }
+      }
+    }
+    if (matches >= 3) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+  
+  const totalRows = range.e.r - headerRowIdx; // excluir cabeçalho(s)
   
   // Extrair cabeçalhos
-  const headerRow = isGEAP ? 1 : 0;
-  const dataStartRow = isGEAP ? 2 : 1;
   const headers: string[] = [];
   
   for (let col = range.s.c; col <= range.e.c; col++) {
-    const cellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+    const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
     const cell = worksheet[cellRef];
     headers.push(cell?.v ? String(cell.v).trim() : `__EMPTY_${col}`);
   }
   
-  console.log(`[Parser Chunked] ${totalRows} linhas, ${headers.length} colunas, chunks de ${chunkSize}`);
+  const dataStartRow = headerRowIdx + 1;
+  
+  console.log(`[Parser Chunked] Cabeçalho detectado na linha ${headerRowIdx + 1}, ${totalRows} linhas de dados, chunks de ${chunkSize}`);
   console.log('[Parser Chunked] Colunas:', headers.join(', '));
+  
+  let lastNomeBeneficiario: string | null = null;
+  let lastDataExecucao: Date | null = null;
+  let lastNumeroGuia: string | null = null;
+  let lastProtocoloTiss: string | null = null;
+  let lastSeq: number | null = null;
+  let totalProcessed = 0;
   
   // Processar em chunks
   let totalRecords = 0;
@@ -547,17 +611,40 @@ export function parseExcelRecebimentosExcelChunked(
         if (value) hasData = true;
       }
       
-      if (!hasData) continue;
-      
-      // Verificar hasData com campos conhecidos
-      const hasRelevantData = rowData['Número Guia'] || rowData['Beneficiário'] || rowData['Item'] || 
-                              rowData['GUIA'] || rowData['ASSOCIADO'] || rowData['CODIGO'] ||
-                              rowData['Nº Guia'] || rowData['Cliente'] || rowData['Nº Serviço'] ||
-                              rowData['NUMERO_GUIA_OPERADORA'] || rowData['NOME_BENEFICIARIO'] || rowData['CODIGO_PROCEDIMENTO'];
-      if (!hasRelevantData) continue;
-      
-      const record = extractRecebimentoExcelFromRow(rowData, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
-      currentChunk.push(record);
+      if (hasData) {
+        const hasValidData = rowData['Número Guia'] || rowData['Beneficiário'] || rowData['Item'] || 
+                             rowData['GUIA'] || rowData['ASSOCIADO'] || rowData['CODIGO'] ||
+                             rowData['Nº Guia'] || rowData['Cliente'] || rowData['Nº Serviço'] ||
+                             rowData['NUMERO_GUIA_OPERADORA'] || rowData['NOME_BENEFICIARIO'] || rowData['CODIGO_PROCEDIMENTO'] ||
+                             rowData['Nome'] || rowData['Código do Procedimento'] || rowData['CÃ³digo do Procedimento'] || 
+                             rowData['Guia operadora/Senha'] || rowData['Valor (R$)'] ||
+                             rowData['Matrícula'] || rowData['Beneficiário/Associado'];
+        
+        if (hasValidData) {
+          const record = extractRecebimentoExcelFromRow(rowData, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
+          
+          // Carry-over logic
+          if (record.nomeBeneficiario) lastNomeBeneficiario = record.nomeBeneficiario;
+          else if (lastNomeBeneficiario && record.item) record.nomeBeneficiario = lastNomeBeneficiario;
+          
+          if (record.dataExecucao) lastDataExecucao = record.dataExecucao;
+          else if (lastDataExecucao && record.item) record.dataExecucao = lastDataExecucao;
+          
+          if (record.numeroGuia) lastNumeroGuia = record.numeroGuia;
+          else if (lastNumeroGuia && record.item) record.numeroGuia = lastNumeroGuia;
+          
+          if (record.protocoloTiss) lastProtocoloTiss = record.protocoloTiss;
+          else if (lastProtocoloTiss && record.item) record.protocoloTiss = lastProtocoloTiss;
+          
+          if (record.seq) lastSeq = record.seq;
+          else if (lastSeq && record.item) record.seq = lastSeq;
+          
+          if (record.item || record.valorPagamento) {
+            currentChunk.push(record);
+            totalProcessed++;
+          }
+        }
+      }
       
       if (currentChunk.length >= chunkSize) {
         await onChunk(currentChunk, chunkIndex, totalRows);

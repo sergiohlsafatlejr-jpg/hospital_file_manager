@@ -99,15 +99,86 @@ async function executarJobBackground(jobId: string): Promise<void> {
   
   try {
     if (job.params.competencia) {
-      // Competência específica: processar diretamente
+      // Competência específica: processar
       job.progresso.competenciasTotal = 1;
       job.progresso.competenciaAtual = job.params.competencia;
       
-      const resultado = await executarConciliacaoAutomatica(job.params);
+      const resultadoTotal: ConciliacaoResultado = {
+        totalProcessados: 0,
+        totalConciliados: 0,
+        totalDivergentes: 0,
+        totalNaoRecebidos: 0,
+        totalGlosados: 0,
+        totalTerceiros: 0,
+        totalJaConciliados: 0,
+        detalhes: {
+          conciliadosPorGuiaCodigo: 0,
+          conciliadosPorGuiaCodigoTuss: 0,
+          conciliadosPorVinculacao: 0,
+          conciliadosPorPacienteCodigo: 0,
+          conciliadosPorCarteiraCodigo: 0,
+        },
+        divergencias: [],
+      };
+
+      if (!job.params.convenioId) {
+        // Se não tem convênio específico, buscar todos os convênios dessa competência e processar um por um
+        // para evitar carregar 500k+ registros na memória de uma vez.
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (db) {
+          const [conveniosData] = await db.execute(sql.raw(`
+            SELECT DISTINCT convenioId 
+            FROM faturamento_unificado 
+            WHERE estabelecimentoId = ${job.params.estabelecimentoId} 
+            AND competencia = '${job.params.competencia.replace(/'/g, "''")}'
+            AND convenioId IS NOT NULL
+          `));
+          
+          const convenios = (conveniosData as unknown as any[]).map(r => Number(r.convenioId));
+          console.log(`[ConciliacaoJob] Processando competência ${job.params.competencia} em lotes de ${convenios.length} convênios...`);
+          
+          for (let i = 0; i < convenios.length; i++) {
+            const convId = convenios[i];
+            console.log(`[ConciliacaoJob] Competência ${job.params.competencia} - Convênio ${convId} (${i+1}/${convenios.length})`);
+            job.progresso.percentual = Math.round((i / convenios.length) * 100);
+            
+            try {
+              const parcial = await executarConciliacaoAutomatica({
+                ...job.params,
+                convenioId: convId,
+              });
+              
+              resultadoTotal.totalProcessados += parcial.totalProcessados;
+              resultadoTotal.totalConciliados += parcial.totalConciliados;
+              resultadoTotal.totalDivergentes += parcial.totalDivergentes;
+              resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+              resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+              resultadoTotal.totalGlosados += parcial.totalGlosados;
+              resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
+              resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
+              resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
+              resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
+              resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
+              if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
+              
+              job.progresso.itensProcessados = resultadoTotal.totalProcessados;
+              job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
+            } catch (err: any) {
+              console.error(`[ConciliacaoJob] Erro convênio ${convId}:`, err.message);
+            }
+          }
+          resultadoTotal.divergencias = resultadoTotal.divergencias.slice(0, 100);
+        }
+      } else {
+        const resultado = await executarConciliacaoAutomatica(job.params);
+        Object.assign(resultadoTotal, resultado);
+      }
       
       job.progresso.competenciasProcessadas = 1;
       job.progresso.percentual = 100;
-      job.resultado = resultado;
+      job.resultado = resultadoTotal;
       job.status = 'concluido';
       job.finalizadoEm = Date.now();
     } else {
@@ -117,49 +188,29 @@ async function executarJobBackground(jobId: string): Promise<void> {
       const db = await getDb();
       if (!db) throw new Error("Database não disponível");
       
-      // FILTRO INTELIGENTE: buscar competências que têm demonstrativos de retorno
-      // Fonte 1: arquivos importados via upload (recebimentos_excel)
-      const [compComRecebimentos] = await db.execute(sql.raw(
-        `SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y-%m') as competencia
+      // FILTRO INTELIGENTE: buscar competências que têm demonstrativos de retorno importados
+      const [compComDemonstrativo] = await db.execute(sql.raw(
+        `SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y/%m') as competencia
          FROM arquivos a
          JOIN recebimentos_excel re ON re.arquivo_id = a.id
          WHERE a.estabelecimentoId = ${job.params.estabelecimentoId}
          AND a.direcao = 'retornado'
          ORDER BY competencia`
       ));
-      const compRecebimentos = (compComRecebimentos as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
-
-      // Fonte 2: demonstrativos importados diretamente via CSV/banco externo (tabela demonstrativo)
-      const [compComDemonstrativo] = await db.execute(sql.raw(
-        `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as competencia
-         FROM demonstrativo
-         WHERE estabelecimentoId = ${job.params.estabelecimentoId}
-         AND data_pagamento IS NOT NULL
-         ORDER BY competencia`
-      ));
-      const compDemonstrativo = (compComDemonstrativo as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
-
-      // Unir as duas fontes (sem duplicatas)
-      const competenciasComRetorno = [...new Set([...compRecebimentos, ...compDemonstrativo])];
+      const competenciasComRetorno = (compComDemonstrativo as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
       
       // Buscar todas as competências do faturamento para informar quais foram puladas
       const [todasComp] = await db.execute(sql.raw(
         `SELECT DISTINCT competencia FROM faturamento_unificado WHERE estabelecimentoId = ${job.params.estabelecimentoId} ORDER BY competencia`
       ));
       const todasCompetencias = (todasComp as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
-
-      // Normalizar competências para comparação (converter '2026/03' → '2026-03')
-      const normalizarComp = (c: string) => c.replace('/', '-');
-      const competenciasComRetornoNorm = competenciasComRetorno.map(normalizarComp);
-      const competenciasPuladas = todasCompetencias.filter((c: string) => !competenciasComRetornoNorm.includes(normalizarComp(c)));
+      const competenciasPuladas = todasCompetencias.filter((c: string) => !competenciasComRetorno.includes(c));
       
       if (competenciasPuladas.length > 0) {
         console.log(`[ConciliacaoJob] Pulando ${competenciasPuladas.length} competências sem demonstrativo: ${competenciasPuladas.join(', ')}`);
       }
       
-      // Usar as competências normalizadas (formato do faturamento_unificado)
-      // Cruzar com as competências disponíveis no faturamento para usar o formato correto
-      const competencias = todasCompetencias.filter((c: string) => competenciasComRetornoNorm.includes(normalizarComp(c)));
+      const competencias = competenciasComRetorno;
       
       if (competencias.length === 0) {
         const msg = todasCompetencias.length > 0
@@ -224,28 +275,84 @@ async function executarJobBackground(jobId: string): Promise<void> {
         console.log(`[ConciliacaoJob] Processando competência ${i + 1}/${competencias.length}: ${comp}`);
         
         try {
-          const parcial = await executarConciliacaoAutomatica({
-            ...job.params,
-            competencia: comp,
-          });
-          
-          const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
-          console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${parcial.totalProcessados} itens, ${parcial.totalConciliados} conciliados, ${parcial.totalDivergentes} divergentes, ${parcial.totalNaoRecebidos} não recebidos`);
-          
-          resultadoTotal.totalProcessados += parcial.totalProcessados;
-          job.progresso.itensProcessados = resultadoTotal.totalProcessados;
-          job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
-          resultadoTotal.totalConciliados += parcial.totalConciliados;
-          resultadoTotal.totalDivergentes += parcial.totalDivergentes;
-          resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
-          resultadoTotal.totalTerceiros += parcial.totalTerceiros;
-          resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
-          resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
-          resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
-          resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
-          resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
-          resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
-          resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 10));
+          if (!job.params.convenioId) {
+            const { getDb } = await import("./db");
+            const { sql } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const [conveniosData] = await db.execute(sql.raw(`
+                SELECT DISTINCT convenioId 
+                FROM faturamento_unificado 
+                WHERE estabelecimentoId = ${job.params.estabelecimentoId} 
+                AND competencia = '${comp.replace(/'/g, "''")}'
+                AND convenioId IS NOT NULL
+              `));
+              
+              const conveniosComp = (conveniosData as unknown as any[]).map(r => Number(r.convenioId));
+              console.log(`[ConciliacaoJob] Competência ${comp} será processada em lotes de ${conveniosComp.length} convênios...`);
+              
+              let compProcessados = 0;
+              let compConciliados = 0;
+              let compDivergentes = 0;
+              let compNaoRecebidos = 0;
+              
+              for (let j = 0; j < conveniosComp.length; j++) {
+                const convId = conveniosComp[j];
+                console.log(`[ConciliacaoJob] Competência ${comp} - Convênio ${convId} (${j+1}/${conveniosComp.length})`);
+                const parcial = await executarConciliacaoAutomatica({
+                  ...job.params,
+                  competencia: comp,
+                  convenioId: convId,
+                });
+                
+                compProcessados += parcial.totalProcessados;
+                compConciliados += parcial.totalConciliados;
+                compDivergentes += parcial.totalDivergentes;
+                compNaoRecebidos += parcial.totalNaoRecebidos;
+                
+                resultadoTotal.totalProcessados += parcial.totalProcessados;
+                resultadoTotal.totalConciliados += parcial.totalConciliados;
+                resultadoTotal.totalDivergentes += parcial.totalDivergentes;
+                resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+                resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+                resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
+                resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
+                resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
+                resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
+                resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
+                resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
+                if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
+                
+                job.progresso.itensProcessados = resultadoTotal.totalProcessados;
+                job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
+              }
+              const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
+              console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${compProcessados} itens, ${compConciliados} conciliados, ${compDivergentes} divergentes, ${compNaoRecebidos} não recebidos`);
+            }
+          } else {
+            const parcial = await executarConciliacaoAutomatica({
+              ...job.params,
+              competencia: comp,
+            });
+            
+            const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
+            console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${parcial.totalProcessados} itens, ${parcial.totalConciliados} conciliados, ${parcial.totalDivergentes} divergentes, ${parcial.totalNaoRecebidos} não recebidos`);
+            
+            resultadoTotal.totalProcessados += parcial.totalProcessados;
+            job.progresso.itensProcessados = resultadoTotal.totalProcessados;
+            job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
+            resultadoTotal.totalConciliados += parcial.totalConciliados;
+            resultadoTotal.totalDivergentes += parcial.totalDivergentes;
+            resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+            resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+            resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
+            resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
+            resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
+            resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
+            resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
+            resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
+            if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
+          }
         } catch (err: any) {
           console.error(`[ConciliacaoJob] Erro na competência ${comp}:`, err.message);
           // Continua com as próximas

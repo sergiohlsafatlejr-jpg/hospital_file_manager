@@ -18,9 +18,10 @@ import {
   Banknote, Receipt, CircleDollarSign, Percent, ArrowDownRight, ArrowUpRight,
   Clock, CheckCircle, XCircle, Eye, Landmark, List, Upload, Target, Edit, ToggleLeft,
   RefreshCw, AlertCircle, CheckCircle2, WifiOff, ExternalLink, Loader2, MapPin,
-  Filter, SortAsc, X, FileSpreadsheet, Copy
+  FileSearch, Copy, Filter, SortAsc, X
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { CustoReceitaUnidade } from "./financeiro/CustoReceitaUnidade";
 import { formatDateBR, safeParseDate, toInputDateValue } from "@/lib/dateUtils";
 
 // ==================== HELPERS ====================
@@ -859,6 +860,7 @@ function ContasPagar() {
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
             <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} conta(s)?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLote.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} conta(s) para o próximo mês?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds), avancarMeses: 1 }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> Duplicar p/ prox. mês</Button>
             <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} conta(s)?`)) excluirEmLote.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>
@@ -912,6 +914,8 @@ function ContasReceber() {
   const [editItem, setEditItem] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [ordenacao, setOrdenacao] = useState<"data" | "az" | "valor">("data");
+  const [boletoDialogOpen, setBoletoDialogOpen] = useState(false);
+  const [boletoItem, setBoletoItem] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const utils = trpc.useUtils();
 
@@ -974,6 +978,39 @@ function ContasReceber() {
   });
   const excluirEmLoteRecebivel = trpc.financeiro.recebiveis.excluirEmLote.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebíveis excluídos!"); setSelectedIds(new Set()); },
+  });
+
+  const gerarBoleto = trpc.financeiro.recebiveis.gerarBoleto.useMutation({
+    onSuccess: () => { utils.financeiro.invalidate(); toast.success("Boleto gerado com sucesso!"); setBoletoDialogOpen(false); setBoletoItem(null); },
+    onError: (e) => toast.error(e.message),
+  });
+  const baixarBoleto = trpc.financeiro.recebiveis.baixarBoleto.useMutation({
+    onSuccess: (data: any) => {
+      try {
+        const byteString = atob(data.pdf);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        const blob = new Blob([ab], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      } catch (err) {
+        toast.error("Erro ao processar PDF");
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const enviarEmail = trpc.financeiro.recebiveis.enviarEmailBoleto.useMutation({
+    onSuccess: () => { toast.success("E-mail disparado com sucesso!"); utils.financeiro.invalidate(); },
+    onError: (e) => toast.error(`Erro ao enviar: ${e.message}`),
+  });
+  const anexarNF = trpc.financeiro.recebiveis.anexarNotaFiscal.useMutation({
+    onSuccess: () => { toast.success("Nota Fiscal anexada com sucesso!"); utils.financeiro.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const enviarEmailNF = trpc.financeiro.recebiveis.enviarEmailNF.useMutation({
+    onSuccess: () => { toast.success("E-mail disparado com a Nota Fiscal isolada!"); utils.financeiro.invalidate(); },
+    onError: (e) => toast.error(e.message),
   });
 
   const rawItems = lista.data?.items || [];
@@ -1112,6 +1149,30 @@ function ContasReceber() {
     setEditDialogOpen(true);
   };
 
+  const handleGerarBoleto = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!boletoItem) return;
+    const fd = new FormData(e.currentTarget);
+    const cpfCnpj = fd.get("cpfCnpj") as string;
+    const isPf = cpfCnpj.replace(/\D/g, "").length <= 11;
+    gerarBoleto.mutate({
+      recebivelId: boletoItem.id,
+      pagador: {
+        cpfCnpj,
+        tipoPessoa: isPf ? "FISICA" : "JURIDICA",
+        nome: fd.get("nome") as string,
+        endereco: fd.get("endereco") as string,
+        numero: (fd.get("numero") as string) || undefined,
+        complemento: (fd.get("complemento") as string) || undefined,
+        bairro: fd.get("bairro") as string,
+        cidade: fd.get("cidade") as string,
+        uf: fd.get("uf") as string,
+        cep: fd.get("cep") as string,
+        email: (fd.get("email") as string) || undefined,
+      }
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -1229,6 +1290,24 @@ function ContasReceber() {
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicaoRecebivel(r)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicarRecebivel.mutate({ id: r.id })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
                       {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
+                      {r.notaFiscalKey ? (
+                         <>
+                           <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 mr-1 cursor-pointer" onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/pdf'; input.onchange = (e: any) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (re) => { const base64Data = (re.target?.result as string).split(',')[1]; anexarNF.mutate({ recebivelId: r.id, base64File: base64Data, fileName: file.name }); }; reader.readAsDataURL(file); } }; input.click(); }} title="Clique para Substituir a NF atual por uma nova.">📄 Alterar NF</Button>
+                           {!r.boletoSolicitacaoId && (
+                             <Button size="sm" variant="outline" className={`h-7 text-xs mr-1 ${r.emailEnviado === 'sim' ? 'text-teal-700 border-teal-300 bg-teal-50 hover:bg-teal-100' : 'text-blue-600 border-blue-300 hover:bg-blue-50'}`} onClick={() => { const clienteRef = r.clienteId ? clientes.data?.find((c: any) => c.id === r.clienteId) : null; const mail = window.prompt("Enviar Nota Fiscal para qual e-mail?", clienteRef?.email || ""); if (mail) enviarEmailNF.mutate({ recebivelId: r.id, email: mail }); }} title={r.emailEnviado === 'sim' ? "E-mail já enviado. Clique para reenviar." : "Enviar NF Isolada para o Cliente"} disabled={enviarEmailNF.isPending}>{r.emailEnviado === 'sim' ? <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/></svg>} {r.emailEnviado === 'sim' ? 'Enviado' : 'E-mail NF'}</Button>
+                           )}
+                         </>
+                      ) : (
+                         <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-500 hover:text-orange-600 mr-1" onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/pdf'; input.onchange = (e: any) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (re) => { const base64Data = (re.target?.result as string).split(',')[1]; anexarNF.mutate({ recebivelId: r.id, base64File: base64Data, fileName: file.name }); }; reader.readAsDataURL(file); } }; input.click(); }} title="Anexar Nota Fiscal PDF" disabled={anexarNF.isPending}>📎 + NF</Button>
+                      )}
+                      {r.boletoSolicitacaoId ? (
+                        <>
+                          <Button size="sm" variant="outline" className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50 mr-1" onClick={() => baixarBoleto.mutate({ recebivelId: r.id })} title="Baixar Boleto PDF" disabled={baixarBoleto.isPending}><Download className="h-3 w-3 mr-1" /> Boleto</Button>
+                          <Button size="sm" variant="outline" className={`h-7 text-xs ${r.emailEnviado === 'sim' ? 'text-teal-700 border-teal-300 bg-teal-50 hover:bg-teal-100' : 'text-blue-600 border-blue-300 hover:bg-blue-50'}`} onClick={() => { const clienteRef = r.clienteId ? clientes.data?.find((c: any) => c.id === r.clienteId) : null; const mail = window.prompt("Confirme o e-mail do cliente para enviar o boleto:", clienteRef?.email || ""); if (mail) enviarEmail.mutate({ recebivelId: r.id, email: mail }); }} title={r.emailEnviado === 'sim' ? "E-mail já enviado. Clique para reenviar." : "Enviar por E-mail"} disabled={enviarEmail.isPending}>{r.emailEnviado === 'sim' ? <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>} {r.emailEnviado === 'sim' ? 'Enviado' : 'E-mail'}</Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setBoletoItem(r); setBoletoDialogOpen(true); }} title="Gerar Boleto Inter" disabled={gerarBoleto.isPending}><Banknote className="h-3 w-3 mr-1" /> Gerar Boleto</Button>
+                      )}
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: r.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </td>
@@ -1244,6 +1323,7 @@ function ContasReceber() {
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
             <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is)?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLoteRecebivel.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is) para o próximo mês?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds), avancarMeses: 1 }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> Duplicar p/ prox. mês</Button>
             <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} recebível(is)?`)) excluirEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>
@@ -1278,6 +1358,47 @@ function ContasReceber() {
               <DialogFooter><Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button><Button type="submit" disabled={atualizarRecebivel.isPending}>{atualizarRecebivel.isPending ? "Salvando..." : "Salvar Alterações"}</Button></DialogFooter>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Emitir Boleto Banco Inter */}
+      <Dialog open={boletoDialogOpen} onOpenChange={(open) => { setBoletoDialogOpen(open); if (!open) setBoletoItem(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Gerar Boleto Banco Inter</DialogTitle>
+            <DialogDescription>
+              Preencha os dados do pagador para emitir o boleto no valor de {boletoItem?.valor ? formatCurrency(boletoItem.valor) : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          {boletoItem && (() => {
+            const clienteAtrelado = boletoItem?.clienteId ? clientes.data?.find((c: any) => c.id === boletoItem.clienteId) : null;
+            return (
+              <form onSubmit={handleGerarBoleto} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Nome / Razão Social *</Label><Input name="nome" defaultValue={boletoItem?.clienteNome || clienteAtrelado?.nome || ""} required /></div>
+                  <div><Label>CPF / CNPJ *</Label><Input name="cpfCnpj" defaultValue={clienteAtrelado?.cnpj || ""} required /></div>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="col-span-3"><Label>Endereço / Rua *</Label><Input name="endereco" defaultValue={clienteAtrelado?.endereco || ""} required /></div>
+                  <div><Label>Nº *</Label><Input name="numero" defaultValue={clienteAtrelado?.numero || ""} required /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Complemento</Label><Input name="complemento" defaultValue={clienteAtrelado?.complemento || ""} /></div>
+                  <div><Label>Bairro *</Label><Input name="bairro" defaultValue={clienteAtrelado?.bairro || ""} required /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div><Label>CEP *</Label><Input name="cep" defaultValue={clienteAtrelado?.cep || ""} required /></div>
+                  <div><Label>Cidade *</Label><Input name="cidade" defaultValue={clienteAtrelado?.cidade || ""} required /></div>
+                  <div><Label>UF *</Label><Input name="uf" defaultValue={clienteAtrelado?.uf || ""} required maxLength={2} /></div>
+                </div>
+                <div><Label>Email</Label><Input name="email" type="email" defaultValue={clienteAtrelado?.email || ""} placeholder="Para enviar via e-mail (opcional)" /></div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setBoletoDialogOpen(false)}>Cancelar</Button>
+                  <Button type="submit" disabled={gerarBoleto.isPending}>{gerarBoleto.isPending ? "Emitindo..." : "Emitir Boleto"}</Button>
+                </DialogFooter>
+              </form>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
@@ -1967,7 +2088,7 @@ function Cadastros() {
                   <div>
                     <Label>CEP</Label>
                     <div className="flex gap-2">
-                      <Input name="cep" id="cep-input" defaultValue={editCliente?.cep || ""} placeholder="00000-000" 
+                      <Input name="cep" id="cep-input" defaultValue={editCliente?.cep || ""} placeholder="00000-000"
                         onBlur={async (ev) => {
                           const cep = ev.target.value.replace(/\D/g, "");
                           if (cep.length !== 8) return;
@@ -2714,6 +2835,7 @@ export default function FinanceiroModule() {
           <TabsTrigger value="cadastros"><Building2 className="h-4 w-4 mr-1" /> Cadastros</TabsTrigger>
           <TabsTrigger value="banco-inter"><Landmark className="h-4 w-4 mr-1" /> Banco Inter</TabsTrigger>
           <TabsTrigger value="dre"><FileText className="h-4 w-4 mr-1" /> DRE</TabsTrigger>
+          <TabsTrigger value="custo-receita"><Building2 className="h-4 w-4 mr-1" /> Custo x Receita</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard"><FinDashboard /></TabsContent>
@@ -2725,6 +2847,7 @@ export default function FinanceiroModule() {
         <TabsContent value="cadastros"><Cadastros /></TabsContent>
         <TabsContent value="banco-inter"><BancoInterView /></TabsContent>
         <TabsContent value="dre"><DREView /></TabsContent>
+        <TabsContent value="custo-receita"><CustoReceitaUnidade /></TabsContent>
       </Tabs>
     </div>
   );

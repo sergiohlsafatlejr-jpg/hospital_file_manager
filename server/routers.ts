@@ -41,6 +41,7 @@ import { auditSystemRouter } from "./routers/auditSystemRouter";
 import { contratosConveniosRouter } from "./routers/contratosConveniosRouter";
 import { dashboardBiRouter } from "./routers/dashboardBiRouter";
 import { rhRouter } from "./routers/rhRouter";
+import { rpaRouter } from "./routers/rpaRouter";
 import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 
 /**
@@ -112,6 +113,7 @@ export const appRouter = router({
   contratosConvenios: contratosConveniosRouter,
   dashboardBi: dashboardBiRouter,
   rh: rhRouter,
+  rpa: rpaRouter,
   relatoriosGlosasBi: relatoriosGlosasBiRouter,
   
   auth: router({

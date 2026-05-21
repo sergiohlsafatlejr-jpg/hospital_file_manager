@@ -27,6 +27,7 @@ export interface ParsedProcedimento {
   // Chave composta para identificar faturamento único
   numeroLote?: string; // Número do lote do cabeçalho TISS
   sequencialTransacao?: string; // Sequencial da transação da guia
+  codigoPrestadorOperadora?: string; // Código do prestador na operadora (CNPJ do hospital etc)
 }
 
 export interface ParseResult {
@@ -115,8 +116,9 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
     
     const procedimentos: ParsedProcedimento[] = [];
     
-    // Extrair número do lote do cabeçalho TISS
+    // Extrair número do lote e dados do prestador do cabeçalho TISS
     let numeroLote = extractNumeroLote(result);
+    let codigoPrestadorOperadora = extractCodigoPrestadorOperadoraHeader(result);
     // Garantir que não seja string 'null' ou vazio
     if (numeroLote === 'null' || numeroLote === 'undefined' || (numeroLote && numeroLote.trim() === '')) {
       numeroLote = undefined;
@@ -197,6 +199,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
                 numeroGuiaOperadora,
                 numeroLote,
                 sequencialTransacao,
+                codigoPrestadorOperadora,
               });
             }
             
@@ -213,6 +216,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
                 numeroGuiaOperadora,
                 numeroLote,
                 sequencialTransacao,
+                codigoPrestadorOperadora,
               });
             }
           }
@@ -609,6 +613,60 @@ function extractNumeroLote(obj: unknown): string | undefined {
       if (lowerKey === 'numerolote') {
         const lote = getTextValue(value);
         if (lote) return lote;
+      }
+      
+      // Continue searching in nested objects
+      if (typeof value === 'object' && value !== null) {
+        const found = search(value, depth + 1);
+        if (found) return found;
+      }
+    }
+    
+    return undefined;
+  }
+  
+  return search(obj);
+}
+
+/**
+ * Extract código na operadora from TISS header (origem)
+ * Path: mensagemTISS -> cabecalho -> origem -> identificacaoPrestador -> codigoNaOperadora
+ */
+function extractCodigoPrestadorOperadoraHeader(obj: unknown): string | undefined {
+  if (!obj || typeof obj !== "object") return undefined;
+  
+  function search(node: unknown, depth: number = 0): string | undefined {
+    if (!node || typeof node !== "object" || depth > 10) return undefined;
+    
+    const record = node as Record<string, unknown>;
+    
+    for (const [key, value] of Object.entries(record)) {
+      const lowerKey = key.toLowerCase();
+      
+      // Skip attributes
+      if (key === '$') continue;
+      
+      // Check for codigoNaOperadora inside origem
+      if (lowerKey === 'origem' || lowerKey === 'identificacaoprestador') {
+        // sometimes it's nested
+        if (typeof value === 'object' && value !== null) {
+          const innerRecord = value as Record<string, unknown>;
+          for (const [innerKey, innerValue] of Object.entries(innerRecord)) {
+             if (innerKey.toLowerCase() === 'codigonaoperadora') {
+                const code = getTextValue(innerValue);
+                if (code) return code;
+             }
+             if (typeof innerValue === 'object' && innerValue !== null) {
+                const deepSearch = search({ [innerKey]: innerValue }, depth + 1);
+                if (deepSearch) return deepSearch;
+             }
+          }
+        }
+      }
+      
+      if (lowerKey === 'codigonaoperadora') {
+        const code = getTextValue(value);
+        if (code) return code;
       }
       
       // Continue searching in nested objects

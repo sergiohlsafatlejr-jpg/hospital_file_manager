@@ -54,6 +54,27 @@ export type Convenio = typeof convenios.$inferSelect;
 export type InsertConvenio = typeof convenios.$inferInsert;
 
 /**
+ * Credenciais dos Portais de Convênios
+ * Armazena usuários e senhas para acesso RPA
+ */
+export const credenciaisPortais = mysqlTable("credenciais_portais", {
+  id: int("id").autoincrement().primaryKey(),
+  convenioId: int("convenioId").notNull().references(() => convenios.id, { onDelete: 'cascade' }),
+  estabelecimentoId: int("estabelecimentoId"),
+  login: varchar("login", { length: 255 }).notNull(),
+  senha: text("senha").notNull(),
+  urlLogin: varchar("urlLogin", { length: 255 }),
+  ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
+  ultimoAcesso: timestamp("ultimoAcesso"),
+  statusAcesso: mysqlEnum("statusAcesso", ["sucesso", "erro", "pendente"]).default("pendente"),
+  mensagemErro: text("mensagemErro"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CredencialPortal = typeof credenciaisPortais.$inferSelect;
+export type InsertCredencialPortal = typeof credenciaisPortais.$inferInsert;
+
+/**
  * Relação Convênio-Estabelecimento-Prestador
  * Permite associar códigos de prestador específicos para cada combinação de convênio e estabelecimento
  */
@@ -4668,3 +4689,45 @@ export const rhCargosSalarios = mysqlTable('rh_cargos_salarios', {
   createdAt: timestamp('createdAt').defaultNow().notNull(),
 });
 
+
+// ============================================================
+// PRONTUÁRIO CLÍNICO - Prescrições e Evoluções
+// ============================================================
+
+export const prontuarioPrescricoes = mysqlTable("prontuario_prescricoes", {
+  id: int("id").autoincrement().primaryKey(),
+  numeroConta: varchar("numeroConta", { length: 100 }).notNull(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  dataPrescricao: timestamp("dataPrescricao"),
+  medico: varchar("medico", { length: 255 }),
+  crm: varchar("crm", { length: 50 }),
+  codigoItem: varchar("codigoItem", { length: 50 }),
+  descricaoItem: varchar("descricaoItem", { length: 255 }),
+  quantidade: decimal("quantidade", { precision: 10, scale: 2 }),
+  viaAdministracao: varchar("viaAdministracao", { length: 100 }),
+  frequencia: varchar("frequencia", { length: 100 }),
+  origem: varchar("origem", { length: 50 }).default("INTEGRACAO"),
+  criadoEm: timestamp("criadoEm").defaultNow().notNull(),
+}, (table) => ({
+  numContaEstabIdx: index("idx_pp_numconta_estab").on(table.numeroConta, table.estabelecimentoId),
+  codigoIdx: index("idx_pp_codigo").on(table.codigoItem),
+}));
+export type ProntuarioPrescricao = typeof prontuarioPrescricoes.$inferSelect;
+export type InsertProntuarioPrescricao = typeof prontuarioPrescricoes.$inferInsert;
+
+export const prontuarioEvolucoes = mysqlTable("prontuario_evolucoes", {
+  id: int("id").autoincrement().primaryKey(),
+  numeroConta: varchar("numeroConta", { length: 100 }).notNull(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  dataEvolucao: timestamp("dataEvolucao"),
+  profissional: varchar("profissional", { length: 255 }),
+  conselho: varchar("conselho", { length: 50 }),
+  tipoEvolucao: varchar("tipoEvolucao", { length: 100 }),
+  descricao: text("descricao"),
+  origem: varchar("origem", { length: 50 }).default("INTEGRACAO"),
+  criadoEm: timestamp("criadoEm").defaultNow().notNull(),
+}, (table) => ({
+  numContaEstabIdx: index("idx_pe_numconta_estab").on(table.numeroConta, table.estabelecimentoId),
+}));
+export type ProntuarioEvolucao = typeof prontuarioEvolucoes.$inferSelect;
+export type InsertProntuarioEvolucao = typeof prontuarioEvolucoes.$inferInsert;

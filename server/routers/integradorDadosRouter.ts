@@ -4,6 +4,9 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { dataSyncEngine, SyncConfig } from "../dataSyncEngine";
 import { WarleineConnector } from "../connectors/WarleineConnector";
 import { EasyVisionConnector } from "../connectors/EasyVisionConnector";
+import { OracleConnector } from "../connectors/OracleConnector";
+import { MysqlConnector } from "../connectors/MysqlConnector";
+import { SqlServerConnector } from "../connectors/SqlServerConnector";
 import { logger } from "../_core/logger";
 import * as dbIntegrador from "../db-integrador";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
@@ -94,6 +97,65 @@ export const integradorDadosRouter = router({
     }),
 
   /**
+   * Testa conexão com qualquer sistema (Warleine, Tasy/Oracle, Omni/SqlServer, Gesthor)
+   */
+  testarConexao: protectedProcedure
+    .input(
+      z.object({
+        host: z.string(),
+        port: z.number(),
+        database: z.string(),
+        user: z.string(),
+        password: z.string(),
+        querySql: z.string(),
+        sistema: z.enum(["warleine", "tasy", "omni", "gesthor"]).default("warleine"),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        let connector: any;
+        const config = {
+          host: input.host,
+          port: input.port,
+          database: input.database,
+          user: input.user,
+          password: input.password,
+        };
+        switch (input.sistema) {
+          case "tasy":
+            connector = new OracleConnector(config);
+            break;
+          case "omni":
+          case "gesthor":
+            connector = new SqlServerConnector(config);
+            break;
+          case "warleine":
+          default:
+            connector = new WarleineConnector(config);
+            break;
+        }
+        const resultado = await connector.testarConexaoEQuery(input.querySql);
+        return {
+          sucesso: resultado.sucesso,
+          mensagem: resultado.mensagem,
+          totalRegistros: resultado.totalRegistros,
+          primeiroRegistro: resultado.primeiroRegistro,
+        };
+      } catch (error) {
+        logger.error({
+          message: `Erro ao testar conexão ${input.sistema}`,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          sucesso: false,
+          mensagem: error instanceof Error ? error.message : "Erro ao testar conexão",
+          totalRegistros: 0,
+          primeiroRegistro: null,
+        };
+      }
+    }),
+
+  /**
    * Salva configuração de sincronização
    */
   salvarConfiguracao: protectedProcedure
@@ -101,7 +163,7 @@ export const integradorDadosRouter = router({
       z.object({
         estabelecimentoId: z.number(),
         sistema: z.enum(["warleine", "tasy", "omni", "gesthor"]),
-        tipoDados: z.enum(["atendimentos", "faturamento", "procedimentos", "pacientes", "busca_conta"]),
+        tipoDados: z.enum(["atendimentos", "faturamento", "procedimentos", "pacientes", "busca_conta", "bi_relatorio", "prontuario_prescricoes", "prontuario_evolucoes"]),
         querySql: z.string(),
         frequencia: z.enum(["tempo_real", "1x_dia", "1x_semana"]),
         descricao: z.string().optional(),

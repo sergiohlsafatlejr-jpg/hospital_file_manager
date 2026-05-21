@@ -299,8 +299,31 @@ export default function ContaConvenioDetalhes() {
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
 
+  // Mutaçao para buscar/sincronizar Prontuários Médicos e Prescrições
+  const buscarProntuarioMutation = trpc.contasConvenio.buscarProntuario.useMutation({
+    onSuccess: (data) => {
+      if (data.fonte === "BANCO_REMOTO") {
+        toast.success(`Prontuários importados com sucesso! Encontradas ${data.prescricoes.length} prescrições.`);
+        refetch(); // Recarrega divergências
+      } else {
+        toast.success(`Prontuário carregado do cache local (${data.prescricoes.length} prescrições).`);
+      }
+    },
+    onError: (err) => {
+      toast.error(`Falha ao buscar prontuário: ${err.message}`);
+    }
+  });
+
+  // Query local do prontuário (apenas cache)
+  // Como `buscarProntuario` é mutation, chamaremos on mount ou sob demanda.
+  React.useEffect(() => {
+    if (numeroConta && estabelecimentoId) {
+      buscarProntuarioMutation.mutate({ numeroConta, estabelecimentoId, forceRemote: false });
+    }
+  }, [numeroConta, estabelecimentoId]);
+
   // Buscar divergências
-  const { data: divergenciasData, isLoading: isLoadingDiv } = trpc.contasConvenio.getDivergencias.useQuery(
+  const { data: divergenciasData, isLoading: isLoadingDiv, refetch: refetchDivergencias } = trpc.contasConvenio.getDivergencias.useQuery(
     {
       numeroConta,
       estabelecimentoId,
@@ -521,6 +544,7 @@ export default function ContaConvenioDetalhes() {
         toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s)`);
       }
       refetch();
+      refetchDivergencias();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -1331,7 +1355,7 @@ export default function ContaConvenioDetalhes() {
 
         {/* Tabs: Itens, Divergências e Auditoria */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
+          <TabsList className="grid w-full grid-cols-7 max-w-5xl">
             <TabsTrigger value="itens" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Itens ({itensData?.items?.length || 0})
@@ -1340,9 +1364,13 @@ export default function ContaConvenioDetalhes() {
               <AlertTriangle className="h-4 w-4" />
               Divergências ({divergenciasData?.divergencias?.length || 0})
             </TabsTrigger>
+            <TabsTrigger value="prontuario-clinico" className="flex items-center gap-2 text-blue-700 bg-blue-50/50 hover:bg-blue-100 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 border-x border-white">
+              <Pill className="h-4 w-4" />
+              Apoio Clínico
+            </TabsTrigger>
             <TabsTrigger value="falhas" className="flex items-center gap-2">
               <FileWarning className="h-4 w-4" />
-              Prontuário ({falhasData?.length || 0})
+              Falta Doc ({falhasData?.length || 0})
             </TabsTrigger>
             <TabsTrigger value="ajustes" className="flex items-center gap-2">
               <Wrench className="h-4 w-4" />
@@ -1951,6 +1979,98 @@ export default function ContaConvenioDetalhes() {
                               </TableRow>
                             );
                           })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          {/* Tab: Prontuário Clínico */}
+          <TabsContent value="prontuario-clinico">
+            <Card>
+              <CardHeader className="bg-blue-50/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
+                      <Stethoscope className="h-5 w-5" />
+                      Apoio Clínico: Prontuário & Prescrições
+                    </CardTitle>
+                    <CardDescription className="text-blue-700/80">
+                      Dados importados do sistema hospitalar para auxiliar na auditoria desta conta.
+                    </CardDescription>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                    onClick={() => buscarProntuarioMutation.mutate({ numeroConta, estabelecimentoId, forceRemote: true })}
+                    disabled={buscarProntuarioMutation.isPending}
+                  >
+                    {buscarProntuarioMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sincronizar Prontuário
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {buscarProntuarioMutation.isPending ? (
+                  <div className="flex flex-col items-center justify-center py-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
+                    <p className="text-sm text-muted-foreground">Buscando informações clínicas no servidor...</p>
+                  </div>
+                ) : !buscarProntuarioMutation.data?.prescricoes?.length ? (
+                  <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
+                    <Pill className="mx-auto h-12 w-12 text-gray-400 mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium text-gray-900">Nenhuma prescrição encontrada</h3>
+                    <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+                      Não foram localizadas prescrições ou evoluções para este paciente na integração conectada.
+                      Clique em "Sincronizar Prontuário" para buscar novamente.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-md">
+                      <Info className="h-4 w-4" />
+                      <span>
+                        Sincronizou <strong>{buscarProntuarioMutation.data.prescricoes.length}</strong> prescrições 
+                        ({buscarProntuarioMutation.data.fonte === "CACHE_LOCAL" ? "Do Cache Local" : "Direto do Prontuário Eletrônico"})
+                      </span>
+                    </div>
+                    
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader className="bg-muted/50">
+                          <TableRow>
+                            <TableHead className="w-[120px]">Data Reg.</TableHead>
+                            <TableHead className="w-[100px]">Código</TableHead>
+                            <TableHead>Descrição do Item</TableHead>
+                            <TableHead className="w-[80px] text-right">Qtd</TableHead>
+                            <TableHead>Via</TableHead>
+                            <TableHead>Frequência</TableHead>
+                            <TableHead className="w-[180px]">Médico Solicitante</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {buscarProntuarioMutation.data.prescricoes.map((presc: any) => (
+                            <TableRow key={presc.id}>
+                              <TableCell className="text-sm">
+                                {presc.dataPrescricao ? formatDateTimeBR(presc.dataPrescricao) : "-"}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">{presc.codigoItem || "-"}</TableCell>
+                              <TableCell className="font-medium text-sm">{presc.descricaoItem || "-"}</TableCell>
+                              <TableCell className="text-right">{parseFloat(presc.quantidade || "1").toFixed(2)}</TableCell>
+                              <TableCell className="text-xs">{presc.viaAdministracao || "-"}</TableCell>
+                              <TableCell className="text-xs">{presc.frequencia || "-"}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground break-words max-w-[180px]">
+                                {presc.medico || "-"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
                         </TableBody>
                       </Table>
                     </div>

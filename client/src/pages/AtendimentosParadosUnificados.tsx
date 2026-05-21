@@ -12,6 +12,7 @@ import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatDateBR, safeParseDate } from "@/lib/dateUtils";
@@ -297,6 +298,7 @@ async function gerarPDFNotificacao(
 }
 
 export default function AtendimentosParadosUnificados() {
+  const { estabelecimentoAtual } = useEstabelecimento();
   const [sortColumn, setSortColumn] = useState<SortColumn>("data_entrada");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [searchTerm, setSearchTerm] = useState("");
@@ -344,6 +346,7 @@ export default function AtendimentosParadosUnificados() {
 
   // Buscar dados com paginação server-side
   const queryInput = useMemo(() => ({
+    estabelecimentoId: estabelecimentoAtual?.id,
     page: currentPage,
     pageSize: PAGE_SIZE,
     origemSistema: filtroOrigem !== "all" ? filtroOrigem : undefined,
@@ -357,7 +360,7 @@ export default function AtendimentosParadosUnificados() {
     descricao: filtroServico || undefined,
     sortColumn,
     sortOrder,
-  }), [currentPage, filtroOrigem, filtroTipo, filtroConvenio, filtroEtapa, filtroProtocolo, filtroAno, filtroMes, debouncedSearch, filtroServico, sortColumn, sortOrder]);
+  }), [estabelecimentoAtual?.id, currentPage, filtroOrigem, filtroTipo, filtroConvenio, filtroEtapa, filtroProtocolo, filtroAno, filtroMes, debouncedSearch, filtroServico, sortColumn, sortOrder]);
 
   const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(queryInput);
 
@@ -689,7 +692,14 @@ export default function AtendimentosParadosUnificados() {
   }, []);
 
   const getQuantidadePorOrigem = () => {
-    return (aggregations?.origens || []).map(o => ({ origem: o.value, quantidade: o.count }));
+    const origensAgrupadas: Record<string, number> = {};
+    (aggregations?.origens || []).forEach(o => {
+      const val = o.value?.trim().toLowerCase() || 'desconhecido';
+      origensAgrupadas[val] = (origensAgrupadas[val] || 0) + o.count;
+    });
+    return Object.entries(origensAgrupadas)
+      .map(([origem, quantidade]) => ({ origem, quantidade }))
+      .sort((a, b) => b.quantidade - a.quantidade);
   };
 
   const getQuantidadePorProtocolo = useMemo(() => {

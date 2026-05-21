@@ -2,11 +2,14 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
-import { contasConvenioItens, contasConvenioResumo, integracaoMapeamentos, integracaoConexoes, feedbackDivergencias, padroesCobranca, logAnaliseComparacao, ajustesAuditoria } from "../../drizzle/schema";
+import { contasConvenioItens, contasConvenioResumo, integracaoMapeamentos, integracaoConexoes, feedbackDivergencias, padroesCobranca, logAnaliseComparacao, ajustesAuditoria, prontuarioPrescricoes, prontuarioEvolucoes } from "../../drizzle/schema";
 import { queryConfiguracoes } from "../../drizzle/schema-integracao";
 import { eq, and, sql, desc, like, or, inArray } from "drizzle-orm";
 import { WarleineConnector } from "../connectors/WarleineConnector";
 import { EasyVisionConnector } from "../connectors/EasyVisionConnector";
+import { OracleConnector } from "../connectors/OracleConnector";
+import { SqlServerConnector } from "../connectors/SqlServerConnector";
+import { MysqlConnector } from "../connectors/MysqlConnector";
 import { ENV } from "../_core/env";
 import { logger } from "../_core/logger";
 import { compararContaComPadroes } from "../services/comparadorPadroes";
@@ -61,6 +64,7 @@ export const contasConvenioRouter = router({
       let querySql: string;
       let conexaoConfig: { host: string; port: number; database: string; user: string; password: string } | null = null;
       let configSource = "";
+      let tipoBancoOrigem = "postgres";
 
       if (mapeamentos.length > 0) {
         // Encontrou no integracao_mapeamentos
@@ -75,6 +79,7 @@ export const contasConvenioRouter = router({
           .where(eq(integracaoConexoes.id, mapeamento.conexaoOrigemId));
 
         if (conexao) {
+          tipoBancoOrigem = conexao.tipo;
           const senha = Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8");
           conexaoConfig = {
             host: conexao.host,
@@ -102,6 +107,10 @@ export const contasConvenioRouter = router({
           const config = configs[0];
           querySql = config.querySql;
           configSource = `query_config #${config.id}`;
+          
+          if (config.sistema === "tasy") tipoBancoOrigem = "oracle";
+          else if (config.sistema === "omni" || config.sistema === "gesthor") tipoBancoOrigem = "firebird";
+          else tipoBancoOrigem = "postgres";
 
           if (config.conexaoConfig) {
             const parsed = typeof config.conexaoConfig === "string"
@@ -143,9 +152,31 @@ export const contasConvenioRouter = router({
       });
 
       // ============================================================
-      // 2. Conectar ao banco do hospital (PostgreSQL)
+      // 2. Conectar ao banco do hospital Dinamicamente
       // ============================================================
-      const connector = new EasyVisionConnector(conexaoConfig);
+      let connector: any;
+      
+      switch(tipoBancoOrigem.toLowerCase()) {
+        case "oracle":
+        case "tasy":
+          connector = new OracleConnector(conexaoConfig);
+          break;
+        case "mysql":
+          connector = new MysqlConnector(conexaoConfig);
+          break;
+        case "sqlserver":
+          connector = new SqlServerConnector(conexaoConfig);
+          break;
+        case "firebird":
+          throw new TRPCError({
+            code: "NOT_IMPLEMENTED",
+            message: "Conector Firebird ainda não implementado no SAFATLE.",
+          });
+        case "postgres":
+        default:
+          connector = new EasyVisionConnector(conexaoConfig);
+          break;
+      }
 
       let conectado = false;
       try {
@@ -365,6 +396,8 @@ export const contasConvenioRouter = router({
             if (row[name] !== undefined && row[name] !== null) return row[name];
             // Tentar lowercase
             if (row[name.toLowerCase()] !== undefined && row[name.toLowerCase()] !== null) return row[name.toLowerCase()];
+            // Tentar uppercase (especialmente importante para o Oracle)
+            if (row[name.toUpperCase()] !== undefined && row[name.toUpperCase()] !== null) return row[name.toUpperCase()];
           }
           return null;
         };
@@ -379,8 +412,8 @@ export const contasConvenioRouter = router({
           const batch = dados.slice(i, i + BATCH_SIZE);
           const values = batch.map((row: any) => {
             // Flexibilizar nomes de campos - aceita tanto aliases quanto nomes originais do banco
-            const vlUnitario = getField(row, 'valorunitario', 'vl_unitario', 'valor_unitario', 'vlunitario');
-            const vlTotal = getField(row, 'valortotal', 'vl_faturado', 'valor_total', 'vlfaturado', 'valor_faturado');
+            const vlUnitario = getField(row, 'valorunitario', 'vl_unitario', 'valor_unitario', 'vlunitario', 'vl_medico');
+            const vlTotal = getField(row, 'valortotal', 'vl_faturado', 'valor_total', 'vlfaturado', 'valor_faturado', 'vl_produzido');
             const qtd = getField(row, 'quantidade', 'qtd', 'qtde');
             const numConta = getField(row, 'numconta', 'numero_conta', 'conta');
             const guia = getField(row, 'guiacobra', 'guia_cobra', 'guia');
@@ -390,10 +423,10 @@ export const contasConvenioRouter = router({
             const codItem = getField(row, 'codigoitem', 'procdisco', 'cod_item', 'cd_item', 'codigo_item');
             const codTuss = getField(row, 'codigoitemtuss', 'codproprio', 'cod_tuss', 'codigo_tuss', 'cd_item_tuss');
             const desc = getField(row, 'descricao', 'desc_item', 'ds_item');
-            const dataExec = getField(row, 'dataexecucao', 'data', 'dt_item', 'data_execucao');
-            const dataInt = getField(row, 'datainternacao', 'dataint', 'data_internacao');
-            const dataAlta = getField(row, 'dataalta', 'datasai', 'data_alta', 'data_saida');
-            const comp = getField(row, 'competencia', 'mesprod', 'mes_prod', 'comp');
+            const dataExec = getField(row, 'dataexecucao', 'data', 'dt_item', 'data_execucao', 'dt_procedimento', 'dt_conta');
+            const dataInt = getField(row, 'datainternacao', 'dataint', 'data_internacao', 'dt_inicio');
+            const dataAlta = getField(row, 'dataalta', 'datasai', 'data_alta', 'data_saida', 'dt_fim');
+            const comp = getField(row, 'competencia', 'mesprod', 'mes_prod', 'comp', 'encerramento');
             const prest = getField(row, 'nomeprest', 'prestexe', 'nome_prest', 'prof_exec');
             const setor = getField(row, 'setor', 'nomecc', 'nome_cc', 'centro_custo');
             const paciente = getField(row, 'pacientenome', 'nomepaciente', 'nomepac', 'nome_paciente', 'paciente');
@@ -1173,19 +1206,19 @@ export const contasConvenioRouter = router({
         .where(whereClause);
 
       // Identificar contas com múltiplos lotes (Altas Administrativas)
-      // Agora usa o campo numeroLote do próprio resumo: contas com mesmo numeroConta mas lotes diferentes
+      // Busca quais numeroConta da página atual têm mais de 1 lote distinto nos itens
       const contasNumerosNaPagina = contas.map(c => c.numeroConta);
       let contasComAltaAdm = new Map<string, number>(); // numeroConta -> totalLotes
       
       if (contasNumerosNaPagina.length > 0) {
-        // Contar quantas linhas existem no resumo para cada numeroConta (cada linha = 1 lote)
         const altaAdmResult = await db.execute(
-          sql`SELECT numeroConta, COUNT(*) as totalLotes
-              FROM contas_convenio_resumo
+          sql`SELECT numeroConta, COUNT(DISTINCT numeroLote) as totalLotes
+              FROM contas_convenio_itens
               WHERE numeroConta IN (${sql.join(contasNumerosNaPagina.map(n => sql`${n}`), sql`, `)})
                 AND estabelecimentoId = ${estabelecimentoId || 0}
+                AND numeroLote IS NOT NULL AND numeroLote != '' AND numeroLote != 'null'
               GROUP BY numeroConta
-              HAVING COUNT(*) > 1`
+              HAVING COUNT(DISTINCT numeroLote) > 1`
         );
         const rows = (altaAdmResult as any)[0] as any[];
         if (rows && Array.isArray(rows)) {
@@ -1357,7 +1390,7 @@ export const contasConvenioRouter = router({
     }),
 
   // ============================================================
-  // IMPORTAR DE XML (reutiliza dados já parseados do faturamento_tiss)
+  // IMPORTAR DE XML (reutiliza dados já parseados do staging_faturamento_xml)
   // ============================================================
   importarDeXml: protectedProcedure
     .input(z.object({
@@ -1368,7 +1401,7 @@ export const contasConvenioRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      // Buscar itens do faturamento_tiss para este arquivo
+      // Buscar itens do staging_faturamento_xml para este arquivo
       const itensXml = await db.execute(sql`
         SELECT 
           ft.numero_guia_prestador as numeroGuia,
@@ -1388,7 +1421,7 @@ export const contasConvenioRouter = router({
           ft.nome_prof as profissionalExecutante,
           ft.convenioId,
           ft.estabelecimentoId
-        FROM faturamento_tiss ft
+        FROM staging_faturamento_xml ft
         WHERE ft.arquivo_id = ${input.arquivoId}
           AND ft.estabelecimentoId = ${input.estabelecimentoId}
         ORDER BY ft.data_execucao, ft.tipo_item, ft.descricao_item
@@ -1886,7 +1919,7 @@ export const contasConvenioRouter = router({
     }),
 
   // ============================================================
-  // MIGRAR DADOS XML (faturamento_tiss) PARA contas_convenio_itens
+  // MIGRAR DADOS XML (staging_faturamento_xml) PARA contas_convenio_itens
   // ============================================================
   migrarDadosXml: protectedProcedure
     .input(z.object({
@@ -1896,7 +1929,7 @@ export const contasConvenioRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível" });
 
-      // Buscar dados do faturamento_tiss para o estabelecimento
+      // Buscar dados do staging_faturamento_xml para o estabelecimento
       // Usando SQL direto para JOIN com convênios
       const rows = await db.execute(sql`
         SELECT 
@@ -1922,9 +1955,10 @@ export const contasConvenioRouter = router({
           ft.convenioId,
           ft.data_referencia,
           ft.data_importacao,
+          ft.competencia as competencia_xml,
           c.nome as convenio_nome,
           a.dataReferencia as arquivo_data_referencia
-        FROM faturamento_tiss ft
+        FROM staging_faturamento_xml ft
         LEFT JOIN convenios c ON c.id = ft.convenioId
         LEFT JOIN arquivos a ON a.id = ft.arquivo_id
         WHERE ft.estabelecimentoId = ${input.estabelecimentoId}
@@ -2011,6 +2045,8 @@ export const contasConvenioRouter = router({
         valorTotal: number;
         dataExecucao: Date | null;
         arquivoDataReferencia: Date | null;
+        competenciaXml: string | null;
+        dataReferencia: Date | null;
       }>();
 
       for (const row of data) {
@@ -2023,6 +2059,8 @@ export const contasConvenioRouter = router({
           valorTotal: 0,
           dataExecucao: null,
           arquivoDataReferencia: null,
+          competenciaXml: null,
+          dataReferencia: null,
         };
 
         existing.convenio = existing.convenio || (row.convenio_nome ? String(row.convenio_nome) : null);
@@ -2036,7 +2074,15 @@ export const contasConvenioRouter = router({
         if (row.data_execucao && !existing.dataExecucao) {
           existing.dataExecucao = new Date(row.data_execucao);
         }
-        // Usar data de referência do arquivo de upload como competência
+        // Capturar competência direta do XML (campo competencia da staging)
+        if (row.competencia_xml && !existing.competenciaXml) {
+          existing.competenciaXml = String(row.competencia_xml);
+        }
+        // Capturar data_referencia do item XML
+        if (row.data_referencia && !existing.dataReferencia) {
+          existing.dataReferencia = new Date(row.data_referencia);
+        }
+        // Capturar data de referência do arquivo de upload
         if (row.arquivo_data_referencia && !existing.arquivoDataReferencia) {
           existing.arquivoDataReferencia = new Date(row.arquivo_data_referencia);
         }
@@ -2064,12 +2110,21 @@ export const contasConvenioRouter = router({
           statusAnalise: "pendente" as const,
           buscadoPor: ctx.user?.id || null,
           competencia: (() => {
-            // Prioridade: usar data de referência do arquivo de upload
+            // Prioridade 1: usar competência direta do XML (já no formato AAAA/MM)
+            if (r.competenciaXml) {
+              return r.competenciaXml;
+            }
+            // Prioridade 2: usar data_referencia do item XML
+            if (r.dataReferencia) {
+              const d = r.dataReferencia;
+              return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+            }
+            // Prioridade 3: usar data de referência do arquivo de upload
             if (r.arquivoDataReferencia) {
               const d = r.arquivoDataReferencia;
               return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
             }
-            // Fallback: usar dataExecucao se não houver data de referência
+            // Prioridade 4: usar dataExecucao como último recurso
             if (r.dataExecucao) {
               const d = r.dataExecucao;
               return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -2083,76 +2138,99 @@ export const contasConvenioRouter = router({
       }
 
       // ============================================================
-      // ANÁLISE AUTOMÁTICA: Comparar cada conta com padrões
+      // ANÁLISE AUTOMÁTICA OTIMIZADA: Comparar contas com padrões
       // ============================================================
       let totalContasAnalisadas = 0;
       let totalContasDivergentes = 0;
 
       try {
-        for (const [guia] of resumoEntries) {
-          try {
-            const resultadoComparacao = await compararContaComPadroes(guia, input.estabelecimentoId);
+        // OTIMIZAÇÃO BULK: Marcar TODOS os itens como "conforme" de uma vez (1 query!)
+        await db.update(contasConvenioItens)
+          .set({ statusAnalise: "conforme", divergencias: null })
+          .where(
+            and(
+              eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+              eq(contasConvenioItens.origem, "XML")
+            )
+          );
 
-            // Mapear divergências por codigoItem
-            const divergenciasPorItem = new Map<string, any[]>();
-            const divergenciasGerais: any[] = [];
+        logger.info({ message: `[Migração] Itens marcados como conforme em bulk. Iniciando análise de ${resumoEntries.length} contas em paralelo...` });
 
-            for (const div of resultadoComparacao.divergencias) {
-              if (div.codigoItem) {
-                if (!divergenciasPorItem.has(div.codigoItem)) {
-                  divergenciasPorItem.set(div.codigoItem, []);
+        // Processar contas em lotes paralelos de 5 para não sobrecarregar o DB
+        const PARALLEL_BATCH = 5;
+        for (let i = 0; i < resumoEntries.length; i += PARALLEL_BATCH) {
+          const lote = resumoEntries.slice(i, i + PARALLEL_BATCH);
+
+          const promises = lote.map(async ([guia]) => {
+            try {
+              const resultadoComparacao = await compararContaComPadroes(guia, input.estabelecimentoId);
+
+              // Mapear divergências por codigoItem
+              const divergenciasPorItem = new Map<string, any[]>();
+              const divergenciasGerais: any[] = [];
+
+              for (const div of resultadoComparacao.divergencias) {
+                if (div.codigoItem) {
+                  if (!divergenciasPorItem.has(div.codigoItem)) {
+                    divergenciasPorItem.set(div.codigoItem, []);
+                  }
+                  divergenciasPorItem.get(div.codigoItem)!.push(div);
+                } else {
+                  divergenciasGerais.push(div);
                 }
-                divergenciasPorItem.get(div.codigoItem)!.push(div);
-              } else {
-                divergenciasGerais.push(div);
               }
-            }
 
-            // Buscar itens desta conta
-            const itensDestaConta = await db.select({
-              id: contasConvenioItens.id,
-              codigoItem: contasConvenioItens.codigoItem,
-            }).from(contasConvenioItens).where(
-              and(
-                eq(contasConvenioItens.numeroConta, guia),
-                eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-              )
-            );
-
-            // Atualizar cada item
-            for (const item of itensDestaConta) {
-              const divs = item.codigoItem ? divergenciasPorItem.get(item.codigoItem) : null;
-              if (divs && divs.length > 0) {
-                await db.update(contasConvenioItens)
-                  .set({ statusAnalise: "divergente", divergencias: divs })
-                  .where(eq(contasConvenioItens.id, item.id));
-              } else {
-                await db.update(contasConvenioItens)
-                  .set({ statusAnalise: "conforme", divergencias: null })
-                  .where(eq(contasConvenioItens.id, item.id));
+              // Atualizar APENAS os itens divergentes (conforme já está marcado em bulk)
+              const updatePromises: Promise<any>[] = [];
+              for (const [codigoItem, divs] of divergenciasPorItem.entries()) {
+                if (divs && divs.length > 0) {
+                  updatePromises.push(
+                    db.update(contasConvenioItens)
+                      .set({ statusAnalise: "divergente", divergencias: divs })
+                      .where(
+                        and(
+                          eq(contasConvenioItens.numeroConta, guia),
+                          eq(contasConvenioItens.codigoItem, codigoItem),
+                          eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId)
+                        )
+                      )
+                  );
+                }
               }
-            }
 
-            // Atualizar resumo
-            const statusGeral = resultadoComparacao.statusGeral === "divergente" ? "divergente" : "conforme";
-            if (statusGeral === "divergente") totalContasDivergentes++;
-            await db.update(contasConvenioResumo)
-              .set({
-                statusAnalise: statusGeral,
-                scoreRisco: resultadoComparacao.scoreRisco.score,
-                detalhesRisco: resultadoComparacao.scoreRisco,
-                divergenciasGerais: divergenciasGerais.length > 0 ? divergenciasGerais : null,
-              })
-              .where(
-                and(
-                  eq(contasConvenioResumo.numeroConta, guia),
-                  eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-                )
+              // Atualizar resumo da conta
+              const statusGeral = resultadoComparacao.statusGeral === "divergente" ? "divergente" : "conforme";
+              updatePromises.push(
+                db.update(contasConvenioResumo)
+                  .set({
+                    statusAnalise: statusGeral,
+                    scoreRisco: resultadoComparacao.scoreRisco.score,
+                    detalhesRisco: resultadoComparacao.scoreRisco,
+                    divergenciasGerais: divergenciasGerais.length > 0 ? divergenciasGerais : null,
+                  })
+                  .where(
+                    and(
+                      eq(contasConvenioResumo.numeroConta, guia),
+                      eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
+                    )
+                  )
               );
 
-            totalContasAnalisadas++;
-          } catch (e) {
-            logger.warn({ message: `Análise falhou para conta ${guia}`, error: String(e) });
+              await Promise.all(updatePromises);
+
+              return { divergente: statusGeral === "divergente" };
+            } catch (e) {
+              logger.warn({ message: `Análise falhou para conta ${guia}`, error: String(e) });
+              return null;
+            }
+          });
+
+          const resultados = await Promise.all(promises);
+          for (const r of resultados) {
+            if (r) {
+              totalContasAnalisadas++;
+              if (r.divergente) totalContasDivergentes++;
+            }
           }
         }
       } catch (e) {
@@ -2196,4 +2274,135 @@ export const contasConvenioRouter = router({
 
       return { logs };
     }),
+
+  // ============================================================
+  // BUSCA DE PRONTUÁRIOS (Prescrições e Evoluções)
+  // ============================================================
+  buscarProntuario: protectedProcedure
+    .input(z.object({
+      numeroConta: z.string(),
+      estabelecimentoId: z.number(),
+      forceRemote: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database indisponível" });
+
+      // Verificar se já temos no cache
+      if (!input.forceRemote) {
+        const prescricoesLocais = await db.select().from(prontuarioPrescricoes)
+          .where(and(
+            eq(prontuarioPrescricoes.numeroConta, input.numeroConta),
+            eq(prontuarioPrescricoes.estabelecimentoId, input.estabelecimentoId)
+          ));
+        if (prescricoesLocais.length > 0) {
+          return { prescricoes: prescricoesLocais, fonte: "CACHE_LOCAL" };
+        }
+      }
+
+      // 1. Buscar Mapeamento de Prescrições
+      const mapeamentos = await db.select().from(integracaoMapeamentos)
+        .where(and(
+          eq(integracaoMapeamentos.estabelecimentoId, input.estabelecimentoId),
+          eq(integracaoMapeamentos.ativo, "sim"),
+          or(
+            like(integracaoMapeamentos.nome, "%Prescri%"),
+            like(integracaoMapeamentos.nome, "%Prontuari%")
+          )
+        )).limit(1);
+
+      let querySql: string | null = null;
+      let conexaoConfig: any = null;
+      let tipoBancoOrigem = "postgres";
+
+      if (mapeamentos.length > 0) {
+        const mapeamento = mapeamentos[0];
+        querySql = mapeamento.queryOrigem;
+        const [conexao] = await db.select().from(integracaoConexoes).where(eq(integracaoConexoes.id, mapeamento.conexaoOrigemId));
+        if (conexao) {
+          tipoBancoOrigem = conexao.tipo;
+          conexaoConfig = {
+            host: conexao.host, port: conexao.porta, database: conexao.banco,
+            user: conexao.usuario, password: Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8")
+          };
+        }
+      } else {
+        // Fallback QueryConfig
+        const configs = await db.select().from(queryConfiguracoes).where(and(
+          eq(queryConfiguracoes.estabelecimentoId, input.estabelecimentoId),
+          eq(queryConfiguracoes.tipoDados, "prontuario_prescricoes"),
+          eq(queryConfiguracoes.ativo, true)
+        )).limit(1);
+
+        if (configs.length > 0) {
+          querySql = configs[0].querySql;
+          tipoBancoOrigem = configs[0].sistema === "tasy" ? "oracle" : "postgres";
+          conexaoConfig = typeof configs[0].conexaoConfig === "string" ? JSON.parse(configs[0].conexaoConfig) : configs[0].conexaoConfig;
+        }
+      }
+
+      if (!conexaoConfig || !querySql) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Mapeamento clínico não configurado. Adicione um mapeamento de 'Prontuário/Prescrições' no Integrador de Dados." });
+      }
+
+      // 2. Conectar Dinamicamente
+      let connector: any;
+      switch(tipoBancoOrigem.toLowerCase()) {
+        case "oracle": case "tasy": connector = new OracleConnector(conexaoConfig); break;
+        case "mysql": connector = new MysqlConnector(conexaoConfig); break;
+        case "sqlserver": connector = new SqlServerConnector(conexaoConfig); break;
+        case "firebird": throw new TRPCError({ code: "NOT_IMPLEMENTED", message: "Conector Firebird pendente." });
+        case "postgres": default: connector = new EasyVisionConnector(conexaoConfig); break;
+      }
+
+      let conectado = false;
+      try { conectado = await connector.conectar(); } catch (e) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha na conexão ao banco hospitalar." });
+      }
+
+      if (!conectado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Servidor não acessível." });
+
+      // 3. Executar Busca
+      let pRows: any[] = [];
+      try {
+        pRows = await connector.executarQuery(querySql, [input.numeroConta]);
+      } catch (e) {
+        await connector.desconectar();
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao executar query clínica: " + String(e) });
+      }
+      await connector.desconectar();
+
+      if (!pRows || pRows.length === 0) {
+        return { prescricoes: [], fonte: "BANCO_REMOTO" };
+      }
+
+      // 4. Salvar no MySQL local (Cache)
+      await db.delete(prontuarioPrescricoes).where(and(
+        eq(prontuarioPrescricoes.numeroConta, input.numeroConta),
+        eq(prontuarioPrescricoes.estabelecimentoId, input.estabelecimentoId)
+      ));
+
+      const batch = pRows.map((r) => ({
+        numeroConta: input.numeroConta,
+        estabelecimentoId: input.estabelecimentoId,
+        codigoItem: r.codigoItem || r.CD_ITEM || r.CODIGO_ITEM || r.CODIGO || null,
+        descricaoItem: r.descricaoItem || r.DS_ITEM || r.DESCRICAO_ITEM || r.DESCRICAO || null,
+        quantidade: typeof r.quantidade === "number" ? r.quantidade : parseFloat(r.quantidade || r.QT_ITEM || r.QTD || "1") || 1,
+        medico: r.medico || r.NM_MEDICO || r.MEDICO || null,
+        dataPrescricao: r.dataPrescricao ? new Date(r.dataPrescricao) : new Date(),
+        viaAdministracao: r.viaAdministracao || r.VIA || null,
+        frequencia: r.frequencia || r.FREQUENCIA || null,
+      }));
+
+      await db.insert(prontuarioPrescricoes).values(batch);
+
+      // Return refreshed locals
+      const novasPrescricoes = await db.select().from(prontuarioPrescricoes).where(and(
+        eq(prontuarioPrescricoes.numeroConta, input.numeroConta),
+        eq(prontuarioPrescricoes.estabelecimentoId, input.estabelecimentoId)
+      ));
+
+      return { prescricoes: novasPrescricoes, fonte: "BANCO_REMOTO" };
+    }),
+
 });

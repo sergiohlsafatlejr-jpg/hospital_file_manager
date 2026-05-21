@@ -365,11 +365,20 @@ export default function Atendimentos() {
 
   const POLLING_INTERVAL = 60 * 60 * 1000;
 
-  const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listar.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
+  const { data: rawData, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listar.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
     refetchOnWindowFocus: false,
     refetchInterval: POLLING_INTERVAL,
     refetchIntervalInBackground: false,
   });
+
+  const atendimentos = useMemo(() => {
+    if (!rawData) return undefined;
+    return rawData.map(d => {
+      let o = (d.origemSistema || "desconhecido").trim().toLowerCase();
+      if (o === "iasy") o = "tasy"; // Typo/OCR correction
+      return { ...d, origemSistema: o };
+    });
+  }, [rawData]);
 
   useEffect(() => {
     if (dataUpdatedAt) {

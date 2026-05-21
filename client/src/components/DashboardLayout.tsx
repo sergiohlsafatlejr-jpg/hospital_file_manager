@@ -86,6 +86,7 @@ import {
   Microscope,
   AlertTriangle,
   Bed,
+  Bot,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -217,6 +218,10 @@ const menuItems: MenuItem[] = [
   { icon: FileSpreadsheet, label: "Propostas", path: "/propostas", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: Shield, label: "Permissões Safatle", path: "/permissoes-safatle", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: Shield, label: "Logs do Sistema", path: "/auditoria-sistema", adminOnly: true },
+  // Módulo RPA
+  { icon: Bot, label: "Automação RPA", path: "/rpa-manager", adminOnly: true, children: [
+    { icon: Bot, label: "Gerenciar Robôs", path: "/rpa-manager", adminOnly: true },
+  ]},
   // Módulo RH
   { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
     { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
