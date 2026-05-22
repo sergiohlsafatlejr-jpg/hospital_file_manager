@@ -1,5 +1,6 @@
 import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { createPool, Pool } from "mysql2/promise";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
 import {
   InsertUser,
@@ -106,6 +107,8 @@ import { ENV } from "./_core/env";
 import { GLOSAS_TISS } from '../shared/glossaryGlosas';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _rawPool: Pool | null = null;
+
 
 // Enriquece codigo de glosa com descricao do dicionario
 export function enriquecerCodigoGlosa(codigoGlosaStr: string): string {
@@ -132,6 +135,22 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/**
+ * Retorna uma pool mysql2 direta para operações de INSERT em massa.
+ * O Drizzle db.execute() tem limitações com queries muito grandes.
+ */
+export async function getRawPool(): Promise<Pool | null> {
+  if (!_rawPool && process.env.DATABASE_URL) {
+    try {
+      _rawPool = await createPool(process.env.DATABASE_URL);
+    } catch (error) {
+      console.warn("[Database] Failed to create raw pool:", error);
+      _rawPool = null;
+    }
+  }
+  return _rawPool;
 }
 
 // ============ USER FUNCTIONS ============

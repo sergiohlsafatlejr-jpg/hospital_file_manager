@@ -5,7 +5,7 @@
  * - XML_TISS (tabela faturamento_tiss): dados dos XMLs enviados aos convênios
  */
 
-import { getDb } from "./db";
+import { getDb, getRawPool } from "./db";
 import { sql } from "drizzle-orm";
 
 // ============================================================
@@ -1194,7 +1194,8 @@ export async function executarConciliacaoAutomatica(params: {
       recebimentosUsados.add(recMatch.id);
       const valorRecebido = Number(recMatch.valorPago) || 0;
       const diferenca = valorFaturado - valorRecebido;
-      const percentualDiferenca = valorFaturado > 0 ? (Math.abs(diferenca) / valorFaturado) * 100 : (valorRecebido > 0 ? 100 : 0);
+      const _pctRaw = valorFaturado > 0 ? (Math.abs(diferenca) / valorFaturado) * 100 : (valorRecebido > 0 ? 100 : 0);
+      const percentualDiferenca = isFinite(_pctRaw) ? Math.min(_pctRaw, 9999999.9999) : 9999999.9999;
 
       const valorPagoRec = Number(recMatch.valorPago) || 0;
       const valorGlosaRec = Number(recMatch.valorGlosa) || 0;
@@ -1452,6 +1453,16 @@ export async function executarConciliacaoAutomatica(params: {
   // (conciliações anteriores já foram deletadas no PASSO 0.5)
   // -------------------------------------------------------
   const MEGA_BATCH = 5000;
+  const escDate = (v: any): string => {
+    if (v === null || v === undefined) return 'NULL';
+    // Se for objeto Date ou string que parece Date JS, converter para formato MySQL
+    const d = v instanceof Date ? v : new Date(v);
+    if (!isNaN(d.getTime())) {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `'${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}'`;
+    }
+    return 'NULL';
+  };
   const esc = (v: string | null | undefined) => {
     if (v === null || v === undefined || v === '') return 'NULL';
     const sanitized = String(v)
@@ -1463,33 +1474,38 @@ export async function executarConciliacaoAutomatica(params: {
   };
 
   const toRow = (r: typeof inserts[0]) =>
-    `(${r.faturamentoUnificadoId},${params.estabelecimentoId},${esc(r.contaNumero)},${esc(r.numeroGuia)},${esc(r.pacienteNome)},${esc(r.convenio)},${r.convenioId??'NULL'},${esc(r.competencia)},${esc(r.codigoItem)},${esc(r.codigoItemTuss)},${esc(r.descricaoItem)},${esc(r.tipoItem)},${esc(r.origemSistema)},${esc(r.dataExecucao)},${esc((r as any).codigoPrestadorExecutante)},${r.valorFaturado},${r.quantidade},${r.recebimentoId??'NULL'},${r.recebimentoOrigem?esc(r.recebimentoOrigem):'NULL'},${r.valorPago},${r.valorGlosa},${esc(r.codigoGlosa)},${esc(r.motivoGlosa)},${esc(r.statusConciliacao)},${r.metodoConciliacao?esc(r.metodoConciliacao):'NULL'},${r.diferenca},${r.percentualDiferenca},${tolerancia},NOW())`;
+    `(${r.faturamentoUnificadoId},${params.estabelecimentoId},${esc(r.contaNumero)},${esc(r.numeroGuia)},${esc(r.pacienteNome)},${esc(r.convenio)},${r.convenioId??'NULL'},${esc(r.competencia)},${esc(r.codigoItem)},${esc(r.codigoItemTuss)},${esc(r.descricaoItem)},${esc(r.tipoItem)},${esc(r.origemSistema)},${escDate(r.dataExecucao)},${esc((r as any).codigoPrestadorExecutante)},${r.valorFaturado},${r.quantidade},${r.recebimentoId??'NULL'},${r.recebimentoOrigem?esc(r.recebimentoOrigem):'NULL'},${r.valorPago},${r.valorGlosa},${esc(r.codigoGlosa)},${esc(r.motivoGlosa)},${esc(r.statusConciliacao)},${r.metodoConciliacao?esc(r.metodoConciliacao):'NULL'},${r.diferenca},${r.percentualDiferenca},${tolerancia},NOW())`;
 
   const INSERT_COLS = `(faturamentoUnificadoId,estabelecimentoId,contaNumero,numeroGuia,pacienteNome,convenio,convenioId,competencia,codigoItem,codigoItemTuss,descricaoItem,tipoItem,origemSistema,dataExecucao,codigoPrestadorExecutante,valorFaturado,quantidade,recebimentoId,recebimentoOrigem,valorPago,valorGlosa,codigoGlosa,motivoGlosa,statusConciliacao,metodoConciliacao,diferenca,percentualDiferenca,toleranciaUsada,criadoEm)`;
 
   console.log(`[Conciliacao] Inserindo ${inserts.length} registros em batches de ${MEGA_BATCH}...`);
   const t0 = Date.now();
+  // Usar mysql2 diretamente para INSERTs em massa (Drizzle db.execute tem limitações com queries grandes)
+  const rawPool = await getRawPool();
+  const execInsert = rawPool
+    ? async (querySql: string) => { await rawPool.query(querySql); }
+    : async (querySql: string) => { await db.execute(sql.raw(querySql)); };
 
   for (let i = 0; i < inserts.length; i += MEGA_BATCH) {
     const batch = inserts.slice(i, i + MEGA_BATCH);
     const values = batch.map(toRow).join(',');
     try {
-      await db.execute(sql.raw(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${values}`));
+      await execInsert(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${values}`);
     } catch (err: any) {
-      console.error(`[Conciliacao] Erro mega-batch ${i}: ${err.message?.substring(0, 200)}. Tentando sub-batches...`);
+      console.error(`[Conciliacao] Erro mega-batch ${i}: ${err.message?.substring(0, 500)} | CODE: ${err.code} | ERRNO: ${err.errno}. Tentando sub-batches...`);
       // Fallback: sub-batches de 500
       for (let j = 0; j < batch.length; j += 500) {
         const sub = batch.slice(j, j + 500);
         try {
-          await db.execute(sql.raw(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${sub.map(toRow).join(',')}`));
+          await execInsert(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${sub.map(toRow).join(',')}`);
         } catch (subErr: any) {
-          console.error(`[Conciliacao] Erro sub-batch ${i+j}: ${subErr.message?.substring(0, 100)}`);
+          console.error(`[Conciliacao] Erro sub-batch ${i+j}: ${subErr.message?.substring(0, 500)}`);
           // Último recurso: um a um
           for (const r of sub) {
             try {
-              await db.execute(sql.raw(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${toRow(r)}`));
+              await execInsert(`INSERT INTO conciliados_automatico ${INSERT_COLS} VALUES ${toRow(r)}`);
             } catch (e: any) {
-              console.error(`[Conciliacao] Erro id=${r.faturamentoUnificadoId}: ${e.message?.substring(0, 80)}`);
+              console.error(`[Conciliacao] Erro id=${r.faturamentoUnificadoId}: ${e.message?.substring(0, 300)} | SQL: ${toRow(r).substring(0, 200)}`);
             }
           }
         }
