@@ -3701,3 +3701,14 @@
 - [x] IntegradorDados.tsx: copiar versão GitHub (+44 linhas)
 - [x] Repasse.tsx: copiar versão GitHub (+76 linhas)
 - [x] Instalar jspdf, jspdf-autotable, pptxgenjs para exportação PDF/PPTX
+
+## Bug Fix - competencia null nos itens XML (22/mai/2026)
+- [x] Corrigir campo competencia: era sempre null ao inserir em contas_convenio_itens
+- [x] Calcular competencia dinamicamente a partir de dataReferencia ou dataExecucao
+- [x] PSI (estabId=1): tela Conta Convênio agora mostra dados por competência
+
+## Correção - Chaves Duplicadas no appRouter (22/mai/2026)
+- [x] Identificar 16 warnings de duplicate-object-key no routers.ts
+- [x] Remover segundo bloco duplicado (recebimentosExcel, atendimentos, atendimentosFaturar, noticias, motorRegras, recebimentoGeral, avisosInternos, convenioMapeamento)
+- [x] Aplicar melhorias do segundo bloco no primeiro: listarHistorico usa console.error+return[], filtro tipo usa like
+- [x] Arquivo reduzido de 10.814 para 9.561 linhas
