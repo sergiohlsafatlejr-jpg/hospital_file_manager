@@ -941,7 +941,10 @@ export const appRouter = router({
                             valorTotal: vlTotal ? String(vlTotal) : null,
                             dataExecucao: reg.dataExecucao ? new Date(reg.dataExecucao) : null,
                             dataReferencia: reg.dataReferencia ? new Date(reg.dataReferencia) : null,
-                            competencia: null,
+                            competencia: (() => {
+                              const d = reg.dataReferencia ? new Date(reg.dataReferencia) : reg.dataExecucao ? new Date(reg.dataExecucao) : null;
+                              return d ? `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}` : null;
+                            })(),
                             profissionalExecutante: reg.nomeProf ? String(reg.nomeProf) : null,
                             setor: null,
                             arquivoId: arquivoId,
