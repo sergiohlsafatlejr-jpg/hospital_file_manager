@@ -3757,3 +3757,10 @@
 - [x] Registrar diff em vinculações, recursos, aceitar glosa, alterações de status
 - [x] Criar tela de Histórico de Ações consultável com filtros
 - [x] Estatísticas consolidadas de auditoria por período
+
+## Bug Fix - Permissões Gestor
+
+- [x] BUG: Usuários com grupoServico='gestor' não veem módulos Relatórios, Conciliações e Atendimentos
+- [x] Causa raiz: verificarSeGestor() verificava apenas podeGerenciar='sim', não considerava grupoServico='gestor'
+- [x] Fix backend: verificarSeGestor() agora retorna true se grupoServico IN ('gestor','administrador') OU podeGerenciar='sim'
+- [x] Fix SQL: registros existentes com grupoServico='gestor' atualizados com podeGerenciar='sim' e todos os acessos habilitados

@@ -6506,12 +6506,16 @@ export async function verificarSeGestor(userId: number): Promise<boolean> {
   if (user?.role === "admin") return true;
 
   // Verificar se tem permissão de gerenciar em algum estabelecimento
+  // OU se o grupoServico é 'gestor' ou 'administrador' (que semanticamente implica acesso total)
   const permissoes = await db
     .select()
     .from(permissoesEstabelecimento)
     .where(and(
       eq(permissoesEstabelecimento.userId, userId),
-      eq(permissoesEstabelecimento.podeGerenciar, "sim")
+      or(
+        eq(permissoesEstabelecimento.podeGerenciar, "sim"),
+        inArray(permissoesEstabelecimento.grupoServico, ["gestor", "administrador"])
+      )
     ))
     .limit(1);
 
