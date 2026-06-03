@@ -3764,3 +3764,7 @@
 - [x] Causa raiz: verificarSeGestor() verificava apenas podeGerenciar='sim', não considerava grupoServico='gestor'
 - [x] Fix backend: verificarSeGestor() agora retorna true se grupoServico IN ('gestor','administrador') OU podeGerenciar='sim'
 - [x] Fix SQL: registros existentes com grupoServico='gestor' atualizados com podeGerenciar='sim' e todos os acessos habilitados
+
+## Indicador Visual de Papel do Usuário
+
+- [x] Adicionar badge/indicador visual no painel principal mostrando se o usuário é Gestor ou Administrador

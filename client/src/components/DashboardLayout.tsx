@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,6 +88,8 @@ import {
   AlertTriangle,
   Bed,
   Bot,
+  ShieldCheck,
+  Crown,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -438,7 +441,7 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
-  const { estabelecimentos, estabelecimentoAtual, setEstabelecimentoAtual, isGestor, temAcessoModulo } = useEstabelecimento();
+  const { estabelecimentos, estabelecimentoAtual, setEstabelecimentoAtual, isGestor, temAcessoModulo, grupoServico } = useEstabelecimento();
 
   useEffect(() => {
     if (isCollapsed) {
@@ -722,9 +725,30 @@ function DashboardLayoutContent({
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none text-sidebar-foreground">
-                      {user?.name || "-"}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate leading-none text-sidebar-foreground">
+                        {user?.name || "-"}
+                      </p>
+                      {(user?.role === "admin" || isGestor || grupoServico === "gestor" || grupoServico === "administrador") && (
+                        <Badge 
+                          variant="outline" 
+                          className={`text-[10px] px-1.5 py-0 h-4 font-semibold border shrink-0 ${
+                            user?.role === "admin" 
+                              ? "border-amber-500/50 bg-amber-500/10 text-amber-400" 
+                              : grupoServico === "administrador"
+                                ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
+                                : "border-cyan-500/50 bg-cyan-500/10 text-cyan-400"
+                          }`}
+                        >
+                          {user?.role === "admin" 
+                            ? <><Crown className="h-2.5 w-2.5 mr-0.5" />Admin</>
+                            : grupoServico === "administrador"
+                              ? <><ShieldCheck className="h-2.5 w-2.5 mr-0.5" />Admin</>
+                              : <><ShieldCheck className="h-2.5 w-2.5 mr-0.5" />Gestor</>
+                          }
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-sidebar-foreground/60 truncate mt-1.5">
                       {user?.email || "-"}
                     </p>
