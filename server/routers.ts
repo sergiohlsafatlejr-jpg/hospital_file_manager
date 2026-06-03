@@ -43,6 +43,7 @@ import { dashboardBiRouter } from "./routers/dashboardBiRouter";
 import { rhRouter } from "./routers/rhRouter";
 import { rpaRouter } from "./routers/rpaRouter";
 import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
+import { medComparaRouter } from "./routers/medComparaRouter";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -115,6 +116,7 @@ export const appRouter = router({
   rh: rhRouter,
   rpa: rpaRouter,
   relatoriosGlosasBi: relatoriosGlosasBiRouter,
+  medCompara: medComparaRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

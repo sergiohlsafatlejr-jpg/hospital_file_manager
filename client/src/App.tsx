@@ -104,6 +104,7 @@ const RelatoriosGlosasBi = lazy(() => import("./pages/RelatoriosGlosasBi"));
 const RelatorioOxUti = lazy(() => import("./pages/RelatorioOxUti"));
 const RelatorioOxUtiFaturado = lazy(() => import("./pages/RelatorioOxUtiFaturado"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
+const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
 
 function PageLoader() {
   return (
@@ -230,6 +231,7 @@ function Router() {
         <Route path={"/rh/colaboradores"} component={Colaboradores} />
         <Route path={"/rh/plano-salarios"} component={PlanoSalarios} />
         <Route path={"/rpa-manager"} component={RpaManager} />
+        <Route path={"/vinculacao-inteligente"} component={VinculacaoInteligente} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

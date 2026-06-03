@@ -11,6 +11,7 @@ import { iniciarJobConciliacao, consultarJob, jobEmAndamento } from "../concilia
 import { convenioEstabelecimentoPrestador } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
+import { exportarConciliacaoExcel } from "../exportacaoConciliacaoService";
 
 export const faturamentoUnificadoRouter = router({
   /**
@@ -495,5 +496,25 @@ export const faturamentoUnificadoRouter = router({
       // 'codigos' mantém compatibilidade retroativa (todos os códigos cadastrados)
       const codigos = [...new Set(result.map((r: any) => r.codigoPrestador))];
       return { codigos, codigosProprios, codigosTerceiros, detalhes: result };
+    }),
+
+  /**
+   * Exportar conciliação para Excel com múltiplas abas
+   */
+  exportarExcel: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      competencia: z.string().optional(),
+      status: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const result = await exportarConciliacaoExcel({
+        estabelecimentoId: input.estabelecimentoId,
+        convenioId: input.convenioId,
+        competencia: input.competencia,
+        statusFiltro: input.status,
+      });
+      return result;
     }),
 });

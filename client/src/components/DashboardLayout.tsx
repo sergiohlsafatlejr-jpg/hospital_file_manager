@@ -205,6 +205,7 @@ const menuItems: MenuItem[] = [
   // Módulo 6 - Conciliações
   { icon: Scale, label: "Conciliações", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas", children: [
     { icon: Link2, label: "Conciliação Cruzada", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas" },
+    { icon: Brain, label: "Vinculação Inteligente", path: "/vinculacao-inteligente", modulo: "conciliacaoContasPagas" },
   ]},
 
   // Módulo 8 - NFS-e (disponível para TODOS os estabelecimentos)

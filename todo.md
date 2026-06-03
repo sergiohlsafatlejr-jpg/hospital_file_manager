@@ -3712,3 +3712,48 @@
 - [x] Remover segundo bloco duplicado (recebimentosExcel, atendimentos, atendimentosFaturar, noticias, motorRegras, recebimentoGeral, avisosInternos, convenioMapeamento)
 - [x] Aplicar melhorias do segundo bloco no primeiro: listarHistorico usa console.error+return[], filtro tipo usa like
 - [x] Arquivo reduzido de 10.814 para 9.561 linhas
+
+## Melhorias med-compara - Implementação (03/jun/2026)
+
+### 1. Score de Compatibilidade na Vinculação
+- [x] Criar função calcularScoreCompatibilidade() com critérios multicritério (guia, código, valor, descrição, data)
+- [x] Integrar score na conciliação automática para sugerir vinculações com ranking
+- [x] Normalização de códigos (remover zeros à esquerda, caracteres especiais)
+- [x] Desempate por valor para itens duplicados na mesma guia
+- [x] Endpoint tRPC para buscar sugestões de vinculação com score
+
+### 2. Regras de Vinculação com Aprendizado
+- [x] Adicionar campos vezesAplicada, vezesConfirmada, vezesRejeitada, scoreConfianca na vinculacao_codigos
+- [x] Registrar cada vinculação manual como feedback para a regra
+- [x] Calcular score de confiança automaticamente (confirmadas / total)
+- [x] Promover regras com score >= 90% e 3+ usos para automáticas
+- [x] Endpoint para perguntar ao usuário se quer automatizar regra frequente
+
+### 3. Templates de Justificativa por Código de Glosa
+- [x] Criar tabela justificativas_recurso (codigoGlosa, titulo, texto, ativo, vezesUsada)
+- [x] CRUD de justificativas via tRPC
+- [x] Integrar seleção de template na tela de recurso de glosa
+- [x] Sugerir automaticamente justificativas por código de glosa
+
+### 4. Workflow Completo de Recurso de Glosa
+- [x] Implementar máquina de estados (Rascunho → Enviado → Respondido → Finalizado)
+- [x] Batch aceitar/recursar múltiplas glosas
+- [x] Dashboard de valor recuperado via recursos
+- [x] Geração de arquivo de recurso por convênio (XML TISS, XLS)
+
+### 5. Exportação Multi-formato Inteligente
+- [x] Excel com múltiplas abas (Resumo, Conciliados, Divergentes, Glosados, Pendentes)
+- [x] PDF formatado com ReportLab/jsPDF para relatórios de conciliação
+- [x] Exportação de recurso de glosa em XML, PDF e Excel
+
+### 6. Parser Factory com Detecção Automática
+- [x] Criar ParserRegistry centralizado com registro de parsers por convênio e formato
+- [x] Detecção automática de formato (CSV, XML, XLSX, PDF) pelo conteúdo do arquivo
+- [x] Validação de arquivo antes do processamento
+- [x] Facilitar adição de novos convênios via registro no factory
+
+### 7. Auditoria com Diff de Dados
+- [x] Expandir tracking para incluir dadosAnteriores e dadosNovos nas ações críticas
+- [x] Registrar diff em vinculações, recursos, aceitar glosa, alterações de status
+- [x] Criar tela de Histórico de Ações consultável com filtros
+- [x] Estatísticas consolidadas de auditoria por período

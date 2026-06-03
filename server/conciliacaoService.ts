@@ -13,6 +13,7 @@
 
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
+import { registrarFeedback } from "./aprendizadoVinculacaoService";
 
 interface ConciliacaoInput {
   estabelecimentoId: number;
@@ -290,6 +291,37 @@ export async function executarConciliacao(input: ConciliacaoInput): Promise<Resu
         resultado.itensNaoConstaDemo++;
       }
       
+      // Calcular score de compatibilidade para sugestão de vinculação
+      let melhorScore = 0;
+      let melhorSugestao = "";
+      if (pendente === "sim" && itensNaoUsados.length > 0) {
+        for (const candidato of itensNaoUsados) {
+          let score = 0;
+          // Similaridade de valor (peso 40%)
+          const vlCand = parseFloat(candidato.valor || "0");
+          if (vlFat > 0 && vlCand > 0) {
+            const ratio = Math.min(vlFat, vlCand) / Math.max(vlFat, vlCand);
+            score += ratio * 40;
+          }
+          // Mesma guia (peso 30%)
+          if (candidato.guia === fat.guia) score += 30;
+          // Similaridade de descrição (peso 30%)
+          const descFat = (fat.descricao || "").toLowerCase();
+          const descCand = (candidato.descricao || "").toLowerCase();
+          if (descFat && descCand) {
+            const palavrasFat = descFat.split(/\s+/);
+            const palavrasCand = descCand.split(/\s+/);
+            const comuns = palavrasFat.filter(p => palavrasCand.includes(p)).length;
+            const total = Math.max(palavrasFat.length, palavrasCand.length);
+            if (total > 0) score += (comuns / total) * 30;
+          }
+          if (score > melhorScore) {
+            melhorScore = score;
+            melhorSugestao = candidato.codigo;
+          }
+        }
+      }
+      
       registros.push({
         estabelecimentoId,
         mesReferencia,
@@ -306,8 +338,10 @@ export async function executarConciliacao(input: ConciliacaoInput): Promise<Resu
         metodoMatch: "codigo_direto",
         arquivoDemoId,
         pendenteVinculacao: pendente,
+        scoreCompatibilidade: melhorScore > 0 ? Math.round(melhorScore) : null,
+        sugestaoVinculacao: melhorSugestao || null,
         observacao: pendente === "sim" 
-          ? "Item não encontrado por código - possível vinculação pendente" 
+          ? `Item não encontrado por código - possível vinculação pendente${melhorScore >= 70 ? " (sugestão: " + melhorSugestao + " score:" + Math.round(melhorScore) + "%)" : ""}` 
           : "Item faturado não consta no demonstrativo",
         processadoPor: processadoPor || null,
         dataProcessamento: new Date(),
@@ -570,7 +604,21 @@ export async function vincularCodigo(input: {
     sql.raw(`SELECT LAST_INSERT_ID() as insertId`)
   ) as unknown as any[];
   
-  return { id: inserted[0]?.insertId || 0, created: true };
+  const vinculacaoId = inserted[0]?.insertId || 0;
+  
+  // Registrar feedback positivo no sistema de aprendizado
+  try {
+    await registrarFeedback({
+      vinculacaoId,
+      confirmado: true,
+      origemFeedback: "vinculacao_manual",
+    });
+  } catch (e) {
+    // Não bloquear a criação da vinculação se o feedback falhar
+    console.error("[Aprendizado] Erro ao registrar feedback:", e);
+  }
+  
+  return { id: vinculacaoId, created: true };
 }
 
 /**
