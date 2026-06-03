@@ -41,6 +41,8 @@ const ORIGEM_LABELS: Record<string, string> = {
   TASY_STAGING: "TASY",
   XML_TISS: "XML TISS",
   WARLEINE: "Warleine",
+  XML: "XML",
+  BANCO_CLIENTE: "Banco Cliente",
 };
 
 type SortField = "descricaoItem" | "totalFaturado" | "totalRecebido" | "totalGlosado" | "totalPendente" | "taxaRecebimento" | "taxaGlosa" | "quantidade";
@@ -218,7 +220,7 @@ export default function FaturadoRecebidoUnificado() {
           <div>
             <h1 className="text-2xl font-bold">Faturado x Recebido</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Relatório unificado de todas as fontes (TASY, XML TISS, Warleine)
+              Relatório unificado - Fonte: Contas Convênio (XML, Banco Cliente)
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -403,6 +405,15 @@ export default function FaturadoRecebidoUnificado() {
                     <span className="text-[10px] font-medium text-muted-foreground uppercase">Pendente</span>
                   </div>
                   <p className="text-sm font-bold text-amber-500">{fmtCurrency(data.resumo.totalPendente)}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Contas</span>
+                  </div>
+                  <p className="text-sm font-bold">{(data.resumo.totalContas || 0).toLocaleString("pt-BR")}</p>
                 </CardContent>
               </Card>
               <Card>
