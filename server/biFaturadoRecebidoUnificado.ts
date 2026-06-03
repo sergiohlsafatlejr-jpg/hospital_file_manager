@@ -114,12 +114,14 @@ export interface ResultadoUnificado {
 // ============================================================
 
 function normalizarCompetencia(c: string): string {
-  const normalized = c.replace('-', '/');
-  const parts = normalized.split('/');
+  // O banco usa formato '2026-05', frontend envia '2026-05'
+  // Apenas garantir padding do mês
+  const sep = c.includes('/') ? '/' : '-';
+  const parts = c.split(sep);
   if (parts.length === 2) {
-    return `${parts[0]}/${parts[1].padStart(2, '0')}`;
+    return `${parts[0]}-${parts[1].padStart(2, '0')}`;
   }
-  return normalized;
+  return c;
 }
 
 function escSql(s: string): string {
@@ -172,7 +174,7 @@ export async function getDadosFaturadoRecebidoUnificado(
 
   // Adicionar competências do recebimentos_excel
   const [compRowsRE] = await db.execute(sql.raw(`
-    SELECT DISTINCT CONCAT(YEAR(data_referencia), '/', LPAD(MONTH(data_referencia), 2, '0')) as competencia
+    SELECT DISTINCT CONCAT(YEAR(data_referencia), '-', LPAD(MONTH(data_referencia), 2, '0')) as competencia
     FROM recebimentos_excel
     WHERE estabelecimentoId = ${estabelecimentoId}
       AND data_referencia IS NOT NULL
@@ -370,7 +372,7 @@ export async function getDadosFaturadoRecebidoUnificado(
 
   const [recebidoMesRows] = await db.execute(sql.raw(`
     SELECT 
-      CONCAT(YEAR(re.data_referencia), '/', LPAD(MONTH(re.data_referencia), 2, '0')) as competencia,
+      CONCAT(YEAR(re.data_referencia), '-', LPAD(MONTH(re.data_referencia), 2, '0')) as competencia,
       SUM(COALESCE(re.valor_pagamento, 0)) as totalRecebido,
       SUM(COALESCE(re.valor_glosa, 0)) as totalGlosado,
       COUNT(*) as quantidade
@@ -378,7 +380,7 @@ export async function getDadosFaturadoRecebidoUnificado(
     LEFT JOIN convenios c ON re.convenioId = c.id
     WHERE ${whereRecClause}
       AND re.data_referencia IS NOT NULL
-    GROUP BY CONCAT(YEAR(re.data_referencia), '/', LPAD(MONTH(re.data_referencia), 2, '0'))
+    GROUP BY CONCAT(YEAR(re.data_referencia), '-', LPAD(MONTH(re.data_referencia), 2, '0'))
     ORDER BY competencia
   `));
 
