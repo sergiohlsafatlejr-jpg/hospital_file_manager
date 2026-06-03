@@ -3768,3 +3768,11 @@
 ## Indicador Visual de Papel do Usuário
 
 - [x] Adicionar badge/indicador visual no painel principal mostrando se o usuário é Gestor ou Administrador
+
+## Unificação de Relatórios Faturado x Recebido
+
+- [x] Criar relatório unificado "Faturado x Recebido" com todas as fontes de dados
+- [x] Adicionar abas: Resumo, Por Procedimento, Por Mês, Por Convênio, Por Setor, Por Tipo de Item
+- [x] Adicionar filtros: Fonte, Competência, Convênio, Setor, Tipo Item, Prestador, Busca
+- [x] Remover relatórios duplicados do menu lateral (Faturado x Recebido TASY, Ox UTI Faturado XML)
+- [x] Exportação Excel completa com todas as abas

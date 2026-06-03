@@ -29,6 +29,7 @@ import { conferenciaRouter } from "./routers/conferenciaRouter";
 import { relatorioAtendimentosRouter } from "./routers/relatorioAtendimentosRouter";
 import { relatorioCustosRouter } from "./routers/relatorioCustosRouter";
 import { getDadosBIFaturadoRecebido } from "./biFaturadoRecebido";
+import { getDadosFaturadoRecebidoUnificado } from "./biFaturadoRecebidoUnificado";
 import { relatorioFaturamentoRouter } from "./routers/relatorioFaturamentoRouter";
 import { faturamentoExternoRouter } from "./routers/faturamentoExternoRouter";
 import { nfseRouter } from "./routers/nfseRouter";
@@ -6935,6 +6936,21 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return getDadosBIFaturadoRecebido(input);
+      }),
+
+    // BI Faturado x Recebido UNIFICADO (todas as fontes + filtros avançados)
+    faturadoRecebidoUnificado: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        competencias: z.array(z.string()).optional(),
+        convenios: z.array(z.string()).optional(),
+        tipoItem: z.string().optional(),
+        setor: z.string().optional(),
+        origemSistema: z.string().optional(),
+        prestador: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        return getDadosFaturadoRecebidoUnificado(input);
       }),
   }),
 

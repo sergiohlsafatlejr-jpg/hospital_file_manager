@@ -103,6 +103,7 @@ const RelatorioUltrassom = lazy(() => import("./pages/RelatorioUltrassom"));
 const RelatoriosGlosasBi = lazy(() => import("./pages/RelatoriosGlosasBi"));
 const RelatorioOxUti = lazy(() => import("./pages/RelatorioOxUti"));
 const RelatorioOxUtiFaturado = lazy(() => import("./pages/RelatorioOxUtiFaturado"));
+const FaturadoRecebidoUnificado = lazy(() => import("./pages/FaturadoRecebidoUnificado"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
 const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
 
@@ -223,6 +224,7 @@ function Router() {
         <Route path={"/relatorio-ultrassom"} component={RelatorioUltrassom} />
         <Route path={"/relatorio-ox-uti"} component={RelatorioOxUti} />
         <Route path={"/relatorio-ox-uti-faturado"} component={RelatorioOxUtiFaturado} />
+        <Route path={"/faturado-recebido-unificado"} component={FaturadoRecebidoUnificado} />
         <Route path={"/contratos-convenios"} component={ContratosConvenios} />
         <Route path={"/auditoria-sistema"} component={LogAuditoriaSistema} />
         <Route path={"/relatorios-glosas-bi"} component={RelatoriosGlosasBi} />
