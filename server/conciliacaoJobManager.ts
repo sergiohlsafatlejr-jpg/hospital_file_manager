@@ -182,22 +182,30 @@ async function executarJobBackground(jobId: string): Promise<void> {
       job.status = 'concluido';
       job.finalizadoEm = Date.now();
     } else {
-      // Sem competência: buscar apenas competências que tenham demonstrativos de retorno
+      // Sem competência: buscar competências que tenham dados de retorno (recebimentos_excel OU demonstrativo)
       const { getDb } = await import("./db");
       const { sql } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new Error("Database não disponível");
       
-      // FILTRO INTELIGENTE: buscar competências que têm demonstrativos de retorno importados
-      const [compComDemonstrativo] = await db.execute(sql.raw(
-        `SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y/%m') as competencia
-         FROM arquivos a
-         JOIN recebimentos_excel re ON re.arquivo_id = a.id
-         WHERE a.estabelecimentoId = ${job.params.estabelecimentoId}
-         AND a.direcao = 'retornado'
+      // FILTRO INTELIGENTE: buscar competências que têm dados de retorno em QUALQUER fonte
+      // Fonte 1: recebimentos_excel (importados via upload de Excel)
+      // Fonte 2: demonstrativo (importados via XML de retorno dos convênios)
+      const [compComRetorno] = await db.execute(sql.raw(
+        `SELECT DISTINCT comp as competencia FROM (
+           SELECT DISTINCT DATE_FORMAT(a.dataReferencia, '%Y-%m') as comp
+           FROM arquivos a
+           JOIN recebimentos_excel re ON re.arquivo_id = a.id
+           WHERE a.estabelecimentoId = ${job.params.estabelecimentoId}
+           AND a.direcao = 'retornado'
+           UNION
+           SELECT DISTINCT DATE_FORMAT(d.data_referencia, '%Y-%m') as comp
+           FROM demonstrativo d
+           WHERE d.estabelecimentoId = ${job.params.estabelecimentoId}
+         ) AS fontes
          ORDER BY competencia`
       ));
-      const competenciasComRetorno = (compComDemonstrativo as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
+      const competenciasComRetorno = (compComRetorno as unknown as any[]).map((r: any) => r.competencia).filter(Boolean);
       
       // Buscar todas as competências do faturamento para informar quais foram puladas
       const [todasComp] = await db.execute(sql.raw(

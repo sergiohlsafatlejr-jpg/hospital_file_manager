@@ -3785,3 +3785,10 @@
 - [x] Corrigir valores do relatório Faturado x Recebido Unificado que divergem dos valores da tela Contas Convênio (R$ 914.840,59 / 3.722 contas)
 
 - [x] Otimizar Conciliação Cruzada: índices no banco, eliminar loop por convênio, pré-indexar guias de terceiros
+## Bug Fix - Conciliação Cruzada não busca recebimentos no Demonstrativo
+- [x] Conciliação Cruzada busca recebimentos apenas na tabela recebimentos_excel, ignorando dados da tabela demonstrativo (XMLs de retorno dos convênios)
+- [x] Guias como 70492297 (Unimed) aparecem como glosadas/não recebidas quando o pagamento está no demonstrativo
+- [x] Implementar busca combinada: recebimentos_excel + demonstrativo como fontes de match na conciliação
+- [x] Job Manager: descoberta de competências agora inclui demonstrativo (UNION) — competência 2026-04 com 34.947 registros era ignorada
+- [x] Formato de competência normalizado para %Y-%m (hífen) compatível com faturamento_unificado
+- [x] Rastreamento correto de recebimentoOrigem ('demonstrativo' vs 'excel') nos registros conciliados

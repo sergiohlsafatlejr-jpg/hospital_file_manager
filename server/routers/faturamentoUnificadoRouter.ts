@@ -172,7 +172,7 @@ export const faturamentoUnificadoRouter = router({
     .input(z.object({
       faturamentoIds: z.array(z.number()),
       recebimentoId: z.number(),
-      recebimentoOrigem: z.enum(['excel', 'xml']),
+      recebimentoOrigem: z.enum(['excel', 'xml', 'demonstrativo']),
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.vincularGuiaManual(input);

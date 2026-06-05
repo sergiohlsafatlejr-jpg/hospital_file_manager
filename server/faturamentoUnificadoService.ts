@@ -1012,8 +1012,8 @@ export async function executarConciliacaoAutomatica(params: {
   // esta combinação é essencial para atingir alta taxa de conciliação.
   let itensRecebimento: any[];
   if (itensRecebimentoExcel.length === 0) {
-    // Sem excel: usar apenas demonstrativo
-    itensRecebimento = itensRecebimentoDem;
+    // Sem excel: usar apenas demonstrativo (marcar origem)
+    itensRecebimento = itensRecebimentoDem.map((r: any) => ({ ...r, _origem: 'demonstrativo' }));
   } else if (itensRecebimentoDem.length === 0) {
     // Sem demonstrativo: usar apenas excel
     itensRecebimento = itensRecebimentoExcel;
@@ -1259,8 +1259,9 @@ export async function executarConciliacaoAutomatica(params: {
       }
 
       const origemRec = recMatch._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
-      // Para registros do demonstrativo, o id foi prefixado com DEM_ID_OFFSET; usar o id real
-      const recIdReal = recMatch._origem === 'demonstrativo' ? recMatch.id - 9_000_000 : recMatch.id;
+      // Para registros do demonstrativo combinados (ambas fontes), o id foi prefixado com DEM_ID_OFFSET
+      // Para registros do demonstrativo solo (sem excel), o id é o original
+      const recIdReal = (recMatch._origem === 'demonstrativo' && recMatch.id > 9_000_000) ? recMatch.id - 9_000_000 : recMatch.id;
       if (percentualDiferenca <= tolerancia) {
         inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'conciliado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalConciliados++;
