@@ -1267,9 +1267,11 @@ export async function executarConciliacaoAutomatica(params: {
       if (percentualDiferenca <= tolerancia) {
         inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'conciliado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalConciliados++;
-      } else {
-        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'divergente', metodoConciliacao: metodo, diferenca, percentualDiferenca });
-        resultado.totalDivergentes++;
+      } else if (diferenca > 0) {
+        // Pagamento parcial (convênio pagou menos) = glosa parcial
+        const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
         resultado.divergencias.push({
           faturamentoId: fat.id,
           recebimentoId: recIdReal,
@@ -1279,6 +1281,10 @@ export async function executarConciliacaoAutomatica(params: {
           valorRecebido,
           diferenca,
         });
+      } else {
+        // Pagamento a maior (convênio pagou mais que faturado) = divergente
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'divergente', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        resultado.totalDivergentes++;
       }
 
       // Contabilizar por método
@@ -1396,7 +1402,13 @@ export async function executarConciliacaoAutomatica(params: {
         if (percentualDiferenca <= tolerancia) {
           ins.statusConciliacao = 'conciliado';
           resultado.totalConciliados++;
+        } else if (diferenca > 0) {
+          // Pagamento parcial = glosa parcial
+          ins.statusConciliacao = 'glosado';
+          ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
+          resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
         } else {
+          // Pagamento a maior = divergente
           ins.statusConciliacao = 'divergente';
           resultado.totalDivergentes++;
         }
@@ -1472,7 +1484,12 @@ export async function executarConciliacaoAutomatica(params: {
         }
       } else if (percentualDiferenca <= tolerancia) {
         ins.statusConciliacao = 'conciliado';
+      } else if (diferenca > 0) {
+        // Pagamento parcial = glosa parcial
+        ins.statusConciliacao = 'glosado';
+        ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
       } else {
+        // Pagamento a maior = divergente
         ins.statusConciliacao = 'divergente';
       }
 
@@ -1480,6 +1497,7 @@ export async function executarConciliacaoAutomatica(params: {
       if (statusAnterior === 'divergente') resultado.totalDivergentes--;
       if (statusAnterior === 'glosado') resultado.totalGlosados = (resultado.totalGlosados || 0) - 1;
       if (ins.statusConciliacao === 'conciliado') resultado.totalConciliados++;
+      else if (ins.statusConciliacao === 'glosado') resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
       else if (ins.statusConciliacao === 'divergente') resultado.totalDivergentes++;
     }
   }
@@ -2131,10 +2149,12 @@ export async function reverterGlosa(params: {
 
   const ids = params.ids.join(',');
 
-  // Reverter: se o item tinha valorPago > 0, volta para 'divergente'; senão volta para 'nao_recebido'
+  // Reverter glosa: volta para 'nao_recebido' (itens sem pagamento)
+  // Itens com pagamento parcial (glosa parcial) voltam para 'nao_recebido' também,
+  // pois o status 'divergente' não é mais usado para pagamento parcial
   const query = `
     UPDATE conciliados_automatico 
-    SET statusConciliacao = CASE WHEN valorPago > 0 THEN 'divergente' ELSE 'nao_recebido' END,
+    SET statusConciliacao = 'nao_recebido',
         valorGlosa = 0,
         diferenca = CASE WHEN valorPago > 0 THEN valorFaturado - valorPago ELSE 0 END,
         percentualDiferenca = CASE WHEN valorPago > 0 AND valorFaturado > 0 THEN ROUND(((valorFaturado - valorPago) / valorFaturado) * 100, 2) ELSE 0 END,

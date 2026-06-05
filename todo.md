@@ -3798,3 +3798,8 @@
 - [x] Armazenar itens acréscimo na tabela conciliados_automatico com statusConciliacao = 'acrescimo'
 - [x] Exibir itens acréscimo na tela de detalhes da conciliação com destaque visual
 - [x] Incluir totais de acréscimo no resumo da conciliação
+
+## Reclassificação: Divergentes → Glosa Parcial
+- [x] Itens com pagamento parcial (convênio pagou menos que faturado) devem ser classificados como 'glosado' em vez de 'divergente'
+- [x] A diferença (faturado - pago) deve ser registrada como valorGlosa
+- [x] Status 'divergente' deve ser usado apenas para casos excepcionais (pagamento a maior, por exemplo)
