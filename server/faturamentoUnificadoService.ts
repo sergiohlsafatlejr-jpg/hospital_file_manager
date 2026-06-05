@@ -801,6 +801,7 @@ export interface ConciliacaoResultado {
   totalNaoRecebidos: number;
   totalGlosados: number;
   totalTerceiros: number;
+  totalAcrescimos: number;
   totalJaConciliados: number;
   detalhes: {
     conciliadosPorGuiaCodigo: number;
@@ -857,6 +858,7 @@ export async function executarConciliacaoAutomatica(params: {
     totalNaoRecebidos: 0,
     totalGlosados: 0,
     totalTerceiros: 0,
+    totalAcrescimos: 0,
     totalJaConciliados: 0,
     detalhes: {
       conciliadosPorGuiaCodigo: 0,
@@ -1483,6 +1485,63 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
+  // PASSO 5.7: Detectar itens ACRÉSCIMO (presentes no demonstrativo mas NÃO no faturamento)
+  // Quando o convênio substitui um procedimento (ex: diária apartamento → hospital dia),
+  // o item substitutivo aparece no demonstrativo mas não existe no faturamento.
+  // Esses itens devem ser registrados como 'acrescimo' para visibilidade.
+  // -------------------------------------------------------
+  const codigosFaturados = new Set(itensFaturamento.map((f: any) => `${f.numeroGuia}|${f.codigoItem}`));
+  const acrescimosDetectados: any[] = [];
+  
+  for (const rec of itensRecebimento) {
+    if (recebimentosUsados.has(rec.id)) continue; // Já usado em algum match
+    const chave = `${rec.numeroGuia}|${rec.codigoItem}`;
+    if (codigosFaturados.has(chave)) continue; // Código existe no faturamento (pode ser match futuro)
+    
+    // Item do demonstrativo que NÃO existe no faturamento = ACRÉSCIMO
+    const valorPago = Number(rec.valorPago) || 0;
+    const valorGlosa = Number(rec.valorGlosa) || 0;
+    if (valorPago <= 0 && valorGlosa <= 0) continue; // Ignorar registros zerados
+    
+    const origemRec = rec._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
+    acrescimosDetectados.push({
+      faturamentoUnificadoId: 0, // Sentinela: não existe no faturamento
+      contaNumero: null,
+      numeroGuia: String(rec.numeroGuia || ''),
+      pacienteNome: rec.nomeBeneficiario ? String(rec.nomeBeneficiario) : null,
+      convenio: inserts.length > 0 ? inserts[0].convenio : null,
+      convenioId: params.convenioId || (inserts.length > 0 ? inserts[0].convenioId : null),
+      competencia: params.competencia || (inserts.length > 0 ? inserts[0].competencia : null),
+      codigoItem: String(rec.codigoItem || ''),
+      codigoItemTuss: null,
+      descricaoItem: rec.descricaoItem ? String(rec.descricaoItem) : null,
+      tipoItem: rec.tipoLancamento ? String(rec.tipoLancamento) : null,
+      origemSistema: 'DEMONSTRATIVO',
+      dataExecucao: null,
+      codigoPrestadorExecutante: null,
+      valorFaturado: 0,
+      quantidade: Number(rec.quantidade) || 1,
+      recebimentoId: rec.id,
+      recebimentoOrigem: origemRec,
+      valorPago: valorPago,
+      valorGlosa: valorGlosa,
+      codigoGlosa: rec.codigoGlosa ? String(rec.codigoGlosa) : null,
+      motivoGlosa: null,
+      statusConciliacao: 'acrescimo',
+      metodoConciliacao: 'acrescimo_demonstrativo',
+      diferenca: -valorPago, // Negativo = hospital recebeu a mais do que faturou
+      percentualDiferenca: 0,
+    });
+    recebimentosUsados.add(rec.id);
+    resultado.totalAcrescimos++;
+  }
+  
+  if (acrescimosDetectados.length > 0) {
+    console.log(`[Conciliacao] ${acrescimosDetectados.length} itens acréscimo detectados (presentes no demonstrativo, ausentes no faturamento)`);
+    inserts.push(...acrescimosDetectados);
+  }
+
+  // -------------------------------------------------------
   // PASSO 6: INSERT em MEGA-BATCH na tabela conciliados_automatico
   // Usa batches de 5000 para minimizar roundtrips ao banco
   // (conciliações anteriores já foram deletadas no PASSO 0.5)
@@ -1702,6 +1761,7 @@ export async function resumoConciliadosAutomatico(params: {
   totalDivergentes: number;
   totalNaoRecebidos: number;
   totalTerceiros: number;
+  totalAcrescimos: number;
   valorTotalFaturado: number;
   valorTotalPago: number;
   valorTotalGlosa: number;
@@ -1739,6 +1799,7 @@ export async function resumoConciliadosAutomatico(params: {
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
     totalTerceiros: 0,
+    totalAcrescimos: 0,
     valorTotalFaturado: 0,
     valorTotalPago: 0,
     valorTotalGlosa: 0,
@@ -1762,6 +1823,7 @@ export async function resumoConciliadosAutomatico(params: {
       case 'divergente': resumo.totalDivergentes = count; break;
       case 'nao_recebido': resumo.totalNaoRecebidos = count; break;
       case 'terceiro': resumo.totalTerceiros = count; break;
+      case 'acrescimo': resumo.totalAcrescimos = count; break;
     }
   }
 
@@ -1899,6 +1961,7 @@ export async function resumoConciliadosPorGuia(params: {
       SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as itensNaoRecebidos,
       SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) as itensTerceiros,
       SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as itensGlosados,
+      SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
       COUNT(DISTINCT ca.contaNumero) as totalContas,
       MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante

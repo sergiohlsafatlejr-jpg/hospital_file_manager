@@ -24,7 +24,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, FileText, Building2, ArrowUpDown,
   ChevronDown, ChevronUp, RefreshCw, Link2, Database, Loader2, Unlink,
   Zap, RotateCcw, BarChart3, Info, ListChecks, Table2, ChevronRight, ArrowLeft,
-  Ban, Undo2, CheckSquare, FileCode, Package, ExternalLink, FileDown
+  Ban, Undo2, CheckSquare, FileCode, Package, ExternalLink, FileDown, PlusCircle
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
@@ -423,6 +423,8 @@ export default function ConciliacaoCruzada() {
         return <Badge className="bg-purple-600 hover:bg-purple-700"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
       case 'terceiro':
         return <Badge className="bg-orange-500 hover:bg-orange-600"><ExternalLink className="w-3 h-3 mr-1" /> Terceiro</Badge>;
+      case 'acrescimo':
+        return <Badge className="bg-teal-500 hover:bg-teal-600"><PlusCircle className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
       case 'pendente':
       default:
         return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Pendente</Badge>;
@@ -442,6 +444,10 @@ export default function ConciliacaoCruzada() {
         return <Badge variant="outline" className="text-xs bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Paciente+Código</Badge>;
       case 'agrupamento':
         return <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">Agrupado</Badge>;
+      case 'agrupamento_recebimentos':
+        return <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">Agrup. Rec.</Badge>;
+      case 'acrescimo_demonstrativo':
+        return <Badge variant="outline" className="text-xs bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300">Demonstrativo</Badge>;
       default:
         return <Badge variant="outline" className="text-xs">{metodo}</Badge>;
     }
@@ -692,6 +698,7 @@ export default function ConciliacaoCruzada() {
                     <SelectItem value="nao_recebido">Não Recebido</SelectItem>
                     <SelectItem value="glosado">Glosado</SelectItem>
                     <SelectItem value="terceiro">Terceiro</SelectItem>
+                    <SelectItem value="acrescimo">Acréscimo</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -991,7 +998,8 @@ export default function ConciliacaoCruzada() {
                               <tr key={item.id || index} className={`border-b hover:bg-muted/50 ${
                                 item.statusConciliacao === 'divergente' ? 'bg-yellow-50/50 dark:bg-yellow-950/20' :
                                 item.statusConciliacao === 'nao_recebido' ? 'bg-red-50/50 dark:bg-red-950/20' :
-                                item.statusConciliacao === 'glosado' ? 'bg-purple-50/50 dark:bg-purple-950/20' : ''
+                                item.statusConciliacao === 'glosado' ? 'bg-purple-50/50 dark:bg-purple-950/20' :
+                                item.statusConciliacao === 'acrescimo' ? 'bg-teal-50/50 dark:bg-teal-950/20' : ''
                               }`}>
                                 <td className="p-3">
                                   {(item.statusConciliacao === 'nao_recebido' || item.statusConciliacao === 'glosado' || item.statusConciliacao === 'divergente') && item.id ? (
@@ -1117,6 +1125,21 @@ export default function ConciliacaoCruzada() {
                                 <p className="text-xs opacity-70">Pago direto ao terceiro</p>
                               </div>
                               <ExternalLink className="w-10 h-10 opacity-50" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {(resumoConciliados.totalAcrescimos || 0) > 0 && (
+                        <Card className="bg-gradient-to-br from-teal-500 to-teal-600 text-white">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm opacity-80">Acréscimos</p>
+                                <p className="text-2xl font-bold">{resumoConciliados.totalAcrescimos}</p>
+                                <p className="text-xs opacity-70">Pagos sem faturamento</p>
+                              </div>
+                              <PlusCircle className="w-10 h-10 opacity-50" />
                             </div>
                           </CardContent>
                         </Card>

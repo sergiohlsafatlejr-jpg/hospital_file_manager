@@ -110,6 +110,7 @@ async function executarJobBackground(jobId: string): Promise<void> {
         totalNaoRecebidos: 0,
         totalGlosados: 0,
         totalTerceiros: 0,
+        totalAcrescimos: 0,
         totalJaConciliados: 0,
         detalhes: {
           conciliadosPorGuiaCodigo: 0,
@@ -155,6 +156,7 @@ async function executarJobBackground(jobId: string): Promise<void> {
               resultadoTotal.totalDivergentes += parcial.totalDivergentes;
               resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
               resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+              resultadoTotal.totalAcrescimos += parcial.totalAcrescimos;
               resultadoTotal.totalGlosados += parcial.totalGlosados;
               resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
               resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
@@ -233,6 +235,7 @@ async function executarJobBackground(jobId: string): Promise<void> {
           totalNaoRecebidos: 0,
           totalGlosados: 0,
           totalTerceiros: 0,
+          totalAcrescimos: 0,
           totalJaConciliados: 0,
           detalhes: {
             conciliadosPorGuiaCodigo: 0,
@@ -263,6 +266,7 @@ async function executarJobBackground(jobId: string): Promise<void> {
         totalNaoRecebidos: 0,
         totalGlosados: 0,
         totalTerceiros: 0,
+        totalAcrescimos: 0,
         totalJaConciliados: 0,
         detalhes: {
           conciliadosPorGuiaCodigo: 0,
@@ -302,6 +306,7 @@ async function executarJobBackground(jobId: string): Promise<void> {
           resultadoTotal.totalDivergentes += parcial.totalDivergentes;
           resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
           resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+          resultadoTotal.totalAcrescimos += parcial.totalAcrescimos;
           resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
           resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
           resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;

@@ -3792,3 +3792,9 @@
 - [x] Job Manager: descoberta de competências agora inclui demonstrativo (UNION) — competência 2026-04 com 34.947 registros era ignorada
 - [x] Formato de competência normalizado para %Y-%m (hífen) compatível com faturamento_unificado
 - [x] Rastreamento correto de recebimentoOrigem ('demonstrativo' vs 'excel') nos registros conciliados
+
+## Feature - Itens Acréscimo na Conciliação (itens pagos pelo convênio que não foram faturados)
+- [x] Detectar itens do demonstrativo que não existem no faturamento (acréscimos) durante a conciliação
+- [x] Armazenar itens acréscimo na tabela conciliados_automatico com statusConciliacao = 'acrescimo'
+- [x] Exibir itens acréscimo na tela de detalhes da conciliação com destaque visual
+- [x] Incluir totais de acréscimo no resumo da conciliação
