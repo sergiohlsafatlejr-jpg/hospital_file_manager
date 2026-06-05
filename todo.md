@@ -3783,3 +3783,5 @@
 - [x] Corrigir relatório Faturado x Recebido Unificado não mostrando dados (formato competência 2026/05 vs 2026-05)
 
 - [x] Corrigir valores do relatório Faturado x Recebido Unificado que divergem dos valores da tela Contas Convênio (R$ 914.840,59 / 3.722 contas)
+
+- [x] Otimizar Conciliação Cruzada: índices no banco, eliminar loop por convênio, pré-indexar guias de terceiros

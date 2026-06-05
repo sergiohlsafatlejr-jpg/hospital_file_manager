@@ -929,12 +929,27 @@ export async function executarConciliacaoAutomatica(params: {
   // PASSO 2: Buscar recebimentos do mesmo estabelecimento/convênio
   // Fonte primária: recebimentos_excel (arquivos importados via upload)
   // Fonte secundária: tabela demonstrativo (importados via CSV/banco externo)
-  // NÃO filtra por competência nos recebimentos, pois o pagamento pode
-  // vir em mês posterior ao faturamento (ex: faturado 11/2025, pago 01/2026)
+  // Otimização: filtra recebimentos apenas pelas guias presentes no faturamento
+  // para evitar carregar 100k+ registros na memória
   // -------------------------------------------------------
+  
+  // Extrair guias únicas do faturamento para filtrar recebimentos
+  const guiasUnicas = [...new Set(itensFaturamento.map((f: any) => String(f.numeroGuia || f.contaNumero || '').trim()).filter(Boolean))];
+  const carteirasUnicas = [...new Set(itensFaturamento.map((f: any) => String(f.carteiraBeneficiario || '').trim()).filter(Boolean))];
+  
   let whereRec = `WHERE re.estabelecimentoId = ${params.estabelecimentoId}`;
   if (params.convenioId) {
     whereRec += ` AND re.convenioId = ${params.convenioId}`;
+  }
+  
+  // Filtrar por guias conhecidas OU carteiras conhecidas para reduzir volume
+  // Isso reduz de 100k+ para apenas os recebimentos relevantes
+  if (guiasUnicas.length > 0 && guiasUnicas.length <= 10000) {
+    const guiasEsc = guiasUnicas.map(g => `'${g.replace(/'/g, "''")}'`).join(',');
+    const carteirasFilter = carteirasUnicas.length > 0 && carteirasUnicas.length <= 5000
+      ? ` OR re.beneficiario IN (${carteirasUnicas.map(c => `'${c.replace(/'/g, "''")}'`).join(',')})`
+      : '';
+    whereRec += ` AND (re.numero_guia IN (${guiasEsc})${carteirasFilter})`;
   }
 
   const queryRecebimentos = `
@@ -953,14 +968,21 @@ export async function executarConciliacaoAutomatica(params: {
     ORDER BY re.id
   `;
 
+  console.log(`[Conciliacao] Buscando recebimentos com filtro de ${guiasUnicas.length} guias...`);
+  const t_rec_start = Date.now();
   const [recRows] = await db.execute(sql.raw(queryRecebimentos));
   const itensRecebimentoExcel = recRows as unknown as any[];
+  console.log(`[Conciliacao] ${itensRecebimentoExcel.length} recebimentos encontrados em ${((Date.now()-t_rec_start)/1000).toFixed(1)}s`);
 
   // Fonte secundária: tabela demonstrativo (dados importados diretamente via CSV/banco externo)
-  // Usada quando não há recebimentos_excel para este estabelecimento/convênio
+  // Otimização: também filtra por guias conhecidas
   let whereDem = `WHERE d.estabelecimentoId = ${params.estabelecimentoId}`;
   if (params.convenioId) {
     whereDem += ` AND d.convenio_id = ${params.convenioId}`;
+  }
+  if (guiasUnicas.length > 0 && guiasUnicas.length <= 10000) {
+    const guiasEsc = guiasUnicas.map(g => `'${g.replace(/'/g, "''")}'`).join(',');
+    whereDem += ` AND d.numero_guia IN (${guiasEsc})`;
   }
   const queryDemonstrativo = `
     SELECT 
@@ -977,8 +999,11 @@ export async function executarConciliacaoAutomatica(params: {
     ${whereDem}
     ORDER BY d.id
   `;
+  console.log(`[Conciliacao] Buscando demonstrativos com filtro de guias...`);
+  const t_dem_start = Date.now();
   const [demRows] = await db.execute(sql.raw(queryDemonstrativo));
   const itensRecebimentoDem = demRows as unknown as any[];
+  console.log(`[Conciliacao] ${itensRecebimentoDem.length} demonstrativos encontrados em ${((Date.now()-t_dem_start)/1000).toFixed(1)}s`);
 
   // Combinar as duas fontes: usar AMBAS para maximizar o match
   // Identificar registros únicos: se um recebimento existe em ambas as fontes
@@ -1066,6 +1091,21 @@ export async function executarConciliacaoAutomatica(params: {
       const chave = `${carteira}|${codigo}`;
       if (!indexCarteiraCodigo.has(chave)) indexCarteiraCodigo.set(chave, []);
       indexCarteiraCodigo.get(chave)!.push(rec);
+    }
+  }
+
+  // -------------------------------------------------------
+  // PASSO 4.5: Pré-indexar guias que têm prestador próprio (evita O(n²) no PASSO 5)
+  // -------------------------------------------------------
+  const indexGuiaPrestadores = new Map<string, boolean>();
+  if (codigosProprios.size > 0) {
+    for (const fat of itensFaturamento) {
+      const guia = String(fat.numeroGuia || '').trim();
+      if (!guia) continue;
+      const cod = fat.codigoPrestadorExecutante ? String(fat.codigoPrestadorExecutante) : null;
+      if (cod && codigosProprios.has(cod)) {
+        indexGuiaPrestadores.set(guia, true);
+      }
     }
   }
 
@@ -1259,14 +1299,8 @@ export async function executarConciliacaoAutomatica(params: {
           isTerceiro = true;
         } else if (!codPrestExec) {
           // Código NULL: verificar se outros itens da mesma guia têm código próprio
-          // Se sim, este item provavelmente é de um médico terceiro cujo código não foi extraído
-          const mesmaGuia = itensFaturamento.filter((f: any) => 
-            String(f.numeroGuia) === String(baseInsert.numeroGuia)
-          );
-          const temProprioNaGuia = mesmaGuia.some((f: any) => {
-            const cod = f.codigoPrestadorExecutante ? String(f.codigoPrestadorExecutante) : null;
-            return cod && codigosProprios.has(cod);
-          });
+          // Usa indexGuiaPrestadores pré-computado para evitar O(n²)
+          const temProprioNaGuia = indexGuiaPrestadores.get(String(baseInsert.numeroGuia)) || false;
           if (temProprioNaGuia) {
             isTerceiro = true;
           }

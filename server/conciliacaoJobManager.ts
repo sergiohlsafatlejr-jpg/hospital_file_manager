@@ -275,84 +275,32 @@ async function executarJobBackground(jobId: string): Promise<void> {
         console.log(`[ConciliacaoJob] Processando competência ${i + 1}/${competencias.length}: ${comp}`);
         
         try {
-          if (!job.params.convenioId) {
-            const { getDb } = await import("./db");
-            const { sql } = await import("drizzle-orm");
-            const db = await getDb();
-            if (db) {
-              const [conveniosData] = await db.execute(sql.raw(`
-                SELECT DISTINCT convenioId 
-                FROM faturamento_unificado 
-                WHERE estabelecimentoId = ${job.params.estabelecimentoId} 
-                AND competencia = '${comp.replace(/'/g, "''")}'
-                AND convenioId IS NOT NULL
-              `));
-              
-              const conveniosComp = (conveniosData as unknown as any[]).map(r => Number(r.convenioId));
-              console.log(`[ConciliacaoJob] Competência ${comp} será processada em lotes de ${conveniosComp.length} convênios...`);
-              
-              let compProcessados = 0;
-              let compConciliados = 0;
-              let compDivergentes = 0;
-              let compNaoRecebidos = 0;
-              
-              for (let j = 0; j < conveniosComp.length; j++) {
-                const convId = conveniosComp[j];
-                console.log(`[ConciliacaoJob] Competência ${comp} - Convênio ${convId} (${j+1}/${conveniosComp.length})`);
-                const parcial = await executarConciliacaoAutomatica({
-                  ...job.params,
-                  competencia: comp,
-                  convenioId: convId,
-                });
-                
-                compProcessados += parcial.totalProcessados;
-                compConciliados += parcial.totalConciliados;
-                compDivergentes += parcial.totalDivergentes;
-                compNaoRecebidos += parcial.totalNaoRecebidos;
-                
-                resultadoTotal.totalProcessados += parcial.totalProcessados;
-                resultadoTotal.totalConciliados += parcial.totalConciliados;
-                resultadoTotal.totalDivergentes += parcial.totalDivergentes;
-                resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
-                resultadoTotal.totalTerceiros += parcial.totalTerceiros;
-                resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
-                resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
-                resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
-                resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
-                resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
-                resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
-                if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
-                
-                job.progresso.itensProcessados = resultadoTotal.totalProcessados;
-                job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
-              }
-              const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
-              console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${compProcessados} itens, ${compConciliados} conciliados, ${compDivergentes} divergentes, ${compNaoRecebidos} não recebidos`);
-            }
-          } else {
-            const parcial = await executarConciliacaoAutomatica({
-              ...job.params,
-              competencia: comp,
-            });
-            
-            const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
-            console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${parcial.totalProcessados} itens, ${parcial.totalConciliados} conciliados, ${parcial.totalDivergentes} divergentes, ${parcial.totalNaoRecebidos} não recebidos`);
-            
-            resultadoTotal.totalProcessados += parcial.totalProcessados;
-            job.progresso.itensProcessados = resultadoTotal.totalProcessados;
-            job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
-            resultadoTotal.totalConciliados += parcial.totalConciliados;
-            resultadoTotal.totalDivergentes += parcial.totalDivergentes;
-            resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
-            resultadoTotal.totalTerceiros += parcial.totalTerceiros;
-            resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
-            resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
-            resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
-            resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
-            resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
-            resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
-            if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
-          }
+          // Otimização: processar a competência inteira de uma vez
+          // Em vez de dividir por convênio (que causa múltiplos roundtrips ao banco),
+          // processa todos os convênios juntos - a função já filtra por guias
+          const parcial = await executarConciliacaoAutomatica({
+            ...job.params,
+            competencia: comp,
+            convenioId: job.params.convenioId || undefined,
+          });
+          
+          const tempoComp = ((Date.now() - inicioComp) / 1000).toFixed(1);
+          console.log(`[ConciliacaoJob] Competência ${comp} concluída em ${tempoComp}s: ${parcial.totalProcessados} itens, ${parcial.totalConciliados} conciliados, ${parcial.totalDivergentes} divergentes, ${parcial.totalNaoRecebidos} não recebidos`);
+          
+          resultadoTotal.totalProcessados += parcial.totalProcessados;
+          job.progresso.itensProcessados = resultadoTotal.totalProcessados;
+          job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
+          resultadoTotal.totalConciliados += parcial.totalConciliados;
+          resultadoTotal.totalDivergentes += parcial.totalDivergentes;
+          resultadoTotal.totalNaoRecebidos += parcial.totalNaoRecebidos;
+          resultadoTotal.totalTerceiros += parcial.totalTerceiros;
+          resultadoTotal.totalJaConciliados += parcial.totalJaConciliados;
+          resultadoTotal.detalhes.conciliadosPorGuiaCodigo += parcial.detalhes.conciliadosPorGuiaCodigo;
+          resultadoTotal.detalhes.conciliadosPorGuiaCodigoTuss += parcial.detalhes.conciliadosPorGuiaCodigoTuss;
+          resultadoTotal.detalhes.conciliadosPorVinculacao += parcial.detalhes.conciliadosPorVinculacao;
+          resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
+          resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
+          if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
         } catch (err: any) {
           console.error(`[ConciliacaoJob] Erro na competência ${comp}:`, err.message);
           // Continua com as próximas
