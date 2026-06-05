@@ -3803,3 +3803,11 @@
 - [x] Itens com pagamento parcial (convênio pagou menos que faturado) devem ser classificados como 'glosado' em vez de 'divergente'
 - [x] A diferença (faturado - pago) deve ser registrada como valorGlosa
 - [x] Status 'divergente' deve ser usado apenas para casos excepcionais (pagamento a maior, por exemplo)
+
+## Melhorias Conciliação: Tipos de Glosa, Sem Pagamento e Mês de Pagamento Cruzado
+- [x] Separar glosa em dois tipos: 'glosa_total' (valor pago = 0) e 'glosa_parcial' (valor pago > 0 mas < faturado)
+- [x] Renomear status 'nao_recebido' para 'sem_pagamento' (guia não encontrada em nenhuma fonte de retorno)
+- [x] Badge amarelo para itens 'sem_pagamento' na tela de conciliação
+- [x] Buscar mês de pagamento cruzado: quando guia não foi paga na competência atual, verificar demonstrativo de outros meses
+- [x] Exibir na tela o mês em que a guia foi efetivamente paga (ex: "Paga em 05/2026")
+- [x] Atualizar filtros e cards de resumo para os novos status

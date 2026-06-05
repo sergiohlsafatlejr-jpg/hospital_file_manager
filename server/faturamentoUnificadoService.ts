@@ -461,7 +461,9 @@ export async function resumoFaturamentoPorConvenio(params: {
       SUM(CASE WHEN fu.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as totalConciliados,
       SUM(CASE WHEN fu.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as totalDivergentes,
       SUM(CASE WHEN fu.statusConciliacao = 'pendente' THEN 1 ELSE 0 END) as totalPendentes,
-      SUM(CASE WHEN fu.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as totalNaoRecebidos
+      SUM(CASE WHEN fu.statusConciliacao IN ('nao_recebido', 'sem_pagamento') THEN 1 ELSE 0 END) as totalNaoRecebidos,
+      SUM(CASE WHEN fu.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as totalGlosaTotal,
+      SUM(CASE WHEN fu.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) as totalGlosaParcial
     FROM faturamento_unificado fu
     ${whereClause}
     GROUP BY fu.convenio, fu.convenioId, fu.origemSistema
@@ -571,7 +573,9 @@ export async function resumoFaturamentoPorGuia(params: {
       SUM(CASE WHEN fu.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
       SUM(CASE WHEN fu.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
       SUM(CASE WHEN fu.statusConciliacao = 'pendente' THEN 1 ELSE 0 END) as itensPendentes,
-      SUM(CASE WHEN fu.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as itensNaoRecebidos
+      SUM(CASE WHEN fu.statusConciliacao IN ('nao_recebido', 'sem_pagamento') THEN 1 ELSE 0 END) as itensNaoRecebidos,
+      SUM(CASE WHEN fu.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as itensGlosaTotal,
+      SUM(CASE WHEN fu.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) as itensGlosaParcial
     FROM faturamento_unificado fu
     ${whereClause}
   `;
@@ -800,6 +804,8 @@ export interface ConciliacaoResultado {
   totalDivergentes: number;
   totalNaoRecebidos: number;
   totalGlosados: number;
+  totalGlosaTotal: number;
+  totalGlosaParcial: number;
   totalTerceiros: number;
   totalAcrescimos: number;
   totalJaConciliados: number;
@@ -857,6 +863,8 @@ export async function executarConciliacaoAutomatica(params: {
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
     totalGlosados: 0,
+    totalGlosaTotal: 0,
+    totalGlosaParcial: 0,
     totalTerceiros: 0,
     totalAcrescimos: 0,
     totalJaConciliados: 0,
@@ -1267,11 +1275,18 @@ export async function executarConciliacaoAutomatica(params: {
       if (percentualDiferenca <= tolerancia) {
         inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'conciliado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalConciliados++;
-      } else if (diferenca > 0) {
-        // Pagamento parcial (convênio pagou menos) = glosa parcial
+      } else if (diferenca > 0 && valorPagoRec === 0) {
+        // Glosa total: convênio retornou o item mas não pagou nada
         const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
-        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosado', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: 0, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosa_total', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+        resultado.totalGlosaTotal++;
+      } else if (diferenca > 0) {
+        // Glosa parcial: convênio pagou menos que o faturado
+        const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosa_parcial', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+        resultado.totalGlosaParcial++;
         resultado.divergencias.push({
           faturamentoId: fat.id,
           recebimentoId: recIdReal,
@@ -1321,8 +1336,8 @@ export async function executarConciliacaoAutomatica(params: {
         inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: 0, statusConciliacao: 'terceiro', metodoConciliacao: null, diferenca: 0, percentualDiferenca: 0, codigoGlosa: null });
         resultado.totalTerceiros = (resultado.totalTerceiros || 0) + 1;
       } else {
-        // Item próprio sem match: considerar como glosado automaticamente com motivo 5007
-        inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: valorFaturado, statusConciliacao: 'glosado', metodoConciliacao: null, diferenca: valorFaturado, percentualDiferenca: 100, codigoGlosa: '5007' });
+        // Item próprio sem match: marcar como 'sem_pagamento' (não encontrado em nenhuma fonte de retorno)
+        inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: 0, statusConciliacao: 'sem_pagamento', metodoConciliacao: null, diferenca: valorFaturado, percentualDiferenca: 100, codigoGlosa: null });
         resultado.totalNaoRecebidos++;
       }
     }
@@ -1335,11 +1350,11 @@ export async function executarConciliacaoAutomatica(params: {
   // Ex: Faturamento tem 2 linhas de código 90465865 (qtd 4 + qtd 2),
   //     Recebimento tem 1 linha de código 90465865 (qtd 6, valor = soma).
   // -------------------------------------------------------
-  // Agora itens sem match são marcados como 'glosado' com código 5007,
-  // então filtramos por glosados automáticos (sem recebimentoId e codigoGlosa = '5007')
+  // Itens sem match são marcados como 'sem_pagamento' (sem recebimentoId)
+  // Filtramos esses para tentar agrupar com recebimentos de mesma guia+código
   const naoRecebidosIdx = inserts
     .map((ins, idx) => ({ ins, idx }))
-    .filter(({ ins }) => ins.statusConciliacao === 'glosado' && ins.recebimentoId === null && ins.codigoGlosa === '5007');
+    .filter(({ ins }) => ins.statusConciliacao === 'sem_pagamento' && ins.recebimentoId === null);
 
   // Agrupar nao_recebidos por guia+código
   const gruposNaoRecebidos = new Map<string, { ins: typeof inserts[0]; idx: number }[]>();
@@ -1404,9 +1419,10 @@ export async function executarConciliacaoAutomatica(params: {
           resultado.totalConciliados++;
         } else if (diferenca > 0) {
           // Pagamento parcial = glosa parcial
-          ins.statusConciliacao = 'glosado';
+          ins.statusConciliacao = 'glosa_parcial';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
           resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+          resultado.totalGlosaParcial++;
         } else {
           // Pagamento a maior = divergente
           ins.statusConciliacao = 'divergente';
@@ -1427,7 +1443,7 @@ export async function executarConciliacaoAutomatica(params: {
   // -------------------------------------------------------
   const divergentesOuGlosados = inserts
     .map((ins, idx) => ({ ins, idx }))
-    .filter(({ ins }) => ins.statusConciliacao === 'divergente' || ins.statusConciliacao === 'glosado');
+    .filter(({ ins }) => ins.statusConciliacao === 'divergente' || ins.statusConciliacao === 'glosa_parcial' || ins.statusConciliacao === 'glosa_total');
 
   for (const { ins, idx } of divergentesOuGlosados) {
     const guia = ins.numeroGuia;
@@ -1474,20 +1490,26 @@ export async function executarConciliacaoAutomatica(params: {
       ins.metodoConciliacao = 'agrupamento_recebimentos';
 
       // Reclassificar com base na tolerância
-      if (somaValorGlosa > 0 && somaValorPago < ins.valorFaturado) {
-        // Se há glosa explícita no demonstrativo, manter como glosado
-        ins.statusConciliacao = 'glosado';
-        // Atualizar código de glosa do último recebimento agrupado se disponível
+      if (somaValorGlosa > 0 && somaValorPago === 0) {
+        // Glosa total: convênio retornou com glosa e não pagou nada
+        ins.statusConciliacao = 'glosa_total';
+        const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa);
+        if (recComGlosa && !ins.codigoGlosa) {
+          ins.codigoGlosa = String(recComGlosa.codigoGlosa);
+        }
+      } else if (somaValorGlosa > 0 && somaValorPago > 0 && somaValorPago < ins.valorFaturado) {
+        // Glosa parcial: convênio pagou parcialmente com glosa explícita
+        ins.statusConciliacao = 'glosa_parcial';
         const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa);
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
         }
       } else if (percentualDiferenca <= tolerancia) {
         ins.statusConciliacao = 'conciliado';
-      } else if (diferenca > 0) {
-        // Pagamento parcial = glosa parcial
-        ins.statusConciliacao = 'glosado';
-        ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
+      } else if (ins.valorFaturado - somaValorPago > 0) {
+        // Pagamento parcial sem glosa explícita = glosa parcial
+        ins.statusConciliacao = 'glosa_parcial';
+        ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : (ins.valorFaturado - somaValorPago);
       } else {
         // Pagamento a maior = divergente
         ins.statusConciliacao = 'divergente';
@@ -1495,9 +1517,11 @@ export async function executarConciliacaoAutomatica(params: {
 
       // Atualizar contadores
       if (statusAnterior === 'divergente') resultado.totalDivergentes--;
-      if (statusAnterior === 'glosado') resultado.totalGlosados = (resultado.totalGlosados || 0) - 1;
+      if (statusAnterior === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaParcial--; }
+      if (statusAnterior === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaTotal--; }
       if (ins.statusConciliacao === 'conciliado') resultado.totalConciliados++;
-      else if (ins.statusConciliacao === 'glosado') resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+      else if (ins.statusConciliacao === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) + 1; resultado.totalGlosaParcial++; }
+      else if (ins.statusConciliacao === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) + 1; resultado.totalGlosaTotal++; }
       else if (ins.statusConciliacao === 'divergente') resultado.totalDivergentes++;
     }
   }
@@ -1560,6 +1584,69 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
+  // PASSO 5.8: Busca de pagamento cruzado em outras competências
+  // Para itens 'sem_pagamento', verificar se a guia foi paga em outro mês
+  // Ex: Guia faturada em 03/2026, não paga em 04/2026, mas paga em 05/2026
+  // -------------------------------------------------------
+  const itensSemPagamento = inserts.filter(ins => ins.statusConciliacao === 'sem_pagamento');
+  if (itensSemPagamento.length > 0) {
+    // Coletar guias únicas sem pagamento
+    const guiasSemPagamento = [...new Set(itensSemPagamento.map(ins => ins.numeroGuia).filter(Boolean))];
+    
+    if (guiasSemPagamento.length > 0 && guiasSemPagamento.length <= 5000) {
+      // Buscar no demonstrativo de OUTRAS competências se essas guias foram pagas
+      const guiasEsc = guiasSemPagamento.map(g => `'${String(g).replace(/'/g, "''")}'`).join(',');
+      const buscaCruzadaQuery = `
+        SELECT 
+          d.numero_guia,
+          d.codigo_item,
+          d.valor_pago,
+          DATE_FORMAT(a.dataReferencia, '%Y-%m') as competenciaPagamento
+        FROM demonstrativo d
+        JOIN arquivos a ON d.arquivo_id = a.id
+        WHERE d.numero_guia IN (${guiasEsc})
+          AND d.estabelecimentoId = ${params.estabelecimentoId}
+          AND d.valor_pago > 0
+          AND DATE_FORMAT(a.dataReferencia, '%Y-%m') != '${params.competencia}'
+        ORDER BY a.dataReferencia DESC
+      `;
+      
+      try {
+        const [rowsCruzada] = await db.execute(sql.raw(buscaCruzadaQuery));
+        const pagamentosCruzados = rowsCruzada as any[];
+        
+        if (pagamentosCruzados.length > 0) {
+          // Indexar por guia+codigo para lookup rápido
+          const indexPagCruzado = new Map<string, string>(); // guia|codigo -> competenciaPagamento
+          for (const pc of pagamentosCruzados) {
+            const chave = `${pc.numero_guia}|${pc.codigo_item}`;
+            if (!indexPagCruzado.has(chave)) {
+              indexPagCruzado.set(chave, pc.competenciaPagamento);
+            }
+          }
+          
+          // Marcar itens sem_pagamento que foram pagos em outra competência
+          let totalCruzados = 0;
+          for (const ins of itensSemPagamento) {
+            const chave = `${ins.numeroGuia}|${ins.codigoItem}`;
+            const compPag = indexPagCruzado.get(chave);
+            if (compPag) {
+              (ins as any).competenciaPagamento = compPag;
+              totalCruzados++;
+            }
+          }
+          
+          if (totalCruzados > 0) {
+            console.log(`[Conciliacao] ${totalCruzados} itens sem_pagamento encontrados pagos em outras competências`);
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Conciliacao] Erro na busca cruzada: ${e.message?.substring(0, 200)}`);
+      }
+    }
+  }
+
+  // -------------------------------------------------------
   // PASSO 6: INSERT em MEGA-BATCH na tabela conciliados_automatico
   // Usa batches de 5000 para minimizar roundtrips ao banco
   // (conciliações anteriores já foram deletadas no PASSO 0.5)
@@ -1586,9 +1673,9 @@ export async function executarConciliacaoAutomatica(params: {
   };
 
   const toRow = (r: typeof inserts[0]) =>
-    `(${r.faturamentoUnificadoId},${params.estabelecimentoId},${esc(r.contaNumero)},${esc(r.numeroGuia)},${esc(r.pacienteNome)},${esc(r.convenio)},${r.convenioId??'NULL'},${esc(r.competencia)},${esc(r.codigoItem)},${esc(r.codigoItemTuss)},${esc(r.descricaoItem)},${esc(r.tipoItem)},${esc(r.origemSistema)},${escDate(r.dataExecucao)},${esc((r as any).codigoPrestadorExecutante)},${r.valorFaturado},${r.quantidade},${r.recebimentoId??'NULL'},${r.recebimentoOrigem?esc(r.recebimentoOrigem):'NULL'},${r.valorPago},${r.valorGlosa},${esc(r.codigoGlosa)},${esc(r.motivoGlosa)},${esc(r.statusConciliacao)},${r.metodoConciliacao?esc(r.metodoConciliacao):'NULL'},${r.diferenca},${r.percentualDiferenca},${tolerancia},NOW())`;
+    `(${r.faturamentoUnificadoId},${params.estabelecimentoId},${esc(r.contaNumero)},${esc(r.numeroGuia)},${esc(r.pacienteNome)},${esc(r.convenio)},${r.convenioId??'NULL'},${esc(r.competencia)},${esc(r.codigoItem)},${esc(r.codigoItemTuss)},${esc(r.descricaoItem)},${esc(r.tipoItem)},${esc(r.origemSistema)},${escDate(r.dataExecucao)},${esc((r as any).codigoPrestadorExecutante)},${r.valorFaturado},${r.quantidade},${r.recebimentoId??'NULL'},${r.recebimentoOrigem?esc(r.recebimentoOrigem):'NULL'},${r.valorPago},${r.valorGlosa},${esc(r.codigoGlosa)},${esc(r.motivoGlosa)},${esc(r.statusConciliacao)},${r.metodoConciliacao?esc(r.metodoConciliacao):'NULL'},${r.diferenca},${r.percentualDiferenca},${tolerancia},${esc((r as any).competenciaPagamento || null)},NOW())`;
 
-  const INSERT_COLS = `(faturamentoUnificadoId,estabelecimentoId,contaNumero,numeroGuia,pacienteNome,convenio,convenioId,competencia,codigoItem,codigoItemTuss,descricaoItem,tipoItem,origemSistema,dataExecucao,codigoPrestadorExecutante,valorFaturado,quantidade,recebimentoId,recebimentoOrigem,valorPago,valorGlosa,codigoGlosa,motivoGlosa,statusConciliacao,metodoConciliacao,diferenca,percentualDiferenca,toleranciaUsada,criadoEm)`;
+  const INSERT_COLS = `(faturamentoUnificadoId,estabelecimentoId,contaNumero,numeroGuia,pacienteNome,convenio,convenioId,competencia,codigoItem,codigoItemTuss,descricaoItem,tipoItem,origemSistema,dataExecucao,codigoPrestadorExecutante,valorFaturado,quantidade,recebimentoId,recebimentoOrigem,valorPago,valorGlosa,codigoGlosa,motivoGlosa,statusConciliacao,metodoConciliacao,diferenca,percentualDiferenca,toleranciaUsada,competenciaPagamento,criadoEm)`;
 
   console.log(`[Conciliacao] Inserindo ${inserts.length} registros em batches de ${MEGA_BATCH}...`);
   const t0 = Date.now();
@@ -1756,7 +1843,7 @@ export async function listarConciliadosAutomatico(params: {
       ca.statusConciliacao, ca.metodoConciliacao,
       COALESCE(ca.diferenca, 0) as diferenca,
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
-      ca.toleranciaUsada, ca.criadoEm
+      ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm
     FROM conciliados_automatico ca
     ${whereClause}
     ORDER BY ca.id DESC
@@ -1816,6 +1903,9 @@ export async function resumoConciliadosAutomatico(params: {
     totalConciliados: 0,
     totalDivergentes: 0,
     totalNaoRecebidos: 0,
+    totalGlosaTotal: 0,
+    totalGlosaParcial: 0,
+    totalSemPagamento: 0,
     totalTerceiros: 0,
     totalAcrescimos: 0,
     valorTotalFaturado: 0,
@@ -1840,6 +1930,9 @@ export async function resumoConciliadosAutomatico(params: {
       case 'conciliado': resumo.totalConciliados = count; break;
       case 'divergente': resumo.totalDivergentes = count; break;
       case 'nao_recebido': resumo.totalNaoRecebidos = count; break;
+      case 'sem_pagamento': resumo.totalSemPagamento = count; break;
+      case 'glosa_total': resumo.totalGlosaTotal = count; break;
+      case 'glosa_parcial': resumo.totalGlosaParcial = count; break;
       case 'terceiro': resumo.totalTerceiros = count; break;
       case 'acrescimo': resumo.totalAcrescimos = count; break;
     }
@@ -1966,19 +2059,22 @@ export async function resumoConciliadosPorGuia(params: {
       -- Lote e Protocolo do Retorno (demonstrativo) via subquery
       (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
       (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
-      -- Status da guia: prioridade: divergente > glosado > nao_recebido > terceiro > conciliado
+      -- Status da guia: prioridade: glosa_total > glosa_parcial > sem_pagamento > divergente > terceiro > acrescimo > conciliado
       CASE
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) > 0 THEN 'glosa_total'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) > 0 THEN 'glosa_parcial'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'sem_pagamento' THEN 1 ELSE 0 END) > 0 THEN 'sem_pagamento'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) > 0 THEN 'divergente'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) > 0 THEN 'glosado'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) > 0 THEN 'nao_recebido'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN ca.statusConciliacao != 'terceiro' THEN 1 ELSE 0 END) = 0 THEN 'terceiro'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN ca.statusConciliacao NOT IN ('terceiro','acrescimo') THEN 1 ELSE 0 END) = 0 THEN 'terceiro'
+        WHEN SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) > 0 THEN 'acrescimo'
         ELSE 'conciliado'
       END as statusGuia,
       SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
       SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
-      SUM(CASE WHEN ca.statusConciliacao = 'nao_recebido' THEN 1 ELSE 0 END) as itensNaoRecebidos,
+      SUM(CASE WHEN ca.statusConciliacao = 'sem_pagamento' THEN 1 ELSE 0 END) as itensSemPagamento,
+      SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as itensGlosaTotal,
+      SUM(CASE WHEN ca.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) as itensGlosaParcial,
       SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) as itensTerceiros,
-      SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as itensGlosados,
       SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
       COUNT(DISTINCT ca.contaNumero) as totalContas,
@@ -2042,7 +2138,7 @@ export async function itensConciliadosPorGuia(params: {
       ca.statusConciliacao, ca.metodoConciliacao,
       COALESCE(ca.diferenca, 0) as diferenca,
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
-      ca.toleranciaUsada, ca.criadoEm
+      ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
@@ -2060,7 +2156,7 @@ export async function itensConciliadosPorGuia(params: {
 
 /**
  * Glosar itens individuais da conciliados_automatico
- * Muda o status de 'nao_recebido' ou 'divergente' para 'glosado' e preenche valorGlosa
+ * Muda o status de 'sem_pagamento' ou 'divergente' para 'glosa_total' e preenche valorGlosa
  */
 export async function glosarItens(params: {
   ids: number[];
@@ -2073,12 +2169,12 @@ export async function glosarItens(params: {
 
   if (params.ids.length === 0) return { atualizados: 0 };
 
-  const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}' ` : 'NULL';
+  const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}'` : 'NULL';
   const ids = params.ids.join(',');
 
   const query = `
     UPDATE conciliados_automatico 
-    SET statusConciliacao = 'glosado',
+    SET statusConciliacao = 'glosa_total',
         valorGlosa = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
         valorPago = CASE WHEN statusConciliacao = 'divergente' THEN valorPago ELSE 0 END,
         diferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
@@ -2087,7 +2183,7 @@ export async function glosarItens(params: {
         codigoGlosa = ${esc(params.codigoGlosa)}
     WHERE id IN (${ids})
       AND estabelecimentoId = ${params.estabelecimentoId}
-      AND statusConciliacao IN ('nao_recebido', 'divergente')
+      AND statusConciliacao IN ('sem_pagamento', 'divergente', 'nao_recebido')
   `;
 
   const [result] = await db.execute(sql.raw(query));
@@ -2096,7 +2192,7 @@ export async function glosarItens(params: {
 }
 
 /**
- * Glosar TODOS os itens não recebidos e divergentes de uma guia
+ * Glosar TODOS os itens sem pagamento e divergentes de uma guia
  */
 export async function glosarTodosNaoRecebidosPorGuia(params: {
   estabelecimentoId: number;
@@ -2108,9 +2204,9 @@ export async function glosarTodosNaoRecebidosPorGuia(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}' ` : 'NULL';
+  const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}'` : 'NULL';
 
-  let whereClause = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao IN ('nao_recebido', 'divergente')`;
+  let whereClause = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao IN ('sem_pagamento', 'divergente', 'nao_recebido')`;
   if (params.numeroGuia) {
     whereClause += ` AND numeroGuia = ${esc(params.numeroGuia)}`;
   }
@@ -2120,7 +2216,7 @@ export async function glosarTodosNaoRecebidosPorGuia(params: {
 
   const query = `
     UPDATE conciliados_automatico 
-    SET statusConciliacao = 'glosado',
+    SET statusConciliacao = 'glosa_total',
         valorGlosa = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
         valorPago = CASE WHEN statusConciliacao = 'divergente' THEN valorPago ELSE 0 END,
         diferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
@@ -2136,7 +2232,7 @@ export async function glosarTodosNaoRecebidosPorGuia(params: {
 }
 
 /**
- * Reverter glosa de itens (voltar para status anterior - nao_recebido ou divergente)
+ * Reverter glosa de itens (voltar para status anterior - sem_pagamento)
  */
 export async function reverterGlosa(params: {
   ids: number[];
@@ -2149,20 +2245,18 @@ export async function reverterGlosa(params: {
 
   const ids = params.ids.join(',');
 
-  // Reverter glosa: volta para 'nao_recebido' (itens sem pagamento)
-  // Itens com pagamento parcial (glosa parcial) voltam para 'nao_recebido' também,
-  // pois o status 'divergente' não é mais usado para pagamento parcial
+  // Reverter glosa: volta para 'sem_pagamento' (itens sem pagamento)
   const query = `
     UPDATE conciliados_automatico 
-    SET statusConciliacao = 'nao_recebido',
+    SET statusConciliacao = 'sem_pagamento',
         valorGlosa = 0,
-        diferenca = CASE WHEN valorPago > 0 THEN valorFaturado - valorPago ELSE 0 END,
-        percentualDiferenca = CASE WHEN valorPago > 0 AND valorFaturado > 0 THEN ROUND(((valorFaturado - valorPago) / valorFaturado) * 100, 2) ELSE 0 END,
+        diferenca = valorFaturado,
+        percentualDiferenca = 100,
         motivoGlosa = NULL,
         codigoGlosa = NULL
     WHERE id IN (${ids})
       AND estabelecimentoId = ${params.estabelecimentoId}
-      AND statusConciliacao = 'glosado'
+      AND statusConciliacao IN ('glosa_total', 'glosa_parcial', 'glosado')
   `;
 
   const [result] = await db.execute(sql.raw(query));

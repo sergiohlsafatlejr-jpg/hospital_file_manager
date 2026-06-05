@@ -319,7 +319,7 @@ export default function ConciliacaoCruzada() {
         setResultadoConciliacao(statusJob.resultado);
         setModalResultadoAberto(true);
         const r = statusJob.resultado;
-        toast.success(`Conciliação concluída: ${r.totalConciliados} conciliados, ${r.totalDivergentes} divergentes, ${r.totalNaoRecebidos} glosados${r.totalTerceiros ? `, ${r.totalTerceiros} terceiros` : ''}`);
+        toast.success(`Conciliação concluída: ${r.totalConciliados} conciliados, ${r.totalGlosaTotal || 0} glosa total, ${r.totalGlosaParcial || 0} glosa parcial, ${r.totalNaoRecebidos || 0} sem pagamento${r.totalTerceiros ? `, ${r.totalTerceiros} terceiros` : ''}`);
         refetch();
         refetchGuiasConciliadas();
         refetchResumo();
@@ -415,14 +415,20 @@ export default function ConciliacaoCruzada() {
     switch (status) {
       case 'conciliado':
         return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
-      case 'divergente':
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><AlertCircle className="w-3 h-3 mr-1" /> Divergente</Badge>;
+      case 'glosa_total':
+        return <Badge className="bg-red-600 hover:bg-red-700"><Ban className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
+      case 'glosa_parcial':
+        return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertCircle className="w-3 h-3 mr-1" /> Glosa Parcial</Badge>;
+      case 'sem_pagamento':
+        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>;
       case 'nao_recebido':
-        return <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Recebido</Badge>;
+        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>;
       case 'glosado':
-        return <Badge className="bg-purple-600 hover:bg-purple-700"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
+        return <Badge className="bg-red-600 hover:bg-red-700"><Ban className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
+      case 'divergente':
+        return <Badge className="bg-blue-500 hover:bg-blue-600"><TrendingUp className="w-3 h-3 mr-1" /> Pagamento a Maior</Badge>;
       case 'terceiro':
-        return <Badge className="bg-orange-500 hover:bg-orange-600"><ExternalLink className="w-3 h-3 mr-1" /> Terceiro</Badge>;
+        return <Badge className="bg-slate-500 hover:bg-slate-600"><ExternalLink className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'acrescimo':
         return <Badge className="bg-teal-500 hover:bg-teal-600"><PlusCircle className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
       case 'pendente':
@@ -694,9 +700,10 @@ export default function ConciliacaoCruzada() {
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
                     <SelectItem value="conciliado">Conciliado</SelectItem>
-                    <SelectItem value="divergente">Divergente</SelectItem>
-                    <SelectItem value="nao_recebido">Não Recebido</SelectItem>
-                    <SelectItem value="glosado">Glosado</SelectItem>
+                    <SelectItem value="glosa_total">Glosa Total</SelectItem>
+                    <SelectItem value="glosa_parcial">Glosa Parcial</SelectItem>
+                    <SelectItem value="sem_pagamento">Sem Pagamento</SelectItem>
+                    <SelectItem value="divergente">Pagamento a Maior</SelectItem>
                     <SelectItem value="terceiro">Terceiro</SelectItem>
                     <SelectItem value="acrescimo">Acréscimo</SelectItem>
                   </SelectContent>
@@ -801,9 +808,9 @@ export default function ConciliacaoCruzada() {
             <TabsTrigger value="conciliados" className="flex items-center gap-2">
               <ListChecks className="w-4 h-4" />
               Conciliados
-              {resumoConciliados && (resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos) > 0 && (
+              {resumoConciliados && (resumoConciliados.totalConciliados + (resumoConciliados.totalGlosaTotal || 0) + (resumoConciliados.totalGlosaParcial || 0) + (resumoConciliados.totalNaoRecebidos || 0)) > 0 && (
                 <Badge variant="secondary" className="ml-1 text-xs">
-                  {resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos}
+                  {resumoConciliados.totalConciliados + (resumoConciliados.totalGlosaTotal || 0) + (resumoConciliados.totalGlosaParcial || 0) + (resumoConciliados.totalNaoRecebidos || 0)}
                 </Badge>
               )}
             </TabsTrigger>
@@ -1043,7 +1050,16 @@ export default function ConciliacaoCruzada() {
                                 <td className={`p-3 text-right font-medium ${Number(item.diferenca) > 0 ? 'text-red-600' : Number(item.diferenca) < 0 ? 'text-orange-600' : 'text-gray-500'}`}>
                                   {Number(item.diferenca) !== 0 ? formatarMoeda(Number(item.diferenca)) : '-'}
                                 </td>
-                                <td className="p-3 text-center">{getStatusBadge(item.statusConciliacao)}</td>
+                                <td className="p-3 text-center">
+                                  {getStatusBadge(item.statusConciliacao)}
+                                  {item.competenciaPagamento && (
+                                    <div className="mt-1">
+                                      <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300">
+                                        Pago em {item.competenciaPagamento.replace(/^(\d{4})-(\d{2})$/, '$2/$1')}
+                                      </Badge>
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="p-3 text-center">{getMetodoBadge(item.metodoConciliacao)}</td>
                               </tr>
                             ))}
@@ -1073,7 +1089,7 @@ export default function ConciliacaoCruzada() {
               /* Lista de guias agrupadas */
               <>
                 {/* Cards de Resumo da Conciliação */}
-                {resumoConciliados && (resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos + (resumoConciliados.totalTerceiros || 0)) > 0 ? (
+                {resumoConciliados && (resumoConciliados.totalConciliados + (resumoConciliados.totalGlosaTotal || 0) + (resumoConciliados.totalGlosaParcial || 0) + (resumoConciliados.totalNaoRecebidos || 0) + (resumoConciliados.totalTerceiros || 0)) > 0 ? (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                       <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
@@ -1089,12 +1105,25 @@ export default function ConciliacaoCruzada() {
                         </CardContent>
                       </Card>
 
-                      <Card className="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
+                      <Card className="bg-gradient-to-br from-red-600 to-red-700 text-white">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm opacity-80">Divergentes</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalDivergentes}</p>
+                              <p className="text-sm opacity-80">Glosa Total</p>
+                              <p className="text-2xl font-bold">{resumoConciliados.totalGlosaTotal || 0}</p>
+                              <p className="text-xs opacity-70">{formatarMoeda(resumoConciliados.valorTotalGlosa)} glosado</p>
+                            </div>
+                            <Ban className="w-10 h-10 opacity-50" />
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm opacity-80">Glosa Parcial</p>
+                              <p className="text-2xl font-bold">{resumoConciliados.totalGlosaParcial || 0}</p>
                               <p className="text-xs opacity-70">{formatarMoeda(resumoConciliados.valorTotalDiferenca)} diferença</p>
                             </div>
                             <AlertCircle className="w-10 h-10 opacity-50" />
@@ -1102,15 +1131,15 @@ export default function ConciliacaoCruzada() {
                         </CardContent>
                       </Card>
 
-                      <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white">
+                      <Card className="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm opacity-80">Não Recebidos</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalNaoRecebidos}</p>
+                              <p className="text-sm opacity-80">Sem Pagamento</p>
+                              <p className="text-2xl font-bold">{resumoConciliados.totalNaoRecebidos || 0}</p>
                               <p className="text-xs opacity-70">Sem retorno do convênio</p>
                             </div>
-                            <XCircle className="w-10 h-10 opacity-50" />
+                            <Clock className="w-10 h-10 opacity-50" />
                           </div>
                         </CardContent>
                       </Card>
@@ -1161,7 +1190,7 @@ export default function ConciliacaoCruzada() {
 
                     {/* Barra de progresso */}
                     {(() => {
-                      const total = resumoConciliados.totalConciliados + resumoConciliados.totalDivergentes + resumoConciliados.totalNaoRecebidos + (resumoConciliados.totalTerceiros || 0);
+                      const total = resumoConciliados.totalConciliados + (resumoConciliados.totalGlosaTotal || 0) + (resumoConciliados.totalGlosaParcial || 0) + (resumoConciliados.totalNaoRecebidos || 0) + (resumoConciliados.totalTerceiros || 0);
                       if (total === 0) return null;
                       return (
                         <div className="space-y-2">
@@ -1172,30 +1201,37 @@ export default function ConciliacaoCruzada() {
                                 {((resumoConciliados.totalConciliados / total) * 100).toFixed(0)}%
                               </div>
                             )}
-                            {resumoConciliados.totalDivergentes > 0 && (
-                              <div className="bg-yellow-500 flex items-center justify-center text-white text-xs font-medium"
-                                style={{ width: `${(resumoConciliados.totalDivergentes / total) * 100}%` }}>
-                                {((resumoConciliados.totalDivergentes / total) * 100).toFixed(0)}%
+                            {(resumoConciliados.totalGlosaTotal || 0) > 0 && (
+                              <div className="bg-red-600 flex items-center justify-center text-white text-xs font-medium"
+                                style={{ width: `${((resumoConciliados.totalGlosaTotal || 0) / total) * 100}%` }}>
+                                {(((resumoConciliados.totalGlosaTotal || 0) / total) * 100).toFixed(0)}%
                               </div>
                             )}
-                            {resumoConciliados.totalNaoRecebidos > 0 && (
-                              <div className="bg-red-500 flex items-center justify-center text-white text-xs font-medium"
-                                style={{ width: `${(resumoConciliados.totalNaoRecebidos / total) * 100}%` }}>
-                                {((resumoConciliados.totalNaoRecebidos / total) * 100).toFixed(0)}%
+                            {(resumoConciliados.totalGlosaParcial || 0) > 0 && (
+                              <div className="bg-orange-500 flex items-center justify-center text-white text-xs font-medium"
+                                style={{ width: `${((resumoConciliados.totalGlosaParcial || 0) / total) * 100}%` }}>
+                                {(((resumoConciliados.totalGlosaParcial || 0) / total) * 100).toFixed(0)}%
+                              </div>
+                            )}
+                            {(resumoConciliados.totalNaoRecebidos || 0) > 0 && (
+                              <div className="bg-yellow-500 flex items-center justify-center text-white text-xs font-medium"
+                                style={{ width: `${((resumoConciliados.totalNaoRecebidos || 0) / total) * 100}%` }}>
+                                {(((resumoConciliados.totalNaoRecebidos || 0) / total) * 100).toFixed(0)}%
                               </div>
                             )}
                             {(resumoConciliados.totalTerceiros || 0) > 0 && (
-                              <div className="bg-orange-500 flex items-center justify-center text-white text-xs font-medium"
+                              <div className="bg-slate-500 flex items-center justify-center text-white text-xs font-medium"
                                 style={{ width: `${((resumoConciliados.totalTerceiros || 0) / total) * 100}%` }}>
                                 {(((resumoConciliados.totalTerceiros || 0) / total) * 100).toFixed(0)}%
                               </div>
                             )}
                           </div>
-                          <div className="flex gap-4 text-xs text-muted-foreground">
+                          <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
                             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Conciliado</span>
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> Divergente</span>
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Não Recebido</span>
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Terceiro</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-600 inline-block" /> Glosa Total</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Glosa Parcial</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> Sem Pagamento</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-500 inline-block" /> Terceiro</span>
                           </div>
                         </div>
                       );
@@ -2057,16 +2093,22 @@ export default function ConciliacaoCruzada() {
                       <p className="text-2xl font-bold text-green-600">{resultadoConciliacao.totalConciliados}</p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-yellow-50 dark:bg-yellow-950">
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Divergentes</p>
-                      <p className="text-2xl font-bold text-yellow-600">{resultadoConciliacao.totalDivergentes}</p>
-                    </CardContent>
-                  </Card>
                   <Card className="bg-red-50 dark:bg-red-950">
                     <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Glosados</p>
-                      <p className="text-2xl font-bold text-red-600">{resultadoConciliacao.totalNaoRecebidos}</p>
+                      <p className="text-xs text-muted-foreground">Glosa Total</p>
+                      <p className="text-2xl font-bold text-red-600">{resultadoConciliacao.totalGlosaTotal || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-orange-50 dark:bg-orange-950">
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">Glosa Parcial</p>
+                      <p className="text-2xl font-bold text-orange-600">{resultadoConciliacao.totalGlosaParcial || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-yellow-50 dark:bg-yellow-950">
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">Sem Pagamento</p>
+                      <p className="text-2xl font-bold text-yellow-600">{resultadoConciliacao.totalNaoRecebidos || 0}</p>
                     </CardContent>
                   </Card>
                   {(resultadoConciliacao.totalTerceiros || 0) > 0 && (
