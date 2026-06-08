@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -38,19 +39,11 @@ export default function DashboardHome() {
   const [competencia, setCompetencia] = useState<string>("");
   const [activeTab, setActiveTab] = useState("gerente");
 
-  // Buscar estabelecimento selecionado do localStorage
-  const estabelecimentoId = useMemo(() => {
-    try {
-      const stored = localStorage.getItem("selectedEstabelecimento");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return parsed.id || 1;
-      }
-    } catch {}
-    return 1;
-  }, []);
+  // Usar o contexto de estabelecimento
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id || 1;
 
-  const { data, isLoading } = trpc.dashboardHome.resumoGeral.useQuery({
+  const { data, isLoading, error } = trpc.dashboardHome.resumoGeral.useQuery({
     estabelecimentoId,
     competencia: (competencia && competencia !== 'todas') ? competencia : undefined,
   });
@@ -72,7 +65,27 @@ export default function DashboardHome() {
     );
   }
 
-  if (!data) return null;
+  if (error || !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <p className="text-muted-foreground">Bem-vindo, {user?.name || "Usuário"}</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <h3 className="text-lg font-medium text-foreground mb-1">Nenhum dado disponível</h3>
+            <p className="text-muted-foreground text-sm">
+              {error ? `Erro ao carregar dados: ${error.message}` : 'Não há dados de faturamento para este estabelecimento ainda.'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const { faturista, recursoGlosa, fluxoPipeline, conciliacao } = data;
   const taxaConciliacao = conciliacao.totalItens > 0

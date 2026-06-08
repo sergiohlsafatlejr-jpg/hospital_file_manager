@@ -25,7 +25,7 @@ export const dashboardHomeRouter = router({
           COUNT(*) as totalItens,
           COUNT(DISTINCT numeroGuia) as totalContas,
           COALESCE(SUM(valorFaturado), 0) as valorTotalFaturado,
-          competencia as competenciaAtual
+          MAX(competencia) as competenciaAtual
         FROM faturamento_unificado 
         WHERE estabelecimentoId = ${estabelecimentoId}
         ${compFilter ? `AND competencia = '${compFilter}'` : `AND competencia = (SELECT MAX(competencia) FROM faturamento_unificado WHERE estabelecimentoId = ${estabelecimentoId})`}
@@ -103,7 +103,7 @@ export const dashboardHomeRouter = router({
         SELECT
           (SELECT COUNT(DISTINCT fu.numeroGuia) FROM faturamento_unificado fu WHERE fu.estabelecimentoId = ${estabelecimentoId} ${compFilter ? `AND fu.competencia = '${compFilter}'` : ''}) as totalGuiasFaturadas,
           (SELECT COUNT(*) FROM nfse_notas n JOIN nfse_hospitais h ON n.hospitalId = h.id WHERE h.estabelecimentoId = ${estabelecimentoId}) as totalNfEmitidas,
-          (SELECT COUNT(DISTINCT a.id) FROM arquivos a WHERE a.estabelecimentoId = ${estabelecimentoId} AND a.direcao = 'retornado' AND a.status = 'concluido') as totalDemonstrativosImportados,
+          (SELECT COUNT(DISTINCT a.id) FROM arquivos a WHERE a.estabelecimentoId = ${estabelecimentoId} AND a.direcao = 'retornado' AND a.status = 'processado') as totalDemonstrativosImportados,
           (SELECT COUNT(*) FROM recursosGlosa WHERE estabelecimentoId = ${estabelecimentoId} AND status NOT IN ('rascunho','cancelado')) as totalRecursosFeitos
       `));
 

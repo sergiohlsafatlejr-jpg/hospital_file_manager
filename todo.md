@@ -3835,3 +3835,8 @@
 - [x] Remover endpoint duplicado 'reprocessar' no namespace arquivos (primeiro endpoint com input {arquivoId} removido, mantido o segundo com input {id} que suporta retornado + envio)
 - [x] Atualizar frontend RecebimentosExcel.tsx para passar { id: arquivo.id } em vez de { arquivoId: arquivo.id }
 - [x] Verificar dashboardHomeRouter.ts - import correto de ../db (não _core/db), endpoint funcionando
+
+## Fix Dashboard Home não aparece para Admin (08/06/2026)
+- [x] Corrigir query SQL com GROUP BY (only_full_group_by) - usar MAX(competencia) em vez de competencia direto
+- [x] Corrigir status 'concluido' para 'processado' na query do pipeline (tabela arquivos usa 'processado')
+- [x] Adicionar tratamento de erro no DashboardHome (mostrar mensagem em vez de retornar null silenciosamente)
