@@ -3825,8 +3825,8 @@
 - [x] Adicionar botão Reprocessar na tela de Recebimentos Excel
 
 ## Dashboard Tela Inicial
-- [ ] Criar dashboard na tela inicial com dados por perfil
-- [ ] Seção Recurso de Glosa: status do fluxo (faturado → NF emitida → demonstrativo importado → recurso feito → prazo restante)
-- [ ] Seção Faturista: valor total faturado, quantidade de contas, convênios com maiores valores
-- [ ] Seção Gerente: visão consolidada de ambos (recurso + faturamento)
-- [ ] Notícias/alertas relevantes no dashboard
+- [x] Criar dashboard na tela inicial com dados por perfil
+- [x] Seção Recurso de Glosa: status do fluxo (faturado → NF emitida → demonstrativo importado → recurso feito → prazo restante)
+- [x] Seção Faturista: valor total faturado, quantidade de contas, convênios com maiores valores
+- [x] Seção Gerente: visão consolidada de ambos (recurso + faturamento)
+- [x] Notícias/alertas relevantes no dashboard (já existia na página Inicio)

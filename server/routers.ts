@@ -41,6 +41,7 @@ import * as dbConvMap from "./db-convenioMapeamento";
 import { auditSystemRouter } from "./routers/auditSystemRouter";
 import { contratosConveniosRouter } from "./routers/contratosConveniosRouter";
 import { dashboardBiRouter } from "./routers/dashboardBiRouter";
+import { dashboardHomeRouter } from "./routers/dashboardHomeRouter";
 import { rhRouter } from "./routers/rhRouter";
 import { rpaRouter } from "./routers/rpaRouter";
 import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
@@ -115,6 +116,7 @@ export const appRouter = router({
   auditSystem: auditSystemRouter,
   contratosConvenios: contratosConveniosRouter,
   dashboardBi: dashboardBiRouter,
+  dashboardHome: dashboardHomeRouter,
   rh: rhRouter,
   rpa: rpaRouter,
   relatoriosGlosasBi: relatoriosGlosasBiRouter,

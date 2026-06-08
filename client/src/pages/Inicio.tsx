@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import DashboardHome from "./DashboardHome";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
@@ -75,13 +76,8 @@ export default function Inicio() {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        {/* Header */}
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Início</h1>
-          <p className="text-muted-foreground">
-            Avisos da empresa e notícias do setor de saúde
-          </p>
-        </div>
+        {/* Dashboard com dados importantes */}
+        <DashboardHome />
 
         {/* Avisos Internos */}
         <section>
