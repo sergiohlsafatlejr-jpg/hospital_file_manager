@@ -529,8 +529,9 @@ export function parseExcelRecebimentosExcel(
 }
 
 /**
- * Parseia um arquivo Excel GRANDE usando exceljs streaming para reduzir consumo de memória.
- * Processa linha por linha sem carregar o workbook inteiro na memória.
+ * Parseia um arquivo Excel GRANDE usando SheetJS (XLSX) para baixo consumo de memória.
+ * SheetJS usa ~185MB de heap para 33k linhas vs ExcelJS que usa ~375MB.
+ * Processa em chunks para inserção gradual no banco.
  */
 export async function parseExcelRecebimentosExcelChunked(
   buffer: Buffer,
@@ -542,71 +543,60 @@ export async function parseExcelRecebimentosExcelChunked(
   chunkSize: number,
   onChunk: (records: InsertRecebimentoExcel[], chunkIndex: number, totalRows: number) => Promise<void>
 ): Promise<{ totalRows: number; totalRecords: number }> {
-  const ExcelJS = await import('exceljs');
-  const { Readable } = await import('stream');
   
-  // Usar workbook streaming do exceljs para baixo consumo de memória
-  const workbook = new ExcelJS.default.Workbook();
+  console.log(`[Parser Chunked SheetJS] Iniciando leitura do arquivo (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
   
-  // Converter buffer para stream para leitura
-  const stream = new Readable();
-  stream.push(buffer);
-  stream.push(null);
+  // Usar SheetJS que consome metade da memória do ExcelJS
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   
-  console.log(`[Parser Chunked ExcelJS] Iniciando leitura streaming do arquivo (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
-  
-  await workbook.xlsx.read(stream);
-  
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) {
-    console.error('[Parser Chunked ExcelJS] Nenhuma planilha encontrada');
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    console.error('[Parser Chunked SheetJS] Nenhuma planilha encontrada');
     return { totalRows: 0, totalRecords: 0 };
   }
   
-  const totalRowCount = worksheet.rowCount;
-  console.log(`[Parser Chunked ExcelJS] Planilha: ${worksheet.name}, ${totalRowCount} linhas`);
+  const worksheet = workbook.Sheets[sheetName];
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+  const totalRowCount = range.e.r + 1;
   
-  // Detecção dinâmica de cabeçalho (primeiras 15 linhas)
+  console.log(`[Parser Chunked SheetJS] Planilha: ${sheetName}, ${totalRowCount} linhas`);
+  
+  // Converter para array de objetos com cabeçalho automático
+  // Primeiro, detectar linha de cabeçalho (primeiras 15 linhas)
   let headerRowIdx = 0;
-  const headers: string[] = [];
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, range: 0, defval: null });
   
-  for (let r = 1; r <= Math.min(15, totalRowCount); r++) {
-    const row = worksheet.getRow(r);
+  for (let r = 0; r < Math.min(15, rawRows.length); r++) {
+    const row = rawRows[r] as unknown[];
+    if (!row) continue;
     let matches = 0;
-    
-    row.eachCell({ includeEmpty: false }, (cell) => {
-      const val = cell.text?.trim();
+    for (const cell of row) {
+      const val = cell !== null && cell !== undefined ? String(cell).trim() : '';
       if (val && (COLUMN_MAPPING[val] || val === 'Data do Evento' || val === 'Item')) {
         matches++;
       }
-    });
-    
+    }
     if (matches >= 3) {
       headerRowIdx = r;
-      // Extrair cabeçalhos desta linha
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        while (headers.length < colNumber - 1) headers.push(`__EMPTY_${headers.length}`);
-        headers.push(cell.text?.trim() || `__EMPTY_${colNumber}`);
-      });
       break;
     }
   }
   
-  if (headerRowIdx === 0) {
-    // Fallback: usar primeira linha como cabeçalho
-    headerRowIdx = 1;
-    const row = worksheet.getRow(1);
-    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      while (headers.length < colNumber - 1) headers.push(`__EMPTY_${headers.length}`);
-      headers.push(cell.text?.trim() || `__EMPTY_${colNumber}`);
-    });
-  }
+  // Extrair cabeçalhos
+  const headerRow = rawRows[headerRowIdx] as unknown[];
+  const headers: string[] = headerRow.map((cell, idx) => {
+    if (cell !== null && cell !== undefined) {
+      const val = String(cell).trim();
+      return val || `__EMPTY_${idx}`;
+    }
+    return `__EMPTY_${idx}`;
+  });
   
-  const totalRows = totalRowCount - headerRowIdx;
-  const dataStartRow = headerRowIdx + 1;
+  const totalRows = rawRows.length - headerRowIdx - 1;
+  const dataStartIdx = headerRowIdx + 1;
   
-  console.log(`[Parser Chunked ExcelJS] Cabeçalho na linha ${headerRowIdx}, ${totalRows} linhas de dados, chunks de ${chunkSize}`);
-  console.log('[Parser Chunked ExcelJS] Colunas:', headers.slice(0, 20).join(', '));
+  console.log(`[Parser Chunked SheetJS] Cabeçalho na linha ${headerRowIdx + 1}, ${totalRows} linhas de dados, chunks de ${chunkSize}`);
+  console.log('[Parser Chunked SheetJS] Colunas:', headers.slice(0, 20).join(', '));
   
   let lastNomeBeneficiario: string | null = null;
   let lastDataExecucao: Date | null = null;
@@ -619,32 +609,20 @@ export async function parseExcelRecebimentosExcelChunked(
   let currentChunk: InsertRecebimentoExcel[] = [];
   
   // Processar linhas de dados
-  for (let rowNum = dataStartRow; rowNum <= totalRowCount; rowNum++) {
-    const row = worksheet.getRow(rowNum);
+  for (let rowIdx = dataStartIdx; rowIdx < rawRows.length; rowIdx++) {
+    const row = rawRows[rowIdx] as unknown[];
+    if (!row) continue;
+    
     const rowData: Record<string, unknown> = {};
     let hasData = false;
     
-    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      const colIdx = colNumber - 1;
-      if (colIdx < headers.length) {
-        // Extrair valor: preferir texto formatado, senão valor raw
-        let value: unknown = null;
-        if (cell.type === ExcelJS.default.ValueType.Date) {
-          value = cell.value; // Manter como Date
-        } else if (cell.type === ExcelJS.default.ValueType.Number) {
-          value = cell.value;
-        } else if (cell.text && cell.text.trim() !== '') {
-          value = cell.text.trim();
-        } else if (cell.value !== null && cell.value !== undefined) {
-          value = cell.value;
-        }
-        
-        if (value !== null && value !== undefined) {
-          rowData[headers[colIdx]] = value;
-          hasData = true;
-        }
+    for (let colIdx = 0; colIdx < headers.length && colIdx < row.length; colIdx++) {
+      const value = row[colIdx];
+      if (value !== null && value !== undefined && value !== '') {
+        rowData[headers[colIdx]] = value;
+        hasData = true;
       }
-    });
+    }
     
     if (hasData) {
       const hasValidData = rowData['Número Guia'] || rowData['Beneficiário'] || rowData['Item'] || 
@@ -689,7 +667,7 @@ export async function parseExcelRecebimentosExcelChunked(
       
       // Log de progresso a cada 5 chunks
       if (chunkIndex % 5 === 0) {
-        console.log(`[Parser Chunked ExcelJS] Progresso: ${totalRecords} registros processados (linha ${rowNum}/${totalRowCount})`);
+        console.log(`[Parser Chunked SheetJS] Progresso: ${totalRecords} registros processados (linha ${rowIdx}/${rawRows.length})`);
       }
     }
   }
@@ -700,7 +678,7 @@ export async function parseExcelRecebimentosExcelChunked(
     totalRecords += currentChunk.length;
   }
   
-  console.log(`[Parser Chunked ExcelJS] Concluído: ${totalRecords} registros em ${chunkIndex + 1} chunks`);
+  console.log(`[Parser Chunked SheetJS] Concluído: ${totalRecords} registros em ${chunkIndex + 1} chunks`);
   
   return { totalRows, totalRecords };
 }

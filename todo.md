@@ -3845,3 +3845,8 @@
 - [x] Converter endpoint reprocessar para fire-and-forget (retorna imediato, processa em background)
 - [x] Evitar timeout do Cloud Run (180s) para arquivos grandes
 - [x] Resetar arquivo demonstrativo-0298158.xlsx travado em processando
+
+## Fix Parser OOM para arquivos grandes (08/06/2026)
+- [x] Substituir ExcelJS por SheetJS no parseExcelRecebimentosExcelChunked (375MB → 185MB heap)
+- [x] Resolver OOM no Cloud Run (512 MiB) para demonstrativo-0298158.xlsx (33k linhas, 4.6MB)
+- [x] Resetar arquivo travado em processando
