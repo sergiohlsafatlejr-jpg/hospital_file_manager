@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { initializeJobScheduler } from "./jobScheduler";
+import { fileProcessorRouter } from "../fileProcessor";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +37,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // Internal file processor route (called by tRPC reprocessar endpoint)
+  app.use(fileProcessorRouter);
   // tRPC API
   app.use(
     "/api/trpc",
