@@ -3863,3 +3863,13 @@
 - [x] Chunks reduzidos de 2000 para 500 registros (menos latência por INSERT)
 - [x] Cloud Run mantém instância viva enquanto event loop está ativo
 - [x] Parser streaming xlsx-stream-reader (94 MB RSS) para Unimed
+
+## Fix Parser Streaming Puro - Eliminar buffer sheet1.xml (08/06/2026)
+
+- [x] Implementar streaming puro do ZIP: yauzl openReadStream → pipe direto ao SAX parser
+- [x] Eliminar acumulação do sheet1.xml (51.7 MB) em Buffer intermediário
+- [x] Testar com --max-old-space-size=150: 26 MB heap, 105 MB RSS (vs 325 MB RSS anterior)
+- [x] Corrigir mapeamento de campos para InsertRecebimentoExcel (schema correto)
+- [x] Implementar backpressure: pausar stream durante INSERT no banco
+- [x] Resetar arquivo 2910008 para status pendente
+- [ ] Verificar processamento com sucesso em produção (portal.safatle.com.br)
