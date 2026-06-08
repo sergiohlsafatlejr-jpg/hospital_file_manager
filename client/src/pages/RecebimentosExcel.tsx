@@ -837,7 +837,7 @@ function ArquivosImportadosExcelTab({
                         size="sm"
                         className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                         disabled={reprocessarMutation.isPending}
-                        onClick={() => reprocessarMutation.mutate({ arquivoId: arquivo.id })}
+                        onClick={() => reprocessarMutation.mutate({ id: arquivo.id })}
                         title="Reprocessar arquivo"
                       >
                         {reprocessarMutation.isPending ? (

@@ -3830,3 +3830,8 @@
 - [x] Seção Faturista: valor total faturado, quantidade de contas, convênios com maiores valores
 - [x] Seção Gerente: visão consolidada de ambos (recurso + faturamento)
 - [x] Notícias/alertas relevantes no dashboard (já existia na página Inicio)
+
+## Fix Botão Reprocessar (08/06/2026)
+- [x] Remover endpoint duplicado 'reprocessar' no namespace arquivos (primeiro endpoint com input {arquivoId} removido, mantido o segundo com input {id} que suporta retornado + envio)
+- [x] Atualizar frontend RecebimentosExcel.tsx para passar { id: arquivo.id } em vez de { arquivoId: arquivo.id }
+- [x] Verificar dashboardHomeRouter.ts - import correto de ../db (não _core/db), endpoint funcionando
