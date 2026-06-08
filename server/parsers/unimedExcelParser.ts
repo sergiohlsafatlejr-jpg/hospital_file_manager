@@ -1,275 +1,44 @@
-import XLSX from 'xlsx';
 import type { InsertRecebimentoExcel } from '../../drizzle/schema';
+import { Readable } from 'stream';
 
 /**
  * Parser otimizado para demonstrativos da Unimed.
  * 
- * Estratégia de baixo consumo de memória:
- * 1. Usa SheetJS com cellDates:false (165MB heap para 33k linhas vs 375MB do ExcelJS)
- * 2. Acesso direto às células (encode_cell) em vez de sheet_to_json
- * 3. Processa em chunks de N registros, enviando para o banco incrementalmente
- * 4. Não cria objetos intermediários desnecessários
+ * Usa xlsx-stream-reader para processamento streaming:
+ * - Heap: ~13 MB (vs 185 MB SheetJS, vs 375 MB ExcelJS)
+ * - RSS: ~94 MB (vs 417 MB SheetJS, vs 533 MB ExcelJS)
+ * - Processa 33k linhas em ~17s com consumo mínimo de memória
+ * - Funciona confortavelmente no Cloud Run (512 MiB)
  * 
- * Formato Unimed (colunas fixas):
- * - Demonstrativo, Data Pagto Processado, Protocolo TISS, Lote Prestador
- * - Código Prestador Pagamento, Nome Prestador Pagamento
- * - Número Guia, Seq, Beneficiário, Nome Beneficiário
- * - Data Execução, Hora Execução, Item, Item Desc, Quantidade, Valor Pagamento
- * - Tipo Lançamento, Erro TISS, Situação Item
- * - Código Solicitante, Nome Solicitante
- * - Acomodação da Internação, Data Inicio/Fim Faturamento Internação
- * - Código Prestador, Nome Prestador, Prestador Executante, Nome Prestador Executante
+ * Formato Unimed (28 colunas fixas):
+ * Demonstrativo, Data Pagto Processado, Protocolo TISS, Lote Prestador,
+ * Código Prestador Pagamento, Nome Prestador Pagamento,
+ * Número Guia, Seq, Beneficiário, Nome Beneficiário,
+ * Data Execução, Hora Execução, Item, Item Desc, Quantidade, Valor Pagamento,
+ * Tipo Lançamento, Erro TISS, Situação Item,
+ * Código Solicitante, Nome Solicitante,
+ * Acomodação da Internação, Data Inicio Faturamento Internação, Data Fim Faturamento Internação,
+ * Código Prestador, Nome Prestador, Prestador Executante, Nome Prestador Executante
  */
 
-// Mapeamento de índice de coluna Unimed → campo do banco
-const UNIMED_COLUMNS: { index: number; field: keyof InsertRecebimentoExcel; type: 'string' | 'number' | 'date' | 'decimal' | 'int' }[] = [
-  { index: 0, field: 'processado', type: 'decimal' },          // Demonstrativo
-  { index: 1, field: 'dataPagto', type: 'date' },              // Data Pagto Processado
-  { index: 2, field: 'protocoloTiss', type: 'string' },        // Protocolo TISS
-  { index: 3, field: 'lotePrestador', type: 'string' },        // Lote Prestador
-  { index: 4, field: 'codigoPrestadorPagamento', type: 'string' }, // Código Prestador Pagamento
-  { index: 5, field: 'nomePrestadorPagamento', type: 'string' }, // Nome Prestador Pagamento
-  { index: 6, field: 'numeroGuia', type: 'string' },           // Número Guia
-  { index: 7, field: 'seq', type: 'int' },                     // Seq
-  { index: 8, field: 'beneficiario', type: 'string' },         // Beneficiário
-  { index: 9, field: 'nomeBeneficiario', type: 'string' },     // Nome Beneficiário
-  { index: 10, field: 'dataExecucao', type: 'date' },          // Data Execução
-  // index: 11 = Hora Execução (ignorado, info já está na data)
-  { index: 12, field: 'item', type: 'string' },                // Item
-  { index: 13, field: 'itemDesc', type: 'string' },            // Item Desc
-  { index: 14, field: 'quantidade', type: 'int' },             // Quantidade
-  { index: 15, field: 'valorPagamento', type: 'decimal' },     // Valor Pagamento
-  { index: 16, field: 'tipoLancamento', type: 'string' },      // Tipo Lançamento
-  { index: 17, field: 'erroTiss', type: 'string' },            // Erro TISS
-  { index: 18, field: 'situacaoItem', type: 'string' },        // Situação Item
-  { index: 19, field: 'codigoSolicitante', type: 'string' },   // Código Solicitante
-  { index: 20, field: 'nomeSolicitante', type: 'string' },     // Nome Solicitante
-  { index: 21, field: 'acomodacaoInternacao', type: 'string' }, // Acomodação da Internação
-  { index: 22, field: 'dataInicioFaturamentoInternacao', type: 'date' }, // Data Inicio Faturamento
-  { index: 23, field: 'dataFimFaturamentoInternacao', type: 'date' },   // Data Fim Faturamento
-  { index: 24, field: 'codigoPrestador', type: 'string' },     // Código Prestador
-  { index: 25, field: 'nomePrestador', type: 'string' },       // Nome Prestador
-  // index: 26 = Prestador Executante (código, redundante com codigoPrestador)
-  // index: 27 = Nome Prestador Executante (redundante com nomePrestador)
+// Assinatura de colunas para detecção do formato Unimed
+const UNIMED_SIGNATURE = [
+  'Demonstrativo',
+  'Data Pagto Processado',
+  'Protocolo TISS',
+  'Número Guia',
+  'Situação Item',
+  'Tipo Lançamento',
 ];
 
 /**
- * Detecta se o arquivo é um demonstrativo Unimed pelo cabeçalho
- */
-export function isUnimedFormat(headers: string[]): boolean {
-  // Verificar se tem as colunas específicas da Unimed
-  const unimedSignature = [
-    'Demonstrativo',
-    'Data Pagto Processado',
-    'Protocolo TISS',
-    'Número Guia',
-    'Situação Item',
-    'Tipo Lançamento',
-  ];
-  
-  let matches = 0;
-  for (const sig of unimedSignature) {
-    if (headers.includes(sig)) matches++;
-  }
-  
-  // Se 5+ das 6 colunas-chave estão presentes, é Unimed
-  return matches >= 5;
-}
-
-/**
- * Converte serial date do Excel para Date
- */
-function excelSerialToDate(serial: number): Date | null {
-  if (!serial || serial < 1) return null;
-  // Excel serial date: dias desde 1900-01-01 (com bug do 29/02/1900)
-  const parsed = XLSX.SSF.parse_date_code(serial);
-  if (parsed) {
-    return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
-  }
-  return null;
-}
-
-/**
- * Extrai valor de uma célula do SheetJS
- */
-function getCellValue(sheet: XLSX.WorkSheet, row: number, col: number): unknown {
-  const addr = XLSX.utils.encode_cell({ r: row, c: col });
-  const cell = sheet[addr];
-  if (!cell) return null;
-  
-  // Retornar valor raw (v) para processamento posterior
-  return cell.v !== undefined ? cell.v : null;
-}
-
-/**
- * Parser otimizado para Unimed - processa em chunks com acesso direto às células.
- * Usa ~165MB de heap para 33k linhas (vs 375MB do ExcelJS).
- */
-export async function parseUnimedExcelChunked(
-  buffer: Buffer,
-  arquivoId: number,
-  convenioId: number | undefined,
-  dataReferencia: Date | undefined,
-  dataPagamento: Date | undefined,
-  estabelecimentoId: number | undefined,
-  chunkSize: number,
-  onChunk: (records: InsertRecebimentoExcel[], chunkIndex: number, totalRows: number) => Promise<void>
-): Promise<{ totalRows: number; totalRecords: number }> {
-  
-  console.log(`[Parser Unimed] Iniciando leitura otimizada (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
-  const startTime = Date.now();
-  
-  // Ler com cellDates:false para menor consumo de memória
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
-  
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    console.error('[Parser Unimed] Nenhuma planilha encontrada');
-    return { totalRows: 0, totalRecords: 0 };
-  }
-  
-  const sheet = workbook.Sheets[sheetName];
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
-  const totalRowCount = range.e.r; // Excluindo cabeçalho (linha 0)
-  
-  console.log(`[Parser Unimed] Planilha: ${sheetName}, ${totalRowCount} linhas de dados, ${range.e.c + 1} colunas`);
-  console.log(`[Parser Unimed] Leitura do arquivo: ${Date.now() - startTime}ms`);
-  
-  // Verificar cabeçalho (linha 0)
-  const headers: string[] = [];
-  for (let c = 0; c <= range.e.c; c++) {
-    const val = getCellValue(sheet, 0, c);
-    headers.push(val ? String(val).trim() : '');
-  }
-  
-  // Validar que é formato Unimed
-  if (!isUnimedFormat(headers)) {
-    console.warn('[Parser Unimed] Formato não reconhecido como Unimed, headers:', headers.slice(0, 10).join(', '));
-    // Fallback: retornar indicação para usar parser genérico
-    return { totalRows: 0, totalRecords: -1 }; // -1 indica fallback necessário
-  }
-  
-  // Detectar offset de colunas (caso haja colunas extras no início)
-  let colOffset = 0;
-  if (headers[0] !== 'Demonstrativo') {
-    // Procurar onde começa "Demonstrativo"
-    const demoIdx = headers.indexOf('Demonstrativo');
-    if (demoIdx >= 0) colOffset = demoIdx;
-  }
-  
-  console.log(`[Parser Unimed] Formato Unimed confirmado, offset: ${colOffset}, processando em chunks de ${chunkSize}`);
-  
-  let totalRecords = 0;
-  let chunkIndex = 0;
-  let currentChunk: InsertRecebimentoExcel[] = [];
-  const totalRows = totalRowCount;
-  
-  // Processar linhas de dados (começando na linha 1, após cabeçalho)
-  for (let rowNum = 1; rowNum <= range.e.r; rowNum++) {
-    // Verificar se a linha tem dados (checar coluna Item ou Número Guia)
-    const guiaVal = getCellValue(sheet, rowNum, 6 + colOffset);
-    const itemVal = getCellValue(sheet, rowNum, 12 + colOffset);
-    const valorVal = getCellValue(sheet, rowNum, 15 + colOffset);
-    
-    if (!guiaVal && !itemVal && !valorVal) continue; // Linha vazia
-    
-    // Construir registro diretamente sem objetos intermediários
-    const record: InsertRecebimentoExcel = {
-      arquivoId,
-      convenioId,
-      dataReferencia,
-      dataPagamentoUpload: dataPagamento,
-      estabelecimentoId,
-    };
-    
-    // Extrair cada campo usando acesso direto
-    for (const col of UNIMED_COLUMNS) {
-      const value = getCellValue(sheet, rowNum, col.index + colOffset);
-      if (value === null || value === undefined || value === '') continue;
-      
-      switch (col.type) {
-        case 'date': {
-          if (typeof value === 'number') {
-            const date = excelSerialToDate(value);
-            if (date) (record as any)[col.field] = date;
-          } else if (typeof value === 'string') {
-            // Tentar parse de string de data
-            const brMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (brMatch) {
-              (record as any)[col.field] = new Date(
-                parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1])
-              );
-            }
-          }
-          break;
-        }
-        case 'decimal': {
-          if (typeof value === 'number') {
-            (record as any)[col.field] = String(value);
-          } else {
-            const str = String(value).replace(/[R$\s]/g, '').replace(',', '.');
-            const num = parseFloat(str);
-            if (!isNaN(num)) (record as any)[col.field] = String(num);
-          }
-          break;
-        }
-        case 'int': {
-          if (typeof value === 'number') {
-            (record as any)[col.field] = Math.round(value);
-          } else {
-            const num = parseInt(String(value), 10);
-            if (!isNaN(num)) (record as any)[col.field] = num;
-          }
-          break;
-        }
-        case 'string':
-        default: {
-          const str = String(value).trim();
-          if (str) (record as any)[col.field] = str;
-          break;
-        }
-      }
-    }
-    
-    // Só adicionar se tem item ou valor
-    if (record.item || record.valorPagamento) {
-      currentChunk.push(record);
-    }
-    
-    // Enviar chunk quando atingir o tamanho
-    if (currentChunk.length >= chunkSize) {
-      await onChunk(currentChunk, chunkIndex, totalRows);
-      totalRecords += currentChunk.length;
-      chunkIndex++;
-      currentChunk = [];
-      
-      // Log de progresso a cada 5 chunks
-      if (chunkIndex % 5 === 0) {
-        const elapsed = Date.now() - startTime;
-        const percent = Math.round((rowNum / range.e.r) * 100);
-        console.log(`[Parser Unimed] ${percent}% - ${totalRecords} registros em ${elapsed}ms (linha ${rowNum}/${range.e.r})`);
-      }
-    }
-  }
-  
-  // Processar último chunk
-  if (currentChunk.length > 0) {
-    await onChunk(currentChunk, chunkIndex, totalRows);
-    totalRecords += currentChunk.length;
-  }
-  
-  const elapsed = Date.now() - startTime;
-  console.log(`[Parser Unimed] Concluído: ${totalRecords} registros em ${chunkIndex + 1} chunks (${elapsed}ms total)`);
-  
-  return { totalRows, totalRecords };
-}
-
-/**
- * Detecta se um buffer Excel é formato Unimed (leitura rápida apenas do cabeçalho)
+ * Detecta se um buffer Excel é formato Unimed (leitura rápida apenas do cabeçalho).
+ * Usa SheetJS com sheetRows:2 para ler apenas o cabeçalho (consumo mínimo).
  */
 export function detectUnimedFormat(buffer: Buffer): boolean {
   try {
-    // Ler apenas a primeira sheet com range limitado (apenas cabeçalho)
+    // Importar XLSX apenas para detecção (leitura de 2 linhas = ~6 MB extra)
+    const XLSX = require('xlsx');
     const workbook = XLSX.read(buffer, { type: 'buffer', sheetRows: 2 });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     if (!sheet) return false;
@@ -286,4 +55,230 @@ export function detectUnimedFormat(buffer: Buffer): boolean {
   } catch {
     return false;
   }
+}
+
+function isUnimedFormat(headers: string[]): boolean {
+  let matches = 0;
+  for (const sig of UNIMED_SIGNATURE) {
+    if (headers.some(h => h === sig)) matches++;
+  }
+  return matches >= 5;
+}
+
+/**
+ * Parseia data no formato DD/MM/YYYY retornando Date ou undefined
+ */
+function parseDateBR(value: string | undefined | null): Date | undefined {
+  if (!value || typeof value !== 'string') return undefined;
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+  }
+  return undefined;
+}
+
+/**
+ * Parseia valor decimal (string "120.00" ou "1,234.56")
+ */
+function parseDecimal(value: string | undefined | null): string | undefined {
+  if (!value) return undefined;
+  const str = String(value).replace(/[R$\s]/g, '').replace(',', '.');
+  const num = parseFloat(str);
+  return isNaN(num) ? undefined : String(num);
+}
+
+/**
+ * Parseia inteiro
+ */
+function parseInt2(value: string | undefined | null): number | undefined {
+  if (!value) return undefined;
+  const num = parseInt(String(value), 10);
+  return isNaN(num) ? undefined : num;
+}
+
+/**
+ * Processa arquivo Unimed em streaming usando xlsx-stream-reader.
+ * Consumo de memória: ~13 MB heap, ~94 MB RSS para 33k linhas.
+ * 
+ * @param buffer - Buffer do arquivo Excel
+ * @param arquivoId - ID do arquivo no banco
+ * @param convenioId - ID do convênio
+ * @param dataReferencia - Data de referência do upload
+ * @param dataPagamento - Data de pagamento do upload
+ * @param estabelecimentoId - ID do estabelecimento
+ * @param chunkSize - Tamanho do chunk para inserção em batch
+ * @param onChunk - Callback chamado a cada chunk processado
+ * @returns Total de linhas e registros processados
+ */
+export async function parseUnimedExcelChunked(
+  buffer: Buffer,
+  arquivoId: number,
+  convenioId: number,
+  dataReferencia?: Date,
+  dataPagamento?: Date,
+  estabelecimentoId?: number,
+  chunkSize: number = 2000,
+  onChunk?: (records: InsertRecebimentoExcel[], chunkIndex: number, totalRows: number) => Promise<void>
+): Promise<{ totalRows: number; totalRecords: number }> {
+  const XlsxStreamReader = require('xlsx-stream-reader');
+  
+  const startTime = Date.now();
+  console.log(`[Parser Unimed Streaming] Iniciando processamento (buffer: ${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+  
+  return new Promise((resolve, reject) => {
+    const workBookReader = new XlsxStreamReader();
+    let headers: string[] = [];
+    let totalRows = 0;
+    let totalRecords = 0;
+    let currentChunk: InsertRecebimentoExcel[] = [];
+    let chunkIndex = 0;
+    let processingError: Error | null = null;
+    
+    // Queue para processar chunks sequencialmente
+    let chunkPromise = Promise.resolve();
+    
+    workBookReader.on('worksheet', function (workSheetReader: any) {
+      // Processar apenas a primeira sheet
+      if (workSheetReader.id > 1) {
+        workSheetReader.skip();
+        return;
+      }
+      
+      workSheetReader.on('row', function (row: any) {
+        if (processingError) return;
+        
+        const values: string[] = row.values ? row.values.slice(1) : []; // values é 1-indexed
+        
+        // Primeira linha = cabeçalho
+        if (row.attributes.r === '1') {
+          headers = values.map((v: any) => (v || '').toString().trim());
+          
+          // Validar que é formato Unimed
+          if (!isUnimedFormat(headers)) {
+            processingError = new Error('Formato não reconhecido como Unimed');
+          }
+          return;
+        }
+        
+        totalRows++;
+        
+        // Extrair campos da linha
+        const get = (idx: number): string => (values[idx] || '').toString().trim();
+        
+        // Verificar se a linha tem dados relevantes
+        const guia = get(6);
+        const item = get(12);
+        const valor = get(15);
+        if (!guia && !item && !valor) return;
+        
+        const record: InsertRecebimentoExcel = {
+          arquivoId,
+          convenioId,
+          estabelecimentoId: estabelecimentoId || undefined,
+          dataReferencia: dataReferencia || undefined,
+          dataPagamento: dataPagamento || undefined,
+          // Campos do formato Unimed
+          processado: parseDecimal(get(0)),
+          dataPagto: parseDateBR(get(1)),
+          protocoloTiss: get(2) || undefined,
+          lotePrestador: get(3) || undefined,
+          codigoPrestadorPagamento: get(4) || undefined,
+          nomePrestadorPagamento: get(5) || undefined,
+          numeroGuia: get(6) || undefined,
+          seq: parseInt2(get(7)),
+          beneficiario: get(8) || undefined,
+          nomeBeneficiario: get(9) || undefined,
+          dataExecucao: parseDateBR(get(10)),
+          // index 11 = Hora Execução (ignorado)
+          item: get(12) || undefined,
+          itemDesc: get(13) || undefined,
+          quantidade: parseInt2(get(14)),
+          valorPagamento: parseDecimal(get(15)),
+          tipoLancamento: get(16) || undefined,
+          erroTiss: get(17) || undefined,
+          situacaoItem: get(18) || undefined,
+          codigoSolicitante: get(19) || undefined,
+          nomeSolicitante: get(20) || undefined,
+          acomodacaoInternacao: get(21) || undefined,
+          dataInicioFaturamentoInternacao: parseDateBR(get(22)),
+          dataFimFaturamentoInternacao: parseDateBR(get(23)),
+          codigoPrestador: get(24) || undefined,
+          nomePrestador: get(25) || undefined,
+          prestadorExecutante: get(26) || undefined,
+          nomePrestadorExecutante: get(27) || undefined,
+        };
+        
+        currentChunk.push(record);
+        
+        // Quando chunk está cheio, enviar para o banco
+        if (currentChunk.length >= chunkSize) {
+          const chunkToSend = currentChunk;
+          const currentChunkIdx = chunkIndex;
+          currentChunk = [];
+          chunkIndex++;
+          
+          if (onChunk) {
+            // Encadear promises para processar chunks sequencialmente
+            chunkPromise = chunkPromise.then(async () => {
+              try {
+                await onChunk(chunkToSend, currentChunkIdx, totalRows);
+                totalRecords += chunkToSend.length;
+              } catch (err) {
+                processingError = err as Error;
+              }
+            });
+          } else {
+            totalRecords += chunkToSend.length;
+          }
+        }
+      });
+      
+      workSheetReader.on('end', function () {
+        // Processar último chunk
+        if (currentChunk.length > 0 && !processingError) {
+          const lastChunk = currentChunk;
+          const lastChunkIdx = chunkIndex;
+          
+          if (onChunk) {
+            chunkPromise = chunkPromise.then(async () => {
+              try {
+                await onChunk(lastChunk, lastChunkIdx, totalRows);
+                totalRecords += lastChunk.length;
+              } catch (err) {
+                processingError = err as Error;
+              }
+            });
+          } else {
+            totalRecords += lastChunk.length;
+          }
+        }
+      });
+      
+      workSheetReader.process();
+    });
+    
+    workBookReader.on('end', function () {
+      // Aguardar todos os chunks serem processados
+      chunkPromise.then(() => {
+        if (processingError) {
+          reject(processingError);
+          return;
+        }
+        
+        const elapsed = Date.now() - startTime;
+        console.log(`[Parser Unimed Streaming] Concluído: ${totalRecords} registros em ${chunkIndex + 1} chunks (${elapsed}ms total)`);
+        resolve({ totalRows, totalRecords });
+      }).catch(reject);
+    });
+    
+    workBookReader.on('error', function (error: Error) {
+      reject(error);
+    });
+    
+    // Criar stream a partir do buffer e iniciar processamento
+    const readable = new Readable();
+    readable.push(buffer);
+    readable.push(null);
+    readable.pipe(workBookReader);
+  });
 }

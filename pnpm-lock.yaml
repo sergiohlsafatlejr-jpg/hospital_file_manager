@@ -271,6 +271,9 @@ importers:
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
+      xlsx-stream-reader:
+        specifier: ^1.1.1
+        version: 1.1.1
       xml2js:
         specifier: ^0.6.2
         version: 0.6.2
@@ -5870,6 +5873,10 @@ packages:
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
+
+  xlsx-stream-reader@1.1.1:
+    resolution: {integrity: sha512-BRW8CJ6tQ2mRPUcFwAu+XSYKnxqKlBrhPw1r/L/dl0n/XW4tpSwKSg4v2ECCyQFzv6gZDmoVQxbEIVQMPH0uSQ==}
+    engines: {node: '>= 0.10.0'}
 
   xlsx@0.18.5:
     resolution: {integrity: sha512-dmg3LCjBPHZnQp5/F/+nnTa+miPJxUXB6vtk42YjBBKayDNagxGEeIdWApkYPOf3Z3pm3k62Knjzp7lMeTEtFQ==}
@@ -12460,6 +12467,13 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
+
+  xlsx-stream-reader@1.1.1:
+    dependencies:
+      sax: 1.4.4
+      ssf: 0.11.2
+      tmp: 0.2.7
+      unzipper: 0.10.14
 
   xlsx@0.18.5:
     dependencies:
