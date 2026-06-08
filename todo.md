@@ -3873,3 +3873,11 @@
 - [x] Implementar backpressure: pausar stream durante INSERT no banco
 - [x] Resetar arquivo 2910008 para status pendente
 - [ ] Verificar processamento com sucesso em produção (portal.safatle.com.br)
+
+## Fix Conciliação Cruzada Hospital Urológico
+
+- [x] Normalizar formato de competência (2026/01 → 2026-01) no faturamento_unificado
+- [x] Normalizar formato de competência na conciliados_automatico
+- [x] Preencher convenioId nos dados WARLEINE (UNIMED → 1, IPASGO → 30001)
+- [x] Corrigir popularDeIntegFaturado para preencher convenioId automaticamente via LEFT JOIN com tabela convenios
+- [ ] Verificar se a conciliação cruzada funciona corretamente após as correções
