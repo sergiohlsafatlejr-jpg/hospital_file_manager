@@ -3811,3 +3811,8 @@
 - [x] Buscar mês de pagamento cruzado: quando guia não foi paga na competência atual, verificar demonstrativo de outros meses
 - [x] Exibir na tela o mês em que a guia foi efetivamente paga (ex: "Paga em 05/2026")
 - [x] Atualizar filtros e cards de resumo para os novos status
+
+## NFS-e: Indicação de Demonstrativo Baixado
+- [x] Adicionar indicação automática na tela de NFS-e mostrando se o demonstrativo de pagamento correspondente já foi importado
+- [x] Cruzar nota fiscal (convênio + período) com arquivos de retorno importados
+- [x] Exibir badge visual na tabela de notas indicando status do demonstrativo

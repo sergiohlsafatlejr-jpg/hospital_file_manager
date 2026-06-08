@@ -461,6 +461,7 @@ function NotasFiscaisTab() {
                 <TableHead>Data Emissão</TableHead>
                 <TableHead className="text-right">Valor Bruto</TableHead>
                 <TableHead className="text-right">Valor Líquido</TableHead>
+                <TableHead className="text-center">Demonstrativo</TableHead>
                 <TableHead className="text-center">XML</TableHead>
                 <TableHead className="text-center">NF</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
@@ -468,9 +469,9 @@ function NotasFiscaisTab() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
               ) : !notasData?.notas.length ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhuma nota encontrada</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Nenhuma nota encontrada</TableCell></TableRow>
               ) : (
                 notasData.notas.map((nota) => (
                   <TableRow key={nota.id}>
@@ -480,6 +481,19 @@ function NotasFiscaisTab() {
                     <TableCell>{nota.dataEmissao ? formatDateBR(nota.dataEmissao) : "-"}</TableCell>
                     <TableCell className="text-right">{fmt(nota.valorBruto)}</TableCell>
                     <TableCell className="text-right">{fmt(nota.valorLiquido)}</TableCell>
+                    <TableCell className="text-center">
+                      {(nota as any).demonstrativoBaixado ? (
+                        <Badge className="bg-green-100 text-green-800 border-green-200">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Baixado
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-amber-600 border-amber-300">
+                          <Clock className="h-3 w-3 mr-1" />
+                          Pendente
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-center">
                       <Checkbox
                         checked={nota.xmlDemonstrativoEmitido === "sim"}

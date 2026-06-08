@@ -204,6 +204,13 @@ const notasRouter = router({
           createdAt: nfseNotas.createdAt,
           hospitalNome: nfseHospitais.nome,
           convenioNome: convenios.nome,
+          demonstrativoBaixado: sql<boolean>`EXISTS (
+            SELECT 1 FROM arquivos a
+            WHERE a.direcao = 'retornado'
+              AND a.convenioId = ${nfseNotas.convenioId}
+              AND a.estabelecimentoId = ${nfseHospitais.estabelecimentoId}
+              AND DATE_FORMAT(a.dataReferencia, '%Y-%m') = DATE_FORMAT(${nfseNotas.dataEmissao}, '%Y-%m')
+          )`.as('demonstrativoBaixado'),
         })
           .from(nfseNotas)
           .leftJoin(nfseHospitais, eq(nfseNotas.hospitalId, nfseHospitais.id))
