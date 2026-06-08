@@ -13,8 +13,8 @@
  * 3. Para xl/worksheets/sheet1.xml: stream.pipe(saxParser) DIRETO
  * 4. SAX processa tag por tag, chama callback a cada chunk de N registros
  */
-import * as yauzl from 'yauzl';
-import * as sax from 'sax';
+import yauzl from 'yauzl';
+import sax from 'sax';
 import type { Readable } from 'stream';
 import type { InsertRecebimentoExcel } from '../../drizzle/schema';
 
