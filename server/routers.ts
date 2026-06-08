@@ -1432,17 +1432,23 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para reprocessar este arquivo" });
         }
         
-        // Download file from S3
-        const response = await fetch(arquivo.s3Url);
-        if (!response.ok) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao baixar arquivo do S3" });
-        }
-        const buffer = Buffer.from(await response.arrayBuffer());
+        // Marcar como processando ANTES de retornar
+        await db.updateArquivoStatus(input.id, "processando");
+        await db.updateArquivoProgresso(input.id, 5, 0);
         
-        try {
-          console.log('[Reprocessar] Processando arquivo:', arquivo.nome, 'direcao:', arquivo.direcao);
-          await db.updateArquivoStatus(input.id, "processando");
-          await db.updateArquivoProgresso(input.id, 5, 0);
+        // Fire-and-forget: processar em background para evitar timeout do Cloud Run (180s)
+        (async () => {
+          try {
+            // Download file from S3
+            const response = await fetch(arquivo.s3Url);
+            if (!response.ok) {
+              console.error('[Reprocessar] Erro ao baixar arquivo do S3:', arquivo.nome);
+              await db.updateArquivoStatus(input.id, "erro");
+              return;
+            }
+            const buffer = Buffer.from(await response.arrayBuffer());
+            
+            console.log('[Reprocessar] Processando arquivo:', arquivo.nome, 'direcao:', arquivo.direcao);
           
           if (arquivo.direcao === "retornado") {
             // === REPROCESSAR ARQUIVO DE RETORNO ===
@@ -1552,12 +1558,7 @@ export const appRouter = router({
             
             await db.updateArquivoStatus(input.id, "processado");
             await db.updateArquivoProgresso(input.id, 100, totalProcessados, totalProcessados);
-            
-            return {
-              success: true,
-              procedimentosCount: totalProcessados,
-              message: `Arquivo de retorno reprocessado com sucesso. ${totalProcessados} itens extra\u00eddos.`
-            };
+            console.log(`[Reprocessar] Concluído: ${totalProcessados} itens extraídos de arquivo retornado.`);
           } else {
             // === REPROCESSAR ARQUIVO DE ENVIO (fluxo original) ===
             await db.deleteFaturamentoTissByArquivo(input.id);
@@ -1633,29 +1634,30 @@ export const appRouter = router({
               await db.insertFaturamentoTissBatch(faturamentoRecords);
               await db.updateArquivoStatus(input.id, "processado");
               await db.updateArquivoProgresso(input.id, 100, faturamentoRecords.length, faturamentoRecords.length);
-              
-              return { 
-                success: true, 
-                procedimentosCount: faturamentoRecords.length,
-                message: `Arquivo reprocessado com sucesso. ${faturamentoRecords.length} itens extra\u00eddos.`
-              };
+              console.log(`[Reprocessar] Concluído: ${faturamentoRecords.length} itens extraídos de arquivo envio.`);
             } else if (!parseResult.success) {
               await db.updateArquivoStatus(input.id, "erro");
-              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: parseResult.error || "Erro ao processar arquivo" });
+              console.error('[Reprocessar] Erro no parse:', parseResult.error);
             } else {
               await db.updateArquivoStatus(input.id, "processado");
-              return { 
-                success: true, 
-                procedimentosCount: 0,
-                message: "Arquivo processado, mas nenhum item encontrado."
-              };
+              console.log('[Reprocessar] Arquivo processado, mas nenhum item encontrado.');
             }
           }
         } catch (error) {
           console.error("Error reprocessing file:", error);
           await db.updateArquivoStatus(input.id, "erro");
-          throw error;
         }
+        })().catch((err) => {
+          console.error('[Reprocessar] Erro não tratado no background:', err);
+          db.updateArquivoStatus(input.id, "erro").catch(() => {});
+        });
+        
+        // Retornar imediatamente ao frontend
+        return {
+          success: true,
+          procedimentosCount: 0,
+          message: "Reprocessamento iniciado em background. Acompanhe o progresso na lista."
+        };
       }),
 
     // Corrigir arquivos travados em processando

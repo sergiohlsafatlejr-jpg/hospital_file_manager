@@ -3840,3 +3840,8 @@
 - [x] Corrigir query SQL com GROUP BY (only_full_group_by) - usar MAX(competencia) em vez de competencia direto
 - [x] Corrigir status 'concluido' para 'processado' na query do pipeline (tabela arquivos usa 'processado')
 - [x] Adicionar tratamento de erro no DashboardHome (mostrar mensagem em vez de retornar null silenciosamente)
+
+## Fix Reprocessar Timeout (08/06/2026)
+- [x] Converter endpoint reprocessar para fire-and-forget (retorna imediato, processa em background)
+- [x] Evitar timeout do Cloud Run (180s) para arquivos grandes
+- [x] Resetar arquivo demonstrativo-0298158.xlsx travado em processando
