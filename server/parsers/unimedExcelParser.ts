@@ -21,35 +21,35 @@ import type { Readable } from 'stream';
 import type { InsertRecebimentoExcel } from '../../drizzle/schema';
 
 /**
- * Colunas do demonstrativo Unimed (na ordem em que aparecem no Excel):
- * 0: Demonstrativo
- * 1: Data Pagto Processado
- * 2: Protocolo TISS
- * 3: Lote Prestador
- * 4: Código Prestador Pagamento
- * 5: Nome Prestador Pagamento
- * 6: Código Prestador Original
- * 7: Nome Prestador Original
- * 8: Número Carteira (beneficiário)
- * 9: Nome Beneficiário
- * 10: Código Plano
- * 11: Descrição Plano
- * 12: Número Guia Prestador
- * 13: Número Guia Operadora
- * 14: Senha
- * 15: Data Inicial Faturamento
- * 16: Data Final Faturamento
- * 17: Código Procedimento
- * 18: Descrição Procedimento
- * 19: Grau Participação
- * 20: Valor Informado
- * 21: Valor Processado
- * 22: Valor Glosa
- * 23: Valor Liberado
- * 24: Código Glosa
- * 25: Descrição Glosa
- * 26: Recurso Glosa
- * 27: Valor Recurso
+ * Colunas REAIS do demonstrativo Unimed (confirmado via análise do arquivo):
+ * 0: Demonstrativo (número do demonstrativo, ex: 298158.0)
+ * 1: Data Pagto (serial Excel, ex: 46171.0)
+ * 2: Protocolo TISS (ex: 2.020764448E9)
+ * 3: Lote Prestador (ex: 120097817)
+ * 4: Código Prestador Pagamento (ex: 1100242.0)
+ * 5: Nome Prestador Pagamento (ex: PRONTO SOCORRO INFANTIL...)
+ * 6: Número Guia (ex: 71852456)
+ * 7: Seq (ex: 2)
+ * 8: Beneficiário (carteira, ex: 0064.8000.115802.10.3)
+ * 9: Nome Beneficiário (ex: ABDALLA BOU HANNA OBEID)
+ * 10: Data Execução (serial Excel com hora)
+ * 11: Hora Execução (ex: 11:25)
+ * 12: Item (código procedimento, ex: 1.0101039E7)
+ * 13: Item Desc (ex: Consulta Em Pronto Socorro)
+ * 14: Quantidade (ex: 1.0)
+ * 15: Valor Pagamento (ex: 120.0)
+ * 16: Tipo Lançamento (ex: CON, EXA)
+ * 17: Erro TISS (código glosa)
+ * 18: Situação Item (ex: PAGO, GLOSADO)
+ * 19: Código Solicitante
+ * 20: Nome Solicitante
+ * 21: Acomodação da Internação
+ * 22: Data Inicio Faturamento Internação
+ * 23: Data Fim Faturamento Internação
+ * 24: Código Prestador (original)
+ * 25: Nome Prestador (original)
+ * 26: Prestador Executante (código)
+ * 27: Nome Prestador Executante
  */
 
 // Converter serial number do Excel para Date
@@ -127,6 +127,8 @@ export async function parseUnimedExcelChunked(
     const { zipfile } = await openXlsxFromDisk(tmpPath);
     
     // Step 2: Primeiro pass - encontrar e parsear sharedStrings em streaming
+    // NOTA: No XLSX, sharedStrings pode vir DEPOIS do sheet1 na ordem do ZIP!
+    // Por isso, percorremos TODAS as entries até encontrar sharedStrings.
     const sharedStrings = await new Promise<string[]>((resolve, reject) => {
       let found = false;
       zipfile.readEntry();
@@ -139,10 +141,8 @@ export async function parseUnimedExcelChunked(
               resolve(strings);
             }).catch(reject);
           });
-        } else if (entry.fileName === 'xl/worksheets/sheet1.xml' && !found) {
-          // SharedStrings não encontrado antes do sheet1 - resolver vazio
-          resolve([]);
         } else {
+          // Continuar lendo entries (inclusive sheet1) até encontrar sharedStrings
           zipfile.readEntry();
         }
       });
@@ -319,6 +319,35 @@ function processSheet1Stream(
 
 /**
  * Converte uma linha do Excel (array de strings) para InsertRecebimentoExcel
+ * Mapeamento baseado na análise real do arquivo demonstrativo-0298158.xlsx:
+ * Col 0: Demonstrativo → processado
+ * Col 1: Data Pagto (serial) → dataPagto
+ * Col 2: Protocolo TISS → protocoloTiss
+ * Col 3: Lote Prestador → lotePrestador
+ * Col 4: Código Prestador Pagamento → codigoPrestadorPagamento
+ * Col 5: Nome Prestador Pagamento → nomePrestadorPagamento
+ * Col 6: Número Guia → numeroGuia
+ * Col 7: Seq → seq
+ * Col 8: Beneficiário (carteira) → beneficiario
+ * Col 9: Nome Beneficiário → nomeBeneficiario
+ * Col 10: Data Execução (serial) → dataExecucao
+ * Col 11: Hora Execução → horaExecucao
+ * Col 12: Item (código) → item
+ * Col 13: Item Desc → itemDesc
+ * Col 14: Quantidade → quantidade
+ * Col 15: Valor Pagamento → valorPagamento
+ * Col 16: Tipo Lançamento → tipoLancamento
+ * Col 17: Erro TISS → erroTiss
+ * Col 18: Situação Item → situacaoItem
+ * Col 19: Código Solicitante → codigoSolicitante
+ * Col 20: Nome Solicitante → nomeSolicitante
+ * Col 21: Acomodação Internação → acomodacaoInternacao
+ * Col 22: Data Inicio Fat. Internação → dataInicioFaturamentoInternacao
+ * Col 23: Data Fim Fat. Internação → dataFimFaturamentoInternacao
+ * Col 24: Código Prestador → codigoPrestador
+ * Col 25: Nome Prestador → nomePrestador
+ * Col 26: Prestador Executante → (não mapeado separado)
+ * Col 27: Nome Prestador Executante → (não mapeado separado)
  */
 function convertRowToRecord(
   row: string[],
@@ -328,7 +357,7 @@ function convertRowToRecord(
   dataPagamentoUpload?: Date,
   estabelecimentoId?: number
 ): InsertRecebimentoExcel | null {
-  if (row.length < 20) return null;
+  if (row.length < 15) return null;
   
   const getValue = (idx: number): string => (row[idx] || '').trim();
   const getNumber = (idx: number): number => {
@@ -337,74 +366,91 @@ function convertRowToRecord(
     return isNaN(n) ? 0 : n;
   };
   
+  // Formatar número grande sem notação científica
+  const formatBigNumber = (idx: number): string => {
+    const v = getValue(idx);
+    if (!v) return '';
+    const n = parseFloat(v);
+    if (isNaN(n)) return v;
+    // Se é notação científica (ex: 2.020764448E9), converter para inteiro
+    if (v.includes('E') || v.includes('e') || n > 999999) {
+      return Math.round(n).toString();
+    }
+    return v.replace(/\.0$/, '');
+  };
+  
   // Converter datas (serial numbers do Excel)
   const dataPagtoSerial = getNumber(1);
-  const dataInicialSerial = getNumber(15);
-  const dataFinalSerial = getNumber(16);
+  const dataExecucaoSerial = getNumber(10);
+  const dataInicialSerial = getNumber(22);
+  const dataFinalSerial = getNumber(23);
   
   const dataPagtoDate = dataPagamentoUpload || excelSerialToDate(dataPagtoSerial);
+  const dataExecucaoDate = excelSerialToDate(Math.floor(dataExecucaoSerial));
   const dataInicialDate = excelSerialToDate(dataInicialSerial);
   const dataFinalDate = excelSerialToDate(dataFinalSerial);
   
   const dataRef = dataReferenciaUpload || dataPagtoDate;
   
-  const valorInformado = getNumber(20);
-  const valorProcessado = getNumber(21);
-  const valorGlosa = getNumber(22);
-  const valorLiberado = getNumber(23);
+  const valorPagamento = getNumber(15);
   
-  // Determinar situação do item
-  let situacaoItem: string | undefined;
-  if (valorGlosa > 0 && valorLiberado === 0) {
-    situacaoItem = 'GLOSADO';
-  } else if (valorGlosa > 0 && valorLiberado > 0) {
-    situacaoItem = 'GLOSADO';
-  } else {
-    situacaoItem = 'PAGO';
-  }
+  // Situação vem diretamente da coluna 18
+  const situacaoItem = getValue(18) || 'PAGO';
   
   const record: InsertRecebimentoExcel = {
     arquivoId,
     convenioId,
     estabelecimentoId: estabelecimentoId || undefined,
     
-    processado: valorProcessado ? String(valorProcessado.toFixed(2)) : getValue(0).replace('.0', ''),
+    // Demonstrativo e datas
+    processado: formatBigNumber(0) || undefined,
     dataPagto: dataPagtoDate || undefined,
-    protocoloTiss: getValue(2).replace(/\.0$/, '') || undefined,
+    protocoloTiss: formatBigNumber(2) || undefined,
     lotePrestador: getValue(3) || undefined,
     
-    codigoPrestadorPagamento: getValue(4).replace('.0', '') || undefined,
+    // Prestador pagamento
+    codigoPrestadorPagamento: formatBigNumber(4) || undefined,
     nomePrestadorPagamento: getValue(5) || undefined,
-    codigoPrestador: getValue(6).replace('.0', '') || undefined,
-    nomePrestador: getValue(7) || undefined,
     
+    // Guia e sequencial
+    numeroGuia: getValue(6) || undefined,
+    seq: getValue(7) || undefined,
+    
+    // Beneficiário
     beneficiario: getValue(8) || undefined,
     nomeBeneficiario: getValue(9) || undefined,
     
-    numeroGuia: getValue(12) || undefined,
-    codigoSolicitante: getValue(13) || undefined,
-    horaExecucao: getValue(14) || undefined,
+    // Execução
+    dataExecucao: dataExecucaoDate || undefined,
+    horaExecucao: getValue(11) || undefined,
     
-    item: getValue(17) || undefined,
-    itemDesc: getValue(18) || undefined,
+    // Procedimento
+    item: formatBigNumber(12) || undefined,
+    itemDesc: getValue(13) || undefined,
+    quantidade: getValue(14) || undefined,
     
-    tipoItem: getValue(10) || undefined,
-    tipoLancamento: getValue(11) || undefined,
-    acomodacaoInternacao: getValue(19) || undefined,
+    // Valor
+    valorPagamento: valorPagamento ? String(valorPagamento.toFixed(2)) : undefined,
     
+    // Tipo e situação
+    tipoLancamento: getValue(16) || undefined,
+    erroTiss: getValue(17) || undefined,
+    situacaoItem,
+    
+    // Solicitante
+    codigoSolicitante: formatBigNumber(19) || undefined,
+    nomeSolicitante: getValue(20) || undefined,
+    
+    // Internação
+    acomodacaoInternacao: getValue(21) || undefined,
     dataInicioFaturamentoInternacao: dataInicialDate || undefined,
     dataFimFaturamentoInternacao: dataFinalDate || undefined,
     
-    valorInformado: valorInformado ? String(valorInformado.toFixed(2)) : undefined,
-    valorPagamento: valorLiberado ? String(valorLiberado.toFixed(2)) : undefined,
-    valorGlosa: valorGlosa ? String(valorGlosa.toFixed(2)) : undefined,
+    // Prestador original
+    codigoPrestador: formatBigNumber(24) || undefined,
+    nomePrestador: getValue(25) || undefined,
     
-    codigoGlosa: getValue(24) || undefined,
-    erroTiss: getValue(25) || undefined,
-    situacaoItem,
-    
-    nomeSolicitante: getValue(26) || undefined,
-    
+    // Data de referência
     dataReferencia: dataRef || undefined,
     dataPagamentoUpload: dataPagamentoUpload || undefined,
   };
