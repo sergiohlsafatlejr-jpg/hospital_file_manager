@@ -1482,23 +1482,21 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para reprocessar este arquivo" });
         }
         
-        // Marcar como processando ANTES de retornar
+        // Marcar como processando
         await db.updateArquivoStatus(input.id, "processando");
         await db.updateArquivoProgresso(input.id, 5, 0);
         
-        // Fire-and-forget: processar em background para evitar timeout do Cloud Run (180s)
-        (async () => {
-          try {
-            // Download file from S3
-            const response = await fetch(arquivo.s3Url);
-            if (!response.ok) {
-              console.error('[Reprocessar] Erro ao baixar arquivo do S3:', arquivo.nome);
-              await db.updateArquivoStatus(input.id, "erro");
-              return;
-            }
-            const buffer = Buffer.from(await response.arrayBuffer());
-            
-            console.log('[Reprocessar] Processando arquivo:', arquivo.nome, 'direcao:', arquivo.direcao);
+        try {
+          // Download file from S3
+          const response = await fetch(arquivo.s3Url);
+          if (!response.ok) {
+            console.error('[Reprocessar] Erro ao baixar arquivo do S3:', arquivo.nome);
+            await db.updateArquivoStatus(input.id, "erro");
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao baixar arquivo do S3" });
+          }
+          const buffer = Buffer.from(await response.arrayBuffer());
+          
+          console.log('[Reprocessar] Processando arquivo:', arquivo.nome, 'direcao:', arquivo.direcao);
           
           if (arquivo.direcao === "retornado") {
             // === REPROCESSAR ARQUIVO DE RETORNO ===
@@ -1728,17 +1726,14 @@ export const appRouter = router({
         } catch (error) {
           console.error("Error reprocessing file:", error);
           await db.updateArquivoStatus(input.id, "erro");
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao reprocessar arquivo" });
         }
-        })().catch((err) => {
-          console.error('[Reprocessar] Erro não tratado no background:', err);
-          db.updateArquivoStatus(input.id, "erro").catch(() => {});
-        });
         
-        // Retornar imediatamente ao frontend
         return {
           success: true,
           procedimentosCount: 0,
-          message: "Reprocessamento iniciado em background. Acompanhe o progresso na lista."
+          message: "Reprocessamento concluído com sucesso."
         };
       }),
 
