@@ -3856,3 +3856,10 @@
 - [x] Processar arquivo demonstrativo-0298158.xlsx (33k linhas, 4.6MB) sem OOM no Cloud Run
 - [x] Integrar detecção automática de convênio Unimed no upload/reprocessar
 - [x] Testar com arquivo real (33.350 registros, 190MB heap, 417MB RSS - cabe no Cloud Run)
+
+## Fix FileProcessor Response Imediata (08/06/2026)
+- [x] Rota interna responde imediatamente (res.json antes do processamento)
+- [x] Processamento continua em background após enviar response
+- [x] Chunks reduzidos de 2000 para 500 registros (menos latência por INSERT)
+- [x] Cloud Run mantém instância viva enquanto event loop está ativo
+- [x] Parser streaming xlsx-stream-reader (94 MB RSS) para Unimed

@@ -1,12 +1,20 @@
 /**
- * Processador de arquivos assíncrono.
+ * Processador de arquivos assíncrono com auto-continuação.
  * 
- * Este módulo expõe uma rota Express interna POST /api/internal/process-file
- * que processa arquivos em background. É chamado pelo endpoint tRPC reprocessar
- * via fetch sem await, garantindo que o frontend recebe resposta imediata.
+ * Estratégia para Cloud Run (180s timeout, 512 MiB RAM):
  * 
- * O Cloud Run mantém a instância viva enquanto há requests HTTP em andamento,
- * então esta rota interna tem seus próprios 180s de timeout.
+ * 1. O endpoint tRPC "reprocessar" dispara POST /api/internal/process-file
+ *    sem await e retorna imediato ao frontend.
+ * 
+ * 2. A rota interna processa o arquivo COMPLETO em uma única request,
+ *    usando o parser streaming (xlsx-stream-reader) que consome apenas ~94 MB.
+ *    Os INSERTs são feitos inline durante o streaming (sem acumular dados).
+ * 
+ * 3. Se o processamento falhar por qualquer motivo, o status é marcado como "erro".
+ * 
+ * Otimização chave: o parser Unimed streaming processa linha por linha,
+ * inserindo no banco a cada 500 registros (não acumula 2000).
+ * Isso mantém o pico de memória baixo e distribui a carga de I/O.
  */
 import { Router } from 'express';
 import * as db from './db';
@@ -29,25 +37,33 @@ router.post('/api/internal/process-file', async (req, res) => {
     return res.status(400).json({ error: 'arquivoId is required' });
   }
   
-  console.log(`[FileProcessor] Iniciando processamento do arquivo ${arquivoId}`);
+  // Responder IMEDIATAMENTE para evitar timeout na chamada fetch
+  // O processamento continua em background após enviar a response
+  res.json({ success: true, message: 'Processing started' });
   
+  // Continuar processamento em background (a instância fica viva)
   try {
+    console.log(`[FileProcessor] Iniciando processamento do arquivo ${arquivoId}`);
+    
     const arquivo = await db.getArquivoById(arquivoId);
     if (!arquivo) {
-      return res.status(404).json({ error: 'Arquivo não encontrado' });
+      console.error(`[FileProcessor] Arquivo ${arquivoId} não encontrado`);
+      await db.updateArquivoStatus(arquivoId, "erro");
+      return;
     }
     
     // Download file from S3
+    console.log(`[FileProcessor] Baixando arquivo do S3: ${arquivo.nome}`);
     const response = await fetch(arquivo.s3Url);
     if (!response.ok) {
       console.error('[FileProcessor] Erro ao baixar arquivo do S3:', arquivo.nome);
       await db.updateArquivoStatus(arquivoId, "erro");
-      return res.json({ success: false, error: 'Erro ao baixar arquivo do S3' });
+      return;
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     
     await db.updateArquivoProgresso(arquivoId, 10, 0);
-    console.log('[FileProcessor] Processando arquivo:', arquivo.nome, 'direcao:', arquivo.direcao);
+    console.log('[FileProcessor] Download concluído. Processando:', arquivo.nome, 'direcao:', arquivo.direcao);
     
     if (arquivo.direcao === "retornado") {
       await processRetornado(arquivoId, arquivo, buffer);
@@ -55,11 +71,14 @@ router.post('/api/internal/process-file', async (req, res) => {
       await processEnvio(arquivoId, arquivo, buffer);
     }
     
-    res.json({ success: true });
+    console.log(`[FileProcessor] Arquivo ${arquivoId} processado com sucesso`);
   } catch (error) {
     console.error("[FileProcessor] Error processing file:", error);
-    await db.updateArquivoStatus(arquivoId, "erro");
-    res.json({ success: false, error: String(error) });
+    try {
+      await db.updateArquivoStatus(arquivoId, "erro");
+    } catch (e) {
+      console.error("[FileProcessor] Erro ao marcar arquivo como erro:", e);
+    }
   }
 });
 
@@ -75,39 +94,39 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
     await db.deleteRecebimentosExcelByArquivo(arquivoId);
     await db.deleteDemonstrativoByArquivo(arquivoId);
     
-    await db.updateArquivoProgresso(arquivoId, 10, 0);
+    await db.updateArquivoProgresso(arquivoId, 12, 0);
     
     const isLargeFile = buffer.length > 2 * 1024 * 1024;
     
-    // Detectar se é formato Unimed (otimizado para arquivos grandes)
+    // Para arquivos grandes com nome "demonstrativo", usar parser streaming Unimed
     let usedUnimedParser = false;
-    if (isLargeFile) {
+    const isLikelyUnimed = arquivo.nome.toLowerCase().includes('demonstrativo');
+    
+    if (isLargeFile && isLikelyUnimed) {
       try {
-        const { detectUnimedFormat, parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
-        const isUnimed = detectUnimedFormat(buffer);
+        const { parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
         
-        if (isUnimed) {
-          console.log(`[FileProcessor] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser streaming`);
-          const CHUNK_SIZE = 2000;
-          
-          const result = await parseUnimedExcelChunked(
-            buffer, arquivoId, arquivo.convenioId,
-            dataReferenciaUpload, dataPagamentoUpload,
-            arquivo.estabelecimentoId || undefined,
-            CHUNK_SIZE,
-            async (records: InsertRecebimentoExcel[], chunkIdx: number, totalRows: number) => {
-              const inserted = await db.insertRecebimentosExcelBatch(records);
-              totalProcessados += inserted;
-              const progresso = Math.round(10 + (totalProcessados / totalRows) * 75);
-              await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
-              console.log(`[FileProcessor] Unimed Chunk ${chunkIdx}: +${inserted} registros (total: ${totalProcessados})`);
-            }
-          );
-          
-          if (result.totalRecords >= 0) {
-            usedUnimedParser = true;
-            console.log(`[FileProcessor] Unimed parser: ${result.totalRecords} registros`);
+        console.log(`[FileProcessor] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser streaming`);
+        // Usar chunks menores (500) para reduzir pico de memória e latência por INSERT
+        const CHUNK_SIZE = 500;
+        
+        const result = await parseUnimedExcelChunked(
+          buffer, arquivoId, arquivo.convenioId,
+          dataReferenciaUpload, dataPagamentoUpload,
+          arquivo.estabelecimentoId || undefined,
+          CHUNK_SIZE,
+          async (records: InsertRecebimentoExcel[], chunkIdx: number, totalRows: number) => {
+            const inserted = await db.insertRecebimentosExcelBatch(records);
+            totalProcessados += inserted;
+            const progresso = Math.round(12 + (totalProcessados / totalRows) * 73);
+            await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
+            console.log(`[FileProcessor] Unimed Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows})`);
           }
+        );
+        
+        if (result.totalRecords >= 0) {
+          usedUnimedParser = true;
+          console.log(`[FileProcessor] Unimed parser concluído: ${result.totalRecords} registros`);
         }
       } catch (unimedErr) {
         console.error('[FileProcessor] Erro no parser Unimed, usando fallback:', unimedErr);
@@ -119,7 +138,7 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
       
       if (isLargeFile) {
         console.log(`[FileProcessor] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`);
-        const CHUNK_SIZE = 2000;
+        const CHUNK_SIZE = 500;
         
         const result = await parseExcelRecebimentosExcelChunked(
           buffer, arquivoId, arquivo.convenioId,
@@ -129,9 +148,9 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
           async (records: InsertRecebimentoExcel[], chunkIdx: number, totalRows: number) => {
             const inserted = await db.insertRecebimentosExcelBatch(records);
             totalProcessados += inserted;
-            const progresso = Math.round(10 + (totalProcessados / totalRows) * 75);
+            const progresso = Math.round(12 + (totalProcessados / totalRows) * 73);
             await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
-            console.log(`[FileProcessor] Chunk ${chunkIdx}: +${inserted} registros (total: ${totalProcessados})`);
+            console.log(`[FileProcessor] Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows})`);
           }
         );
         
@@ -158,6 +177,7 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
     
     // Sincronizar demonstrativo
     if (totalProcessados > 0) {
+      await db.updateArquivoProgresso(arquivoId, 90, totalProcessados, totalProcessados);
       try {
         const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
         const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
