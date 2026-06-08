@@ -1110,13 +1110,62 @@ export const appRouter = router({
                     }
                     
                     try {
-                      const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
-                      
                       // Atualizar progresso: parsing
                       await db.updateArquivoProgresso(arquivoId, 10, 0);
                       
                       // Verificar tamanho do buffer para decidir entre parsing normal e chunked
                       const isLargeFile = buffer.length > 2 * 1024 * 1024; // > 2MB
+                      
+                      // Tentar parser Unimed otimizado para arquivos grandes
+                      let usedUnimedParser = false;
+                      if (isLargeFile) {
+                        try {
+                          const { detectUnimedFormat, parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
+                          const isUnimed = detectUnimedFormat(buffer);
+                          
+                          if (isUnimed) {
+                            console.log(`[Upload] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser otimizado`);
+                            let totalInserted = 0;
+                            const CHUNK_SIZE = 2000;
+                            
+                            const result = await parseUnimedExcelChunked(
+                              buffer, arquivoId, input.convenioId,
+                              dataReferenciaUpload, dataPagamentoUpload,
+                              input.estabelecimentoId,
+                              CHUNK_SIZE,
+                              async (records, chunkIdx, totalRows) => {
+                                const inserted = await db.insertRecebimentosExcelBatch(records);
+                                totalInserted += inserted;
+                                const progresso = Math.round(10 + (totalInserted / totalRows) * 75);
+                                await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalInserted, totalRows);
+                                console.log(`[Upload] Unimed Chunk ${chunkIdx}: +${inserted} registros (total: ${totalInserted}/${totalRows})`);
+                              }
+                            );
+                            
+                            if (result.totalRecords >= 0) {
+                              usedUnimedParser = true;
+                              console.log(`[Upload] Unimed parser: ${result.totalRecords} registros`);
+                              if (result.totalRecords > 0) {
+                                try {
+                                  const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                                  const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+                                  if (syncResult.success) console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
+                                } catch (syncError) {
+                                  console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                                }
+                                await db.updateArquivoProgresso(arquivoId, 95, result.totalRecords, result.totalRecords);
+                              } else {
+                                console.log('[Upload] Nenhum item encontrado no arquivo Unimed');
+                              }
+                            }
+                          }
+                        } catch (unimedErr) {
+                          console.error('[Upload] Erro no parser Unimed, usando fallback:', unimedErr);
+                        }
+                      }
+                      
+                      if (!usedUnimedParser) {
+                      const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
                       
                       if (isLargeFile) {
                         // ARQUIVO GRANDE: Processar em chunks para evitar estouro de memória
@@ -1203,6 +1252,7 @@ export const appRouter = router({
                           console.log('[Upload] Nenhum item de recebimentos_excel encontrado no arquivo');
                         }
                       }
+                      } // fim if (!usedUnimedParser)
                     } catch (excelError) {
                       console.error('[Upload] Erro ao importar recebimentos_excel:', excelError);
                       // Registrar erro mas não falhar o upload
@@ -1463,65 +1513,97 @@ export const appRouter = router({
               await db.deleteRecebimentosExcelByArquivo(input.id);
               await db.deleteDemonstrativoByArquivo(input.id);
               
-              const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
               await db.updateArquivoProgresso(input.id, 10, 0);
               
               const isLargeFile = buffer.length > 2 * 1024 * 1024; // > 2MB
               
+              // Detectar se é formato Unimed (otimizado para arquivos grandes)
+              let usedUnimedParser = false;
               if (isLargeFile) {
-                // ARQUIVO GRANDE: Processar em chunks
-                console.log(`[Reprocessar] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`);
-                const CHUNK_SIZE = 2000;
-                
-                const result = await parseExcelRecebimentosExcelChunked(
-                  buffer, input.id, arquivo.convenioId,
-                  dataReferenciaUpload, dataPagamentoUpload,
-                  arquivo.estabelecimentoId || undefined,
-                  CHUNK_SIZE,
-                  async (records, chunkIdx, totalRows) => {
-                    const inserted = await db.insertRecebimentosExcelBatch(records);
-                    totalProcessados += inserted;
-                    const progresso = Math.round(10 + (totalProcessados / totalRows) * 75);
-                    await db.updateArquivoProgresso(input.id, Math.min(progresso, 85), totalProcessados, totalRows);
-                    console.log(`[Reprocessar] Chunk ${chunkIdx}: +${inserted} registros (total: ${totalProcessados})`);
+                try {
+                  const { detectUnimedFormat, parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
+                  const isUnimed = detectUnimedFormat(buffer);
+                  
+                  if (isUnimed) {
+                    console.log(`[Reprocessar] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser otimizado`);
+                    const CHUNK_SIZE = 2000;
+                    
+                    const result = await parseUnimedExcelChunked(
+                      buffer, input.id, arquivo.convenioId,
+                      dataReferenciaUpload, dataPagamentoUpload,
+                      arquivo.estabelecimentoId || undefined,
+                      CHUNK_SIZE,
+                      async (records, chunkIdx, totalRows) => {
+                        const inserted = await db.insertRecebimentosExcelBatch(records);
+                        totalProcessados += inserted;
+                        const progresso = Math.round(10 + (totalProcessados / totalRows) * 75);
+                        await db.updateArquivoProgresso(input.id, Math.min(progresso, 85), totalProcessados, totalRows);
+                        console.log(`[Reprocessar] Unimed Chunk ${chunkIdx}: +${inserted} registros (total: ${totalProcessados})`);
+                      }
+                    );
+                    
+                    // Se retornou -1, precisa fallback para parser genérico
+                    if (result.totalRecords >= 0) {
+                      usedUnimedParser = true;
+                      console.log(`[Reprocessar] Unimed parser: ${result.totalRecords} registros`);
+                    }
                   }
-                );
+                } catch (unimedErr) {
+                  console.error('[Reprocessar] Erro no parser Unimed, usando fallback:', unimedErr);
+                }
+              }
+              
+              if (!usedUnimedParser) {
+                const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
                 
-                console.log(`[Reprocessar] Excel chunked: ${result.totalRecords} registros`);
-                
-                if (result.totalRecords > 0) {
-                  try {
-                    const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                    const syncResult = await syncDemonstrativoByArquivo(input.id, 'excel');
-                    console.log('[Reprocessar] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                  } catch (syncError) {
-                    console.error('[Reprocessar] Erro ao sincronizar demonstrativo:', syncError);
+                if (isLargeFile) {
+                  // ARQUIVO GRANDE: Processar em chunks com SheetJS
+                  console.log(`[Reprocessar] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`);
+                  const CHUNK_SIZE = 2000;
+                  
+                  const result = await parseExcelRecebimentosExcelChunked(
+                    buffer, input.id, arquivo.convenioId,
+                    dataReferenciaUpload, dataPagamentoUpload,
+                    arquivo.estabelecimentoId || undefined,
+                    CHUNK_SIZE,
+                    async (records, chunkIdx, totalRows) => {
+                      const inserted = await db.insertRecebimentosExcelBatch(records);
+                      totalProcessados += inserted;
+                      const progresso = Math.round(10 + (totalProcessados / totalRows) * 75);
+                      await db.updateArquivoProgresso(input.id, Math.min(progresso, 85), totalProcessados, totalRows);
+                      console.log(`[Reprocessar] Chunk ${chunkIdx}: +${inserted} registros (total: ${totalProcessados})`);
+                    }
+                  );
+                  
+                  console.log(`[Reprocessar] Excel chunked: ${result.totalRecords} registros`);
+                } else {
+                  // ARQUIVO NORMAL (< 2MB)
+                  const recordsExcel = parseExcelRecebimentosExcel(
+                    buffer, input.id, arquivo.convenioId,
+                    dataReferenciaUpload, dataPagamentoUpload,
+                    arquivo.estabelecimentoId || undefined
+                  );
+                  
+                  await db.updateArquivoProgresso(input.id, 20, 0, recordsExcel.length);
+                  console.log(`[Reprocessar] Excel parsed: ${recordsExcel.length} registros`);
+                  
+                  if (recordsExcel.length > 0) {
+                    totalProcessados = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted, total) => {
+                      const progresso = Math.round(20 + (inserted / total) * 60);
+                      await db.updateArquivoProgresso(input.id, progresso, inserted, total);
+                    });
                   }
                 }
-              } else {
-                // ARQUIVO NORMAL
-                const recordsExcel = parseExcelRecebimentosExcel(
-                  buffer, input.id, arquivo.convenioId,
-                  dataReferenciaUpload, dataPagamentoUpload,
-                  arquivo.estabelecimentoId || undefined
-                );
-                
-                await db.updateArquivoProgresso(input.id, 20, 0, recordsExcel.length);
-                console.log(`[Reprocessar] Excel parsed: ${recordsExcel.length} registros`);
-                
-                if (recordsExcel.length > 0) {
-                  totalProcessados = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted, total) => {
-                    const progresso = Math.round(20 + (inserted / total) * 60);
-                    await db.updateArquivoProgresso(input.id, progresso, inserted, total);
-                  });
-                  
-                  try {
-                    const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                    const syncResult = await syncDemonstrativoByArquivo(input.id, 'excel');
-                    console.log('[Reprocessar] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                  } catch (syncError) {
-                    console.error('[Reprocessar] Erro ao sincronizar demonstrativo:', syncError);
-                  }
+              }
+              
+              // Sincronizar demonstrativo
+              if (totalProcessados > 0) {
+                try {
+                  const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                  const syncResult = await syncDemonstrativoByArquivo(input.id, 'excel');
+                  console.log('[Reprocessar] Demonstrativo sincronizado:', syncResult.total, 'itens');
+                } catch (syncError) {
+                  console.error('[Reprocessar] Erro ao sincronizar demonstrativo:', syncError);
                 }
               }
             } else {

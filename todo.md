@@ -3850,3 +3850,9 @@
 - [x] Substituir ExcelJS por SheetJS no parseExcelRecebimentosExcelChunked (375MB → 185MB heap)
 - [x] Resolver OOM no Cloud Run (512 MiB) para demonstrativo-0298158.xlsx (33k linhas, 4.6MB)
 - [x] Resetar arquivo travado em processando
+
+## Parser Otimizado Unimed (08/06/2026)
+- [x] Criar parser dedicado para Unimed com processamento streaming/low-memory
+- [x] Processar arquivo demonstrativo-0298158.xlsx (33k linhas, 4.6MB) sem OOM no Cloud Run
+- [x] Integrar detecção automática de convênio Unimed no upload/reprocessar
+- [x] Testar com arquivo real (33.350 registros, 190MB heap, 417MB RSS - cabe no Cloud Run)
