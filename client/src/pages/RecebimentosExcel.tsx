@@ -766,6 +766,16 @@ function ArquivosImportadosExcelTab({
     },
   });
 
+  const reprocessarMutation = trpc.arquivos.reprocessar.useMutation({
+    onSuccess: () => {
+      toast.success("Reprocessamento iniciado! Acompanhe o progresso na lista.");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao reprocessar: ${error.message}`);
+    },
+  });
+
   const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "excel" || a.nome?.toLowerCase().endsWith(".xlsx") || a.nome?.toLowerCase().endsWith(".xls"))) || [];
 
   return (
@@ -820,6 +830,23 @@ function ArquivosImportadosExcelTab({
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                    {(arquivo.status === 'pendente' || arquivo.status === 'erro' || arquivo.status === 'processando') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        disabled={reprocessarMutation.isPending}
+                        onClick={() => reprocessarMutation.mutate({ arquivoId: arquivo.id })}
+                        title="Reprocessar arquivo"
+                      >
+                        {reprocessarMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -858,6 +885,7 @@ function ArquivosImportadosExcelTab({
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

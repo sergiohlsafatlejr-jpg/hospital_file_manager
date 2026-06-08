@@ -529,10 +529,10 @@ export function parseExcelRecebimentosExcel(
 }
 
 /**
- * Parseia um arquivo Excel GRANDE em chunks para reduzir consumo de memória.
- * Em vez de carregar todas as linhas na memória, processa em blocos e chama o callback para cada bloco.
+ * Parseia um arquivo Excel GRANDE usando exceljs streaming para reduzir consumo de memória.
+ * Processa linha por linha sem carregar o workbook inteiro na memória.
  */
-export function parseExcelRecebimentosExcelChunked(
+export async function parseExcelRecebimentosExcelChunked(
   buffer: Buffer,
   arquivoId: number,
   convenioId: number | undefined,
@@ -542,127 +542,167 @@ export function parseExcelRecebimentosExcelChunked(
   chunkSize: number,
   onChunk: (records: InsertRecebimentoExcel[], chunkIndex: number, totalRows: number) => Promise<void>
 ): Promise<{ totalRows: number; totalRecords: number }> {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
+  const ExcelJS = await import('exceljs');
+  const { Readable } = await import('stream');
   
+  // Usar workbook streaming do exceljs para baixo consumo de memória
+  const workbook = new ExcelJS.default.Workbook();
+  
+  // Converter buffer para stream para leitura
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+  
+  console.log(`[Parser Chunked ExcelJS] Iniciando leitura streaming do arquivo (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+  
+  await workbook.xlsx.read(stream);
+  
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) {
+    console.error('[Parser Chunked ExcelJS] Nenhuma planilha encontrada');
+    return { totalRows: 0, totalRecords: 0 };
+  }
+  
+  const totalRowCount = worksheet.rowCount;
+  console.log(`[Parser Chunked ExcelJS] Planilha: ${worksheet.name}, ${totalRowCount} linhas`);
+  
+  // Detecção dinâmica de cabeçalho (primeiras 15 linhas)
   let headerRowIdx = 0;
-  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+  const headers: string[] = [];
   
-  // Detecção dinâmica de cabeçalho
-  for (let r = 0; r < Math.min(15, range.e.r + 1); r++) {
+  for (let r = 1; r <= Math.min(15, totalRowCount); r++) {
+    const row = worksheet.getRow(r);
     let matches = 0;
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const cellRef = XLSX.utils.encode_cell({ r, c });
-      const val = worksheet[cellRef]?.v;
-      if (val && typeof val === 'string') {
-        const trimmed = val.trim();
-        if (COLUMN_MAPPING[trimmed] || trimmed === 'Data do Evento' || trimmed === 'Item') {
-          matches++;
-        }
+    
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const val = cell.text?.trim();
+      if (val && (COLUMN_MAPPING[val] || val === 'Data do Evento' || val === 'Item')) {
+        matches++;
       }
-    }
+    });
+    
     if (matches >= 3) {
       headerRowIdx = r;
+      // Extrair cabeçalhos desta linha
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        while (headers.length < colNumber - 1) headers.push(`__EMPTY_${headers.length}`);
+        headers.push(cell.text?.trim() || `__EMPTY_${colNumber}`);
+      });
       break;
     }
   }
   
-  const totalRows = range.e.r - headerRowIdx; // excluir cabeçalho(s)
-  
-  // Extrair cabeçalhos
-  const headers: string[] = [];
-  
-  for (let col = range.s.c; col <= range.e.c; col++) {
-    const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
-    const cell = worksheet[cellRef];
-    headers.push(cell?.v ? String(cell.v).trim() : `__EMPTY_${col}`);
+  if (headerRowIdx === 0) {
+    // Fallback: usar primeira linha como cabeçalho
+    headerRowIdx = 1;
+    const row = worksheet.getRow(1);
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      while (headers.length < colNumber - 1) headers.push(`__EMPTY_${headers.length}`);
+      headers.push(cell.text?.trim() || `__EMPTY_${colNumber}`);
+    });
   }
   
+  const totalRows = totalRowCount - headerRowIdx;
   const dataStartRow = headerRowIdx + 1;
   
-  console.log(`[Parser Chunked] Cabeçalho detectado na linha ${headerRowIdx + 1}, ${totalRows} linhas de dados, chunks de ${chunkSize}`);
-  console.log('[Parser Chunked] Colunas:', headers.join(', '));
+  console.log(`[Parser Chunked ExcelJS] Cabeçalho na linha ${headerRowIdx}, ${totalRows} linhas de dados, chunks de ${chunkSize}`);
+  console.log('[Parser Chunked ExcelJS] Colunas:', headers.slice(0, 20).join(', '));
   
   let lastNomeBeneficiario: string | null = null;
   let lastDataExecucao: Date | null = null;
   let lastNumeroGuia: string | null = null;
   let lastProtocoloTiss: string | null = null;
   let lastSeq: number | null = null;
-  let totalProcessed = 0;
   
-  // Processar em chunks
   let totalRecords = 0;
   let chunkIndex = 0;
+  let currentChunk: InsertRecebimentoExcel[] = [];
   
-  const processChunks = async () => {
-    let currentChunk: InsertRecebimentoExcel[] = [];
+  // Processar linhas de dados
+  for (let rowNum = dataStartRow; rowNum <= totalRowCount; rowNum++) {
+    const row = worksheet.getRow(rowNum);
+    const rowData: Record<string, unknown> = {};
+    let hasData = false;
     
-    for (let row = dataStartRow; row <= range.e.r; row++) {
-      const rowData: Record<string, unknown> = {};
-      let hasData = false;
-      
-      for (let col = range.s.c; col <= range.e.c; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-        const cell = worksheet[cellRef];
-        // Usar valor formatado (w) se disponível, senão valor raw (v)
-        const value = cell?.w || cell?.v || null;
-        rowData[headers[col]] = value;
-        if (value) hasData = true;
-      }
-      
-      if (hasData) {
-        const hasValidData = rowData['Número Guia'] || rowData['Beneficiário'] || rowData['Item'] || 
-                             rowData['GUIA'] || rowData['ASSOCIADO'] || rowData['CODIGO'] ||
-                             rowData['Nº Guia'] || rowData['Cliente'] || rowData['Nº Serviço'] ||
-                             rowData['NUMERO_GUIA_OPERADORA'] || rowData['NOME_BENEFICIARIO'] || rowData['CODIGO_PROCEDIMENTO'] ||
-                             rowData['Nome'] || rowData['Código do Procedimento'] || rowData['CÃ³digo do Procedimento'] || 
-                             rowData['Guia operadora/Senha'] || rowData['Valor (R$)'] ||
-                             rowData['Matrícula'] || rowData['Beneficiário/Associado'];
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      const colIdx = colNumber - 1;
+      if (colIdx < headers.length) {
+        // Extrair valor: preferir texto formatado, senão valor raw
+        let value: unknown = null;
+        if (cell.type === ExcelJS.default.ValueType.Date) {
+          value = cell.value; // Manter como Date
+        } else if (cell.type === ExcelJS.default.ValueType.Number) {
+          value = cell.value;
+        } else if (cell.text && cell.text.trim() !== '') {
+          value = cell.text.trim();
+        } else if (cell.value !== null && cell.value !== undefined) {
+          value = cell.value;
+        }
         
-        if (hasValidData) {
-          const record = extractRecebimentoExcelFromRow(rowData, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
-          
-          // Carry-over logic
-          if (record.nomeBeneficiario) lastNomeBeneficiario = record.nomeBeneficiario;
-          else if (lastNomeBeneficiario && record.item) record.nomeBeneficiario = lastNomeBeneficiario;
-          
-          if (record.dataExecucao) lastDataExecucao = record.dataExecucao;
-          else if (lastDataExecucao && record.item) record.dataExecucao = lastDataExecucao;
-          
-          if (record.numeroGuia) lastNumeroGuia = record.numeroGuia;
-          else if (lastNumeroGuia && record.item) record.numeroGuia = lastNumeroGuia;
-          
-          if (record.protocoloTiss) lastProtocoloTiss = record.protocoloTiss;
-          else if (lastProtocoloTiss && record.item) record.protocoloTiss = lastProtocoloTiss;
-          
-          if (record.seq) lastSeq = record.seq;
-          else if (lastSeq && record.item) record.seq = lastSeq;
-          
-          if (record.item || record.valorPagamento) {
-            currentChunk.push(record);
-            totalProcessed++;
-          }
+        if (value !== null && value !== undefined) {
+          rowData[headers[colIdx]] = value;
+          hasData = true;
         }
       }
+    });
+    
+    if (hasData) {
+      const hasValidData = rowData['Número Guia'] || rowData['Beneficiário'] || rowData['Item'] || 
+                           rowData['GUIA'] || rowData['ASSOCIADO'] || rowData['CODIGO'] ||
+                           rowData['Nº Guia'] || rowData['Cliente'] || rowData['Nº Serviço'] ||
+                           rowData['NUMERO_GUIA_OPERADORA'] || rowData['NOME_BENEFICIARIO'] || rowData['CODIGO_PROCEDIMENTO'] ||
+                           rowData['Nome'] || rowData['Código do Procedimento'] || rowData['CÃ³digo do Procedimento'] || 
+                           rowData['Guia operadora/Senha'] || rowData['Valor (R$)'] ||
+                           rowData['Matrícula'] || rowData['Beneficiário/Associado'];
       
-      if (currentChunk.length >= chunkSize) {
-        await onChunk(currentChunk, chunkIndex, totalRows);
-        totalRecords += currentChunk.length;
-        chunkIndex++;
-        currentChunk = []; // Liberar memória do chunk anterior
+      if (hasValidData) {
+        const record = extractRecebimentoExcelFromRow(rowData, arquivoId, convenioId, dataReferencia, dataPagamento, estabelecimentoId);
+        
+        // Carry-over logic
+        if (record.nomeBeneficiario) lastNomeBeneficiario = record.nomeBeneficiario;
+        else if (lastNomeBeneficiario && record.item) record.nomeBeneficiario = lastNomeBeneficiario;
+        
+        if (record.dataExecucao) lastDataExecucao = record.dataExecucao;
+        else if (lastDataExecucao && record.item) record.dataExecucao = lastDataExecucao;
+        
+        if (record.numeroGuia) lastNumeroGuia = record.numeroGuia;
+        else if (lastNumeroGuia && record.item) record.numeroGuia = lastNumeroGuia;
+        
+        if (record.protocoloTiss) lastProtocoloTiss = record.protocoloTiss;
+        else if (lastProtocoloTiss && record.item) record.protocoloTiss = lastProtocoloTiss;
+        
+        if (record.seq) lastSeq = record.seq;
+        else if (lastSeq && record.item) record.seq = lastSeq;
+        
+        if (record.item || record.valorPagamento) {
+          currentChunk.push(record);
+        }
       }
     }
     
-    // Processar último chunk
-    if (currentChunk.length > 0) {
+    // Enviar chunk quando atingir o tamanho
+    if (currentChunk.length >= chunkSize) {
       await onChunk(currentChunk, chunkIndex, totalRows);
       totalRecords += currentChunk.length;
+      chunkIndex++;
+      currentChunk = [];
+      
+      // Log de progresso a cada 5 chunks
+      if (chunkIndex % 5 === 0) {
+        console.log(`[Parser Chunked ExcelJS] Progresso: ${totalRecords} registros processados (linha ${rowNum}/${totalRowCount})`);
+      }
     }
-  };
+  }
   
-  // Retornar promise
-  return processChunks().then(() => ({ totalRows, totalRecords }));
+  // Processar último chunk
+  if (currentChunk.length > 0) {
+    await onChunk(currentChunk, chunkIndex, totalRows);
+    totalRecords += currentChunk.length;
+  }
+  
+  console.log(`[Parser Chunked ExcelJS] Concluído: ${totalRecords} registros em ${chunkIndex + 1} chunks`);
+  
+  return { totalRows, totalRecords };
 }
 
 /**

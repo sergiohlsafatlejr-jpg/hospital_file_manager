@@ -3816,3 +3816,17 @@
 - [x] Adicionar indicação automática na tela de NFS-e mostrando se o demonstrativo de pagamento correspondente já foi importado
 - [x] Cruzar nota fiscal (convênio + período) com arquivos de retorno importados
 - [x] Exibir badge visual na tabela de notas indicando status do demonstrativo
+
+## Bug: Importação lenta do demonstrativo Excel
+- [x] Investigar performance da importação do demonstrativo-0298158.xlsx (travava em 10% por OOM do XLSX.read)
+- [x] Otimizar processamento para arquivos grandes (migrado para exceljs com streaming)
+- [x] Resetar arquivo travado (id 2910001) para reimportação
+- [x] Criar endpoint arquivos.reprocessar para reprocessar sem re-upload
+- [x] Adicionar botão Reprocessar na tela de Recebimentos Excel
+
+## Dashboard Tela Inicial
+- [ ] Criar dashboard na tela inicial com dados por perfil
+- [ ] Seção Recurso de Glosa: status do fluxo (faturado → NF emitida → demonstrativo importado → recurso feito → prazo restante)
+- [ ] Seção Faturista: valor total faturado, quantidade de contas, convênios com maiores valores
+- [ ] Seção Gerente: visão consolidada de ambos (recurso + faturamento)
+- [ ] Notícias/alertas relevantes no dashboard
