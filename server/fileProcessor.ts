@@ -37,11 +37,10 @@ router.post('/api/internal/process-file', async (req, res) => {
     return res.status(400).json({ error: 'arquivoId is required' });
   }
   
-  // Responder IMEDIATAMENTE para evitar timeout na chamada fetch
-  // O processamento continua em background após enviar a response
-  res.json({ success: true, message: 'Processing started' });
-  
-  // Continuar processamento em background (a instância fica viva)
+  // PROCESSAMENTO SÍNCRONO: manter a request HTTP ativa durante todo o processamento.
+  // No Cloud Run, a instância só permanece viva enquanto há requests HTTP em andamento.
+  // Se respondermos imediatamente, o Cloud Run pode reciclar a instância antes do parse terminar.
+  // Com o parser streaming (26 MB heap, ~30s), cabe no timeout de 180s.
   try {
     console.log(`[FileProcessor] Iniciando processamento do arquivo ${arquivoId}`);
     
@@ -49,7 +48,7 @@ router.post('/api/internal/process-file', async (req, res) => {
     if (!arquivo) {
       console.error(`[FileProcessor] Arquivo ${arquivoId} não encontrado`);
       await db.updateArquivoStatus(arquivoId, "erro");
-      return;
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
     }
     
     // Download file from S3
@@ -58,7 +57,7 @@ router.post('/api/internal/process-file', async (req, res) => {
     if (!response.ok) {
       console.error('[FileProcessor] Erro ao baixar arquivo do S3:', arquivo.nome);
       await db.updateArquivoStatus(arquivoId, "erro");
-      return;
+      return res.status(500).json({ error: 'Erro ao baixar arquivo do S3' });
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     
@@ -72,13 +71,15 @@ router.post('/api/internal/process-file', async (req, res) => {
     }
     
     console.log(`[FileProcessor] Arquivo ${arquivoId} processado com sucesso`);
-  } catch (error) {
-    console.error("[FileProcessor] Error processing file:", error);
+    res.json({ success: true, message: 'Processing completed' });
+  } catch (error: any) {
+    console.error("[FileProcessor] Error processing file:", error?.message || error);
     try {
       await db.updateArquivoStatus(arquivoId, "erro");
     } catch (e) {
       console.error("[FileProcessor] Erro ao marcar arquivo como erro:", e);
     }
+    res.status(500).json({ error: 'Processing failed', message: error?.message });
   }
 });
 
@@ -104,9 +105,12 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
     
     if (isLargeFile && isLikelyUnimed) {
       try {
-        const { parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
+        console.log(`[FileProcessor] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser streaming yauzl+sax`);
+        console.log(`[FileProcessor] Heap antes do parser: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB, RSS: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`);
         
-        console.log(`[FileProcessor] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser streaming`);
+        const { parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
+        console.log('[FileProcessor] Parser Unimed importado com sucesso');
+        
         // Usar chunks menores (500) para reduzir pico de memória e latência por INSERT
         const CHUNK_SIZE = 500;
         
@@ -120,7 +124,9 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
             totalProcessados += inserted;
             const progresso = Math.round(12 + (totalProcessados / totalRows) * 73);
             await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
-            console.log(`[FileProcessor] Unimed Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows})`);
+            if (chunkIdx % 5 === 0) {
+              console.log(`[FileProcessor] Unimed Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows}) | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB`);
+            }
           }
         );
         
@@ -128,8 +134,12 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
           usedUnimedParser = true;
           console.log(`[FileProcessor] Unimed parser concluído: ${result.totalRecords} registros`);
         }
-      } catch (unimedErr) {
-        console.error('[FileProcessor] Erro no parser Unimed, usando fallback:', unimedErr);
+      } catch (unimedErr: any) {
+        console.error('[FileProcessor] ERRO FATAL no parser Unimed (NÃO usando fallback para evitar OOM):', unimedErr?.message || unimedErr);
+        console.error('[FileProcessor] Stack:', unimedErr?.stack);
+        // NÃO usar fallback SheetJS para arquivos grandes - causa OOM
+        await db.updateArquivoStatus(arquivoId, "erro");
+        return;
       }
     }
     
