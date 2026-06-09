@@ -1390,7 +1390,8 @@ export async function executarConciliacaoAutomatica(params: {
       
       if (isTerceiro) {
         // Item de terceiro: convênio paga diretamente ao terceiro, não é glosa
-        inserts.push({ ...baseInsert, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: 0, statusConciliacao: 'terceiro', metodoConciliacao: null, diferenca: 0, percentualDiferenca: 0, codigoGlosa: null });
+        // Zerar valorFaturado para não inflar totais do hospital
+        inserts.push({ ...baseInsert, valorFaturado: 0, recebimentoId: null, recebimentoOrigem: null, valorPago: 0, valorGlosa: 0, statusConciliacao: 'terceiro', metodoConciliacao: null, diferenca: 0, percentualDiferenca: 0, codigoGlosa: null });
         resultado.totalTerceiros = (resultado.totalTerceiros || 0) + 1;
       } else {
         // Item próprio sem match: marcar como 'sem_pagamento' (não encontrado em nenhuma fonte de retorno)
