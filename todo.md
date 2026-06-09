@@ -3876,3 +3876,4 @@
 
 ## Fix Conta Convênio - Separação por GUIA + LOTE
 - [x] Separar contas com Alta Administrativa em linhas distintas por GUIA + LOTE (em vez de somar tudo em uma única conta)
+- [x] Filtro por Data de Pagamento na tela de Conciliação Cruzada (campo dataPagto do demonstrativo importado)

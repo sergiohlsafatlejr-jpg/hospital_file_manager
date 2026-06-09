@@ -1861,6 +1861,7 @@ export async function resumoConciliadosAutomatico(params: {
   estabelecimentoId: number;
   competencia?: string;
   convenioId?: number;
+  dataPagto?: string;
 }): Promise<{
   totalConciliados: number;
   totalDivergentes: number;
@@ -1881,6 +1882,10 @@ export async function resumoConciliadosAutomatico(params: {
   }
   if (params.convenioId) {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.dataPagto) {
+    const dp = params.dataPagto.replace(/'/g, "''");
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
   }
 
   const query = `
@@ -2003,6 +2008,7 @@ export async function resumoConciliadosPorGuia(params: {
   busca?: string;
   loteXml?: string;
   loteRetorno?: string;
+  dataPagto?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ items: any[]; total: number }> {
@@ -2032,6 +2038,11 @@ export async function resumoConciliadosPorGuia(params: {
     // Filtrar pelo lote do retorno/demonstrativo via guia
     const lr = params.loteRetorno.replace(/'/g, "''");
     whereClause += ` AND ca.numeroGuia IN (SELECT DISTINCT d.numero_guia FROM demonstrativo d WHERE d.estabelecimentoId = ${params.estabelecimentoId} AND d.lote_prestador = '${lr}')`;
+  }
+  if (params.dataPagto) {
+    // Filtrar pela data de pagamento do demonstrativo (recebimentos_excel.data_pagto)
+    const dp = params.dataPagto.replace(/'/g, "''");
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
   }
 
   const limit = params.limit || 50;
@@ -2376,4 +2387,43 @@ export async function lotesXmlTissDisponiveis(params: {
      ORDER BY ft.numero_lote DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.lote);
+}
+
+
+/**
+ * Datas de pagamento disponíveis nos recebimentos vinculados à conciliação
+ */
+export async function datasPagamentoConciliados(params: {
+  estabelecimentoId: number;
+  competencia?: string;
+  convenioId?: number;
+}): Promise<{ dataPagto: string; total: number }[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId} AND ca.recebimentoId IS NOT NULL`;
+  if (params.competencia) {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+
+  const query = `
+    SELECT 
+      DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto,
+      COUNT(DISTINCT ca.id) as total
+    FROM conciliados_automatico ca
+    INNER JOIN recebimentos_excel re ON ca.recebimentoId = re.id
+    ${whereClause}
+    AND re.data_pagto IS NOT NULL
+    GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+    ORDER BY dataPagto DESC
+  `;
+
+  const [rows] = await db.execute(sql.raw(query));
+  return (rows as unknown as any[]).map((r: any) => ({
+    dataPagto: r.dataPagto,
+    total: Number(r.total) || 0,
+  }));
 }

@@ -274,6 +274,7 @@ export const faturamentoUnificadoRouter = router({
       estabelecimentoId: z.number(),
       competencia: z.string().optional(),
       convenioId: z.number().optional(),
+      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.resumoConciliadosAutomatico(input);
@@ -314,6 +315,7 @@ export const faturamentoUnificadoRouter = router({
       busca: z.string().optional(),
       loteXml: z.string().optional(),
       loteRetorno: z.string().optional(),
+      dataPagto: z.string().optional(),
       limit: z.number().optional(),
       offset: z.number().optional(),
     }))
@@ -516,5 +518,18 @@ export const faturamentoUnificadoRouter = router({
         statusFiltro: input.status,
       });
       return result;
+    }),
+
+  /**
+   * Datas de pagamento disponíveis (do recebimentos_excel vinculado via conciliados_automatico)
+   */
+  datasPagamento: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.datasPagamentoConciliados(input);
     }),
 });

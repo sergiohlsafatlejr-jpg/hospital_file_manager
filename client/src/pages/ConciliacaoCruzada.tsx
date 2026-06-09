@@ -43,6 +43,7 @@ export default function ConciliacaoCruzada() {
   const [statusFiltro, setStatusFiltro] = useState("todos");
   const [loteXmlFiltro, setLoteXmlFiltro] = useState("todos");
   const [loteRetornoFiltro, setLoteRetornoFiltro] = useState("todos");
+  const [dataPagtoFiltro, setDataPagtoFiltro] = useState("todos");
   const [loteXmlOpen, setLoteXmlOpen] = useState(false);
   const [loteRetornoOpen, setLoteRetornoOpen] = useState(false);
   const [busca, setBusca] = useState("");
@@ -87,7 +88,7 @@ export default function ConciliacaoCruzada() {
   // Resetar página quando filtros mudarem
   useEffect(() => {
     setPaginaXmlRetorno(0);
-  }, [competenciaFiltro, convenioFiltro, loteXmlFiltro, loteRetornoFiltro]);
+  }, [competenciaFiltro, convenioFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro]);
 
   // Glosa de itens não recebidos
   const [itensSelecionadosGlosa, setItensSelecionadosGlosa] = useState<Set<number>>(new Set());
@@ -125,6 +126,12 @@ export default function ConciliacaoCruzada() {
 
   // Lotes do retorno/demonstrativo
   const { data: lotesRetorno } = trpc.faturamentoUnificado.lotesRetorno.useQuery(
+    { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
+    { enabled: estabelecimentoId > 0 }
+  );
+
+  // Datas de pagamento disponíveis
+  const { data: datasPagamento } = trpc.faturamentoUnificado.datasPagamento.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
     { enabled: estabelecimentoId > 0 }
   );
@@ -190,6 +197,7 @@ export default function ConciliacaoCruzada() {
       busca: busca || undefined,
       loteXml: loteXmlFiltro !== "todos" ? loteXmlFiltro : undefined,
       loteRetorno: loteRetornoFiltro !== "todos" ? loteRetornoFiltro : undefined,
+      dataPagto: dataPagtoFiltro !== "todos" ? dataPagtoFiltro : undefined,
       limit: ITENS_POR_PAGINA,
       offset: paginaConciliados * ITENS_POR_PAGINA,
     },
@@ -202,6 +210,7 @@ export default function ConciliacaoCruzada() {
       estabelecimentoId,
       competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
       convenioId: convenioIdNum,
+      dataPagto: dataPagtoFiltro !== "todos" ? dataPagtoFiltro : undefined,
     },
     { enabled: estabelecimentoId > 0 && abaAtiva === "conciliados" }
   );
@@ -658,7 +667,7 @@ export default function ConciliacaoCruzada() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
               <div>
                 <Label className="font-semibold text-primary">Competência</Label>
                 <Select value={competenciaFiltro} onValueChange={(v) => { setCompetenciaFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
@@ -794,6 +803,24 @@ export default function ConciliacaoCruzada() {
                       <SelectItem value="todos">Todos</SelectItem>
                       <SelectItem value="proprio">Próprio</SelectItem>
                       <SelectItem value="terceiro">Terceiros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {abaAtiva === 'conciliados' && (
+                <div>
+                  <Label>Data Pagamento</Label>
+                  <Select value={dataPagtoFiltro} onValueChange={(v) => { setDataPagtoFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todas</SelectItem>
+                      {datasPagamento?.map((dp: any) => (
+                        <SelectItem key={dp.dataPagto} value={dp.dataPagto}>
+                          {new Date(dp.dataPagto + 'T12:00:00').toLocaleDateString('pt-BR')} ({dp.total})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
