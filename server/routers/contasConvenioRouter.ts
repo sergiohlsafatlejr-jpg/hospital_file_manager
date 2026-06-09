@@ -1194,13 +1194,14 @@ export const contasConvenioRouter = router({
       const total = countResult[0]?.count || 0;
 
       // Resumo geral
+      // Contar contas únicas por numeroConta (evita duplicação quando há múltiplos resumos para mesma conta)
       const resumoResult = await db
         .select({
-          totalContas: sql<number>`COUNT(*)`,
+          totalContas: sql<number>`COUNT(DISTINCT numeroConta)`,
           valorTotal: sql<string>`COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0)`,
-          totalDivergentes: sql<number>`SUM(CASE WHEN statusAnaliseResumo = 'divergente' THEN 1 ELSE 0 END)`,
-          totalConformes: sql<number>`SUM(CASE WHEN statusAnaliseResumo = 'conforme' THEN 1 ELSE 0 END)`,
-          totalPendentes: sql<number>`SUM(CASE WHEN statusAnaliseResumo = 'pendente' THEN 1 ELSE 0 END)`,
+          totalDivergentes: sql<number>`COUNT(DISTINCT CASE WHEN statusAnaliseResumo = 'divergente' THEN numeroConta END)`,
+          totalConformes: sql<number>`COUNT(DISTINCT CASE WHEN statusAnaliseResumo = 'conforme' THEN numeroConta END)`,
+          totalPendentes: sql<number>`COUNT(DISTINCT CASE WHEN statusAnaliseResumo = 'pendente' THEN numeroConta END)`,
         })
         .from(contasConvenioResumo)
         .where(whereClause);
@@ -1246,10 +1247,19 @@ export const contasConvenioRouter = router({
 
       // Expandir contas com múltiplos lotes em linhas separadas
       // Cada lote vira uma linha distinta com seus próprios valores
+      // IMPORTANTE: deduplicar por numeroConta antes de expandir, pois pode haver
+      // múltiplos registros de resumo para a mesma conta (vindos de arquivos diferentes)
       const contasExpandidas: any[] = [];
+      const contasJaExpandidas = new Set<string>();
+      
       for (const conta of contas) {
         const altaAdm = contasComAltaAdm.get(conta.numeroConta);
         if (altaAdm && altaAdm.lotes.length > 1) {
+          // Deduplicar: se já expandimos esta numeroConta, pular
+          if (contasJaExpandidas.has(conta.numeroConta)) {
+            continue;
+          }
+          contasJaExpandidas.add(conta.numeroConta);
           // Expandir: uma linha por lote
           for (const lote of altaAdm.lotes) {
             contasExpandidas.push({
