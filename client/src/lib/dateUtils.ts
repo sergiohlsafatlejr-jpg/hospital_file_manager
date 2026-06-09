@@ -34,7 +34,15 @@ export function safeParseDate(date: Date | string | null | undefined): Date | nu
     return new Date(`${year}-${month}-${day}T12:00:00`);
   }
 
-  // Para outros formatos (com timezone ou hora), usar parse normal
+  // Se for formato YYYY-MM-DD HH:mm:ss ou YYYY-MM-DDTHH:mm:ss (sem timezone explícita)
+  // Tratar como horário local para evitar shift de dia
+  const matchDateTime = str.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)$/);
+  if (matchDateTime) {
+    // Sem timezone suffix (Z ou +/-HH:mm) → interpretar como local
+    return new Date(`${matchDateTime[1]}T${matchDateTime[2]}`);
+  }
+
+  // Para outros formatos (com timezone explícita), usar parse normal
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
 }

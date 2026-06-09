@@ -1281,7 +1281,7 @@ export async function executarConciliacaoAutomatica(params: {
       descricaoItem: descricaoFat,
       tipoItem: tipoItemFat,
       origemSistema: String(fat.origemSistema || ''),
-      dataExecucao: fat.dataExecucao ? new Date(fat.dataExecucao).toISOString().slice(0, 19).replace('T', ' ') : null,
+      dataExecucao: fat.dataExecucao ? String(fat.dataExecucao).replace('T', ' ').slice(0, 19) : null,
       codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
       valorFaturado,
       quantidade: Number(fat.quantidade) || 0,
@@ -1402,37 +1402,63 @@ export async function executarConciliacaoAutomatica(params: {
 
   // -------------------------------------------------------
   // PASSO 5.5: Agrupamento de itens duplicados (mesmo guia+código)
-  // Quando múltiplos itens do faturamento com mesmo código ficaram "nao_recebido"
-  // mas existe um recebimento com quantidade = soma das quantidades, agrupa e pareia.
-  // Ex: Faturamento tem 2 linhas de código 90465865 (qtd 4 + qtd 2),
-  //     Recebimento tem 1 linha de código 90465865 (qtd 6, valor = soma).
+  // Quando múltiplos itens do faturamento com mesmo código existem na mesma guia
+  // (ex: mesmo material em setores diferentes) e o demonstrativo paga AGRUPADO
+  // (soma das quantidades em uma única linha), redistribui proporcionalmente.
+  //
+  // Cenário típico:
+  //   Faturamento: código 1900146234 → CENTRO CIRÚRGICO qtd 2 R$4,46 + POSTO I qtd 3 R$6,69
+  //   Demonstrativo: código 1900146234 → qtd 5 R$11,15 (agrupado)
+  //   Resultado esperado: ambos itens conciliados com valor proporcional
+  //
+  // Este passo considera itens que ficaram como:
+  //   - 'sem_pagamento' (sem match)
+  //   - 'divergente' (Pagamento a Maior - match consumiu recebimento agrupado)
+  // E tenta reagrupar com recebimentos disponíveis ou já usados pelo grupo.
   // -------------------------------------------------------
-  // Itens sem match são marcados como 'sem_pagamento' (sem recebimentoId)
-  // Filtramos esses para tentar agrupar com recebimentos de mesma guia+código
-  const naoRecebidosIdx = inserts
-    .map((ins, idx) => ({ ins, idx }))
-    .filter(({ ins }) => ins.statusConciliacao === 'sem_pagamento' && ins.recebimentoId === null);
 
-  // Agrupar nao_recebidos por guia+código
-  const gruposNaoRecebidos = new Map<string, { ins: typeof inserts[0]; idx: number }[]>();
-  for (const item of naoRecebidosIdx) {
+  // Identificar itens que podem participar de agrupamento:
+  // sem_pagamento (sem match) + divergente (pagamento a maior, pois o recebimento
+  // agrupado foi consumido por apenas 1 item do grupo)
+  const candidatosAgrupamento = inserts
+    .map((ins, idx) => ({ ins, idx }))
+    .filter(({ ins }) => 
+      (ins.statusConciliacao === 'sem_pagamento' && ins.recebimentoId === null) ||
+      (ins.statusConciliacao === 'divergente' && ins.diferenca < 0) // Pagamento a Maior
+    );
+
+  // Agrupar por guia+código
+  const gruposParaAgrupamento = new Map<string, { ins: typeof inserts[0]; idx: number }[]>();
+  for (const item of candidatosAgrupamento) {
     const chave = `${item.ins.numeroGuia}|${item.ins.codigoItem}`;
-    if (!gruposNaoRecebidos.has(chave)) gruposNaoRecebidos.set(chave, []);
-    gruposNaoRecebidos.get(chave)!.push(item);
+    if (!gruposParaAgrupamento.has(chave)) gruposParaAgrupamento.set(chave, []);
+    gruposParaAgrupamento.get(chave)!.push(item);
   }
 
-  // Para cada grupo com 2+ itens, tentar encontrar recebimento agrupado
-  for (const [chave, grupo] of gruposNaoRecebidos) {
+  // Para cada grupo com 2+ itens, tentar reagrupar
+  for (const [chave, grupo] of gruposParaAgrupamento) {
     if (grupo.length < 2) continue;
 
     const somaQuantidade = grupo.reduce((s, g) => s + g.ins.quantidade, 0);
     const somaValor = grupo.reduce((s, g) => s + g.ins.valorFaturado, 0);
 
-    // Buscar recebimento não usado com mesmo guia+código e quantidade compatível
-    const candidatos = indexGuiaCodigo.get(chave);
-    if (!candidatos) continue;
+    // Coletar recebimentos disponíveis para este grupo:
+    // 1. Recebimentos NÃO usados com mesmo guia+código
+    // 2. Recebimentos JÁ usados por itens DENTRO deste grupo (divergentes que consumiram o agrupado)
+    const candidatosRec = indexGuiaCodigo.get(chave);
+    if (!candidatosRec) continue;
 
-    const disponiveis = candidatos.filter(c => !recebimentosUsados.has(c.id));
+    // IDs de recebimentos usados por itens deste grupo (para "devolver" ao pool)
+    const recIdsDoGrupo = new Set(
+      grupo.filter(g => g.ins.recebimentoId !== null).map(g => g.ins.recebimentoId!)
+    );
+
+    // Disponíveis = não usados OU usados por este grupo
+    const disponiveis = candidatosRec.filter(c => 
+      !recebimentosUsados.has(c.id) || recIdsDoGrupo.has(c.id)
+    );
+    if (disponiveis.length === 0) continue;
+
     // Procurar um recebimento cuja quantidade = soma das quantidades do grupo
     let recAgrupado = disponiveis.find(c => {
       const qtdRec = Number(c.quantidade) || 0;
@@ -1451,6 +1477,15 @@ export async function executarConciliacaoAutomatica(params: {
       const valorRecTotal = Number(recAgrupado.valorPago) || 0;
       const valorGlosaRec = Number(recAgrupado.valorGlosa) || 0;
 
+      // Reverter contadores dos itens que tinham status anterior
+      for (const { ins } of grupo) {
+        const statusAnterior = ins.statusConciliacao;
+        if (statusAnterior === 'sem_pagamento') resultado.totalNaoRecebidos--;
+        else if (statusAnterior === 'divergente') resultado.totalDivergentes--;
+        else if (statusAnterior === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaParcial--; }
+        else if (statusAnterior === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaTotal--; }
+      }
+
       // Distribuir o valor pago proporcionalmente entre os itens do grupo
       for (const { ins, idx } of grupo) {
         const proporcao = somaValor > 0 ? ins.valorFaturado / somaValor : 1 / grupo.length;
@@ -1464,7 +1499,7 @@ export async function executarConciliacaoAutomatica(params: {
         if (recAgrupado.codigoGlosa) ins.codigoGlosa = String(recAgrupado.codigoGlosa);
 
         ins.recebimentoId = recAgrupado.id;
-        ins.recebimentoOrigem = 'excel';
+        ins.recebimentoOrigem = recAgrupado._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
         ins.valorPago = valorPagoProporcional;
         ins.valorGlosa = valorGlosaProporcional;
         ins.diferenca = diferenca;
@@ -1474,18 +1509,21 @@ export async function executarConciliacaoAutomatica(params: {
         if (percentualDiferenca <= tolerancia) {
           ins.statusConciliacao = 'conciliado';
           resultado.totalConciliados++;
+        } else if (diferenca > 0 && valorPagoProporcional === 0) {
+          ins.statusConciliacao = 'glosa_total';
+          ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
+          resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+          resultado.totalGlosaTotal++;
         } else if (diferenca > 0) {
-          // Pagamento parcial = glosa parcial
           ins.statusConciliacao = 'glosa_parcial';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
           resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
           resultado.totalGlosaParcial++;
         } else {
-          // Pagamento a maior = divergente
+          // Pagamento a maior ou exato com arredondamento
           ins.statusConciliacao = 'divergente';
           resultado.totalDivergentes++;
         }
-        resultado.totalNaoRecebidos--;
       }
     }
   }
@@ -1711,11 +1749,14 @@ export async function executarConciliacaoAutomatica(params: {
   const MEGA_BATCH = 5000;
   const escDate = (v: any): string => {
     if (v === null || v === undefined) return 'NULL';
-    // Se for objeto Date ou string que parece Date JS, converter para formato MySQL
-    const d = v instanceof Date ? v : new Date(v);
-    if (!isNaN(d.getTime())) {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `'${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}'`;
+    // Se já for string no formato MySQL (YYYY-MM-DD HH:mm:ss), usar diretamente
+    const str = String(v).replace('T', ' ').slice(0, 19);
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(str)) {
+      return `'${str}'`;
+    }
+    // Se for apenas data (YYYY-MM-DD)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str.trim())) {
+      return `'${str.trim()} 00:00:00'`;
     }
     return 'NULL';
   };

@@ -3881,3 +3881,5 @@
 - [x] Atualizar filtro de convênios na Conciliação Cruzada para incluir dados do faturamento_unificado (não apenas conciliados_automatico)
 - [x] Itens com campo receber='N' do Warleine devem ser classificados como "Terceiros" na conciliação (pagamento direto ao médico, não via hospital)
 - [x] Hospital Urológico: não popular faturamento_unificado do XML TISS (usar apenas Warleine como fonte para evitar duplicação)
+- [x] Conciliação agrupada por quantidade: quando demonstrativo paga itens agrupados (soma qtd de múltiplos registros mesmo código/guia), distribuir valor proporcionalmente
+- [x] Corrigir exibição de data (timezone) que mostra dia seguinte para horários noturnos (ex: 24/04 18:00 aparece como 25/04)
