@@ -1208,29 +1208,75 @@ export const contasConvenioRouter = router({
       // Identificar contas com múltiplos lotes (Altas Administrativas)
       // Busca quais numeroConta da página atual têm mais de 1 lote distinto nos itens
       const contasNumerosNaPagina = contas.map(c => c.numeroConta);
-      let contasComAltaAdm = new Map<string, number>(); // numeroConta -> totalLotes
+      let contasComAltaAdm = new Map<string, { totalLotes: number; lotes: Array<{ numeroLote: string; totalItens: number; valorLote: number }> }>(); 
       
       if (contasNumerosNaPagina.length > 0) {
-        const altaAdmResult = await db.execute(
-          sql`SELECT numeroConta, COUNT(DISTINCT numeroLote) as totalLotes
+        // Buscar detalhes por lote para contas com múltiplos lotes
+        const lotesResult = await db.execute(
+          sql`SELECT numeroConta, numeroLote, COUNT(*) as totalItens, 
+                     COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0) as valorLote
               FROM contas_convenio_itens
               WHERE numeroConta IN (${sql.join(contasNumerosNaPagina.map(n => sql`${n}`), sql`, `)})
                 AND estabelecimentoId = ${estabelecimentoId || 0}
                 AND numeroLote IS NOT NULL AND numeroLote != '' AND numeroLote != 'null'
-              GROUP BY numeroConta
-              HAVING COUNT(DISTINCT numeroLote) > 1`
+              GROUP BY numeroConta, numeroLote
+              ORDER BY numeroConta, numeroLote`
         );
-        const rows = (altaAdmResult as any)[0] as any[];
-        if (rows && Array.isArray(rows)) {
-          for (const row of rows) {
-            contasComAltaAdm.set(row.numeroConta, Number(row.totalLotes));
+        const lotesRows = (lotesResult as any)[0] as any[];
+        if (lotesRows && Array.isArray(lotesRows)) {
+          // Agrupar por numeroConta
+          const lotesMap = new Map<string, Array<{ numeroLote: string; totalItens: number; valorLote: number }>>();
+          for (const row of lotesRows) {
+            const arr = lotesMap.get(row.numeroConta) || [];
+            arr.push({
+              numeroLote: row.numeroLote,
+              totalItens: Number(row.totalItens),
+              valorLote: parseFloat(row.valorLote || "0"),
+            });
+            lotesMap.set(row.numeroConta, arr);
+          }
+          // Apenas contas com mais de 1 lote são "Alta Administrativa"
+          for (const [nc, lotes] of lotesMap) {
+            if (lotes.length > 1) {
+              contasComAltaAdm.set(nc, { totalLotes: lotes.length, lotes });
+            }
           }
         }
       }
 
-      // Adicionar flag de alta administrativa a cada conta
+      // Expandir contas com múltiplos lotes em linhas separadas
+      // Cada lote vira uma linha distinta com seus próprios valores
+      const contasExpandidas: any[] = [];
+      for (const conta of contas) {
+        const altaAdm = contasComAltaAdm.get(conta.numeroConta);
+        if (altaAdm && altaAdm.lotes.length > 1) {
+          // Expandir: uma linha por lote
+          for (const lote of altaAdm.lotes) {
+            contasExpandidas.push({
+              ...conta,
+              // Sobrescrever valores com os do lote específico
+              valorTotal: lote.valorLote.toFixed(2),
+              totalItens: lote.totalItens,
+              // Metadados do lote
+              numeroLote: lote.numeroLote,
+              isAltaAdministrativa: true,
+              totalLotes: altaAdm.totalLotes,
+              // ID virtual para evitar conflito de key no frontend
+              virtualId: `${conta.id}-lote-${lote.numeroLote}`,
+            });
+          }
+        } else {
+          contasExpandidas.push({
+            ...conta,
+            numeroLote: null,
+            isAltaAdministrativa: false,
+            totalLotes: 1,
+            virtualId: `${conta.id}`,
+          });
+        }
+      }
+
       // Detectar outliers de valor total por convênio
-      // Calcular média e desvio padrão do valor total por convênio
       const conveniosNaPagina = [...new Set(contas.map(c => c.convenio).filter(Boolean))];
       const statsConvenio = new Map<string, { media: number; desvio: number }>();
       
@@ -1255,7 +1301,7 @@ export const contasConvenioRouter = router({
         }
       }
 
-      const contasComFlag = contas.map(conta => {
+      const contasComFlag = contasExpandidas.map(conta => {
         const valorConta = parseFloat(conta.valorTotal || "0");
         const stats = conta.convenio ? statsConvenio.get(conta.convenio) : undefined;
         let isOutlier = false;
@@ -1278,8 +1324,6 @@ export const contasConvenioRouter = router({
         
         return {
           ...conta,
-          isAltaAdministrativa: contasComAltaAdm.has(conta.numeroConta),
-          totalLotes: contasComAltaAdm.get(conta.numeroConta) || 1,
           isOutlier,
           outlierTipo,
           outlierPercent,
@@ -1302,6 +1346,7 @@ export const contasConvenioRouter = router({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
       tipoItem: z.string().optional(),
+      numeroLote: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -1315,12 +1360,24 @@ export const contasConvenioRouter = router({
       if (input.tipoItem) {
         conditions.push(eq(contasConvenioItens.tipoItem, input.tipoItem));
       }
+      if (input.numeroLote) {
+        conditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
+      }
 
       const items = await db
         .select()
         .from(contasConvenioItens)
         .where(and(...conditions))
         .orderBy(contasConvenioItens.tipoItem, contasConvenioItens.descricaoItem);
+
+      // Condições base para resumo (inclui filtro de lote se fornecido)
+      const resumoConditions: any[] = [
+        eq(contasConvenioItens.numeroConta, input.numeroConta),
+        eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+      ];
+      if (input.numeroLote) {
+        resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
+      }
 
       // Resumo por tipo
       const resumoPorTipo = await db
@@ -1330,10 +1387,7 @@ export const contasConvenioRouter = router({
           valorTotal: sql<string>`COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0)`,
         })
         .from(contasConvenioItens)
-        .where(and(
-          eq(contasConvenioItens.numeroConta, input.numeroConta),
-          eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-        ))
+        .where(and(...resumoConditions))
         .groupBy(contasConvenioItens.tipoItem);
 
       // Total geral
@@ -1346,10 +1400,7 @@ export const contasConvenioRouter = router({
           totalPendentes: sql<number>`SUM(CASE WHEN statusAnalise = 'pendente' THEN 1 ELSE 0 END)`,
         })
         .from(contasConvenioItens)
-        .where(and(
-          eq(contasConvenioItens.numeroConta, input.numeroConta),
-          eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-        ));
+        .where(and(...resumoConditions));
 
       return {
         items,

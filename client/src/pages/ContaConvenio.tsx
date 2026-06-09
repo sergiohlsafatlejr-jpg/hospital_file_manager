@@ -235,6 +235,9 @@ export default function ContaConvenio() {
       numeroConta: conta.numeroConta,
       estabelecimentoId: String(conta.estabelecimentoId),
     });
+    if (conta.numeroLote) {
+      params.set('numeroLote', conta.numeroLote);
+    }
     setLocation(`/conta-convenio-detalhes?${params.toString()}`);
   };
 
@@ -545,7 +548,7 @@ export default function ContaConvenio() {
             contasData.contas.map((conta: any) => {
               const status = conta.statusAnaliseResumo || conta.statusAnalise || "pendente";
               return (
-                <Card key={conta.id} className={`hover:shadow-md transition-shadow ${
+                <Card key={conta.virtualId || conta.id} className={`hover:shadow-md transition-shadow ${
                   status === "divergente" ? "border-l-4 border-l-red-400" : 
                   status === "conforme" ? "border-l-4 border-l-green-400" : ""
                 }`}>
@@ -567,9 +570,9 @@ export default function ContaConvenio() {
                             )}
                             <OrigemBadge origem={conta.origem} />
                             <StatusBadge status={status} />
-                            {(conta as any).isAltaAdministrativa && (
-                              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-300" title={`Esta conta possui ${(conta as any).totalLotes} lotes de envio XML (Alta Administrativa)`}>
-                                Alta Adm. ({(conta as any).totalLotes} lotes)
+                            {(conta as any).isAltaAdministrativa && (conta as any).totalLotes > 1 && (
+                              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-300" title={`Alta Administrativa - Lote ${(conta as any).numeroLote || ''} (${(conta as any).totalLotes} lotes no total)`}>
+                                Alta Adm.
                               </Badge>
                             )}
                             {(conta as any).isOutlier && (

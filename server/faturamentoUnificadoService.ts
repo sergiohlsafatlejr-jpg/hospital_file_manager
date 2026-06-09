@@ -60,13 +60,12 @@ export async function popularDeIntegFaturado(
 
   // PASSO 2: Inserir apenas itens que NÃO existem ainda no faturamento_unificado
   // Usa LEFT JOIN para detectar itens já existentes (por origemId + origemSistema)
-  // Também faz LEFT JOIN com convenios para preencher convenioId automaticamente
   const insertQuery = `
     INSERT INTO faturamento_unificado (
       origemSistema, origemId, estabelecimentoId,
       contaNumero, numeroGuia, numeroGuiaOperadora,
       protocolo, lotePrestador, carteiraBeneficiario,
-      convenio, convenioId, competencia,
+      convenio, competencia,
       profissionalExecutante, setor,
       tipoItem, codigoItem, codigoItemTuss,
       descricaoItem, dataExecucao, quantidade,
@@ -84,7 +83,6 @@ export async function popularDeIntegFaturado(
       ig.numfatura,
       ig.matricula,
       TRIM(ig.nomeconv),
-      cv.id,
       REPLACE(ig.mesprod, '/', '-'),
       ig.nomeprest,
       ig.nomecc,
@@ -102,8 +100,6 @@ export async function popularDeIntegFaturado(
       ON fu.origemSistema = 'WARLEINE' 
       AND fu.origemId = CAST(ig._id AS CHAR)
       AND fu.estabelecimentoId = ig.estabelecimento_id
-    LEFT JOIN convenios cv
-      ON UPPER(TRIM(cv.nome)) = UPPER(TRIM(ig.nomeconv))
     WHERE ig.estabelecimento_id = ${estabelecimentoId}
       AND fu.id IS NULL
       ${compWarleineFilter}
