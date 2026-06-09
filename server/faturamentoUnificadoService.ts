@@ -60,12 +60,13 @@ export async function popularDeIntegFaturado(
 
   // PASSO 2: Inserir apenas itens que NÃO existem ainda no faturamento_unificado
   // Usa LEFT JOIN para detectar itens já existentes (por origemId + origemSistema)
+  // Inclui resolução de convenioId a partir do nome do convênio na tabela convenios
   const insertQuery = `
     INSERT INTO faturamento_unificado (
       origemSistema, origemId, estabelecimentoId,
       contaNumero, numeroGuia, numeroGuiaOperadora,
       protocolo, lotePrestador, carteiraBeneficiario,
-      convenio, competencia,
+      convenio, convenioId, competencia,
       profissionalExecutante, setor,
       tipoItem, codigoItem, codigoItemTuss,
       descricaoItem, dataExecucao, quantidade,
@@ -83,6 +84,7 @@ export async function popularDeIntegFaturado(
       ig.numfatura,
       ig.matricula,
       TRIM(ig.nomeconv),
+      c.id,
       REPLACE(ig.mesprod, '/', '-'),
       ig.nomeprest,
       ig.nomecc,
@@ -96,6 +98,10 @@ export async function popularDeIntegFaturado(
       ig.vl_faturado,
       NOW()
     FROM integ_faturado ig
+    LEFT JOIN convenios c 
+      ON UPPER(TRIM(c.nome)) = UPPER(TRIM(ig.nomeconv))
+      OR UPPER(TRIM(ig.nomeconv)) LIKE CONCAT('%', UPPER(TRIM(c.nome)), '%')
+      OR UPPER(TRIM(c.nome)) LIKE CONCAT('%', UPPER(TRIM(ig.nomeconv)), '%')
     LEFT JOIN faturamento_unificado fu 
       ON fu.origemSistema = 'WARLEINE' 
       AND fu.origemId = CAST(ig._id AS CHAR)
@@ -106,6 +112,22 @@ export async function popularDeIntegFaturado(
   `;
 
   await db.execute(sql.raw(insertQuery));
+
+  // PASSO 3: Atualizar convenioId para registros existentes que estão com NULL
+  // Resolve o nome do convênio para o ID correspondente na tabela convenios
+  const updateConvenioIdQuery = `
+    UPDATE faturamento_unificado fu
+    JOIN convenios c 
+      ON UPPER(TRIM(c.nome)) = UPPER(TRIM(fu.convenio))
+      OR UPPER(TRIM(fu.convenio)) LIKE CONCAT('%', UPPER(TRIM(c.nome)), '%')
+      OR UPPER(TRIM(c.nome)) LIKE CONCAT('%', UPPER(TRIM(fu.convenio)), '%')
+    SET fu.convenioId = c.id
+    WHERE fu.estabelecimentoId = ${estabelecimentoId}
+      AND fu.origemSistema = 'WARLEINE'
+      AND fu.convenioId IS NULL
+      ${compFilter}
+  `;
+  await db.execute(sql.raw(updateConvenioIdQuery));
 
   // Contar registros totais
   const countQuery = `
@@ -1977,7 +1999,8 @@ export async function competenciasConciliados(estabelecimentoId: number) {
 }
 
 /**
- * Convênios disponíveis na tabela conciliados_automatico
+ * Convênios disponíveis - combina conciliados_automatico + faturamento_unificado
+ * para garantir que todos os convênios com dados apareçam no filtro
  */
 export async function conveniosConciliados(estabelecimentoId: number, competencia?: string) {
   const db = await getDb();
@@ -1987,9 +2010,17 @@ export async function conveniosConciliados(estabelecimentoId: number, competenci
     where += ` AND competencia LIKE '${competencia.replace(/'/g, "''")}%'`;
   }
   const [rows] = await db.execute(sql.raw(
-    `SELECT convenioId, convenio, COUNT(*) as total
-     FROM conciliados_automatico
-     ${where}
+    `SELECT convenioId, convenio, SUM(total) as total FROM (
+       SELECT convenioId, convenio, COUNT(*) as total
+       FROM conciliados_automatico
+       ${where}
+       GROUP BY convenioId, convenio
+       UNION ALL
+       SELECT convenioId, convenio, COUNT(*) as total
+       FROM faturamento_unificado
+       ${where}
+       GROUP BY convenioId, convenio
+     ) combined
      GROUP BY convenioId, convenio
      ORDER BY total DESC`
   ));
