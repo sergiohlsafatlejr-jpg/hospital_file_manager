@@ -398,7 +398,15 @@ export async function popularFaturamentoUnificado(
   competencia?: string
 ): Promise<{ warleine: { inseridos: number; total: number }; xmlTiss: { inseridos: number; total: number }; tasyStaging: { total: number }; totalGeral: number }> {
   const warleine = await popularDeIntegFaturado(estabelecimentoId, competencia);
-  const xmlTiss = await popularDeXmlTiss(estabelecimentoId, competencia);
+  
+  // Se o estabelecimento tem dados do Warleine, NÃO popular do XML TISS para evitar duplicação
+  // O Warleine é a fonte primária e mais completa para esses estabelecimentos
+  let xmlTiss = { inseridos: 0, total: 0 };
+  if (warleine.total === 0) {
+    // Só popular do XML TISS se não houver dados do Warleine
+    xmlTiss = await popularDeXmlTiss(estabelecimentoId, competencia);
+  }
+  
   const tasyStaging = await contarTasyStaging(estabelecimentoId, competencia);
 
   return {
