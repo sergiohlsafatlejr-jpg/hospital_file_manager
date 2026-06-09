@@ -3879,3 +3879,4 @@
 - [x] Filtro por Data de Pagamento na tela de Conciliação Cruzada (campo dataPagto do demonstrativo importado)
 - [x] Vincular convenioId automaticamente nos dados do Warleine (faturamento_unificado) resolvendo nome do convênio para ID da tabela convenios
 - [x] Atualizar filtro de convênios na Conciliação Cruzada para incluir dados do faturamento_unificado (não apenas conciliados_automatico)
+- [x] Itens com campo receber='N' do Warleine devem ser classificados como "Terceiros" na conciliação (pagamento direto ao médico, não via hospital)

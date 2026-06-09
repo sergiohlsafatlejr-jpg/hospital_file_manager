@@ -71,6 +71,7 @@ export async function popularDeIntegFaturado(
       tipoItem, codigoItem, codigoItemTuss,
       descricaoItem, dataExecucao, quantidade,
       valorUnitario, valorFaturado,
+      receber,
       dataSincronizacao
     )
     SELECT
@@ -96,6 +97,7 @@ export async function popularDeIntegFaturado(
       ig.quantidade,
       ig.vl_unitario,
       ig.vl_faturado,
+      ig.receber,
       NOW()
     FROM integ_faturado ig
     LEFT JOIN convenios c 
@@ -128,6 +130,22 @@ export async function popularDeIntegFaturado(
       ${compFilter}
   `;
   await db.execute(sql.raw(updateConvenioIdQuery));
+
+  // PASSO 3.5: Atualizar campo receber para registros existentes que estão com NULL
+  const updateReceberQuery = `
+    UPDATE faturamento_unificado fu
+    JOIN integ_faturado ig 
+      ON ig.estabelecimento_id = fu.estabelecimentoId
+      AND ig.numconta = fu.contaNumero 
+      AND ig.procdisco = fu.codigoItem
+      AND REPLACE(ig.mesprod, '/', '-') = fu.competencia
+    SET fu.receber = ig.receber
+    WHERE fu.estabelecimentoId = ${estabelecimentoId}
+      AND fu.origemSistema = 'WARLEINE'
+      AND fu.receber IS NULL
+      ${compFilter}
+  `;
+  await db.execute(sql.raw(updateReceberQuery));
 
   // Contar registros totais
   const countQuery = `
@@ -932,7 +950,8 @@ export async function executarConciliacaoAutomatica(params: {
       fu.convenio, fu.origemSistema, fu.descricaoItem, fu.tipoItem,
       fu.dataExecucao, fu.codigoPrestadorExecutante,
       COALESCE(fu.valorFaturado, 0) as valorFaturado,
-      COALESCE(fu.quantidade, 0) as quantidade
+      COALESCE(fu.quantidade, 0) as quantidade,
+      fu.receber
     FROM faturamento_unificado fu
     ${whereFat}
     ORDER BY fu.id
@@ -1335,11 +1354,19 @@ export async function executarConciliacaoAutomatica(params: {
     } else {
       // Não encontrou match no demonstrativo
       // Verificar se o item é de um prestador terceiro
-      // Terceiro = código do prestador executante NÃO está entre os códigos próprios cadastrados
-      // OU código é NULL mas outros itens da mesma guia têm código próprio (indica que este item é de terceiro)
+      // REGRA 1: Campo receber='N' do Warleine → pagamento direto ao médico/terceiro
+      // REGRA 2: Código do prestador executante NÃO está entre os códigos próprios cadastrados
+      // REGRA 3: Código é NULL mas outros itens da mesma guia têm código próprio
       const codPrestExec = baseInsert.codigoPrestadorExecutante;
       let isTerceiro = false;
-      if (codigosProprios.size > 0) {
+      
+      // REGRA 1: Campo receber='N' do Warleine (pagamento direto ao médico)
+      if (fat.receber === 'N') {
+        isTerceiro = true;
+      }
+      
+      // REGRA 2 e 3: Verificação por código de prestador
+      if (!isTerceiro && codigosProprios.size > 0) {
         if (codPrestExec && !codigosProprios.has(codPrestExec)) {
           // Código preenchido e NÃO é próprio → terceiro
           isTerceiro = true;

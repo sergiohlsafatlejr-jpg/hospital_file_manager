@@ -753,6 +753,9 @@ export const conciliadosAutomatico = mysqlTable(
     // Código do prestador executante (para separação próprio/terceiro)
     codigoPrestadorExecutante: varchar({ length: 50 }),
     
+    // Campo receber do Warleine: 'S' = hospital recebe, 'N' = pagamento direto ao médico/terceiro
+    receber: varchar({ length: 10 }),
+    
     // Valores do faturamento
     valorFaturado: decimal({ precision: 12, scale: 4 }),
     quantidade: decimal({ precision: 12, scale: 4 }),

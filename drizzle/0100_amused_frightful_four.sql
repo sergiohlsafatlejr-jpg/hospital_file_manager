@@ -1,0 +1,1 @@
+ALTER TABLE `conciliados_automatico` ADD `receber` varchar(10);
