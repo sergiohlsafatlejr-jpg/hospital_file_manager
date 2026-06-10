@@ -3884,3 +3884,5 @@
 - [x] Conciliação agrupada por quantidade: quando demonstrativo paga itens agrupados (soma qtd de múltiplos registros mesmo código/guia), distribuir valor proporcionalmente
 - [x] Corrigir exibição de data (timezone) que mostra dia seguinte para horários noturnos (ex: 24/04 18:00 aparece como 25/04)
 - [x] Itens Terceiros (receber='N'): gravar valorFaturado=0 na conciliação para não inflar totais do hospital
+- [x] Agrupar itens duplicados por dia no faturamento_unificado (Warleine): mesmo código + guia + data → somar qtd e valores em uma única linha
+- [x] Glosas parciais do Warleine: classificar como glosa com motivo automático 9999 - Glosa não informada pela operadora

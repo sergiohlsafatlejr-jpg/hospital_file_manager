@@ -58,8 +58,9 @@ export async function popularDeIntegFaturado(
   `;
   await db.execute(sql.raw(deleteQuery));
 
-  // PASSO 2: Inserir apenas itens que NÃO existem ainda no faturamento_unificado
-  // Usa LEFT JOIN para detectar itens já existentes (por origemId + origemSistema)
+  // PASSO 2: Inserir itens AGRUPADOS por dia (mesmo código + guia + data)
+  // Agrupa itens de setores diferentes em uma única linha, somando qtd e valores
+  // Usa LEFT JOIN com faturamento_unificado para não duplicar itens já existentes
   // Inclui resolução de convenioId a partir do nome do convênio na tabela convenios
   const insertQuery = `
     INSERT INTO faturamento_unificado (
@@ -76,28 +77,28 @@ export async function popularDeIntegFaturado(
     )
     SELECT
       'WARLEINE',
-      CAST(ig._id AS CHAR),
+      CAST(MIN(ig._id) AS CHAR),
       ig.estabelecimento_id,
       ig.numconta,
-      ig.guiacobra,
-      ig.aihguia,
-      ig.protocolo,
-      ig.numfatura,
-      ig.matricula,
-      TRIM(ig.nomeconv),
-      c.id,
-      REPLACE(ig.mesprod, '/', '-'),
-      ig.nomeprest,
-      ig.nomecc,
+      MAX(ig.guiacobra),
+      MAX(ig.aihguia),
+      MAX(ig.protocolo),
+      MAX(ig.numfatura),
+      MAX(ig.matricula),
+      TRIM(MAX(ig.nomeconv)),
+      MAX(c.id),
+      REPLACE(MAX(ig.mesprod), '/', '-'),
+      MAX(ig.nomeprest),
+      GROUP_CONCAT(DISTINCT ig.nomecc SEPARATOR ' / '),
       ig.tipoproc,
       ig.procdisco,
-      ig.codproprio,
-      ig.descricao,
-      ig.data,
-      ig.quantidade,
-      ig.vl_unitario,
-      ig.vl_faturado,
-      ig.receber,
+      MAX(ig.codproprio),
+      MAX(ig.descricao),
+      DATE(ig.data),
+      SUM(ig.quantidade),
+      ROUND(SUM(ig.vl_faturado) / NULLIF(SUM(ig.quantidade), 0), 6),
+      SUM(ig.vl_faturado),
+      MAX(ig.receber),
       NOW()
     FROM integ_faturado ig
     LEFT JOIN convenios c 
@@ -106,11 +107,15 @@ export async function popularDeIntegFaturado(
       OR UPPER(TRIM(c.nome)) LIKE CONCAT('%', UPPER(TRIM(ig.nomeconv)), '%')
     LEFT JOIN faturamento_unificado fu 
       ON fu.origemSistema = 'WARLEINE' 
-      AND fu.origemId = CAST(ig._id AS CHAR)
+      AND fu.contaNumero = ig.numconta
+      AND fu.codigoItem = ig.procdisco
+      AND fu.dataExecucao = DATE(ig.data)
+      AND fu.tipoItem = ig.tipoproc
       AND fu.estabelecimentoId = ig.estabelecimento_id
     WHERE ig.estabelecimento_id = ${estabelecimentoId}
       AND fu.id IS NULL
       ${compWarleineFilter}
+    GROUP BY ig.estabelecimento_id, ig.numconta, ig.procdisco, ig.tipoproc, DATE(ig.data)
   `;
 
   await db.execute(sql.raw(insertQuery));
@@ -1327,12 +1332,22 @@ export async function executarConciliacaoAutomatica(params: {
       } else if (diferenca > 0 && valorPagoRec === 0) {
         // Glosa total: convênio retornou o item mas não pagou nada
         const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
+        // Para itens Warleine sem motivo de glosa do demonstrativo, usar código 9999
+        if (!baseInsert.codigoGlosa && fat.origemSistema === 'WARLEINE') {
+          baseInsert.codigoGlosa = '9999';
+          baseInsert.motivoGlosa = 'Glosa não informada pela operadora';
+        }
         inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: 0, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosa_total', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
         resultado.totalGlosaTotal++;
       } else if (diferenca > 0) {
         // Glosa parcial: convênio pagou menos que o faturado
         const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
+        // Para itens Warleine sem motivo de glosa do demonstrativo, usar código 9999
+        if (!baseInsert.codigoGlosa && fat.origemSistema === 'WARLEINE') {
+          baseInsert.codigoGlosa = '9999';
+          baseInsert.motivoGlosa = 'Glosa não informada pela operadora';
+        }
         inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaCalc, statusConciliacao: 'glosa_parcial', metodoConciliacao: metodo, diferenca, percentualDiferenca });
         resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
         resultado.totalGlosaParcial++;
@@ -1513,11 +1528,19 @@ export async function executarConciliacaoAutomatica(params: {
         } else if (diferenca > 0 && valorPagoProporcional === 0) {
           ins.statusConciliacao = 'glosa_total';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
+          if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+            ins.codigoGlosa = '9999';
+            ins.motivoGlosa = 'Glosa não informada pela operadora';
+          }
           resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
           resultado.totalGlosaTotal++;
         } else if (diferenca > 0) {
           ins.statusConciliacao = 'glosa_parcial';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
+          if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+            ins.codigoGlosa = '9999';
+            ins.motivoGlosa = 'Glosa não informada pela operadora';
+          }
           resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
           resultado.totalGlosaParcial++;
         } else {
@@ -1593,6 +1616,10 @@ export async function executarConciliacaoAutomatica(params: {
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
         }
+        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+          ins.codigoGlosa = '9999';
+          ins.motivoGlosa = 'Glosa não informada pela operadora';
+        }
       } else if (somaValorGlosa > 0 && somaValorPago > 0 && somaValorPago < ins.valorFaturado) {
         // Glosa parcial: convênio pagou parcialmente com glosa explícita
         ins.statusConciliacao = 'glosa_parcial';
@@ -1600,12 +1627,20 @@ export async function executarConciliacaoAutomatica(params: {
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
         }
+        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+          ins.codigoGlosa = '9999';
+          ins.motivoGlosa = 'Glosa não informada pela operadora';
+        }
       } else if (percentualDiferenca <= tolerancia) {
         ins.statusConciliacao = 'conciliado';
       } else if (ins.valorFaturado - somaValorPago > 0) {
         // Pagamento parcial sem glosa explícita = glosa parcial
         ins.statusConciliacao = 'glosa_parcial';
         ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : (ins.valorFaturado - somaValorPago);
+        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+          ins.codigoGlosa = '9999';
+          ins.motivoGlosa = 'Glosa não informada pela operadora';
+        }
       } else {
         // Pagamento a maior = divergente
         ins.statusConciliacao = 'divergente';
