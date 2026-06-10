@@ -1296,13 +1296,20 @@ export async function executarConciliacaoAutomatica(params: {
 
     if (matchEncontrado && recMatch) {
       recebimentosUsados.add(recMatch.id);
-      const valorRecebido = Number(recMatch.valorPago) || 0;
+      
+      // REGRA CRÍTICA: Se situacao_item do demonstrativo/excel é 'GLOSADO',
+      // o valor_pagamento NÃO é o valor pago real - é o valor de tabela.
+      // Nesse caso, o pagamento real é R$0 (glosa total).
+      const situacaoItem = String(recMatch.situacao || '').toUpperCase().trim();
+      const isGlosadoTotal = situacaoItem === 'GLOSADO';
+      
+      const valorRecebido = isGlosadoTotal ? 0 : (Number(recMatch.valorPago) || 0);
       const diferenca = valorFaturado - valorRecebido;
       const _pctRaw = valorFaturado > 0 ? (Math.abs(diferenca) / valorFaturado) * 100 : (valorRecebido > 0 ? 100 : 0);
       const percentualDiferenca = isFinite(_pctRaw) ? Math.min(_pctRaw, 9999999.9999) : 9999999.9999;
 
-      const valorPagoRec = Number(recMatch.valorPago) || 0;
-      const valorGlosaRec = Number(recMatch.valorGlosa) || 0;
+      const valorPagoRec = isGlosadoTotal ? 0 : (Number(recMatch.valorPago) || 0);
+      const valorGlosaRec = isGlosadoTotal ? valorFaturado : (Number(recMatch.valorGlosa) || 0);
 
       // Enriquecer com dados do recebimento (demonstrativo)
       // Paciente: preferir do recebimento pois vem do demonstrativo

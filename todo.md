@@ -3886,3 +3886,4 @@
 - [x] Itens Terceiros (receber='N'): gravar valorFaturado=0 na conciliação para não inflar totais do hospital
 - [x] Agrupar itens duplicados por dia no faturamento_unificado (Warleine): mesmo código + guia + data → somar qtd e valores em uma única linha
 - [x] Glosas parciais do Warleine: classificar como glosa com motivo automático 9999 - Glosa não informada pela operadora
+- [x] Corrigir conciliação Warleine: itens com situacao_item='GLOSADO' no demonstrativo devem ser classificados como glosa_total (não glosa_parcial/conciliado), mesmo quando o campo valor_pagamento tem valor > 0
