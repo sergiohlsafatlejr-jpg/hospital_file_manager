@@ -18,8 +18,9 @@ import {
   DollarSign, TrendingUp, TrendingDown, Building2, Calendar,
   Stethoscope, Heart, BarChart3, TableIcon, Loader2,
   ArrowUpRight, ArrowDownRight, Minus, FileText, Hash, Filter, X,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import KpiCard from "@/components/dashboard/KpiCard";
 import ChartCard from "@/components/dashboard/ChartCard";
 import { toast } from "sonner";
@@ -267,6 +268,111 @@ export default function RelatorioFaturamento() {
 
   // ============ HANDLERS ============
 
+  const handleExportarExcel = () => {
+    if (!data) return;
+    const wb = XLSX.utils.book_new();
+
+    // Aba 1: Resumo Geral
+    const resumoData = [
+      ["Relatório de Faturamento - Comparativo"],
+      [""],
+      ["Estabelecimento", estabelecimentoAtual?.nome || ""],
+      ["Ano Atual", anoAtual],
+      ["Ano Comparação", anoAnterior],
+      ["Filtro Convênio", convenioSelecionado || "Todos"],
+      [""],
+      ["Métrica", "Valor"],
+      [`Total Faturado ${anoAtual}`, data.acumulado.totalFaturadoAtual],
+      [`Total Faturado ${anoAnterior}`, data.acumulado.totalFaturadoAnterior],
+      ["Diferença", data.acumulado.totalFaturadoAtual - data.acumulado.totalFaturadoAnterior],
+      ["Variação (%)", data.acumulado.variacaoPercentual],
+      [`Contas ${anoAtual}`, data.acumulado.qtdContasAtual],
+      [`Contas ${anoAnterior}`, data.acumulado.qtdContasAnterior],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumoData), "Resumo");
+
+    // Aba 2: Comparativo Mês a Mês
+    const mesData = [
+      ["Mês", `Faturado ${anoAtual}`, `Faturado ${anoAnterior}`, "Variação (%)", `Contas ${anoAtual}`, `Contas ${anoAnterior}`],
+      ...data.tabelaComparativa.map((m) => [
+        m.mesNome,
+        m.faturadoAtual || 0,
+        m.faturadoAnterior || 0,
+        m.variacao,
+        m.qtdContasAtual || 0,
+        m.qtdContasAnterior || 0,
+      ]),
+      ["TOTAL", data.acumulado.totalFaturadoAtual, data.acumulado.totalFaturadoAnterior, data.acumulado.variacaoPercentual, data.acumulado.qtdContasAtual, data.acumulado.qtdContasAnterior],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mesData), "Mês a Mês");
+
+    // Aba 3: Por Convênio
+    if (data.porConvenio?.length) {
+      const convData = [
+        ["Convênio", "Total Faturado", "Qtd Contas", "Percentual (%)"],
+        ...data.porConvenio.map((c) => [
+          c.convenio,
+          c.totalFaturado,
+          c.qtdContas,
+          c.percentual,
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(convData), "Por Convênio");
+    }
+
+    // Aba 4: Por Setor
+    if (data.porSetor?.length) {
+      const setorData = [
+        ["Setor", "Total Faturado", "Qtd Contas", "Percentual (%)"],
+        ...data.porSetor.map((s) => [
+          s.setor,
+          s.totalFaturado,
+          s.qtdContas,
+          s.percentual,
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(setorData), "Por Setor");
+    }
+
+    // Aba 5: Por Tipo de Atendimento
+    if (data.porTipoAtendimento?.length) {
+      const tipoData = [
+        ["Tipo", "Descrição", "Total Faturado", "Qtd Contas", "Percentual (%)"],
+        ...data.porTipoAtendimento.map((t) => [
+          t.tipo,
+          t.tipoDescricao,
+          t.totalFaturado,
+          t.qtdContas,
+          t.percentual,
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tipoData), "Por Tipo Atendimento");
+    }
+
+    // Aba 6: Se filtro de convênio ativo, incluir dados detalhados do convênio
+    if (convenioSelecionado && dadosConvenio) {
+      const convDetalhe = [
+        [`Detalhamento: ${convenioSelecionado}`],
+        [""],
+        ["Mês", `Faturado ${anoAtual}`, `Faturado ${anoAnterior}`, "Variação (%)", `Contas ${anoAtual}`, `Contas ${anoAnterior}`],
+        ...dadosConvenio.tabelaComparativa.map((m) => [
+          m.mesNome,
+          m.faturadoAtual || 0,
+          m.faturadoAnterior || 0,
+          m.variacao,
+          m.qtdContasAtual || 0,
+          m.qtdContasAnterior || 0,
+        ]),
+        ["TOTAL", dadosConvenio.totalFaturadoAtual, dadosConvenio.totalFaturadoAnterior, dadosConvenio.variacaoPercentual, dadosConvenio.qtdContasAtual, dadosConvenio.qtdContasAnterior],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(convDetalhe), convenioSelecionado.substring(0, 31));
+    }
+
+    const nomeArquivo = `Relatorio_Faturamento_${anoAtual}_vs_${anoAnterior}${convenioSelecionado ? `_${convenioSelecionado}` : ""}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, nomeArquivo);
+    toast.success("Relatório exportado com sucesso!");
+  };
+
   const handleCarregar = () => {
     if (estabelecimentoId <= 0) {
       toast.error("Selecione um estabelecimento primeiro");
@@ -487,6 +593,7 @@ export default function RelatorioFaturamento() {
         {/* Filtros de Ano */}
         <Card>
           <CardContent className="pt-6">
+            <div className="flex flex-wrap items-end gap-4 justify-between">
             <div className="flex flex-wrap items-end gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Ano Atual</label>
@@ -513,6 +620,13 @@ export default function RelatorioFaturamento() {
               {estabelecimentoId === 0 && (
                 <p className="text-sm text-amber-400">Selecione um estabelecimento primeiro</p>
               )}
+            </div>
+            {data && (
+              <Button variant="outline" size="sm" onClick={handleExportarExcel} className="gap-2">
+                <Download className="h-4 w-4" />
+                Exportar Excel
+              </Button>
+            )}
             </div>
           </CardContent>
         </Card>
