@@ -3890,3 +3890,5 @@
 - [x] Adicionar botão de exportação Excel na tela de Relatório de Faturamento (dados comparativos por convênio mês a mês)
 - [x] Bug: Taxas de sala duplicadas (mesmo código) sendo agrupadas indevidamente - tratar pagamento 100% + 50% quando não há glosa (resolvido via agrupamento_recebimentos)
 - [x] Bug: Procedimentos de médicos que recebem direto (tipo 1AU) devem ter valorFaturado=0 como terceiros na conciliação (resolvido: GROUP BY inclui receber + regra prioritária receber='N' → terceiro)
+- [x] Corrigir acréscimos: não duplicar guia na tela - incorporar acréscimo na mesma guia (mesmo lote)
+- [x] Quando item faturado não tem pagamento mas demonstrativo pagou outro código na mesma guia, marcar o original como glosa e deixar o novo como acréscimo dentro da mesma guia (acréscimo herda contaNumero da guia)

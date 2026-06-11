@@ -1709,6 +1709,15 @@ export async function executarConciliacaoAutomatica(params: {
   // Esses itens devem ser registrados como 'acrescimo' para visibilidade.
   // -------------------------------------------------------
   const codigosFaturados = new Set(itensFaturamento.map((f: any) => `${f.numeroGuia}|${f.codigoItem}`));
+  // Mapa de guia -> contaNumero para herdar nos acréscimos
+  const guiaContaMap = new Map<string, string>();
+  for (const fat of itensFaturamento) {
+    const g = String(fat.numeroGuia || fat.contaNumero || '').trim();
+    const c = String(fat.contaNumero || '').trim();
+    if (g && c && !guiaContaMap.has(g)) {
+      guiaContaMap.set(g, c);
+    }
+  }
   const acrescimosDetectados: any[] = [];
   
   for (const rec of itensRecebimento) {
@@ -1721,11 +1730,15 @@ export async function executarConciliacaoAutomatica(params: {
     const valorGlosa = Number(rec.valorGlosa) || 0;
     if (valorPago <= 0 && valorGlosa <= 0) continue; // Ignorar registros zerados
     
+    const guiaAcrescimo = String(rec.numeroGuia || '');
+    // Herdar contaNumero da mesma guia para não duplicar na tela
+    const contaNumeroHerdado = guiaContaMap.get(guiaAcrescimo) || null;
+    
     const origemRec = rec._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
     acrescimosDetectados.push({
       faturamentoUnificadoId: 0, // Sentinela: não existe no faturamento
-      contaNumero: null,
-      numeroGuia: String(rec.numeroGuia || ''),
+      contaNumero: contaNumeroHerdado,
+      numeroGuia: guiaAcrescimo,
       pacienteNome: rec.nomeBeneficiario ? String(rec.nomeBeneficiario) : null,
       convenio: inserts.length > 0 ? inserts[0].convenio : null,
       convenioId: params.convenioId || (inserts.length > 0 ? inserts[0].convenioId : null),
