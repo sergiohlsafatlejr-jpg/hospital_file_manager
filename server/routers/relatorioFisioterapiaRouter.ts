@@ -8,6 +8,9 @@ import { sql } from "drizzle-orm";
  * Lista pacientes pagos no demonstrativo para códigos de fisioterapia:
  * - 20103093: Atendimento Fisiátrico No Pré E Pós-Operatório
  * - 20203047: Assistência Fisiátrica Respiratória Em Doente Clínico Internado
+ * 
+ * IMPORTANTE: O agrupamento por mês usa data_referencia (data do demonstrativo/pagamento),
+ * NÃO data_execucao (data em que o procedimento foi realizado).
  */
 
 const CODIGOS_FISIOTERAPIA = ['20103093', '20203047'];
@@ -29,7 +32,8 @@ export const relatorioFisioterapiaRouter = router({
       let whereClause = `re.estabelecimentoId = ${estabelecimentoId} AND re.item IN ('20103093', '20203047') AND COALESCE(re.valor_pagamento, 0) > 0`;
       
       if (mesAno) {
-        whereClause += ` AND DATE_FORMAT(re.data_execucao, '%Y-%m') = '${mesAno}'`;
+        // Filtrar pela data_referencia (data do demonstrativo), não data_execucao
+        whereClause += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${mesAno}'`;
       }
 
       // Buscar dados detalhados
@@ -40,6 +44,7 @@ export const relatorioFisioterapiaRouter = router({
           re.item as codigoItem,
           re.item_desc as descricaoItem,
           re.data_execucao as dataExecucao,
+          re.data_referencia as dataReferencia,
           COALESCE(re.valor_pagamento, 0) as valorPago,
           COALESCE(re.quantidade, 0) as quantidade,
           re.situacao_item as situacao
@@ -84,6 +89,7 @@ export const relatorioFisioterapiaRouter = router({
           codigoItem: item.codigoItem,
           descricaoItem: item.descricaoItem,
           dataExecucao: item.dataExecucao,
+          dataReferencia: item.dataReferencia,
           valorPago,
           quantidade,
           situacao: item.situacao,
@@ -117,6 +123,7 @@ export const relatorioFisioterapiaRouter = router({
 
   /**
    * Buscar meses disponíveis para o filtro
+   * Usa data_referencia (data do demonstrativo) para agrupar por mês
    */
   getMesesDisponiveis: protectedProcedure
     .input(z.object({
@@ -128,7 +135,7 @@ export const relatorioFisioterapiaRouter = router({
 
       const query = `
         SELECT 
-          DATE_FORMAT(data_execucao, '%Y-%m') as mes,
+          DATE_FORMAT(data_referencia, '%Y-%m') as mes,
           COUNT(*) as qtd,
           SUM(valor_pagamento) as totalPago,
           COUNT(DISTINCT nome_beneficiario) as pacientes
@@ -136,7 +143,7 @@ export const relatorioFisioterapiaRouter = router({
         WHERE estabelecimentoId = ${estabelecimentoId}
           AND item IN ('20103093', '20203047')
           AND COALESCE(valor_pagamento, 0) > 0
-        GROUP BY DATE_FORMAT(data_execucao, '%Y-%m')
+        GROUP BY DATE_FORMAT(data_referencia, '%Y-%m')
         ORDER BY mes DESC
       `;
 
@@ -151,6 +158,7 @@ export const relatorioFisioterapiaRouter = router({
 
   /**
    * Exportar dados para Excel (retorna dados formatados para download)
+   * Usa data_referencia para filtrar por mês
    */
   exportarExcel: protectedProcedure
     .input(z.object({
@@ -164,7 +172,7 @@ export const relatorioFisioterapiaRouter = router({
       let whereClause = `re.estabelecimentoId = ${estabelecimentoId} AND re.item IN ('20103093', '20203047') AND COALESCE(re.valor_pagamento, 0) > 0`;
       
       if (mesAno) {
-        whereClause += ` AND DATE_FORMAT(re.data_execucao, '%Y-%m') = '${mesAno}'`;
+        whereClause += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${mesAno}'`;
       }
 
       const query = `
@@ -174,6 +182,7 @@ export const relatorioFisioterapiaRouter = router({
           re.item as codigoItem,
           re.item_desc as descricaoItem,
           DATE_FORMAT(re.data_execucao, '%d/%m/%Y') as dataExecucao,
+          DATE_FORMAT(re.data_referencia, '%d/%m/%Y') as dataReferencia,
           COALESCE(re.quantidade, 0) as quantidade,
           COALESCE(re.valor_pagamento, 0) as valorPago,
           re.situacao_item as situacao
