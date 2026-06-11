@@ -98,7 +98,7 @@ export async function popularDeIntegFaturado(
       SUM(ig.quantidade),
       ROUND(SUM(ig.vl_faturado) / NULLIF(SUM(ig.quantidade), 0), 6),
       SUM(ig.vl_faturado),
-      MAX(ig.receber),
+      ig.receber,
       NOW()
     FROM integ_faturado ig
     LEFT JOIN convenios c 
@@ -111,11 +111,12 @@ export async function popularDeIntegFaturado(
       AND fu.codigoItem = ig.procdisco
       AND fu.dataExecucao = DATE(ig.data)
       AND fu.tipoItem = ig.tipoproc
+      AND fu.receber = ig.receber
       AND fu.estabelecimentoId = ig.estabelecimento_id
     WHERE ig.estabelecimento_id = ${estabelecimentoId}
       AND fu.id IS NULL
       ${compWarleineFilter}
-    GROUP BY ig.estabelecimento_id, ig.numconta, ig.procdisco, ig.tipoproc, DATE(ig.data)
+    GROUP BY ig.estabelecimento_id, ig.numconta, ig.procdisco, ig.tipoproc, DATE(ig.data), ig.receber
   `;
 
   await db.execute(sql.raw(insertQuery));
@@ -1211,6 +1212,43 @@ export async function executarConciliacaoAutomatica(params: {
     const codigoTuss = String(fat.codigoItemTuss || '').trim();
     const paciente = normalizarNome(String(fat.pacienteNome || ''));
     const valorFaturado = Number(fat.valorFaturado) || 0;
+
+    // REGRA PRIORITÁRIA: Se receber='N' (Warleine), é terceiro independente de match
+    // Médicos que recebem direto do convênio não devem gerar glosa para o hospital
+    if (fat.receber === 'N' && fat.origemSistema === 'WARLEINE') {
+      const descricaoFat = String(fat.descricaoItem || '');
+      const tipoItemFat = String(fat.tipoItem || '');
+      inserts.push({
+        faturamentoUnificadoId: fat.id,
+        contaNumero: String(fat.contaNumero || ''),
+        numeroGuia: guia,
+        pacienteNome: String(fat.pacienteNome || ''),
+        convenio: String(fat.convenio || ''),
+        convenioId: fat.convenioId ? Number(fat.convenioId) : null,
+        competencia: String(fat.competencia || ''),
+        codigoItem: codigoItem,
+        codigoItemTuss: codigoTuss,
+        descricaoItem: descricaoFat,
+        tipoItem: tipoItemFat,
+        origemSistema: String(fat.origemSistema || ''),
+        dataExecucao: fat.dataExecucao ? String(fat.dataExecucao).replace('T', ' ').slice(0, 19) : null,
+        codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
+        valorFaturado: 0,
+        quantidade: Number(fat.quantidade) || 0,
+        codigoGlosa: null,
+        motivoGlosa: null,
+        recebimentoId: null,
+        recebimentoOrigem: null,
+        valorPago: 0,
+        valorGlosa: 0,
+        statusConciliacao: 'terceiro',
+        metodoConciliacao: null,
+        diferenca: 0,
+        percentualDiferenca: 0,
+      });
+      resultado.totalTerceiros = (resultado.totalTerceiros || 0) + 1;
+      continue;
+    }
 
     let matchEncontrado = false;
     let recMatch: any = null;
