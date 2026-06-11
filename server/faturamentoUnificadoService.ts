@@ -1836,6 +1836,39 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
+  // PASSO 5.9: Reclassificar 'sem_pagamento' como 'glosa_total' quando a guia teve retorno
+  // Se o demonstrativo respondeu sobre a guia (outros itens foram conciliados/glosados),
+  // então itens sem match devem ser glosa (convênio não pagou = glosou implicitamente).
+  // 'sem_pagamento' só deve permanecer para guias sem NENHUM retorno do demonstrativo.
+  // -------------------------------------------------------
+  const guiasComRetorno = new Set<string>();
+  for (const ins of inserts) {
+    if (ins.statusConciliacao !== 'sem_pagamento' && ins.statusConciliacao !== 'terceiro' && ins.numeroGuia) {
+      guiasComRetorno.add(String(ins.numeroGuia));
+    }
+  }
+  
+  let totalReclassificados = 0;
+  for (const ins of inserts) {
+    if (ins.statusConciliacao === 'sem_pagamento' && ins.numeroGuia && guiasComRetorno.has(String(ins.numeroGuia))) {
+      // A guia teve retorno do demonstrativo, mas este item não foi incluído = glosa implícita
+      ins.statusConciliacao = 'glosa_total';
+      ins.valorGlosa = ins.valorFaturado || 0;
+      ins.codigoGlosa = '9999';
+      ins.motivoGlosa = 'Glosa não informada pela operadora';
+      ins.diferenca = ins.valorFaturado || 0;
+      ins.percentualDiferenca = 100;
+      resultado.totalNaoRecebidos--;
+      resultado.totalGlosaTotal = (resultado.totalGlosaTotal || 0) + 1;
+      resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+      totalReclassificados++;
+    }
+  }
+  if (totalReclassificados > 0) {
+    console.log(`[Conciliacao] ${totalReclassificados} itens reclassificados de 'sem_pagamento' para 'glosa_total' (guia com retorno do demonstrativo)`);
+  }
+
+  // -------------------------------------------------------
   // PASSO 6: INSERT em MEGA-BATCH na tabela conciliados_automatico
   // Usa batches de 5000 para minimizar roundtrips ao banco
   // (conciliações anteriores já foram deletadas no PASSO 0.5)

@@ -3892,3 +3892,4 @@
 - [x] Bug: Procedimentos de médicos que recebem direto (tipo 1AU) devem ter valorFaturado=0 como terceiros na conciliação (resolvido: GROUP BY inclui receber + regra prioritária receber='N' → terceiro)
 - [x] Corrigir acréscimos: não duplicar guia na tela - incorporar acréscimo na mesma guia (mesmo lote)
 - [x] Quando item faturado não tem pagamento mas demonstrativo pagou outro código na mesma guia, marcar o original como glosa e deixar o novo como acréscimo dentro da mesma guia (acréscimo herda contaNumero da guia)
+- [x] Corrigir: quando demonstrativo retorna dados para a guia mas não inclui item específico, classificar como glosa 9999 em vez de sem_pagamento (sem_pagamento = guia sem nenhum retorno do demonstrativo)
