@@ -182,6 +182,7 @@ const menuItems: MenuItem[] = [
       { icon: Stethoscope, label: "Visitas Faturadas (XML)", path: "/relatorio-visita-xml", modulo: "relFaturadoRecebido" },
       { icon: Bed, label: "Rel. Ox UTI", path: "/relatorio-ox-uti", modulo: "relFaturadoRecebido" },
       { icon: Bed, label: "Ox UTI - Faturado (XML)", path: "/relatorio-ox-uti-faturado", modulo: "relFaturadoRecebido" },
+      { icon: Activity, label: "Rel. Fisioterapia", path: "/relatorio-fisioterapia", modulo: "relFaturadoRecebido" },
     ]},
     // Subpasta: Glosas BI
     { icon: AlertTriangle, label: "Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi", children: [

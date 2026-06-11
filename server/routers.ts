@@ -47,6 +47,7 @@ import { rpaRouter } from "./routers/rpaRouter";
 import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
+import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -122,6 +123,7 @@ export const appRouter = router({
   relatoriosGlosasBi: relatoriosGlosasBiRouter,
   medCompara: medComparaRouter,
   tasy: tasyRouter,
+  relatorioFisioterapia: relatorioFisioterapiaRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

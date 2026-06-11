@@ -3894,3 +3894,4 @@
 - [x] Quando item faturado não tem pagamento mas demonstrativo pagou outro código na mesma guia, marcar o original como glosa e deixar o novo como acréscimo dentro da mesma guia (acréscimo herda contaNumero da guia)
 - [x] Corrigir: quando demonstrativo retorna dados para a guia mas não inclui item específico, classificar como glosa 9999 em vez de sem_pagamento (sem_pagamento = guia sem nenhum retorno do demonstrativo)
 - [x] Corrigir: acréscimos devem respeitar a data da guia - itens do demonstrativo com data_execucao fora das datas do faturamento da guia nesta competência são IGNORADOS (pertencem a outra competência). Ex: guia 70272849 tinha 130 acréscimos indevidos em 2026-05 que eram itens de abril vazando para maio.
+- [x] Relatório de Fisioterapia Ox UTI: listar pacientes pagos no demonstrativo para códigos 20103093 e 20203047, com filtro por mês/ano e exportação Excel
