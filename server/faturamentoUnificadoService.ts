@@ -1027,7 +1027,8 @@ export async function executarConciliacaoAutomatica(params: {
       COALESCE(re.quantidade, 0) as quantidade,
       re.item_desc as descricaoItem,
       re.tipo_lancamento as tipoLancamento,
-      re.codigo_glosa as codigoGlosa
+      re.codigo_glosa as codigoGlosa,
+      re.data_execucao as dataExecucao
     FROM recebimentos_excel re
     ${whereRec}
     ORDER BY re.id
@@ -1059,7 +1060,8 @@ export async function executarConciliacaoAutomatica(params: {
       COALESCE(d.quantidade, 0) as quantidade,
       d.descricao_item as descricaoItem,
       d.tipo_lancamento as tipoLancamento,
-      d.codigo_glosa as codigoGlosa
+      d.codigo_glosa as codigoGlosa,
+      d.data_execucao as dataExecucao
     FROM demonstrativo d
     ${whereDem}
     ORDER BY d.id
@@ -1707,6 +1709,8 @@ export async function executarConciliacaoAutomatica(params: {
   // Quando o convênio substitui um procedimento (ex: diária apartamento → hospital dia),
   // o item substitutivo aparece no demonstrativo mas não existe no faturamento.
   // Esses itens devem ser registrados como 'acrescimo' para visibilidade.
+  // REGRA DE DATA: Acréscimos devem respeitar a data da guia — itens do demonstrativo
+  // com data_execucao fora da competência atual são IGNORADOS (pertencem a outra competência).
   // -------------------------------------------------------
   const codigosFaturados = new Set(itensFaturamento.map((f: any) => `${f.numeroGuia}|${f.codigoItem}`));
   // Mapa de guia -> contaNumero para herdar nos acréscimos
@@ -1718,7 +1722,25 @@ export async function executarConciliacaoAutomatica(params: {
       guiaContaMap.set(g, c);
     }
   }
+
+  // Construir mapa de guia -> Set de datas (YYYY-MM-DD) presentes no faturamento desta competência
+  // para validar se o acréscimo pertence a esta competência.
+  // Regra: acréscimos só podem ser gerados se a data_execucao do item do demonstrativo
+  // está entre as datas do faturamento DESTA GUIA nesta competência.
+  const guiaDatasMap = new Map<string, Set<string>>();
+  for (const fat of itensFaturamento) {
+    if (fat.dataExecucao) {
+      const guia = String(fat.numeroGuia || fat.contaNumero || '').trim();
+      const dtStr = String(fat.dataExecucao).replace('T', ' ').slice(0, 10); // YYYY-MM-DD
+      if (guia && /^\d{4}-\d{2}-\d{2}$/.test(dtStr)) {
+        if (!guiaDatasMap.has(guia)) guiaDatasMap.set(guia, new Set());
+        guiaDatasMap.get(guia)!.add(dtStr);
+      }
+    }
+  }
+
   const acrescimosDetectados: any[] = [];
+  let acrescimosIgnoradosPorData = 0;
   
   for (const rec of itensRecebimento) {
     if (recebimentosUsados.has(rec.id)) continue; // Já usado em algum match
@@ -1729,6 +1751,28 @@ export async function executarConciliacaoAutomatica(params: {
     const valorPago = Number(rec.valorPago) || 0;
     const valorGlosa = Number(rec.valorGlosa) || 0;
     if (valorPago <= 0 && valorGlosa <= 0) continue; // Ignorar registros zerados
+
+    // REGRA DE DATA: Verificar se a data_execucao do item do demonstrativo
+    // pertence à competência atual (está nas datas do faturamento DESTA GUIA)
+    const guiaRec = String(rec.numeroGuia || '').trim();
+    if (rec.dataExecucao && guiaRec) {
+      const recDataStr = String(rec.dataExecucao).replace('T', ' ').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(recDataStr)) {
+        const datasGuia = guiaDatasMap.get(guiaRec);
+        if (datasGuia && datasGuia.size > 0) {
+          // A guia tem datas no faturamento desta competência
+          // Verificar se a data do item do demonstrativo está entre as datas da guia
+          if (!datasGuia.has(recDataStr)) {
+            // Data não está nas datas do faturamento desta guia nesta competência
+            // Ignorar — pertence a outra competência
+            acrescimosIgnoradosPorData++;
+            continue;
+          }
+        }
+        // Se a guia NÃO tem datas no faturamento (guia só existe no demonstrativo),
+        // permitir o acréscimo (não temos como filtrar)
+      }
+    }
     
     const guiaAcrescimo = String(rec.numeroGuia || '');
     // Herdar contaNumero da mesma guia para não duplicar na tela
@@ -1748,7 +1792,7 @@ export async function executarConciliacaoAutomatica(params: {
       descricaoItem: rec.descricaoItem ? String(rec.descricaoItem) : null,
       tipoItem: rec.tipoLancamento ? String(rec.tipoLancamento) : null,
       origemSistema: 'DEMONSTRATIVO',
-      dataExecucao: null,
+      dataExecucao: rec.dataExecucao ? String(rec.dataExecucao).replace('T', ' ').slice(0, 19) : null,
       codigoPrestadorExecutante: null,
       valorFaturado: 0,
       quantidade: Number(rec.quantidade) || 1,
@@ -1770,6 +1814,9 @@ export async function executarConciliacaoAutomatica(params: {
   if (acrescimosDetectados.length > 0) {
     console.log(`[Conciliacao] ${acrescimosDetectados.length} itens acréscimo detectados (presentes no demonstrativo, ausentes no faturamento)`);
     inserts.push(...acrescimosDetectados);
+  }
+  if (acrescimosIgnoradosPorData > 0) {
+    console.log(`[Conciliacao] ${acrescimosIgnoradosPorData} itens do demonstrativo IGNORADOS como acréscimo (data_execucao fora das datas do faturamento da guia nesta competência)`);
   }
 
   // -------------------------------------------------------
