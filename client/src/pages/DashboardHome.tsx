@@ -281,7 +281,7 @@ export default function DashboardHome() {
               <CardContent>
                 <div className="space-y-3">
                   {faturista.conveniosTop.map((c, i) => (
-                    <div key={i} className="flex items-center justify-between">
+                    <div key={c.convenio} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-muted-foreground w-5">{i + 1}.</span>
                         <span className="text-sm font-medium">{c.convenio}</span>
@@ -362,12 +362,12 @@ export default function DashboardHome() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {faturista.conveniosTop.map((c, i) => {
+                {faturista.conveniosTop.map((c) => {
                   const percentual = faturista.valorTotalFaturado > 0
                     ? (c.totalFaturado / faturista.valorTotalFaturado) * 100
                     : 0;
                   return (
-                    <div key={i} className="space-y-1">
+                    <div key={c.convenio} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{c.convenio}</span>
                         <div className="flex items-center gap-3">
@@ -393,8 +393,8 @@ export default function DashboardHome() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                {faturista.evolucaoMensal.map((e, i) => (
-                  <div key={i} className="text-center p-3 rounded-lg bg-muted/50">
+                {faturista.evolucaoMensal.map((e) => (
+                  <div key={e.competencia} className="text-center p-3 rounded-lg bg-muted/50">
                     <p className="text-xs text-muted-foreground">{formatCompetencia(e.competencia)}</p>
                     <p className="text-sm font-bold mt-1">{formatCurrency(e.valorFaturado)}</p>
                     <p className="text-xs text-muted-foreground">{e.totalContas} contas</p>

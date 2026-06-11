@@ -117,7 +117,7 @@ export default function ComparativoMesAMes() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Comparativo');
-    XLSX.writeFile(wb, `comparativo_${anoAtual}_vs_${anoAnterior}_${estabelecimentoSelecionado?.nome || 'hospital'}.xlsx`);
+    XLSX.writeFile(wb, `comparativo_${anoAtual}_vs_${anoAnterior}_${estabelecimentoAtual?.nome || 'hospital'}.xlsx`);
   };
 
   return (
