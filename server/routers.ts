@@ -863,15 +863,35 @@ export const appRouter = router({
                   }
                   
                   if (faturamentoRecords.length > 0) {
-                    // Insert in batches with progress callback
+                    // Insert in batches with progress callback and per-batch error handling
                     const BATCH_SIZE = 500;
+                    const MAX_RETRIES_PER_BATCH = 2;
                     let processados = 0;
+                    let batchErrors = 0;
                     for (let i = 0; i < faturamentoRecords.length; i += BATCH_SIZE) {
                       const batch = faturamentoRecords.slice(i, i + BATCH_SIZE);
-                      await db.insertFaturamentoTissBatch(batch);
-                      processados += batch.length;
-                      const progresso = Math.round((processados / faturamentoRecords.length) * 90);
-                      await db.updateArquivoProgresso(arquivoId, progresso, processados, faturamentoRecords.length);
+                      let batchSuccess = false;
+                      for (let attempt = 0; attempt <= MAX_RETRIES_PER_BATCH; attempt++) {
+                        try {
+                          await db.insertFaturamentoTissBatch(batch);
+                          batchSuccess = true;
+                          break;
+                        } catch (batchErr: any) {
+                          if (attempt < MAX_RETRIES_PER_BATCH) {
+                            console.warn(`[Upload] Batch ${i}-${i+batch.length} falhou (tentativa ${attempt+1}/${MAX_RETRIES_PER_BATCH+1}), retentando em 2s...`, batchErr?.message);
+                            await new Promise(r => setTimeout(r, 2000));
+                          } else {
+                            console.error(`[Upload] Batch ${i}-${i+batch.length} falhou após ${MAX_RETRIES_PER_BATCH+1} tentativas, pulando:`, batchErr?.message);
+                            batchErrors++;
+                          }
+                        }
+                      }
+                      if (batchSuccess) processados += batch.length;
+                      const progresso = Math.round(((processados + (batchErrors * BATCH_SIZE)) / faturamentoRecords.length) * 90);
+                      await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 90), processados, faturamentoRecords.length);
+                    }
+                    if (batchErrors > 0) {
+                      console.warn(`[Upload] ${batchErrors} batch(es) falharam de ${Math.ceil(faturamentoRecords.length / BATCH_SIZE)} total`);
                     }
                     console.log(`[Upload] faturamento_tiss populado: ${faturamentoRecords.length} registros para ${prestadoresComEstabelecimento.length} prestador(es)`);
                     

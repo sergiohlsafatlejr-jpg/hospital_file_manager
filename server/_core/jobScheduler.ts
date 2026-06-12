@@ -1,7 +1,8 @@
 import cron from "node-cron";
-import { getDb } from "../db";
+import { getDb, getRawPool } from "../db";
 import { warleineAtendimentosStaging, atendimentos, queryConfiguracoes } from "../../drizzle/schema-integracao";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, lt } from "drizzle-orm";
+import { arquivos } from "../../drizzle/schema";
 import { WarleineConnector } from "../connectors/WarleineConnector";
 
 const activeJobs: Map<number, ReturnType<typeof cron.schedule>> = new Map();
@@ -25,9 +26,109 @@ export async function initializeJobScheduler() {
       }
     }
 
+    // Inicializar watchdog de arquivos travados (a cada 3 minutos)
+    initializeFileWatchdog();
+
     console.log("[JobScheduler] Jobs agendados com sucesso!");
   } catch (error) {
     console.error("[JobScheduler] Erro ao inicializar:", error);
+  }
+}
+
+/**
+ * Watchdog que detecta arquivos travados em "processando" e os reseta para reprocessamento automático.
+ * Executa a cada 3 minutos. Se um arquivo está em "processando" há mais de 5 minutos,
+ * é resetado para "pendente" e o reprocessamento é disparado automaticamente.
+ * Limite de 3 tentativas (baseado em process_logs) para evitar loops infinitos.
+ */
+let watchdogRunning = false;
+
+function initializeFileWatchdog() {
+  cron.schedule("*/3 * * * *", async () => {
+    if (watchdogRunning) return;
+    watchdogRunning = true;
+    try {
+      await checkAndRetryStuckFiles();
+    } catch (error) {
+      console.error("[FileWatchdog] Erro:", error);
+    } finally {
+      watchdogRunning = false;
+    }
+  }, { timezone: "America/Sao_Paulo" });
+  console.log("[FileWatchdog] Watchdog de arquivos travados inicializado (a cada 3 min)");
+}
+
+async function checkAndRetryStuckFiles() {
+  const db = await getDb();
+  if (!db) return;
+
+  // arquivos e lt já importados estaticamente no topo
+
+  // Buscar arquivos travados em "processando" há mais de 5 minutos
+  const timeoutDate = new Date(Date.now() - 5 * 60 * 1000);
+  const stuckFiles = await db
+    .select({ id: arquivos.id, nome: arquivos.nome, progresso: arquivos.progresso })
+    .from(arquivos)
+    .where(
+      and(
+        eq(arquivos.status, "processando"),
+        lt(arquivos.updatedAt, timeoutDate)
+      )
+    )
+    .limit(10);
+
+  if (stuckFiles.length === 0) return;
+
+  console.log(`[FileWatchdog] Encontrados ${stuckFiles.length} arquivo(s) travado(s)`);
+
+  for (const file of stuckFiles) {
+    // Verificar quantas tentativas já foram feitas (via process_logs)
+    const pool = await getRawPool();
+    if (!pool) continue;
+
+    const [retryRows] = await pool.execute(
+      "SELECT COUNT(*) as cnt FROM process_logs WHERE arquivo_id = ? AND message LIKE '%watchdog retry%'",
+      [file.id]
+    ) as any;
+    const retryCount = retryRows?.[0]?.cnt || 0;
+
+    if (retryCount >= 3) {
+      // Excedeu limite de tentativas - marcar como erro definitivo
+      console.log(`[FileWatchdog] Arquivo ${file.id} excedeu 3 tentativas, marcando como erro`);
+      await db.update(arquivos).set({ status: "erro", progresso: 0 }).where(eq(arquivos.id, file.id));
+      await pool.execute(
+        "INSERT INTO process_logs (arquivo_id, level, message) VALUES (?, 'error', ?)",
+        [file.id, `watchdog: marcado como erro após ${retryCount} tentativas`]
+      );
+      continue;
+    }
+
+    // Resetar para pendente e disparar reprocessamento
+    console.log(`[FileWatchdog] Resetando arquivo ${file.id} (tentativa ${retryCount + 1}/3): ${file.nome}`);
+    await db.update(arquivos).set({ status: "pendente", progresso: 0, itensProcessados: 0 }).where(eq(arquivos.id, file.id));
+    await pool.execute(
+      "INSERT INTO process_logs (arquivo_id, level, message) VALUES (?, 'info', ?)",
+      [file.id, `watchdog retry #${retryCount + 1}: arquivo travado em ${file.progresso}%, resetando para reprocessamento`]
+    );
+
+    // Disparar reprocessamento via rota interna
+    const port = process.env.PORT || '3000';
+    const secret = process.env.JWT_SECRET || 'internal-process-secret';
+    try {
+      // Marcar como processando antes de disparar
+      await db.update(arquivos).set({ status: "processando", progresso: 5 }).where(eq(arquivos.id, file.id));
+      
+      fetch(`http://localhost:${port}/api/internal/process-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arquivoId: file.id, secret }),
+      }).catch(err => {
+        console.error(`[FileWatchdog] Erro ao disparar reprocessamento do arquivo ${file.id}:`, err);
+        db.update(arquivos).set({ status: "erro" }).where(eq(arquivos.id, file.id)).catch(() => {});
+      });
+    } catch (err) {
+      console.error(`[FileWatchdog] Erro ao disparar reprocessamento:`, err);
+    }
   }
 }
 

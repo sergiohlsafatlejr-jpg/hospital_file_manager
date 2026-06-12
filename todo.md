@@ -3907,3 +3907,5 @@
 - [x] Corrigir filtro Data Pagamento na Análise de Glosa para estilo igual ao Demonstrativo (com label e dropdown vertical)
 - [x] Corrigir duplicação de linhas na tela de Conciliação Cruzada (investigado: não é duplicação real, são itens legítimos com datas de execução diferentes)
 - [x] Bug: Divergência de valores entre "Rel. Faturamento" e "Comparativo Mês a Mês" no Relatórios BI - corrigido para usar integ_faturado (Warleine) como fonte única
+- [x] Reprocessar arquivos travados em 49%, 80% e 90% (reset status e disparar reprocessamento)
+- [x] Melhorar resiliência do processamento: retry automático para arquivos que travam, watchdog periódico
