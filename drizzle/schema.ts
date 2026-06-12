@@ -4731,3 +4731,53 @@ export const prontuarioEvolucoes = mysqlTable("prontuario_evolucoes", {
 }));
 export type ProntuarioEvolucao = typeof prontuarioEvolucoes.$inferSelect;
 export type InsertProntuarioEvolucao = typeof prontuarioEvolucoes.$inferInsert;
+
+
+/**
+ * Configuração de Fonte de Dados para Relatórios por Estabelecimento
+ * Define qual tabela/fonte cada estabelecimento usa para gerar relatórios padronizados.
+ * Permite que o mesmo relatório funcione para todos os estabelecimentos,
+ * buscando dados de fontes diferentes conforme a configuração.
+ */
+export const estabelecimentoFonteRelatorios = mysqlTable("estabelecimento_fonte_relatorios", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  
+  // Fonte de dados principal para relatórios de faturamento
+  // 'integ_faturado' = dados sincronizados do banco do hospital (Warleine/Tasy/EasyVision)
+  // 'contas_convenio_itens' = dados importados via XML ou busca por conta
+  // 'faturamento_tiss' = dados brutos do XML TISS
+  fonteFaturamento: mysqlEnum("fonteFaturamento", [
+    "integ_faturado",
+    "contas_convenio_itens",
+    "faturamento_tiss",
+  ]).notNull(),
+  
+  // Origem preferida dentro de contas_convenio_itens (se fonteFaturamento = contas_convenio_itens)
+  // 'XML' = apenas dados de upload XML
+  // 'BANCO_CLIENTE' = apenas dados buscados do banco do hospital
+  // 'AMBOS' = combina XML + BANCO_CLIENTE
+  origemPreferida: mysqlEnum("origemPreferida", ["XML", "BANCO_CLIENTE", "AMBOS"]).default("AMBOS"),
+  
+  // Sistema de origem (para referência/documentação)
+  sistemaOrigem: varchar("sistemaOrigem", { length: 50 }), // warleine, tasy, easyvision, xml_manual
+  
+  // Mapeamento de campos (JSON) - como mapear campos da fonte para o formato padronizado
+  // Permite que cada fonte tenha nomes de campos diferentes mas o relatório use nomes unificados
+  mapeamentoCampos: json("mapeamentoCampos"),
+  
+  // Descrição/notas sobre a configuração
+  descricao: text("descricao"),
+  
+  // Status
+  ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabelecimentoIdx: index("idx_fonte_rel_estab").on(table.estabelecimentoId),
+  fonteIdx: index("idx_fonte_rel_fonte").on(table.fonteFaturamento),
+}));
+
+export type EstabelecimentoFonteRelatorio = typeof estabelecimentoFonteRelatorios.$inferSelect;
+export type InsertEstabelecimentoFonteRelatorio = typeof estabelecimentoFonteRelatorios.$inferInsert;

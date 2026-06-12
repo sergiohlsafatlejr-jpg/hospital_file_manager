@@ -3909,3 +3909,10 @@
 - [x] Bug: Divergência de valores entre "Rel. Faturamento" e "Comparativo Mês a Mês" no Relatórios BI - corrigido para usar integ_faturado (Warleine) como fonte única
 - [x] Reprocessar arquivos travados em 49%, 80% e 90% (reset status e disparar reprocessamento)
 - [x] Melhorar resiliência do processamento: retry automático para arquivos que travam, watchdog periódico
+- [x] Criar tabela de configuração `estabelecimento_fonte_relatorios` no schema
+- [x] Implementar service unificado de dados para relatórios (abstração de fonte por estabelecimento)
+- [x] Criar router/procedure para gerenciar configurações de fonte por estabelecimento
+- [x] Adaptar Rel. Faturamento para usar service unificado
+- [x] Adaptar Comparativo Mês a Mês para usar service unificado
+- [ ] Adaptar Rel. Ox UTI Faturado para usar service unificado
+- [x] Popular configurações iniciais dos 6 estabelecimentos (Ox UTI, Pronto Socorro, Hosp. Urológico, Maternidade Ela, Hemolabor, Instituto do Rim)

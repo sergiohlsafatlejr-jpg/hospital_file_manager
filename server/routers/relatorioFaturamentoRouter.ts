@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
-  buscarRelatorioFaturamento,
-  listarConveniosDisponiveis,
-  buscarTabelaPorConvenio,
+  buscarRelatorioUnificado,
+  listarConveniosUnificado,
+  buscarTabelaPorConvenioUnificado,
+  obterConfiguracaoFonte,
+} from "../fonteRelatoriosService";
+import {
   buscarDetalheMesConvenio,
   buscarTabelaPorSetor,
   buscarTabelaPorTipoAtendimento,
@@ -19,7 +22,20 @@ export const relatorioFaturamentoRouter = router({
       })
     )
     .query(async ({ input }) => {
-      return buscarRelatorioFaturamento(input);
+      // Usa o service unificado que busca da fonte correta por estabelecimento
+      const resultado = await buscarRelatorioUnificado(input);
+      // Retorna no formato compatível com o frontend existente
+      return {
+        acumulado: resultado.acumulado,
+        porSetor: resultado.porSetor,
+        porMes: resultado.porMes,
+        porTipoAtendimento: resultado.porTipoAtendimento,
+        porConvenio: resultado.porConvenio,
+        tabelaComparativa: resultado.tabelaComparativa,
+        // Metadados extras
+        _fonte: resultado.fonte,
+        _sistemaOrigem: resultado.sistemaOrigem,
+      };
     }),
 
   listarConvenios: protectedProcedure
@@ -29,7 +45,8 @@ export const relatorioFaturamentoRouter = router({
       })
     )
     .query(async ({ input }) => {
-      return listarConveniosDisponiveis(input.estabelecimentoId);
+      // Usa o service unificado que busca convênios da fonte correta
+      return listarConveniosUnificado(input.estabelecimentoId);
     }),
 
   buscarPorConvenio: protectedProcedure
@@ -42,7 +59,35 @@ export const relatorioFaturamentoRouter = router({
       })
     )
     .query(async ({ input }) => {
-      return buscarTabelaPorConvenio(input);
+      // Usa o service unificado para buscar tabela comparativa por convênio
+      const tabelaComparativa = await buscarTabelaPorConvenioUnificado(input);
+      
+      // Calcular totais para manter compatibilidade com frontend
+      let totalFaturadoAtual = 0;
+      let totalFaturadoAnterior = 0;
+      let qtdContasAtual = 0;
+      let qtdContasAnterior = 0;
+      for (const mes of tabelaComparativa) {
+        totalFaturadoAtual += mes.faturadoAtual;
+        totalFaturadoAnterior += mes.faturadoAnterior;
+        qtdContasAtual += mes.qtdContasAtual;
+        qtdContasAnterior += mes.qtdContasAnterior;
+      }
+      const variacaoPercentual = totalFaturadoAnterior > 0
+        ? Math.round(((totalFaturadoAtual - totalFaturadoAnterior) / totalFaturadoAnterior) * 10000) / 100
+        : (totalFaturadoAtual > 0 ? 100 : 0);
+
+      return {
+        convenio: input.convenio,
+        anoAtual: input.anoAtual,
+        anoAnterior: input.anoAnterior,
+        totalFaturadoAtual,
+        totalFaturadoAnterior,
+        variacaoPercentual,
+        qtdContasAtual,
+        qtdContasAnterior,
+        tabelaComparativa,
+      };
     }),
 
   buscarPorSetor: protectedProcedure
@@ -55,6 +100,7 @@ export const relatorioFaturamentoRouter = router({
       })
     )
     .query(async ({ input }) => {
+      // Mantém a implementação legada por enquanto (setor detalhado)
       return buscarTabelaPorSetor(input);
     }),
 
@@ -68,6 +114,7 @@ export const relatorioFaturamentoRouter = router({
       })
     )
     .query(async ({ input }) => {
+      // Mantém a implementação legada por enquanto (tipo detalhado)
       return buscarTabelaPorTipoAtendimento(input);
     }),
 

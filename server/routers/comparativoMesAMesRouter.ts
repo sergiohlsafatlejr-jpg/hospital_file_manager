@@ -1,13 +1,16 @@
-import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
+import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 import { buscarTotaisFaturamentoExterno } from "../faturamentoExterno";
+import { obterConfiguracaoFonte } from "../fonteRelatoriosService";
 
 /**
  * Relatório Comparativo Mês a Mês
  * Compara faturamento do ano atual vs ano anterior, agrupado por mês e convênio
- * Fonte de dados: integ_faturado (Warleine/Tasy) + faturamento_externo
+ * Fonte de dados: determinada pela configuração do estabelecimento
+ * - integ_faturado (Warleine/Tasy) + faturamento_externo
+ * - contas_convenio_itens (XML/BANCO_CLIENTE)
  * Mostra: Faturado Ano Atual, Faturado Ano Anterior, Variação %, Contas Ano Atual, Contas Ano Anterior
  */
 
@@ -16,6 +19,71 @@ function parseValor(val: any): number {
   const str = String(val).replace(/[^\d.,\-]/g, "").replace(",", ".");
   const num = parseFloat(str);
   return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Gera a query SQL baseada na fonte configurada para o estabelecimento
+ */
+function buildQueryForSource(
+  fonte: string,
+  origemPreferida: string | null,
+  estabelecimentoId: number,
+  prefixoAtual: string,
+  prefixoAnterior: string
+): string {
+  if (fonte === "integ_faturado") {
+    return `
+      SELECT 
+        SUBSTRING(TRIM(mesprod), 6, 2) as mes,
+        SUBSTRING(TRIM(mesprod), 1, 4) as ano,
+        COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO') as convenioNome,
+        COALESCE(SUM(CAST(REPLACE(REPLACE(vl_faturado, ',', '.'), ' ', '') AS DECIMAL(14,2))), 0) as valorFaturado,
+        COUNT(DISTINCT numconta) as totalContas
+      FROM integ_faturado
+      WHERE estabelecimento_id = ${estabelecimentoId}
+        AND (TRIM(mesprod) LIKE '${prefixoAtual}%' OR TRIM(mesprod) LIKE '${prefixoAnterior}%')
+        AND vl_faturado IS NOT NULL
+        AND vl_faturado != ''
+      GROUP BY SUBSTRING(TRIM(mesprod), 6, 2), SUBSTRING(TRIM(mesprod), 1, 4), COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO')
+      ORDER BY mes, ano DESC, valorFaturado DESC
+    `;
+  } else {
+    // contas_convenio_itens ou faturamento_tiss
+    const anoAtual = prefixoAtual.replace("/", "");
+    const anoAnterior = prefixoAnterior.replace("/", "");
+    let origemFilter = "";
+    if (origemPreferida === "XML") origemFilter = "AND origem = 'XML'";
+    else if (origemPreferida === "BANCO_CLIENTE") origemFilter = "AND origem = 'BANCO_CLIENTE'";
+
+    return `
+      SELECT 
+        CASE 
+          WHEN competencia LIKE '${anoAtual}/%' THEN SUBSTRING(competencia, 6, 2)
+          WHEN competencia LIKE '${anoAtual}-%' THEN SUBSTRING(competencia, 6, 2)
+          WHEN competencia LIKE '${anoAnterior}/%' THEN SUBSTRING(competencia, 6, 2)
+          WHEN competencia LIKE '${anoAnterior}-%' THEN SUBSTRING(competencia, 6, 2)
+          ELSE '00'
+        END as mes,
+        CASE 
+          WHEN competencia LIKE '${anoAtual}/%' OR competencia LIKE '${anoAtual}-%' THEN '${anoAtual}'
+          ELSE '${anoAnterior}'
+        END as ano,
+        COALESCE(TRIM(convenio), 'SEM CONVÊNIO') as convenioNome,
+        COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0) as valorFaturado,
+        COUNT(DISTINCT numeroConta) as totalContas
+      FROM contas_convenio_itens
+      WHERE estabelecimentoId = ${estabelecimentoId}
+        AND (
+          competencia LIKE '${anoAtual}/%' OR competencia LIKE '${anoAtual}-%'
+          OR competencia LIKE '${anoAnterior}/%' OR competencia LIKE '${anoAnterior}-%'
+        )
+        AND valorTotal IS NOT NULL
+        AND valorTotal > 0
+        ${origemFilter}
+      GROUP BY mes, ano, COALESCE(TRIM(convenio), 'SEM CONVÊNIO')
+      ORDER BY mes, ano DESC, valorFaturado DESC
+    `;
+  }
 }
 
 export const comparativoMesAMesRouter = router({
@@ -33,26 +101,19 @@ export const comparativoMesAMesRouter = router({
       const db = (await getDb())!;
       const { estabelecimentoId, anoAtual, anoAnterior } = input;
 
+      // Obter configuração de fonte para este estabelecimento
+      const config = await obterConfiguracaoFonte(estabelecimentoId);
+
       const prefixoAtual = `${anoAtual}/`;
       const prefixoAnterior = `${anoAnterior}/`;
 
-      // Query para buscar dados agrupados por mês e convênio para ambos os anos
-      // Fonte: integ_faturado (Warleine/Tasy)
-      const query = `
-        SELECT 
-          SUBSTRING(TRIM(mesprod), 6, 2) as mes,
-          SUBSTRING(TRIM(mesprod), 1, 4) as ano,
-          COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO') as convenioNome,
-          COALESCE(SUM(CAST(REPLACE(REPLACE(vl_faturado, ',', '.'), ' ', '') AS DECIMAL(14,2))), 0) as valorFaturado,
-          COUNT(DISTINCT numconta) as totalContas
-        FROM integ_faturado
-        WHERE estabelecimento_id = ${estabelecimentoId}
-          AND (TRIM(mesprod) LIKE '${prefixoAtual}%' OR TRIM(mesprod) LIKE '${prefixoAnterior}%')
-          AND vl_faturado IS NOT NULL
-          AND vl_faturado != ''
-        GROUP BY SUBSTRING(TRIM(mesprod), 6, 2), SUBSTRING(TRIM(mesprod), 1, 4), COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO')
-        ORDER BY mes, ano DESC, valorFaturado DESC
-      `;
+      const query = buildQueryForSource(
+        config.fonteFaturamento,
+        config.origemPreferida,
+        estabelecimentoId,
+        prefixoAtual,
+        prefixoAnterior
+      );
 
       const [rows]: any[] = await db.execute(sql.raw(query));
 
@@ -130,22 +191,24 @@ export const comparativoMesAMesRouter = router({
         }
       }
 
-      // Incluir dados de faturamento_externo (agrupados por mês, sem convênio individual)
-      try {
-        const externoMesesAtual = await buscarTotaisFaturamentoExterno(estabelecimentoId, anoAtual);
-        for (const ext of externoMesesAtual) {
-          const mesNum = ext.mesNum ? Number(ext.mesNum) : 0;
-          if (mesNum < 1 || mesNum > 12) continue;
-          mesesMap[mesNum].faturadoAtual += ext.totalFaturado || 0;
-        }
+      // Incluir dados de faturamento_externo (apenas para fonte integ_faturado)
+      if (config.fonteFaturamento === "integ_faturado") {
+        try {
+          const externoMesesAtual = await buscarTotaisFaturamentoExterno(estabelecimentoId, anoAtual);
+          for (const ext of externoMesesAtual) {
+            const mesNum = ext.mesNum ? Number(ext.mesNum) : 0;
+            if (mesNum < 1 || mesNum > 12) continue;
+            mesesMap[mesNum].faturadoAtual += ext.totalFaturado || 0;
+          }
 
-        const externoMesesAnterior = await buscarTotaisFaturamentoExterno(estabelecimentoId, anoAnterior);
-        for (const ext of externoMesesAnterior) {
-          const mesNum = ext.mesNum ? Number(ext.mesNum) : 0;
-          if (mesNum < 1 || mesNum > 12) continue;
-          mesesMap[mesNum].faturadoAnterior += ext.totalFaturado || 0;
-        }
-      } catch { /* sem dados externos */ }
+          const externoMesesAnterior = await buscarTotaisFaturamentoExterno(estabelecimentoId, anoAnterior);
+          for (const ext of externoMesesAnterior) {
+            const mesNum = ext.mesNum ? Number(ext.mesNum) : 0;
+            if (mesNum < 1 || mesNum > 12) continue;
+            mesesMap[mesNum].faturadoAnterior += ext.totalFaturado || 0;
+          }
+        } catch { /* sem dados externos */ }
+      }
 
       // Distribuir convênios nos meses
       for (const [key, conv] of Object.entries(convenioMap)) {
@@ -170,6 +233,8 @@ export const comparativoMesAMesRouter = router({
         anoAtual,
         anoAnterior,
         meses: resultado,
+        _fonte: config.fonteFaturamento,
+        _sistemaOrigem: config.sistemaOrigem,
       };
     }),
 
@@ -186,24 +251,19 @@ export const comparativoMesAMesRouter = router({
       const db = (await getDb())!;
       const { estabelecimentoId, anoAtual, anoAnterior } = input;
 
+      // Obter configuração de fonte para este estabelecimento
+      const config = await obterConfiguracaoFonte(estabelecimentoId);
+
       const prefixoAtual = `${anoAtual}/`;
       const prefixoAnterior = `${anoAnterior}/`;
 
-      const query = `
-        SELECT 
-          SUBSTRING(TRIM(mesprod), 6, 2) as mes,
-          SUBSTRING(TRIM(mesprod), 1, 4) as ano,
-          COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO') as convenioNome,
-          COALESCE(SUM(CAST(REPLACE(REPLACE(vl_faturado, ',', '.'), ' ', '') AS DECIMAL(14,2))), 0) as valorFaturado,
-          COUNT(DISTINCT numconta) as totalContas
-        FROM integ_faturado
-        WHERE estabelecimento_id = ${estabelecimentoId}
-          AND (TRIM(mesprod) LIKE '${prefixoAtual}%' OR TRIM(mesprod) LIKE '${prefixoAnterior}%')
-          AND vl_faturado IS NOT NULL
-          AND vl_faturado != ''
-        GROUP BY SUBSTRING(TRIM(mesprod), 6, 2), SUBSTRING(TRIM(mesprod), 1, 4), COALESCE(TRIM(nomeconv), 'SEM CONVÊNIO')
-        ORDER BY mes, convenioNome, ano DESC
-      `;
+      const query = buildQueryForSource(
+        config.fonteFaturamento,
+        config.origemPreferida,
+        estabelecimentoId,
+        prefixoAtual,
+        prefixoAnterior
+      );
 
       const [rows]: any[] = await db.execute(sql.raw(query));
 
@@ -248,9 +308,6 @@ export const comparativoMesAMesRouter = router({
         }
       }
 
-      // Nota: faturamento_externo não tem detalhamento por convênio com mês,
-      // então não é incluído na exportação por convênio
-
       const exportRows = Object.values(exportMap)
         .filter(r => r.faturadoAtual > 0 || r.faturadoAnterior > 0)
         .sort((a, b) => a.mes - b.mes || a.convenioNome.localeCompare(b.convenioNome));
@@ -259,6 +316,7 @@ export const comparativoMesAMesRouter = router({
         anoAtual,
         anoAnterior,
         rows: exportRows,
+        _fonte: config.fonteFaturamento,
       };
     }),
 });
