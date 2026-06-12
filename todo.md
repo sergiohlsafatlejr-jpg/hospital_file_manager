@@ -3896,3 +3896,10 @@
 - [x] Corrigir: acréscimos devem respeitar a data da guia - itens do demonstrativo com data_execucao fora das datas do faturamento da guia nesta competência são IGNORADOS (pertencem a outra competência). Ex: guia 70272849 tinha 130 acréscimos indevidos em 2026-05 que eram itens de abril vazando para maio.
 - [x] Relatório de Fisioterapia Ox UTI: listar pacientes pagos no demonstrativo para códigos 20103093 e 20203047, com filtro por mês/ano e exportação Excel
 - [x] Relatório Comparativo Mês a Mês: comparar faturado 2026 vs 2025 por convênio, com variação percentual e contagem de contas, expansível por mês, com exportação Excel (Hospital Urológico e todos estabelecimentos)
+- [ ] Tela Demonstrativo: adicionar filtro de Data de Pagamento (data_referencia) como filtro central para todos os estabelecimentos
+- [ ] Módulo Recurso de Glosa (Análise de Glosa): incluir filtro de Data de Pagamento para busca de demonstrativos que precisam de recurso
+- [ ] Conciliação Cruzada: renomear campos (Faturado XML→Faturado, Faturado Demonstrativo→Faturado Processado, Recebido Demonstrativo→Recebido, Glosa Demonstrativo→Glosa, Motivo Glosa Demonstrativo→Motivo Glosa) e alterar status para (Conciliado/Conciliado Manualmente/Sem Conciliação)
+
+- [x] Demanda 1: Tela Demonstrativo - Alterar filtro central para Data de Pagamento (quando selecionada, ignora competência)
+- [x] Demanda 2: Módulo Recurso de Glosa - Aba Análise de Glosa - Incluir filtro de Data de Pagamento para busca de demonstrativos
+- [x] Demanda 3: Conciliação Cruzada - Alterar lógica do Status para: Conciliado, Conciliado Manualmente, Sem Conciliação

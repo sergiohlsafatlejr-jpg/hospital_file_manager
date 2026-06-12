@@ -2167,6 +2167,7 @@ export const appRouter = router({
           estabelecimentoId: z.number().optional(),
           dataReferenciaInicio: z.date().optional(),
           dataReferenciaFim: z.date().optional(),
+          dataPagamento: z.string().optional(),
           tipo: z.string().optional(),
           codigoGlosa: z.string().optional(),
           motivoGlosa: z.string().optional(),
@@ -2182,6 +2183,7 @@ export const appRouter = router({
           estabelecimentoId: input?.estabelecimentoId,
           dataReferenciaInicio: input?.dataReferenciaInicio,
           dataReferenciaFim: input?.dataReferenciaFim,
+          dataPagamento: input?.dataPagamento,
           tipo: input?.tipo,
           codigoGlosa: input?.codigoGlosa,
           motivoGlosa: input?.motivoGlosa,
@@ -2200,6 +2202,7 @@ export const appRouter = router({
           estabelecimentoId: z.number().optional(),
           dataReferenciaInicio: z.date().optional(),
           dataReferenciaFim: z.date().optional(),
+          dataPagamento: z.string().optional(),
           search: z.string().optional(),
           page: z.number().default(1),
           pageSize: z.number().default(50),
@@ -2211,6 +2214,7 @@ export const appRouter = router({
           estabelecimentoId: input?.estabelecimentoId,
           dataReferenciaInicio: input?.dataReferenciaInicio,
           dataReferenciaFim: input?.dataReferenciaFim,
+          dataPagamento: input?.dataPagamento,
           search: input?.search,
           page: input?.page || 1,
           pageSize: input?.pageSize || 50,
@@ -7011,6 +7015,7 @@ export const appRouter = router({
         arquivoId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
+        dataPagamento: z.string().optional(),
         search: z.string().optional(),
         statusGlosa: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
         page: z.number().optional(),
@@ -7039,6 +7044,7 @@ export const appRouter = router({
         arquivoId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
+        dataPagamento: z.string().optional(),
         search: z.string().optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
@@ -7054,6 +7060,7 @@ export const appRouter = router({
         convenioId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
+        dataPagamento: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
         return db.getDemonstrativoResumo(input || {});
@@ -7067,6 +7074,16 @@ export const appRouter = router({
       }).optional())
       .query(async ({ input }) => {
         return db.getDemonstrativoCompetencias(input || {});
+      }),
+
+    // Datas de pagamento disponíveis
+    datasPagamento: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number().optional(),
+        convenioId: z.number().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getDemonstrativoDatasPagamento(input || {});
       }),
     
     sincronizar: protectedProcedure

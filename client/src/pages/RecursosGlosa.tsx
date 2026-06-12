@@ -124,6 +124,7 @@ export default function RecursosGlosa() {
   const [convenioFiltroItens, setConvenioFiltroItens] = useState<string>("todos");
   const [mesReferenciaItens, setMesReferenciaItens] = useState<number | undefined>(undefined);
   const [anoReferenciaItens, setAnoReferenciaItens] = useState<number | undefined>(undefined);
+  const [dataPagamentoItens, setDataPagamentoItens] = useState<string>("todas");
   const { estabelecimentoAtual } = useEstabelecimento();
 
   // Queries
@@ -138,11 +139,15 @@ export default function RecursosGlosa() {
 
   const { data: estatisticas } = trpc.recursos.estatisticas.useQuery();
   
+  // Query para datas de pagamento disponíveis (para filtro na aba itens glosados)
+  const { data: datasDisponiveis } = trpc.demonstrativo.datasPagamento.useQuery();
+
   // Query para itens glosados do demonstrativo
   const { data: itensGlosadosData, isLoading: loadingItensGlosados, refetch: refetchItensGlosados } = trpc.demonstrativo.itensGlosados.useQuery({
     convenioId: convenioFiltroItens !== "todos" ? parseInt(convenioFiltroItens) : undefined,
-    mesReferencia: mesReferenciaItens,
-    anoReferencia: anoReferenciaItens,
+    dataPagamento: dataPagamentoItens !== "todas" ? dataPagamentoItens : undefined,
+    mesReferencia: dataPagamentoItens !== "todas" ? undefined : mesReferenciaItens,
+    anoReferencia: dataPagamentoItens !== "todas" ? undefined : anoReferenciaItens,
     search: buscaItensGlosados || undefined,
     page: pageItensGlosados,
     pageSize: 20,
@@ -1261,6 +1266,22 @@ export default function RecursosGlosa() {
                       <SelectItem value="todos">Todos Anos</SelectItem>
                       {[2024, 2025, 2026].map((a) => (
                         <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select 
+                    value={dataPagamentoItens} 
+                    onValueChange={(v) => { setDataPagamentoItens(v); setPageItensGlosados(1); }}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Data Pagamento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todas">Todas Datas Pgto</SelectItem>
+                      {datasDisponiveis?.map((d: any) => (
+                        <SelectItem key={d.value} value={d.value}>
+                          {d.label} ({d.total})
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

@@ -4151,6 +4151,7 @@ export async function getItensGlosados(filters: {
   estabelecimentoId?: number;
   dataReferenciaInicio?: Date;
   dataReferenciaFim?: Date;
+  dataPagamento?: string;
   tipo?: string;
   codigoGlosa?: string;
   motivoGlosa?: string;
@@ -4181,6 +4182,9 @@ export async function getItensGlosados(filters: {
   }
   if (filters.dataReferenciaFim) {
     conditions.push(lte(demonstrativo.dataReferencia, filters.dataReferenciaFim));
+  }
+  if (filters.dataPagamento) {
+    conditions.push(eq(demonstrativo.dataPagamento, new Date(filters.dataPagamento)));
   }
   if (filters.search) {
     conditions.push(
@@ -5332,6 +5336,7 @@ export async function getItensGlosadosAceitos(filters: {
   estabelecimentoId?: number;
   dataReferenciaInicio?: Date;
   dataReferenciaFim?: Date;
+  dataPagamento?: string;
   search?: string;
   page: number;
   pageSize: number;
@@ -5355,6 +5360,9 @@ export async function getItensGlosadosAceitos(filters: {
   }
   if (filters.dataReferenciaFim) {
     conditions.push(lte(demonstrativo.dataReferencia, filters.dataReferenciaFim));
+  }
+  if (filters.dataPagamento) {
+    conditions.push(eq(demonstrativo.dataPagamento, new Date(filters.dataPagamento)));
   }
   if (filters.search) {
     conditions.push(
@@ -17588,6 +17596,7 @@ export async function getDemonstrativoContas(params: {
   arquivoId?: number;
   mesReferencia?: number;
   anoReferencia?: number;
+  dataPagamento?: string;
   search?: string;
   statusGlosa?: "todos" | "pago" | "glosado" | "parcial";
   page?: number;
@@ -17619,6 +17628,13 @@ export async function getDemonstrativoContas(params: {
     const dataFimStr = dataFim.toISOString().split('T')[0];
     conditions.push(
       sql`${demonstrativo.dataReferencia} >= ${dataInicioStr} AND ${demonstrativo.dataReferencia} <= ${dataFimStr}`
+    );
+  }
+
+  // Filtro por data de pagamento
+  if (params.dataPagamento) {
+    conditions.push(
+      sql`DATE(${demonstrativo.dataPagamento}) = ${params.dataPagamento}`
     );
   }
   
@@ -17780,6 +17796,7 @@ export async function getDemonstrativoItensGlosados(params: {
   arquivoId?: number;
   mesReferencia?: number;
   anoReferencia?: number;
+  dataPagamento?: string;
   search?: string;
   page?: number;
   pageSize?: number;
@@ -17800,8 +17817,11 @@ export async function getDemonstrativoItensGlosados(params: {
     conditions.push(eq(demonstrativo.arquivoId, params.arquivoId));
   }
   
-  // Filtro por mês/ano de referência
-  if (params.mesReferencia && params.anoReferencia) {
+  // Filtro por data de pagamento (prioridade sobre mês/ano)
+  if (params.dataPagamento) {
+    conditions.push(eq(demonstrativo.dataPagamento, params.dataPagamento));
+  } else if (params.mesReferencia && params.anoReferencia) {
+    // Filtro por mês/ano de referência (fallback)
     const dataInicio = new Date(params.anoReferencia, params.mesReferencia - 1, 1);
     const dataFim = new Date(params.anoReferencia, params.mesReferencia, 0);
     const dataInicioStr = dataInicio.toISOString().split('T')[0];
@@ -17882,6 +17902,7 @@ export async function getDemonstrativoResumo(params: {
   convenioId?: number;
   mesReferencia?: number;
   anoReferencia?: number;
+  dataPagamento?: string;
 }) {
   const db = await getDb();
   if (!db) return { totalContas: 0, totalItens: 0, valorTotal: 0, valorGlosado: 0, valorPago: 0 };
@@ -17905,6 +17926,13 @@ export async function getDemonstrativoResumo(params: {
     const dataFimStr = dataFim.toISOString().split('T')[0];
     conditions.push(
       sql`${demonstrativo.dataReferencia} >= ${dataInicioStr} AND ${demonstrativo.dataReferencia} <= ${dataFimStr}`
+    );
+  }
+
+  // Filtro por data de pagamento
+  if (params.dataPagamento) {
+    conditions.push(
+      sql`DATE(${demonstrativo.dataPagamento}) = ${params.dataPagamento}`
     );
   }
 
@@ -17977,6 +18005,46 @@ export async function getDemonstrativoCompetencias(params: {
   }));
 }
 
+
+
+/**
+ * Busca datas de pagamento disponíveis na tabela demonstrativo
+ * Retorna lista de datas (YYYY-MM-DD) com quantidade de itens
+ */
+export async function getDemonstrativoDatasPagamento(params: {
+  estabelecimentoId?: number;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+
+  const conditions: SQL[] = [
+    sql`${demonstrativo.dataPagamento} IS NOT NULL`
+  ];
+  
+  if (params.estabelecimentoId) {
+    conditions.push(eq(demonstrativo.estabelecimentoId, params.estabelecimentoId));
+  }
+  
+  if (params.convenioId) {
+    conditions.push(eq(demonstrativo.convenioId, params.convenioId));
+  }
+
+  const result = await db
+    .select({
+      dataPagamento: sql<string>`DATE(${demonstrativo.dataPagamento})`.as('data_pag'),
+      total: sql<number>`COUNT(*)`.as('total'),
+    })
+    .from(demonstrativo)
+    .where(and(...conditions))
+    .groupBy(sql`data_pag`)
+    .orderBy(desc(sql`data_pag`));
+
+  return result.map(r => ({
+    value: r.dataPagamento,
+    label: new Date(r.dataPagamento + 'T12:00:00').toLocaleDateString('pt-BR'),
+    total: r.total,
+  }));
+}
 
 // ============ AVISOS INTERNOS FUNCTIONS ============
 

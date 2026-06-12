@@ -61,6 +61,7 @@ export default function Demonstrativo() {
   const [busca, setBusca] = useState<string>(urlFiltros.searchTerm);
   const [buscaDebounced, setBuscaDebounced] = useState<string>(urlFiltros.searchTerm);
   const [page, setPage] = useState(urlFiltros.page || 1);
+  const [dataPagamento, setDataPagamento] = useState<string>("");
   const pageSize = 50;
 
   // Competência inicializada como vazia - será definida quando as competências do banco carregarem
@@ -108,12 +109,24 @@ export default function Demonstrativo() {
   // Resetar página quando filtros mudam
   useEffect(() => {
     setPage(1);
-  }, [convenioId, filtroStatus, competencia]);
+  }, [convenioId, filtroStatus, competencia, dataPagamento]);
+
+  // Buscar datas de pagamento disponíveis
+  const { data: datasPagamentoData } = trpc.demonstrativo.datasPagamento.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id,
+      convenioId: convenioId ? parseInt(convenioId) : undefined,
+    },
+    { enabled: !!estabelecimentoAtual }
+  );
+  const datasPagamento = useMemo(() => datasPagamentoData || [], [datasPagamentoData]);
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({});
 
   // Buscar dados do demonstrativo (tabela demonstrativo - dados de Excel e XML)
+  // Quando data de pagamento é selecionada, ignorar competência (data pagamento é filtro central)
+  const usarCompetencia = !dataPagamento || dataPagamento === "all";
   const { data: contasData, isLoading: isLoadingContas, refetch } = trpc.demonstrativo.contas.useQuery(
     { 
       convenioId: convenioId ? parseInt(convenioId) : undefined, 
@@ -122,19 +135,21 @@ export default function Demonstrativo() {
       pageSize,
       search: buscaDebounced || undefined,
       statusGlosa: filtroStatus !== "todos" ? filtroStatus as "pago" | "glosado" | "parcial" : undefined,
-      mesReferencia,
-      anoReferencia,
+      mesReferencia: usarCompetencia ? mesReferencia : undefined,
+      anoReferencia: usarCompetencia ? anoReferencia : undefined,
+      dataPagamento: dataPagamento && dataPagamento !== "all" ? dataPagamento : undefined,
     },
     { enabled: !!estabelecimentoAtual }
   );
 
-  // Buscar resumo do demonstrativo
+  // Buscar resumo do demonstrativo (quando data pagamento selecionada, ignorar competência)
   const { data: resumo } = trpc.demonstrativo.resumo.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id,
       convenioId: convenioId ? parseInt(convenioId) : undefined,
-      mesReferencia,
-      anoReferencia,
+      mesReferencia: usarCompetencia ? mesReferencia : undefined,
+      anoReferencia: usarCompetencia ? anoReferencia : undefined,
+      dataPagamento: dataPagamento && dataPagamento !== "all" ? dataPagamento : undefined,
     },
     { enabled: !!estabelecimentoAtual }
   );
@@ -218,6 +233,7 @@ export default function Demonstrativo() {
     setFiltroStatus("todos");
     setBusca("");
     setConvenioId("");
+    setDataPagamento("");
   };
 
   const getStatusBadge = (conta: any) => {
@@ -266,7 +282,7 @@ export default function Demonstrativo() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div className="md:col-span-2 space-y-2">
                 <label className="text-sm font-medium">Convênio</label>
                 <Select value={convenioId} onValueChange={setConvenioId}>
@@ -319,6 +335,23 @@ export default function Demonstrativo() {
               </div>
 
               <div className="space-y-2">
+                <label className="text-sm font-medium">Data Pagamento</label>
+                <Select value={dataPagamento} onValueChange={setDataPagamento}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as datas</SelectItem>
+                    {datasPagamento.map((dp: any) => (
+                      <SelectItem key={dp.value} value={dp.value}>
+                        {dp.label} ({dp.total?.toLocaleString("pt-BR")})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-sm font-medium">Busca</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -345,11 +378,20 @@ export default function Demonstrativo() {
             </div>
 
             {/* Indicador de período selecionado */}
-            {competenciaSelecionada && competencia !== "all" && (
+            {competenciaSelecionada && competencia !== "all" && usarCompetencia && (
               <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
                   Filtrando por competência: {competenciaSelecionada.label}
+                </p>
+              </div>
+            )}
+            {dataPagamento && dataPagamento !== "all" && (
+              <div className="mt-4 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                <p className="text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Filtrando por data de pagamento: {datasPagamento.find((dp: any) => dp.value === dataPagamento)?.label || dataPagamento}
+                  {competencia && competencia !== "all" && " (competência ignorada)"}
                 </p>
               </div>
             )}

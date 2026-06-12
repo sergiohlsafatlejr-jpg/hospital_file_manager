@@ -423,26 +423,20 @@ export default function ConciliacaoCruzada() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'conciliado':
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'glosa_total':
-        return <Badge className="bg-red-600 hover:bg-red-700"><Ban className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
       case 'glosa_parcial':
-        return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertCircle className="w-3 h-3 mr-1" /> Glosa Parcial</Badge>;
-      case 'sem_pagamento':
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>;
-      case 'nao_recebido':
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600"><Clock className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>;
       case 'glosado':
-        return <Badge className="bg-red-600 hover:bg-red-700"><Ban className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
       case 'divergente':
-        return <Badge className="bg-blue-500 hover:bg-blue-600"><TrendingUp className="w-3 h-3 mr-1" /> Pagamento a Maior</Badge>;
-      case 'terceiro':
-        return <Badge className="bg-slate-500 hover:bg-slate-600"><ExternalLink className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'acrescimo':
-        return <Badge className="bg-teal-500 hover:bg-teal-600"><PlusCircle className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
+      case 'terceiro':
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+      case 'conciliado_manual':
+        return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado Manualmente</Badge>;
+      case 'sem_pagamento':
+      case 'nao_recebido':
       case 'pendente':
       default:
-        return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Pendente</Badge>;
+        return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Sem Conciliação</Badge>;
     }
   };
 
@@ -709,12 +703,8 @@ export default function ConciliacaoCruzada() {
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
                     <SelectItem value="conciliado">Conciliado</SelectItem>
-                    <SelectItem value="glosa_total">Glosa Total</SelectItem>
-                    <SelectItem value="glosa_parcial">Glosa Parcial</SelectItem>
-                    <SelectItem value="sem_pagamento">Sem Pagamento</SelectItem>
-                    <SelectItem value="divergente">Pagamento a Maior</SelectItem>
-                    <SelectItem value="terceiro">Terceiro</SelectItem>
-                    <SelectItem value="acrescimo">Acréscimo</SelectItem>
+                    <SelectItem value="conciliado_manual">Conciliado Manualmente</SelectItem>
+                    <SelectItem value="sem_conciliacao">Sem Conciliação</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1019,6 +1009,7 @@ export default function ConciliacaoCruzada() {
                               <th className="text-center p-3 font-medium">Data Exec.</th>
                               <th className="text-center p-3 font-medium">Qtd</th>
                               <th className="text-right p-3 font-medium">Faturado</th>
+                              <th className="text-right p-3 font-medium">Fat. Processado</th>
                               <th className="text-right p-3 font-medium">Recebido</th>
                               <th className="text-right p-3 font-medium">Glosa</th>
                               <th className="text-left p-3 font-medium min-w-[150px]">Motivo Glosa</th>
@@ -1059,6 +1050,7 @@ export default function ConciliacaoCruzada() {
                                 </td>
                                 <td className="p-3 text-center">{Number(item.quantidade) || 1}</td>
                                 <td className="p-3 text-right font-medium text-blue-600">{formatarMoeda(Number(item.valorFaturado))}</td>
+                                <td className="p-3 text-right font-medium text-purple-600">{formatarMoeda(Number(item.valorFaturadoProcessado || 0))}</td>
                                 <td className="p-3 text-right font-medium text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
                                 <td className="p-3 text-right font-medium text-red-600">{formatarMoeda(Number(item.valorGlosa))}</td>
                                 <td className="p-3 text-sm max-w-[250px]" title={item.codigoGlosa ? `Cód: ${item.codigoGlosa}${item.motivoGlosa ? ' - ' + item.motivoGlosa : ''}${item.grupoGlosa ? ' [' + item.grupoGlosa + ']' : ''}` : ''}>
@@ -1097,6 +1089,7 @@ export default function ConciliacaoCruzada() {
                               <td className="p-3" colSpan={4}>Total</td>
                               <td className="p-3 text-center">{itensConciliadosGuia.reduce((s: number, i: any) => s + (Number(i.quantidade) || 1), 0)}</td>
                               <td className="p-3 text-right text-blue-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorFaturado || 0), 0))}</td>
+                              <td className="p-3 text-right text-purple-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorFaturadoProcessado || 0), 0))}</td>
                               <td className="p-3 text-right text-green-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorPago || 0), 0))}</td>
                               <td className="p-3 text-right text-red-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorGlosa || 0), 0))}</td>
                               <td></td>

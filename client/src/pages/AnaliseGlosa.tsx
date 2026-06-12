@@ -108,6 +108,7 @@ export default function AnaliseGlosa() {
   const [buscaItens, setBuscaItens] = useState("");
   const [dataReferenciaInicio, setDataReferenciaInicio] = useState<string>("");
   const [dataReferenciaFim, setDataReferenciaFim] = useState<string>("");
+  const [dataPagamentoFiltro, setDataPagamentoFiltro] = useState<string>("");
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
   const [dialogRecurso, setDialogRecurso] = useState(false);
@@ -162,6 +163,7 @@ export default function AnaliseGlosa() {
       search: buscaItens || undefined,
       dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
       dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
+      dataPagamento: dataPagamentoFiltro || undefined,
       page: paginaAtual,
       pageSize: 50,
     });
@@ -174,6 +176,7 @@ export default function AnaliseGlosa() {
       search: buscaItens || undefined,
       dataReferenciaInicio: dataReferenciaInicio ? new Date(dataReferenciaInicio) : undefined,
       dataReferenciaFim: dataReferenciaFim ? new Date(dataReferenciaFim) : undefined,
+      dataPagamento: dataPagamentoFiltro || undefined,
       page: paginaAceitos,
       pageSize: 50,
     });
@@ -936,6 +939,15 @@ export default function AnaliseGlosa() {
                       type="date"
                       value={dataReferenciaFim}
                       onChange={(e) => { setDataReferenciaFim(e.target.value); setPaginaAtual(1); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Data Pagamento</label>
+                    <Input
+                      type="date"
+                      value={dataPagamentoFiltro}
+                      onChange={(e) => { setDataPagamentoFiltro(e.target.value); setPaginaAtual(1); }}
+                      placeholder="dd/mm/aaaa"
                     />
                   </div>
                   <div>

@@ -454,8 +454,16 @@ export async function listarFaturamentoUnificado(params: {
   if (params.convenioId) {
     whereClause += ` AND fu.convenioId = ${params.convenioId}`;
   }
-  if (params.statusConciliacao) {
-    whereClause += ` AND fu.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+  if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
+    if (params.statusConciliacao === 'conciliado') {
+      whereClause += ` AND fu.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
+    } else if (params.statusConciliacao === 'sem_conciliacao') {
+      whereClause += ` AND fu.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
+    } else if (params.statusConciliacao === 'conciliado_manual') {
+      whereClause += ` AND fu.statusConciliacao = 'conciliado_manual'`;
+    } else {
+      whereClause += ` AND fu.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    }
   }
   if (params.codigoItem) {
     whereClause += ` AND fu.codigoItem = '${params.codigoItem.replace(/'/g, "''")}'`;
@@ -558,7 +566,15 @@ export async function resumoFaturamentoPorGuia(params: {
     whereClause += ` AND fu.convenioId = ${params.convenioId}`;
   }
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
-    whereClause += ` AND fu.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    if (params.statusConciliacao === 'conciliado') {
+      whereClause += ` AND fu.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
+    } else if (params.statusConciliacao === 'sem_conciliacao') {
+      whereClause += ` AND fu.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
+    } else if (params.statusConciliacao === 'conciliado_manual') {
+      whereClause += ` AND fu.statusConciliacao = 'conciliado_manual'`;
+    } else {
+      whereClause += ` AND fu.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    }
   }
   if (params.busca) {
     const busca = params.busca.replace(/'/g, "''");
@@ -2084,7 +2100,15 @@ export async function listarConciliadosAutomatico(params: {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
   }
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
-    whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    if (params.statusConciliacao === 'conciliado') {
+      whereClause += ` AND ca.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
+    } else if (params.statusConciliacao === 'sem_conciliacao') {
+      whereClause += ` AND ca.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
+    } else if (params.statusConciliacao === 'conciliado_manual') {
+      whereClause += ` AND ca.statusConciliacao = 'conciliado_manual'`;
+    } else {
+      whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    }
   }
   if (params.busca) {
     const b = params.busca.replace(/'/g, "''");
@@ -2304,8 +2328,15 @@ export async function resumoConciliadosPorGuia(params: {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
   }
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
-    // Filtrar guias que tenham pelo menos 1 item com esse status
-    whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    if (params.statusConciliacao === 'conciliado') {
+      whereClause += ` AND ca.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
+    } else if (params.statusConciliacao === 'sem_conciliacao') {
+      whereClause += ` AND ca.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
+    } else if (params.statusConciliacao === 'conciliado_manual') {
+      whereClause += ` AND ca.statusConciliacao = 'conciliado_manual'`;
+    } else {
+      whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
+    }
   }
   if (params.busca) {
     const b = params.busca.replace(/'/g, "''");
@@ -2420,6 +2451,7 @@ export async function itensConciliadosPorGuia(params: {
       ca.origemSistema,
       COALESCE(ca.dataExecucao, fu.dataExecucao) as dataExecucao,
       COALESCE(ca.valorFaturado, 0) as valorFaturado,
+      (COALESCE(ca.valorPago, 0) + COALESCE(ca.valorGlosa, 0)) as valorFaturadoProcessado,
       COALESCE(ca.quantidade, 0) as quantidade,
       ca.recebimentoId, ca.recebimentoOrigem,
       COALESCE(ca.valorPago, 0) as valorPago,
