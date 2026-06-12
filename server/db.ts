@@ -4184,7 +4184,19 @@ export async function getItensGlosados(filters: {
     conditions.push(lte(demonstrativo.dataReferencia, filters.dataReferenciaFim));
   }
   if (filters.dataPagamento) {
-    conditions.push(eq(demonstrativo.dataPagamento, new Date(filters.dataPagamento)));
+    // Filtro por mês/ano (formato "YYYY-MM" do input type="month")
+    if (filters.dataPagamento.length === 7) {
+      // Formato YYYY-MM - buscar todo o mês
+      const [ano, mes] = filters.dataPagamento.split('-');
+      const primeiroDia = `${ano}-${mes}-01`;
+      const ultimoDia = `${ano}-${mes}-${new Date(parseInt(ano), parseInt(mes), 0).getDate()}`;
+      conditions.push(
+        sql`${demonstrativo.dataPagamento} >= ${primeiroDia} AND ${demonstrativo.dataPagamento} <= ${ultimoDia}`
+      );
+    } else {
+      // Formato completo YYYY-MM-DD - buscar data exata (fallback)
+      conditions.push(eq(demonstrativo.dataPagamento, filters.dataPagamento));
+    }
   }
   if (filters.search) {
     conditions.push(
@@ -5362,7 +5374,19 @@ export async function getItensGlosadosAceitos(filters: {
     conditions.push(lte(demonstrativo.dataReferencia, filters.dataReferenciaFim));
   }
   if (filters.dataPagamento) {
-    conditions.push(eq(demonstrativo.dataPagamento, new Date(filters.dataPagamento)));
+    // Filtro por mês/ano (formato "YYYY-MM" do input type="month")
+    if (filters.dataPagamento.length === 7) {
+      // Formato YYYY-MM - buscar todo o mês
+      const [ano, mes] = filters.dataPagamento.split('-');
+      const primeiroDia = `${ano}-${mes}-01`;
+      const ultimoDia = `${ano}-${mes}-${new Date(parseInt(ano), parseInt(mes), 0).getDate()}`;
+      conditions.push(
+        sql`${demonstrativo.dataPagamento} >= ${primeiroDia} AND ${demonstrativo.dataPagamento} <= ${ultimoDia}`
+      );
+    } else {
+      // Formato completo YYYY-MM-DD - buscar data exata (fallback)
+      conditions.push(eq(demonstrativo.dataPagamento, filters.dataPagamento));
+    }
   }
   if (filters.search) {
     conditions.push(

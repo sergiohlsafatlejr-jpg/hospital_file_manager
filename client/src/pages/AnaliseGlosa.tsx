@@ -942,12 +942,12 @@ export default function AnaliseGlosa() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-2 block">Data Pagamento</label>
+                    <label className="text-sm font-medium mb-2 block">Mês Pagamento</label>
                     <Input
-                      type="date"
+                      type="month"
                       value={dataPagamentoFiltro}
                       onChange={(e) => { setDataPagamentoFiltro(e.target.value); setPaginaAtual(1); }}
-                      placeholder="dd/mm/aaaa"
+                      placeholder="mm/aaaa"
                     />
                   </div>
                   <div>
