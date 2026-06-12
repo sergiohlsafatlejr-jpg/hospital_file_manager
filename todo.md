@@ -3903,3 +3903,7 @@
 - [x] Demanda 1: Tela Demonstrativo - Alterar filtro central para Data de Pagamento (quando selecionada, ignora competência)
 - [x] Demanda 2: Módulo Recurso de Glosa - Aba Análise de Glosa - Incluir filtro de Data de Pagamento para busca de demonstrativos
 - [x] Demanda 3: Conciliação Cruzada - Alterar lógica do Status para: Conciliado, Conciliado Manualmente, Sem Conciliação
+
+- [x] Corrigir filtro Data Pagamento na Análise de Glosa para estilo igual ao Demonstrativo (com label e dropdown vertical)
+- [x] Corrigir duplicação de linhas na tela de Conciliação Cruzada (investigado: não é duplicação real, são itens legítimos com datas de execução diferentes)
+- [x] Bug: Divergência de valores entre "Rel. Faturamento" e "Comparativo Mês a Mês" no Relatórios BI - corrigido para usar integ_faturado (Warleine) como fonte única

@@ -1214,77 +1214,92 @@ export default function RecursosGlosa() {
             {/* Filtros para Itens Glosados */}
             <Card>
               <CardContent className="pt-6">
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex-1 min-w-[200px]">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Data Pagamento</label>
+                    <Select 
+                      value={dataPagamentoItens} 
+                      onValueChange={(v) => { setDataPagamentoItens(v); setPageItensGlosados(1); }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">Todas as datas</SelectItem>
+                        {datasDisponiveis?.map((d: any) => (
+                          <SelectItem key={d.value} value={d.value}>
+                            {d.label} ({d.total?.toLocaleString("pt-BR")})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Convênio</label>
+                    <Select value={convenioFiltroItens} onValueChange={setConvenioFiltroItens}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos Convênios</SelectItem>
+                        {convenios?.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Mês Referência</label>
+                    <Select 
+                      value={mesReferenciaItens?.toString() || "todos"} 
+                      onValueChange={(v) => setMesReferenciaItens(v === "todos" ? undefined : parseInt(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos Meses</SelectItem>
+                        {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => (
+                          <SelectItem key={m} value={String(m)}>
+                            {new Date(2000, m-1).toLocaleString('pt-BR', { month: 'long' })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Ano Referência</label>
+                    <Select 
+                      value={anoReferenciaItens?.toString() || "todos"} 
+                      onValueChange={(v) => setAnoReferenciaItens(v === "todos" ? undefined : parseInt(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos Anos</SelectItem>
+                        {[2024, 2025, 2026].map((a) => (
+                          <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Buscar</label>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
-                        placeholder="Buscar por guia, paciente, código..."
+                        placeholder="Código, descrição, paciente..."
                         value={buscaItensGlosados}
                         onChange={(e) => setBuscaItensGlosados(e.target.value)}
                         className="pl-10"
                       />
                     </div>
                   </div>
-                  <Select value={convenioFiltroItens} onValueChange={setConvenioFiltroItens}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Convênio" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos Convênios</SelectItem>
-                      {convenios?.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select 
-                    value={mesReferenciaItens?.toString() || "todos"} 
-                    onValueChange={(v) => setMesReferenciaItens(v === "todos" ? undefined : parseInt(v))}
-                  >
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Mês" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos Meses</SelectItem>
-                      {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => (
-                        <SelectItem key={m} value={String(m)}>
-                          {new Date(2000, m-1).toLocaleString('pt-BR', { month: 'long' })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select 
-                    value={anoReferenciaItens?.toString() || "todos"} 
-                    onValueChange={(v) => setAnoReferenciaItens(v === "todos" ? undefined : parseInt(v))}
-                  >
-                    <SelectTrigger className="w-[120px]">
-                      <SelectValue placeholder="Ano" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos Anos</SelectItem>
-                      {[2024, 2025, 2026].map((a) => (
-                        <SelectItem key={a} value={String(a)}>{a}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select 
-                    value={dataPagamentoItens} 
-                    onValueChange={(v) => { setDataPagamentoItens(v); setPageItensGlosados(1); }}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Data Pagamento" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todas">Todas Datas Pgto</SelectItem>
-                      {datasDisponiveis?.map((d: any) => (
-                        <SelectItem key={d.value} value={d.value}>
-                          {d.label} ({d.total})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                </div>
+                <div className="mt-4 flex justify-end">
                   <Button variant="outline" onClick={() => refetchItensGlosados()}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Atualizar
