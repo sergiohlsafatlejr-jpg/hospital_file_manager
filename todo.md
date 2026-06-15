@@ -3921,3 +3921,4 @@
 - [x] Criar parser específico para demonstrativo Bradesco (CSV)
 - [x] Liberar upload de CSV na tela de envio Excel (aceitar .csv além de .xls/.xlsx)
 - [x] Integrar parser Bradesco no fluxo de upload e gravar na tabela demonstrativo
+- [x] Bug: Parser PDF Saúde Caixa traz apenas o primeiro paciente - deveria trazer todos os pacientes do demonstrativo

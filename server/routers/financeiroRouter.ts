@@ -598,11 +598,17 @@ const recebiveisRouter = router({
 
         // ============================================================
         // PASS 1: Extract guia headers
-        // Pattern: After "2338130" (CNES) or after page header, look for:
-        //   [lote] [protocolo] [dataProtocolo] [statusProtocolo]
-        //   [guiaPrestador] [guiaOperadora] [senha]
-        //   [nomePaciente] [carteirinha]
-        //   [dataInicio] [horaInicio] [dataFim] [horaFim] [statusGuia]
+        // Two patterns supported:
+        //   Pattern A (first guia with lote/protocolo header):
+        //     [lote] [protocolo] [dataProtocolo] [statusProtocolo]
+        //     [guiaPrestador] [guiaOperadora] [senha]
+        //     [nomePaciente] [carteirinha]
+        //   Pattern B (subsequent guias - most common):
+        //     [8-digit guiaPrestador]
+        //     [8-digit guiaOperadora]
+        //     [8-9 digit senha]
+        //     [NOME PACIENTE]
+        //     [carteirinha 13-16 digits]
         // ============================================================
         interface GuiaHeader {
           lineIndex: number;
@@ -618,55 +624,49 @@ const recebiveisRouter = router({
         }
 
         const guiaHeaders: GuiaHeader[] = [];
+        let globalLote = "";
+        let globalProtocolo = "";
 
-        for (let i = 0; i < lines.length - 10; i++) {
-          // Look for CNES "2338130" followed by lote/protocolo pattern
-          // The CNES appears after prestador name at fixed positions in header
-          // After CNES: [lote] [protocolo] [dataProtocolo] [statusCode]
-          // Then:       [guiaPrestador] [guiaOperadora] [senha]
-          // Then:       [pacienteNome] [carteirinha]
-          // Then:       [dataInicio] [horaInicio] [dataFim] [horaFim] [statusGuia]
+        for (let i = 0; i < lines.length - 5; i++) {
+          // Pattern A: Detect lote/protocolo header (appears once at beginning)
+          if (/^\d{6,}$/.test(lines[i]) &&
+              /^\d{5,}$/.test(lines[i+1]) &&
+              isDate(lines[i+2]) &&
+              /^\d{1}$/.test(lines[i+3])) {
+            globalLote = lines[i];
+            globalProtocolo = lines[i+1];
+          }
 
-          // Detect guia section: look for a sequence that matches the pattern
-          // Heuristic: a line that's a long number (lote, ~9+ digits), followed by
-          // another number (protocolo), followed by a date, followed by a status code
-          if (/^\d{6,}$/.test(lines[i]) && // lote (e.g. 130093155)
-              /^\d{5,}$/.test(lines[i+1]) && // protocolo (e.g. 7214460)
-              isDate(lines[i+2]) && // data protocolo
-              /^\d{1}$/.test(lines[i+3]) && // status protocolo (e.g. "6")
-              /^\d{5,}$/.test(lines[i+4]) // guia prestador
-          ) {
-            const lote = lines[i];
-            const protocolo = lines[i+1];
-            // i+2 = data protocolo, i+3 = status
-            const guiaPrestador = lines[i+4];
-            const guiaOperadora = lines[i+5] || "";
-            const senha = lines[i+6] || "";
+          // Pattern B: Detect guia by [8-digit] [8-digit] [8-9 digit] [NAME] [carteirinha]
+          if (/^\d{8}$/.test(lines[i]) &&
+              /^\d{8}$/.test(lines[i+1]) &&
+              /^\d{8,9}$/.test(lines[i+2]) &&
+              lines[i+3] && !/^\d+$/.test(lines[i+3]) && // Name is not a number
+              lines[i+3] !== 'Fornecedor: Benner' && // Skip page headers
+              isCarteirinha(lines[i+4] || "")) {
 
-            // Next should be paciente nome and carteirinha
-            const pacienteNome = lines[i+7] || "";
-            const carteirinha = lines[i+8] || "";
+            const guiaPrestador = lines[i];
+            const guiaOperadora = lines[i+1];
+            const senha = lines[i+2];
+            const pacienteNome = lines[i+3];
+            const carteirinha = lines[i+4] || "";
 
-            // Dates
+            // After carteirinha, look for dates
             let dataInicio = "";
             let dataFim = "";
-            if (isDate(lines[i+9])) {
-              dataInicio = lines[i+9];
-              // i+10 = hora inicio
-              if (isDate(lines[i+11])) {
-                dataFim = lines[i+11];
-              }
+            if (isDate(lines[i+5])) {
+              dataInicio = lines[i+5];
             }
 
             guiaHeaders.push({
               lineIndex: i,
-              lote,
-              protocolo,
+              lote: globalLote,
+              protocolo: globalProtocolo,
               guiaPrestador,
               guiaOperadora,
               senha,
-              pacienteNome: isCarteirinha(pacienteNome) ? "" : pacienteNome, // safety: don't use numbers as names
-              carteirinha: isCarteirinha(carteirinha) ? carteirinha : (isCarteirinha(pacienteNome) ? pacienteNome : ""),
+              pacienteNome,
+              carteirinha,
               dataInicio,
               dataFim,
             });
