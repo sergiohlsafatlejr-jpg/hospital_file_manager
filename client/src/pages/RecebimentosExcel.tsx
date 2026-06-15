@@ -127,13 +127,13 @@ export default function RecebimentosExcel() {
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const fileArray = Array.from(files);
-    // Apenas Excel
+    // Apenas Excel e CSV
     const validFiles = fileArray.filter(file => {
       const ext = file.name.split(".").pop()?.toLowerCase();
-      return ext === "xlsx" || ext === "xls";
+      return ext === "xlsx" || ext === "xls" || ext === "csv";
     });
     if (validFiles.length !== fileArray.length) {
-      toast.warning("Apenas arquivos Excel (.xlsx, .xls) são aceitos nesta tela. Outros formatos foram ignorados.");
+      toast.warning("Apenas arquivos Excel (.xlsx, .xls) e CSV (.csv) são aceitos nesta tela. Outros formatos foram ignorados.");
     }
     if (validFiles.length === 0) return;
 
@@ -167,7 +167,7 @@ export default function RecebimentosExcel() {
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0 || !convenioId) {
-      toast.error("Selecione pelo menos um arquivo Excel e um convênio");
+      toast.error("Selecione pelo menos um arquivo e um convênio");
       return;
     }
     setIsUploading(true);
@@ -197,9 +197,12 @@ export default function RecebimentosExcel() {
           ? parseInt(estabelecimentoSelecionado)
           : (estabelecimentoAtual?.id || 0);
 
+        const ext = fileItem.file.name.split('.').pop()?.toLowerCase();
+        const tipoArquivo = ext === 'csv' ? 'csv' : 'excel';
+
         await uploadMutation.mutateAsync({
           nome: fileItem.file.name,
-          tipoArquivo: "excel",
+          tipoArquivo,
           direcao: "retornado",
           convenioId: parseInt(convenioId),
           estabelecimentoId: estabId,
@@ -549,7 +552,7 @@ export default function RecebimentosExcel() {
                         <UploadIcon className="h-12 w-12 text-slate-400" />
                         <p className="font-medium text-slate-900">Arraste e solte as planilhas Excel aqui</p>
                         <p className="text-sm text-slate-500">ou clique para selecionar</p>
-                        <p className="text-xs text-slate-400">Apenas arquivos Excel (.xlsx, .xls) de retorno dos convênios</p>
+                        <p className="text-xs text-slate-400">Arquivos Excel (.xlsx, .xls) e CSV (.csv) de retorno dos convênios</p>
                       </div>
                     )}
                   </div>
@@ -776,7 +779,7 @@ function ArquivosImportadosExcelTab({
     },
   });
 
-  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "excel" || a.nome?.toLowerCase().endsWith(".xlsx") || a.nome?.toLowerCase().endsWith(".xls"))) || [];
+  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "excel" || a.tipoArquivo === "csv" || a.nome?.toLowerCase().endsWith(".xlsx") || a.nome?.toLowerCase().endsWith(".xls") || a.nome?.toLowerCase().endsWith(".csv"))) || [];
 
   return (
     <Card className="border-0 shadow-sm">
