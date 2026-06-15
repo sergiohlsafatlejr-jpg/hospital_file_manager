@@ -4215,9 +4215,8 @@ export async function getItensGlosados(filters: {
       const [ano, mes] = filters.dataPagamento.split('-');
       const primeiroDia = `${ano}-${mes}-01`;
       const ultimoDia = `${ano}-${mes}-${new Date(parseInt(ano), parseInt(mes), 0).getDate()}`;
-      conditions.push(
-        sql`${demonstrativo.dataPagamento} >= ${primeiroDia} AND ${demonstrativo.dataPagamento} <= ${ultimoDia}`
-      );
+      conditions.push(gte(demonstrativo.dataPagamento, primeiroDia));
+      conditions.push(lte(demonstrativo.dataPagamento, ultimoDia));
     } else {
       // Formato completo YYYY-MM-DD - buscar data exata (fallback)
       conditions.push(eq(demonstrativo.dataPagamento, filters.dataPagamento));
@@ -5408,9 +5407,8 @@ export async function getItensGlosadosAceitos(filters: {
       const [ano, mes] = filters.dataPagamento.split('-');
       const primeiroDia = `${ano}-${mes}-01`;
       const ultimoDia = `${ano}-${mes}-${new Date(parseInt(ano), parseInt(mes), 0).getDate()}`;
-      conditions.push(
-        sql`${demonstrativo.dataPagamento} >= ${primeiroDia} AND ${demonstrativo.dataPagamento} <= ${ultimoDia}`
-      );
+      conditions.push(gte(demonstrativo.dataPagamento, primeiroDia));
+      conditions.push(lte(demonstrativo.dataPagamento, ultimoDia));
     } else {
       // Formato completo YYYY-MM-DD - buscar data exata (fallback)
       conditions.push(eq(demonstrativo.dataPagamento, filters.dataPagamento));

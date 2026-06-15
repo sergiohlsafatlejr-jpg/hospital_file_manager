@@ -3922,3 +3922,7 @@
 - [x] Liberar upload de CSV na tela de envio Excel (aceitar .csv além de .xls/.xlsx)
 - [x] Integrar parser Bradesco no fluxo de upload e gravar na tabela demonstrativo
 - [x] Bug: Parser PDF Saúde Caixa traz apenas o primeiro paciente - deveria trazer todos os pacientes do demonstrativo
+- [ ] Criar relatório Visitas XML (código 10102019) para Pronto Socorro Infantil - buscar dados do XML com colunas: médico, data atendimento, convênio, paciente, valor, guia
+- [ ] Filtro por competência no relatório Visitas XML
+- [ ] Registrar rota e menu em Relatórios BI
+- [x] Bug: Filtro "Mês Pagamento" na Análise de Glosa não funciona - não traz dados quando filtra por mês (ex: Affego junho/2026 retorna vazio mas Demonstrativo mostra dados)
