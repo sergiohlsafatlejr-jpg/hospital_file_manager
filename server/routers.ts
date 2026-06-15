@@ -1003,17 +1003,13 @@ export const appRouter = router({
                             : [chaveGuiaLote, null];
                           const loteNumero = loteStr || (regs[0]?.numeroLote ? String(regs[0].numeroLote) : null);
                           
-                          // Verificar se já existe resumo para esta guia+lote
-                          const whereConditions = [
-                            eq(contasConvenioResumo.numeroConta, guia),
-                            eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
-                            eq(contasConvenioResumo.origem, "XML"),
-                          ];
-                          if (loteNumero) {
-                            whereConditions.push(eq(contasConvenioResumo.numeroLote, loteNumero));
-                          }
+                          // Verificar se já existe resumo para esta guia (consolidado por numeroConta)
                           const existingResumo = await dbCC.select().from(contasConvenioResumo).where(
-                            and(...whereConditions)
+                            and(
+                              eq(contasConvenioResumo.numeroConta, guia),
+                              eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
+                              eq(contasConvenioResumo.origem, "XML"),
+                            )
                           ).limit(1);
                           
                           const totalItensGuia = regs.length;

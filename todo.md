@@ -3926,3 +3926,6 @@
 - [ ] Filtro por competência no relatório Visitas XML
 - [ ] Registrar rota e menu em Relatórios BI
 - [x] Bug: Filtro "Mês Pagamento" na Análise de Glosa não funciona - não traz dados quando filtra por mês (ex: Affego junho/2026 retorna vazio mas Demonstrativo mostra dados)
+- [x] Bug: Conta Convênio Ox UTI - resumos não consolidados por numeroConta quando mesma conta aparece em múltiplos XMLs (80 contas afetadas, R$2.7M)
+- [x] Corrigir lógica de migração XML para consolidar resumos por numeroConta (não por arquivo)
+- [x] Reconstruir resumos do Ox UTI após correção
