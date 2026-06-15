@@ -556,7 +556,7 @@ export const appRouter = router({
       .input(
         z.object({
           nome: z.string(),
-          tipoArquivo: z.enum(["xml", "excel", "pdf"]),
+          tipoArquivo: z.enum(["xml", "excel", "pdf", "csv"]),
           direcao: z.enum(["enviado", "retornado"]),
           convenioId: z.number(),
           estabelecimentoId: z.number(), // Estabelecimento associado ao arquivo
@@ -601,7 +601,7 @@ export const appRouter = router({
           arquivoId = arquivoExistente.id;
           
           // Gerar nova chave S3 para o arquivo atualizado
-          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo;
+          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo === "csv" ? "csv" : input.tipoArquivo;
           s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${sanitizedNome}.${ext}`;
           
           // Upload to S3
@@ -610,6 +610,8 @@ export const appRouter = router({
               ? "application/xml"
               : input.tipoArquivo === "excel"
               ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : input.tipoArquivo === "csv"
+              ? "text/csv"
               : "application/pdf";
           
           const uploadResult = await storagePut(s3Key, buffer, contentType);
@@ -691,7 +693,7 @@ export const appRouter = router({
           });
         } else {
           // Novo arquivo: criar registro
-          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo;
+          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo === "csv" ? "csv" : input.tipoArquivo;
           s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${sanitizedNome}.${ext}`;
           
           // Upload to S3
@@ -700,6 +702,8 @@ export const appRouter = router({
               ? "application/xml"
               : input.tipoArquivo === "excel"
               ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              : input.tipoArquivo === "csv"
+              ? "text/csv"
               : "application/pdf";
           
           const uploadResult = await storagePut(s3Key, buffer, contentType);
@@ -1282,6 +1286,64 @@ export const appRouter = router({
                     } catch (excelError) {
                       console.error('[Upload] Erro ao importar recebimentos_excel:', excelError);
                       // Registrar erro mas não falhar o upload
+                      await db.updateArquivoProgresso(arquivoId, 0, 0);
+                    }
+                  } else if (input.tipoArquivo === "csv") {
+                    // Arquivos CSV de retorno (Bradesco) -> tabela recebimentos_excel -> demonstrativo
+                    console.log('[Upload] Processando arquivo CSV Bradesco para recebimentos_excel:', arquivoId);
+                    
+                    // Excluir dados antigos deste arquivo se for reimportação
+                    if (isReimportacao) {
+                      await db.deleteRecebimentosExcelByArquivo(arquivoId);
+                      console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
+                    }
+                    
+                    try {
+                      await db.updateArquivoProgresso(arquivoId, 10, 0);
+                      
+                      const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
+                      const csvContent = buffer.toString('utf-8');
+                      const csvResult = parseBradescoCSV(
+                        csvContent,
+                        arquivoId,
+                        input.convenioId,
+                        input.estabelecimentoId,
+                        dataReferenciaUpload,
+                        dataPagamentoUpload
+                      );
+                      
+                      console.log(`[Upload] CSV Bradesco parsed: ${csvResult.totalItens} itens, ${csvResult.totalGuias} guias, ${csvResult.totalLotes} lotes`);
+                      
+                      if (csvResult.success && csvResult.items.length > 0) {
+                        await db.updateArquivoProgresso(arquivoId, 20, 0, csvResult.items.length);
+                        
+                        // Inserir registros no recebimentos_excel
+                        const totalInserted = await db.insertRecebimentosExcelBatch(csvResult.items, async (inserted, total) => {
+                          const progresso = Math.round(20 + (inserted / total) * 60);
+                          await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
+                        });
+                        console.log('[Upload] CSV Bradesco importado:', totalInserted, 'itens em recebimentos_excel');
+                        
+                        // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
+                        try {
+                          const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                          const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+                          if (syncResult.success) {
+                            console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
+                          } else {
+                            console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
+                          }
+                        } catch (syncError) {
+                          console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                        }
+                        await db.updateArquivoProgresso(arquivoId, 95, csvResult.items.length, csvResult.items.length);
+                      } else if (!csvResult.success) {
+                        console.error('[Upload] Erro ao processar CSV Bradesco:', csvResult.error);
+                      } else {
+                        console.log('[Upload] Nenhum item encontrado no CSV Bradesco');
+                      }
+                    } catch (csvError) {
+                      console.error('[Upload] Erro ao importar CSV Bradesco:', csvError);
                       await db.updateArquivoProgresso(arquivoId, 0, 0);
                     }
                   } else if (input.tipoArquivo === "xml") {

@@ -62,10 +62,11 @@ export default function Upload() {
   const [isDetectando, setIsDetectando] = useState(false);
   const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] = useState<string>("");
 
-  const detectFileType = (file: File): "xml" | "excel" | "pdf" => {
+  const detectFileType = (file: File): "xml" | "excel" | "pdf" | "csv" => {
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (ext === "xml") return "xml";
     if (ext === "xlsx" || ext === "xls") return "excel";
+    if (ext === "csv") return "csv";
     if (ext === "pdf") return "pdf";
     return "xml";
   };
@@ -396,7 +397,7 @@ export default function Upload() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".xml,.xlsx,.xls,.pdf"
+                  accept=".xml,.xlsx,.xls,.csv,.pdf"
                   onChange={handleFileChange}
                   className="hidden"
                   multiple
@@ -425,7 +426,7 @@ export default function Upload() {
                       <p className="font-medium text-slate-900">Arraste e solte os arquivos aqui</p>
                       <p className="text-sm text-slate-500">ou clique para selecionar</p>
                     </div>
-                    <p className="text-xs text-slate-400">XML, Excel (.xlsx) ou PDF • Até {MAX_FILES} arquivos</p>
+                    <p className="text-xs text-slate-400">XML, Excel (.xlsx), CSV ou PDF • Até {MAX_FILES} arquivos</p>
                   </div>
                 )}
               </div>

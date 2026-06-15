@@ -3918,3 +3918,6 @@
 - [x] Popular configurações iniciais dos 6 estabelecimentos (Ox UTI, Pronto Socorro, Hosp. Urológico, Maternidade Ela, Hemolabor, Instituto do Rim)
 - [x] Bug: Filtro "Data Pagamento" na Análise de Glosa deve ser Mês/Ano (MM/AAAA) em vez de data exata (dd/mm/aaaa) para localizar recursos por mês de pagamento
 - [x] Bug: Análise de Glosa não traz todos os itens glosados - Demonstrativo mostra R$821 mas Análise de Glosa só mostra R$360 para Affego em junho/2026
+- [x] Criar parser específico para demonstrativo Bradesco (CSV)
+- [x] Liberar upload de CSV na tela de envio Excel (aceitar .csv além de .xls/.xlsx)
+- [x] Integrar parser Bradesco no fluxo de upload e gravar na tabela demonstrativo

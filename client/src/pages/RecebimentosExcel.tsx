@@ -532,7 +532,7 @@ export default function RecebimentosExcel() {
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                   >
-                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="hidden" multiple />
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileChange} className="hidden" multiple />
                     {isDragOver ? (
                       <div className="flex flex-col items-center gap-3">
                         <Files className="h-12 w-12 text-emerald-500 animate-bounce" />
