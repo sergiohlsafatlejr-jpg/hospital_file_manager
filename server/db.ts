@@ -4196,8 +4196,8 @@ export async function getItensGlosados(filters: {
       and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
     ) as SQL
   ];
-  if (estabelecimentoId) {
-    conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
+  if (filters.estabelecimentoId) {
+    conditions.push(eq(demonstrativo.estabelecimentoId, filters.estabelecimentoId));
   }
   if (filters.convenioId) {
     conditions.push(eq(demonstrativo.convenioId, filters.convenioId));
