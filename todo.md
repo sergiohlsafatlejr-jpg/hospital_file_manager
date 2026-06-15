@@ -3917,3 +3917,4 @@
 - [ ] Adaptar Rel. Ox UTI Faturado para usar service unificado
 - [x] Popular configurações iniciais dos 6 estabelecimentos (Ox UTI, Pronto Socorro, Hosp. Urológico, Maternidade Ela, Hemolabor, Instituto do Rim)
 - [x] Bug: Filtro "Data Pagamento" na Análise de Glosa deve ser Mês/Ano (MM/AAAA) em vez de data exata (dd/mm/aaaa) para localizar recursos por mês de pagamento
+- [x] Bug: Análise de Glosa não traz todos os itens glosados - Demonstrativo mostra R$821 mas Análise de Glosa só mostra R$360 para Affego em junho/2026

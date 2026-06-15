@@ -1596,8 +1596,13 @@ export async function getGlosaPorConvenio(userId?: number, estabelecimentoId?: n
   const db = await getDb();
   if (!db) return [];
 
-  // Buscar itens glosados da tabela demonstrativo agrupados por convênio
-  const conditions: SQL[] = [eq(demonstrativo.situacaoItem, 'GLOSADO')];
+  // Buscar itens glosados da tabela demonstrativo agrupados por convênio (inclui GLOSADO e PARCIAL com glosa)
+  const conditions: SQL[] = [
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL
+  ];
   if (estabelecimentoId) {
     conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
   }
@@ -1672,8 +1677,13 @@ export async function getGlosaPorProcedimento(
   const db = await getDb();
   if (!db) return [];
 
-  // Buscar itens glosados da tabela demonstrativo
-  const conditions: SQL[] = [eq(demonstrativo.situacaoItem, 'GLOSADO')];
+  // Buscar itens glosados da tabela demonstrativo (inclui GLOSADO e PARCIAL com glosa)
+  const conditions: SQL[] = [
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL
+  ];
   if (estabelecimentoId) {
     conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
   }
@@ -1744,8 +1754,13 @@ export async function getTendenciaGlosa(
   const db = await getDb();
   if (!db) return [];
 
-  // Buscar itens glosados da tabela demonstrativo com data de referência
-  const conditions: SQL[] = [eq(demonstrativo.situacaoItem, 'GLOSADO')];
+  // Buscar itens glosados da tabela demonstrativo com data de referência (inclui GLOSADO e PARCIAL com glosa)
+  const conditions: SQL[] = [
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL
+  ];
   if (estabelecimentoId) {
     conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
   }
@@ -1799,8 +1814,13 @@ export async function getResumoGlosa(userId?: number, estabelecimentoId?: number
   const db = await getDb();
   if (!db) return null;
 
-  // Buscar itens glosados da tabela demonstrativo
-  const conditions: SQL[] = [eq(demonstrativo.situacaoItem, 'GLOSADO')];
+  // Buscar itens glosados da tabela demonstrativo (inclui GLOSADO e PARCIAL com glosa)
+  const conditions: SQL[] = [
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL
+  ];
   if (estabelecimentoId) {
     conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
   }
@@ -4169,10 +4189,15 @@ export async function getItensGlosados(filters: {
   };
   if (!db) return emptyResult;
 
-  // Buscar itens glosados da tabela demonstrativo
-  const conditions: SQL[] = [eq(demonstrativo.situacaoItem, 'GLOSADO')];
-  if (filters.estabelecimentoId) {
-    conditions.push(eq(demonstrativo.estabelecimentoId, filters.estabelecimentoId));
+  // Buscar itens glosados da tabela demonstrativo (inclui GLOSADO e PARCIAL com glosa)
+  const conditions: SQL[] = [
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL
+  ];
+  if (estabelecimentoId) {
+    conditions.push(eq(demonstrativo.estabelecimentoId, estabelecimentoId));
   }
   if (filters.convenioId) {
     conditions.push(eq(demonstrativo.convenioId, filters.convenioId));
@@ -5356,9 +5381,12 @@ export async function getItensGlosadosAceitos(filters: {
   const db = await getDb();
   if (!db) return { items: [], total: 0, totalValorGlosado: 0 };
 
-  // Buscar itens glosados aceitos da tabela demonstrativo
+  // Buscar itens glosados aceitos da tabela demonstrativo (inclui GLOSADO e PARCIAL com glosa)
   const conditions: SQL[] = [
-    eq(demonstrativo.situacaoItem, 'GLOSADO'),
+    or(
+      eq(demonstrativo.situacaoItem, 'GLOSADO'),
+      and(eq(demonstrativo.situacaoItem, 'PARCIAL'), sql`COALESCE(${demonstrativo.valorGlosa}, 0) > 0`)
+    ) as SQL,
     or(eq(demonstrativo.classificacaoGlosa, 'aceitar'), eq(demonstrativo.classificacaoGlosa, 'auto_aceitar')) as SQL,
   ];
   if (filters.estabelecimentoId) {
