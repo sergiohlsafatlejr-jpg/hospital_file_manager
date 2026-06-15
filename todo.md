@@ -3929,3 +3929,4 @@
 - [x] Bug: Conta Convênio Ox UTI - resumos não consolidados por numeroConta quando mesma conta aparece em múltiplos XMLs (80 contas afetadas, R$2.7M)
 - [x] Corrigir lógica de migração XML para consolidar resumos por numeroConta (não por arquivo)
 - [x] Reconstruir resumos do Ox UTI após correção
+- [x] Bug: Filtros de ano e mês pararam de funcionar na tela Conta Convênio (possivelmente relacionado à correção de consolidação de resumos por numeroConta)

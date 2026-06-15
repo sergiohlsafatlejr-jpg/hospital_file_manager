@@ -2085,7 +2085,7 @@ export const contasConvenioRouter = router({
             valorTotal: vlTotal ? String(vlTotal) : null,
             dataExecucao: row.data_execucao ? new Date(row.data_execucao) : null,
             dataReferencia: row.data_referencia ? new Date(row.data_referencia) : null,
-            competencia: null,
+            competencia: row.competencia_xml ? String(row.competencia_xml) : (row.data_referencia ? `${new Date(row.data_referencia).getFullYear()}/${String(new Date(row.data_referencia).getMonth() + 1).padStart(2, '0')}` : null),
             profissionalExecutante: row.nome_prof ? String(row.nome_prof) : null,
             setor: null,
             arquivoId: row.arquivo_id || null,

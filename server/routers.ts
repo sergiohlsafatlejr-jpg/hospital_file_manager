@@ -1036,11 +1036,16 @@ export const appRouter = router({
                           
                           if (existingResumo.length > 0) {
                             // Atualizar resumo existente (somar itens e valor)
+                            const updateSet: any = {
+                              totalItens: existingResumo[0].totalItens + totalItensGuia,
+                              valorTotal: String((parseFloat(existingResumo[0].valorTotal || '0') + valorTotalGuia).toFixed(2)),
+                            };
+                            // Preencher competência se estiver NULL
+                            if (!existingResumo[0].competencia && competencia) {
+                              updateSet.competencia = competencia;
+                            }
                             await dbCC.update(contasConvenioResumo)
-                              .set({
-                                totalItens: existingResumo[0].totalItens + totalItensGuia,
-                                valorTotal: String((parseFloat(existingResumo[0].valorTotal || '0') + valorTotalGuia).toFixed(2)),
-                              })
+                              .set(updateSet)
                               .where(eq(contasConvenioResumo.id, existingResumo[0].id));
                           } else {
                             // Criar novo resumo
