@@ -983,6 +983,7 @@ export const appRouter = router({
                               return d ? `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}` : null;
                             })(),
                             profissionalExecutante: reg.nomeProf ? String(reg.nomeProf) : null,
+                            codigoPrestadorExecutante: reg.codigoPrestadorExecutante ? String(reg.codigoPrestadorExecutante) : null,
                             setor: null,
                             arquivoId: arquivoId,
                             statusAnalise: "pendente" as const,

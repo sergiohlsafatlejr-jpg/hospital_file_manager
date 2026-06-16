@@ -3277,6 +3277,7 @@ export const contasConvenioItens = mysqlTable("contas_convenio_itens", {
   
   // Profissional
   profissionalExecutante: varchar("profissionalExecutante", { length: 255 }),
+  codigoPrestadorExecutante: varchar("codigoPrestadorExecutante", { length: 50 }),
   setor: varchar("setor", { length: 255 }),
   
   // Referência ao arquivo de origem (se veio de XML)

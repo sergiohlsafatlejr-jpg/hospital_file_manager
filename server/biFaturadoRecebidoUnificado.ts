@@ -158,6 +158,13 @@ export async function getDadosFaturadoRecebidoUnificado(
   const competencias = filtros.competencias?.map(normalizarCompetencia);
   const convenios = filtros.convenios;
 
+  // Códigos de prestador PRÓPRIO por estabelecimento (exclui terceiros)
+  // Ox UTI (estab 3): IPASGO=05562645000131, UNIMED=1101060
+  const PRESTADORES_PROPRIOS: Record<number, string[]> = {
+    3: ['05562645000131', '1101060'],
+  };
+  const codigosPrestadorProprio = PRESTADORES_PROPRIOS[estabelecimentoId];
+
   // ============================================================
   // 1. BUSCAR FILTROS DISPONÍVEIS (da contas_convenio_resumo + itens)
   // ============================================================
@@ -226,7 +233,13 @@ export async function getDadosFaturadoRecebidoUnificado(
   // 2. CONSTRUIR WHERE CLAUSE PARA contas_convenio_itens + resumo
   // ============================================================
   const whereParts: string[] = [`ci.estabelecimentoId = ${estabelecimentoId}`];
-  
+
+  // Filtrar apenas prestador próprio (excluir terceiros) quando configurado
+  if (codigosPrestadorProprio && codigosPrestadorProprio.length > 0) {
+    const codList = codigosPrestadorProprio.map(c => `'${escSql(c)}'`).join(',');
+    whereParts.push(`ci.codigoPrestadorExecutante IN (${codList})`);
+  }
+
   if (competencias && competencias.length > 0) {
     const compList = competencias.map(c => `'${escSql(c)}'`).join(',');
     whereParts.push(`ci.competencia IN (${compList})`);

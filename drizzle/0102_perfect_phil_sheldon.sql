@@ -1,0 +1,1 @@
+ALTER TABLE `contas_convenio_itens` ADD `codigoPrestadorExecutante` varchar(50);

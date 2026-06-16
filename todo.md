@@ -3935,3 +3935,4 @@
 - [x] Adicionar aba "Por Paciente" na tela Faturado/Recebido Unificado mostrando valores por tipo de faturado (PROC/TAXA, MAT/MED, etc.)
 - [x] Adicionar botão de exportação Excel/CSV na aba "Por Paciente" do Faturado/Recebido Unificado
 - [x] Bug: Relatório Faturado/Recebido Unificado do Ox UTI não atualiza automaticamente quando XMLs são importados
+- [x] Filtrar relatório Faturado/Recebido Unificado do Ox UTI para mostrar apenas itens do prestador próprio (códigos 05562645000131 e 1101060), excluindo terceiros
