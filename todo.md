@@ -3934,3 +3934,4 @@
 - [x] Corrigir dados existentes: separar guia 71306029 que tem lotes em competências diferentes (90838=06/2026, 90338=05/2026)
 - [x] Adicionar aba "Por Paciente" na tela Faturado/Recebido Unificado mostrando valores por tipo de faturado (PROC/TAXA, MAT/MED, etc.)
 - [x] Adicionar botão de exportação Excel/CSV na aba "Por Paciente" do Faturado/Recebido Unificado
+- [x] Bug: Relatório Faturado/Recebido Unificado do Ox UTI não atualiza automaticamente quando XMLs são importados

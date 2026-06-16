@@ -162,7 +162,7 @@ export async function getDadosFaturadoRecebidoUnificado(
   // 1. BUSCAR FILTROS DISPONÍVEIS (da contas_convenio_resumo + itens)
   // ============================================================
   const [compRows] = await db.execute(sql.raw(`
-    SELECT DISTINCT competencia FROM contas_convenio_resumo 
+    SELECT DISTINCT competencia FROM contas_convenio_itens 
     WHERE estabelecimentoId = ${estabelecimentoId} 
       AND competencia IS NOT NULL AND competencia != ''
     ORDER BY competencia DESC
@@ -170,7 +170,7 @@ export async function getDadosFaturadoRecebidoUnificado(
   const competenciasDisponiveis = (compRows as unknown as any[]).map((r: any) => r.competencia as string);
 
   const [convRows] = await db.execute(sql.raw(`
-    SELECT DISTINCT convenio FROM contas_convenio_resumo 
+    SELECT DISTINCT convenio FROM contas_convenio_itens 
     WHERE estabelecimentoId = ${estabelecimentoId} 
       AND convenio IS NOT NULL AND convenio != ''
     ORDER BY convenio
@@ -229,7 +229,7 @@ export async function getDadosFaturadoRecebidoUnificado(
   
   if (competencias && competencias.length > 0) {
     const compList = competencias.map(c => `'${escSql(c)}'`).join(',');
-    whereParts.push(`cr.competencia IN (${compList})`);
+    whereParts.push(`ci.competencia IN (${compList})`);
   }
   if (convenios && convenios.length > 0) {
     const convList = convenios.map(c => `'${escSql(c)}'`).join(',');
@@ -247,11 +247,8 @@ export async function getDadosFaturadoRecebidoUnificado(
 
   const whereClause = whereParts.join(' AND ');
 
-  // Base JOIN: contas_convenio_itens ci INNER JOIN contas_convenio_resumo cr
-  const baseFrom = `contas_convenio_itens ci
-    INNER JOIN contas_convenio_resumo cr 
-      ON ci.numeroConta = cr.numeroConta 
-      AND ci.estabelecimentoId = cr.estabelecimentoId`;
+  // Base: contas_convenio_itens ci (sem JOIN com resumo para evitar duplicação)
+  const baseFrom = `contas_convenio_itens ci`;
 
   // ============================================================
   // 3. RESUMO GERAL
@@ -379,18 +376,18 @@ export async function getDadosFaturadoRecebidoUnificado(
   }
 
   // ============================================================
-  // 6. AGRUPAMENTO POR MÊS (competência do resumo)
+  // 6. AGRUPAMENTO POR MÊS (competência do item)
   // ============================================================
   const [faturadoMesRows] = await db.execute(sql.raw(`
     SELECT 
-      cr.competencia,
+      ci.competencia,
       SUM(COALESCE(ci.valorTotal, 0)) as totalFaturado,
       SUM(COALESCE(ci.quantidade, 1)) as quantidade
     FROM ${baseFrom}
     WHERE ${whereClause}
-      AND cr.competencia IS NOT NULL AND cr.competencia != ''
-    GROUP BY cr.competencia
-    ORDER BY cr.competencia
+      AND ci.competencia IS NOT NULL AND ci.competencia != ''
+    GROUP BY ci.competencia
+    ORDER BY ci.competencia
   `));
 
   const [recebidoMesRows] = await db.execute(sql.raw(`
