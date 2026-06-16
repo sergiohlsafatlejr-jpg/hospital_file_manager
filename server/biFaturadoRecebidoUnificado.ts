@@ -85,6 +85,9 @@ export interface PrestadorResumo {
 
 export interface PacienteResumo {
   pacienteNome: string;
+  carteiraBeneficiario: string;
+  numeroGuia: string;
+  numeroLote: string;
   numeroConta: string;
   totalFaturado: number;
   vlProcTaxa: number;
@@ -582,21 +585,24 @@ export async function getDadosFaturadoRecebidoUnificado(
 
   // ============================================================
   // 11. AGRUPAMENTO POR PACIENTE (com breakdown por tipo)
+  // Usa pacienteNome quando disponível, senão agrupa por carteira+guia+lote
   // ============================================================
   let porPaciente: PacienteResumo[] = [];
   const [pacienteRows] = await db.execute(sql.raw(`
     SELECT 
-      ci.pacienteNome,
+      COALESCE(NULLIF(ci.pacienteNome, ''), 'N/A') as pacienteNome,
+      COALESCE(NULLIF(ci.carteiraBeneficiario, ''), '-') as carteiraBeneficiario,
+      COALESCE(NULLIF(ci.numeroGuia, ''), '-') as numeroGuia,
+      COALESCE(NULLIF(ci.numeroLote, ''), '-') as numeroLote,
       ci.numeroConta,
       SUM(COALESCE(ci.valorTotal, 0)) as totalFaturado,
-      SUM(CASE WHEN ci.tipoItem IN ('PROC/TAXA','PROCEDIMENTO','Procedimento','TAXA','Taxa','TAXA/ALUGUÉIS') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlProcTaxa,
+      SUM(CASE WHEN ci.tipoItem IN ('PROC/TAXA','PROCEDIMENTO','Procedimento','TAXA','Taxa','TAXA/ALUGU\u00c9IS') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlProcTaxa,
       SUM(CASE WHEN ci.tipoItem IN ('MAT/MED','MATERIAL','Material','MEDICAMENTO','Medicamento','Mat/Med') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlMatMed,
-      SUM(CASE WHEN ci.tipoItem IN ('DIÁRIA','Diária','Diaria','DIARIA') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlDiaria,
+      SUM(CASE WHEN ci.tipoItem IN ('DI\u00c1RIA','Di\u00e1ria','Diaria','DIARIA') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlDiaria,
       COUNT(*) as qtdItens
     FROM ${baseFrom}
     WHERE ${whereClause}
-      AND ci.pacienteNome IS NOT NULL AND ci.pacienteNome != ''
-    GROUP BY ci.pacienteNome, ci.numeroConta
+    GROUP BY ci.pacienteNome, ci.carteiraBeneficiario, ci.numeroGuia, ci.numeroLote, ci.numeroConta
     ORDER BY SUM(COALESCE(ci.valorTotal, 0)) DESC
     LIMIT 200
   `));
@@ -609,6 +615,9 @@ export async function getDadosFaturadoRecebidoUnificado(
     const vlOutros = Math.max(0, tf - vlProcTaxa - vlMatMed - vlDiaria);
     return {
       pacienteNome: row.pacienteNome,
+      carteiraBeneficiario: row.carteiraBeneficiario,
+      numeroGuia: row.numeroGuia,
+      numeroLote: row.numeroLote,
       numeroConta: row.numeroConta,
       totalFaturado: tf,
       vlProcTaxa,

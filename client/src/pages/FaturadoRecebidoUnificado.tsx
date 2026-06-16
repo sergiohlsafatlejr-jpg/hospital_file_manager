@@ -892,7 +892,9 @@ export default function FaturadoRecebidoUnificado() {
                           <thead>
                             <tr className="border-b border-border/50">
                               <th className="text-left py-2 px-2 font-medium text-muted-foreground">Paciente</th>
-                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Conta</th>
+                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Carteira</th>
+                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Guia</th>
+                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Lote</th>
                               <th className="text-right py-2 px-2 font-medium text-blue-400">Total Faturado</th>
                               <th className="text-right py-2 px-2 font-medium text-purple-400">Proc/Taxa</th>
                               <th className="text-right py-2 px-2 font-medium text-cyan-400">Mat/Med</th>
@@ -904,8 +906,10 @@ export default function FaturadoRecebidoUnificado() {
                           <tbody>
                             {data.porPaciente.map((p, i) => (
                               <tr key={`${p.numeroConta}-${i}`} className="border-b border-border/20 hover:bg-muted/30">
-                                <td className="py-2 px-2 font-medium text-xs max-w-[200px] truncate" title={p.pacienteNome}>{p.pacienteNome}</td>
-                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroConta}</td>
+                                <td className="py-2 px-2 font-medium text-xs max-w-[180px] truncate" title={p.pacienteNome}>{p.pacienteNome}</td>
+                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.carteiraBeneficiario}</td>
+                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroGuia}</td>
+                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroLote}</td>
                                 <td className="text-right py-2 px-2 text-blue-400 font-medium">{fmtCurrency(p.totalFaturado)}</td>
                                 <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(p.vlProcTaxa)}</td>
                                 <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(p.vlMatMed)}</td>
@@ -915,7 +919,7 @@ export default function FaturadoRecebidoUnificado() {
                               </tr>
                             ))}
                             <tr className="border-t-2 border-border font-bold">
-                              <td className="py-2 px-2" colSpan={2}>TOTAL ({data.porPaciente.length} pacientes)</td>
+                              <td className="py-2 px-2" colSpan={4}>TOTAL ({data.porPaciente.length} registros)</td>
                               <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0))}</td>
                               <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlProcTaxa, 0))}</td>
                               <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlMatMed, 0))}</td>
@@ -929,8 +933,7 @@ export default function FaturadoRecebidoUnificado() {
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Nenhum dado de paciente disponível para este estabelecimento.</p>
-                        <p className="text-xs mt-1">Dados de paciente estão disponíveis para contas importadas do banco cliente (Tasy).</p>
+                        <p className="text-sm">Nenhum dado disponível para os filtros selecionados.</p>
                       </div>
                     )}
                   </CardContent>
