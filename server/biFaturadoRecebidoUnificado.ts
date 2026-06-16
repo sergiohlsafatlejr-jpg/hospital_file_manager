@@ -83,6 +83,17 @@ export interface PrestadorResumo {
   taxaGlosa: number;
 }
 
+export interface PacienteResumo {
+  pacienteNome: string;
+  numeroConta: string;
+  totalFaturado: number;
+  vlProcTaxa: number;
+  vlMatMed: number;
+  vlDiaria: number;
+  vlOutros: number;
+  qtdItens: number;
+}
+
 export interface ResultadoUnificado {
   resumo: {
     totalFaturado: number;
@@ -101,6 +112,7 @@ export interface ResultadoUnificado {
   porSetor: SetorResumo[];
   porTipoItem: TipoItemResumo[];
   porPrestador: PrestadorResumo[];
+  porPaciente: PacienteResumo[];
   filtrosDisponiveis: {
     competencias: string[];
     convenios: string[];
@@ -569,7 +581,46 @@ export async function getDadosFaturadoRecebidoUnificado(
   }
 
   // ============================================================
-  // 11. MONTAR RESULTADO FINAL
+  // 11. AGRUPAMENTO POR PACIENTE (com breakdown por tipo)
+  // ============================================================
+  let porPaciente: PacienteResumo[] = [];
+  const [pacienteRows] = await db.execute(sql.raw(`
+    SELECT 
+      ci.pacienteNome,
+      ci.numeroConta,
+      SUM(COALESCE(ci.valorTotal, 0)) as totalFaturado,
+      SUM(CASE WHEN ci.tipoItem IN ('PROC/TAXA','PROCEDIMENTO','Procedimento','TAXA','Taxa','TAXA/ALUGUÉIS') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlProcTaxa,
+      SUM(CASE WHEN ci.tipoItem IN ('MAT/MED','MATERIAL','Material','MEDICAMENTO','Medicamento','Mat/Med') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlMatMed,
+      SUM(CASE WHEN ci.tipoItem IN ('DIÁRIA','Diária','Diaria','DIARIA') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlDiaria,
+      COUNT(*) as qtdItens
+    FROM ${baseFrom}
+    WHERE ${whereClause}
+      AND ci.pacienteNome IS NOT NULL AND ci.pacienteNome != ''
+    GROUP BY ci.pacienteNome, ci.numeroConta
+    ORDER BY SUM(COALESCE(ci.valorTotal, 0)) DESC
+    LIMIT 200
+  `));
+
+  porPaciente = (pacienteRows as unknown as any[]).map((row: any) => {
+    const tf = parseFloat(row.totalFaturado || '0');
+    const vlProcTaxa = parseFloat(row.vlProcTaxa || '0');
+    const vlMatMed = parseFloat(row.vlMatMed || '0');
+    const vlDiaria = parseFloat(row.vlDiaria || '0');
+    const vlOutros = Math.max(0, tf - vlProcTaxa - vlMatMed - vlDiaria);
+    return {
+      pacienteNome: row.pacienteNome,
+      numeroConta: row.numeroConta,
+      totalFaturado: tf,
+      vlProcTaxa,
+      vlMatMed,
+      vlDiaria,
+      vlOutros,
+      qtdItens: parseInt(row.qtdItens || '0'),
+    };
+  });
+
+  // ============================================================
+  // 12. MONTAR RESULTADO FINAL
   // ============================================================
   const porProcedimento = Array.from(procMap.values()).sort((a, b) => b.totalFaturado - a.totalFaturado);
   const porMes = Array.from(mesMap.values()).sort((a, b) => a.competencia.localeCompare(b.competencia));
@@ -593,6 +644,7 @@ export async function getDadosFaturadoRecebidoUnificado(
     porSetor,
     porTipoItem: tipoItemArr,
     porPrestador: prestadorArr,
+    porPaciente,
     filtrosDisponiveis: {
       competencias: competenciasDisponiveis,
       convenios: conveniosDisponiveis,

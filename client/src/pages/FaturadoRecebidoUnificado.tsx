@@ -481,6 +481,10 @@ export default function FaturadoRecebidoUnificado() {
                   <Users className="h-3.5 w-3.5" />
                   Por Prestador
                 </TabsTrigger>
+                <TabsTrigger value="paciente" className="gap-1.5 text-xs">
+                  <Users className="h-3.5 w-3.5" />
+                  Por Paciente
+                </TabsTrigger>
               </TabsList>
 
               {/* === POR PROCEDIMENTO === */}
@@ -872,6 +876,63 @@ export default function FaturadoRecebidoUnificado() {
                         </tbody>
                       </table>
                     </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              {/* === POR PACIENTE === */}
+              <TabsContent value="paciente" className="space-y-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Faturado por Paciente (com breakdown por tipo)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {data.porPaciente && data.porPaciente.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border/50">
+                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Paciente</th>
+                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Conta</th>
+                              <th className="text-right py-2 px-2 font-medium text-blue-400">Total Faturado</th>
+                              <th className="text-right py-2 px-2 font-medium text-purple-400">Proc/Taxa</th>
+                              <th className="text-right py-2 px-2 font-medium text-cyan-400">Mat/Med</th>
+                              <th className="text-right py-2 px-2 font-medium text-amber-400">Diária</th>
+                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Outros</th>
+                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Itens</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.porPaciente.map((p, i) => (
+                              <tr key={`${p.numeroConta}-${i}`} className="border-b border-border/20 hover:bg-muted/30">
+                                <td className="py-2 px-2 font-medium text-xs max-w-[200px] truncate" title={p.pacienteNome}>{p.pacienteNome}</td>
+                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroConta}</td>
+                                <td className="text-right py-2 px-2 text-blue-400 font-medium">{fmtCurrency(p.totalFaturado)}</td>
+                                <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(p.vlProcTaxa)}</td>
+                                <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(p.vlMatMed)}</td>
+                                <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(p.vlDiaria)}</td>
+                                <td className="text-right py-2 px-2 text-muted-foreground">{fmtCurrency(p.vlOutros)}</td>
+                                <td className="text-right py-2 px-2">{p.qtdItens.toLocaleString("pt-BR")}</td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-border font-bold">
+                              <td className="py-2 px-2" colSpan={2}>TOTAL ({data.porPaciente.length} pacientes)</td>
+                              <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0))}</td>
+                              <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlProcTaxa, 0))}</td>
+                              <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlMatMed, 0))}</td>
+                              <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlDiaria, 0))}</td>
+                              <td className="text-right py-2 px-2 text-muted-foreground">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlOutros, 0))}</td>
+                              <td className="text-right py-2 px-2">{data.porPaciente.reduce((s, p) => s + p.qtdItens, 0).toLocaleString("pt-BR")}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Nenhum dado de paciente disponível para este estabelecimento.</p>
+                        <p className="text-xs mt-1">Dados de paciente estão disponíveis para contas importadas do banco cliente (Tasy).</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
