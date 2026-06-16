@@ -1003,13 +1003,35 @@ export const appRouter = router({
                             : [chaveGuiaLote, null];
                           const loteNumero = loteStr || (regs[0]?.numeroLote ? String(regs[0].numeroLote) : null);
                           
-                          // Verificar se já existe resumo para esta guia (consolidado por numeroConta)
+                          // Verificar se já existe resumo para esta guia+competência (separar mesma guia em meses diferentes)
+                          // Primeiro calcular a competência para usar na busca
+                          let competenciaCalc: string | null = null;
+                          const dataRefCalc = regs[0]?.dataReferencia;
+                          if (dataRefCalc) {
+                            const d = new Date(dataRefCalc);
+                            competenciaCalc = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                          } else {
+                            // Buscar primeira dataExecucao disponível
+                            for (const r of regs) {
+                              if (r.dataExecucao) {
+                                const d = new Date(r.dataExecucao);
+                                competenciaCalc = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                break;
+                              }
+                            }
+                          }
+                          
+                          // Buscar resumo existente por guia + estabelecimento + competência
+                          const existingResumoConditions = [
+                            eq(contasConvenioResumo.numeroConta, guia),
+                            eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
+                            eq(contasConvenioResumo.origem, "XML"),
+                          ];
+                          if (competenciaCalc) {
+                            existingResumoConditions.push(eq(contasConvenioResumo.competencia, competenciaCalc));
+                          }
                           const existingResumo = await dbCC.select().from(contasConvenioResumo).where(
-                            and(
-                              eq(contasConvenioResumo.numeroConta, guia),
-                              eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
-                              eq(contasConvenioResumo.origem, "XML"),
-                            )
+                            and(...existingResumoConditions)
                           ).limit(1);
                           
                           const totalItensGuia = regs.length;
@@ -1024,15 +1046,8 @@ export const appRouter = router({
                             if (r.dataExecucao && !dataExecGuia) dataExecGuia = new Date(r.dataExecucao);
                           }
                           
-                          // Calcular competência
-                          let competencia: string | null = null;
-                          const dataRef = regs[0]?.dataReferencia;
-                          if (dataRef) {
-                            const d = new Date(dataRef);
-                            competencia = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-                          } else if (dataExecGuia) {
-                            competencia = `${dataExecGuia.getFullYear()}/${String(dataExecGuia.getMonth() + 1).padStart(2, '0')}`;
-                          }
+                          // Usar competência já calculada acima
+                          const competencia = competenciaCalc;
                           
                           if (existingResumo.length > 0) {
                             // Atualizar resumo existente (somar itens e valor)

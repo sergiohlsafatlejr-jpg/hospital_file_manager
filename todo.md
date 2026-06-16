@@ -3930,3 +3930,5 @@
 - [x] Corrigir lógica de migração XML para consolidar resumos por numeroConta (não por arquivo)
 - [x] Reconstruir resumos do Ox UTI após correção
 - [x] Bug: Filtros de ano e mês pararam de funcionar na tela Conta Convênio (possivelmente relacionado à correção de consolidação de resumos por numeroConta)
+- [x] Corrigir importação XML: separar contas com mesmo número de guia em competências/lotes diferentes (usar guia+competência como chave em vez de apenas guia)
+- [x] Corrigir dados existentes: separar guia 71306029 que tem lotes em competências diferentes (90838=06/2026, 90338=05/2026)
