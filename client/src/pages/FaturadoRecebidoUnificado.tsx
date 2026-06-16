@@ -882,8 +882,53 @@ export default function FaturadoRecebidoUnificado() {
               {/* === POR PACIENTE === */}
               <TabsContent value="paciente" className="space-y-4">
                 <Card>
-                  <CardHeader className="pb-3">
+                  <CardHeader className="pb-3 flex flex-row items-center justify-between">
                     <CardTitle className="text-base">Faturado por Paciente (com breakdown por tipo)</CardTitle>
+                    {data.porPaciente && data.porPaciente.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => {
+                          const headers = ["Paciente", "Carteira", "Guia", "Lote", "Total Faturado", "Proc/Taxa", "Mat/Med", "Di\u00e1ria", "Outros", "Itens"];
+                          const rows = data.porPaciente.map(p => [
+                            p.pacienteNome,
+                            p.carteiraBeneficiario,
+                            p.numeroGuia,
+                            p.numeroLote,
+                            p.totalFaturado.toFixed(2).replace(".", ","),
+                            p.vlProcTaxa.toFixed(2).replace(".", ","),
+                            p.vlMatMed.toFixed(2).replace(".", ","),
+                            p.vlDiaria.toFixed(2).replace(".", ","),
+                            p.vlOutros.toFixed(2).replace(".", ","),
+                            p.qtdItens.toString(),
+                          ]);
+                          const totalRow = [
+                            "TOTAL",
+                            "",
+                            "",
+                            "",
+                            data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0).toFixed(2).replace(".", ","),
+                            data.porPaciente.reduce((s, p) => s + p.vlProcTaxa, 0).toFixed(2).replace(".", ","),
+                            data.porPaciente.reduce((s, p) => s + p.vlMatMed, 0).toFixed(2).replace(".", ","),
+                            data.porPaciente.reduce((s, p) => s + p.vlDiaria, 0).toFixed(2).replace(".", ","),
+                            data.porPaciente.reduce((s, p) => s + p.vlOutros, 0).toFixed(2).replace(".", ","),
+                            data.porPaciente.reduce((s, p) => s + p.qtdItens, 0).toString(),
+                          ];
+                          const csvContent = "\uFEFF" + [headers, ...rows, totalRow].map(r => r.map(c => `"${c}"`).join(";")).join("\n");
+                          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `pacientes_faturado_${new Date().toISOString().slice(0,10)}.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Exportar CSV
+                      </Button>
+                    )}
                   </CardHeader>
                   <CardContent>
                     {data.porPaciente && data.porPaciente.length > 0 ? (

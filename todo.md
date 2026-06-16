@@ -3933,3 +3933,4 @@
 - [x] Corrigir importação XML: separar contas com mesmo número de guia em competências/lotes diferentes (usar guia+competência como chave em vez de apenas guia)
 - [x] Corrigir dados existentes: separar guia 71306029 que tem lotes em competências diferentes (90838=06/2026, 90338=05/2026)
 - [x] Adicionar aba "Por Paciente" na tela Faturado/Recebido Unificado mostrando valores por tipo de faturado (PROC/TAXA, MAT/MED, etc.)
+- [x] Adicionar botão de exportação Excel/CSV na aba "Por Paciente" do Faturado/Recebido Unificado
