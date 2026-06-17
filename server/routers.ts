@@ -1306,8 +1306,8 @@ export const appRouter = router({
                       await db.updateArquivoProgresso(arquivoId, 0, 0);
                     }
                   } else if (input.tipoArquivo === "csv") {
-                    // Arquivos CSV de retorno (Bradesco) -> tabela recebimentos_excel -> demonstrativo
-                    console.log('[Upload] Processando arquivo CSV Bradesco para recebimentos_excel:', arquivoId);
+                    // Arquivos CSV de retorno -> tabela recebimentos_excel -> demonstrativo
+                    console.log('[Upload] Processando arquivo CSV para recebimentos_excel:', arquivoId);
                     
                     // Excluir dados antigos deste arquivo se for reimportação
                     if (isReimportacao) {
@@ -1318,18 +1318,43 @@ export const appRouter = router({
                     try {
                       await db.updateArquivoProgresso(arquivoId, 10, 0);
                       
+                      // Detectar formato: IPASGO (UTF-16LE, separador ;) ou Bradesco (UTF-8, separador ,)
+                      const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
                       const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
-                      const csvContent = buffer.toString('utf-8');
-                      const csvResult = parseBradescoCSV(
-                        csvContent,
-                        arquivoId,
-                        input.convenioId,
-                        input.estabelecimentoId,
-                        dataReferenciaUpload,
-                        dataPagamentoUpload
-                      );
                       
-                      console.log(`[Upload] CSV Bradesco parsed: ${csvResult.totalItens} itens, ${csvResult.totalGuias} guias, ${csvResult.totalLotes} lotes`);
+                      // Tentar decodificar como IPASGO (UTF-16LE)
+                      const decodedContent = decodeIpasgoBuffer(buffer);
+                      const isIpasgo = detectIpasgoFormat(decodedContent);
+                      
+                      let csvResult: { success: boolean; items: any[]; totalItens: number; totalGuias: number; totalLotes: number; error?: string };
+                      let parserUsed = '';
+                      
+                      if (isIpasgo) {
+                        console.log('[Upload] Formato IPASGO detectado - usando parser IPASGO');
+                        csvResult = parseIpasgoCSV(
+                          decodedContent,
+                          arquivoId,
+                          input.convenioId,
+                          input.estabelecimentoId,
+                          dataReferenciaUpload,
+                          dataPagamentoUpload
+                        );
+                        parserUsed = 'IPASGO';
+                      } else {
+                        console.log('[Upload] Formato Bradesco detectado - usando parser Bradesco');
+                        const csvContent = buffer.toString('utf-8');
+                        csvResult = parseBradescoCSV(
+                          csvContent,
+                          arquivoId,
+                          input.convenioId,
+                          input.estabelecimentoId,
+                          dataReferenciaUpload,
+                          dataPagamentoUpload
+                        );
+                        parserUsed = 'Bradesco';
+                      }
+                      
+                      console.log(`[Upload] CSV ${parserUsed} parsed: ${csvResult.totalItens} itens, ${csvResult.totalGuias} guias, ${csvResult.totalLotes} lotes`);
                       
                       if (csvResult.success && csvResult.items.length > 0) {
                         await db.updateArquivoProgresso(arquivoId, 20, 0, csvResult.items.length);
@@ -1339,7 +1364,7 @@ export const appRouter = router({
                           const progresso = Math.round(20 + (inserted / total) * 60);
                           await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
                         });
-                        console.log('[Upload] CSV Bradesco importado:', totalInserted, 'itens em recebimentos_excel');
+                        console.log(`[Upload] CSV ${parserUsed} importado:`, totalInserted, 'itens em recebimentos_excel');
                         
                         // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
                         try {
@@ -1355,12 +1380,12 @@ export const appRouter = router({
                         }
                         await db.updateArquivoProgresso(arquivoId, 95, csvResult.items.length, csvResult.items.length);
                       } else if (!csvResult.success) {
-                        console.error('[Upload] Erro ao processar CSV Bradesco:', csvResult.error);
+                        console.error(`[Upload] Erro ao processar CSV ${parserUsed}:`, csvResult.error);
                       } else {
-                        console.log('[Upload] Nenhum item encontrado no CSV Bradesco');
+                        console.log(`[Upload] Nenhum item encontrado no CSV ${parserUsed}`);
                       }
                     } catch (csvError) {
-                      console.error('[Upload] Erro ao importar CSV Bradesco:', csvError);
+                      console.error('[Upload] Erro ao importar CSV:', csvError);
                       await db.updateArquivoProgresso(arquivoId, 0, 0);
                     }
                   } else if (input.tipoArquivo === "xml") {

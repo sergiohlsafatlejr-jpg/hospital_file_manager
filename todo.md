@@ -3936,3 +3936,5 @@
 - [x] Adicionar botão de exportação Excel/CSV na aba "Por Paciente" do Faturado/Recebido Unificado
 - [x] Bug: Relatório Faturado/Recebido Unificado do Ox UTI não atualiza automaticamente quando XMLs são importados
 - [x] Filtrar relatório Faturado/Recebido Unificado do Ox UTI para mostrar apenas itens do prestador próprio (códigos 05562645000131 e 1101060), excluindo terceiros
+- [x] Criar estabelecimento Hospital Edmundo
+- [x] Investigar e corrigir problema de importação de demonstrativo no Hospital Edmundo (criado parser IPASGO específico)
