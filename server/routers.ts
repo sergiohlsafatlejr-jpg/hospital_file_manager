@@ -426,12 +426,25 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
-        return db.getArquivos({
+        const arquivosList = await db.getArquivos({
           ...input,
           estabelecimentoId: input?.estabelecimentoId,
           dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
+        
+        // Enriquecer com valor total importado por arquivo
+        const arquivoIds = arquivosList.map((a: any) => a.id).filter(Boolean);
+        if (arquivoIds.length > 0) {
+          const totais = await db.getValorTotalPorArquivos(arquivoIds);
+          return arquivosList.map((a: any) => ({
+            ...a,
+            valorTotalInformado: totais[a.id]?.valorInformado || 0,
+            valorTotalLiberado: totais[a.id]?.valorLiberado || 0,
+            valorTotalGlosado: totais[a.id]?.valorGlosado || 0,
+          }));
+        }
+        return arquivosList;
       }),
 
     get: protectedProcedure

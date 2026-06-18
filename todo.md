@@ -3945,3 +3945,4 @@
 - [x] Conciliação Cruzada: Coluna "Diferença" renomeada para "Acréscimo" na tabela de itens (mostra valor apenas quando item.diferenca < 0)
 - [x] Conciliação Cruzada: Status de itens com glosa informada (glosa_total, glosa_parcial) agora mostra "Conciliado" (verde) pois o match com retorno do convênio já ocorreu
 - [x] Bug: Conciliação Cruzada - itens com glosa total (recebido=0, glosa>0) sem motivo de glosa não recebem código 9999 e aparecem como "Conciliado" em vez de glosado (ex: guia 32455037, item 31309038)
+- [x] Adicionar coluna com valor total importado por XML ao lado do status na aba Arquivos Importados (para conferência de valores)

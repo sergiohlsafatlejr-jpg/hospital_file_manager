@@ -886,6 +886,9 @@ function ArquivosImportadosTab({
                 <TableHead>Convênio</TableHead>
                 <TableHead>Data Import.</TableHead>
                 <TableHead className="text-right">Itens</TableHead>
+                <TableHead className="text-right">Vl. Informado</TableHead>
+                <TableHead className="text-right">Vl. Pago</TableHead>
+                <TableHead className="text-right">Vl. Glosa</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
@@ -902,6 +905,15 @@ function ArquivosImportadosTab({
                   <TableCell>{arquivo.convenioNome || "-"}</TableCell>
                   <TableCell>{formatDateBR(arquivo.createdAt)}</TableCell>
                   <TableCell className="text-right">{arquivo.totalItens || "-"}</TableCell>
+                  <TableCell className="text-right text-sm font-medium">
+                    {arquivo.valorTotalInformado ? formatCurrency(arquivo.valorTotalInformado) : "-"}
+                  </TableCell>
+                  <TableCell className="text-right text-sm font-medium text-green-700">
+                    {arquivo.valorTotalLiberado ? formatCurrency(arquivo.valorTotalLiberado) : "-"}
+                  </TableCell>
+                  <TableCell className="text-right text-sm font-medium text-red-600">
+                    {arquivo.valorTotalGlosado > 0 ? formatCurrency(arquivo.valorTotalGlosado) : "-"}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={arquivo.status === "processado" ? "default" : "secondary"} className="text-xs">
                       {arquivo.status || "pendente"}

@@ -16938,6 +16938,35 @@ export async function getRecebimentoTissStats(filtros?: {
 }
 
 /**
+ * Retorna o valor total importado (soma de valorInformado) agrupado por arquivoId
+ */
+export async function getValorTotalPorArquivos(arquivoIds: number[]): Promise<Record<number, { valorInformado: number; valorLiberado: number; valorGlosado: number }>> {
+  const db = await getDb();
+  if (!db || arquivoIds.length === 0) return {};
+
+  const result = await db
+    .select({
+      arquivoId: recebimentoTiss.arquivoId,
+      valorInformado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorInformado} AS DECIMAL(15,2))), 0)`,
+      valorLiberado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorLiberado} AS DECIMAL(15,2))), 0)`,
+      valorGlosado: sql<number>`COALESCE(SUM(CAST(${recebimentoTiss.valorInformado} AS DECIMAL(15,2)) - CAST(${recebimentoTiss.valorLiberado} AS DECIMAL(15,2))), 0)`,
+    })
+    .from(recebimentoTiss)
+    .where(inArray(recebimentoTiss.arquivoId, arquivoIds))
+    .groupBy(recebimentoTiss.arquivoId);
+
+  const map: Record<number, { valorInformado: number; valorLiberado: number; valorGlosado: number }> = {};
+  for (const row of result) {
+    map[row.arquivoId] = {
+      valorInformado: Number(row.valorInformado) || 0,
+      valorLiberado: Number(row.valorLiberado) || 0,
+      valorGlosado: Number(row.valorGlosado) || 0,
+    };
+  }
+  return map;
+}
+
+/**
  * Exclui itens de recebimento_tiss por arquivo
  */
 export async function deleteRecebimentoTissByArquivo(arquivoId: number): Promise<number> {
