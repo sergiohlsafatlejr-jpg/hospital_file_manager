@@ -177,10 +177,10 @@ export default function RecebimentosXml() {
     // Apenas XML
     const validFiles = fileArray.filter(file => {
       const ext = file.name.split(".").pop()?.toLowerCase();
-      return ext === "xml";
+      return ext === "xml" || ext === "txt";
     });
     if (validFiles.length !== fileArray.length) {
-      toast.warning("Apenas arquivos XML são aceitos nesta tela. Outros formatos foram ignorados.");
+      toast.warning("Apenas arquivos XML e TXT são aceitos nesta tela. Outros formatos foram ignorados.");
     }
     if (validFiles.length === 0) return;
 
@@ -219,7 +219,7 @@ export default function RecebimentosXml() {
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0 || !convenioId) {
-      toast.error("Selecione pelo menos um arquivo XML e um convênio");
+      toast.error("Selecione pelo menos um arquivo XML/TXT e um convênio");
       return;
     }
     setIsUploading(true);
@@ -251,7 +251,7 @@ export default function RecebimentosXml() {
 
         await uploadMutation.mutateAsync({
           nome: fileItem.file.name,
-          tipoArquivo: "xml",
+          tipoArquivo: fileItem.file.name.toLowerCase().endsWith('.txt') ? "txt" as const : "xml" as const,
           direcao: "retornado",
           convenioId: parseInt(convenioId),
           estabelecimentoId: estabId,
@@ -353,7 +353,7 @@ export default function RecebimentosXml() {
               Recebimentos XML
             </h1>
             <p className="text-slate-500 mt-1">
-              Importe arquivos XML de retorno dos convênios. Os dados populam automaticamente o Demonstrativo.
+              Importe arquivos XML/TXT de retorno dos convênios. Os dados populam automaticamente o Demonstrativo.
             </p>
           </div>
           <div className="flex gap-2">
@@ -587,7 +587,7 @@ export default function RecebimentosXml() {
                     Importar XML de Retorno
                   </CardTitle>
                   <CardDescription>
-                    Arraste e solte arquivos XML de retorno dos convênios. Os dados serão processados e consolidados no Demonstrativo automaticamente.
+                    Arraste e solte arquivos XML/TXT de retorno dos convênios. Os dados serão processados e consolidados no Demonstrativo automaticamente.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
@@ -603,11 +603,11 @@ export default function RecebimentosXml() {
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                   >
-                    <input ref={fileInputRef} type="file" accept=".xml" onChange={handleFileChange} className="hidden" multiple />
+                    <input ref={fileInputRef} type="file" accept=".xml,.txt" onChange={handleFileChange} className="hidden" multiple />
                     {isDragOver ? (
                       <div className="flex flex-col items-center gap-3">
                         <Files className="h-12 w-12 text-blue-500 animate-bounce" />
-                        <p className="font-medium text-blue-600">Solte os arquivos XML aqui</p>
+                        <p className="font-medium text-blue-600">Solte os arquivos XML/TXT aqui</p>
                       </div>
                     ) : selectedFiles.length > 0 ? (
                       <div className="flex flex-col items-center gap-3">
@@ -838,7 +838,6 @@ function ArquivosImportadosTab({
     {
       estabelecimentoId,
       direcao: "retornado",
-      tipoArquivo: "xml",
     },
     { enabled: !!estabelecimentoId }
   );
@@ -854,7 +853,7 @@ function ArquivosImportadosTab({
     },
   });
 
-  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "xml" || a.nome?.toLowerCase().endsWith(".xml"))) || [];
+  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "xml" || a.tipoArquivo === "txt" || a.nome?.toLowerCase().endsWith(".xml") || a.nome?.toLowerCase().endsWith(".txt"))) || [];
 
   return (
     <Card className="border-0 shadow-sm">

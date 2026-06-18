@@ -99,7 +99,7 @@ export type InsertConvenioEstabelecimentoPrestador = typeof convenioEstabelecime
 export const arquivos = mysqlTable("arquivos", {
   id: int("id").autoincrement().primaryKey(),
   nome: varchar("nome", { length: 255 }).notNull(),
-  tipoArquivo: mysqlEnum("tipoArquivo", ["xml", "excel", "pdf", "csv"]).notNull(),
+  tipoArquivo: mysqlEnum("tipoArquivo", ["xml", "excel", "pdf", "csv", "txt"]).notNull(),
   direcao: mysqlEnum("direcao", ["enviado", "retornado"]).notNull(),
   convenioId: int("convenioId").notNull(),
   estabelecimentoId: int("estabelecimentoId"),
@@ -2327,7 +2327,7 @@ export const recebimentoTiss = mysqlTable("recebimento_tiss", {
   valorFinalReceber: decimal("valor_final_receber", { precision: 12, scale: 2 }),
   
   // ========== METADADOS ==========
-  origemDado: mysqlEnum("origem_dado", ["xml", "excel"]).notNull(),
+  origemDado: mysqlEnum("origem_dado", ["xml", "excel", "txt"]).notNull(),
   dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
   
   // Convênio e Data de Referência (informados no upload)
@@ -2527,11 +2527,10 @@ export const retornoTissUnificado = mysqlTable("retorno_tiss_unificado", {
   descricaoGlosa: text("descricao_glosa"),
   
   // Metadados
-  origemDado: mysqlEnum("origem_dado", ["xml", "excel"]).notNull(),
+  origemDado: mysqlEnum("origem_dado", ["xml", "excel", "txt"]).notNull(),
   dataImportacao: timestamp("data_importacao").defaultNow().notNull(),
 });
-
-export type RetornoTissUnificado = typeof retornoTissUnificado.$inferSelect;
+export type RetornoTissUnificado = typeof retornoTissUnificado.$inferSelect;;
 export type InsertRetornoTissUnificado = typeof retornoTissUnificado.$inferInsert;
 
 

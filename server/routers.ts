@@ -416,7 +416,7 @@ export const appRouter = router({
           .object({
             convenioId: z.number().optional(),
             direcao: z.enum(["enviado", "retornado"]).optional(),
-            tipoArquivo: z.enum(["xml", "excel", "pdf"]).optional(),
+            tipoArquivo: z.enum(["xml", "excel", "pdf", "csv", "txt"]).optional(),
             status: z.enum(["pendente", "processado", "erro"]).optional(),
             dataInicio: z.string().optional(),
             dataFim: z.string().optional(),
@@ -569,7 +569,7 @@ export const appRouter = router({
       .input(
         z.object({
           nome: z.string(),
-          tipoArquivo: z.enum(["xml", "excel", "pdf", "csv"]),
+          tipoArquivo: z.enum(["xml", "excel", "pdf", "csv", "txt"]),
           direcao: z.enum(["enviado", "retornado"]),
           convenioId: z.number(),
           estabelecimentoId: z.number(), // Estabelecimento associado ao arquivo
@@ -625,6 +625,8 @@ export const appRouter = router({
               ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               : input.tipoArquivo === "csv"
               ? "text/csv"
+              : input.tipoArquivo === "txt"
+              ? "text/plain"
               : "application/pdf";
           
           const uploadResult = await storagePut(s3Key, buffer, contentType);
@@ -717,6 +719,8 @@ export const appRouter = router({
               ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               : input.tipoArquivo === "csv"
               ? "text/csv"
+              : input.tipoArquivo === "txt"
+              ? "text/plain"
               : "application/pdf";
           
           const uploadResult = await storagePut(s3Key, buffer, contentType);
@@ -1449,6 +1453,56 @@ export const appRouter = router({
                       console.error('[Upload] Erro ao processar recebimento_tiss:', recebimentoResult.error);
                     } else if (recebimentoResult) {
                       console.log('[Upload] Nenhum item de recebimento_tiss encontrado no arquivo');
+                    }
+                  } else if (input.tipoArquivo === "txt") {
+                    // Arquivos TXT de retorno (Unimed Cerrado) -> tabela recebimento_tiss
+                    console.log('[Upload] Processando arquivo TXT de retorno para recebimento_tiss:', arquivoId);
+                    
+                    // Excluir dados antigos deste arquivo se for reimportação
+                    if (isReimportacao) {
+                      await db.deleteRecebimentoTissByArquivo(arquivoId);
+                      console.log('[Upload] Dados antigos de recebimento_tiss excluídos para reimportação');
+                    }
+                    
+                    const { parseUnimedCerradoTxt } = await import('./parsers/parseUnimedCerradoTxt');
+                    const txtResult = parseUnimedCerradoTxt(
+                      buffer,
+                      arquivoId,
+                      input.estabelecimentoId,
+                      input.convenioId,
+                      dataReferenciaUpload,
+                      dataPagamentoUpload
+                    );
+                    
+                    // Atualizar progresso: parsing concluído
+                    if (txtResult) {
+                      await db.updateArquivoProgresso(arquivoId, 20, 0, txtResult.items.length);
+                    }
+                    
+                    if (txtResult && txtResult.success && txtResult.items.length > 0) {
+                      // Inserir com progresso real (20% a 80%)
+                      const totalImportados = await db.insertRecebimentoTiss(txtResult.items, async (inserted, total) => {
+                        const progresso = Math.round(20 + (inserted / total) * 60);
+                        await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
+                      });
+                      console.log('[Upload] TXT Unimed Cerrado importado:', totalImportados, 'itens de', txtResult.totalRows, 'linhas');
+                      
+                      // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
+                      try {
+                        const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                        const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'xml');
+                        if (syncResult.success) {
+                          console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
+                        } else {
+                          console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
+                        }
+                      } catch (syncError) {
+                        console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                      }
+                    } else if (txtResult && !txtResult.success) {
+                      console.error('[Upload] Erro ao processar TXT:', txtResult.error);
+                    } else if (txtResult) {
+                      console.log('[Upload] Nenhum item encontrado no arquivo TXT');
                     }
                   }
                 } catch (recebimentoError) {
