@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { 
-  Search, Filter, Download, Eye, CheckCircle2, AlertCircle, XCircle, Clock,
+  Search, Filter, Download, Eye, CheckCircle2, AlertCircle, AlertTriangle, XCircle, Clock,
   DollarSign, TrendingUp, TrendingDown, FileText, Building2, ArrowUpDown,
   ChevronDown, ChevronUp, RefreshCw, Link2, Database, Loader2, Unlink,
   Zap, RotateCcw, BarChart3, Info, ListChecks, Table2, ChevronRight, ArrowLeft,
@@ -423,13 +423,17 @@ export default function ConciliacaoCruzada() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'conciliado':
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'glosa_total':
-      case 'glosa_parcial':
       case 'glosado':
+        return <Badge className="bg-red-500 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
+      case 'glosa_parcial':
+        return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa Parcial</Badge>;
       case 'divergente':
       case 'acrescimo':
+        return <Badge className="bg-teal-500 hover:bg-teal-600"><TrendingUp className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
       case 'terceiro':
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+        return <Badge className="bg-purple-500 hover:bg-purple-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'conciliado_manual':
         return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado Manualmente</Badge>;
       case 'sem_pagamento':
@@ -522,7 +526,7 @@ export default function ConciliacaoCruzada() {
       'Diferença': Number(g.diferenca || 0),
       'Status': g.statusGuia || '-',
       'Itens Conciliados': Number(g.itensConciliados || 0),
-      'Itens Divergentes': Number(g.itensDivergentes || 0),
+      'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
       'Itens Não Recebidos': Number(g.itensNaoRecebidos || 0),
     }));
 
@@ -531,7 +535,7 @@ export default function ConciliacaoCruzada() {
     if (resumoConciliados) {
       const wsResumo = XLSX.utils.json_to_sheet([{
         'Total Conciliados': resumoConciliados.totalConciliados,
-        'Total Divergentes': resumoConciliados.totalDivergentes,
+        'Total Acréscimos': resumoConciliados.totalAcrescimos || resumoConciliados.totalDivergentes || 0,
         'Total Não Recebidos': resumoConciliados.totalNaoRecebidos,
         'Valor Total Faturado': resumoConciliados.valorTotalFaturado,
         'Valor Total Pago': resumoConciliados.valorTotalPago,
@@ -928,7 +932,7 @@ export default function ConciliacaoCruzada() {
                       </CardTitle>
                       <div className="flex items-center gap-2 flex-wrap">
                         {/* Botões de ação de glosa */}
-                        {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'divergente') && (
+                        {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'divergente' || i.statusConciliacao === 'acrescimo') && (
                           <>
                             <Button
                               size="sm"
@@ -940,7 +944,7 @@ export default function ConciliacaoCruzada() {
                               }}
                             >
                               <Ban className="w-4 h-4 mr-1" />
-                              Glosar Não Recebidos/Divergentes
+                              Glosar Não Recebidos/Acréscimos
                             </Button>
                             {itensSelecionadosGlosa.size > 0 && (
                               <Button
@@ -993,10 +997,10 @@ export default function ConciliacaoCruzada() {
                             <tr className="border-b bg-muted/50">
                               <th className="p-3 w-10">
                                 <Checkbox
-                                  checked={itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente').length > 0 && itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente').every((i: any) => itensSelecionadosGlosa.has(i.id))}
+                                  checked={itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente' || i.statusConciliacao === 'acrescimo').length > 0 && itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente' || i.statusConciliacao === 'acrescimo').every((i: any) => itensSelecionadosGlosa.has(i.id))}
                                   onCheckedChange={(checked) => {
                                     const novos = new Set(itensSelecionadosGlosa);
-                                    itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente').forEach((i: any) => {
+                                    itensConciliadosGuia.filter((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'glosado' || i.statusConciliacao === 'divergente' || i.statusConciliacao === 'acrescimo').forEach((i: any) => {
                                       if (checked) novos.add(i.id); else novos.delete(i.id);
                                     });
                                     setItensSelecionadosGlosa(novos);
@@ -1021,13 +1025,13 @@ export default function ConciliacaoCruzada() {
                           <tbody>
                             {itensConciliadosGuia.map((item: any, index: number) => (
                               <tr key={item.id || index} className={`border-b hover:bg-muted/50 ${
-                                item.statusConciliacao === 'divergente' ? 'bg-yellow-50/50 dark:bg-yellow-950/20' :
+                                (item.statusConciliacao === 'divergente' || item.statusConciliacao === 'acrescimo') ? 'bg-teal-50/50 dark:bg-teal-950/20' :
                                 item.statusConciliacao === 'nao_recebido' ? 'bg-red-50/50 dark:bg-red-950/20' :
                                 item.statusConciliacao === 'glosado' ? 'bg-purple-50/50 dark:bg-purple-950/20' :
                                 item.statusConciliacao === 'acrescimo' ? 'bg-teal-50/50 dark:bg-teal-950/20' : ''
                               }`}>
                                 <td className="p-3">
-                                  {(item.statusConciliacao === 'nao_recebido' || item.statusConciliacao === 'glosado' || item.statusConciliacao === 'divergente') && item.id ? (
+                                  {(item.statusConciliacao === 'nao_recebido' || item.statusConciliacao === 'glosado' || item.statusConciliacao === 'divergente' || item.statusConciliacao === 'acrescimo') && item.id ? (
                                     <Checkbox
                                       checked={itensSelecionadosGlosa.has(item.id)}
                                       onCheckedChange={(checked) => {
@@ -1305,7 +1309,7 @@ export default function ConciliacaoCruzada() {
                               {guiasConciliadas.map((guia: any, index: number) => (
                                 <tr key={`${guia.guia}-${index}`} className={`border-b hover:bg-muted/50 cursor-pointer ${
                                   guia.statusGuia === 'terceiro' ? 'bg-orange-50/50 dark:bg-orange-950/20' :
-                                  guia.statusGuia === 'divergente' ? 'bg-yellow-50/50 dark:bg-yellow-950/20' :
+                                  (guia.statusGuia === 'divergente' || guia.statusGuia === 'acrescimo') ? 'bg-teal-50/50 dark:bg-teal-950/20' :
                                   guia.statusGuia === 'nao_recebido' || guia.statusGuia === 'glosado' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
                                 }`} onClick={() => setGuiaConciliadaSelecionada(guia)}>
                                   <td className="p-3 font-mono text-sm font-medium">{guia.guia || '-'}</td>
@@ -1333,7 +1337,7 @@ export default function ConciliacaoCruzada() {
                                     {(Number(guia.itensDivergentes) > 0 || Number(guia.itensNaoRecebidos) > 0 || Number(guia.itensTerceiros) > 0 || Number(guia.itensGlosados) > 0) && (
                                       <div className="flex gap-1 justify-center mt-0.5">
                                         {Number(guia.itensConciliados) > 0 && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title={`${guia.itensConciliados} OK`} />}
-                                        {Number(guia.itensDivergentes) > 0 && <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" title={`${guia.itensDivergentes} div.`} />}
+                                        {Number(guia.itensAcrescimos || guia.itensDivergentes) > 0 && <span className="w-2 h-2 rounded-full bg-teal-500 inline-block" title={`${guia.itensAcrescimos || guia.itensDivergentes} acrésc.`} />}
                                         {Number(guia.itensNaoRecebidos) > 0 && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title={`${guia.itensNaoRecebidos} N/R`} />}
                                         {Number(guia.itensTerceiros) > 0 && <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" title={`${guia.itensTerceiros} terceiro(s)`} />}
                                         {Number(guia.itensGlosados) > 0 && <span className="w-2 h-2 rounded-full bg-red-700 inline-block" title={`${guia.itensGlosados} glosado(s)`} />}
@@ -1448,7 +1452,7 @@ export default function ConciliacaoCruzada() {
                         <p className="text-sm opacity-80">Status</p>
                         <div className="flex gap-2 mt-1 text-xs flex-wrap">
                           <span className="bg-white/20 px-2 py-0.5 rounded">{resumo.itensConciliados} OK</span>
-                          <span className="bg-white/20 px-2 py-0.5 rounded">{resumo.itensDivergentes} Div.</span>
+                          <span className="bg-white/20 px-2 py-0.5 rounded">{resumo.itensAcrescimos || resumo.itensDivergentes} Acrésc.</span>
                         </div>
                         <div className="flex gap-2 mt-1 text-xs flex-wrap">
                           <span className="bg-white/20 px-2 py-0.5 rounded">{resumo.itensPendentes} Pend.</span>

@@ -3938,3 +3938,6 @@
 - [x] Filtrar relatório Faturado/Recebido Unificado do Ox UTI para mostrar apenas itens do prestador próprio (códigos 05562645000131 e 1101060), excluindo terceiros
 - [x] Criar estabelecimento Hospital Edmundo
 - [x] Investigar e corrigir problema de importação de demonstrativo no Hospital Edmundo (criado parser IPASGO específico)
+- [x] Conciliação Cruzada: Glosa sem motivo deve usar código 9999 e classificar como "Glosado" (não "Conciliado")
+- [x] Conciliação Cruzada: Renomear "Divergente" para "Acréscimo" — mostrar apenas itens pagos a mais (diferença negativa), sem incluir valores glosados
+- [x] Conciliação Cruzada: Corrigir lógica de status — itens com glosa informada pelo convênio (recebido=0 e glosa>0) devem ser "Glosado", não "Conciliado"

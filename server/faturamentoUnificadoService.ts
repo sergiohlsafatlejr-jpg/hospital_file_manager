@@ -521,7 +521,7 @@ export async function resumoFaturamentoPorConvenio(params: {
       SUM(COALESCE(fu.valorPago, 0)) as valorTotalPago,
       SUM(COALESCE(fu.valorGlosa, 0)) as valorTotalGlosado,
       SUM(CASE WHEN fu.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as totalConciliados,
-      SUM(CASE WHEN fu.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as totalDivergentes,
+      SUM(CASE WHEN fu.statusConciliacao IN ('divergente','acrescimo') THEN 1 ELSE 0 END) as totalAcrescimos,
       SUM(CASE WHEN fu.statusConciliacao = 'pendente' THEN 1 ELSE 0 END) as totalPendentes,
       SUM(CASE WHEN fu.statusConciliacao IN ('nao_recebido', 'sem_pagamento') THEN 1 ELSE 0 END) as totalNaoRecebidos,
       SUM(CASE WHEN fu.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as totalGlosaTotal,
@@ -641,7 +641,7 @@ export async function resumoFaturamentoPorGuia(params: {
       SUM(COALESCE(fu.valorGlosa, 0)) as totalGlosado,
       SUM(COALESCE(fu.valorFaturado, 0)) - SUM(COALESCE(fu.valorPago, 0)) - SUM(COALESCE(fu.valorGlosa, 0)) as totalPendente,
       SUM(CASE WHEN fu.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
-      SUM(CASE WHEN fu.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
+      SUM(CASE WHEN fu.statusConciliacao IN ('divergente','acrescimo') THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN fu.statusConciliacao = 'pendente' THEN 1 ELSE 0 END) as itensPendentes,
       SUM(CASE WHEN fu.statusConciliacao IN ('nao_recebido', 'sem_pagamento') THEN 1 ELSE 0 END) as itensNaoRecebidos,
       SUM(CASE WHEN fu.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as itensGlosaTotal,
@@ -671,7 +671,8 @@ export async function resumoFaturamentoPorGuia(params: {
       totalGlosado: Number(resumo.totalGlosado || 0),
       totalPendente: Number(resumo.totalPendente || 0),
       itensConciliados: Number(resumo.itensConciliados || 0),
-      itensDivergentes: Number(resumo.itensDivergentes || 0),
+      itensDivergentes: Number(resumo.itensAcrescimos || resumo.itensDivergentes || 0),
+      itensAcrescimos: Number(resumo.itensAcrescimos || resumo.itensDivergentes || 0),
       itensPendentes: Number(resumo.itensPendentes || 0),
       itensNaoRecebidos: Number(resumo.itensNaoRecebidos || 0),
     },
@@ -1395,8 +1396,8 @@ export async function executarConciliacaoAutomatica(params: {
       } else if (diferenca > 0 && valorPagoRec === 0) {
         // Glosa total: convênio retornou o item mas não pagou nada
         const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
-        // Para itens Warleine sem motivo de glosa do demonstrativo, usar código 9999
-        if (!baseInsert.codigoGlosa && fat.origemSistema === 'WARLEINE') {
+        // Para itens sem motivo de glosa do demonstrativo, usar código 9999
+        if (!baseInsert.codigoGlosa) {
           baseInsert.codigoGlosa = '9999';
           baseInsert.motivoGlosa = 'Glosa não informada pela operadora';
         }
@@ -1406,8 +1407,8 @@ export async function executarConciliacaoAutomatica(params: {
       } else if (diferenca > 0) {
         // Glosa parcial: convênio pagou menos que o faturado
         const valorGlosaCalc = valorGlosaRec > 0 ? valorGlosaRec : diferenca;
-        // Para itens Warleine sem motivo de glosa do demonstrativo, usar código 9999
-        if (!baseInsert.codigoGlosa && fat.origemSistema === 'WARLEINE') {
+        // Para itens sem motivo de glosa do demonstrativo, usar código 9999
+        if (!baseInsert.codigoGlosa) {
           baseInsert.codigoGlosa = '9999';
           baseInsert.motivoGlosa = 'Glosa não informada pela operadora';
         }
@@ -1424,9 +1425,9 @@ export async function executarConciliacaoAutomatica(params: {
           diferenca,
         });
       } else {
-        // Pagamento a maior (convênio pagou mais que faturado) = divergente
-        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: valorGlosaRec, statusConciliacao: 'divergente', metodoConciliacao: metodo, diferenca, percentualDiferenca });
-        resultado.totalDivergentes++;
+        // Pagamento a maior (convênio pagou mais que faturado) = acréscimo
+        inserts.push({ ...baseInsert, recebimentoId: recIdReal, recebimentoOrigem: origemRec, valorPago: valorPagoRec, valorGlosa: 0, statusConciliacao: 'acrescimo', metodoConciliacao: metodo, diferenca, percentualDiferenca });
+        resultado.totalAcrescimos++;
       }
 
       // Contabilizar por método
@@ -1497,13 +1498,13 @@ export async function executarConciliacaoAutomatica(params: {
   // -------------------------------------------------------
 
   // Identificar itens que podem participar de agrupamento:
-  // sem_pagamento (sem match) + divergente (pagamento a maior, pois o recebimento
+  // sem_pagamento (sem match) + acrescimo (pagamento a maior, pois o recebimento
   // agrupado foi consumido por apenas 1 item do grupo)
   const candidatosAgrupamento = inserts
     .map((ins, idx) => ({ ins, idx }))
     .filter(({ ins }) => 
       (ins.statusConciliacao === 'sem_pagamento' && ins.recebimentoId === null) ||
-      (ins.statusConciliacao === 'divergente' && ins.diferenca < 0) // Pagamento a Maior
+      (ins.statusConciliacao === 'acrescimo' && ins.diferenca < 0) // Pagamento a Maior
     );
 
   // Agrupar por guia+código
@@ -1560,7 +1561,7 @@ export async function executarConciliacaoAutomatica(params: {
       for (const { ins } of grupo) {
         const statusAnterior = ins.statusConciliacao;
         if (statusAnterior === 'sem_pagamento') resultado.totalNaoRecebidos--;
-        else if (statusAnterior === 'divergente') resultado.totalDivergentes--;
+        else if (statusAnterior === 'acrescimo') resultado.totalAcrescimos--;
         else if (statusAnterior === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaParcial--; }
         else if (statusAnterior === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaTotal--; }
       }
@@ -1591,7 +1592,7 @@ export async function executarConciliacaoAutomatica(params: {
         } else if (diferenca > 0 && valorPagoProporcional === 0) {
           ins.statusConciliacao = 'glosa_total';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
-          if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+          if (!ins.codigoGlosa) {
             ins.codigoGlosa = '9999';
             ins.motivoGlosa = 'Glosa não informada pela operadora';
           }
@@ -1600,16 +1601,17 @@ export async function executarConciliacaoAutomatica(params: {
         } else if (diferenca > 0) {
           ins.statusConciliacao = 'glosa_parcial';
           ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : diferenca;
-          if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+          if (!ins.codigoGlosa) {
             ins.codigoGlosa = '9999';
             ins.motivoGlosa = 'Glosa não informada pela operadora';
           }
           resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
           resultado.totalGlosaParcial++;
         } else {
-          // Pagamento a maior ou exato com arredondamento
-          ins.statusConciliacao = 'divergente';
-          resultado.totalDivergentes++;
+          // Pagamento a maior (convênio pagou mais) = acréscimo
+          ins.statusConciliacao = 'acrescimo';
+          ins.valorGlosa = 0;
+          resultado.totalAcrescimos++;
         }
       }
     }
@@ -1625,7 +1627,7 @@ export async function executarConciliacaoAutomatica(params: {
   // -------------------------------------------------------
   const divergentesOuGlosados = inserts
     .map((ins, idx) => ({ ins, idx }))
-    .filter(({ ins }) => ins.statusConciliacao === 'divergente' || ins.statusConciliacao === 'glosa_parcial' || ins.statusConciliacao === 'glosa_total');
+    .filter(({ ins }) => ins.statusConciliacao === 'acrescimo' || ins.statusConciliacao === 'glosa_parcial' || ins.statusConciliacao === 'glosa_total');
 
   for (const { ins, idx } of divergentesOuGlosados) {
     const guia = ins.numeroGuia;
@@ -1679,7 +1681,7 @@ export async function executarConciliacaoAutomatica(params: {
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
         }
-        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+        if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
           ins.motivoGlosa = 'Glosa não informada pela operadora';
         }
@@ -1690,7 +1692,7 @@ export async function executarConciliacaoAutomatica(params: {
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
         }
-        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+        if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
           ins.motivoGlosa = 'Glosa não informada pela operadora';
         }
@@ -1700,23 +1702,24 @@ export async function executarConciliacaoAutomatica(params: {
         // Pagamento parcial sem glosa explícita = glosa parcial
         ins.statusConciliacao = 'glosa_parcial';
         ins.valorGlosa = ins.valorGlosa > 0 ? ins.valorGlosa : (ins.valorFaturado - somaValorPago);
-        if (!ins.codigoGlosa && ins.origemSistema === 'WARLEINE') {
+        if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
           ins.motivoGlosa = 'Glosa não informada pela operadora';
         }
       } else {
-        // Pagamento a maior = divergente
-        ins.statusConciliacao = 'divergente';
+        // Pagamento a maior = acréscimo
+        ins.statusConciliacao = 'acrescimo';
+        ins.valorGlosa = 0;
       }
 
       // Atualizar contadores
-      if (statusAnterior === 'divergente') resultado.totalDivergentes--;
+      if (statusAnterior === 'divergente' || statusAnterior === 'acrescimo') resultado.totalAcrescimos--;
       if (statusAnterior === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaParcial--; }
       if (statusAnterior === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) - 1; resultado.totalGlosaTotal--; }
       if (ins.statusConciliacao === 'conciliado') resultado.totalConciliados++;
       else if (ins.statusConciliacao === 'glosa_parcial') { resultado.totalGlosados = (resultado.totalGlosados || 0) + 1; resultado.totalGlosaParcial++; }
       else if (ins.statusConciliacao === 'glosa_total') { resultado.totalGlosados = (resultado.totalGlosados || 0) + 1; resultado.totalGlosaTotal++; }
-      else if (ins.statusConciliacao === 'divergente') resultado.totalDivergentes++;
+      else if (ins.statusConciliacao === 'acrescimo') resultado.totalAcrescimos++;
     }
   }
 
@@ -2229,7 +2232,7 @@ export async function resumoConciliadosAutomatico(params: {
 
     switch (row.statusConciliacao) {
       case 'conciliado': resumo.totalConciliados = count; break;
-      case 'divergente': resumo.totalDivergentes = count; break;
+      case 'divergente': resumo.totalAcrescimos += count; break;
       case 'nao_recebido': resumo.totalNaoRecebidos = count; break;
       case 'sem_pagamento': resumo.totalSemPagamento = count; break;
       case 'glosa_total': resumo.totalGlosaTotal = count; break;
@@ -2387,13 +2390,13 @@ export async function resumoConciliadosPorGuia(params: {
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) > 0 THEN 'glosa_total'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) > 0 THEN 'glosa_parcial'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'sem_pagamento' THEN 1 ELSE 0 END) > 0 THEN 'sem_pagamento'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) > 0 THEN 'divergente'
+        WHEN SUM(CASE WHEN ca.statusConciliacao IN ('divergente','acrescimo') THEN 1 ELSE 0 END) > 0 THEN 'acrescimo'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN ca.statusConciliacao NOT IN ('terceiro','acrescimo') THEN 1 ELSE 0 END) = 0 THEN 'terceiro'
         WHEN SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) > 0 THEN 'acrescimo'
         ELSE 'conciliado'
       END as statusGuia,
       SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
-      SUM(CASE WHEN ca.statusConciliacao = 'divergente' THEN 1 ELSE 0 END) as itensDivergentes,
+      SUM(CASE WHEN ca.statusConciliacao IN ('divergente','acrescimo') THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN ca.statusConciliacao = 'sem_pagamento' THEN 1 ELSE 0 END) as itensSemPagamento,
       SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) as itensGlosaTotal,
       SUM(CASE WHEN ca.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) as itensGlosaParcial,
@@ -2500,14 +2503,14 @@ export async function glosarItens(params: {
     UPDATE conciliados_automatico 
     SET statusConciliacao = 'glosa_total',
         valorGlosa = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
-        valorPago = CASE WHEN statusConciliacao = 'divergente' THEN valorPago ELSE 0 END,
+        valorPago = CASE WHEN statusConciliacao IN ('divergente','acrescimo') THEN valorPago ELSE 0 END,
         diferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
         percentualDiferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN ROUND(((valorFaturado - valorPago) / valorFaturado) * 100, 2) ELSE 100 END,
         motivoGlosa = ${esc(params.motivoGlosa)},
         codigoGlosa = ${esc(params.codigoGlosa)}
     WHERE id IN (${ids})
       AND estabelecimentoId = ${params.estabelecimentoId}
-      AND statusConciliacao IN ('sem_pagamento', 'divergente', 'nao_recebido')
+      AND statusConciliacao IN ('sem_pagamento', 'divergente', 'acrescimo', 'nao_recebido')
   `;
 
   const [result] = await db.execute(sql.raw(query));
@@ -2530,7 +2533,7 @@ export async function glosarTodosNaoRecebidosPorGuia(params: {
 
   const esc = (v: string | null | undefined) => v ? `'${v.replace(/'/g, "''")}'` : 'NULL';
 
-  let whereClause = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao IN ('sem_pagamento', 'divergente', 'nao_recebido')`;
+  let whereClause = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND statusConciliacao IN ('sem_pagamento', 'divergente', 'acrescimo', 'nao_recebido')`;
   if (params.numeroGuia) {
     whereClause += ` AND numeroGuia = ${esc(params.numeroGuia)}`;
   }
@@ -2542,7 +2545,7 @@ export async function glosarTodosNaoRecebidosPorGuia(params: {
     UPDATE conciliados_automatico 
     SET statusConciliacao = 'glosa_total',
         valorGlosa = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
-        valorPago = CASE WHEN statusConciliacao = 'divergente' THEN valorPago ELSE 0 END,
+        valorPago = CASE WHEN statusConciliacao IN ('divergente','acrescimo') THEN valorPago ELSE 0 END,
         diferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN valorFaturado - valorPago ELSE valorFaturado END,
         percentualDiferenca = CASE WHEN valorFaturado > 0 AND valorPago > 0 AND valorPago < valorFaturado THEN ROUND(((valorFaturado - valorPago) / valorFaturado) * 100, 2) ELSE 100 END,
         motivoGlosa = ${esc(params.motivoGlosa)},
