@@ -3941,3 +3941,6 @@
 - [x] Conciliação Cruzada: Glosa sem motivo deve usar código 9999 e classificar como "Glosado" (não "Conciliado")
 - [x] Conciliação Cruzada: Renomear "Divergente" para "Acréscimo" — mostrar apenas itens pagos a mais (diferença negativa), sem incluir valores glosados
 - [x] Conciliação Cruzada: Corrigir lógica de status — itens com glosa informada pelo convênio (recebido=0 e glosa>0) devem ser "Glosado", não "Conciliado"
+- [x] Conciliação Cruzada: KPI "Diferença" substituído por "Acréscimo" (mostra valor apenas quando convênio pagou a mais, diferença < 0)
+- [x] Conciliação Cruzada: Coluna "Diferença" renomeada para "Acréscimo" na tabela de itens (mostra valor apenas quando item.diferenca < 0)
+- [x] Conciliação Cruzada: Status de itens com glosa informada (glosa_total, glosa_parcial) agora mostra "Conciliado" (verde) pois o match com retorno do convênio já ocorreu

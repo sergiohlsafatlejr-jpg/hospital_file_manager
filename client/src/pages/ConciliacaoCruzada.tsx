@@ -420,15 +420,17 @@ export default function ConciliacaoCruzada() {
     return comp;
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, item?: any) => {
+    // Se o item tem motivo de glosa informado (codigoGlosa preenchido), 
+    // significa que foi encontrado no retorno do convênio = Conciliado
+    if (item && item.codigoGlosa && item.codigoGlosa !== '9999') {
+      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+    }
     switch (status) {
       case 'conciliado':
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'glosa_total':
-      case 'glosado':
-        return <Badge className="bg-red-500 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa Total</Badge>;
       case 'glosa_parcial':
-        return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa Parcial</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'divergente':
       case 'acrescimo':
         return <Badge className="bg-teal-500 hover:bg-teal-600"><TrendingUp className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
@@ -436,6 +438,8 @@ export default function ConciliacaoCruzada() {
         return <Badge className="bg-purple-500 hover:bg-purple-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'conciliado_manual':
         return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado Manualmente</Badge>;
+      case 'glosado':
+        return <Badge className="bg-purple-500 hover:bg-purple-600"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
       case 'sem_pagamento':
       case 'nao_recebido':
       case 'pendente':
@@ -523,7 +527,7 @@ export default function ConciliacaoCruzada() {
       'Valor Faturado': Number(g.valorFaturado || 0),
       'Valor Recebido': Number(g.valorPago || 0),
       'Valor Glosado': Number(g.valorGlosa || 0),
-      'Diferença': Number(g.diferenca || 0),
+      'Acréscimo': Number(g.diferenca || 0) < 0 ? Math.abs(Number(g.diferenca)) : 0,
       'Status': g.statusGuia || '-',
       'Itens Conciliados': Number(g.itensConciliados || 0),
       'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
@@ -540,7 +544,7 @@ export default function ConciliacaoCruzada() {
         'Valor Total Faturado': resumoConciliados.valorTotalFaturado,
         'Valor Total Pago': resumoConciliados.valorTotalPago,
         'Valor Total Glosa': resumoConciliados.valorTotalGlosa,
-        'Valor Total Diferença': resumoConciliados.valorTotalDiferenca,
+        'Valor Total Acréscimo': resumoConciliados.valorTotalAcrescimo || 0,
       }]);
       XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
     }
@@ -903,11 +907,11 @@ export default function ConciliacaoCruzada() {
                       <p className="text-lg font-bold text-red-600">{formatarMoeda(Number(guiaConciliadaSelecionada.valorGlosa))}</p>
                     </CardContent>
                   </Card>
-                  <Card className={`border-2 ${Number(guiaConciliadaSelecionada.diferenca) !== 0 ? 'bg-orange-50 dark:bg-orange-950 border-orange-300' : 'bg-gray-50 dark:bg-gray-950 border-gray-200'}`}>
+                  <Card className={`border-2 ${Number(guiaConciliadaSelecionada.diferenca) < 0 ? 'bg-teal-50 dark:bg-teal-950 border-teal-300' : 'bg-gray-50 dark:bg-gray-950 border-gray-200'}`}>
                     <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Diferença</p>
-                      <p className={`text-lg font-bold ${Number(guiaConciliadaSelecionada.diferenca) !== 0 ? 'text-orange-600' : 'text-gray-500'}`}>
-                        {Number(guiaConciliadaSelecionada.diferenca) !== 0 ? formatarMoeda(Number(guiaConciliadaSelecionada.diferenca)) : '-'}
+                      <p className="text-xs text-muted-foreground">Acréscimo</p>
+                      <p className={`text-lg font-bold ${Number(guiaConciliadaSelecionada.diferenca) < 0 ? 'text-teal-600' : 'text-gray-500'}`}>
+                        {Number(guiaConciliadaSelecionada.diferenca) < 0 ? formatarMoeda(Math.abs(Number(guiaConciliadaSelecionada.diferenca))) : '-'}
                       </p>
                     </CardContent>
                   </Card>
@@ -1017,7 +1021,7 @@ export default function ConciliacaoCruzada() {
                               <th className="text-right p-3 font-medium">Recebido</th>
                               <th className="text-right p-3 font-medium">Glosa</th>
                               <th className="text-left p-3 font-medium min-w-[150px]">Motivo Glosa</th>
-                              <th className="text-right p-3 font-medium">Diferença</th>
+                              <th className="text-right p-3 font-medium">Acréscimo</th>
                               <th className="text-center p-3 font-medium">Status</th>
                               <th className="text-center p-3 font-medium">Método</th>
                             </tr>
@@ -1070,11 +1074,11 @@ export default function ConciliacaoCruzada() {
                                     </div>
                                   ) : '-'}
                                 </td>
-                                <td className={`p-3 text-right font-medium ${Number(item.diferenca) > 0 ? 'text-red-600' : Number(item.diferenca) < 0 ? 'text-orange-600' : 'text-gray-500'}`}>
-                                  {Number(item.diferenca) !== 0 ? formatarMoeda(Number(item.diferenca)) : '-'}
+                                <td className={`p-3 text-right font-medium ${Number(item.diferenca) < 0 ? 'text-teal-600' : 'text-gray-400'}`}>
+                                  {Number(item.diferenca) < 0 ? formatarMoeda(Math.abs(Number(item.diferenca))) : '-'}
                                 </td>
                                 <td className="p-3 text-center">
-                                  {getStatusBadge(item.statusConciliacao)}
+                                  {getStatusBadge(item.statusConciliacao, item)}
                                   {item.competenciaPagamento && (
                                     <div className="mt-1">
                                       <Badge variant="outline" className="text-[10px] bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300">
@@ -1097,7 +1101,7 @@ export default function ConciliacaoCruzada() {
                               <td className="p-3 text-right text-green-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorPago || 0), 0))}</td>
                               <td className="p-3 text-right text-red-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorGlosa || 0), 0))}</td>
                               <td></td>
-                              <td className="p-3 text-right">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.diferenca || 0), 0))}</td>
+                              <td className="p-3 text-right text-teal-600">{formatarMoeda(Math.abs(itensConciliadosGuia.reduce((s: number, i: any) => s + (Number(i.diferenca || 0) < 0 ? Number(i.diferenca) : 0), 0)))}</td>
                               <td colSpan={2}></td>
                             </tr>
                           </tfoot>
@@ -1148,7 +1152,7 @@ export default function ConciliacaoCruzada() {
                             <div>
                               <p className="text-sm opacity-80">Glosa Parcial</p>
                               <p className="text-2xl font-bold">{resumoConciliados.totalGlosaParcial || 0}</p>
-                              <p className="text-xs opacity-70">{formatarMoeda(resumoConciliados.valorTotalDiferenca)} diferença</p>
+                              <p className="text-xs opacity-70">Parcialmente glosado</p>
                             </div>
                             <AlertCircle className="w-10 h-10 opacity-50" />
                           </div>
@@ -1300,7 +1304,7 @@ export default function ConciliacaoCruzada() {
                                 <th className="text-right p-3 font-medium">Faturado</th>
                                 <th className="text-right p-3 font-medium">Recebido</th>
                                 <th className="text-right p-3 font-medium">Glosado</th>
-                                <th className="text-right p-3 font-medium">Diferença</th>
+                                <th className="text-right p-3 font-medium">Acréscimo</th>
                                 <th className="text-center p-3 font-medium">Status</th>
                                 <th className="text-center p-3 font-medium">Detalhes</th>
                               </tr>
@@ -1347,8 +1351,8 @@ export default function ConciliacaoCruzada() {
                                   <td className="p-3 text-right font-medium text-blue-600">{formatarMoeda(Number(guia.valorFaturado))}</td>
                                   <td className="p-3 text-right font-medium text-green-600">{formatarMoeda(Number(guia.valorPago))}</td>
                                   <td className="p-3 text-right font-medium text-red-600">{formatarMoeda(Number(guia.valorGlosa))}</td>
-                                  <td className={`p-3 text-right font-medium ${Number(guia.diferenca) > 0 ? 'text-red-600' : Number(guia.diferenca) < 0 ? 'text-orange-600' : 'text-gray-500'}`}>
-                                    {Number(guia.diferenca) !== 0 ? formatarMoeda(Number(guia.diferenca)) : '-'}
+                                  <td className={`p-3 text-right font-medium ${Number(guia.diferenca) < 0 ? 'text-teal-600' : 'text-gray-400'}`}>
+                                    {Number(guia.diferenca) < 0 ? formatarMoeda(Math.abs(Number(guia.diferenca))) : '-'}
                                   </td>
                                   <td className="p-3 text-center">{getStatusBadge(guia.statusGuia)}</td>
                                   <td className="p-3 text-center">
@@ -2006,7 +2010,7 @@ export default function ConciliacaoCruzada() {
                           <td className="p-2 text-right text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
                           <td className="p-2 text-right text-red-600">{formatarMoeda(Number(item.valorGlosado))}</td>
                           <td className="p-2 text-sm">{item.dataExecucao ? formatDateBR(item.dataExecucao) : '-'}</td>
-                          <td className="p-2 text-center">{getStatusBadge(item.statusConciliacao || 'pendente')}</td>
+                          <td className="p-2 text-center">{getStatusBadge(item.statusConciliacao || 'pendente', item)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2197,7 +2201,7 @@ export default function ConciliacaoCruzada() {
                               <th className="text-left p-2">Código</th>
                               <th className="text-right p-2">Faturado</th>
                               <th className="text-right p-2">Recebido</th>
-                              <th className="text-right p-2">Diferença</th>
+                              <th className="text-right p-2">Acréscimo</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2207,8 +2211,8 @@ export default function ConciliacaoCruzada() {
                                 <td className="p-2 font-mono">{d.codigoItem}</td>
                                 <td className="p-2 text-right text-blue-600">{formatarMoeda(d.valorFaturado)}</td>
                                 <td className="p-2 text-right text-green-600">{formatarMoeda(d.valorRecebido)}</td>
-                                <td className={`p-2 text-right font-medium ${d.diferenca > 0 ? 'text-red-600' : 'text-orange-600'}`}>
-                                  {formatarMoeda(d.diferenca)}
+                                <td className={`p-2 text-right font-medium text-teal-600`}>
+                                  {d.diferenca < 0 ? formatarMoeda(Math.abs(d.diferenca)) : '-'}
                                 </td>
                               </tr>
                             ))}
