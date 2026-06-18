@@ -421,15 +421,22 @@ export default function ConciliacaoCruzada() {
   };
 
   const getStatusBadge = (status: string, item?: any) => {
-    // Se o item tem motivo de glosa informado (codigoGlosa preenchido), 
-    // significa que foi encontrado no retorno do convênio = Conciliado
+    // Se o item tem motivo de glosa informado pelo convênio (codigoGlosa preenchido e diferente de 9999),
+    // significa que foi encontrado no retorno do convênio E o convênio justificou a glosa = Conciliado
     if (item && item.codigoGlosa && item.codigoGlosa !== '9999') {
       return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
     }
+    // Se o item tem código 9999, significa glosa sem motivo informado pelo convênio
+    if (item && item.codigoGlosa === '9999') {
+      return <Badge className="bg-red-500 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa s/ Motivo</Badge>;
+    }
     switch (status) {
       case 'conciliado':
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'glosa_total':
       case 'glosa_parcial':
+        // Se chegou aqui sem item (ex: status de guia), mostrar como Conciliado
+        // pois o match com retorno do convênio já ocorreu
         return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
       case 'divergente':
       case 'acrescimo':
