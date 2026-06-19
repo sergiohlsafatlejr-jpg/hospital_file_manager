@@ -3949,3 +3949,4 @@
 - [x] Implementar parser TXT para demonstrativos da Unimed Cerrado (arquivo separado por #, encoding Latin-1)
 - [x] Conciliação Cruzada (agrupada por guia): Reformular status para apenas "Conciliado" (verde) e "Não Conciliado" (vermelho)
 - [x] Conciliação Cruzada (agrupada por guia): Adicionar tag "Itens Desassociados" com contagem (laranja se >0, verde se =0)
+- [x] Conciliação Cruzada: Ajustar lógica de itens desassociados para incluir glosa_total sem recebimentoId (faturado sem demonstrativo) + acrescimo (demonstrativo sem faturado)

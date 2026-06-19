@@ -2387,7 +2387,11 @@ export async function resumoConciliadosPorGuia(params: {
       (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
       -- Status da guia: Conciliado (todos itens associados) ou Não Conciliado (algum item desassociado)
       CASE
-        WHEN (SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END) + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND ca.faturamentoUnificadoId IS NULL THEN 1 ELSE 0 END)) > 0 THEN 'nao_conciliado'
+        WHEN (
+          SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND (ca.faturamentoUnificadoId IS NULL OR ca.faturamentoUnificadoId = 0) THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' AND ca.recebimentoId IS NULL THEN 1 ELSE 0 END)
+        ) > 0 THEN 'nao_conciliado'
         ELSE 'conciliado'
       END as statusGuia,
       SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
@@ -2398,7 +2402,9 @@ export async function resumoConciliadosPorGuia(params: {
       SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) as itensTerceiros,
       SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
-      SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END) + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND ca.faturamentoUnificadoId IS NULL THEN 1 ELSE 0 END) as itensDesassociados,
+      SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END)
+      + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND (ca.faturamentoUnificadoId IS NULL OR ca.faturamentoUnificadoId = 0) THEN 1 ELSE 0 END)
+      + SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' AND ca.recebimentoId IS NULL THEN 1 ELSE 0 END) as itensDesassociados,
       COUNT(DISTINCT ca.contaNumero) as totalContas,
       MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
     FROM conciliados_automatico ca
