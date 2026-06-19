@@ -535,7 +535,7 @@ export default function ConciliacaoCruzada() {
       'Valor Recebido': Number(g.valorPago || 0),
       'Valor Glosado': Number(g.valorGlosa || 0),
       'Acréscimo': Number(g.diferenca || 0) < 0 ? Math.abs(Number(g.diferenca)) : 0,
-      'Status': g.statusGuia === 'conciliado' ? 'Conciliado' : 'Não Conciliado',
+      'Status': g.statusGuia === 'conciliado' ? 'Conciliado' : g.statusGuia === 'sem_pagamento' ? 'Sem Pagamento' : 'Não Conciliado',
       'Itens Desassociados': Number(g.itensDesassociados || 0),
       'Itens Conciliados': Number(g.itensConciliados || 0),
       'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
@@ -719,6 +719,7 @@ export default function ConciliacaoCruzada() {
                     <SelectItem value="todos">Todos</SelectItem>
                     <SelectItem value="conciliado">Conciliado</SelectItem>
                     <SelectItem value="nao_conciliado">Não Conciliado</SelectItem>
+                    <SelectItem value="sem_pagamento_guia">Sem Pagamento</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -927,6 +928,8 @@ export default function ConciliacaoCruzada() {
                       <div className="mt-1">
                         {guiaConciliadaSelecionada.statusGuia === 'conciliado' ? (
                           <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
+                        ) : guiaConciliadaSelecionada.statusGuia === 'sem_pagamento' ? (
+                          <Badge className="bg-gray-500 hover:bg-gray-600"><AlertCircle className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>
                         ) : (
                           <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
                         )}
@@ -1333,7 +1336,7 @@ export default function ConciliacaoCruzada() {
                             <tbody>
                               {guiasConciliadas.map((guia: any, index: number) => (
                                 <tr key={`${guia.guia}-${index}`} className={`border-b hover:bg-muted/50 cursor-pointer ${
-                                  guia.statusGuia === 'nao_conciliado' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
+                                  guia.statusGuia === 'nao_conciliado' ? 'bg-red-50/50 dark:bg-red-950/20' : guia.statusGuia === 'sem_pagamento' ? 'bg-gray-50/50 dark:bg-gray-950/20' : ''
                                 }`} onClick={() => setGuiaConciliadaSelecionada(guia)}>
                                   <td className="p-3 font-mono text-sm font-medium">{guia.guia || '-'}</td>
                                   <td className="p-3 text-sm max-w-[200px] truncate" title={guia.pacienteNome}>
@@ -1376,6 +1379,8 @@ export default function ConciliacaoCruzada() {
                                   <td className="p-3 text-center">
                                     {guia.statusGuia === 'conciliado' ? (
                                       <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
+                                    ) : guia.statusGuia === 'sem_pagamento' ? (
+                                      <Badge className="bg-gray-500 hover:bg-gray-600"><AlertCircle className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>
                                     ) : (
                                       <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
                                     )}
