@@ -535,10 +535,10 @@ export default function ConciliacaoCruzada() {
       'Valor Recebido': Number(g.valorPago || 0),
       'Valor Glosado': Number(g.valorGlosa || 0),
       'Acréscimo': Number(g.diferenca || 0) < 0 ? Math.abs(Number(g.diferenca)) : 0,
-      'Status': g.statusGuia || '-',
+      'Status': g.statusGuia === 'conciliado' ? 'Conciliado' : 'Não Conciliado',
+      'Itens Desassociados': Number(g.itensDesassociados || 0),
       'Itens Conciliados': Number(g.itensConciliados || 0),
       'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
-      'Itens Não Recebidos': Number(g.itensNaoRecebidos || 0),
     }));
 
     const wb = XLSX.utils.book_new();
@@ -718,8 +718,7 @@ export default function ConciliacaoCruzada() {
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
                     <SelectItem value="conciliado">Conciliado</SelectItem>
-                    <SelectItem value="conciliado_manual">Conciliado Manualmente</SelectItem>
-                    <SelectItem value="sem_conciliacao">Sem Conciliação</SelectItem>
+                    <SelectItem value="nao_conciliado">Não Conciliado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -925,10 +924,24 @@ export default function ConciliacaoCruzada() {
                   <Card className="border-2">
                     <CardContent className="p-3 text-center">
                       <p className="text-xs text-muted-foreground">Status</p>
-                      <div className="mt-1">{getStatusBadge(guiaConciliadaSelecionada.statusGuia)}</div>
+                      <div className="mt-1">
+                        {guiaConciliadaSelecionada.statusGuia === 'conciliado' ? (
+                          <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
+                        ) : (
+                          <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {guiaConciliadaSelecionada.totalItens} itens
                       </p>
+                      <div className="mt-1">
+                        <p className="text-xs text-muted-foreground">Desassociados</p>
+                        {Number(guiaConciliadaSelecionada.itensDesassociados || 0) > 0 ? (
+                          <Badge className="bg-orange-500 hover:bg-orange-600 mt-0.5">{guiaConciliadaSelecionada.itensDesassociados}</Badge>
+                        ) : (
+                          <Badge className="bg-green-500 hover:bg-green-600 mt-0.5">0</Badge>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
@@ -1313,15 +1326,14 @@ export default function ConciliacaoCruzada() {
                                 <th className="text-right p-3 font-medium">Glosado</th>
                                 <th className="text-right p-3 font-medium">Acréscimo</th>
                                 <th className="text-center p-3 font-medium">Status</th>
+                                <th className="text-center p-3 font-medium">Desassociados</th>
                                 <th className="text-center p-3 font-medium">Detalhes</th>
                               </tr>
                             </thead>
                             <tbody>
                               {guiasConciliadas.map((guia: any, index: number) => (
                                 <tr key={`${guia.guia}-${index}`} className={`border-b hover:bg-muted/50 cursor-pointer ${
-                                  guia.statusGuia === 'terceiro' ? 'bg-orange-50/50 dark:bg-orange-950/20' :
-                                  (guia.statusGuia === 'divergente' || guia.statusGuia === 'acrescimo') ? 'bg-teal-50/50 dark:bg-teal-950/20' :
-                                  guia.statusGuia === 'nao_recebido' || guia.statusGuia === 'glosado' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
+                                  guia.statusGuia === 'nao_conciliado' ? 'bg-red-50/50 dark:bg-red-950/20' : ''
                                 }`} onClick={() => setGuiaConciliadaSelecionada(guia)}>
                                   <td className="p-3 font-mono text-sm font-medium">{guia.guia || '-'}</td>
                                   <td className="p-3 text-sm max-w-[200px] truncate" title={guia.pacienteNome}>
@@ -1361,7 +1373,20 @@ export default function ConciliacaoCruzada() {
                                   <td className={`p-3 text-right font-medium ${Number(guia.diferenca) < 0 ? 'text-teal-600' : 'text-gray-400'}`}>
                                     {Number(guia.diferenca) < 0 ? formatarMoeda(Math.abs(Number(guia.diferenca))) : '-'}
                                   </td>
-                                  <td className="p-3 text-center">{getStatusBadge(guia.statusGuia)}</td>
+                                  <td className="p-3 text-center">
+                                    {guia.statusGuia === 'conciliado' ? (
+                                      <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
+                                    ) : (
+                                      <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    {Number(guia.itensDesassociados || 0) > 0 ? (
+                                      <Badge className="bg-orange-500 hover:bg-orange-600">{guia.itensDesassociados}</Badge>
+                                    ) : (
+                                      <Badge className="bg-green-500 hover:bg-green-600">0</Badge>
+                                    )}
+                                  </td>
                                   <td className="p-3 text-center">
                                     <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setGuiaConciliadaSelecionada(guia); }}>
                                       <Eye className="w-4 h-4 mr-1" />

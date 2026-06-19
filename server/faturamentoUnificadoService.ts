@@ -457,7 +457,7 @@ export async function listarFaturamentoUnificado(params: {
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
     if (params.statusConciliacao === 'conciliado') {
       whereClause += ` AND fu.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
-    } else if (params.statusConciliacao === 'sem_conciliacao') {
+    } else if (params.statusConciliacao === 'sem_conciliacao' || params.statusConciliacao === 'nao_conciliado') {
       whereClause += ` AND fu.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
     } else if (params.statusConciliacao === 'conciliado_manual') {
       whereClause += ` AND fu.statusConciliacao = 'conciliado_manual'`;
@@ -568,7 +568,7 @@ export async function resumoFaturamentoPorGuia(params: {
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
     if (params.statusConciliacao === 'conciliado') {
       whereClause += ` AND fu.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
-    } else if (params.statusConciliacao === 'sem_conciliacao') {
+    } else if (params.statusConciliacao === 'sem_conciliacao' || params.statusConciliacao === 'nao_conciliado') {
       whereClause += ` AND fu.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
     } else if (params.statusConciliacao === 'conciliado_manual') {
       whereClause += ` AND fu.statusConciliacao = 'conciliado_manual'`;
@@ -2332,11 +2332,11 @@ export async function resumoConciliadosPorGuia(params: {
   }
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
     if (params.statusConciliacao === 'conciliado') {
-      whereClause += ` AND ca.statusConciliacao IN ('conciliado','glosa_total','glosa_parcial','divergente','acrescimo','terceiro','glosado')`;
-    } else if (params.statusConciliacao === 'sem_conciliacao') {
+      // Filtrar guias onde TODOS os itens estão associados (sem itens desassociados)
+      whereClause += ` AND ca.statusConciliacao NOT IN ('nao_recebido','sem_pagamento','pendente')`;
+    } else if (params.statusConciliacao === 'nao_conciliado' || params.statusConciliacao === 'sem_conciliacao') {
+      // Filtrar guias que possuem ao menos 1 item desassociado
       whereClause += ` AND ca.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
-    } else if (params.statusConciliacao === 'conciliado_manual') {
-      whereClause += ` AND ca.statusConciliacao = 'conciliado_manual'`;
     } else {
       whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
     }
@@ -2385,14 +2385,9 @@ export async function resumoConciliadosPorGuia(params: {
       -- Lote e Protocolo do Retorno (demonstrativo) via subquery
       (SELECT d.lote_prestador FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as loteRetorno,
       (SELECT d.protocolo FROM demonstrativo d WHERE d.numero_guia = ca.numeroGuia AND d.estabelecimentoId = ca.estabelecimentoId LIMIT 1) as protocoloRetorno,
-      -- Status da guia: prioridade: glosa_total > glosa_parcial > sem_pagamento > divergente > terceiro > acrescimo > conciliado
+      -- Status da guia: Conciliado (todos itens associados) ou Não Conciliado (algum item desassociado)
       CASE
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_total' THEN 1 ELSE 0 END) > 0 THEN 'glosa_total'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'glosa_parcial' THEN 1 ELSE 0 END) > 0 THEN 'glosa_parcial'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'sem_pagamento' THEN 1 ELSE 0 END) > 0 THEN 'sem_pagamento'
-        WHEN SUM(CASE WHEN ca.statusConciliacao IN ('divergente','acrescimo') THEN 1 ELSE 0 END) > 0 THEN 'acrescimo'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN ca.statusConciliacao NOT IN ('terceiro','acrescimo') THEN 1 ELSE 0 END) = 0 THEN 'terceiro'
-        WHEN SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) > 0 THEN 'acrescimo'
+        WHEN (SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END) + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND ca.faturamentoUnificadoId IS NULL THEN 1 ELSE 0 END)) > 0 THEN 'nao_conciliado'
         ELSE 'conciliado'
       END as statusGuia,
       SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as itensConciliados,
@@ -2403,6 +2398,7 @@ export async function resumoConciliadosPorGuia(params: {
       SUM(CASE WHEN ca.statusConciliacao = 'terceiro' THEN 1 ELSE 0 END) as itensTerceiros,
       SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) as itensAcrescimos,
       SUM(CASE WHEN ca.metodoConciliacao = 'agrupamento' THEN 1 ELSE 0 END) as itensAgrupados,
+      SUM(CASE WHEN ca.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END) + SUM(CASE WHEN ca.statusConciliacao = 'acrescimo' AND ca.faturamentoUnificadoId IS NULL THEN 1 ELSE 0 END) as itensDesassociados,
       COUNT(DISTINCT ca.contaNumero) as totalContas,
       MAX(ca.codigoPrestadorExecutante) as codigoPrestadorExecutante
     FROM conciliados_automatico ca

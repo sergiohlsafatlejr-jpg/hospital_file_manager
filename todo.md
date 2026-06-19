@@ -3947,3 +3947,5 @@
 - [x] Bug: Conciliação Cruzada - itens com glosa total (recebido=0, glosa>0) sem motivo de glosa não recebem código 9999 e aparecem como "Conciliado" em vez de glosado (ex: guia 32455037, item 31309038)
 - [x] Adicionar coluna com valor total importado por XML ao lado do status na aba Arquivos Importados (para conferência de valores)
 - [x] Implementar parser TXT para demonstrativos da Unimed Cerrado (arquivo separado por #, encoding Latin-1)
+- [x] Conciliação Cruzada (agrupada por guia): Reformular status para apenas "Conciliado" (verde) e "Não Conciliado" (vermelho)
+- [x] Conciliação Cruzada (agrupada por guia): Adicionar tag "Itens Desassociados" com contagem (laranja se >0, verde se =0)
