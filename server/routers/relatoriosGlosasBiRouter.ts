@@ -130,12 +130,13 @@ export const relatoriosGlosasBiRouter = router({
         const totalFaturadoTiss = Number(tissRows[0]?.total_faturado || 0);
 
         const kpi = rows[0];
-        // Taxa de glosa: glosado / cobrado (XML). Fallback: glosado / (pago + glosado)
-        const baseTaxa = totalFaturadoTiss > 0
-          ? totalFaturadoTiss
-          : (Number(kpi.total_pago) + Number(kpi.total_glosa));
-        const taxaGlosa = baseTaxa > 0
-          ? (Number(kpi.total_glosa) / baseTaxa) * 100
+        // VALOR FATURADO = XML (faturamento_tiss) ou banco do cliente
+        const valorFaturado = totalFaturadoTiss;
+        // VALOR COBRADO = valor_pago + valor_glosa (do demonstrativo)
+        const valorCobrado = Number(kpi.total_pago) + Number(kpi.total_glosa);
+        // % TAXA DE GLOSA = GLOSADO / COBRADO
+        const taxaGlosa = valorCobrado > 0
+          ? (Number(kpi.total_glosa) / valorCobrado) * 100
           : 0;
         const ticketMedioGlosa = kpi.total_glosados > 0
           ? Number(kpi.total_glosa) / Number(kpi.total_glosados)
@@ -147,8 +148,10 @@ export const relatoriosGlosasBiRouter = router({
         return {
           totalItens: Number(kpi.total_itens),
           totalGlosados: Number(kpi.total_glosados),
-          totalInformado: totalFaturadoTiss > 0 ? totalFaturadoTiss : Number(kpi.total_pago) + Number(kpi.total_glosa),
+          valorFaturado,
+          valorCobrado,
           totalFaturadoTiss,
+          totalInformado: valorCobrado, // backward compat
           totalPago: Number(kpi.total_pago),
           totalGlosa: Number(kpi.total_glosa),
           totalGuias: Number(kpi.total_guias),

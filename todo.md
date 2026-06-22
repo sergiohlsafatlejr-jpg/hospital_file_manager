@@ -3967,3 +3967,4 @@
 - [x] Cerrado: Criar código 9997 (Material inválido) e 9996 (Desacordo com documentação) na tabela motivosGlosa
 - [x] Router Relatórios BI: Usar COALESCE(data_referencia, data_pagamento) em todas as queries para suportar convênios sem data_referencia
 - [x] Relatório Glosas BI: Nova aba "Motivos por Item" com código glosa, descrição do item, valor glosado, % glosa
+- [x] Relatório Glosas BI: Ajustar KPIs - VALOR FATURADO (XML/banco cliente), VALOR COBRADO (pago+glosa do demonstrativo), VALOR GLOSADO, % TAXA DE GLOSA (glosado/cobrado)

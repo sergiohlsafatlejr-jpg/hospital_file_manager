@@ -246,8 +246,8 @@ export default function RelatoriosGlosasBi() {
           </div>
         ) : kpis ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <KpiCard label="Valor Cobrado" value={fmtCurrency(kpis.totalInformado)} icon={DollarSign} color="#4fc3f7" sub={kpis.totalFaturadoTiss > 0 ? `Fonte: XML enviado (${kpis.totalItens.toLocaleString("pt-BR")} itens)` : `Fonte: Demonstrativo (${kpis.totalItens.toLocaleString("pt-BR")} itens)`} />
-            <KpiCard label="Valor Pago" value={fmtCurrency(kpis.totalPago)} icon={TrendingUp} color="#4caf50" sub={`${kpis.totalGuias.toLocaleString("pt-BR")} guias`} />
+            <KpiCard label="Valor Faturado" value={kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : '—'} icon={DollarSign} color="#4fc3f7" sub={kpis.valorFaturado > 0 ? `Fonte: XML enviado (${kpis.totalItens.toLocaleString("pt-BR")} itens)` : `Sem XML importado`} />
+            <KpiCard label="Valor Cobrado" value={fmtCurrency(kpis.valorCobrado)} icon={TrendingUp} color="#4caf50" sub={`Pago + Glosado (${kpis.totalGuias.toLocaleString("pt-BR")} guias)`} />
             <KpiCard label="Valor Glosado" value={fmtCurrency(kpis.totalGlosa)} icon={AlertTriangle} color="#ef5350" sub={`${kpis.totalGlosados.toLocaleString("pt-BR")} itens glosados`} />
             <KpiCard label="Taxa de Glosa" value={`${kpis.taxaGlosa}%`} icon={TrendingDown} color="#ffb74d" sub={`Recuperado: ${fmtCurrency(kpis.totalRecuperado)}`} />
           </div>
