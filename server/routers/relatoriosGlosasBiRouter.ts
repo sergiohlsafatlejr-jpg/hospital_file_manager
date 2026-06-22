@@ -1232,6 +1232,8 @@ VARIAÇÕES:
         const [rows] = await conn.execute<any[]>(`
           SELECT
             COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
+            mg.descricao as motivo_descricao,
+            mg.grupo as motivo_grupo,
             d.codigo_item,
             d.descricao_item,
             d.tipo_lancamento,
@@ -1239,8 +1241,9 @@ VARIAÇÕES:
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado
           FROM demonstrativo d
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
           ${where}
-          GROUP BY d.codigo_glosa, d.codigo_item, d.descricao_item, d.tipo_lancamento
+          GROUP BY d.codigo_glosa, mg.descricao, mg.grupo, d.codigo_item, d.descricao_item, d.tipo_lancamento
           ORDER BY total_glosa DESC
           LIMIT ${limite}
         `, params);
@@ -1249,7 +1252,7 @@ VARIAÇÕES:
           totalGeral,
           items: rows.map(r => ({
             codigoGlosa: r.codigo_glosa,
-            descricaoGlosa: getMotivoDescricao(r.codigo_glosa),
+            descricaoGlosa: r.motivo_descricao || getMotivoDescricao(r.codigo_glosa),
             codigoItem: r.codigo_item,
             descricaoItem: r.descricao_item,
             tipoLancamento: r.tipo_lancamento,
