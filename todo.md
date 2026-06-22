@@ -3956,3 +3956,5 @@
 - [x] Motor de conciliação: preencher motivoGlosa automaticamente a partir da tabela motivosGlosa quando codigoGlosa é atribuído
 - [x] Atualizar registros existentes no banco (conciliados_automatico) com motivoGlosa preenchido (421.744 registros atualizados)
 - [x] Relatórios/telas: exibir motivo de glosa padronizado (já usa LEFT JOIN motivosGlosa na query de leitura)
+- [x] Melhorar relatório de Glosas BI com dados mais confiáveis
+- [x] Padronizar motivos de glosa do IPASGO que estão fora do padrão TISS no relatório

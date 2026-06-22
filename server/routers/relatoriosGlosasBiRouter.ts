@@ -2,69 +2,87 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
 
-// Dicionário TISS de motivos de glosa (principais códigos)
-const MOTIVOS_GLOSA: Record<string, string> = {
-  "12": "Procedimento não coberto pelo plano",
-  "13": "Procedimento não autorizado",
-  "14": "Procedimento fora do prazo",
-  "15": "Documentação incompleta",
-  "16": "Beneficiário sem cobertura",
-  "17": "Carência não cumprida",
-  "18": "Limite de utilização excedido",
-  "19": "Procedimento duplicado",
-  "20": "Código de procedimento incorreto",
-  "21": "Quantidade acima do permitido",
-  "22": "Valor acima da tabela",
-  "23": "Solicitação de glosa administrativa",
-  "24": "Falta de autorização prévia",
-  "25": "Beneficiário não identificado",
-  "26": "Prestador não credenciado",
-  "27": "Divergência de dados cadastrais",
-  "28": "Guia não localizada",
-  "29": "Procedimento não compatível com CID",
-  "30": "Número de guia inválido",
-  "31": "Data de atendimento inválida",
-  "32": "Incompatibilidade de sexo",
-  "33": "Incompatibilidade de idade",
-  "34": "Procedimento experimental",
-  "35": "Falta de laudo médico",
-  "36": "Código TUSS inválido",
-  "37": "Quantidade de diárias excedida",
-  "38": "Cobrança de material sem autorização",
-  "39": "Cobrança de medicamento sem autorização",
-  "40": "Valor de honorário acima do contratado",
-  "41": "Procedimento não realizado",
-  "42": "Cobrança em duplicidade",
-  "43": "Prazo de recurso expirado",
-  "44": "Glosa técnica",
-  "45": "Glosa por auditoria",
-  "46": "Inconsistência no faturamento",
-  "47": "Falta de relatório médico",
-  "48": "Procedimento não compatível com especialidade",
-  "49": "Cobrança de OPME sem autorização",
-  "50": "Divergência de valores",
+// Nota: Os códigos TISS reais são resolvidos via LEFT JOIN motivosGlosa na query SQL.
+// Este fallback é usado apenas quando a tabela não tem o código cadastrado.
+
+// Mapeamento de textos descritivos do IPASGO para categorias padronizadas
+const IPASGO_CATEGORIAS: Record<string, { grupo: string; simplificado: string }> = {
+  "AUDITORIA IN LOCO NÃO CONSTA NO RAH": { grupo: "Administrativa", simplificado: "Auditoria in loco" },
+  "GUIA VENCIDA": { grupo: "Administrativa", simplificado: "Guia vencida" },
+  "COBRANÇA DE DIÁRIA INCOMPATÍVEL COM AUTORIZAÇÃO": { grupo: "Administrativa", simplificado: "Diária incompatível" },
+  "DOCUMENTAÇÃO INCOMPLETA, INCORRETA OU AUSENTE": { grupo: "Documentação", simplificado: "Documentação incompleta" },
+  "ASSINATURA DO CREDENCIADO INEXISTENTE": { grupo: "Documentação", simplificado: "Falta assinatura credenciado" },
+  "ASSINATURA DO TITULAR / RESPONSÁVEL INEXISTENTE": { grupo: "Documentação", simplificado: "Falta assinatura titular" },
+  "PROCEDIMENTO LIBERADO PARA TIPO DE PRESTADOR DIFERENTE DA COBRANÇA": { grupo: "Técnica", simplificado: "Tipo prestador divergente" },
+  "VALIDADE DA GUIA EXPIRADA": { grupo: "Administrativa", simplificado: "Guia expirada" },
+  "PROCEDIMENTO NÃO INDICADO": { grupo: "Técnica", simplificado: "Procedimento não indicado" },
+  "QUANTIDADE APRESENTADA DO PROCEDIMENTO MAIOR QUE A MAXIMA PERMITIDA": { grupo: "Cobrança", simplificado: "Quantidade excedida" },
+  "ATENDIMENTO APÓS O DESLIGAMENTO DO BENEFICIÁRIO": { grupo: "Elegibilidade", simplificado: "Beneficiário desligado" },
+  "COBRANÇA DE PROCEDIMENTO EM DUPLICIDADE": { grupo: "Cobrança", simplificado: "Duplicidade" },
+  "NÃO EXISTE INFORMAÇÃO SOBRE A SENHA DE AUTORIZAÇÃO": { grupo: "Autorização", simplificado: "Sem senha autorização" },
+  "COBRANÇA DE INSUMO INDEVIDA DE ACORDO COM A REGRA DE MAIOR VALOR": { grupo: "Cobrança", simplificado: "Insumo indevido" },
 };
+
+function isCodigoNumerico(codigo: string): boolean {
+  return /^\d+$/.test(codigo.trim());
+}
 
 function getMotivoDescricao(codigo: string | null): string {
   if (!codigo) return "Sem motivo - GLOSADO";
-  const codigos = codigo.split(/[,;|\/]/).map(c => c.trim());
-  const descricoes = codigos.map(c => {
-    const desc = MOTIVOS_GLOSA[c];
-    return desc ? `${c} - ${desc}` : c;
-  });
-  return descricoes.join("; ");
+  // Se é texto descritivo (IPASGO), retornar a descrição simplificada
+  if (!isCodigoNumerico(codigo)) {
+    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
+    return ipasgo ? ipasgo.simplificado : codigo;
+  }
+  // Código numérico sem descrição na tabela - retornar apenas o código
+  return codigo;
 }
 
-// Categorias de glosa para filtro
-const CATEGORIAS_GLOSA: Record<string, string[]> = {
-  "Elegibilidade": ["16", "17", "25", "27", "32", "33"],
-  "Autorização": ["13", "14", "24", "28", "30", "31"],
-  "Valorização": ["22", "40", "50"],
-  "Cobrança": ["19", "21", "42", "46"],
-  "Documentação": ["15", "35", "47"],
-  "Técnica": ["29", "34", "44", "45", "48"],
-  "Administrativa": ["12", "18", "20", "23", "26", "36", "37", "38", "39", "41", "43", "49"],
-};
+function getGrupoFromCodigo(codigo: string | null): string | null {
+  if (!codigo) return null;
+  // Se é texto descritivo (IPASGO), buscar grupo no mapeamento
+  if (!isCodigoNumerico(codigo)) {
+    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
+    return ipasgo ? ipasgo.grupo : "Outros";
+  }
+  // Para códigos numéricos, o grupo vem da tabela motivosGlosa via JOIN na query SQL
+  return null;
+}
+
+function getDescricaoSimplificada(codigo: string | null): string | null {
+  if (!codigo) return null;
+  if (!isCodigoNumerico(codigo)) {
+    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
+    return ipasgo ? ipasgo.simplificado : codigo.length > 50 ? codigo.substring(0, 50) + '...' : codigo;
+  }
+  return null;
+}
+
+// Categorias de glosa - grupos reais da tabela TISS + IPASGO
+const CATEGORIAS_GLOSA_FIXAS: string[] = [
+  "Beneficiário",
+  "Guia/Autorização",
+  "Guia/Documentação",
+  "Procedimento/Cobrança",
+  "Procedimento/Autorização",
+  "Procedimento/Diagnóstico",
+  "Honorários",
+  "Honorários/Procedimentos",
+  "Material",
+  "Medicamento",
+  "OPME",
+  "Acomodação/Diárias",
+  "Prestador/Profissional",
+  "Mensagem Eletrônica/Validação",
+  "Administrativa",
+  "Documentação",
+  "Técnica",
+  "Cobrança",
+  "Autorização",
+  "Elegibilidade",
+  "Outros",
+];
+
 
 export const relatoriosGlosasBiRouter = router({
   // KPIs gerais
@@ -371,20 +389,38 @@ export const relatoriosGlosasBiRouter = router({
           LIMIT ${limite}
         `, params);
 
-        return rows.map(r => ({
-          codigoGlosa: r.codigo_glosa,
-          descricao: r.descricao_dicionario
-            ? `${r.codigo_glosa} - ${r.descricao_dicionario}`
-            : getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa),
-          grupo: r.grupo_dicionario || null,
-          descricaoSimplificada: r.descricao_simplificada || null,
-          totalGlosados: Number(r.total_glosados),
-          totalGlosa: Number(r.total_glosa),
-          totalRecuperado: Number(r.total_recuperado),
-          taxaRecuperacao: r.total_glosa > 0
-            ? Number(((Number(r.total_recuperado) / Number(r.total_glosa)) * 100).toFixed(2))
-            : 0,
-        }));
+        return rows.map(r => {
+          const cod = r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa;
+          const isNumerico = cod ? isCodigoNumerico(cod) : false;
+          let descricao: string;
+          let grupo: string | null;
+          let descSimplificada: string | null;
+
+          if (r.descricao_dicionario) {
+            // Encontrou na tabela motivosGlosa
+            descricao = isNumerico ? `${cod} - ${r.descricao_dicionario}` : r.descricao_dicionario;
+            grupo = r.grupo_dicionario || getGrupoFromCodigo(cod);
+            descSimplificada = r.descricao_simplificada || getDescricaoSimplificada(cod);
+          } else {
+            // Não encontrou na tabela - resolver localmente
+            descricao = getMotivoDescricao(cod);
+            grupo = getGrupoFromCodigo(cod);
+            descSimplificada = getDescricaoSimplificada(cod);
+          }
+
+          return {
+            codigoGlosa: r.codigo_glosa,
+            descricao,
+            grupo,
+            descricaoSimplificada: descSimplificada,
+            totalGlosados: Number(r.total_glosados),
+            totalGlosa: Number(r.total_glosa),
+            totalRecuperado: Number(r.total_recuperado),
+            taxaRecuperacao: r.total_glosa > 0
+              ? Number(((Number(r.total_recuperado) / Number(r.total_glosa)) * 100).toFixed(2))
+              : 0,
+          };
+        });
       } finally {
         await conn.end();
       }
@@ -821,7 +857,7 @@ export const relatoriosGlosasBiRouter = router({
           convenios: convenios.map(c => ({ id: c.id, nome: c.nome })),
           competencias: competencias.map(c => c.competencia),
           tiposLancamento: tipos.map(t => t.tipo_lancamento),
-          categoriasGlosa: Object.keys(CATEGORIAS_GLOSA),
+          categoriasGlosa: CATEGORIAS_GLOSA_FIXAS,
         };
       } finally {
         await conn.end();
