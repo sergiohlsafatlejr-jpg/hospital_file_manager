@@ -75,11 +75,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
         if (input.tipoLancamento) {
@@ -190,15 +190,15 @@ export const relatoriosGlosasBiRouter = router({
         const mesesLimite = Math.max(1, Math.min(60, Number(input.meses) || 12));
         const [demoRows] = await conn.execute<any[]>(`
           SELECT
-            DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
+            DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') as competencia,
             COUNT(CASE WHEN d.valor_glosa > 0 THEN 1 END) as total_glosados,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
             COUNT(DISTINCT d.numero_guia) as total_guias
           FROM demonstrativo d
           ${demoWhere}
-          AND d.data_referencia IS NOT NULL
-          GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m')
+          AND COALESCE(d.data_referencia, d.data_pagamento) IS NOT NULL
+          GROUP BY DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m')
           ORDER BY competencia DESC
           LIMIT ${mesesLimite}
         `, demoParams);;
@@ -266,11 +266,11 @@ export const relatoriosGlosasBiRouter = router({
         const params: any[] = [input.estabelecimentoId];
         let where = "WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0";
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
 
@@ -329,11 +329,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
         const limite = Math.max(1, Math.min(100, Number(input.limite) || 20));
@@ -410,11 +410,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
 
@@ -463,11 +463,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
 
@@ -521,11 +521,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
         const limiteItem = Math.max(1, Math.min(200, Number(input.limite) || 20));
@@ -584,11 +584,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
         if (input.status) {
@@ -626,7 +626,7 @@ export const relatoriosGlosasBiRouter = router({
             d.recurso_status,
             d.recurso_id,
             d.classificacao_glosa,
-            d.data_referencia,
+            COALESCE(d.data_referencia, d.data_pagamento) as data_referencia,
             d.data_execucao,
             c.nome as convenio_nome,
             rg.status as recurso_status_detalhe,
@@ -699,11 +699,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
 
@@ -755,13 +755,13 @@ export const relatoriosGlosasBiRouter = router({
       try {
         const [rows] = await conn.execute<any[]>(`
           SELECT
-            DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
+            DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') as competencia,
             COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
             COUNT(*) as total_glosados,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
           FROM demonstrativo d
           WHERE d.estabelecimentoId = ? AND d.convenio_id = ? AND d.valor_glosa > 0
-          GROUP BY DATE_FORMAT(d.data_referencia, '%Y/%m'), d.codigo_glosa
+          GROUP BY DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m'), d.codigo_glosa
           ORDER BY competencia DESC, total_glosa DESC
           LIMIT ${Math.max(1, Math.min(5000, Number(input.meses) * 20 || 240))}
         `, [input.estabelecimentoId, input.convenioId]);
@@ -805,9 +805,9 @@ export const relatoriosGlosasBiRouter = router({
         `, estabParams);
 
         const [competencias] = await conn.execute<any[]>(`
-          SELECT DISTINCT DATE_FORMAT(data_referencia, '%Y/%m') as competencia
+          SELECT DISTINCT DATE_FORMAT(COALESCE(data_referencia, data_pagamento), '%Y/%m') as competencia
           FROM demonstrativo
-          WHERE valor_glosa > 0 ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
+          WHERE valor_glosa > 0 AND COALESCE(data_referencia, data_pagamento) IS NOT NULL ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
           ORDER BY competencia DESC
         `, estabParams);
 
@@ -850,11 +850,11 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.convenioId);
         }
         if (input.competenciaInicio) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') >= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
           params.push(input.competenciaInicio);
         }
         if (input.competenciaFim) {
-          where += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') <= ?";
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
           params.push(input.competenciaFim);
         }
 
@@ -867,8 +867,8 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN d.recurso_status IN ('recurso_criado','recurso_enviado') THEN 1 ELSE 0 END) as recursos_em_andamento,
             GROUP_CONCAT(DISTINCT d.tipo_lancamento ORDER BY d.tipo_lancamento SEPARATOR ', ') as tipos_lancamento,
             GROUP_CONCAT(DISTINCT c.nome ORDER BY c.nome SEPARATOR ', ') as convenios_afetados,
-            MIN(DATE_FORMAT(d.data_referencia, '%Y/%m')) as competencia_inicio,
-            MAX(DATE_FORMAT(d.data_referencia, '%Y/%m')) as competencia_fim
+            MIN(DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m')) as competencia_inicio,
+            MAX(DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m')) as competencia_fim
           FROM demonstrativo d
           LEFT JOIN convenios c ON c.id = d.convenio_id
           ${where}
@@ -1025,7 +1025,7 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
       try {
         const getKpiMes = async (competencia: string) => {
           const params: any[] = [input.estabelecimentoId, competencia];
-          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ?";
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') = ?";
           if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
           const [rows] = await conn.execute<any[]>(`
             SELECT
@@ -1054,7 +1054,7 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
 
         const getTopMotivos = async (competencia: string) => {
           const params: any[] = [input.estabelecimentoId, competencia];
-          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ? AND d.valor_glosa > 0";
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') = ? AND d.valor_glosa > 0";
           if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
           const [rows] = await conn.execute<any[]>(`
             SELECT
@@ -1068,7 +1068,7 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
 
         const getTopConvenios = async (competencia: string) => {
           const params: any[] = [input.estabelecimentoId, competencia];
-          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ? AND d.valor_glosa > 0";
+          let where = "WHERE d.estabelecimentoId = ? AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') = ? AND d.valor_glosa > 0";
           if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
           const [rows] = await conn.execute<any[]>(`
             SELECT c.nome as convenio, SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa

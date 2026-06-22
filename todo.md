@@ -3962,3 +3962,7 @@
 - [x] Criar mapeamento de-para dos textos descritivos de glosa do IPASGO para códigos TISS padronizados
 - [x] Backfill: converter textos descritivos do IPASGO no banco (demonstrativo.codigo_glosa) para códigos TISS numéricos
 - [x] Parser IPASGO: converter texto descritivo para código TISS no momento da importação (futuras importações)
+- [x] Cerrado: Preencher data_referencia NULL com data_pagamento para que os períodos apareçam no relatório BI
+- [x] Cerrado: Converter textos de erro_tiss (DOCUMENTAÇÃO INCOMPLETA, MATERIAL INVÁLIDO, etc.) para códigos TISS no campo codigo_glosa
+- [x] Cerrado: Criar código 9997 (Material inválido) e 9996 (Desacordo com documentação) na tabela motivosGlosa
+- [x] Router Relatórios BI: Usar COALESCE(data_referencia, data_pagamento) em todas as queries para suportar convênios sem data_referencia
