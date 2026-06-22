@@ -9,8 +9,9 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, AlertTriangle, DollarSign, BarChart3,
-  Download, FileText, Presentation, ArrowLeftRight, Loader2, Sparkles,
+  Download, FileText, Presentation, ArrowLeftRight, Loader2, Sparkles, List,
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -83,6 +84,9 @@ export default function RelatoriosGlosasBi() {
 
   const codigoInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 20 }), [estabId, convenioId, competenciaInicio]);
   const { data: porCodigo } = trpc.relatoriosGlosasBi.porCodigo.useQuery(codigoInput, { enabled: hasEstab });
+
+  const motivosPorItemInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 50 }), [estabId, convenioId, competenciaInicio]);
+  const { data: motivosPorItem } = trpc.relatoriosGlosasBi.motivosPorItem.useQuery(motivosPorItemInput, { enabled: hasEstab });
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
     onSuccess: (data) => { setComparativoResult(data); setComparativoLoading(false); },
@@ -299,8 +303,19 @@ export default function RelatoriosGlosasBi() {
           )}
         </div>
 
-        {/* TOP MOTIVOS DE GLOSA */}
-        <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
+        {/* ABAS: TOP MOTIVOS / MOTIVOS POR ITEM */}
+        <Tabs defaultValue="topMotivos" className="mb-6">
+          <TabsList style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", padding: 4 }} className="mb-4">
+            <TabsTrigger value="topMotivos" style={{ color: "#6b8cae" }} className="data-[state=active]:bg-[#1e3a5f] data-[state=active]:text-[#4fc3f7]">
+              <BarChart3 size={14} className="mr-1" /> Top Motivos
+            </TabsTrigger>
+            <TabsTrigger value="motivosPorItem" style={{ color: "#6b8cae" }} className="data-[state=active]:bg-[#1e3a5f] data-[state=active]:text-[#4fc3f7]">
+              <List size={14} className="mr-1" /> Motivos por Item
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="topMotivos">
+        <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <span style={{ color: "#ef5350" }}>🔴</span>
             <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
@@ -367,6 +382,82 @@ export default function RelatoriosGlosasBi() {
             </div>
           )}
         </div>
+          </TabsContent>
+
+          <TabsContent value="motivosPorItem">
+            <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <List size={16} style={{ color: "#ce93d8" }} />
+                <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
+                  MOTIVOS DE GLOSA POR ITEM
+                </span>
+                {motivosPorItem?.totalGeral && (
+                  <span className="ml-auto text-xs" style={{ color: "#6b8cae" }}>
+                    Total geral: {fmtCurrency(motivosPorItem.totalGeral)}
+                  </span>
+                )}
+              </div>
+              {motivosPorItem?.items?.length ? (
+                <div className="overflow-x-auto">
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
+                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Cód. Glosa</th>
+                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Motivo</th>
+                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Descrição do Item</th>
+                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Tipo</th>
+                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Qtd</th>
+                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Vl Glosado</th>
+                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>% Glosa</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {motivosPorItem.items.map((r: any, i: number) => (
+                        <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }} className="hover:bg-[#0d2a3a] transition-colors">
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                            {r.codigoGlosa === 'S/MOTIVO' ? (
+                              <span style={{ color: "#ffb74d", fontSize: 11, fontWeight: 600, background: "#3e2723", padding: "2px 8px", borderRadius: 4 }}>S/MOTIVO</span>
+                            ) : (
+                              <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
+                            )}
+                          </td>
+                          <td style={{ color: "#e8f4fd", padding: "10px 12px", maxWidth: 200 }}>
+                            <span title={r.descricaoGlosa} style={{ fontSize: 12 }}>
+                              {r.descricaoGlosa?.length > 40 ? r.descricaoGlosa.substring(0, 40) + "…" : r.descricaoGlosa}
+                            </span>
+                          </td>
+                          <td style={{ color: "#e8f4fd", padding: "10px 12px", maxWidth: 250 }}>
+                            <span title={r.descricaoItem} style={{ fontSize: 12 }}>
+                              {r.descricaoItem?.length > 50 ? r.descricaoItem.substring(0, 50) + "…" : (r.descricaoItem || '—')}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#1e3a5f", color: "#4fc3f7" }}>
+                              {r.tipoLancamento || '—'}
+                            </span>
+                          </td>
+                          <td style={{ color: "#6b8cae", textAlign: "right", padding: "10px 12px" }}>
+                            {r.qtdItens}
+                          </td>
+                          <td style={{ color: "#ef5350", textAlign: "right", padding: "10px 12px", fontWeight: 600 }}>
+                            {fmtCurrency(r.totalGlosa)}
+                          </td>
+                          <td style={{ color: "#ffb74d", textAlign: "right", padding: "10px 12px" }}>
+                            {r.percentualGlosa.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-20" style={{ color: "#6b8cae" }}>
+                  Sem dados de motivos por item
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
 
         {/* COMPARATIVO IA (loading) */}
         {comparativoLoading && (

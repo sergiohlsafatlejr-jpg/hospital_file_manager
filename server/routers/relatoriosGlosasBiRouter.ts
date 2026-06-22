@@ -1186,4 +1186,86 @@ VARIAÇÕES:
         await conn.end();
       }
     }),
+
+  // Motivos de glosa por item (código glosa + descrição item + valor glosado + %)
+  motivosPorItem: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      competenciaInicio: z.string().optional(),
+      competenciaFim: z.string().optional(),
+      limite: z.number().default(50),
+    }))
+    .query(async ({ input }) => {
+      const mysql2 = await import("mysql2/promise");
+      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      try {
+        const params: any[] = [];
+        let where = "WHERE d.valor_glosa > 0";
+        if (input.estabelecimentoId > 0) {
+          where += " AND d.estabelecimentoId = ?";
+          params.push(input.estabelecimentoId);
+        }
+        if (input.convenioId) {
+          where += " AND d.convenio_id = ?";
+          params.push(input.convenioId);
+        }
+        if (input.competenciaInicio) {
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
+          params.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          where += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
+          params.push(input.competenciaFim);
+        }
+        const limite = Math.max(1, Math.min(500, Number(input.limite) || 50));
+
+        // Buscar total geral de glosa para calcular %
+        const [totalRows] = await conn.execute<any[]>(`
+          SELECT SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_geral
+          FROM demonstrativo d
+          ${where}
+        `, params);
+        const totalGeral = Number(totalRows[0]?.total_geral || 0);
+
+        // Buscar motivos agrupados por código glosa + item
+        const [rows] = await conn.execute<any[]>(`
+          SELECT
+            COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
+            d.codigo_item,
+            d.descricao_item,
+            d.tipo_lancamento,
+            COUNT(*) as qtd_itens,
+            SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
+            SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado
+          FROM demonstrativo d
+          ${where}
+          GROUP BY d.codigo_glosa, d.codigo_item, d.descricao_item, d.tipo_lancamento
+          ORDER BY total_glosa DESC
+          LIMIT ${limite}
+        `, params);
+
+        return {
+          totalGeral,
+          items: rows.map(r => ({
+            codigoGlosa: r.codigo_glosa,
+            descricaoGlosa: getMotivoDescricao(r.codigo_glosa),
+            codigoItem: r.codigo_item,
+            descricaoItem: r.descricao_item,
+            tipoLancamento: r.tipo_lancamento,
+            qtdItens: Number(r.qtd_itens),
+            totalGlosa: Number(r.total_glosa),
+            totalInformado: Number(r.total_informado),
+            percentualGlosa: totalGeral > 0
+              ? Number(((Number(r.total_glosa) / totalGeral) * 100).toFixed(2))
+              : 0,
+            taxaGlosaItem: Number(r.total_informado) > 0
+              ? Number(((Number(r.total_glosa) / Number(r.total_informado)) * 100).toFixed(2))
+              : 0,
+          })),
+        };
+      } finally {
+        await conn.end();
+      }
+    }),
 });
