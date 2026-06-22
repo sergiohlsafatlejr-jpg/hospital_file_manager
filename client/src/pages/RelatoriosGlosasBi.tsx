@@ -304,6 +304,47 @@ export default function RelatoriosGlosasBi() {
           )}
         </div>
 
+        {/* GRÁFICO TOP MOTIVOS DE GLOSA */}
+        {topMotivosComPareto.length > 0 && (
+          <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 size={16} style={{ color: "#ef5350" }} />
+              <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
+                PRINCIPAIS MOTIVOS DE GLOSA
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={Math.max(250, Math.min(topMotivosComPareto.length * 40, 500))}>
+              <BarChart
+                data={topMotivosComPareto.slice(0, 10).map(r => ({
+                  name: r.codigoGlosa === 'S/MOTIVO' ? 'Sem Motivo' : `${r.codigoGlosa} - ${r.descricao?.substring(0, 30) || ''}`,
+                  valor: r.totalGlosa,
+                  pct: r.pct,
+                }))}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 180, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={false} />
+                <XAxis type="number" tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fill: "#e8f4fd", fontSize: 11 }} axisLine={false} tickLine={false} width={175} />
+                <RechartsTooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ color: "#e8f4fd", fontSize: 12, marginBottom: 4 }}>{d.name}</p>
+                        <p style={{ color: "#ef5350", fontSize: 12 }}>Valor: {fmtCurrency(d.valor)}</p>
+                        <p style={{ color: "#ffb74d", fontSize: 12 }}>{d.pct.toFixed(2)}% do total</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="valor" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {/* ABAS: TOP MOTIVOS / MOTIVOS POR ITEM */}
         <Tabs defaultValue="topMotivos" className="mb-6">
           <TabsList style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", padding: 4 }} className="mb-4">
