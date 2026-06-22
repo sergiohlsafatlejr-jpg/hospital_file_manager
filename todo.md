@@ -3958,3 +3958,4 @@
 - [x] Relatórios/telas: exibir motivo de glosa padronizado (já usa LEFT JOIN motivosGlosa na query de leitura)
 - [x] Melhorar relatório de Glosas BI com dados mais confiáveis
 - [x] Padronizar motivos de glosa do IPASGO que estão fora do padrão TISS no relatório
+- [x] Relatório Glosas BI: Corrigir exibição de itens "Sem código - Sem motivo - GLOSADO" — agora exibe "S/MOTIVO" como código e "Glosa sem motivo informado pelo convênio" como descrição, com grupo "Sem Motivo Informado" e badge visual laranja

@@ -28,7 +28,7 @@ function isCodigoNumerico(codigo: string): boolean {
 }
 
 function getMotivoDescricao(codigo: string | null): string {
-  if (!codigo) return "Sem motivo - GLOSADO";
+  if (!codigo) return "Glosa sem motivo informado pelo convênio";
   // Se é texto descritivo (IPASGO), retornar a descrição simplificada
   if (!isCodigoNumerico(codigo)) {
     const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
@@ -39,7 +39,7 @@ function getMotivoDescricao(codigo: string | null): string {
 }
 
 function getGrupoFromCodigo(codigo: string | null): string | null {
-  if (!codigo) return null;
+  if (!codigo) return "Sem Motivo Informado";
   // Se é texto descritivo (IPASGO), buscar grupo no mapeamento
   if (!isCodigoNumerico(codigo)) {
     const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
@@ -50,7 +50,7 @@ function getGrupoFromCodigo(codigo: string | null): string | null {
 }
 
 function getDescricaoSimplificada(codigo: string | null): string | null {
-  if (!codigo) return null;
+  if (!codigo) return "Sem motivo informado";
   if (!isCodigoNumerico(codigo)) {
     const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
     return ipasgo ? ipasgo.simplificado : codigo.length > 50 ? codigo.substring(0, 50) + '...' : codigo;
@@ -374,7 +374,7 @@ export const relatoriosGlosasBiRouter = router({
         const limite = Math.max(1, Math.min(100, Number(input.limite) || 20));
         const [rows] = await conn.execute<any[]>(`
           SELECT
-            COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+            COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
             mg.descricao as descricao_dicionario,
             mg.grupo as grupo_dicionario,
             mg.descricaoSimplificada as descricao_simplificada,
@@ -390,7 +390,7 @@ export const relatoriosGlosasBiRouter = router({
         `, params);
 
         return rows.map(r => {
-          const cod = r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa;
+          const cod = r.codigo_glosa === 'S/MOTIVO' ? null : r.codigo_glosa;
           const isNumerico = cod ? isCodigoNumerico(cod) : false;
           let descricao: string;
           let grupo: string | null;
@@ -791,7 +791,7 @@ export const relatoriosGlosasBiRouter = router({
         const [rows] = await conn.execute<any[]>(`
           SELECT
             DATE_FORMAT(d.data_referencia, '%Y/%m') as competencia,
-            COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+            COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
             COUNT(*) as total_glosados,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
           FROM demonstrativo d
@@ -807,7 +807,7 @@ export const relatoriosGlosasBiRouter = router({
           if (!porCompetencia[r.competencia]) porCompetencia[r.competencia] = [];
           porCompetencia[r.competencia].push({
             codigoGlosa: r.codigo_glosa,
-            descricao: getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa),
+            descricao: getMotivoDescricao(r.codigo_glosa === 'S/MOTIVO' ? null : r.codigo_glosa),
             totalGlosados: Number(r.total_glosados),
             totalGlosa: Number(r.total_glosa),
           });
@@ -1093,12 +1093,12 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
           if (input.convenioId) { where += " AND d.convenio_id = ?"; params.push(input.convenioId); }
           const [rows] = await conn.execute<any[]>(`
             SELECT
-              COALESCE(d.codigo_glosa, 'Sem código') as codigo_glosa,
+              COALESCE(d.codigo_glosa, 'S/MOTIVO') as codigo_glosa,
               SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa
             FROM demonstrativo d ${where}
             GROUP BY d.codigo_glosa ORDER BY total_glosa DESC LIMIT 5
           `, params);
-          return rows.map(r => ({ codigo: r.codigo_glosa, descricao: getMotivoDescricao(r.codigo_glosa === 'Sem código' ? null : r.codigo_glosa), valor: Number(r.total_glosa) }));
+          return rows.map(r => ({ codigo: r.codigo_glosa, descricao: getMotivoDescricao(r.codigo_glosa === 'S/MOTIVO' ? null : r.codigo_glosa), valor: Number(r.total_glosa) }));
         };
 
         const getTopConvenios = async (competencia: string) => {

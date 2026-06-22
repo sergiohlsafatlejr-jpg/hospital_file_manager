@@ -323,7 +323,11 @@ export default function RelatoriosGlosasBi() {
                   {topMotivosComPareto.map((r, i) => (
                     <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }} className="hover:bg-[#0d2a3a] transition-colors">
                       <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                        <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
+                        {r.codigoGlosa === 'S/MOTIVO' ? (
+                          <span style={{ color: "#ffb74d", fontSize: 11, fontWeight: 600, background: "#3e2723", padding: "2px 8px", borderRadius: 4 }}>S/MOTIVO</span>
+                        ) : (
+                          <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
+                        )}
                       </td>
                       <td style={{ color: "#e8f4fd", padding: "10px 12px" }}>
                         <div className="flex flex-col gap-1">
