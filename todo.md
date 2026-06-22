@@ -3959,3 +3959,6 @@
 - [x] Melhorar relatório de Glosas BI com dados mais confiáveis
 - [x] Padronizar motivos de glosa do IPASGO que estão fora do padrão TISS no relatório
 - [x] Relatório Glosas BI: Corrigir exibição de itens "Sem código - Sem motivo - GLOSADO" — agora exibe "S/MOTIVO" como código e "Glosa sem motivo informado pelo convênio" como descrição, com grupo "Sem Motivo Informado" e badge visual laranja
+- [x] Criar mapeamento de-para dos textos descritivos de glosa do IPASGO para códigos TISS padronizados
+- [x] Backfill: converter textos descritivos do IPASGO no banco (demonstrativo.codigo_glosa) para códigos TISS numéricos
+- [x] Parser IPASGO: converter texto descritivo para código TISS no momento da importação (futuras importações)

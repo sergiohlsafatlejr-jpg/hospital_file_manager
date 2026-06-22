@@ -3,58 +3,23 @@ import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
 
 // Nota: Os códigos TISS reais são resolvidos via LEFT JOIN motivosGlosa na query SQL.
-// Este fallback é usado apenas quando a tabela não tem o código cadastrado.
-
-// Mapeamento de textos descritivos do IPASGO para categorias padronizadas
-const IPASGO_CATEGORIAS: Record<string, { grupo: string; simplificado: string }> = {
-  "AUDITORIA IN LOCO NÃO CONSTA NO RAH": { grupo: "Administrativa", simplificado: "Auditoria in loco" },
-  "GUIA VENCIDA": { grupo: "Administrativa", simplificado: "Guia vencida" },
-  "COBRANÇA DE DIÁRIA INCOMPATÍVEL COM AUTORIZAÇÃO": { grupo: "Administrativa", simplificado: "Diária incompatível" },
-  "DOCUMENTAÇÃO INCOMPLETA, INCORRETA OU AUSENTE": { grupo: "Documentação", simplificado: "Documentação incompleta" },
-  "ASSINATURA DO CREDENCIADO INEXISTENTE": { grupo: "Documentação", simplificado: "Falta assinatura credenciado" },
-  "ASSINATURA DO TITULAR / RESPONSÁVEL INEXISTENTE": { grupo: "Documentação", simplificado: "Falta assinatura titular" },
-  "PROCEDIMENTO LIBERADO PARA TIPO DE PRESTADOR DIFERENTE DA COBRANÇA": { grupo: "Técnica", simplificado: "Tipo prestador divergente" },
-  "VALIDADE DA GUIA EXPIRADA": { grupo: "Administrativa", simplificado: "Guia expirada" },
-  "PROCEDIMENTO NÃO INDICADO": { grupo: "Técnica", simplificado: "Procedimento não indicado" },
-  "QUANTIDADE APRESENTADA DO PROCEDIMENTO MAIOR QUE A MAXIMA PERMITIDA": { grupo: "Cobrança", simplificado: "Quantidade excedida" },
-  "ATENDIMENTO APÓS O DESLIGAMENTO DO BENEFICIÁRIO": { grupo: "Elegibilidade", simplificado: "Beneficiário desligado" },
-  "COBRANÇA DE PROCEDIMENTO EM DUPLICIDADE": { grupo: "Cobrança", simplificado: "Duplicidade" },
-  "NÃO EXISTE INFORMAÇÃO SOBRE A SENHA DE AUTORIZAÇÃO": { grupo: "Autorização", simplificado: "Sem senha autorização" },
-  "COBRANÇA DE INSUMO INDEVIDA DE ACORDO COM A REGRA DE MAIOR VALOR": { grupo: "Cobrança", simplificado: "Insumo indevido" },
-};
-
-function isCodigoNumerico(codigo: string): boolean {
-  return /^\d+$/.test(codigo.trim());
-}
+// Textos descritivos do IPASGO já foram convertidos para códigos TISS no banco (backfill)
+// e o parser converte automaticamente em novas importações.
 
 function getMotivoDescricao(codigo: string | null): string {
   if (!codigo) return "Glosa sem motivo informado pelo convênio";
-  // Se é texto descritivo (IPASGO), retornar a descrição simplificada
-  if (!isCodigoNumerico(codigo)) {
-    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
-    return ipasgo ? ipasgo.simplificado : codigo;
-  }
   // Código numérico sem descrição na tabela - retornar apenas o código
   return codigo;
 }
 
 function getGrupoFromCodigo(codigo: string | null): string | null {
   if (!codigo) return "Sem Motivo Informado";
-  // Se é texto descritivo (IPASGO), buscar grupo no mapeamento
-  if (!isCodigoNumerico(codigo)) {
-    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
-    return ipasgo ? ipasgo.grupo : "Outros";
-  }
   // Para códigos numéricos, o grupo vem da tabela motivosGlosa via JOIN na query SQL
   return null;
 }
 
 function getDescricaoSimplificada(codigo: string | null): string | null {
   if (!codigo) return "Sem motivo informado";
-  if (!isCodigoNumerico(codigo)) {
-    const ipasgo = IPASGO_CATEGORIAS[codigo.toUpperCase()];
-    return ipasgo ? ipasgo.simplificado : codigo.length > 50 ? codigo.substring(0, 50) + '...' : codigo;
-  }
   return null;
 }
 
@@ -391,7 +356,7 @@ export const relatoriosGlosasBiRouter = router({
 
         return rows.map(r => {
           const cod = r.codigo_glosa === 'S/MOTIVO' ? null : r.codigo_glosa;
-          const isNumerico = cod ? isCodigoNumerico(cod) : false;
+          const isNumerico = cod ? /^\d+$/.test(cod.trim()) : false;
           let descricao: string;
           let grupo: string | null;
           let descSimplificada: string | null;

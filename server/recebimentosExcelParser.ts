@@ -366,6 +366,30 @@ export function extractRecebimentoExcelFromRow(
     }
   }
   
+  // CORREÇÃO IPASGO: Converter texto descritivo de glosa para código TISS padronizado
+  if (record.codigoGlosa && !/^\d+$/.test(record.codigoGlosa.trim())) {
+    const IPASGO_TEXTO_PARA_CODIGO: Record<string, string> = {
+      "AUDITORIA IN LOCO NÃO CONSTA NO RAH": "3018",
+      "GUIA VENCIDA": "1701",
+      "COBRANÇA DE DIÁRIA INCOMPATÍVEL COM AUTORIZAÇÃO": "1914",
+      "DOCUMENTAÇÃO INCOMPLETA, INCORRETA OU AUSENTE": "9998",
+      "ASSINATURA DO CREDENCIADO INEXISTENTE": "1314",
+      "ASSINATURA DO TITULAR / RESPONSÁVEL INEXISTENTE": "1010",
+      "PROCEDIMENTO LIBERADO PARA TIPO DE PRESTADOR DIFERENTE DA COBRANÇA": "1402",
+      "VALIDADE DA GUIA EXPIRADA": "1701",
+      "PROCEDIMENTO NÃO INDICADO": "1815",
+      "QUANTIDADE APRESENTADA DO PROCEDIMENTO MAIOR QUE A MAXIMA PERMITIDA": "1820",
+      "ATENDIMENTO APÓS O DESLIGAMENTO DO BENEFICIÁRIO": "1006",
+      "COBRANÇA DE PROCEDIMENTO EM DUPLICIDADE": "1702",
+      "NÃO EXISTE INFORMAÇÃO SOBRE A SENHA DE AUTORIZAÇÃO": "1403",
+      "COBRANÇA DE INSUMO INDEVIDA DE ACORDO COM A REGRA DE MAIOR VALOR": "1728",
+    };
+    const codigoConvertido = IPASGO_TEXTO_PARA_CODIGO[record.codigoGlosa.trim().toUpperCase()];
+    if (codigoConvertido) {
+      record.codigoGlosa = codigoConvertido;
+    }
+  }
+
   // CORREÇÃO IPASGO: Calcular valorInformado como VALOR_UNITARIO × QUANTIDADE
   // O IPASGO mapeia VALOR_UNITARIO para valorInformado, mas o valor cobrado real
   // é VALOR_UNITARIO × QUANTIDADE. Corrigir quando quantidade > 1.
