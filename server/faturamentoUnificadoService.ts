@@ -1141,6 +1141,18 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
+  // PASSO 3.5: Carregar mapa de motivos de glosa para resolução automática
+  // -------------------------------------------------------
+  const [motivosRows] = await db.execute(sql.raw(
+    `SELECT codigo, descricao FROM motivosGlosa WHERE ativo = 'sim'`
+  ));
+  const mapaMotivosGlosa = new Map<string, string>();
+  for (const m of motivosRows as unknown as any[]) {
+    mapaMotivosGlosa.set(String(m.codigo), String(m.descricao));
+  }
+  console.log(`[Conciliacao] ${mapaMotivosGlosa.size} motivos de glosa carregados`);
+
+  // -------------------------------------------------------
   // PASSO 4: Indexar recebimentos para busca rápida
   // -------------------------------------------------------
   // Índice por guia+código → lista de recebimentos
@@ -1384,6 +1396,11 @@ export async function executarConciliacaoAutomatica(params: {
       // Código e motivo da glosa
       if (recMatch.codigoGlosa) {
         baseInsert.codigoGlosa = String(recMatch.codigoGlosa);
+        // Resolver descrição do motivo a partir da tabela motivosGlosa
+        const descMotivo = mapaMotivosGlosa.get(String(recMatch.codigoGlosa));
+        if (descMotivo) {
+          baseInsert.motivoGlosa = descMotivo;
+        }
       }
 
       const origemRec = recMatch._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
@@ -1576,7 +1593,11 @@ export async function executarConciliacaoAutomatica(params: {
 
         // Enriquecer com dados do recebimento
         if (recAgrupado.nomeBeneficiario) ins.pacienteNome = String(recAgrupado.nomeBeneficiario);
-        if (recAgrupado.codigoGlosa) ins.codigoGlosa = String(recAgrupado.codigoGlosa);
+        if (recAgrupado.codigoGlosa) {
+          ins.codigoGlosa = String(recAgrupado.codigoGlosa);
+          const descMotivo = mapaMotivosGlosa.get(String(recAgrupado.codigoGlosa));
+          if (descMotivo) ins.motivoGlosa = descMotivo;
+        }
 
         ins.recebimentoId = recAgrupado.id;
         ins.recebimentoOrigem = recAgrupado._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
@@ -1680,6 +1701,8 @@ export async function executarConciliacaoAutomatica(params: {
         const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa);
         if (recComGlosa && !ins.codigoGlosa) {
           ins.codigoGlosa = String(recComGlosa.codigoGlosa);
+          const descMotivo = mapaMotivosGlosa.get(String(recComGlosa.codigoGlosa));
+          if (descMotivo) ins.motivoGlosa = descMotivo;
         }
         if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
@@ -1688,9 +1711,11 @@ export async function executarConciliacaoAutomatica(params: {
       } else if (somaValorGlosa > 0 && somaValorPago > 0 && somaValorPago < ins.valorFaturado) {
         // Glosa parcial: convênio pagou parcialmente com glosa explícita
         ins.statusConciliacao = 'glosa_parcial';
-        const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa);
-        if (recComGlosa && !ins.codigoGlosa) {
-          ins.codigoGlosa = String(recComGlosa.codigoGlosa);
+        const recComGlosa2 = recebimentosAgrupados.find(r => r.codigoGlosa);
+        if (recComGlosa2 && !ins.codigoGlosa) {
+          ins.codigoGlosa = String(recComGlosa2.codigoGlosa);
+          const descMotivo = mapaMotivosGlosa.get(String(recComGlosa2.codigoGlosa));
+          if (descMotivo) ins.motivoGlosa = descMotivo;
         }
         if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';

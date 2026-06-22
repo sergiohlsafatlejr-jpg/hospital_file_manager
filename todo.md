@@ -3951,3 +3951,8 @@
 - [x] Conciliação Cruzada (agrupada por guia): Adicionar tag "Itens Desassociados" com contagem (laranja se >0, verde se =0)
 - [x] Conciliação Cruzada: Ajustar lógica de itens desassociados para incluir glosa_total sem recebimentoId (faturado sem demonstrativo) + acrescimo (demonstrativo sem faturado)
 - [x] Conciliação Cruzada (agrupada por guia): Adicionar terceiro status "Sem Pagamento" para guias onde nenhum item teve correspondência no demonstrativo
+- [ ] Conciliação Cruzada: Motor de conciliação deve respeitar quantidade (match 1:1 entre faturado e demonstrativo por código+guia). Se faturado tem 2x mesmo código mas demonstrativo só tem 1x, a segunda ocorrência fica desassociada.
+- [x] Cadastrar códigos de glosa faltantes (3108, 1799) na tabela motivosGlosa
+- [x] Motor de conciliação: preencher motivoGlosa automaticamente a partir da tabela motivosGlosa quando codigoGlosa é atribuído
+- [x] Atualizar registros existentes no banco (conciliados_automatico) com motivoGlosa preenchido (421.744 registros atualizados)
+- [x] Relatórios/telas: exibir motivo de glosa padronizado (já usa LEFT JOIN motivosGlosa na query de leitura)
