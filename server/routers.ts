@@ -1449,6 +1449,28 @@ export const appRouter = router({
                       } catch (syncError) {
                         console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
                       }
+                      
+                      // CONCILIAÇÃO AUTOMÁTICA: Disparar após importação do XML de retorno
+                      // Usa a competência do arquivo (dataReferencia) para conciliar
+                      try {
+                        const competenciaConc = dataReferenciaUpload
+                          ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                          : undefined;
+                        if (competenciaConc && input.convenioId) {
+                          console.log(`[Upload] Disparando conciliação automática: estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                          const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                          const concResult = await executarConciliacaoAutomatica({
+                            estabelecimentoId: input.estabelecimentoId,
+                            competencia: competenciaConc,
+                            convenioId: input.convenioId,
+                          });
+                          console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                        } else {
+                          console.log('[Upload] Conciliação automática não disparada: falta competência ou convênioId');
+                        }
+                      } catch (concError: any) {
+                        console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
+                      }
                     } else if (recebimentoResult && !recebimentoResult.success) {
                       console.error('[Upload] Erro ao processar recebimento_tiss:', recebimentoResult.error);
                     } else if (recebimentoResult) {

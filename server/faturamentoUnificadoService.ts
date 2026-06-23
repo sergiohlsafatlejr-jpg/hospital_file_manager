@@ -1206,6 +1206,52 @@ export async function executarConciliacaoAutomatica(params: {
   }
 
   // -------------------------------------------------------
+  // PASSO 4.6: Regra Bradesco - Identificar guias pagas por inteiro
+  // O XML de retorno do Bradesco informa pagamento por GUIA (sem codigo_item),
+  // não item a item. Quando o demonstrativo tem uma entrada PAGO sem codigo_item,
+  // significa que a guia inteira foi paga. Nesse caso, todos os itens do faturamento
+  // dessa guia devem ser marcados como "conciliado" automaticamente.
+  // Guias GLOSADO sem codigo_item = guia inteira glosada.
+  // -------------------------------------------------------
+  const guiasPagasInteiras = new Map<string, { valorPago: number; recId: number; origem: string }>(); // guia -> valorPago total
+  const guiasGlosadasInteiras = new Map<string, { valorGlosa: number; codigoGlosa: string | null; recId: number; origem: string }>();
+  
+  for (const rec of itensRecebimento) {
+    const guia = String(rec.numeroGuia || '').trim();
+    const codigo = String(rec.codigoItem || '').trim();
+    const situacao = String(rec.situacao || '').toUpperCase().trim();
+    
+    // Regra: item do demonstrativo SEM codigo_item = pagamento/glosa por guia inteira
+    if (guia && (!codigo || codigo === 'NULL' || codigo === 'null' || codigo === '')) {
+      const valorPago = Number(rec.valorPago) || 0;
+      const valorGlosa = Number(rec.valorGlosa) || 0;
+      
+      if (situacao === 'PAGO' && valorPago > 0) {
+        const existing = guiasPagasInteiras.get(guia);
+        guiasPagasInteiras.set(guia, {
+          valorPago: (existing?.valorPago || 0) + valorPago,
+          recId: rec.id,
+          origem: rec._origem === 'demonstrativo' ? 'demonstrativo' : 'excel'
+        });
+        recebimentosUsados.add(rec.id);
+      } else if (situacao === 'GLOSADO' && valorGlosa > 0) {
+        const existing = guiasGlosadasInteiras.get(guia);
+        guiasGlosadasInteiras.set(guia, {
+          valorGlosa: (existing?.valorGlosa || 0) + valorGlosa,
+          codigoGlosa: rec.codigoGlosa ? String(rec.codigoGlosa) : (existing?.codigoGlosa || null),
+          recId: rec.id,
+          origem: rec._origem === 'demonstrativo' ? 'demonstrativo' : 'excel'
+        });
+        recebimentosUsados.add(rec.id);
+      }
+    }
+  }
+  
+  if (guiasPagasInteiras.size > 0 || guiasGlosadasInteiras.size > 0) {
+    console.log(`[Conciliacao] Regra Bradesco: ${guiasPagasInteiras.size} guias pagas por inteiro, ${guiasGlosadasInteiras.size} guias glosadas por inteiro`);
+  }
+
+  // -------------------------------------------------------
   // PASSO 5: Executar matching para cada item de faturamento
   // -------------------------------------------------------
   // Registros para INSERT na conciliados_automatico
@@ -1243,6 +1289,130 @@ export async function executarConciliacaoAutomatica(params: {
     const codigoTuss = String(fat.codigoItemTuss || '').trim();
     const paciente = normalizarNome(String(fat.pacienteNome || ''));
     const valorFaturado = Number(fat.valorFaturado) || 0;
+
+    // REGRA BRADESCO: Guia paga/glosada por inteiro (demonstrativo sem codigo_item)
+    // Se a guia está no mapa de guias pagas inteiras, marcar como conciliado
+    // Se está no mapa de guias glosadas inteiras, marcar como glosa_total
+    const guiaPagaInteira = guiasPagasInteiras.get(guia);
+    const guiaGlosadaInteira = guiasGlosadasInteiras.get(guia);
+    
+    if (guiaPagaInteira && !guiaGlosadaInteira) {
+      // Guia paga por inteiro: todos os itens são conciliados
+      const descricaoFat = String(fat.descricaoItem || '');
+      const tipoItemFat = String(fat.tipoItem || '');
+      // Distribuir o valor pago proporcionalmente entre os itens da guia
+      inserts.push({
+        faturamentoUnificadoId: fat.id,
+        contaNumero: String(fat.contaNumero || ''),
+        numeroGuia: guia,
+        pacienteNome: String(fat.pacienteNome || ''),
+        convenio: String(fat.convenio || ''),
+        convenioId: fat.convenioId ? Number(fat.convenioId) : null,
+        competencia: String(fat.competencia || ''),
+        codigoItem: codigoItem,
+        codigoItemTuss: codigoTuss,
+        descricaoItem: descricaoFat,
+        tipoItem: tipoItemFat,
+        origemSistema: String(fat.origemSistema || ''),
+        dataExecucao: fat.dataExecucao ? String(fat.dataExecucao).replace('T', ' ').slice(0, 19) : null,
+        codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
+        valorFaturado,
+        quantidade: Number(fat.quantidade) || 0,
+        codigoGlosa: null,
+        motivoGlosa: null,
+        recebimentoId: guiaPagaInteira.recId,
+        recebimentoOrigem: guiaPagaInteira.origem,
+        valorPago: valorFaturado, // Pago = faturado (guia paga inteira)
+        valorGlosa: 0,
+        statusConciliacao: 'conciliado',
+        metodoConciliacao: 'guia_paga_inteira',
+        diferenca: 0,
+        percentualDiferenca: 0,
+      });
+      resultado.totalConciliados++;
+      resultado.detalhes.conciliadosPorGuiaCodigo++;
+      continue;
+    }
+    
+    if (guiaGlosadaInteira) {
+      // Guia glosada por inteiro: todos os itens são glosados
+      // Se também tem pagamento parcial, calcular proporção
+      const descricaoFat = String(fat.descricaoItem || '');
+      const tipoItemFat = String(fat.tipoItem || '');
+      const vlPagoGuia = guiaPagaInteira?.valorPago || 0;
+      const vlGlosaGuia = guiaGlosadaInteira.valorGlosa;
+      const totalGuia = vlPagoGuia + vlGlosaGuia;
+      // Se a guia tem tanto pagamento quanto glosa, é parcial
+      if (vlPagoGuia > 0) {
+        // Glosa parcial: proporção do faturado
+        const propPago = totalGuia > 0 ? vlPagoGuia / totalGuia : 0;
+        const valorPagoItem = Math.round(valorFaturado * propPago * 100) / 100;
+        const valorGlosaItem = valorFaturado - valorPagoItem;
+        inserts.push({
+          faturamentoUnificadoId: fat.id,
+          contaNumero: String(fat.contaNumero || ''),
+          numeroGuia: guia,
+          pacienteNome: String(fat.pacienteNome || ''),
+          convenio: String(fat.convenio || ''),
+          convenioId: fat.convenioId ? Number(fat.convenioId) : null,
+          competencia: String(fat.competencia || ''),
+          codigoItem: codigoItem,
+          codigoItemTuss: codigoTuss,
+          descricaoItem: descricaoFat,
+          tipoItem: tipoItemFat,
+          origemSistema: String(fat.origemSistema || ''),
+          dataExecucao: fat.dataExecucao ? String(fat.dataExecucao).replace('T', ' ').slice(0, 19) : null,
+          codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
+          valorFaturado,
+          quantidade: Number(fat.quantidade) || 0,
+          codigoGlosa: guiaGlosadaInteira.codigoGlosa,
+          motivoGlosa: guiaGlosadaInteira.codigoGlosa ? (mapaMotivosGlosa.get(guiaGlosadaInteira.codigoGlosa) || null) : null,
+          recebimentoId: guiaGlosadaInteira.recId,
+          recebimentoOrigem: guiaGlosadaInteira.origem,
+          valorPago: valorPagoItem,
+          valorGlosa: valorGlosaItem,
+          statusConciliacao: 'glosa_parcial',
+          metodoConciliacao: 'guia_glosa_inteira',
+          diferenca: valorGlosaItem,
+          percentualDiferenca: valorFaturado > 0 ? (valorGlosaItem / valorFaturado) * 100 : 0,
+        });
+        resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+        resultado.totalGlosaParcial++;
+      } else {
+        // Glosa total: guia inteira glosada sem pagamento
+        inserts.push({
+          faturamentoUnificadoId: fat.id,
+          contaNumero: String(fat.contaNumero || ''),
+          numeroGuia: guia,
+          pacienteNome: String(fat.pacienteNome || ''),
+          convenio: String(fat.convenio || ''),
+          convenioId: fat.convenioId ? Number(fat.convenioId) : null,
+          competencia: String(fat.competencia || ''),
+          codigoItem: codigoItem,
+          codigoItemTuss: codigoTuss,
+          descricaoItem: descricaoFat,
+          tipoItem: tipoItemFat,
+          origemSistema: String(fat.origemSistema || ''),
+          dataExecucao: fat.dataExecucao ? String(fat.dataExecucao).replace('T', ' ').slice(0, 19) : null,
+          codigoPrestadorExecutante: (fat as any).codigoPrestadorExecutante ? String((fat as any).codigoPrestadorExecutante) : null,
+          valorFaturado,
+          quantidade: Number(fat.quantidade) || 0,
+          codigoGlosa: guiaGlosadaInteira.codigoGlosa || '9999',
+          motivoGlosa: guiaGlosadaInteira.codigoGlosa ? (mapaMotivosGlosa.get(guiaGlosadaInteira.codigoGlosa) || 'Glosa não informada pela operadora') : 'Glosa não informada pela operadora',
+          recebimentoId: guiaGlosadaInteira.recId,
+          recebimentoOrigem: guiaGlosadaInteira.origem,
+          valorPago: 0,
+          valorGlosa: valorFaturado,
+          statusConciliacao: 'glosa_total',
+          metodoConciliacao: 'guia_glosa_inteira',
+          diferenca: valorFaturado,
+          percentualDiferenca: 100,
+        });
+        resultado.totalGlosados = (resultado.totalGlosados || 0) + 1;
+        resultado.totalGlosaTotal++;
+      }
+      continue;
+    }
 
     // REGRA PRIORITÁRIA: Se receber='N' (Warleine), é terceiro independente de match
     // Médicos que recebem direto do convênio não devem gerar glosa para o hospital

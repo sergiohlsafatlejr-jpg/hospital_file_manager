@@ -3971,3 +3971,10 @@
 
 - [x] Corrigir syncDemonstrativo para usar dataPagamento do arquivo como fallback quando XML não tem dataPagamento nos itens
 - [x] Corrigir lógica de valorGlosa no syncDemonstrativo para usar valorInformado como fallback quando valorPagamento = 0 (Bradesco Excel)
+
+- [ ] Implementar serviço de conciliação automática Bradesco (conciliacaoBradescoService.ts)
+- [ ] Regra: Guia PAGO no demonstrativo → todos itens do faturamento_tiss marcados como conciliado
+- [ ] Regra: Guia GLOSADO no demonstrativo → todos itens marcados como glosado
+- [ ] Regra: Quando Excel detalhar item a item → match por codigo_item para identificar item glosado
+- [ ] Integrar conciliação automática no fluxo de importação do XML de retorno
+- [ ] Testar conciliação automática com dados reais do Bradesco
