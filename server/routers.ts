@@ -1217,6 +1217,24 @@ export const appRouter = router({
                                 } catch (syncError) {
                                   console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
                                 }
+                                // CONCILIAÇÃO AUTOMÁTICA após Excel de retorno
+                                try {
+                                  const competenciaConc = dataReferenciaUpload
+                                    ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                                    : undefined;
+                                  if (competenciaConc && input.convenioId) {
+                                    console.log(`[Upload] Disparando conciliação automática (Excel Unimed): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                                    const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                                    const concResult = await executarConciliacaoAutomatica({
+                                      estabelecimentoId: input.estabelecimentoId,
+                                      competencia: competenciaConc,
+                                      convenioId: input.convenioId,
+                                    });
+                                    console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                                  }
+                                } catch (concError: any) {
+                                  console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
+                                }
                                 await db.updateArquivoProgresso(arquivoId, 95, result.totalRecords, result.totalRecords);
                               } else {
                                 console.log('[Upload] Nenhum item encontrado no arquivo Unimed');
@@ -1271,6 +1289,24 @@ export const appRouter = router({
                           } catch (syncError) {
                             console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
                           }
+                          // CONCILIAÇÃO AUTOMÁTICA após Excel chunked de retorno
+                          try {
+                            const competenciaConc = dataReferenciaUpload
+                              ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                              : undefined;
+                            if (competenciaConc && input.convenioId) {
+                              console.log(`[Upload] Disparando conciliação automática (Excel chunked): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                              const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                              const concResult = await executarConciliacaoAutomatica({
+                                estabelecimentoId: input.estabelecimentoId,
+                                competencia: competenciaConc,
+                                convenioId: input.convenioId,
+                              });
+                              console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                            }
+                          } catch (concError: any) {
+                            console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
+                          }
                           await db.updateArquivoProgresso(arquivoId, 95, result.totalRecords, result.totalRecords);
                         } else {
                           console.log('[Upload] Nenhum item de recebimentos_excel encontrado no arquivo');
@@ -1309,6 +1345,24 @@ export const appRouter = router({
                             }
                           } catch (syncError) {
                             console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                          }
+                          // CONCILIAÇÃO AUTOMÁTICA após Excel normal de retorno
+                          try {
+                            const competenciaConc = dataReferenciaUpload
+                              ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                              : undefined;
+                            if (competenciaConc && input.convenioId) {
+                              console.log(`[Upload] Disparando conciliação automática (Excel): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                              const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                              const concResult = await executarConciliacaoAutomatica({
+                                estabelecimentoId: input.estabelecimentoId,
+                                competencia: competenciaConc,
+                                convenioId: input.convenioId,
+                              });
+                              console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                            }
+                          } catch (concError: any) {
+                            console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
                           }
                           // Progresso: sincronização concluída
                           await db.updateArquivoProgresso(arquivoId, 95, recordsExcel.length, recordsExcel.length);
@@ -1394,6 +1448,24 @@ export const appRouter = router({
                           }
                         } catch (syncError) {
                           console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                        }
+                        // CONCILIAÇÃO AUTOMÁTICA após CSV de retorno
+                        try {
+                          const competenciaConc = dataReferenciaUpload
+                            ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                            : undefined;
+                          if (competenciaConc && input.convenioId) {
+                            console.log(`[Upload] Disparando conciliação automática (CSV): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                            const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                            const concResult = await executarConciliacaoAutomatica({
+                              estabelecimentoId: input.estabelecimentoId,
+                              competencia: competenciaConc,
+                              convenioId: input.convenioId,
+                            });
+                            console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                          }
+                        } catch (concError: any) {
+                          console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
                         }
                         await db.updateArquivoProgresso(arquivoId, 95, csvResult.items.length, csvResult.items.length);
                       } else if (!csvResult.success) {
@@ -1520,6 +1592,24 @@ export const appRouter = router({
                         }
                       } catch (syncError) {
                         console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                      }
+                      // CONCILIAÇÃO AUTOMÁTICA após TXT de retorno
+                      try {
+                        const competenciaConc = dataReferenciaUpload
+                          ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                          : undefined;
+                        if (competenciaConc && input.convenioId) {
+                          console.log(`[Upload] Disparando conciliação automática (TXT): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
+                          const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                          const concResult = await executarConciliacaoAutomatica({
+                            estabelecimentoId: input.estabelecimentoId,
+                            competencia: competenciaConc,
+                            convenioId: input.convenioId,
+                          });
+                          console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                        }
+                      } catch (concError: any) {
+                        console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
                       }
                     } else if (txtResult && !txtResult.success) {
                       console.error('[Upload] Erro ao processar TXT:', txtResult.error);

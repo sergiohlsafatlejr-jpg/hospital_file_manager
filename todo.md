@@ -3978,3 +3978,6 @@
 - [ ] Regra: Quando Excel detalhar item a item → match por codigo_item para identificar item glosado
 - [ ] Integrar conciliação automática no fluxo de importação do XML de retorno
 - [ ] Testar conciliação automática com dados reais do Bradesco
+- [x] Disparar conciliação automática ao importar Excel de retorno
+- [x] Disparar conciliação automática ao importar TXT de retorno
+- [x] Disparar conciliação automática ao importar CSV de retorno
