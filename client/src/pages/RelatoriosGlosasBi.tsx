@@ -208,25 +208,34 @@ export default function RelatoriosGlosasBi() {
         { label: "TAXA DE GLOSA", value: `${kpis.taxaGlosa}%`, color: COLORS.orange, sub: "Glosado / Cobrado" },
       ];
 
+      // Layout: primeira linha 3 cards, segunda linha 2 cards centralizados
       kpiCards.forEach((card, i) => {
-        const col = i % 3;
-        const row = Math.floor(i / 3);
-        const x = 0.5 + col * 4.2;
-        const y = 1.1 + row * 2.8;
+        let x: number, y: number;
+        if (i < 3) {
+          // Primeira linha: 3 cards
+          x = 0.3 + i * 4.3;
+          y = 1.0;
+        } else {
+          // Segunda linha: 2 cards centralizados
+          x = 2.4 + (i - 3) * 4.3;
+          y = 3.0;
+        }
+        const cardW = 3.9;
+        const cardH = 1.8;
         // Card background
-        slide2.addShape(pptx.ShapeType.roundRect, { x, y, w: 3.9, h: 2.4, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
+        slide2.addShape(pptx.ShapeType.roundRect, { x, y, w: cardW, h: cardH, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
         // Accent bar top
-        slide2.addShape(pptx.ShapeType.rect, { x: x + 0.15, y: y + 0.1, w: 0.6, h: 0.06, fill: { color: card.color } });
+        slide2.addShape(pptx.ShapeType.rect, { x: x + 0.15, y: y + 0.08, w: 0.6, h: 0.05, fill: { color: card.color } });
         // Label
-        slide2.addText(card.label, { x: x + 0.2, y: y + 0.3, w: 3.5, h: 0.4, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
+        slide2.addText(card.label, { x: x + 0.2, y: y + 0.2, w: 3.5, h: 0.3, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
         // Value
-        slide2.addText(card.value, { x: x + 0.2, y: y + 0.8, w: 3.5, h: 0.7, fontSize: 20, bold: true, color: card.color, fontFace: "Segoe UI" });
+        slide2.addText(card.value, { x: x + 0.2, y: y + 0.55, w: 3.5, h: 0.6, fontSize: 18, bold: true, color: card.color, fontFace: "Segoe UI" });
         // Sub
-        slide2.addText(card.sub, { x: x + 0.2, y: y + 1.6, w: 3.5, h: 0.3, fontSize: 9, color: COLORS.muted, fontFace: "Segoe UI" });
+        slide2.addText(card.sub, { x: x + 0.2, y: y + 1.25, w: 3.5, h: 0.3, fontSize: 8, color: COLORS.muted, fontFace: "Segoe UI" });
       });
 
       // Indicadores secundários
-      const secY = 4.2;
+      const secY = 5.0;
       slide2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: secY, w: 12.3, h: 2.5, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
       slide2.addText("INDICADORES COMPLEMENTARES", { x: 0.8, y: secY + 0.15, w: 6, h: 0.35, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
       const secData = [
