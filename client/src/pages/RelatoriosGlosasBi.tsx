@@ -89,6 +89,9 @@ export default function RelatoriosGlosasBi() {
   const motivosPorItemInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 50 }), [estabId, convenioId, competenciaInicio]);
   const { data: motivosPorItem } = trpc.relatoriosGlosasBi.motivosPorItem.useQuery(motivosPorItemInput, { enabled: hasEstab });
 
+  const porConvenioInput = useMemo(() => ({ estabelecimentoId: estabId, competenciaInicio }), [estabId, competenciaInicio]);
+  const { data: porConvenio } = trpc.relatoriosGlosasBi.porConvenio.useQuery(porConvenioInput, { enabled: hasEstab });
+
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
     onSuccess: (data) => { setComparativoResult(data); setComparativoLoading(false); },
     onError: (err) => {
@@ -622,6 +625,49 @@ export default function RelatoriosGlosasBi() {
                   }}
                 />
                 <Bar dataKey="valor" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* GRÁFICO POR CONVÊNIO */}
+        {porConvenio && porConvenio.length > 0 && (
+          <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <DollarSign size={16} style={{ color: "#4fc3f7" }} />
+              <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
+                VALORES POR CONVÊNIO: PAGO × GLOSADO
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={Math.max(250, Math.min(porConvenio.length * 50, 450))}>
+              <BarChart
+                data={porConvenio.slice(0, 10).map(r => ({
+                  name: r.convenio.length > 25 ? r.convenio.substring(0, 25) + '...' : r.convenio,
+                  pago: r.totalPago,
+                  glosado: r.totalGlosa,
+                }))}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 160, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={false} />
+                <XAxis type="number" tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fill: "#e8f4fd", fontSize: 11 }} axisLine={false} tickLine={false} width={155} />
+                <RechartsTooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ color: "#e8f4fd", fontSize: 12, marginBottom: 4 }}>{d.name}</p>
+                        <p style={{ color: "#4caf50", fontSize: 12 }}>Pago: {fmtCurrency(d.pago)}</p>
+                        <p style={{ color: "#ef5350", fontSize: 12 }}>Glosado: {fmtCurrency(d.glosado)}</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend wrapperStyle={{ color: "#6b8cae", fontSize: 11 }} />
+                <Bar dataKey="pago" name="Valor Pago" fill="#4caf50" radius={[0, 4, 4, 0]} barSize={18} />
+                <Bar dataKey="glosado" name="Valor Glosado" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={18} />
               </BarChart>
             </ResponsiveContainer>
           </div>

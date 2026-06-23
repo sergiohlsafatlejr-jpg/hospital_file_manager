@@ -283,6 +283,7 @@ export const relatoriosGlosasBiRouter = router({
             d.convenio_id,
             COUNT(*) as total_glosados,
             SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
+            SUM(CAST(d.valor_pagamento AS DECIMAL(12,2))) as total_pago,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN CAST(d.valor_glosa AS DECIMAL(12,2)) ELSE 0 END) as total_recuperado
           FROM demonstrativo d
@@ -297,6 +298,7 @@ export const relatoriosGlosasBiRouter = router({
           convenioId: r.convenio_id,
           totalGlosados: Number(r.total_glosados),
           totalInformado: Number(r.total_informado),
+          totalPago: Number(r.total_pago || 0),
           totalGlosa: Number(r.total_glosa),
           totalRecuperado: Number(r.total_recuperado),
           taxaGlosa: r.total_informado > 0
