@@ -137,100 +137,246 @@ export default function RelatoriosGlosasBi() {
     if (!topMotivosComPareto.length && !kpis) { toast.error("Sem dados para exportar"); return; }
     const pptx = new PptxGenJS();
     pptx.layout = "LAYOUT_WIDE";
-    pptx.author = "Portal Safatle";
-    pptx.subject = "Relatório de Glosas";
+    pptx.author = "Safatle Sistemas";
+    pptx.subject = "Relatório de Análise de Glosas";
+    pptx.title = `Relatório Glosas - ${estabNome}`;
 
-    // Slide 1 - Capa
+    const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663295218967/98MRdVE9Uf2ZRMz25bPSye/safatle-logo_81045648.png";
+    const COLORS = {
+      bg: "060f1a",
+      cardBg: "0d1b2a",
+      border: "1e3a5f",
+      headerBg: "0a1929",
+      accent: "4fc3f7",
+      text: "e8f4fd",
+      muted: "6b8cae",
+      green: "4caf50",
+      greenLight: "81c784",
+      red: "ef5350",
+      orange: "ffb74d",
+      cyan: "00bcd4",
+    };
+
+    // Helper: adicionar header com logo em cada slide
+    const addSlideHeader = (slide: any, title: string) => {
+      // Barra superior com gradiente
+      slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.08, fill: { color: COLORS.accent } });
+      // Logo
+      slide.addImage({ path: LOGO_URL, x: 0.3, y: 0.2, w: 0.5, h: 0.5 });
+      // Título do slide
+      slide.addText(title, { x: 0.9, y: 0.25, w: 8, h: 0.45, fontSize: 16, bold: true, color: COLORS.text, fontFace: "Segoe UI" });
+      // Linha separadora
+      slide.addShape(pptx.ShapeType.rect, { x: 0.3, y: 0.8, w: 12.7, h: 0.02, fill: { color: COLORS.border } });
+      // Rodapé
+      slide.addText(`Safatle Sistemas | ${estabNome} | ${periodoLabel}`, { x: 0.3, y: 7.2, w: 10, h: 0.3, fontSize: 8, color: COLORS.muted, fontFace: "Segoe UI" });
+      slide.addText(new Date().toLocaleDateString("pt-BR"), { x: 11, y: 7.2, w: 2, h: 0.3, fontSize: 8, color: COLORS.muted, align: "right", fontFace: "Segoe UI" });
+    };
+
+    // ========== SLIDE 1 - CAPA ==========
     const slide1 = pptx.addSlide();
-    slide1.background = { color: "060f1a" };
-    slide1.addText("RELATÓRIO DE ANÁLISE DE GLOSAS", { x: 0.5, y: 1.5, w: 12, h: 1, fontSize: 28, bold: true, color: "e8f4fd", align: "center" });
-    slide1.addText(estabNome, { x: 0.5, y: 2.5, w: 12, h: 0.6, fontSize: 18, color: "4fc3f7", align: "center" });
-    slide1.addText(`Período: ${periodoLabel}`, { x: 0.5, y: 3.2, w: 12, h: 0.5, fontSize: 14, color: "6b8cae", align: "center" });
-    slide1.addText(`Gerado em: ${new Date().toLocaleDateString("pt-BR")}`, { x: 0.5, y: 4.0, w: 12, h: 0.5, fontSize: 12, color: "6b8cae", align: "center" });
+    slide1.background = { color: COLORS.bg };
+    // Barra superior accent
+    slide1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: COLORS.accent } });
+    // Logo grande centralizado
+    slide1.addImage({ path: LOGO_URL, x: 5.4, y: 1.2, w: 2.5, h: 2.5 });
+    // Título
+    slide1.addText("RELATÓRIO DE ANÁLISE DE GLOSAS", { x: 0.5, y: 4.0, w: 12.3, h: 0.8, fontSize: 28, bold: true, color: COLORS.text, align: "center", fontFace: "Segoe UI" });
+    // Subtitulo
+    slide1.addText(estabNome, { x: 0.5, y: 4.8, w: 12.3, h: 0.5, fontSize: 18, color: COLORS.accent, align: "center", fontFace: "Segoe UI" });
+    // Período
+    slide1.addShape(pptx.ShapeType.roundRect, { x: 4.5, y: 5.5, w: 4.3, h: 0.5, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.05 });
+    slide1.addText(`Período: ${periodoLabel}`, { x: 4.5, y: 5.5, w: 4.3, h: 0.5, fontSize: 12, color: COLORS.muted, align: "center", fontFace: "Segoe UI" });
+    // Data geração
+    slide1.addText(`Gerado em ${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}`, { x: 0.5, y: 6.3, w: 12.3, h: 0.4, fontSize: 10, color: COLORS.muted, align: "center", fontFace: "Segoe UI" });
+    // Barra inferior
+    slide1.addShape(pptx.ShapeType.rect, { x: 0, y: 7.38, w: 13.33, h: 0.12, fill: { color: COLORS.accent } });
 
-    // Slide 2 - KPIs
+    // ========== SLIDE 2 - KPIs EM CARDS ==========
     if (kpis) {
       const slide2 = pptx.addSlide();
-      slide2.background = { color: "060f1a" };
-      slide2.addText("INDICADORES PRINCIPAIS", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
-      const kpiData = [
-        ["Valor Faturado", kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : "—"],
-        ["Valor Cobrado", fmtCurrency(kpis.valorCobrado)],
-        ["Valor Recebido", fmtCurrency(kpis.totalPago)],
-        ["Valor Glosado", fmtCurrency(kpis.totalGlosa)],
-        ["Taxa de Glosa", `${kpis.taxaGlosa}%`],
-        ["Itens Glosados", `${kpis.totalGlosados.toLocaleString("pt-BR")} de ${kpis.totalItens.toLocaleString("pt-BR")}`],
-        ["Guias com Glosa", `${kpis.guiasComGlosa.toLocaleString("pt-BR")} de ${kpis.totalGuias.toLocaleString("pt-BR")}`],
-        ["Recuperado", fmtCurrency(kpis.totalRecuperado)],
+      slide2.background = { color: COLORS.bg };
+      addSlideHeader(slide2, "INDICADORES PRINCIPAIS");
+
+      const kpiCards = [
+        { label: "VALOR FATURADO", value: kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : "—", color: COLORS.accent, sub: kpis.valorFaturado > 0 ? "Fonte: XML" : "Sem XML" },
+        { label: "VALOR COBRADO", value: fmtCurrency(kpis.valorCobrado), color: COLORS.green, sub: "Pago + Glosado" },
+        { label: "VALOR RECEBIDO", value: fmtCurrency(kpis.totalPago), color: COLORS.greenLight, sub: `${kpis.totalGuias.toLocaleString("pt-BR")} guias` },
+        { label: "VALOR GLOSADO", value: fmtCurrency(kpis.totalGlosa), color: COLORS.red, sub: `${kpis.totalGlosados.toLocaleString("pt-BR")} itens` },
+        { label: "TAXA DE GLOSA", value: `${kpis.taxaGlosa}%`, color: COLORS.orange, sub: "Glosado / Cobrado" },
       ];
-      const rows: any[][] = kpiData.map(([label, value]) => [
-        { text: label, options: { fontSize: 13, color: "6b8cae", bold: true } },
-        { text: value, options: { fontSize: 13, color: "e8f4fd", align: "right" } },
-      ]);
-      slide2.addTable(rows, {
-        x: 1.5, y: 1.2, w: 10, h: 4,
-        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
-        rowH: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-        fill: { color: "0d1b2a" },
+
+      kpiCards.forEach((card, i) => {
+        const col = i % 3;
+        const row = Math.floor(i / 3);
+        const x = 0.5 + col * 4.2;
+        const y = 1.1 + row * 2.8;
+        // Card background
+        slide2.addShape(pptx.ShapeType.roundRect, { x, y, w: 3.9, h: 2.4, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
+        // Accent bar top
+        slide2.addShape(pptx.ShapeType.rect, { x: x + 0.15, y: y + 0.1, w: 0.6, h: 0.06, fill: { color: card.color } });
+        // Label
+        slide2.addText(card.label, { x: x + 0.2, y: y + 0.3, w: 3.5, h: 0.4, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
+        // Value
+        slide2.addText(card.value, { x: x + 0.2, y: y + 0.8, w: 3.5, h: 0.7, fontSize: 20, bold: true, color: card.color, fontFace: "Segoe UI" });
+        // Sub
+        slide2.addText(card.sub, { x: x + 0.2, y: y + 1.6, w: 3.5, h: 0.3, fontSize: 9, color: COLORS.muted, fontFace: "Segoe UI" });
+      });
+
+      // Indicadores secundários
+      const secY = 4.2;
+      slide2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: secY, w: 12.3, h: 2.5, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
+      slide2.addText("INDICADORES COMPLEMENTARES", { x: 0.8, y: secY + 0.15, w: 6, h: 0.35, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
+      const secData = [
+        ["Total de Itens", kpis.totalItens.toLocaleString("pt-BR")],
+        ["Itens Glosados", kpis.totalGlosados.toLocaleString("pt-BR")],
+        ["Total de Guias", kpis.totalGuias.toLocaleString("pt-BR")],
+        ["Guias com Glosa", kpis.guiasComGlosa.toLocaleString("pt-BR")],
+        ["Valor Recuperado", fmtCurrency(kpis.totalRecuperado)],
+        ["Em Recurso", fmtCurrency(kpis.totalEmRecurso)],
+      ];
+      secData.forEach(([label, value], i) => {
+        const col = i % 3;
+        const row = Math.floor(i / 3);
+        slide2.addText(label, { x: 0.8 + col * 4.1, y: secY + 0.6 + row * 0.9, w: 2, h: 0.3, fontSize: 9, color: COLORS.muted, fontFace: "Segoe UI" });
+        slide2.addText(value, { x: 0.8 + col * 4.1, y: secY + 0.9 + row * 0.9, w: 3, h: 0.4, fontSize: 13, bold: true, color: COLORS.text, fontFace: "Segoe UI" });
       });
     }
 
-    // Slide 3 - Top Motivos de Glosa
-    if (topMotivosComPareto.length) {
-      const slide3 = pptx.addSlide();
-      slide3.background = { color: "060f1a" };
-      slide3.addText("TOP MOTIVOS DE GLOSA", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
-      const header = [
-        { text: "Cód.", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
-        { text: "Motivo", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
-        { text: "Vl Glosa", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-        { text: "%", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-        { text: "Pareto", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-      ];
-      const dataRows = topMotivosComPareto.slice(0, 15).map((r) => [
-        { text: r.codigoGlosa, options: { fontSize: 9, color: "e8f4fd" } },
-        { text: r.descricao || "—", options: { fontSize: 9, color: "e8f4fd" } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 9, color: "ef5350", align: "right" as const } },
-        { text: `${r.pct.toFixed(2)}%`, options: { fontSize: 9, color: "ffb74d", align: "right" as const } },
-        { text: `${r.pareto.toFixed(2)}%`, options: { fontSize: 9, color: "6b8cae", align: "right" as const } },
-      ]);
-      slide3.addTable([header, ...dataRows], {
-        x: 0.3, y: 1.0, w: 12.5,
-        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
-        fill: { color: "0d1b2a" },
-        colW: [1.0, 5.5, 2.5, 1.5, 1.5],
-      });
-    }
-
-    // Slide 4 - Evolução Mensal
+    // ========== SLIDE 3 - GRÁFICO EVOLUÇÃO MENSAL ==========
     if (tendencia?.length) {
-      const slide4 = pptx.addSlide();
-      slide4.background = { color: "060f1a" };
-      slide4.addText("EVOLUÇÃO MENSAL: FATURADO × GLOSADO", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
-      const header = [
-        { text: "Competência", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
-        { text: "Cobrado", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-        { text: "Pago", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-        { text: "Glosado", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
-        { text: "Taxa %", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+      const slide3 = pptx.addSlide();
+      slide3.background = { color: COLORS.bg };
+      addSlideHeader(slide3, "EVOLUÇÃO MENSAL: COBRADO × GLOSADO");
+
+      // Gráfico de barras nativo do pptxgenjs
+      const chartData = [
+        { name: "Cobrado", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalInformado) },
+        { name: "Glosado", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalGlosa) },
+        { name: "Pago", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalPago) },
       ];
-      const dataRows = tendencia.map((r) => [
-        { text: r.competencia, options: { fontSize: 10, color: "e8f4fd" } },
-        { text: fmtCurrency(r.totalInformado), options: { fontSize: 10, color: "4caf50", align: "right" as const } },
-        { text: fmtCurrency(r.totalPago), options: { fontSize: 10, color: "81c784", align: "right" as const } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 10, color: "ef5350", align: "right" as const } },
-        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 10, color: "ffb74d", align: "right" as const } },
-      ]);
-      slide4.addTable([header, ...dataRows], {
-        x: 0.5, y: 1.0, w: 12,
-        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
-        fill: { color: "0d1b2a" },
-        colW: [2.5, 2.8, 2.8, 2.8, 1.5],
+      slide3.addChart(pptx.ChartType.bar, chartData, {
+        x: 0.5, y: 1.0, w: 12.3, h: 5.8,
+        showTitle: false,
+        showLegend: true,
+        legendPos: "b",
+        legendColor: COLORS.muted,
+        legendFontSize: 9,
+        catAxisLabelColor: COLORS.muted,
+        catAxisLabelFontSize: 9,
+        valAxisLabelColor: COLORS.muted,
+        valAxisLabelFontSize: 9,
+        catGridLine: { style: "none" },
+        valGridLine: { color: COLORS.border, style: "dash" },
+        chartColors: [COLORS.accent, COLORS.red, COLORS.green],
+        barGrouping: "clustered",
+        catAxisOrientation: "minMax",
+        valAxisOrientation: "minMax",
+        plotArea: { fill: { color: COLORS.cardBg } },
       });
     }
 
-    pptx.writeFile({ fileName: `relatorio-glosas-${estabNome}-${Date.now()}.pptx` });
-    toast.success("PowerPoint exportado!");
+    // ========== SLIDE 4 - TOP MOTIVOS (GRÁFICO + TABELA) ==========
+    if (topMotivosComPareto.length) {
+      const slide4 = pptx.addSlide();
+      slide4.background = { color: COLORS.bg };
+      addSlideHeader(slide4, "TOP MOTIVOS DE GLOSA");
+
+      // Gráfico de barras horizontais - top 8
+      const top8 = topMotivosComPareto.slice(0, 8);
+      const chartMotivos = [
+        { name: "Valor Glosado", labels: top8.map(r => r.codigoGlosa === 'S/MOTIVO' ? 'Sem Motivo' : `${r.codigoGlosa}`), values: top8.map(r => r.totalGlosa) },
+      ];
+      slide4.addChart(pptx.ChartType.bar, chartMotivos, {
+        x: 0.3, y: 1.0, w: 6.0, h: 5.8,
+        showTitle: false,
+        showLegend: false,
+        barDir: "bar",
+        catAxisLabelColor: COLORS.text,
+        catAxisLabelFontSize: 9,
+        valAxisLabelColor: COLORS.muted,
+        valAxisLabelFontSize: 8,
+        catGridLine: { style: "none" },
+        valGridLine: { color: COLORS.border, style: "dash" },
+        chartColors: [COLORS.red],
+        plotArea: { fill: { color: COLORS.cardBg } },
+      });
+
+      // Tabela resumo ao lado
+      const tblHeader = [
+        { text: "Cód.", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
+        { text: "Vl Glosa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "%", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Pareto", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+      ];
+      const tblRows = top8.map((r, i) => [
+        { text: r.codigoGlosa, options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 8, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.pct.toFixed(1)}%`, options: { fontSize: 8, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.pareto.toFixed(1)}%`, options: { fontSize: 8, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+      ]);
+      slide4.addTable([tblHeader, ...tblRows], {
+        x: 6.5, y: 1.2, w: 6.5,
+        border: { type: "solid", pt: 0.5, color: COLORS.border },
+        colW: [1.2, 2.3, 1.3, 1.3],
+      });
+    }
+
+    // ========== SLIDE 5 - DETALHAMENTO MOTIVOS ==========
+    if (topMotivosComPareto.length) {
+      const slide5 = pptx.addSlide();
+      slide5.background = { color: COLORS.bg };
+      addSlideHeader(slide5, "DETALHAMENTO DOS MOTIVOS DE GLOSA");
+
+      const header = [
+        { text: "Cód.", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
+        { text: "Descrição do Motivo", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
+        { text: "Valor Glosado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "%", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Pareto %", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+      ];
+      const dataRows = topMotivosComPareto.slice(0, 15).map((r, i) => [
+        { text: r.codigoGlosa, options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: (r.descricao || "—").substring(0, 50), options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 8, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.pct.toFixed(2)}%`, options: { fontSize: 8, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.pareto.toFixed(2)}%`, options: { fontSize: 8, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+      ]);
+      slide5.addTable([header, ...dataRows], {
+        x: 0.3, y: 1.0, w: 12.7,
+        border: { type: "solid", pt: 0.5, color: COLORS.border },
+        colW: [1.0, 5.5, 2.5, 1.5, 1.7],
+      });
+    }
+
+    // ========== SLIDE 6 - EVOLUÇÃO MENSAL TABELA ==========
+    if (tendencia?.length) {
+      const slide6 = pptx.addSlide();
+      slide6.background = { color: COLORS.bg };
+      addSlideHeader(slide6, "EVOLUÇÃO MENSAL - DETALHAMENTO");
+
+      const header = [
+        { text: "Competência", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
+        { text: "Cobrado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Recebido", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Glosado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Taxa %", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+      ];
+      const dataRows = tendencia.map((r, i) => [
+        { text: r.competencia, options: { fontSize: 9, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalInformado), options: { fontSize: 9, color: COLORS.green, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalPago), options: { fontSize: 9, color: COLORS.greenLight, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 9, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 9, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+      ]);
+      slide6.addTable([header, ...dataRows], {
+        x: 0.5, y: 1.0, w: 12.3,
+        border: { type: "solid", pt: 0.5, color: COLORS.border },
+        colW: [2.5, 3.0, 3.0, 2.5, 1.3],
+      });
+    }
+
+    pptx.writeFile({ fileName: `Relatorio-Glosas-${estabNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pptx` });
+    toast.success("PowerPoint exportado com sucesso!");
   };
 
   const handleExportExcel = () => {
