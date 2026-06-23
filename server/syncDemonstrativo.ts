@@ -6,7 +6,7 @@
  */
 
 import { getDb } from './db';
-import { demonstrativo, recebimentosExcel, recebimentoTiss } from '../drizzle/schema';
+import { demonstrativo, recebimentosExcel, recebimentoTiss, arquivos } from '../drizzle/schema';
 import { eq, sql } from 'drizzle-orm';
 import type { InsertDemonstrativo } from '../drizzle/schema';
 
@@ -87,7 +87,17 @@ export async function syncDemonstrativoByArquivo(
           // valor_pago deve ser 0, valor_glosa recebe o valor_pagamento
           valorPago = '0.00';
           if (!valorGlosa) {
-            valorGlosa = String(valorOriginalNum.toFixed(2));
+            // Se valorPagamento > 0, usar como valor da glosa
+            // Se valorPagamento = 0 e valorInformado > 0, usar valorInformado como valor da glosa
+            // (Bradesco: linha de glosa pode vir com valor 0 - usar valorInformado como fallback)
+            const valorInfNum = parseFloat(String(item.valorInformado || 0));
+            if (valorOriginalNum > 0) {
+              valorGlosa = String(valorOriginalNum.toFixed(2));
+            } else if (valorInfNum > 0) {
+              valorGlosa = String(valorInfNum.toFixed(2));
+            } else {
+              valorGlosa = '0.00';
+            }
           }
         } else {
           // Item PAGO normalmente
@@ -142,6 +152,14 @@ export async function syncDemonstrativoByArquivo(
 
       console.log(`[SyncDemonstrativo] Encontrados ${xmlData.length} registros em recebimento_tiss`);
 
+      // Buscar dataPagamento do arquivo como fallback (quando o XML não tem dataPagamento nos itens)
+      const [arquivoInfo] = await db
+        .select({ dataPagamento: arquivos.dataPagamento })
+        .from(arquivos)
+        .where(eq(arquivos.id, arquivoId));
+      const dataPagamentoFallback = arquivoInfo?.dataPagamento || null;
+      console.log(`[SyncDemonstrativo] dataPagamento fallback do arquivo: ${dataPagamentoFallback}`);
+
       // Mapear para formato demonstrativo
       records = xmlData.map((item: any) => {
         // Valores do item
@@ -165,6 +183,9 @@ export async function syncDemonstrativoByArquivo(
         } else {
           situacao = 'PAGO';
         }
+
+        // Usar dataPagamento do item, ou fallback para dataPagamento do arquivo
+        const itemDataPagamento = item.dataPagamento || dataPagamentoFallback;
         
         return {
           arquivoId: item.arquivoId,
@@ -176,7 +197,7 @@ export async function syncDemonstrativoByArquivo(
           numeroGuia: item.numeroGuiaPrestador,
           protocolo: item.numeroProtocolo,
           lotePrestador: item.numeroLotePrestador,
-          dataPagamento: item.dataPagamento,
+          dataPagamento: normalizeDateForDB(itemDataPagamento),
           
           // Beneficiário
           carteiraBeneficiario: item.numeroCarteira,

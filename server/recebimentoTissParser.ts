@@ -160,10 +160,7 @@ function parseDate(value: unknown): Date | null {
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     const [, year, month, day] = isoMatch;
-    const yearNum = parseInt(year);
-    // Rejeitar datas claramente inválidas (ano 0001, 0000, etc.)
-    if (yearNum < 1900) return null;
-    const date = new Date(yearNum, parseInt(month) - 1, parseInt(day));
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     if (isNaN(date.getTime())) return null;
     return date;
   }
@@ -460,10 +457,8 @@ export async function parseXmlRecebimentoTiss(
         // ========== PROCESSAR ITENS (detalhesGuia) ==========
         const itemRegex = /<(?:ans:)?(?:dadosPagamento|detalhesGuia)>([\s\S]*?)<\/(?:ans:)?(?:dadosPagamento|detalhesGuia)>/g;
         let itemMatch;
-        let guiaHasDetails = false;
         
         while ((itemMatch = itemRegex.exec(guiaXml)) !== null) {
-          guiaHasDetails = true;
           const itemXml = itemMatch[1];
           
           const sequencialItem = itemXml.match(/<(?:ans:)?sequencialItem>([^<]+)<\/(?:ans:)?sequencialItem>/)?.[1];
@@ -550,79 +545,6 @@ export async function parseXmlRecebimentoTiss(
             // valorGlosado é VIRTUAL GENERATED (= valor_informado - valor_liberado), não inserir
             codigoGlosa,
             descricaoGlosa,
-            
-            // Pagamento
-            dataPagamento: dataPagamentoXml,
-            formaPagamento,
-            banco,
-            agencia,
-            
-            // Totais gerais
-            valorInformadoGeral,
-            valorProcessadoGeral,
-            valorLiberadoGeral,
-            valorGlosaGeral,
-            valorFinalReceber,
-            
-            // Metadados
-            origemDado: 'xml',
-            convenioId,
-            dataReferencia,
-            estabelecimentoId,
-          });
-        }
-        
-        // Se a guia não tem detalhesGuia, criar registro com valores totais da guia
-        if (!guiaHasDetails) {
-          items.push({
-            arquivoId,
-            
-            // Cabeçalho
-            registroANS,
-            numeroDemonstrativo,
-            nomeOperadora,
-            cnpjOperadora,
-            dataEmissao,
-            
-            // Prestador
-            cnes,
-            codigoPrestadorOperadora,
-            nomeContratado,
-            
-            // Protocolo
-            numeroLotePrestador,
-            numeroProtocolo,
-            dataProtocolo,
-            valorProtocolo,
-            valorGlosaProtocolo,
-            glosaProtocoloCodigo,
-            glosaProtocoloDescricao,
-            situacaoProtocolo,
-            valorInformadoProtocolo,
-            valorProcessadoProtocolo,
-            valorLiberadoProtocolo,
-            valorGlosaProtocoloTotal,
-            
-            // Guia
-            numeroGuiaPrestador,
-            numeroGuiaOperadora,
-            senha,
-            numeroCarteira,
-            nomeBeneficiario,
-            dataInicioFat,
-            dataFimFat,
-            situacaoGuia,
-            motivoGlosaGuiaCodigo,
-            motivoGlosaGuiaDescricao,
-            valorInformadoGuia,
-            valorProcessadoGuia,
-            valorLiberadoGuia,
-            valorGlosaGuia,
-            
-            // Item - usar valores da guia como fallback
-            valorInformado: valorInformadoGuia,
-            valorProcessado: valorProcessadoGuia,
-            valorLiberado: valorLiberadoGuia,
             
             // Pagamento
             dataPagamento: dataPagamentoXml,

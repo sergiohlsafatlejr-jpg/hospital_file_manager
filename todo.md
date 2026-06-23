@@ -3968,8 +3968,6 @@
 - [x] Router Relatórios BI: Usar COALESCE(data_referencia, data_pagamento) em todas as queries para suportar convênios sem data_referencia
 - [x] Relatório Glosas BI: Nova aba "Motivos por Item" com código glosa, descrição do item, valor glosado, % glosa
 - [x] Relatório Glosas BI: Ajustar KPIs - VALOR FATURADO (XML/banco cliente), VALOR COBRADO (pago+glosa do demonstrativo), VALOR GLOSADO, % TAXA DE GLOSA (glosado/cobrado)
-- [x] Parser XML Bradesco: Validado que o parser XML TISS existente já suporta o formato Bradesco (demonstrativo com detalhesGuia + tipoGlosa)
-- [x] Parser XML TISS: Corrigido para gerar registro também para guias sem detalhesGuia (guias pagas integralmente)
-- [x] Corrigir importação XML Bradesco (509408424.xml): campo situacao_protocolo VARCHAR(10) era insuficiente para 'Pagamento Efetuado' (18 chars) - alterado para VARCHAR(50)
-- [x] Corrigir parseDate para rejeitar datas com ano < 1900 (ex: 0001-01-01 do Bradesco)
-- [x] Registrar migrations 0102-0104 no banco para corrigir db:push
+
+- [x] Corrigir syncDemonstrativo para usar dataPagamento do arquivo como fallback quando XML não tem dataPagamento nos itens
+- [x] Corrigir lógica de valorGlosa no syncDemonstrativo para usar valorInformado como fallback quando valorPagamento = 0 (Bradesco Excel)
