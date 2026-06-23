@@ -234,19 +234,20 @@ export const relatoriosGlosasBiRouter = router({
         }
 
         return demoRows.map(r => {
-          const cobrado = tissMap[r.competencia] || 0;
+          const faturadoXml = tissMap[r.competencia] || 0;
           const glosa = Number(r.total_glosa);
           const pago = Number(r.total_pago);
-          const base = cobrado > 0 ? cobrado : pago + glosa;
+          const cobrado = pago + glosa; // Cobrado = Pago + Glosado (sempre do demonstrativo)
           return {
             competencia: r.competencia,
             totalGlosados: Number(r.total_glosados),
-            totalInformado: cobrado > 0 ? cobrado : pago + glosa,
+            totalInformado: cobrado, // Cobrado = pago + glosa
+            totalFaturadoXml: faturadoXml, // Faturado do XML separado
             totalGlosa: glosa,
             totalPago: pago,
             totalGuias: Number(r.total_guias),
-            taxaGlosa: base > 0
-              ? Number(((glosa / base) * 100).toFixed(2))
+            taxaGlosa: cobrado > 0
+              ? Number(((glosa / cobrado) * 100).toFixed(2))
               : 0,
           };
         }).reverse();
@@ -283,7 +284,7 @@ export const relatoriosGlosasBiRouter = router({
             d.convenio_id,
             COUNT(*) as total_glosados,
             SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
-            SUM(CAST(d.valor_pagamento AS DECIMAL(12,2))) as total_pago,
+            SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN CAST(d.valor_glosa AS DECIMAL(12,2)) ELSE 0 END) as total_recuperado
           FROM demonstrativo d
