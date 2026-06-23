@@ -3968,3 +3968,5 @@
 - [x] Router Relatórios BI: Usar COALESCE(data_referencia, data_pagamento) em todas as queries para suportar convênios sem data_referencia
 - [x] Relatório Glosas BI: Nova aba "Motivos por Item" com código glosa, descrição do item, valor glosado, % glosa
 - [x] Relatório Glosas BI: Ajustar KPIs - VALOR FATURADO (XML/banco cliente), VALOR COBRADO (pago+glosa do demonstrativo), VALOR GLOSADO, % TAXA DE GLOSA (glosado/cobrado)
+- [x] Parser XML Bradesco: Validado que o parser XML TISS existente já suporta o formato Bradesco (demonstrativo com detalhesGuia + tipoGlosa)
+- [x] Parser XML TISS: Corrigido para gerar registro também para guias sem detalhesGuia (guias pagas integralmente)
