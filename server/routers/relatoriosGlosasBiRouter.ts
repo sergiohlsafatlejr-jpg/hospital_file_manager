@@ -278,34 +278,52 @@ export const relatoriosGlosasBiRouter = router({
           params.push(input.competenciaFim);
         }
 
+        // Buscar totais GERAIS por convênio (todos os itens) para calcular Cobrado corretamente
+        const paramsAll: any[] = [input.estabelecimentoId];
+        let whereAll = "WHERE d.estabelecimentoId = ?";
+        if (input.competenciaInicio) {
+          whereAll += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?";
+          paramsAll.push(input.competenciaInicio);
+        }
+        if (input.competenciaFim) {
+          whereAll += " AND DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?";
+          paramsAll.push(input.competenciaFim);
+        }
+
         const [rows] = await conn.execute<any[]>(`
           SELECT
             c.nome as convenio,
             d.convenio_id,
-            COUNT(*) as total_glosados,
+            SUM(CASE WHEN d.valor_glosa > 0 THEN 1 ELSE 0 END) as total_glosados,
             SUM(CAST(d.valor_informado AS DECIMAL(12,2))) as total_informado,
             SUM(CAST(d.valor_pago AS DECIMAL(12,2))) as total_pago,
             SUM(CAST(d.valor_glosa AS DECIMAL(12,2))) as total_glosa,
             SUM(CASE WHEN d.recurso_status = 'recurso_deferido' THEN CAST(d.valor_glosa AS DECIMAL(12,2)) ELSE 0 END) as total_recuperado
           FROM demonstrativo d
           LEFT JOIN convenios c ON c.id = d.convenio_id
-          ${where}
+          ${whereAll}
           GROUP BY d.convenio_id, c.nome
+          HAVING total_glosa > 0
           ORDER BY total_glosa DESC
-        `, params);
+        `, paramsAll);
 
-        return rows.map(r => ({
-          convenio: r.convenio || `Convênio ${r.convenio_id}`,
-          convenioId: r.convenio_id,
-          totalGlosados: Number(r.total_glosados),
-          totalInformado: Number(r.total_informado),
-          totalPago: Number(r.total_pago || 0),
-          totalGlosa: Number(r.total_glosa),
-          totalRecuperado: Number(r.total_recuperado),
-          taxaGlosa: r.total_informado > 0
-            ? Number(((Number(r.total_glosa) / Number(r.total_informado)) * 100).toFixed(2))
-            : 0,
-        }));
+        return rows.map(r => {
+          const pago = Number(r.total_pago || 0);
+          const glosa = Number(r.total_glosa);
+          const cobrado = pago + glosa;
+          return {
+            convenio: r.convenio || `Convênio ${r.convenio_id}`,
+            convenioId: r.convenio_id,
+            totalGlosados: Number(r.total_glosados),
+            totalInformado: Number(r.total_informado),
+            totalPago: pago,
+            totalGlosa: glosa,
+            totalRecuperado: Number(r.total_recuperado),
+            taxaGlosa: cobrado > 0
+              ? Number(((glosa / cobrado) * 100).toFixed(2))
+              : 0,
+          };
+        });
       } finally {
         await conn.end();
       }
