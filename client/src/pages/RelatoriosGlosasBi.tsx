@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import PptxGenJS from "pptxgenjs";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -132,6 +133,106 @@ export default function RelatoriosGlosasBi() {
     return tendencia.map((r) => ({ name: r.competencia, Cobrado: r.totalInformado, Pago: r.totalPago, Glosado: r.totalGlosa }));
   }, [tendencia]);
 
+  const handleExportPptx = () => {
+    if (!topMotivosComPareto.length && !kpis) { toast.error("Sem dados para exportar"); return; }
+    const pptx = new PptxGenJS();
+    pptx.layout = "LAYOUT_WIDE";
+    pptx.author = "Portal Safatle";
+    pptx.subject = "Relatório de Glosas";
+
+    // Slide 1 - Capa
+    const slide1 = pptx.addSlide();
+    slide1.background = { color: "060f1a" };
+    slide1.addText("RELATÓRIO DE ANÁLISE DE GLOSAS", { x: 0.5, y: 1.5, w: 12, h: 1, fontSize: 28, bold: true, color: "e8f4fd", align: "center" });
+    slide1.addText(estabNome, { x: 0.5, y: 2.5, w: 12, h: 0.6, fontSize: 18, color: "4fc3f7", align: "center" });
+    slide1.addText(`Período: ${periodoLabel}`, { x: 0.5, y: 3.2, w: 12, h: 0.5, fontSize: 14, color: "6b8cae", align: "center" });
+    slide1.addText(`Gerado em: ${new Date().toLocaleDateString("pt-BR")}`, { x: 0.5, y: 4.0, w: 12, h: 0.5, fontSize: 12, color: "6b8cae", align: "center" });
+
+    // Slide 2 - KPIs
+    if (kpis) {
+      const slide2 = pptx.addSlide();
+      slide2.background = { color: "060f1a" };
+      slide2.addText("INDICADORES PRINCIPAIS", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
+      const kpiData = [
+        ["Valor Faturado", kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : "—"],
+        ["Valor Cobrado", fmtCurrency(kpis.valorCobrado)],
+        ["Valor Recebido", fmtCurrency(kpis.totalPago)],
+        ["Valor Glosado", fmtCurrency(kpis.totalGlosa)],
+        ["Taxa de Glosa", `${kpis.taxaGlosa}%`],
+        ["Itens Glosados", `${kpis.totalGlosados.toLocaleString("pt-BR")} de ${kpis.totalItens.toLocaleString("pt-BR")}`],
+        ["Guias com Glosa", `${kpis.guiasComGlosa.toLocaleString("pt-BR")} de ${kpis.totalGuias.toLocaleString("pt-BR")}`],
+        ["Recuperado", fmtCurrency(kpis.totalRecuperado)],
+      ];
+      const rows: any[][] = kpiData.map(([label, value]) => [
+        { text: label, options: { fontSize: 13, color: "6b8cae", bold: true } },
+        { text: value, options: { fontSize: 13, color: "e8f4fd", align: "right" } },
+      ]);
+      slide2.addTable(rows, {
+        x: 1.5, y: 1.2, w: 10, h: 4,
+        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
+        rowH: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+        fill: { color: "0d1b2a" },
+      });
+    }
+
+    // Slide 3 - Top Motivos de Glosa
+    if (topMotivosComPareto.length) {
+      const slide3 = pptx.addSlide();
+      slide3.background = { color: "060f1a" };
+      slide3.addText("TOP MOTIVOS DE GLOSA", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
+      const header = [
+        { text: "Cód.", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
+        { text: "Motivo", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
+        { text: "Vl Glosa", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+        { text: "%", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+        { text: "Pareto", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+      ];
+      const dataRows = topMotivosComPareto.slice(0, 15).map((r) => [
+        { text: r.codigoGlosa, options: { fontSize: 9, color: "e8f4fd" } },
+        { text: r.descricao || "—", options: { fontSize: 9, color: "e8f4fd" } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 9, color: "ef5350", align: "right" as const } },
+        { text: `${r.pct.toFixed(2)}%`, options: { fontSize: 9, color: "ffb74d", align: "right" as const } },
+        { text: `${r.pareto.toFixed(2)}%`, options: { fontSize: 9, color: "6b8cae", align: "right" as const } },
+      ]);
+      slide3.addTable([header, ...dataRows], {
+        x: 0.3, y: 1.0, w: 12.5,
+        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
+        fill: { color: "0d1b2a" },
+        colW: [1.0, 5.5, 2.5, 1.5, 1.5],
+      });
+    }
+
+    // Slide 4 - Evolução Mensal
+    if (tendencia?.length) {
+      const slide4 = pptx.addSlide();
+      slide4.background = { color: "060f1a" };
+      slide4.addText("EVOLUÇÃO MENSAL: FATURADO × GLOSADO", { x: 0.5, y: 0.3, w: 12, h: 0.6, fontSize: 20, bold: true, color: "e8f4fd" });
+      const header = [
+        { text: "Competência", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" } } },
+        { text: "Cobrado", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+        { text: "Pago", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+        { text: "Glosado", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+        { text: "Taxa %", options: { fontSize: 10, bold: true, color: "4fc3f7", fill: { color: "0a1929" }, align: "right" as const } },
+      ];
+      const dataRows = tendencia.map((r) => [
+        { text: r.competencia, options: { fontSize: 10, color: "e8f4fd" } },
+        { text: fmtCurrency(r.totalInformado), options: { fontSize: 10, color: "4caf50", align: "right" as const } },
+        { text: fmtCurrency(r.totalPago), options: { fontSize: 10, color: "81c784", align: "right" as const } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 10, color: "ef5350", align: "right" as const } },
+        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 10, color: "ffb74d", align: "right" as const } },
+      ]);
+      slide4.addTable([header, ...dataRows], {
+        x: 0.5, y: 1.0, w: 12,
+        border: { type: "solid", pt: 0.5, color: "1e3a5f" },
+        fill: { color: "0d1b2a" },
+        colW: [2.5, 2.8, 2.8, 2.8, 1.5],
+      });
+    }
+
+    pptx.writeFile({ fileName: `relatorio-glosas-${estabNome}-${Date.now()}.pptx` });
+    toast.success("PowerPoint exportado!");
+  };
+
   const handleExportExcel = () => {
     if (!topMotivosComPareto.length && !kpis) { toast.error("Sem dados para exportar"); return; }
     const wb = XLSX.utils.book_new();
@@ -226,7 +327,7 @@ export default function RelatoriosGlosasBi() {
             </Button>
             <Button size="sm" variant="outline"
               style={{ background: "#2a1a0d", border: "1px solid #5c3a1a", color: "#ffb74d" }}
-              onClick={() => toast.info("Exportação PowerPoint em desenvolvimento")}>
+              onClick={handleExportPptx}>
               <Presentation size={14} className="mr-1" /> PowerPoint
             </Button>
             <Button size="sm" variant="outline"
