@@ -633,21 +633,41 @@ export default function RelatoriosGlosasBi() {
         {/* GRÁFICO POR CONVÊNIO */}
         {porConvenio && porConvenio.length > 0 && (
           <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <DollarSign size={16} style={{ color: "#4fc3f7" }} />
-              <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-                VALORES POR CONVÊNIO: COBRADO × GLOSADO
-              </span>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <DollarSign size={16} style={{ color: "#4fc3f7" }} />
+                <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
+                  VALORES POR CONVÊNIO: COBRADO × GLOSADO
+                </span>
+              </div>
+              {convenioId && (
+                <button
+                  onClick={() => setConvenioId(undefined)}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                  style={{ background: "#1e3a5f", color: "#4fc3f7", border: "1px solid #2a5a8f" }}
+                >
+                  ✕ Limpar filtro: {porConvenio.find(c => c.convenioId === convenioId)?.convenio || `Conv. ${convenioId}`}
+                </button>
+              )}
             </div>
+            <p className="text-xs mb-3" style={{ color: "#6b8cae" }}>Clique em uma barra para filtrar por convênio</p>
             <ResponsiveContainer width="100%" height={Math.max(250, Math.min(porConvenio.length * 50, 450))}>
               <BarChart
                 data={porConvenio.slice(0, 10).map(r => ({
                   name: r.convenio.length > 25 ? r.convenio.substring(0, 25) + '...' : r.convenio,
                   cobrado: r.totalPago + r.totalGlosa,
                   glosado: r.totalGlosa,
+                  convenioId: r.convenioId,
                 }))}
                 layout="vertical"
                 margin={{ top: 5, right: 30, left: 160, bottom: 5 }}
+                onClick={(data: any) => {
+                  if (data?.activePayload?.[0]?.payload?.convenioId) {
+                    const clickedId = data.activePayload[0].payload.convenioId;
+                    setConvenioId(convenioId === clickedId ? undefined : clickedId);
+                  }
+                }}
+                style={{ cursor: "pointer" }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={false} />
                 <XAxis type="number" tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
