@@ -160,7 +160,10 @@ function parseDate(value: unknown): Date | null {
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     const [, year, month, day] = isoMatch;
-    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    const yearNum = parseInt(year);
+    // Rejeitar datas claramente inválidas (ano 0001, 0000, etc.)
+    if (yearNum < 1900) return null;
+    const date = new Date(yearNum, parseInt(month) - 1, parseInt(day));
     if (isNaN(date.getTime())) return null;
     return date;
   }

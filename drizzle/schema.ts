@@ -2264,7 +2264,7 @@ export const recebimentoTiss = mysqlTable("recebimento_tiss", {
   valorGlosaProtocolo: decimal("valor_glosa_protocolo", { precision: 12, scale: 2 }),
   glosaProtocoloCodigo: varchar("glosa_protocolo_codigo", { length: 20 }),
   glosaProtocoloDescricao: text("glosa_protocolo_descricao"),
-  situacaoProtocolo: varchar("situacao_protocolo", { length: 10 }),
+  situacaoProtocolo: varchar("situacao_protocolo", { length: 50 }),
   
   // Totais do Protocolo
   valorInformadoProtocolo: decimal("valor_informado_protocolo", { precision: 12, scale: 2 }),
@@ -2498,7 +2498,7 @@ export const retornoTissUnificado = mysqlTable("retorno_tiss_unificado", {
   // Dados do Protocolo/Lote
   numeroLotePrestador: varchar("numero_lote_prestador", { length: 50 }),
   numeroProtocolo: varchar("numero_protocolo", { length: 50 }),
-  situacaoProtocolo: varchar("situacao_protocolo", { length: 10 }),
+  situacaoProtocolo: varchar("situacao_protocolo", { length: 50 }),
   
   // Dados da Guia e Beneficiário
   numeroGuiaPrestador: varchar("numero_guia_prestador", { length: 50 }),
