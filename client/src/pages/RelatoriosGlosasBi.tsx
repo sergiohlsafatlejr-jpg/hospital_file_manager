@@ -379,10 +379,11 @@ export default function RelatoriosGlosasBi() {
     }
 
     // ========== SLIDE 7 - MOTIVOS POR ITEM ==========
-    if (motivosPorItem?.length) {
+    const motivosItems = motivosPorItem?.items || motivosPorItem;
+    if (motivosItems?.length) {
       // Dividir em páginas de 12 itens por slide
       const pageSize = 12;
-      const totalPages = Math.ceil(Math.min(motivosPorItem.length, 36) / pageSize);
+      const totalPages = Math.ceil(Math.min(motivosItems.length, 36) / pageSize);
       for (let page = 0; page < totalPages; page++) {
         const slideN = pptx.addSlide();
         slideN.background = { color: COLORS.bg };
@@ -396,14 +397,14 @@ export default function RelatoriosGlosasBi() {
           { text: "Vl Glosado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
           { text: "% Glosa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
         ];
-        const pageItems = motivosPorItem.slice(page * pageSize, (page + 1) * pageSize);
+        const pageItems = motivosItems.slice(page * pageSize, (page + 1) * pageSize);
         const dataRows = pageItems.map((r: any, i: number) => [
           { text: r.codigoGlosa || "—", options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
           { text: (r.descricaoGlosa || "—").substring(0, 35), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
           { text: (r.descricaoItem || "—").substring(0, 40), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: String(r.quantidade || 0), options: { fontSize: 7, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+          { text: String(r.qtdItens || r.quantidade || 0), options: { fontSize: 7, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
           { text: fmtCurrency(r.totalGlosa || 0), options: { fontSize: 7, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: `${(r.pctGlosa || 0).toFixed(2)}%`, options: { fontSize: 7, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+          { text: `${(r.percentualGlosa || r.pctGlosa || 0).toFixed(2)}%`, options: { fontSize: 7, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
         ]);
         slideN.addTable([header, ...dataRows], {
           x: 0.2, y: 1.0, w: 12.9,
