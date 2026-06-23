@@ -636,14 +636,14 @@ export default function RelatoriosGlosasBi() {
             <div className="flex items-center gap-2 mb-4">
               <DollarSign size={16} style={{ color: "#4fc3f7" }} />
               <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-                VALORES POR CONVÊNIO: PAGO × GLOSADO
+                VALORES POR CONVÊNIO: COBRADO × GLOSADO
               </span>
             </div>
             <ResponsiveContainer width="100%" height={Math.max(250, Math.min(porConvenio.length * 50, 450))}>
               <BarChart
                 data={porConvenio.slice(0, 10).map(r => ({
                   name: r.convenio.length > 25 ? r.convenio.substring(0, 25) + '...' : r.convenio,
-                  pago: r.totalPago,
+                  cobrado: r.totalPago + r.totalGlosa,
                   glosado: r.totalGlosa,
                 }))}
                 layout="vertical"
@@ -659,14 +659,15 @@ export default function RelatoriosGlosasBi() {
                     return (
                       <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
                         <p style={{ color: "#e8f4fd", fontSize: 12, marginBottom: 4 }}>{d.name}</p>
-                        <p style={{ color: "#4caf50", fontSize: 12 }}>Pago: {fmtCurrency(d.pago)}</p>
+                        <p style={{ color: "#4fc3f7", fontSize: 12 }}>Cobrado: {fmtCurrency(d.cobrado)}</p>
                         <p style={{ color: "#ef5350", fontSize: 12 }}>Glosado: {fmtCurrency(d.glosado)}</p>
+                        <p style={{ color: "#ffb74d", fontSize: 12 }}>Taxa: {d.cobrado > 0 ? ((d.glosado / d.cobrado) * 100).toFixed(2) : 0}%</p>
                       </div>
                     );
                   }}
                 />
                 <Legend wrapperStyle={{ color: "#6b8cae", fontSize: 11 }} />
-                <Bar dataKey="pago" name="Valor Pago" fill="#4caf50" radius={[0, 4, 4, 0]} barSize={18} />
+                <Bar dataKey="cobrado" name="Valor Cobrado" fill="#4fc3f7" radius={[0, 4, 4, 0]} barSize={18} />
                 <Bar dataKey="glosado" name="Valor Glosado" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={18} />
               </BarChart>
             </ResponsiveContainer>
