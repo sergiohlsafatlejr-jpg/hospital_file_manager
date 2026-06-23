@@ -413,6 +413,52 @@ export default function RelatoriosGlosasBi() {
       }
     }
 
+    // SLIDE: VALORES POR CONVÊNIO
+    if (porConvenio && porConvenio.length > 0) {
+      const slideConv = pptx.addSlide();
+      slideConv.background = { color: COLORS.bg };
+      slideConv.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: COLORS.accent } });
+      slideConv.addText("Valores por Conv\u00eanio: Cobrado \u00d7 Glosado", { x: 0.4, y: 0.2, w: 10, h: 0.5, fontSize: 18, bold: true, color: COLORS.text });
+
+      // Gráfico de barras
+      const convData = porConvenio.slice(0, 10);
+      const chartData = [
+        { name: "Valor Cobrado", labels: convData.map(r => r.convenio.substring(0, 25)), values: convData.map(r => r.totalPago + r.totalGlosa) },
+        { name: "Valor Glosado", labels: convData.map(r => r.convenio.substring(0, 25)), values: convData.map(r => r.totalGlosa) },
+      ];
+      slideConv.addChart(pptx.ChartType.bar, chartData, {
+        x: 0.3, y: 0.9, w: 8.0, h: 5.5,
+        barDir: "bar",
+        showValue: false,
+        catAxisLabelColor: COLORS.muted,
+        valAxisLabelColor: COLORS.muted,
+        chartColors: [COLORS.accent, COLORS.red],
+        plotArea: { fill: { color: COLORS.cardBg } },
+        showLegend: true,
+        legendPos: "b",
+        legendColor: COLORS.muted,
+      });
+
+      // Tabela resumo ao lado
+      const convHeader = [
+        { text: "Conv\u00eanio", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
+        { text: "Cobrado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Glosado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+        { text: "Taxa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
+      ];
+      const convRows = convData.map((r, i) => [
+        { text: r.convenio.substring(0, 20), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalPago + r.totalGlosa), options: { fontSize: 7, color: COLORS.accent, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 7, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 7, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
+      ]);
+      slideConv.addTable([convHeader, ...convRows], {
+        x: 8.5, y: 0.9, w: 4.5,
+        border: { type: "solid", pt: 0.5, color: COLORS.border },
+        colW: [1.5, 1.2, 1.0, 0.8],
+      });
+    }
+
     pptx.writeFile({ fileName: `Relatorio-Glosas-${estabNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pptx` });
     toast.success("PowerPoint exportado com sucesso!");
   };
