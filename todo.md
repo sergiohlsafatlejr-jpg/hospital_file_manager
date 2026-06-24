@@ -3990,3 +3990,9 @@
 - [x] Corrigir campo Fat. Processado na tela de conciliação - valor incorreto (glosa era calculada antes de somar todos os recebimentos agrupados)
 - [x] Corrigir demonstrativo mostrando dois meses - parser deve usar dataReferencia do upload como competência quando definida (bug de timezone corrigido)
 - [ ] Corrigir conciliação: quando codigo_glosa é NULL, extrair código e motivo do campo erro_tiss (ex: "1613-CONSULTA NÃO AUTORIZADA" → código=1613, motivo="CONSULTA NÃO AUTORIZADA")
+
+## Bug Fixes - Conciliação Cruzada
+
+- [x] Fix: totalItens e itensDesassociados incorretos quando filtro dataPagto está ativo (excluía itens sem recebimento e acréscimos)
+- [x] Fix: filtros statusConciliacao (conciliado/nao_conciliado/sem_pagamento_guia) excluíam itens da contagem ao invés de filtrar por guia
+- [x] Fix: filtro loteXml excluía itens de acréscimo (faturamentoUnificadoId=0) da contagem

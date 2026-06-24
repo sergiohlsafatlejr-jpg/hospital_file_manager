@@ -141,3 +141,4 @@ debug_*.ts
 
 # Manus logs
 .manus-logs/
+.project-config.json

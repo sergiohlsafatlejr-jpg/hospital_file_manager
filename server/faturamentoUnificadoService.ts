@@ -2594,13 +2594,43 @@ export async function resumoConciliadosPorGuia(params: {
   if (params.statusConciliacao && params.statusConciliacao !== 'todos') {
     if (params.statusConciliacao === 'conciliado') {
       // Filtrar guias onde TODOS os itens estão associados (sem itens desassociados)
-      whereClause += ` AND ca.statusConciliacao NOT IN ('nao_recebido','sem_pagamento','pendente')`;
+      // Usa HAVING para identificar guias sem nenhum item desassociado, depois inclui todos os itens
+      whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+        SELECT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        FROM conciliados_automatico ca2
+        WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        GROUP BY COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        HAVING SUM(CASE WHEN ca2.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca2.statusConciliacao = 'acrescimo' AND (ca2.faturamentoUnificadoId IS NULL OR ca2.faturamentoUnificadoId = 0) THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca2.statusConciliacao = 'glosa_total' AND ca2.recebimentoId IS NULL THEN 1 ELSE 0 END) = 0
+          AND SUM(CASE WHEN ca2.recebimentoId IS NOT NULL THEN 1 ELSE 0 END) > 0
+      )`;
     } else if (params.statusConciliacao === 'nao_conciliado' || params.statusConciliacao === 'sem_conciliacao') {
-      // Filtrar guias que possuem ao menos 1 item desassociado (mas que têm algum pagamento)
-      whereClause += ` AND ca.statusConciliacao IN ('nao_recebido','sem_pagamento','pendente')`;
+      // Filtrar guias que possuem ao menos 1 item desassociado E têm algum pagamento
+      // Usa subquery para identificar as guias, depois inclui TODOS os itens dessas guias
+      whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+        SELECT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        FROM conciliados_automatico ca2
+        WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        GROUP BY COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        HAVING (
+          SUM(CASE WHEN ca2.statusConciliacao IN ('sem_pagamento','nao_recebido') THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca2.statusConciliacao = 'acrescimo' AND (ca2.faturamentoUnificadoId IS NULL OR ca2.faturamentoUnificadoId = 0) THEN 1 ELSE 0 END)
+          + SUM(CASE WHEN ca2.statusConciliacao = 'glosa_total' AND ca2.recebimentoId IS NULL THEN 1 ELSE 0 END)
+        ) > 0
+        AND SUM(CASE WHEN ca2.recebimentoId IS NOT NULL THEN 1 ELSE 0 END) > 0
+      )`;
     } else if (params.statusConciliacao === 'sem_pagamento_guia') {
       // Filtrar guias onde NENHUM item tem recebimento (sem pagamento identificado)
-      whereClause += ` AND ca.recebimentoId IS NULL AND ca.statusConciliacao != 'acrescimo'`;
+      // Usa subquery para identificar as guias, depois inclui TODOS os itens
+      whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+        SELECT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        FROM conciliados_automatico ca2
+        WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        GROUP BY COALESCE(ca2.numeroGuia, ca2.contaNumero)
+        HAVING SUM(CASE WHEN ca2.recebimentoId IS NOT NULL THEN 1 ELSE 0 END) = 0
+          AND SUM(CASE WHEN ca2.statusConciliacao = 'acrescimo' THEN 1 ELSE 0 END) = 0
+      )`;
     } else {
       whereClause += ` AND ca.statusConciliacao = '${params.statusConciliacao.replace(/'/g, "''")}'`;
     }
@@ -2610,8 +2640,15 @@ export async function resumoConciliadosPorGuia(params: {
     whereClause += ` AND (ca.numeroGuia LIKE '%${b}%' OR ca.contaNumero LIKE '%${b}%' OR ca.pacienteNome LIKE '%${b}%' OR ca.convenio LIKE '%${b}%')`;
   }
   if (params.loteXml) {
-    // Filtrar pelo lote do XML TISS via JOIN com faturamento_unificado
-    whereClause += ` AND ca.faturamentoUnificadoId IN (SELECT fu.id FROM faturamento_unificado fu WHERE fu.lotePrestador = '${params.loteXml.replace(/'/g, "''")}' AND fu.estabelecimentoId = ${params.estabelecimentoId})`;
+    // Filtrar pelo lote do XML TISS - identifica as GUIAS que pertencem ao lote,
+    // depois inclui TODOS os itens dessas guias (incluindo acréscimos e glosa_total)
+    const lx = params.loteXml.replace(/'/g, "''");
+    whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+      SELECT DISTINCT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+      FROM conciliados_automatico ca2
+      WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        AND ca2.faturamentoUnificadoId IN (SELECT fu.id FROM faturamento_unificado fu WHERE fu.lotePrestador = '${lx}' AND fu.estabelecimentoId = ${params.estabelecimentoId})
+    )`;
   }
   if (params.loteRetorno) {
     // Filtrar pelo lote do retorno/demonstrativo via guia
@@ -2620,8 +2657,15 @@ export async function resumoConciliadosPorGuia(params: {
   }
   if (params.dataPagto) {
     // Filtrar pela data de pagamento do demonstrativo (recebimentos_excel.data_pagto)
+    // Usa subquery para identificar as GUIAS que têm pagamento naquela data,
+    // e depois inclui TODOS os itens dessas guias (incluindo glosa_total sem recebimento e acréscimos)
     const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+      SELECT DISTINCT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+      FROM conciliados_automatico ca2
+      WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        AND ca2.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')
+    )`;
   }
 
   const limit = params.limit || 50;
