@@ -3989,3 +3989,4 @@
 - [x] Corrigir conciliação hospital teste: usar numeroGuiaOperadora (ou guiaPrincipal) ao invés de numeroGuiaPrestador como campo de match no faturamento_unificado
 - [x] Corrigir campo Fat. Processado na tela de conciliação - valor incorreto (glosa era calculada antes de somar todos os recebimentos agrupados)
 - [x] Corrigir demonstrativo mostrando dois meses - parser deve usar dataReferencia do upload como competência quando definida (bug de timezone corrigido)
+- [ ] Corrigir conciliação: quando codigo_glosa é NULL, extrair código e motivo do campo erro_tiss (ex: "1613-CONSULTA NÃO AUTORIZADA" → código=1613, motivo="CONSULTA NÃO AUTORIZADA")

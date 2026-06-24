@@ -1055,6 +1055,7 @@ export async function executarConciliacaoAutomatica(params: {
       re.item_desc as descricaoItem,
       re.tipo_lancamento as tipoLancamento,
       re.codigo_glosa as codigoGlosa,
+      re.erro_tiss as erroTiss,
       re.data_execucao as dataExecucao
     FROM recebimentos_excel re
     ${whereRec}
@@ -1248,7 +1249,7 @@ export async function executarConciliacaoAutomatica(params: {
         const existing = guiasGlosadasInteiras.get(guia);
         guiasGlosadasInteiras.set(guia, {
           valorGlosa: (existing?.valorGlosa || 0) + valorGlosa,
-          codigoGlosa: rec.codigoGlosa ? String(rec.codigoGlosa) : (existing?.codigoGlosa || null),
+          codigoGlosa: rec.codigoGlosa ? String(rec.codigoGlosa) : (rec.erroTiss ? (String(rec.erroTiss).match(/^(\d+)/) || [])[1] || (existing?.codigoGlosa || null) : (existing?.codigoGlosa || null)),
           recId: rec.id,
           origem: rec._origem === 'demonstrativo' ? 'demonstrativo' : 'excel'
         });
@@ -1582,6 +1583,20 @@ export async function executarConciliacaoAutomatica(params: {
         if (descMotivo) {
           baseInsert.motivoGlosa = descMotivo;
         }
+      } else if (recMatch.erroTiss) {
+        // Fallback: extrair código de glosa do campo erro_tiss (formato "CÓDIGO-DESCRIÇÃO")
+        const erroTissStr = String(recMatch.erroTiss);
+        const matchErro = erroTissStr.match(/^(\d+)[-–\s](.+)$/);
+        if (matchErro) {
+          baseInsert.codigoGlosa = matchErro[1];
+          // Tentar resolver descrição da tabela motivosGlosa, senão usar a descrição do campo
+          const descMotivo = mapaMotivosGlosa.get(matchErro[1]);
+          baseInsert.motivoGlosa = descMotivo || matchErro[2].trim();
+        } else {
+          // Se não tem formato código-descrição, usar o texto inteiro como motivo
+          baseInsert.codigoGlosa = erroTissStr.replace(/[^0-9]/g, '').substring(0, 10) || '9999';
+          baseInsert.motivoGlosa = erroTissStr;
+        }
       }
 
       const origemRec = recMatch._origem === 'demonstrativo' ? 'demonstrativo' : 'excel';
@@ -1778,6 +1793,13 @@ export async function executarConciliacaoAutomatica(params: {
           ins.codigoGlosa = String(recAgrupado.codigoGlosa);
           const descMotivo = mapaMotivosGlosa.get(String(recAgrupado.codigoGlosa));
           if (descMotivo) ins.motivoGlosa = descMotivo;
+        } else if (recAgrupado.erroTiss) {
+          const erroStr = String(recAgrupado.erroTiss);
+          const mErro = erroStr.match(/^(\d+)[-–\s](.+)$/);
+          if (mErro) {
+            ins.codigoGlosa = mErro[1];
+            ins.motivoGlosa = mapaMotivosGlosa.get(mErro[1]) || mErro[2].trim();
+          }
         }
 
         ins.recebimentoId = recAgrupado.id;
@@ -1894,11 +1916,20 @@ export async function executarConciliacaoAutomatica(params: {
       if (somaValorGlosa > 0 && somaValorPago === 0) {
         // Glosa total: convênio retornou com glosa e não pagou nada
         ins.statusConciliacao = 'glosa_total';
-        const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa);
+        const recComGlosa = recebimentosAgrupados.find(r => r.codigoGlosa || r.erroTiss);
         if (recComGlosa && !ins.codigoGlosa) {
-          ins.codigoGlosa = String(recComGlosa.codigoGlosa);
-          const descMotivo = mapaMotivosGlosa.get(String(recComGlosa.codigoGlosa));
-          if (descMotivo) ins.motivoGlosa = descMotivo;
+          if (recComGlosa.codigoGlosa) {
+            ins.codigoGlosa = String(recComGlosa.codigoGlosa);
+            const descMotivo = mapaMotivosGlosa.get(String(recComGlosa.codigoGlosa));
+            if (descMotivo) ins.motivoGlosa = descMotivo;
+          } else if (recComGlosa.erroTiss) {
+            const erroStr = String(recComGlosa.erroTiss);
+            const mErro = erroStr.match(/^(\d+)[-–\s](.+)$/);
+            if (mErro) {
+              ins.codigoGlosa = mErro[1];
+              ins.motivoGlosa = mapaMotivosGlosa.get(mErro[1]) || mErro[2].trim();
+            }
+          }
         }
         if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
@@ -1907,11 +1938,20 @@ export async function executarConciliacaoAutomatica(params: {
       } else if (somaValorGlosa > 0 && somaValorPago > 0 && somaValorPago < ins.valorFaturado) {
         // Glosa parcial: convênio pagou parcialmente com glosa explícita
         ins.statusConciliacao = 'glosa_parcial';
-        const recComGlosa2 = recebimentosAgrupados.find(r => r.codigoGlosa);
+        const recComGlosa2 = recebimentosAgrupados.find(r => r.codigoGlosa || r.erroTiss);
         if (recComGlosa2 && !ins.codigoGlosa) {
-          ins.codigoGlosa = String(recComGlosa2.codigoGlosa);
-          const descMotivo = mapaMotivosGlosa.get(String(recComGlosa2.codigoGlosa));
-          if (descMotivo) ins.motivoGlosa = descMotivo;
+          if (recComGlosa2.codigoGlosa) {
+            ins.codigoGlosa = String(recComGlosa2.codigoGlosa);
+            const descMotivo = mapaMotivosGlosa.get(String(recComGlosa2.codigoGlosa));
+            if (descMotivo) ins.motivoGlosa = descMotivo;
+          } else if (recComGlosa2.erroTiss) {
+            const erroStr2 = String(recComGlosa2.erroTiss);
+            const mErro2 = erroStr2.match(/^(\d+)[-–\s](.+)$/);
+            if (mErro2) {
+              ins.codigoGlosa = mErro2[1];
+              ins.motivoGlosa = mapaMotivosGlosa.get(mErro2[1]) || mErro2[2].trim();
+            }
+          }
         }
         if (!ins.codigoGlosa) {
           ins.codigoGlosa = '9999';
