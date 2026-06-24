@@ -1846,14 +1846,29 @@ export async function executarConciliacaoAutomatica(params: {
 
     // Somar o valor pago e glosa dos recebimentos não usados + o recebimento já associado
     let somaValorPago = ins.valorPago;
-    let somaValorGlosa = ins.valorGlosa;
+    // Somar glosa REAL dos recebimentos do demonstrativo (não a glosa calculada anteriormente)
+    let somaValorGlosaReal = 0; // glosa explícita vinda do demonstrativo
     const recebimentosAgrupados: any[] = [];
+
+    // Buscar a glosa real do primeiro recebimento já associado (se houver)
+    if (ins.recebimentoId) {
+      const recOriginal = candidatos.find(c => String(c.id) === String(ins.recebimentoId));
+      if (recOriginal) {
+        somaValorGlosaReal += Number(recOriginal.valorGlosa) || 0;
+      }
+    }
 
     for (const rec of naoUsados) {
       somaValorPago += Number(rec.valorPago) || 0;
-      somaValorGlosa += Number(rec.valorGlosa) || 0;
+      somaValorGlosaReal += Number(rec.valorGlosa) || 0;
       recebimentosAgrupados.push(rec);
     }
+
+    // Calcular glosa correta: se há glosa explícita do demonstrativo, usar ela;
+    // caso contrário, calcular como diferença entre faturado e pago
+    let somaValorGlosa = somaValorGlosaReal > 0 
+      ? somaValorGlosaReal 
+      : Math.max(0, ins.valorFaturado - somaValorPago);
 
     // Verificar se a soma dos recebimentos agrupados é mais próxima do faturado
     const diferencaAtual = Math.abs(ins.valorFaturado - ins.valorPago);

@@ -100,8 +100,13 @@ router.post('/api/internal/process-file', async (req, res) => {
 
 async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer) {
   const tipoArquivo = arquivo.nome.toLowerCase().endsWith('.xml') ? 'xml' : 'excel';
-  const dataReferenciaUpload = arquivo.dataReferencia ? new Date(arquivo.dataReferencia) : undefined;
-  const dataPagamentoUpload = arquivo.dataPagamento ? new Date(arquivo.dataPagamento) : undefined;
+  // Corrigir timezone: extrair apenas a data (YYYY-MM-DD) para evitar que UTC-3 mude o dia
+  const dataReferenciaUpload = arquivo.dataReferencia 
+    ? new Date(new Date(arquivo.dataReferencia).toISOString().split('T')[0] + 'T12:00:00Z') 
+    : undefined;
+  const dataPagamentoUpload = arquivo.dataPagamento 
+    ? new Date(new Date(arquivo.dataPagamento).toISOString().split('T')[0] + 'T12:00:00Z') 
+    : undefined;
   
   let totalProcessados = 0;
   
