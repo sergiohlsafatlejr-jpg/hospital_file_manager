@@ -4039,3 +4039,10 @@
 - [x] Frontend: botão "Gerar Justificativas com IA" para preencher automaticamente todos os itens
 - [x] Frontend: indicador visual de justificativa preenchida vs pendente
 - [x] Frontend: justificativas individuais são incluídas na exportação XML/Excel
+
+## Filtros na tela Recurso de Glosa via Conciliação
+
+- [x] Adicionar filtro por data de pagamento (dataPagto do recebimento)
+- [x] Renomear filtro de competência para "Data de Referência"
+- [x] Backend: suportar filtro dataPagto na query itensGlosadosParaRecurso
+- [x] Backend: suportar filtro dataPagto na query itensGlosadosDetalheGuia

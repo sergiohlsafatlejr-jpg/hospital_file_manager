@@ -594,6 +594,7 @@ export const faturamentoUnificadoRouter = router({
       numeroGuia: z.string(),
       convenioId: z.number().optional(),
       competencia: z.string().optional(),
+      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalheGuia(input);

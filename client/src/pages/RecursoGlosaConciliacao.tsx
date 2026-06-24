@@ -21,6 +21,7 @@ function formatarMoeda(valor: number): string {
 export default function RecursoGlosaConciliacao() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const [competencia, setCompetencia] = useState<string>("todos");
+  const [dataPagto, setDataPagto] = useState<string>("todos");
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
   const [agrupamento, setAgrupamento] = useState<"guia" | "data" | "lote">("guia");
   const [busca, setBusca] = useState("");
@@ -51,11 +52,21 @@ export default function RecursoGlosaConciliacao() {
     { enabled: !!estabelecimentoAtual?.id }
   );
 
+  const { data: datasPagamento } = trpc.faturamentoUnificado.datasPagamento.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      competencia: competencia !== "todos" ? competencia : undefined,
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+    },
+    { enabled: !!estabelecimentoAtual?.id }
+  );
+
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosParaRecurso.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       competencia: competencia !== "todos" ? competencia : undefined,
+      dataPagto: dataPagto !== "todos" ? dataPagto : undefined,
       agrupamento,
       busca: busca || undefined,
       apenasNaoRecursados,
@@ -71,6 +82,7 @@ export default function RecursoGlosaConciliacao() {
       numeroGuia: guiaExpandida || "",
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       competencia: competencia !== "todos" ? competencia : undefined,
+      dataPagto: dataPagto !== "todos" ? dataPagto : undefined,
     },
     { enabled: !!estabelecimentoAtual?.id && !!guiaExpandida }
   );
@@ -312,17 +324,31 @@ export default function RecursoGlosaConciliacao() {
               <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <Select value={competencia} onValueChange={setCompetencia}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Competência" />
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="Data de Referência" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="todos">Todas</SelectItem>
+                    <SelectItem value="todos">Todas Referências</SelectItem>
                     {competencias?.map((c: string) => (
                       <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              <Select value={dataPagto} onValueChange={setDataPagto}>
+                <SelectTrigger className="w-[170px]">
+                  <SelectValue placeholder="Data Pagamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas Datas Pgto</SelectItem>
+                  {datasPagamento?.map((dp: any) => (
+                    <SelectItem key={dp.dataPagto} value={dp.dataPagto}>
+                      {new Date(dp.dataPagto + 'T12:00:00').toLocaleDateString('pt-BR')} ({dp.total})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
               <Select value={convenioFiltro} onValueChange={setConvenioFiltro}>
                 <SelectTrigger className="w-[180px]">

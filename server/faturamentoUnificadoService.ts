@@ -3463,6 +3463,7 @@ export async function itensGlosadosDetalheGuia(params: {
   numeroGuia: string;
   convenioId?: number;
   competencia?: string;
+  dataPagto?: string;
 }): Promise<any[]> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
@@ -3477,6 +3478,10 @@ export async function itensGlosadosDetalheGuia(params: {
   }
   if (params.competencia) {
     whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+  if (params.dataPagto) {
+    const dp = params.dataPagto.replace(/'/g, "''");
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
   }
 
   const query = `
