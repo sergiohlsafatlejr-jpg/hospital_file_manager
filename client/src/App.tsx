@@ -108,6 +108,7 @@ const RpaManager = lazy(() => import("./pages/RpaManager"));
 const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
 const RelatorioFisioterapia = lazy(() => import("./pages/RelatorioFisioterapia"));
 const ComparativoMesAMes = lazy(() => import("./pages/ComparativoMesAMes"));
+const RecursoGlosaConciliacao = lazy(() => import("./pages/RecursoGlosaConciliacao"));
 
 function PageLoader() {
   return (
@@ -180,6 +181,7 @@ function Router() {
         <Route path={"/previsao-glosa"} component={PrevisaoGlosa} />
         <Route path={"/motor-regras"} component={DashboardMotorRegras} />
         <Route path={"/conciliacao-cruzada"} component={ConciliacaoCruzada} />
+        <Route path={"/recurso-glosa-conciliacao"} component={RecursoGlosaConciliacao} />
         <Route path={"/contas-faturadas"} component={ConciliacaoContasFaturadas} />
         <Route path={"/contas-faturadas/:conta"} component={DetalhesContaFaturada} />
         <Route path={"/recebimentos-xml"} component={RecebimentosXml} />

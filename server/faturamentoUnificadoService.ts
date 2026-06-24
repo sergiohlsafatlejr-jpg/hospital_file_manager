@@ -3263,3 +3263,375 @@ export async function datasPagamentoConciliados(params: {
     total: Number(r.total) || 0,
   }));
 }
+
+// ============================================================
+// RECURSO DE GLOSA VIA CONCILIAÇÃO
+// ============================================================
+
+/**
+ * Lista itens glosados da conciliação disponíveis para recurso
+ * Agrupa por guia, data ou lote
+ */
+export async function itensGlosadosParaRecurso(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  competencia?: string;
+  dataPagto?: string;
+  loteXml?: string;
+  loteRetorno?: string;
+  agrupamento?: 'guia' | 'data' | 'lote';
+  busca?: string;
+  apenasNaoRecursados?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: any[]; total: number; resumo: any }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  const agrupamento = params.agrupamento || 'guia';
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
+  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+
+  if (params.competencia && params.competencia !== 'todos') {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.dataPagto) {
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${params.dataPagto.replace(/'/g, "''")}')`;
+  }
+  if (params.loteXml) {
+    whereClause += ` AND ca.faturamentoUnificadoId IN (SELECT fu2.id FROM faturamento_unificado fu2 WHERE fu2.lotePrestador = '${params.loteXml.replace(/'/g, "''")}' AND fu2.estabelecimentoId = ${params.estabelecimentoId})`;
+  }
+  if (params.loteRetorno) {
+    const lr = params.loteRetorno.replace(/'/g, "''");
+    whereClause += ` AND ca.numeroGuia IN (SELECT DISTINCT d2.numero_guia FROM demonstrativo d2 WHERE d2.estabelecimentoId = ${params.estabelecimentoId} AND d2.lote_prestador = '${lr}')`;
+  }
+  if (params.busca) {
+    const b = params.busca.replace(/'/g, "''");
+    whereClause += ` AND (ca.numeroGuia LIKE '%${b}%' OR ca.pacienteNome LIKE '%${b}%' OR ca.codigoItem LIKE '%${b}%' OR ca.descricaoItem LIKE '%${b}%')`;
+  }
+  if (params.apenasNaoRecursados) {
+    whereClause += ` AND (ca.xmlRecursoGerado IS NULL OR ca.xmlRecursoGerado = 0)`;
+  }
+
+  const limit = params.limit || 50;
+  const offset = params.offset || 0;
+
+  let groupByField: string;
+  let selectFields: string;
+  let orderBy: string;
+
+  if (agrupamento === 'guia') {
+    groupByField = 'ca.numeroGuia, ca.convenioId, ca.competencia';
+    selectFields = `
+      ca.numeroGuia as chave,
+      ca.numeroGuia,
+      ca.convenio,
+      ca.convenioId,
+      ca.competencia,
+      MAX(ca.pacienteNome) as pacienteNome,
+      COUNT(*) as totalItensGlosados,
+      SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as valorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      MAX(ca.xmlRecursoGerado) as xmlGerado,
+      MAX(ca.dataExecucao) as dataExecucao,
+      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
+    `;
+    orderBy = 'ORDER BY ca.competencia DESC, valorGlosa DESC';
+  } else if (agrupamento === 'data') {
+    groupByField = 'ca.dataExecucao, ca.convenioId';
+    selectFields = `
+      DATE_FORMAT(ca.dataExecucao, '%Y-%m-%d') as chave,
+      DATE_FORMAT(ca.dataExecucao, '%Y-%m-%d') as dataExecucao,
+      ca.convenio,
+      ca.convenioId,
+      NULL as numeroGuia,
+      NULL as competencia,
+      NULL as pacienteNome,
+      COUNT(*) as totalItensGlosados,
+      SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as valorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      MAX(ca.xmlRecursoGerado) as xmlGerado,
+      MAX(ca.dataExecucao) as dataExecucaoMax,
+      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
+    `;
+    orderBy = 'ORDER BY dataExecucao DESC, valorGlosa DESC';
+  } else {
+    // lote
+    groupByField = 'fu.lotePrestador, ca.convenioId';
+    selectFields = `
+      COALESCE(fu.lotePrestador, 'SEM_LOTE') as chave,
+      COALESCE(fu.lotePrestador, 'Sem Lote') as lote,
+      ca.convenio,
+      ca.convenioId,
+      NULL as numeroGuia,
+      ca.competencia,
+      NULL as pacienteNome,
+      COUNT(*) as totalItensGlosados,
+      SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as valorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      MAX(ca.xmlRecursoGerado) as xmlGerado,
+      MAX(ca.dataExecucao) as dataExecucao,
+      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
+    `;
+    orderBy = 'ORDER BY valorGlosa DESC';
+  }
+
+  // Count
+  const countQuery = `
+    SELECT COUNT(*) as total FROM (
+      SELECT 1 FROM conciliados_automatico ca
+      LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+      ${whereClause}
+      GROUP BY ${groupByField}
+    ) sub
+  `;
+
+  // Main query
+  const mainQuery = `
+    SELECT ${selectFields}
+    FROM conciliados_automatico ca
+    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+    ${whereClause}
+    GROUP BY ${groupByField}
+    ${orderBy}
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  // Resumo totais
+  const resumoQuery = `
+    SELECT 
+      COUNT(*) as totalItens,
+      COUNT(DISTINCT ca.numeroGuia) as totalGuias,
+      SUM(COALESCE(ca.valorFaturado, 0)) as totalValorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as totalValorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as totalValorGlosa,
+      SUM(CASE WHEN ca.xmlRecursoGerado = 1 THEN 1 ELSE 0 END) as totalJaRecursados
+    FROM conciliados_automatico ca
+    ${whereClause}
+  `;
+
+  const [[countResult], [mainResult], [resumoResult]] = await Promise.all([
+    db.execute(sql.raw(countQuery)),
+    db.execute(sql.raw(mainQuery)),
+    db.execute(sql.raw(resumoQuery)),
+  ]);
+
+  const total = Number((countResult as unknown as any[])[0]?.total || 0);
+  const resumoRow = (resumoResult as unknown as any[])[0] || {};
+
+  return {
+    items: (mainResult as unknown as any[]).map((r: any) => ({
+      chave: r.chave,
+      numeroGuia: r.numeroGuia,
+      convenio: r.convenio,
+      convenioId: Number(r.convenioId),
+      competencia: r.competencia,
+      pacienteNome: r.pacienteNome,
+      dataExecucao: r.dataExecucao || r.dataExecucaoMax,
+      lote: r.lote,
+      totalItensGlosados: Number(r.totalItensGlosados),
+      valorFaturado: Number(r.valorFaturado),
+      valorPago: Number(r.valorPago),
+      valorGlosa: Number(r.valorGlosa),
+      xmlGerado: Number(r.xmlGerado) === 1,
+      codigosGlosa: r.codigosGlosa,
+    })),
+    total,
+    resumo: {
+      totalItens: Number(resumoRow.totalItens || 0),
+      totalGuias: Number(resumoRow.totalGuias || 0),
+      totalValorFaturado: Number(resumoRow.totalValorFaturado || 0),
+      totalValorPago: Number(resumoRow.totalValorPago || 0),
+      totalValorGlosa: Number(resumoRow.totalValorGlosa || 0),
+      totalJaRecursados: Number(resumoRow.totalJaRecursados || 0),
+    },
+  };
+}
+
+/**
+ * Detalha itens glosados de uma guia específica para recurso
+ */
+export async function itensGlosadosDetalheGuia(params: {
+  estabelecimentoId: number;
+  numeroGuia: string;
+  convenioId?: number;
+  competencia?: string;
+}): Promise<any[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  whereClause += ` AND ca.numeroGuia = '${params.numeroGuia.replace(/'/g, "''")}'`;
+  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
+  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.competencia) {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+
+  const query = `
+    SELECT 
+      ca.id,
+      ca.codigoItem,
+      ca.descricaoItem,
+      ca.tipoItem,
+      ca.dataExecucao,
+      ca.quantidade,
+      COALESCE(ca.valorFaturado, 0) as valorFaturado,
+      COALESCE(ca.valorPago, 0) as valorPago,
+      COALESCE(ca.valorGlosa, 0) as valorGlosa,
+      ca.codigoGlosa,
+      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      mg.grupo as grupoGlosa,
+      ca.statusConciliacao,
+      ca.xmlRecursoGerado,
+      ca.competencia,
+      ca.pacienteNome
+    FROM conciliados_automatico ca
+    LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    ${whereClause}
+    ORDER BY ca.dataExecucao, ca.codigoItem
+  `;
+
+  const [rows] = await db.execute(sql.raw(query));
+  return (rows as unknown as any[]).map((r: any) => ({
+    id: Number(r.id),
+    codigoItem: r.codigoItem,
+    descricaoItem: r.descricaoItem,
+    tipoItem: r.tipoItem,
+    dataExecucao: r.dataExecucao,
+    quantidade: Number(r.quantidade) || 1,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    codigoGlosa: r.codigoGlosa,
+    motivoGlosa: r.motivoGlosa,
+    grupoGlosa: r.grupoGlosa,
+    statusConciliacao: r.statusConciliacao,
+    xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
+    competencia: r.competencia,
+    pacienteNome: r.pacienteNome,
+  }));
+}
+
+/**
+ * Gera Excel de recurso de glosa a partir dos itens selecionados da conciliação
+ */
+export async function gerarExcelRecursoConciliacao(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  guias?: string[];
+  itensIds?: number[];
+  justificativa?: string;
+  competencia?: string;
+  userId?: number;
+}): Promise<{ dados: any[]; totais: any }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
+  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+
+  if (params.guias && params.guias.length > 0) {
+    const esc = (v: string) => `'${v.replace(/'/g, "''")}'`;
+    whereClause += ` AND ca.numeroGuia IN (${params.guias.map(g => esc(g)).join(',')})`;
+  }
+  if (params.itensIds && params.itensIds.length > 0) {
+    whereClause += ` AND ca.id IN (${params.itensIds.join(',')})`;
+  }
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.competencia && params.competencia !== 'todos') {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+
+  const query = `
+    SELECT 
+      ca.id,
+      ca.numeroGuia,
+      ca.codigoItem,
+      ca.descricaoItem,
+      ca.tipoItem,
+      ca.dataExecucao,
+      ca.quantidade,
+      COALESCE(ca.valorFaturado, 0) as valorFaturado,
+      COALESCE(ca.valorPago, 0) as valorPago,
+      COALESCE(ca.valorGlosa, 0) as valorGlosa,
+      ca.codigoGlosa,
+      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      ca.statusConciliacao,
+      ca.pacienteNome,
+      ca.convenio,
+      ca.competencia,
+      fu.senha,
+      fu.carteiraBeneficiario
+    FROM conciliados_automatico ca
+    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+    LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    ${whereClause}
+    ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
+  `;
+
+  const [rows] = await db.execute(sql.raw(query));
+  const itens = rows as unknown as any[];
+
+  let totalValorFaturado = 0;
+  let totalValorPago = 0;
+  let totalValorGlosa = 0;
+  let totalValorRecursado = 0;
+
+  const dados = itens.map((r: any, idx: number) => {
+    const vFat = Number(r.valorFaturado) || 0;
+    const vPago = Number(r.valorPago) || 0;
+    const vGlosa = Number(r.valorGlosa) || 0;
+    totalValorFaturado += vFat;
+    totalValorPago += vPago;
+    totalValorGlosa += vGlosa;
+    totalValorRecursado += vGlosa;
+
+    return {
+      "Seq.": idx + 1,
+      "Nº Guia": r.numeroGuia,
+      "Nome do Beneficiário": r.pacienteNome || '',
+      "Carteirinha": r.carteiraBeneficiario || '',
+      "Data Atendimento": r.dataExecucao ? new Date(r.dataExecucao).toLocaleDateString('pt-BR') : '',
+      "Código Item": r.codigoItem,
+      "Descrição": r.descricaoItem,
+      "Tipo": r.tipoItem || '',
+      "Qtde": Number(r.quantidade) || 1,
+      "Valor Faturado": vFat,
+      "Valor Pago": vPago,
+      "Valor Glosa": vGlosa,
+      "Valor Recursado": vGlosa,
+      "Código Glosa": r.codigoGlosa || '',
+      "Motivo Glosa": r.motivoGlosa || '',
+      "Justificativa Recurso": params.justificativa || '',
+      "Competência": r.competencia || '',
+      "Convênio": r.convenio || '',
+    };
+  });
+
+  return {
+    dados,
+    totais: {
+      totalItens: dados.length,
+      totalGuias: new Set(itens.map((r: any) => r.numeroGuia)).size,
+      totalValorFaturado,
+      totalValorPago,
+      totalValorGlosa,
+      totalValorRecursado,
+    },
+  };
+}

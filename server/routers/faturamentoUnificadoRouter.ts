@@ -558,4 +558,86 @@ export const faturamentoUnificadoRouter = router({
     .query(async ({ input }) => {
       return await faturamentoService.datasPagamentoConciliados(input);
     }),
+
+  // ============================================================
+  // RECURSO DE GLOSA VIA CONCILIAÇÃO
+  // ============================================================
+
+  /**
+   * Listar itens glosados da conciliação disponíveis para recurso
+   * Agrupa por guia, data ou lote conforme parâmetro
+   */
+  itensGlosadosParaRecurso: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      competencia: z.string().optional(),
+      dataPagto: z.string().optional(),
+      loteXml: z.string().optional(),
+      loteRetorno: z.string().optional(),
+      agrupamento: z.enum(['guia', 'data', 'lote']).default('guia'),
+      busca: z.string().optional(),
+      apenasNaoRecursados: z.boolean().optional(),
+      limit: z.number().optional(),
+      offset: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosParaRecurso(input);
+    }),
+
+  /**
+   * Detalhar itens glosados de uma guia específica para recurso
+   */
+  itensGlosadosDetalheGuia: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      numeroGuia: z.string(),
+      convenioId: z.number().optional(),
+      competencia: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalheGuia(input);
+    }),
+
+  /**
+   * Gerar Excel de recurso de glosa a partir dos itens selecionados
+   */
+  gerarExcelRecursoConciliacao: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      guias: z.array(z.string()).optional(),
+      itensIds: z.array(z.number()).optional(),
+      justificativa: z.string().optional(),
+      competencia: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.gerarExcelRecursoConciliacao({
+        ...input,
+        userId: ctx.user?.id,
+      });
+    }),
+
+  /**
+   * Gerar XML TISS de recurso de glosa a partir dos itens selecionados
+   * Reutiliza o xmlRecursoService existente
+   */
+  gerarXmlRecursoConciliacao: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      guias: z.array(z.string()).min(1),
+      convenioId: z.number().optional(),
+      registroANS: z.string().optional(),
+      cnpjOperadora: z.string().optional(),
+      numeroDemonstrativo: z.string().optional(),
+      numeroProtocolo: z.string().optional(),
+      lotePrestador: z.string().optional(),
+      dataProtocolo: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await xmlRecursoService.gerarXmlRecurso({
+        ...input,
+        userId: ctx.user?.id,
+      });
+    }),
 });

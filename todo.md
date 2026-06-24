@@ -4012,3 +4012,20 @@
 - [x] Backend vincularItensManual: manter codigoGlosa/motivoGlosa original se existir, senão usar 9999
 - [x] Frontend: filtrar itens com status 'absorvido' da listagem (não exibir na tabela)
 - [x] Backend desvincularItensManual: ao desvincular, restaurar item de acréscimo para visível
+
+## Recurso de Glosa via Conciliação Cruzada (Novo Módulo)
+
+- [x] Backend: query para listar itens glosados da conciliação (glosa_parcial + glosa_total) agrupados por guia
+- [x] Backend: query para listar itens glosados agrupados por data do item
+- [x] Backend: query para listar itens glosados agrupados por lote
+- [x] Backend: endpoint para gerar XML TISS de recurso a partir dos itens selecionados
+- [x] Backend: endpoint para gerar Excel de recurso a partir dos itens selecionados
+- [x] Frontend: nova página /recurso-glosa-conciliacao
+- [x] Frontend: filtros por convênio, competência, lote, data
+- [x] Frontend: tabela de itens glosados com checkbox para seleção
+- [x] Frontend: agrupamento por guia / data / lote (tabs ou toggle)
+- [x] Frontend: botão para gerar XML TISS dos itens selecionados
+- [x] Frontend: botão para gerar Excel dos itens selecionados
+- [x] Frontend: campo de justificativa para o recurso
+- [x] Navegação: adicionar link no menu lateral dentro do módulo Conciliações
+- [x] Rota: registrar em App.tsx
