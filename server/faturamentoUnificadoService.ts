@@ -2584,7 +2584,7 @@ export async function resumoConciliadosPorGuia(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId} AND ca.statusConciliacao != 'absorvido'`;
   if (params.competencia) {
     whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
   }
@@ -2749,7 +2749,7 @@ export async function itensConciliadosPorGuia(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId} AND ca.statusConciliacao != 'absorvido'`;
   if (params.numeroGuia) {
     whereClause += ` AND ca.numeroGuia = '${params.numeroGuia.replace(/'/g, "''")}'`;
   }
@@ -2775,7 +2775,7 @@ export async function itensConciliadosPorGuia(params: {
       ca.codigoGlosa,
       COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
       mg.grupo as grupoGlosa,
-      ca.statusConciliacao, ca.metodoConciliacao,
+      ca.statusConciliacao, ca.metodoConciliacao, ca.vinculadoAoId,
       COALESCE(ca.diferenca, 0) as diferenca,
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
       ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm
@@ -2956,16 +2956,22 @@ export async function vincularItensManual(params: {
     return { sucesso: false, mensagem: `Item de glosa tem status '${itemGlosa.statusConciliacao}', esperado 'glosa_total', 'sem_pagamento' ou 'nao_recebido'` };
   }
 
-  // Vincular: atualizar ambos os itens
-  // Item de acréscimo: marca como conciliado_manual, vincula ao item de glosa
-  // Item de glosa: marca como conciliado_manual, vincula ao item de acréscimo, copia o valorPago do acréscimo
+  // Vincular: 
+  // 1. Item de acréscimo: marca como 'absorvido' (será oculto da tela)
+  // 2. Item faturado (glosa): recebe o valorPago do acréscimo, calcula glosa real
   const valorPagoAcrescimo = Number(itemAcrescimo.valorPago) || 0;
   const valorFaturadoGlosa = Number(itemGlosa.valorFaturado) || 0;
-  const diferencaGlosa = valorFaturadoGlosa - valorPagoAcrescimo;
+  const glosaReal = valorFaturadoGlosa - valorPagoAcrescimo;
+  const percentualGlosa = valorFaturadoGlosa > 0 ? Math.round((glosaReal / valorFaturadoGlosa) * 10000) / 100 : 0;
 
+  // Determinar o código/motivo de glosa: manter original se existir, senão usar 9999
+  const codigoGlosaFinal = itemGlosa.codigoGlosa || '9999';
+  const motivoGlosaFinal = itemGlosa.motivoGlosa || 'Glosa não informada pela operadora';
+
+  // Item de acréscimo: marcar como 'absorvido' (não aparece mais na tela)
   await db.execute(sql.raw(`
     UPDATE conciliados_automatico 
-    SET statusConciliacao = 'conciliado_manual',
+    SET statusConciliacao = 'absorvido',
         metodoConciliacao = 'manual',
         vinculadoAoId = ${params.itemGlosaId},
         diferenca = 0,
@@ -2974,23 +2980,30 @@ export async function vincularItensManual(params: {
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
 
+  // Item faturado: atualizar com valor pago real e glosa calculada
+  // Se glosaReal > 0: é glosa parcial (pagou menos que o faturado)
+  // Se glosaReal <= 0: é conciliado (pagou igual ou mais)
+  const statusFinal = glosaReal > 0 ? 'glosa_parcial' : 'conciliado_manual';
+  
   await db.execute(sql.raw(`
     UPDATE conciliados_automatico 
-    SET statusConciliacao = 'conciliado_manual',
+    SET statusConciliacao = '${statusFinal}',
         metodoConciliacao = 'manual',
         vinculadoAoId = ${params.itemAcrescimoId},
         valorPago = ${valorPagoAcrescimo},
         recebimentoId = ${itemAcrescimo.recebimentoId || 'NULL'},
-        valorGlosa = CASE WHEN ${diferencaGlosa} > 0 THEN ${diferencaGlosa} ELSE 0 END,
-        diferenca = ${diferencaGlosa},
-        percentualDiferenca = CASE WHEN ${valorFaturadoGlosa} > 0 THEN ROUND((${diferencaGlosa} / ${valorFaturadoGlosa}) * 100, 2) ELSE 0 END
+        valorGlosa = CASE WHEN ${glosaReal} > 0 THEN ${glosaReal} ELSE 0 END,
+        codigoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${codigoGlosaFinal}' ELSE NULL END,
+        motivoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${motivoGlosaFinal.replace(/'/g, "''")}' ELSE NULL END,
+        diferenca = ${glosaReal},
+        percentualDiferenca = ${percentualGlosa}
     WHERE id = ${params.itemGlosaId}
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
 
   return { 
     sucesso: true, 
-    mensagem: `Itens vinculados com sucesso: ${itemGlosa.codigoItem} (faturado) ↔ ${itemAcrescimo.codigoItem} (pago)` 
+    mensagem: `Itens vinculados: ${itemGlosa.codigoItem} (faturado R$ ${valorFaturadoGlosa.toFixed(2)}) ↔ ${itemAcrescimo.codigoItem} (pago R$ ${valorPagoAcrescimo.toFixed(2)})${glosaReal > 0 ? ` | Glosa: R$ ${glosaReal.toFixed(2)}` : ''}` 
   };
 }
 
@@ -3006,7 +3019,7 @@ export async function desvincularItensManual(params: {
 
   // Buscar o item e seu par vinculado
   const [rows] = await db.execute(sql.raw(`
-    SELECT id, vinculadoAoId, statusConciliacao, faturamentoUnificadoId, recebimentoId
+    SELECT id, vinculadoAoId, statusConciliacao, faturamentoUnificadoId, recebimentoId, metodoConciliacao
     FROM conciliados_automatico 
     WHERE id = ${params.itemId}
       AND estabelecimentoId = ${params.estabelecimentoId}
@@ -3016,18 +3029,18 @@ export async function desvincularItensManual(params: {
   if (!item) {
     return { sucesso: false, mensagem: 'Item não encontrado' };
   }
-  if (item.statusConciliacao !== 'conciliado_manual') {
-    return { sucesso: false, mensagem: 'Item não está vinculado manualmente' };
+  // Aceitar desvincular itens com método 'manual' (podem ter status glosa_parcial, conciliado_manual ou absorvido)
+  if (item.metodoConciliacao !== 'manual') {
+    return { sucesso: false, mensagem: 'Item não foi vinculado manualmente' };
   }
 
   const parId = item.vinculadoAoId;
 
   // Reverter o item atual
-  // Se tem faturamentoUnificadoId = 0 ou NULL, era acréscimo
   const eraAcrescimo = !item.faturamentoUnificadoId || item.faturamentoUnificadoId === 0;
   
-  if (eraAcrescimo) {
-    // Reverter para acréscimo
+  if (eraAcrescimo || item.statusConciliacao === 'absorvido') {
+    // Reverter para acréscimo (era item absorvido)
     await db.execute(sql.raw(`
       UPDATE conciliados_automatico 
       SET statusConciliacao = 'acrescimo',
@@ -3039,7 +3052,7 @@ export async function desvincularItensManual(params: {
         AND estabelecimentoId = ${params.estabelecimentoId}
     `));
   } else {
-    // Reverter para glosa_total
+    // Reverter para glosa_total (era item faturado que recebeu pagamento via vinculação)
     await db.execute(sql.raw(`
       UPDATE conciliados_automatico 
       SET statusConciliacao = 'glosa_total',
@@ -3048,6 +3061,7 @@ export async function desvincularItensManual(params: {
           valorPago = 0,
           recebimentoId = NULL,
           valorGlosa = valorFaturado,
+          codigoGlosa = COALESCE(codigoGlosa, '9999'),
           diferenca = valorFaturado,
           percentualDiferenca = 100
       WHERE id = ${params.itemId}
@@ -3058,12 +3072,12 @@ export async function desvincularItensManual(params: {
   // Reverter o par vinculado (se existir)
   if (parId) {
     const [parRows] = await db.execute(sql.raw(`
-      SELECT id, faturamentoUnificadoId FROM conciliados_automatico 
+      SELECT id, faturamentoUnificadoId, statusConciliacao FROM conciliados_automatico 
       WHERE id = ${parId} AND estabelecimentoId = ${params.estabelecimentoId}
     `));
     const par = (parRows as any[])[0];
     if (par) {
-      const parEraAcrescimo = !par.faturamentoUnificadoId || par.faturamentoUnificadoId === 0;
+      const parEraAcrescimo = !par.faturamentoUnificadoId || par.faturamentoUnificadoId === 0 || par.statusConciliacao === 'absorvido';
       if (parEraAcrescimo) {
         await db.execute(sql.raw(`
           UPDATE conciliados_automatico 
@@ -3084,6 +3098,7 @@ export async function desvincularItensManual(params: {
               valorPago = 0,
               recebimentoId = NULL,
               valorGlosa = valorFaturado,
+              codigoGlosa = COALESCE(codigoGlosa, '9999'),
               diferenca = valorFaturado,
               percentualDiferenca = 100
           WHERE id = ${parId}

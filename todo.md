@@ -4004,3 +4004,11 @@
 - [x] Frontend: botão de vincular em cada item desassociado (acréscimo/glosa_total)
 - [x] Frontend: ao clicar, mostrar lista de itens candidatos à vinculação na mesma guia
 - [x] Frontend: após vinculação, atualizar a lista de itens e o resumo da guia
+
+## Correção Conciliação Manual - Ocultar item de acréscimo
+
+- [x] Backend vincularItensManual: marcar item de acréscimo como 'absorvido' (não exibir na tela)
+- [x] Backend vincularItensManual: manter glosa real no item faturado (diferença entre valorFaturado e valorPago do acréscimo)
+- [x] Backend vincularItensManual: manter codigoGlosa/motivoGlosa original se existir, senão usar 9999
+- [x] Frontend: filtrar itens com status 'absorvido' da listagem (não exibir na tabela)
+- [x] Backend desvincularItensManual: ao desvincular, restaurar item de acréscimo para visível

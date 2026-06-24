@@ -995,7 +995,7 @@ export default function ConciliacaoCruzada() {
                     <div className="flex items-center justify-between flex-wrap gap-3">
                       <CardTitle className="text-lg flex items-center gap-2">
                         <FileText className="w-5 h-5" />
-                        Itens da Guia ({itensConciliadosGuia?.length || 0})
+                        Itens da Guia ({itensConciliadosGuia?.filter((i: any) => i.statusConciliacao !== 'absorvido').length || 0})
                       </CardTitle>
                       <div className="flex items-center gap-2 flex-wrap">
                         {/* Botões de ação de glosa */}
@@ -1068,15 +1068,15 @@ export default function ConciliacaoCruzada() {
                             Vincular Itens
                           </Button>
                         )}
-                        {/* Botão desvincular (se houver itens conciliados manualmente) */}
-                        {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'conciliado_manual') && (
+                        {/* Botão desvincular (se houver itens vinculados manualmente) */}
+                        {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.metodoConciliacao === 'manual' && i.statusConciliacao !== 'absorvido') && (
                           <Button
                             size="sm"
                             variant="outline"
                             className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
                             onClick={() => {
                               const manualIds = itensConciliadosGuia
-                                .filter((i: any) => i.statusConciliacao === 'conciliado_manual')
+                                .filter((i: any) => i.metodoConciliacao === 'manual' && i.statusConciliacao !== 'absorvido')
                                 .map((i: any) => i.id)
                                 .filter(Boolean);
                               if (!manualIds.length) { toast.error('Nenhum item vinculado manualmente'); return; }
@@ -1130,7 +1130,7 @@ export default function ConciliacaoCruzada() {
                             </tr>
                           </thead>
                           <tbody>
-                            {itensConciliadosGuia.map((item: any, index: number) => (
+                            {itensConciliadosGuia.filter((item: any) => item.statusConciliacao !== 'absorvido').map((item: any, index: number) => (
                               <tr key={item.id || index} className={`border-b hover:bg-muted/50 ${
                                 (item.statusConciliacao === 'divergente' || item.statusConciliacao === 'acrescimo') ? 'bg-teal-50/50 dark:bg-teal-950/20' :
                                 item.statusConciliacao === 'nao_recebido' ? 'bg-red-50/50 dark:bg-red-950/20' :
