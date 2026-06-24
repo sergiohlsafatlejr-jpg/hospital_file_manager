@@ -2905,6 +2905,198 @@ export async function reverterGlosa(params: {
 }
 
 // ============================================================
+// CONCILIAÇÃO MANUAL - VINCULAÇÃO DE ITENS
+// ============================================================
+
+/**
+ * Vincular manualmente um item de acréscimo a um item de glosa_total
+ * Quando o convênio paga com código diferente do faturado
+ */
+export async function vincularItensManual(params: {
+  estabelecimentoId: number;
+  itemAcrescimoId: number;
+  itemGlosaId: number;
+}): Promise<{ sucesso: boolean; mensagem: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // Verificar se ambos os itens existem e pertencem ao mesmo estabelecimento/guia
+  const [rows] = await db.execute(sql.raw(`
+    SELECT id, numeroGuia, contaNumero, statusConciliacao, codigoItem, descricaoItem, 
+           valorFaturado, valorPago, recebimentoId, faturamentoUnificadoId
+    FROM conciliados_automatico 
+    WHERE id IN (${params.itemAcrescimoId}, ${params.itemGlosaId})
+      AND estabelecimentoId = ${params.estabelecimentoId}
+  `));
+
+  const itens = rows as any[];
+  if (itens.length !== 2) {
+    return { sucesso: false, mensagem: 'Itens não encontrados ou não pertencem ao mesmo estabelecimento' };
+  }
+
+  const itemAcrescimo = itens.find((i: any) => i.id === params.itemAcrescimoId);
+  const itemGlosa = itens.find((i: any) => i.id === params.itemGlosaId);
+
+  if (!itemAcrescimo || !itemGlosa) {
+    return { sucesso: false, mensagem: 'Itens não encontrados' };
+  }
+
+  // Verificar que são da mesma guia
+  const guiaAcrescimo = itemAcrescimo.numeroGuia || itemAcrescimo.contaNumero;
+  const guiaGlosa = itemGlosa.numeroGuia || itemGlosa.contaNumero;
+  if (guiaAcrescimo !== guiaGlosa) {
+    return { sucesso: false, mensagem: 'Os itens devem pertencer à mesma guia' };
+  }
+
+  // Verificar status compatíveis (acréscimo deve ser 'acrescimo' e glosa deve ser 'glosa_total' ou 'sem_pagamento' ou 'nao_recebido')
+  if (itemAcrescimo.statusConciliacao !== 'acrescimo') {
+    return { sucesso: false, mensagem: `Item de acréscimo tem status '${itemAcrescimo.statusConciliacao}', esperado 'acrescimo'` };
+  }
+  if (!['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(itemGlosa.statusConciliacao)) {
+    return { sucesso: false, mensagem: `Item de glosa tem status '${itemGlosa.statusConciliacao}', esperado 'glosa_total', 'sem_pagamento' ou 'nao_recebido'` };
+  }
+
+  // Vincular: atualizar ambos os itens
+  // Item de acréscimo: marca como conciliado_manual, vincula ao item de glosa
+  // Item de glosa: marca como conciliado_manual, vincula ao item de acréscimo, copia o valorPago do acréscimo
+  const valorPagoAcrescimo = Number(itemAcrescimo.valorPago) || 0;
+  const valorFaturadoGlosa = Number(itemGlosa.valorFaturado) || 0;
+  const diferencaGlosa = valorFaturadoGlosa - valorPagoAcrescimo;
+
+  await db.execute(sql.raw(`
+    UPDATE conciliados_automatico 
+    SET statusConciliacao = 'conciliado_manual',
+        metodoConciliacao = 'manual',
+        vinculadoAoId = ${params.itemGlosaId},
+        diferenca = 0,
+        percentualDiferenca = 0
+    WHERE id = ${params.itemAcrescimoId}
+      AND estabelecimentoId = ${params.estabelecimentoId}
+  `));
+
+  await db.execute(sql.raw(`
+    UPDATE conciliados_automatico 
+    SET statusConciliacao = 'conciliado_manual',
+        metodoConciliacao = 'manual',
+        vinculadoAoId = ${params.itemAcrescimoId},
+        valorPago = ${valorPagoAcrescimo},
+        recebimentoId = ${itemAcrescimo.recebimentoId || 'NULL'},
+        valorGlosa = CASE WHEN ${diferencaGlosa} > 0 THEN ${diferencaGlosa} ELSE 0 END,
+        diferenca = ${diferencaGlosa},
+        percentualDiferenca = CASE WHEN ${valorFaturadoGlosa} > 0 THEN ROUND((${diferencaGlosa} / ${valorFaturadoGlosa}) * 100, 2) ELSE 0 END
+    WHERE id = ${params.itemGlosaId}
+      AND estabelecimentoId = ${params.estabelecimentoId}
+  `));
+
+  return { 
+    sucesso: true, 
+    mensagem: `Itens vinculados com sucesso: ${itemGlosa.codigoItem} (faturado) ↔ ${itemAcrescimo.codigoItem} (pago)` 
+  };
+}
+
+/**
+ * Desvincular itens que foram vinculados manualmente (reverter conciliação manual)
+ */
+export async function desvincularItensManual(params: {
+  estabelecimentoId: number;
+  itemId: number;
+}): Promise<{ sucesso: boolean; mensagem: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // Buscar o item e seu par vinculado
+  const [rows] = await db.execute(sql.raw(`
+    SELECT id, vinculadoAoId, statusConciliacao, faturamentoUnificadoId, recebimentoId
+    FROM conciliados_automatico 
+    WHERE id = ${params.itemId}
+      AND estabelecimentoId = ${params.estabelecimentoId}
+  `));
+
+  const item = (rows as any[])[0];
+  if (!item) {
+    return { sucesso: false, mensagem: 'Item não encontrado' };
+  }
+  if (item.statusConciliacao !== 'conciliado_manual') {
+    return { sucesso: false, mensagem: 'Item não está vinculado manualmente' };
+  }
+
+  const parId = item.vinculadoAoId;
+
+  // Reverter o item atual
+  // Se tem faturamentoUnificadoId = 0 ou NULL, era acréscimo
+  const eraAcrescimo = !item.faturamentoUnificadoId || item.faturamentoUnificadoId === 0;
+  
+  if (eraAcrescimo) {
+    // Reverter para acréscimo
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET statusConciliacao = 'acrescimo',
+          metodoConciliacao = NULL,
+          vinculadoAoId = NULL,
+          diferenca = -valorPago,
+          percentualDiferenca = 0
+      WHERE id = ${params.itemId}
+        AND estabelecimentoId = ${params.estabelecimentoId}
+    `));
+  } else {
+    // Reverter para glosa_total
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET statusConciliacao = 'glosa_total',
+          metodoConciliacao = NULL,
+          vinculadoAoId = NULL,
+          valorPago = 0,
+          recebimentoId = NULL,
+          valorGlosa = valorFaturado,
+          diferenca = valorFaturado,
+          percentualDiferenca = 100
+      WHERE id = ${params.itemId}
+        AND estabelecimentoId = ${params.estabelecimentoId}
+    `));
+  }
+
+  // Reverter o par vinculado (se existir)
+  if (parId) {
+    const [parRows] = await db.execute(sql.raw(`
+      SELECT id, faturamentoUnificadoId FROM conciliados_automatico 
+      WHERE id = ${parId} AND estabelecimentoId = ${params.estabelecimentoId}
+    `));
+    const par = (parRows as any[])[0];
+    if (par) {
+      const parEraAcrescimo = !par.faturamentoUnificadoId || par.faturamentoUnificadoId === 0;
+      if (parEraAcrescimo) {
+        await db.execute(sql.raw(`
+          UPDATE conciliados_automatico 
+          SET statusConciliacao = 'acrescimo',
+              metodoConciliacao = NULL,
+              vinculadoAoId = NULL,
+              diferenca = -valorPago,
+              percentualDiferenca = 0
+          WHERE id = ${parId}
+            AND estabelecimentoId = ${params.estabelecimentoId}
+        `));
+      } else {
+        await db.execute(sql.raw(`
+          UPDATE conciliados_automatico 
+          SET statusConciliacao = 'glosa_total',
+              metodoConciliacao = NULL,
+              vinculadoAoId = NULL,
+              valorPago = 0,
+              recebimentoId = NULL,
+              valorGlosa = valorFaturado,
+              diferenca = valorFaturado,
+              percentualDiferenca = 100
+          WHERE id = ${parId}
+            AND estabelecimentoId = ${params.estabelecimentoId}
+        `));
+      }
+    }
+  }
+
+  return { sucesso: true, mensagem: 'Vinculação manual revertida com sucesso' };
+}
+
+// ============================================================
 // FUNÇÕES AUXILIARES
 // ============================================================
 

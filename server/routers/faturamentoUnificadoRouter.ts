@@ -377,6 +377,32 @@ export const faturamentoUnificadoRouter = router({
       return await faturamentoService.reverterGlosa(input);
     }),
 
+  /**
+   * Vincular manualmente um item de acréscimo a um item de glosa_total
+   * (conciliação manual - códigos diferentes mas mesmo item)
+   */
+  vincularItensManual: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      itemAcrescimoId: z.number(),
+      itemGlosaId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.vincularItensManual(input);
+    }),
+
+  /**
+   * Desvincular itens que foram vinculados manualmente
+   */
+  desvincularItensManual: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      itemId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.desvincularItensManual(input);
+    }),
+
   // ============================================================
   // XML DE RECURSO DE GLOSA
   // ============================================================

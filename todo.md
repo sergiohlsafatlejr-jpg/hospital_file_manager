@@ -3996,3 +3996,11 @@
 - [x] Fix: totalItens e itensDesassociados incorretos quando filtro dataPagto está ativo (excluía itens sem recebimento e acréscimos)
 - [x] Fix: filtros statusConciliacao (conciliado/nao_conciliado/sem_pagamento_guia) excluíam itens da contagem ao invés de filtrar por guia
 - [x] Fix: filtro loteXml excluía itens de acréscimo (faturamentoUnificadoId=0) da contagem
+
+## Conciliação Manual - Vinculação de Itens
+
+- [x] Backend: endpoint para vincular item de acréscimo a item de glosa_total (conciliação manual)
+- [x] Backend: ao vincular, atualizar statusConciliacao de ambos os itens para 'conciliado_manual'
+- [x] Frontend: botão de vincular em cada item desassociado (acréscimo/glosa_total)
+- [x] Frontend: ao clicar, mostrar lista de itens candidatos à vinculação na mesma guia
+- [x] Frontend: após vinculação, atualizar a lista de itens e o resumo da guia

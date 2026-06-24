@@ -97,6 +97,11 @@ export default function ConciliacaoCruzada() {
   const [codigoGlosa, setCodigoGlosa] = useState("");
   const [modoGlosa, setModoGlosa] = useState<'selecionados' | 'todos'>('selecionados');
 
+  // Conciliação manual - vinculação de itens
+  const [modalVinculacaoManualAberto, setModalVinculacaoManualAberto] = useState(false);
+  const [itemParaVincular, setItemParaVincular] = useState<any>(null);
+  const [itemCandidatoSelecionado, setItemCandidatoSelecionado] = useState<number | null>(null);
+
   // ===== QUERIES PARA ABA CONCILIADOS =====
 
   // Competências da conciliados_automatico
@@ -216,7 +221,7 @@ export default function ConciliacaoCruzada() {
   );
 
   // Itens detalhados de uma guia conciliada (drill-down)
-  const { data: itensConciliadosGuia, isLoading: isLoadingItensConciliados } = trpc.faturamentoUnificado.itensConciliadosPorGuia.useQuery(
+  const { data: itensConciliadosGuia, isLoading: isLoadingItensConciliados, refetch: refetchItensConciliados } = trpc.faturamentoUnificado.itensConciliadosPorGuia.useQuery(
     {
       estabelecimentoId,
       numeroGuia: guiaConciliadaSelecionada?.numeroGuia || undefined,
@@ -391,6 +396,38 @@ export default function ConciliacaoCruzada() {
     onError: (err) => toast.error(`Erro ao reverter glosa: ${err.message}`),
   });
 
+  // Mutation de vinculação manual
+  const vincularManualMut = trpc.faturamentoUnificado.vincularItensManual.useMutation({
+    onSuccess: (data) => {
+      if (data.sucesso) {
+        toast.success(data.mensagem);
+        setModalVinculacaoManualAberto(false);
+        setItemParaVincular(null);
+        setItemCandidatoSelecionado(null);
+        refetchItensConciliados();
+        refetchGuiasConciliadas();
+        refetchResumo();
+      } else {
+        toast.error(data.mensagem);
+      }
+    },
+    onError: (err) => toast.error(`Erro ao vincular: ${err.message}`),
+  });
+
+  const desvincularManualMut = trpc.faturamentoUnificado.desvincularItensManual.useMutation({
+    onSuccess: (data) => {
+      if (data.sucesso) {
+        toast.success(data.mensagem);
+        refetchItensConciliados();
+        refetchGuiasConciliadas();
+        refetchResumo();
+      } else {
+        toast.error(data.mensagem);
+      }
+    },
+    onError: (err) => toast.error(`Erro ao desvincular: ${err.message}`),
+  });
+
   // Mutation de geração de XML
   const gerarXmlMut = trpc.faturamentoUnificado.gerarXmlRecurso.useMutation({
     onSuccess: (data) => {
@@ -472,6 +509,9 @@ export default function ConciliacaoCruzada() {
         return <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">Agrup. Rec.</Badge>;
       case 'acrescimo_demonstrativo':
         return <Badge variant="outline" className="text-xs bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300">Demonstrativo</Badge>;
+      case 'manual':
+      case 'conciliacao_manual':
+        return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">Manual</Badge>;
       default:
         return <Badge variant="outline" className="text-xs">{metodo}</Badge>;
     }
@@ -1007,6 +1047,46 @@ export default function ConciliacaoCruzada() {
                           >
                             {reverterGlosaMut.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Undo2 className="w-4 h-4 mr-1" />}
                             Reverter Glosa
+                          </Button>
+                        )}
+                        {/* Botão vincular manualmente (conciliação manual) */}
+                        {itensConciliadosGuia && (
+                          itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'acrescimo') &&
+                          itensConciliadosGuia.some((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(i.statusConciliacao))
+                        ) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
+                            onClick={() => {
+                              setItemParaVincular(null);
+                              setItemCandidatoSelecionado(null);
+                              setModalVinculacaoManualAberto(true);
+                            }}
+                          >
+                            <Link2 className="w-4 h-4 mr-1" />
+                            Vincular Itens
+                          </Button>
+                        )}
+                        {/* Botão desvincular (se houver itens conciliados manualmente) */}
+                        {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'conciliado_manual') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
+                            onClick={() => {
+                              const manualIds = itensConciliadosGuia
+                                .filter((i: any) => i.statusConciliacao === 'conciliado_manual')
+                                .map((i: any) => i.id)
+                                .filter(Boolean);
+                              if (!manualIds.length) { toast.error('Nenhum item vinculado manualmente'); return; }
+                              if (!confirm(`Desvincular ${manualIds.length} item(ns) conciliado(s) manualmente?`)) return;
+                              desvincularManualMut.mutate({ itemId: manualIds[0], estabelecimentoId });
+                            }}
+                            disabled={desvincularManualMut.isPending}
+                          >
+                            {desvincularManualMut.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Unlink className="w-4 h-4 mr-1" />}
+                            Desvincular
                           </Button>
                         )}
                       </div>
@@ -2347,6 +2427,141 @@ export default function ConciliacaoCruzada() {
                   <Ban className="w-4 h-4 mr-2" />
                 )}
                 Confirmar Glosa
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Vinculação Manual */}
+        <Dialog open={modalVinculacaoManualAberto} onOpenChange={setModalVinculacaoManualAberto}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Link2 className="w-5 h-5 text-blue-600" />
+                Conciliação Manual - Vincular Itens
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Selecione um item de <strong>acréscimo</strong> (pago pelo convênio com código diferente) e vincule ao item <strong>não recebido/glosado</strong> correspondente.
+              </p>
+
+              {/* Lista de itens de acréscimo */}
+              <div>
+                <Label className="text-sm font-semibold text-teal-700">Itens de Acréscimo (pagos com código diferente)</Label>
+                <div className="mt-2 border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-teal-50 dark:bg-teal-950/30 border-b">
+                        <th className="p-2 w-10"></th>
+                        <th className="p-2 text-left">Código</th>
+                        <th className="p-2 text-left">Descrição</th>
+                        <th className="p-2 text-right">Valor Pago</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itensConciliadosGuia?.filter((i: any) => i.statusConciliacao === 'acrescimo').map((item: any) => (
+                        <tr 
+                          key={item.id} 
+                          className={`border-b cursor-pointer hover:bg-teal-50 dark:hover:bg-teal-950/20 ${
+                            itemParaVincular?.id === item.id ? 'bg-teal-100 dark:bg-teal-900/40 ring-2 ring-teal-500' : ''
+                          }`}
+                          onClick={() => {
+                            setItemParaVincular(item);
+                            setItemCandidatoSelecionado(null);
+                          }}
+                        >
+                          <td className="p-2 text-center">
+                            <input type="radio" checked={itemParaVincular?.id === item.id} readOnly className="accent-teal-600" />
+                          </td>
+                          <td className="p-2 font-mono">{item.codigoItem}</td>
+                          <td className="p-2">{item.descricaoItem}</td>
+                          <td className="p-2 text-right font-medium text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Seta de vinculação */}
+              {itemParaVincular && (
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <ChevronDown className="w-5 h-5" />
+                    <span className="text-sm font-medium">Vincular a</span>
+                    <ChevronDown className="w-5 h-5" />
+                  </div>
+                </div>
+              )}
+
+              {/* Lista de itens não recebidos/glosados */}
+              {itemParaVincular && (
+                <div>
+                  <Label className="text-sm font-semibold text-red-700">Itens Não Recebidos / Glosados (faturados sem pagamento)</Label>
+                  <div className="mt-2 border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-red-50 dark:bg-red-950/30 border-b">
+                          <th className="p-2 w-10"></th>
+                          <th className="p-2 text-left">Código</th>
+                          <th className="p-2 text-left">Descrição</th>
+                          <th className="p-2 text-right">Valor Faturado</th>
+                          <th className="p-2 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensConciliadosGuia?.filter((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(i.statusConciliacao)).map((item: any) => (
+                          <tr 
+                            key={item.id} 
+                            className={`border-b cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 ${
+                              itemCandidatoSelecionado === item.id ? 'bg-red-100 dark:bg-red-900/40 ring-2 ring-red-500' : ''
+                            }`}
+                            onClick={() => setItemCandidatoSelecionado(item.id)}
+                          >
+                            <td className="p-2 text-center">
+                              <input type="radio" checked={itemCandidatoSelecionado === item.id} readOnly className="accent-red-600" />
+                            </td>
+                            <td className="p-2 font-mono">{item.codigoItem}</td>
+                            <td className="p-2">{item.descricaoItem}</td>
+                            <td className="p-2 text-right font-medium text-blue-600">{formatarMoeda(Number(item.valorFaturado))}</td>
+                            <td className="p-2 text-center">
+                              <Badge variant="outline" className="text-xs">
+                                {item.statusConciliacao === 'glosa_total' ? 'Glosa Total' : 
+                                 item.statusConciliacao === 'sem_pagamento' ? 'Sem Pagamento' : 'Não Recebido'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setModalVinculacaoManualAberto(false); setItemParaVincular(null); setItemCandidatoSelecionado(null); }}>Cancelar</Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  if (!itemParaVincular || !itemCandidatoSelecionado) {
+                    toast.error('Selecione um item de acréscimo e um item não recebido/glosado');
+                    return;
+                  }
+                  vincularManualMut.mutate({
+                    estabelecimentoId,
+                    itemAcrescimoId: itemParaVincular.id,
+                    itemGlosaId: itemCandidatoSelecionado,
+                  });
+                }}
+                disabled={!itemParaVincular || !itemCandidatoSelecionado || vincularManualMut.isPending}
+              >
+                {vincularManualMut.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Link2 className="w-4 h-4 mr-2" />
+                )}
+                Confirmar Vinculação
               </Button>
             </DialogFooter>
           </DialogContent>
