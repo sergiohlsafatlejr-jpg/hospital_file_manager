@@ -1016,7 +1016,17 @@ export async function executarConciliacaoAutomatica(params: {
   // -------------------------------------------------------
   
   // Extrair guias únicas do faturamento para filtrar recebimentos
-  const guiasUnicas = [...new Set(itensFaturamento.map((f: any) => String(f.numeroGuia || f.contaNumero || '').trim()).filter(Boolean))];
+  // Incluir AMBAS as guias (prestador + operadora) para garantir match com demonstrativo
+  const guiasSet = new Set<string>();
+  for (const f of itensFaturamento) {
+    const gp = String(f.numeroGuia || '').trim();
+    const go = String(f.numeroGuiaOperadora || '').trim();
+    const cn = String(f.contaNumero || '').trim();
+    if (gp) guiasSet.add(gp);
+    if (go) guiasSet.add(go);
+    if (cn) guiasSet.add(cn);
+  }
+  const guiasUnicas = [...guiasSet];
   const carteirasUnicas = [...new Set(itensFaturamento.map((f: any) => String(f.carteiraBeneficiario || '').trim()).filter(Boolean))];
   
   let whereRec = `WHERE re.estabelecimentoId = ${params.estabelecimentoId}`;
