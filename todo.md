@@ -3983,3 +3983,6 @@
 - [x] Disparar conciliação automática ao importar CSV de retorno
 - [x] Corrigir parser Unimed para formato alternativo (laboratório) - mapeamento dinâmico de colunas
 - [x] Corrigir posicionamento de células vazias no SAX parser (usar atributo r)
+
+- [x] Corrigir tela de Convênios para permitir cadastrar múltiplos códigos de prestador por estabelecimento (atualmente sobrescreve o existente)
+- [x] Implementar regra de agrupamento na conciliação: somar múltiplas linhas do demonstrativo com mesma guia+código antes de comparar com XML (já existia no PASSO 5.6)

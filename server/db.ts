@@ -15523,6 +15523,8 @@ export async function getPrestadorPorCodigo(
 
 /**
  * Cria ou atualiza um prestador para convênio/estabelecimento
+ * Permite múltiplos prestadores por convênio/estabelecimento (ex: lab + médico)
+ * A unicidade é por convenioId + estabelecimentoId + codigoPrestador
  */
 export async function upsertPrestadorConvenioEstabelecimento(data: {
   convenioId: number;
@@ -15533,22 +15535,31 @@ export async function upsertPrestadorConvenioEstabelecimento(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Verificar se já existe
-  const existente = await getPrestadorPorConvenioEstabelecimento(data.convenioId, data.estabelecimentoId);
+  // Verificar se já existe o MESMO código para este convênio/estabelecimento
+  const [existente] = await db
+    .select()
+    .from(convenioEstabelecimentoPrestador)
+    .where(
+      and(
+        eq(convenioEstabelecimentoPrestador.convenioId, data.convenioId),
+        eq(convenioEstabelecimentoPrestador.estabelecimentoId, data.estabelecimentoId),
+        eq(convenioEstabelecimentoPrestador.codigoPrestador, data.codigoPrestador)
+      )
+    )
+    .limit(1);
 
   if (existente) {
-    // Atualizar
+    // Atualizar nome se já existe o mesmo código
     await db
       .update(convenioEstabelecimentoPrestador)
       .set({
-        codigoPrestador: data.codigoPrestador,
         nomePrestador: data.nomePrestador,
       })
       .where(eq(convenioEstabelecimentoPrestador.id, existente.id));
 
     return { id: existente.id, created: false };
   } else {
-    // Criar
+    // Criar novo - permite múltiplos códigos para o mesmo convênio/estabelecimento
     const result = await db
       .insert(convenioEstabelecimentoPrestador)
       .values({
