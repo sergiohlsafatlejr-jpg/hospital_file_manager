@@ -3986,3 +3986,4 @@
 
 - [x] Corrigir tela de Convênios para permitir cadastrar múltiplos códigos de prestador por estabelecimento (atualmente sobrescreve o existente)
 - [x] Implementar regra de agrupamento na conciliação: somar múltiplas linhas do demonstrativo com mesma guia+código antes de comparar com XML (já existia no PASSO 5.6)
+- [ ] Corrigir conciliação hospital teste: usar numeroGuiaOperadora (ou guiaPrincipal) ao invés de numeroGuiaPrestador como campo de match no faturamento_unificado

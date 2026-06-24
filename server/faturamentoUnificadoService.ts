@@ -976,7 +976,7 @@ export async function executarConciliacaoAutomatica(params: {
 
   const queryFaturamento = `
     SELECT 
-      fu.id, fu.codigoItem, fu.codigoItemTuss, fu.numeroGuia, fu.contaNumero,
+      fu.id, fu.codigoItem, fu.codigoItemTuss, fu.numeroGuia, fu.numeroGuiaOperadora, fu.contaNumero,
       fu.pacienteNome, fu.carteiraBeneficiario, fu.convenioId, fu.competencia,
       fu.convenio, fu.origemSistema, fu.descricaoItem, fu.tipoItem,
       fu.dataExecucao, fu.codigoPrestadorExecutante,
@@ -1284,7 +1284,8 @@ export async function executarConciliacaoAutomatica(params: {
   }> = [];
 
   for (const fat of itensFaturamento) {
-    const guia = String(fat.numeroGuia || fat.contaNumero || '').trim();
+    // Preferir numeroGuiaOperadora para match (demonstrativo usa guia operadora)
+    const guia = String(fat.numeroGuiaOperadora || fat.numeroGuia || fat.contaNumero || '').trim();
     const codigoItem = String(fat.codigoItem || '').trim();
     const codigoTuss = String(fat.codigoItemTuss || '').trim();
     const paciente = normalizarNome(String(fat.pacienteNome || ''));
@@ -1944,7 +1945,7 @@ export async function executarConciliacaoAutomatica(params: {
   const guiaDatasMap = new Map<string, Set<string>>();
   for (const fat of itensFaturamento) {
     if (fat.dataExecucao) {
-      const guia = String(fat.numeroGuia || fat.contaNumero || '').trim();
+      const guia = String(fat.numeroGuiaOperadora || fat.numeroGuia || fat.contaNumero || '').trim();
       const dtStr = String(fat.dataExecucao).replace('T', ' ').slice(0, 10); // YYYY-MM-DD
       if (guia && /^\d{4}-\d{2}-\d{2}$/.test(dtStr)) {
         if (!guiaDatasMap.has(guia)) guiaDatasMap.set(guia, new Set());
