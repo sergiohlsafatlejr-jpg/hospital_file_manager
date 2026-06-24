@@ -3981,3 +3981,5 @@
 - [x] Disparar conciliação automática ao importar Excel de retorno
 - [x] Disparar conciliação automática ao importar TXT de retorno
 - [x] Disparar conciliação automática ao importar CSV de retorno
+- [x] Corrigir parser Unimed para formato alternativo (laboratório) - mapeamento dinâmico de colunas
+- [x] Corrigir posicionamento de células vazias no SAX parser (usar atributo r)

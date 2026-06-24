@@ -218,9 +218,27 @@ function processSheet1Stream(
     let totalRecords = 0;
     let estimatedTotalRows = 33000;
     
+    // Mapeamento dinâmico de colunas baseado no cabeçalho
+    let columnMap: Record<string, number> = {};
+    let useAlternativeFormat = false;
+    
     // Queue para processar chunks sequencialmente com backpressure
     let processing = Promise.resolve();
     let paused = false;
+    
+    // Helper para converter referência de célula (ex: "A1", "AB2") em índice de coluna (0-based)
+    function cellRefToColIndex(ref: string): number {
+      const match = ref.match(/^([A-Z]+)/);
+      if (!match) return -1;
+      const letters = match[1];
+      let idx = 0;
+      for (let i = 0; i < letters.length; i++) {
+        idx = idx * 26 + (letters.charCodeAt(i) - 64);
+      }
+      return idx - 1; // 0-based
+    }
+    
+    let cellRef = '';
     
     parser.on('opentag', (node: any) => {
       if (node.name === 'row') {
@@ -229,6 +247,7 @@ function processSheet1Stream(
       } else if (node.name === 'c' && inRow) {
         inCell = true;
         cellType = node.attributes.t || '';
+        cellRef = node.attributes.r || '';
         cellValue = '';
       } else if ((node.name === 'v' || node.name === 't') && inCell) {
         inValue = true;
@@ -249,15 +268,45 @@ function processSheet1Stream(
           const idx = parseInt(cellValue);
           value = sharedStrings[idx] || '';
         }
-        currentRow.push(value);
+        // Usar a referência da célula para posicionar corretamente
+        if (cellRef) {
+          const colIdx = cellRefToColIndex(cellRef);
+          if (colIdx >= 0) {
+            // Preencher posições vazias intermediárias
+            while (currentRow.length < colIdx) {
+              currentRow.push('');
+            }
+            currentRow[colIdx] = value;
+          } else {
+            currentRow.push(value);
+          }
+        } else {
+          currentRow.push(value);
+        }
         inCell = false;
       } else if (name === 'row') {
         rowCount++;
         
         if (rowCount === 1) {
-          // Header row - skip
+          // Header row - detectar formato e criar mapeamento dinâmico
+          const headerLower = currentRow.map(h => (h || '').toLowerCase().trim());
+          for (let i = 0; i < headerLower.length; i++) {
+            columnMap[headerLower[i]] = i;
+          }
+          // Detectar formato alternativo (laboratório): tem "número guia" mas NÃO tem "número guia prestador"
+          const hasNumeroGuia = headerLower.some(h => h.includes('número guia') || h.includes('numero guia'));
+          const hasNumeroGuiaPrestador = headerLower.some(h => h.includes('guia prestador'));
+          if (hasNumeroGuia && !hasNumeroGuiaPrestador) {
+            useAlternativeFormat = true;
+            console.log('[UnimedParser] Formato alternativo detectado (laboratório) - usando mapeamento dinâmico');
+          } else {
+            console.log('[UnimedParser] Formato padrão Unimed detectado');
+          }
+          console.log('[UnimedParser] Colunas:', currentRow.slice(0, 20).join(', '));
         } else {
-          const record = convertRowToRecord(currentRow, arquivoId, convenioId, dataReferenciaUpload, dataPagamentoUpload, estabelecimentoId);
+          const record = useAlternativeFormat
+            ? convertRowAlternativeFormat(currentRow, columnMap, arquivoId, convenioId, dataReferenciaUpload, dataPagamentoUpload, estabelecimentoId)
+            : convertRowToRecord(currentRow, arquivoId, convenioId, dataReferenciaUpload, dataPagamentoUpload, estabelecimentoId);
           if (record) {
             chunk.push(record);
             totalRecords++;
@@ -412,16 +461,166 @@ function convertRowToRecord(
   return record;
 }
 
+/**
+ * Converte uma linha do Excel no formato alternativo (laboratório) usando mapeamento dinâmico de colunas.
+ * Colunas do formato laboratório:
+ * 0: Demonstrativo, 1: Data Pagto Processado, 2: Protocolo TISS, 3: Lote Prestador,
+ * 4: Código Prestador Pagamento, 5: Nome Prestador Pagamento, 6: Número Guia, 7: Seq,
+ * 8: Beneficiário, 9: Nome Beneficiário, 10: Data Execução, 11: Hora Execução,
+ * 12: Item, 13: Item Desc, 14: Quantidade, 15: Valor Pagamento, 16: Tipo Lançamento,
+ * 17: Erro TISS, 18: Situação Item, 19: Código Solicitante, 20: Nome Solicitante,
+ * 21: Acomodação da Internação, 22: Data Inicio Faturamento Internação,
+ * 23: Data Fim Faturamento Internação, 24: Código Prestador, 25: Nome Prestador,
+ * 26: Prestador Executante, 27: Nome Prestador Executante
+ */
+function convertRowAlternativeFormat(
+  row: string[],
+  columnMap: Record<string, number>,
+  arquivoId: number,
+  convenioId: number,
+  dataReferenciaUpload?: Date,
+  dataPagamentoUpload?: Date,
+  estabelecimentoId?: number
+): InsertRecebimentoExcel | null {
+  if (row.length < 15) return null;
+  
+  // Helper para buscar valor por nome de coluna (case-insensitive)
+  const getByName = (names: string[]): string => {
+    for (const name of names) {
+      const lower = name.toLowerCase().trim();
+      if (columnMap[lower] !== undefined) {
+        return (row[columnMap[lower]] || '').trim();
+      }
+    }
+    return '';
+  };
+  
+  const getNumberByName = (names: string[]): number => {
+    const v = getByName(names);
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  };
+  
+  // Datas
+  const dataPagtoSerial = getNumberByName(['data pagto processado', 'data pagto']);
+  const dataExecSerial = getNumberByName(['data execução', 'data execucao']);
+  const dataInicialSerial = getNumberByName(['data inicio faturamento internação', 'data inicio faturamento internacao']);
+  const dataFinalSerial = getNumberByName(['data fim faturamento internação', 'data fim faturamento internacao']);
+  
+  const dataPagtoDate = dataPagamentoUpload || excelSerialToDate(dataPagtoSerial);
+  const dataInicialDate = excelSerialToDate(dataInicialSerial);
+  const dataFinalDate = excelSerialToDate(dataFinalSerial);
+  const dataRef = dataReferenciaUpload || dataPagtoDate;
+  
+  // Valores - formato laboratório tem apenas "Valor Pagamento" (não tem Informado, Glosa, Liberado separados)
+  const valorPagamento = getNumberByName(['valor pagamento', 'pagamento']);
+  
+  // Situação do item - vem direto da coluna
+  const situacaoItemRaw = getByName(['situação item', 'situacao item']);
+  let situacaoItem = situacaoItemRaw.toUpperCase() || 'PAGO';
+  if (situacaoItem.includes('GLOS')) situacaoItem = 'GLOSADO';
+  
+  // Determinar valores baseado na situação
+  let valorInformadoStr: string | undefined;
+  let valorPagoStr: string | undefined;
+  let valorGlosaStr: string | undefined;
+  
+  if (situacaoItem === 'GLOSADO') {
+    valorGlosaStr = valorPagamento ? String(valorPagamento.toFixed(2)) : undefined;
+    valorPagoStr = '0';
+    valorInformadoStr = valorGlosaStr;
+  } else {
+    valorPagoStr = valorPagamento ? String(valorPagamento.toFixed(2)) : undefined;
+    valorInformadoStr = valorPagoStr;
+    valorGlosaStr = '0';
+  }
+  
+  const record: InsertRecebimentoExcel = {
+    arquivoId,
+    convenioId,
+    estabelecimentoId: estabelecimentoId || undefined,
+    
+    processado: getByName(['demonstrativo']).replace('.0', '') || undefined,
+    dataPagto: dataPagtoDate || undefined,
+    protocoloTiss: getByName(['protocolo tiss']).replace(/\.0$/, '') || undefined,
+    lotePrestador: getByName(['lote prestador']) || undefined,
+    
+    codigoPrestadorPagamento: getByName(['código prestador pagamento', 'codigo prestador pagamento']).replace('.0', '') || undefined,
+    nomePrestadorPagamento: getByName(['nome prestador pagamento']) || undefined,
+    codigoPrestador: getByName(['código prestador', 'codigo prestador']).replace('.0', '') || undefined,
+    nomePrestador: getByName(['nome prestador']) || undefined,
+    
+    beneficiario: getByName(['beneficiário', 'beneficiario']) || undefined,
+    nomeBeneficiario: getByName(['nome beneficiário', 'nome beneficiario']) || undefined,
+    
+    numeroGuia: getByName(['número guia', 'numero guia', 'número guia prestador', 'numero guia prestador']) || undefined,
+    codigoSolicitante: getByName(['código solicitante', 'codigo solicitante']) || undefined,
+    horaExecucao: getByName(['hora execução', 'hora execucao']) || undefined,
+    
+    item: getByName(['item']) || undefined,
+    itemDesc: getByName(['item desc', 'descrição procedimento', 'descricao procedimento']) || undefined,
+    
+    tipoItem: undefined,
+    tipoLancamento: getByName(['tipo lançamento', 'tipo lancamento']) || undefined,
+    acomodacaoInternacao: getByName(['acomodação da internação', 'acomodacao da internacao']) || undefined,
+    
+    dataInicioFaturamentoInternacao: dataInicialDate || undefined,
+    dataFimFaturamentoInternacao: dataFinalDate || undefined,
+    
+    valorInformado: valorInformadoStr,
+    valorPagamento: valorPagoStr,
+    valorGlosa: valorGlosaStr,
+    
+    codigoGlosa: undefined,
+    erroTiss: getByName(['erro tiss']) || undefined,
+    situacaoItem,
+    
+    nomeSolicitante: getByName(['nome solicitante']) || undefined,
+    
+    dataReferencia: dataRef || undefined,
+    dataPagamentoUpload: dataPagamentoUpload || undefined,
+  };
+  
+  return record;
+}
+
 // Detecção rápida de formato Unimed
+// Usa duas passadas: primeiro lê sharedStrings, depois verifica o cabeçalho do sheet1
 export async function detectUnimedFormat(buffer: Buffer): Promise<boolean> {
   try {
     const tmpPath = `/tmp/xlsx-detect-${randomBytes(4).toString('hex')}.xlsx`;
     writeFileSync(tmpPath, buffer);
     
+    // Passada 1: Ler sharedStrings
+    const sharedStrings = await new Promise<string[]>((resolve) => {
+      yauzl.open(tmpPath, { lazyEntries: true }, (err: any, zipfile: any) => {
+        if (err || !zipfile) { resolve([]); return; }
+        let found = false;
+        zipfile.readEntry();
+        zipfile.on('entry', (entry: any) => {
+          if (found) return;
+          if (entry.fileName === 'xl/sharedStrings.xml') {
+            found = true;
+            zipfile.openReadStream(entry, (err: Error | null, stream: Readable) => {
+              if (err) { resolve([]); zipfile.close(); return; }
+              parseSharedStringsStream(stream).then(strings => {
+                resolve(strings);
+                zipfile.close();
+              }).catch(() => { resolve([]); zipfile.close(); });
+            });
+          } else {
+            zipfile.readEntry();
+          }
+        });
+        zipfile.on('end', () => { if (!found) resolve([]); });
+        zipfile.on('error', () => resolve([]));
+      });
+    });
+    
+    // Passada 2: Ler header do sheet1 e resolver com sharedStrings
     const result = await new Promise<boolean>((resolve) => {
       yauzl.open(tmpPath, { lazyEntries: true }, (err: any, zipfile: any) => {
         if (err || !zipfile) { resolve(false); return; }
-        
         let resolved = false;
         zipfile.readEntry();
         zipfile.on('entry', (entry: any) => {
@@ -434,28 +633,38 @@ export async function detectUnimedFormat(buffer: Buffer): Promise<boolean> {
               let inRow = false;
               let inCell = false;
               let inValue = false;
+              let cellType = '';
               let cellValue = '';
-              let currentRow: string[] = [];
+              let currentRow: { value: string; type: string }[] = [];
               let rowCount = 0;
               
               parser.on('opentag', (node: any) => {
                 if (resolved) return;
                 if (node.name === 'row') { inRow = true; currentRow = []; }
-                else if (node.name === 'c' && inRow) { inCell = true; cellValue = ''; }
+                else if (node.name === 'c' && inRow) { inCell = true; cellType = node.attributes.t || ''; cellValue = ''; }
                 else if ((node.name === 'v' || node.name === 't') && inCell) { inValue = true; cellValue = ''; }
               });
               parser.on('text', (text: string) => { if (inValue && !resolved) cellValue += text; });
               parser.on('closetag', (name: string) => {
                 if (resolved) return;
                 if (name === 'v' || (name === 't' && inCell)) { inValue = false; }
-                else if (name === 'c') { currentRow.push(cellValue); inCell = false; }
+                else if (name === 'c') { currentRow.push({ value: cellValue, type: cellType }); inCell = false; }
                 else if (name === 'row') {
                   rowCount++;
                   if (rowCount === 1) {
-                    const headerStr = currentRow.join(',').toLowerCase();
+                    // Resolver valores do cabeçalho usando sharedStrings
+                    const headerValues = currentRow.map(cell => {
+                      if (cell.type === 's' && sharedStrings.length > 0) {
+                        const idx = parseInt(cell.value);
+                        return (sharedStrings[idx] || '').toLowerCase();
+                      }
+                      return cell.value.toLowerCase();
+                    });
+                    
+                    const headerStr = headerValues.join(',');
                     const isUnimed = headerStr.includes('demonstrativo') && 
                                    headerStr.includes('protocolo') && 
-                                   headerStr.includes('beneficiario');
+                                   (headerStr.includes('benefici\u00e1rio') || headerStr.includes('beneficiario'));
                     resolved = true;
                     resolve(isUnimed);
                     stream.destroy();
