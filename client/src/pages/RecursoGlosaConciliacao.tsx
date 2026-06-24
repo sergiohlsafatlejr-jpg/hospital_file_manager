@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download } from "lucide-react";
+import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil } from "lucide-react";
 import * as XLSX from "xlsx";
 
 function formatarMoeda(valor: number): string {
@@ -34,6 +34,11 @@ export default function RecursoGlosaConciliacao() {
   const [cnpjOperadora, setCnpjOperadora] = useState("");
   const [numeroDemonstrativo, setNumeroDemonstrativo] = useState("");
   const [numeroProtocolo, setNumeroProtocolo] = useState("");
+  
+  // Estado para justificativas individuais por item (id -> texto)
+  const [justificativasItens, setJustificativasItens] = useState<Record<number, string>>({});
+  const [gerandoIA, setGerandoIA] = useState(false);
+  const [editandoJustificativa, setEditandoJustificativa] = useState<number | null>(null);
 
   // Queries
   const { data: competencias } = trpc.faturamentoUnificado.competenciasDisponiveis.useQuery(
@@ -73,12 +78,10 @@ export default function RecursoGlosaConciliacao() {
   // Mutations
   const gerarExcelMutation = trpc.faturamentoUnificado.gerarExcelRecursoConciliacao.useMutation({
     onSuccess: (data) => {
-      // Criar workbook Excel
       const ws = XLSX.utils.json_to_sheet(data.dados);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Recurso Glosa");
 
-      // Aba de totais
       const totaisSheet = XLSX.utils.json_to_sheet([{
         "Total de Itens": data.totais.totalItens,
         "Total de Guias": data.totais.totalGuias,
@@ -104,13 +107,31 @@ export default function RecursoGlosaConciliacao() {
       toast.success(`XML TISS gerado com ${data.totalGuias} guias e ${data.totalItens} itens!`);
       setDialogXml(false);
       refetch();
-      // Download do XML
       if (data.xmlUrl) {
         window.open(data.xmlUrl, '_blank');
       }
     },
     onError: (error) => {
       toast.error("Erro ao gerar XML: " + error.message);
+    },
+  });
+
+  // Mutation para gerar justificativas com IA
+  const gerarJustificativasIAMutation = trpc.faturamentoUnificado.gerarJustificativasIA.useMutation({
+    onSuccess: (data) => {
+      if (data.justificativas) {
+        const novasJustificativas: Record<number, string> = { ...justificativasItens };
+        for (const j of data.justificativas) {
+          novasJustificativas[j.id] = j.justificativa;
+        }
+        setJustificativasItens(novasJustificativas);
+        toast.success(`Justificativas geradas para ${data.justificativas.length} itens!`);
+      }
+      setGerandoIA(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao gerar justificativas: " + error.message);
+      setGerandoIA(false);
     },
   });
 
@@ -174,7 +195,49 @@ export default function RecursoGlosaConciliacao() {
     });
   };
 
+  // Handler para gerar justificativas com IA para os itens da guia expandida
+  const handleGerarJustificativasIA = () => {
+    if (!detalheGuia || detalheGuia.length === 0) {
+      toast.error("Nenhum item para gerar justificativa");
+      return;
+    }
+
+    // Encontrar o nome do convênio
+    const convenioNome = itensGlosados?.items?.find((i: any) => i.numeroGuia === guiaExpandida)?.convenio;
+
+    setGerandoIA(true);
+    gerarJustificativasIAMutation.mutate({
+      itens: detalheGuia.map((d: any) => ({
+        id: d.id,
+        codigoItem: d.codigoItem || '',
+        descricaoItem: d.descricaoItem || '',
+        codigoGlosa: d.codigoGlosa || undefined,
+        motivoGlosa: d.motivoGlosa || undefined,
+        valorFaturado: String(d.valorFaturado || 0),
+        valorPago: String(d.valorPago || 0),
+        valorGlosa: String(d.valorGlosa || 0),
+        tipoLancamento: d.tipoItem || undefined,
+      })),
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      convenioNome: convenioNome || undefined,
+    });
+  };
+
+  // Handler para gerar justificativas de TODAS as guias selecionadas
+  const handleGerarJustificativasTodasIA = () => {
+    if (!detalheGuia || detalheGuia.length === 0) {
+      toast.error("Expanda uma guia primeiro para gerar justificativas");
+      return;
+    }
+    handleGerarJustificativasIA();
+  };
+
   const resumo = itensGlosados?.resumo;
+
+  // Contagem de justificativas preenchidas
+  const totalJustificativasPreenchidas = detalheGuia
+    ? detalheGuia.filter((d: any) => justificativasItens[d.id]).length
+    : 0;
 
   return (
     <DashboardLayout>
@@ -248,39 +311,33 @@ export default function RecursoGlosaConciliacao() {
             <div className="flex flex-wrap gap-3 items-center">
               <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Filtros:</span>
+                <Select value={competencia} onValueChange={setCompetencia}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Competência" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todas</SelectItem>
+                    {competencias?.map((c: string) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              <Select value={competencia} onValueChange={setCompetencia}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Competência" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todas</SelectItem>
-                  {competencias?.map((c: any) => (
-                    <SelectItem key={c.competencia} value={c.competencia}>
-                      {c.competencia}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
               <Select value={convenioFiltro} onValueChange={setConvenioFiltro}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Convênio" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="todos">Todos Convênios</SelectItem>
                   {convenios?.map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.nome}
-                    </SelectItem>
+                    <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
 
               <Select value={agrupamento} onValueChange={(v: any) => setAgrupamento(v)}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Agrupar por" />
                 </SelectTrigger>
                 <SelectContent>
@@ -291,7 +348,7 @@ export default function RecursoGlosaConciliacao() {
               </Select>
 
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   className="pl-8 w-[200px]"
                   placeholder="Buscar guia, paciente..."
@@ -300,53 +357,43 @@ export default function RecursoGlosaConciliacao() {
                 />
               </div>
 
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <div className="flex items-center gap-2">
                 <Checkbox
+                  id="naoRecursados"
                   checked={apenasNaoRecursados}
                   onCheckedChange={(v) => setApenasNaoRecursados(!!v)}
                 />
-                Apenas não recursados
-              </label>
+                <label htmlFor="naoRecursados" className="text-sm">Apenas não recursados</label>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Tabela de Itens Glosados */}
+        {/* Tabela de Guias */}
         <Card>
-          <CardHeader className="p-3 pb-0">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">
-                Itens Glosados ({itensGlosados?.total || 0})
-              </CardTitle>
-              {guiasSelecionadas.size > 0 && (
-                <Badge variant="secondary">
-                  {guiasSelecionadas.size} selecionada(s)
-                </Badge>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="p-3">
+          <CardContent className="p-0">
             {isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                <span>Carregando itens glosados...</span>
               </div>
             ) : !itensGlosados?.items?.length ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>Nenhum item glosado encontrado com os filtros atuais</p>
+              <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
+                <AlertTriangle className="h-8 w-8 mb-2" />
+                <p>Nenhum item glosado encontrado com os filtros selecionados</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-2 text-left w-8">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="p-2 w-8">
                         <Checkbox
                           checked={guiasSelecionadas.size === itensGlosados.items.length && itensGlosados.items.length > 0}
                           onCheckedChange={toggleTodas}
                         />
                       </th>
-                      <th className="p-2 text-left w-8"></th>
+                      <th className="p-2 w-8"></th>
                       <th className="p-2 text-left">{agrupamento === 'guia' ? 'Guia' : agrupamento === 'data' ? 'Data' : 'Lote'}</th>
                       {agrupamento === 'guia' && <th className="p-2 text-left">Paciente</th>}
                       <th className="p-2 text-left">Convênio</th>
@@ -406,14 +453,45 @@ export default function RecursoGlosaConciliacao() {
                             )}
                           </td>
                         </tr>
-                        {/* Detalhe expandido da guia */}
+                        {/* Detalhe expandido da guia com campo de justificativa */}
                         {agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
                           <tr key={`${item.chave}-detail`}>
                             <td colSpan={10} className="p-0">
                               <div className="bg-muted/20 border-l-4 border-primary/30 p-3 mx-2 mb-2 rounded">
-                                <p className="text-xs font-medium text-muted-foreground mb-2">
-                                  Itens glosados da guia {item.numeroGuia}:
-                                </p>
+                                {/* Header do detalhe com botão IA */}
+                                <div className="flex items-center justify-between mb-3">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    Itens glosados da guia {item.numeroGuia} ({detalheGuia.length} itens)
+                                    {totalJustificativasPreenchidas > 0 && (
+                                      <Badge variant="outline" className="ml-2 text-green-600 border-green-200 bg-green-50">
+                                        {totalJustificativasPreenchidas}/{detalheGuia.length} justificativas
+                                      </Badge>
+                                    )}
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleGerarJustificativasIA();
+                                    }}
+                                    disabled={gerandoIA}
+                                    className="text-xs"
+                                  >
+                                    {gerandoIA ? (
+                                      <>
+                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        Gerando...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="h-3 w-3 mr-1" />
+                                        Gerar Justificativas com IA
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="border-b">
@@ -426,13 +504,14 @@ export default function RecursoGlosaConciliacao() {
                                       <th className="p-1 text-right">Glosa</th>
                                       <th className="p-1 text-left">Cód. Glosa</th>
                                       <th className="p-1 text-left">Motivo</th>
+                                      <th className="p-1 text-left min-w-[200px]">Justificativa Recurso</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {detalheGuia.map((d: any) => (
                                       <tr key={d.id} className="border-b border-dashed">
                                         <td className="p-1 font-mono">{d.codigoItem}</td>
-                                        <td className="p-1 max-w-[200px] truncate">{d.descricaoItem}</td>
+                                        <td className="p-1 max-w-[180px] truncate">{d.descricaoItem}</td>
                                         <td className="p-1">{d.tipoItem || '-'}</td>
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
@@ -443,7 +522,43 @@ export default function RecursoGlosaConciliacao() {
                                             <Badge variant="outline" className="text-xs">{d.codigoGlosa}</Badge>
                                           )}
                                         </td>
-                                        <td className="p-1 max-w-[150px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
+                                        <td className="p-1 max-w-[120px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
+                                        <td className="p-1 min-w-[200px]">
+                                          {editandoJustificativa === d.id ? (
+                                            <div className="flex gap-1">
+                                              <Input
+                                                className="h-6 text-xs"
+                                                value={justificativasItens[d.id] || ''}
+                                                onChange={(e) => setJustificativasItens(prev => ({
+                                                  ...prev,
+                                                  [d.id]: e.target.value
+                                                }))}
+                                                maxLength={150}
+                                                placeholder="Justificativa (max 150 chars)"
+                                                onBlur={() => setEditandoJustificativa(null)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') setEditandoJustificativa(null);
+                                                }}
+                                                autoFocus
+                                              />
+                                            </div>
+                                          ) : (
+                                            <div
+                                              className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditandoJustificativa(d.id);
+                                              }}
+                                            >
+                                              {justificativasItens[d.id] ? (
+                                                <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id]}</span>
+                                              ) : (
+                                                <span className="text-xs">Clique para adicionar</span>
+                                              )}
+                                              <Pencil className="h-3 w-3 flex-shrink-0" />
+                                            </div>
+                                          )}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -473,12 +588,18 @@ export default function RecursoGlosaConciliacao() {
               <p className="text-sm text-muted-foreground mb-2">
                 Será gerado um arquivo Excel com {guiasSelecionadas.size} guia(s) selecionada(s).
               </p>
+              {Object.keys(justificativasItens).length > 0 && (
+                <p className="text-xs text-green-600">
+                  <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                  {Object.keys(justificativasItens).length} justificativa(s) individual(is) serão incluídas
+                </p>
+              )}
             </div>
             <div>
-              <label className="text-sm font-medium">Justificativa para o Recurso (opcional)</label>
+              <label className="text-sm font-medium">Justificativa Padrão (para itens sem justificativa individual)</label>
               <Textarea
                 className="mt-1"
-                placeholder="Digite a justificativa que será aplicada a todos os itens..."
+                placeholder="Digite a justificativa padrão que será aplicada aos itens sem justificativa individual..."
                 value={justificativa}
                 onChange={(e) => setJustificativa(e.target.value)}
                 rows={3}
@@ -506,6 +627,12 @@ export default function RecursoGlosaConciliacao() {
             <p className="text-sm text-muted-foreground">
               Será gerado um XML no formato TISS com {guiasSelecionadas.size} guia(s) selecionada(s), incluindo todos os itens (pagos e glosados).
             </p>
+            {Object.keys(justificativasItens).length > 0 && (
+              <p className="text-xs text-green-600">
+                <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                {Object.keys(justificativasItens).length} justificativa(s) individual(is) serão incluídas no XML
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium">Registro ANS</label>

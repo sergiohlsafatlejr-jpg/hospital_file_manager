@@ -3635,3 +3635,146 @@ export async function gerarExcelRecursoConciliacao(params: {
     },
   };
 }
+
+
+/**
+ * Gerar justificativas de recurso com IA para itens glosados da conciliação
+ * Usa o dicionário de glosas TISS + histórico de recursos deferidos para contextualizar
+ */
+export async function gerarJustificativasIA(params: {
+  itens: Array<{
+    id: number;
+    codigoItem: string;
+    descricaoItem: string;
+    codigoGlosa?: string;
+    motivoGlosa?: string;
+    valorFaturado?: string;
+    valorPago?: string;
+    valorGlosa?: string;
+    tipoLancamento?: string;
+  }>;
+  estabelecimentoId: number;
+  convenioNome?: string;
+}) {
+  const { invokeLLM } = await import("./_core/llm");
+  const pool = await getExternalPool();
+
+  // 1. Buscar dicionário de glosas para os códigos presentes
+  const codigosGlosa = [...new Set(params.itens.map(i => i.codigoGlosa).filter(Boolean))];
+  let dicionarioInfo: Record<string, any> = {};
+  
+  if (codigosGlosa.length > 0) {
+    const placeholders = codigosGlosa.map(() => '?').join(',');
+    const [dicionario] = await pool.query(
+      `SELECT codigo, descricao, descricaoSimplificada, argumentoContestacao, grupo, probabilidadeSucesso
+       FROM motivosGlosa 
+       WHERE codigo IN (${placeholders}) AND ativo = 'sim'`,
+      codigosGlosa
+    );
+    for (const d of dicionario as any[]) {
+      dicionarioInfo[d.codigo] = d;
+    }
+  }
+
+  // 2. Buscar histórico de recursos deferidos com os mesmos códigos de glosa
+  let historicoSucesso: any[] = [];
+  if (codigosGlosa.length > 0) {
+    const placeholders = codigosGlosa.map(() => '?').join(',');
+    const [historico] = await pool.query(
+      `SELECT rg.codigoProcedimento, rg.descricaoProcedimento, rg.justificativaRecurso, rg.status,
+              rg.valorGlosado, rg.valorRecuperado
+       FROM recursosGlosa rg
+       WHERE rg.estabelecimentoId = ?
+         AND rg.status IN ('deferido', 'deferido_parcial')
+         AND rg.motivoGlosaConvenio IN (${placeholders})
+       ORDER BY rg.updatedAt DESC
+       LIMIT 20`,
+      [params.estabelecimentoId, ...codigosGlosa]
+    );
+    historicoSucesso = historico as any[];
+  }
+
+  // 3. Preparar contexto para a IA
+  const itensContexto = params.itens.map(item => {
+    const dic = item.codigoGlosa ? dicionarioInfo[item.codigoGlosa] : null;
+    return {
+      id: item.id,
+      codigo: item.codigoItem,
+      descricao: item.descricaoItem,
+      tipo: item.tipoLancamento || 'não informado',
+      valorFaturado: item.valorFaturado || '0',
+      valorPago: item.valorPago || '0',
+      valorGlosa: item.valorGlosa || '0',
+      codigoGlosa: item.codigoGlosa || 'não informado',
+      motivoGlosa: item.motivoGlosa || (dic?.descricaoSimplificada || dic?.descricao || 'não informado'),
+      argumentoSugerido: dic?.argumentoContestacao || null,
+      probabilidadeSucesso: dic?.probabilidadeSucesso || null,
+    };
+  });
+
+  const historicoTexto = historicoSucesso.length > 0
+    ? `\nHistórico de recursos DEFERIDOS com sucesso para estes códigos de glosa (use como referência):\n${historicoSucesso.slice(0, 10).map((h, i) => `${i+1}. Procedimento: ${h.descricaoProcedimento} | Justificativa usada: "${h.justificativaRecurso?.substring(0, 200)}"`).join('\n')}`
+    : '';
+
+  // 4. Chamar IA para gerar justificativas
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: `Você é um especialista em faturamento hospitalar e recursos de glosa de planos de saúde no Brasil.
+Sua tarefa é gerar justificativas de recurso de glosa para cada item fornecido.
+
+Regras:
+- Cada justificativa deve ser técnica, objetiva e fundamentada
+- Use linguagem formal e profissional
+- Cite normas TISS, ANS, contratos e regulamentações quando aplicável
+- Limite cada justificativa a no máximo 150 caracteres (requisito TISS)
+- Se houver argumento sugerido do dicionário, use-o como base
+- Se houver histórico de sucesso, inspire-se nas justificativas que funcionaram
+- Adapte a justificativa ao tipo do item (material, medicamento, taxa, diária, procedimento)
+- Convênio: ${params.convenioNome || 'não informado'}
+
+Responda APENAS com JSON válido.`
+      },
+      {
+        role: "user",
+        content: `Gere justificativas de recurso para os seguintes itens glosados:\n\n${JSON.stringify(itensContexto, null, 2)}${historicoTexto}`
+      }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "justificativas_recurso",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            justificativas: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number", description: "ID do item" },
+                  justificativa: { type: "string", description: "Justificativa de recurso (max 150 chars)" },
+                },
+                required: ["id", "justificativa"],
+                additionalProperties: false,
+              },
+              description: "Lista de justificativas para cada item"
+            }
+          },
+          required: ["justificativas"],
+          additionalProperties: false,
+        }
+      }
+    }
+  });
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("IA não retornou resposta");
+  }
+
+  const resultado = JSON.parse(content);
+  return resultado;
+}

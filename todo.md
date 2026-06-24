@@ -4029,3 +4029,13 @@
 - [x] Frontend: campo de justificativa para o recurso
 - [x] Navegação: adicionar link no menu lateral dentro do módulo Conciliações
 - [x] Rota: registrar em App.tsx
+
+## Justificativa com IA no Recurso de Glosa via Conciliação
+
+- [x] Backend: endpoint para gerar justificativa com IA baseado no código de glosa, descrição do item e histórico
+- [x] Backend: buscar histórico de contestações deferidas com mesmo código de glosa
+- [x] Backend: usar dicionário de glosas TISS para contextualizar a justificativa
+- [x] Frontend: campo de justificativa editável em cada item glosado (detalhe expandido)
+- [x] Frontend: botão "Gerar Justificativas com IA" para preencher automaticamente todos os itens
+- [x] Frontend: indicador visual de justificativa preenchida vs pendente
+- [x] Frontend: justificativas individuais são incluídas na exportação XML/Excel

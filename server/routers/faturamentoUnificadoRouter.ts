@@ -640,4 +640,27 @@ export const faturamentoUnificadoRouter = router({
         userId: ctx.user?.id,
       });
     }),
+
+  /**
+   * Gerar justificativas de recurso com IA para itens glosados da conciliação
+   */
+  gerarJustificativasIA: protectedProcedure
+    .input(z.object({
+      itens: z.array(z.object({
+        id: z.number(),
+        codigoItem: z.string(),
+        descricaoItem: z.string(),
+        codigoGlosa: z.string().optional(),
+        motivoGlosa: z.string().optional(),
+        valorFaturado: z.string().optional(),
+        valorPago: z.string().optional(),
+        valorGlosa: z.string().optional(),
+        tipoLancamento: z.string().optional(),
+      })),
+      estabelecimentoId: z.number(),
+      convenioNome: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.gerarJustificativasIA(input);
+    }),
 });
