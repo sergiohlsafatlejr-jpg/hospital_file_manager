@@ -50,6 +50,7 @@ export default function RecursoGlosaConciliacao() {
   // Estado para itens marcados como glosa aceita (id -> true)
   const [itensGlosaAceita, setItensGlosaAceita] = useState<Record<number, boolean>>({});
   const [salvandoGlosaAceita, setSalvandoGlosaAceita] = useState(false);
+  const [aceitandoEmLote, setAceitandoEmLote] = useState(false);
 
   // Queries
   const { data: competencias } = trpc.faturamentoUnificado.competenciasConciliados.useQuery(
@@ -86,7 +87,7 @@ export default function RecursoGlosaConciliacao() {
   );
 
   // Detalhe da guia expandida
-  const { data: detalheGuia } = trpc.faturamentoUnificado.itensGlosadosDetalheGuia.useQuery(
+  const { data: detalheGuia, refetch: refetchDetalheGuia } = trpc.faturamentoUnificado.itensGlosadosDetalheGuia.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       numeroGuia: guiaExpandida || "",
@@ -98,7 +99,7 @@ export default function RecursoGlosaConciliacao() {
   );
 
   // Detalhe por item expandido
-  const { data: detalheItem } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItem.useQuery(
+  const { data: detalheItem, refetch: refetchDetalheItem } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItem.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       codigoItem: itemExpandido || "",
@@ -110,7 +111,7 @@ export default function RecursoGlosaConciliacao() {
   );
 
   // Detalhe por motivo expandido
-  const { data: detalheMotivo } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivo.useQuery(
+  const { data: detalheMotivo, refetch: refetchDetalheMotivo } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivo.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       codigoGlosa: motivoExpandido || "",
@@ -186,6 +187,11 @@ export default function RecursoGlosaConciliacao() {
     onSuccess: (data) => {
       toast.success(`Justificativas replicadas para ${data.totalReplicados} itens em ${data.totalGuias} guias!`);
       setReplicandoJustificativas(false);
+      // Atualizar automaticamente os dados
+      refetch();
+      if (agrupamento === 'guia' && guiaExpandida) refetchDetalheGuia();
+      if (agrupamento === 'item' && itemExpandido) refetchDetalheItem();
+      if (agrupamento === 'motivo' && motivoExpandido) refetchDetalheMotivo();
     },
     onError: (error) => {
       toast.error("Erro ao replicar justificativas: " + error.message);
@@ -198,6 +204,11 @@ export default function RecursoGlosaConciliacao() {
     onSuccess: () => {
       toast.success("Item marcado com sucesso!");
       setSalvandoGlosaAceita(false);
+      // Atualizar automaticamente os dados
+      refetch();
+      if (agrupamento === 'guia' && guiaExpandida) refetchDetalheGuia();
+      if (agrupamento === 'item' && itemExpandido) refetchDetalheItem();
+      if (agrupamento === 'motivo' && motivoExpandido) refetchDetalheMotivo();
     },
     onError: (error) => {
       toast.error("Erro ao marcar glosa aceita: " + error.message);
@@ -214,6 +225,49 @@ export default function RecursoGlosaConciliacao() {
       toast.error("Erro ao salvar valor: " + error.message);
     },
   });
+
+  // Mutation para aceitar glosa em lote
+  const aceitarEmLoteMutation = trpc.faturamentoUnificado.marcarGlosaAceitaEmLote.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.total} itens marcados como glosa aceita!`);
+      setAceitandoEmLote(false);
+      refetch();
+      if (agrupamento === 'guia' && guiaExpandida) refetchDetalheGuia();
+      if (agrupamento === 'item' && itemExpandido) refetchDetalheItem();
+      if (agrupamento === 'motivo' && motivoExpandido) refetchDetalheMotivo();
+    },
+    onError: (error) => {
+      toast.error("Erro ao aceitar em lote: " + error.message);
+      setAceitandoEmLote(false);
+    },
+  });
+
+  // Handler para aceitar todas as glosas de uma vez (na aba guia)
+  const handleAceitarTodasGuia = () => {
+    if (!detalheGuia || detalheGuia.length === 0) return;
+    const ids = detalheGuia.filter((d: any) => !d.glosaAceita).map((d: any) => d.id);
+    if (ids.length === 0) { toast.info("Todos os itens já estão aceitos"); return; }
+    setAceitandoEmLote(true);
+    aceitarEmLoteMutation.mutate({ conciliadoIds: ids, aceita: true });
+  };
+
+  // Handler para aceitar todas as glosas na aba Por Item
+  const handleAceitarTodasItem = () => {
+    if (!detalheItem || detalheItem.length === 0) return;
+    const ids = detalheItem.filter((d: any) => !d.glosaAceita).map((d: any) => d.id);
+    if (ids.length === 0) { toast.info("Todos os itens já estão aceitos"); return; }
+    setAceitandoEmLote(true);
+    aceitarEmLoteMutation.mutate({ conciliadoIds: ids, aceita: true });
+  };
+
+  // Handler para aceitar todas as glosas na aba Por Motivo
+  const handleAceitarTodasMotivo = () => {
+    if (!detalheMotivo || detalheMotivo.length === 0) return;
+    const ids = detalheMotivo.filter((d: any) => !d.glosaAceita).map((d: any) => d.id);
+    if (ids.length === 0) { toast.info("Todos os itens já estão aceitos"); return; }
+    setAceitandoEmLote(true);
+    aceitarEmLoteMutation.mutate({ conciliadoIds: ids, aceita: true });
+  };
 
   // Handlers
   const toggleGuiaSelecionada = (chave: string) => {
@@ -773,6 +827,9 @@ export default function RecursoGlosaConciliacao() {
                                         {replicandoJustificativas ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Replicando...</> : <><Copy className="h-3 w-3 mr-1" />Replicar em Todas as Contas</>}
                                       </Button>
                                     )}
+                                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleAceitarTodasItem(); }} disabled={aceitandoEmLote} className="text-xs text-red-600 border-red-200 hover:bg-red-50">
+                                      {aceitandoEmLote ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Aceitando...</> : <><Ban className="h-3 w-3 mr-1" />Aceitar Todas</>}
+                                    </Button>
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">
@@ -867,6 +924,9 @@ export default function RecursoGlosaConciliacao() {
                                         {replicandoJustificativas ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Replicando...</> : <><Copy className="h-3 w-3 mr-1" />Replicar em Todas as Contas</>}
                                       </Button>
                                     )}
+                                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleAceitarTodasMotivo(); }} disabled={aceitandoEmLote} className="text-xs text-red-600 border-red-200 hover:bg-red-50">
+                                      {aceitandoEmLote ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Aceitando...</> : <><Ban className="h-3 w-3 mr-1" />Aceitar Todas</>}
+                                    </Button>
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">
@@ -1003,6 +1063,28 @@ export default function RecursoGlosaConciliacao() {
                                         )}
                                       </Button>
                                     )}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleAceitarTodasGuia();
+                                      }}
+                                      disabled={aceitandoEmLote}
+                                      className="text-xs text-red-600 border-red-200 hover:bg-red-50"
+                                    >
+                                      {aceitandoEmLote ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                          Aceitando...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Ban className="h-3 w-3 mr-1" />
+                                          Aceitar Todas
+                                        </>
+                                      )}
+                                    </Button>
                                   </div>
                                 </div>
 

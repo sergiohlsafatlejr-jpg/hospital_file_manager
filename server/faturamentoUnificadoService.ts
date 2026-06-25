@@ -4449,3 +4449,32 @@ export async function salvarValorRecurso(conciliadoId: number, valorRecurso: num
 
   return { success: true };
 }
+
+
+/**
+ * Marcar glosa aceita em lote (todos os itens de uma vez)
+ */
+export async function marcarGlosaAceitaEmLote(conciliadoIds: number[], aceita: boolean, usuario: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  if (conciliadoIds.length === 0) return { success: true, total: 0 };
+
+  const idsStr = conciliadoIds.join(',');
+
+  if (aceita) {
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET glosaAceita = 1, glosaAceitaPor = '${usuario.replace(/'/g, "''")}', glosaAceitaEm = NOW(), statusRecursoItem = 'aceita', valorRecurso = 0
+      WHERE id IN (${idsStr})
+    `));
+  } else {
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET glosaAceita = 0, glosaAceitaPor = NULL, glosaAceitaEm = NULL, statusRecursoItem = NULL, valorRecurso = NULL
+      WHERE id IN (${idsStr})
+    `));
+  }
+
+  return { success: true, total: conciliadoIds.length };
+}

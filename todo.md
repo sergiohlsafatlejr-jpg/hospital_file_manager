@@ -4112,3 +4112,8 @@
 - [x] Agrupamento da guia: Vlr Recursado e status devem refletir itens aceitos (0 para aceitos)
 - [x] Replicar justificativas corrigido (UNIQUE index no conciliadoId para ON DUPLICATE KEY funcionar)
 - [x] Nas abas Por Item e Por Motivo de Glosa: adicionadas colunas Vlr Recurso e Aceita nos detalhes
+
+## Correções Recurso de Glosa - Sessão 8 (25/06/2025)
+
+- [x] Replicar justificativas não atualiza automaticamente (invalidar queries após replicar)
+- [x] Botão "Aceitar Todas" em lote nas abas Por Item, Por Motivo e Por Guia (marcar glosa aceita em todos os itens de uma vez)

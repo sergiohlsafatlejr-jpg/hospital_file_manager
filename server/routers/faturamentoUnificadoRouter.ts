@@ -833,4 +833,16 @@ export const faturamentoUnificadoRouter = router({
     .mutation(async ({ input }) => {
       return await faturamentoService.salvarValorRecurso(input.conciliadoId, input.valorRecurso);
     }),
+
+  /**
+   * Marcar glosa aceita em lote (todos os itens de uma vez)
+   */
+  marcarGlosaAceitaEmLote: protectedProcedure
+    .input(z.object({
+      conciliadoIds: z.array(z.number()),
+      aceita: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.marcarGlosaAceitaEmLote(input.conciliadoIds, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+    }),
 });
