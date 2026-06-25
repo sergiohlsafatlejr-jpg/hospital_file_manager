@@ -17,16 +17,16 @@ export default function RecursoGlosaDemonstrativo() {
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
 
   // States
-  const [competencia, setCompetencia] = useState<string>("");
-  const [convenioId, setConvenioId] = useState<string>("");
-  const [dataPagto, setDataPagto] = useState<string>("");
+  const [competencia, setCompetencia] = useState<string>("todas");
+  const [convenioId, setConvenioId] = useState<string>("todos");
+  const [dataPagto, setDataPagto] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   const [agrupamento, setAgrupamento] = useState<"guia" | "item" | "motivo">("guia");
   const [expandedGuia, setExpandedGuia] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [expandedMotivo, setExpandedMotivo] = useState<string | null>(null);
-  const [editingJustificativa, setEditingJustificativa] = useState<{ id: number; value: string } | null>(null);
-  const [editingValorRecurso, setEditingValorRecurso] = useState<{ id: number; value: string } | null>(null);
+  const [editingJustificativa, setEditingJustificativa] = useState<{ id: number; value: string; fonte?: string } | null>(null);
+  const [editingValorRecurso, setEditingValorRecurso] = useState<{ id: number; value: string; fonte?: string } | null>(null);
   const [page, setPage] = useState(1);
 
   // Queries
@@ -62,8 +62,9 @@ export default function RecursoGlosaDemonstrativo() {
       guia: expandedGuia || "",
       competencia: competencia && competencia !== 'todas' ? competencia : undefined,
       convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
+      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
     },
-    { enabled: !!expandedGuia }
+    { enabled: !!expandedGuia && agrupamento === 'guia' }
   );
 
   const { data: detalheItem, refetch: refetchDetalheItem } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItemDemonstrativo.useQuery(
@@ -72,8 +73,9 @@ export default function RecursoGlosaDemonstrativo() {
       item: expandedItem || "",
       competencia: competencia && competencia !== 'todas' ? competencia : undefined,
       convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
+      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
     },
-    { enabled: !!expandedItem }
+    { enabled: !!expandedItem && agrupamento === 'item' }
   );
 
   const { data: detalheMotivo, refetch: refetchDetalheMotivo } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivoDemonstrativo.useQuery(
@@ -82,8 +84,9 @@ export default function RecursoGlosaDemonstrativo() {
       codigoGlosa: expandedMotivo || "",
       competencia: competencia && competencia !== 'todas' ? competencia : undefined,
       convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
+      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
     },
-    { enabled: !!expandedMotivo }
+    { enabled: !!expandedMotivo && agrupamento === 'motivo' }
   );
 
   // Mutations
@@ -155,6 +158,7 @@ export default function RecursoGlosaDemonstrativo() {
     salvarJustificativaMutation.mutate({
       recebimentoId: editingJustificativa.id,
       justificativa: editingJustificativa.value,
+      fonte: editingJustificativa.fonte,
     });
   };
 
@@ -163,6 +167,7 @@ export default function RecursoGlosaDemonstrativo() {
     salvarValorRecursoMutation.mutate({
       recebimentoId: editingValorRecurso.id,
       valor: parseFloat(editingValorRecurso.value) || 0,
+      fonte: editingValorRecurso.fonte,
     });
   };
 
@@ -314,8 +319,9 @@ export default function RecursoGlosaDemonstrativo() {
                       <th className="p-2 text-left w-8"></th>
                       <th className="p-2 text-left">Guia</th>
                       <th className="p-2 text-left">Paciente</th>
-                      <th className="p-2 text-left">Data Início</th>
-                      <th className="p-2 text-left">Data Fim</th>
+                      <th className="p-2 text-left">Lote</th>
+                      <th className="p-2 text-left">Protocolo</th>
+                      <th className="p-2 text-left">Carteirinha</th>
                       <th className="p-2 text-left">Convênio</th>
                       <th className="p-2 text-right">Itens Glosados</th>
                       <th className="p-2 text-right">Valor Faturado</th>
@@ -328,33 +334,34 @@ export default function RecursoGlosaDemonstrativo() {
                   </thead>
                   <tbody>
                     {isLoading ? (
-                      <tr><td colSpan={13} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
+                      <tr><td colSpan={14} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
                     ) : items.length === 0 ? (
-                      <tr><td colSpan={13} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
+                      <tr><td colSpan={14} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
                       <Fragment key={item.guia}>
                         <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedGuia(expandedGuia === item.guia ? null : item.guia)}>
                           <td className="p-2">{expandedGuia === item.guia ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.guia}</td>
                           <td className="p-2">{item.paciente}</td>
-                          <td className="p-2 text-xs">{formatDate(item.dataInicio)}</td>
-                          <td className="p-2 text-xs">{formatDate(item.dataFim)}</td>
+                          <td className="p-2 font-mono text-xs">{item.lote || '-'}</td>
+                          <td className="p-2 font-mono text-xs">{item.protocolo || '-'}</td>
+                          <td className="p-2 font-mono text-xs">{item.carteirinha || '-'}</td>
                           <td className="p-2">{item.convenio}</td>
                           <td className="p-2 text-right">{item.itensGlosados}</td>
                           <td className="p-2 text-right">{formatCurrency(Number(item.valorFaturado))}</td>
                           <td className="p-2 text-right">{formatCurrency(Number(item.valorPago))}</td>
                           <td className="p-2 text-right text-red-600 font-medium">{formatCurrency(Number(item.valorGlosa))}</td>
-                          <td className="p-2 text-right text-blue-600">{formatCurrency(Number(item.valorRecursado))}</td>
-                          <td className="p-2 text-right text-orange-600">{formatCurrency(Number(item.valorGlosaAceita))}</td>
+                          <td className="p-2 text-right text-blue-600">{formatCurrency(Number(item.valorRecursado || 0))}</td>
+                          <td className="p-2 text-right text-orange-600">{formatCurrency(Number(item.valorGlosaAceita || 0))}</td>
                           <td className="p-2">
                             <Badge variant={item.statusRecurso === 'Finalizado' ? 'default' : item.statusRecurso === 'Iniciado' ? 'secondary' : 'outline'} className="text-xs">
-                              {item.statusRecurso}
+                              {item.statusRecurso || 'Pendente'}
                             </Badge>
                           </td>
                         </tr>
                         {expandedGuia === item.guia && (
                           <tr key={`${item.guia}-detail`}>
-                            <td colSpan={13} className="p-0">
+                            <td colSpan={14} className="p-0">
                               <div className="bg-muted/20 p-4 border-b">
                                 <div className="flex items-center justify-between mb-3">
                                   <span className="text-sm font-medium">Itens glosados da guia {item.guia} ({detalheGuia?.length || 0} itens)</span>
@@ -392,33 +399,37 @@ export default function RecursoGlosaDemonstrativo() {
                       <th className="p-2 text-left w-8"></th>
                       <th className="p-2 text-left">Código</th>
                       <th className="p-2 text-left">Descrição</th>
+                      <th className="p-2 text-left">Tipo</th>
                       <th className="p-2 text-left">Justificativa</th>
                       <th className="p-2 text-left">Convênio</th>
                       <th className="p-2 text-right">Itens Glosados</th>
                       <th className="p-2 text-right">Valor Faturado</th>
                       <th className="p-2 text-right">Valor Pago</th>
+                      <th className="p-2 text-right">Valor Glosa</th>
                     </tr>
                   </thead>
                   <tbody>
                     {isLoading ? (
-                      <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
+                      <tr><td colSpan={10} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
                     ) : items.length === 0 ? (
-                      <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
+                      <tr><td colSpan={10} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
                       <Fragment key={item.codigo}>
                         <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedItem(expandedItem === item.codigo ? null : item.codigo)}>
                           <td className="p-2">{expandedItem === item.codigo ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.codigo}</td>
                           <td className="p-2">{item.descricao}</td>
+                          <td className="p-2">{item.tipo || '-'}</td>
                           <td className="p-2 text-xs text-muted-foreground">{item.justificativasPreenchidas}/{item.itensGlosados} preenchidas</td>
                           <td className="p-2">{item.convenio}</td>
                           <td className="p-2 text-right">{item.itensGlosados}</td>
                           <td className="p-2 text-right">{formatCurrency(Number(item.valorFaturado))}</td>
                           <td className="p-2 text-right">{formatCurrency(Number(item.valorPago))}</td>
+                          <td className="p-2 text-right text-red-600 font-medium">{formatCurrency(Number(item.valorGlosa))}</td>
                         </tr>
                         {expandedItem === item.codigo && (
                           <tr key={`${item.codigo}-detail`}>
-                            <td colSpan={8} className="p-0">
+                            <td colSpan={10} className="p-0">
                               <div className="bg-muted/20 p-4 border-b">
                                 <div className="flex items-center justify-between mb-3">
                                   <span className="text-sm font-medium">Guias com item {item.codigo} ({detalheItem?.length || 0} ocorrências)</span>
@@ -466,14 +477,16 @@ export default function RecursoGlosaDemonstrativo() {
                       <th className="p-2 text-left">Justificativa</th>
                       <th className="p-2 text-left">Convênio</th>
                       <th className="p-2 text-right">Itens Glosados</th>
+                      <th className="p-2 text-right">Valor Faturado</th>
+                      <th className="p-2 text-right">Valor Pago</th>
                       <th className="p-2 text-right">Valor Glosa</th>
                     </tr>
                   </thead>
                   <tbody>
                     {isLoading ? (
-                      <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
+                      <tr><td colSpan={9} className="p-4 text-center text-muted-foreground">Carregando...</td></tr>
                     ) : items.length === 0 ? (
-                      <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
+                      <tr><td colSpan={9} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => {
                       const motivoKey = item.codigoGlosa || 'SEM_CODIGO';
                       return (
@@ -485,11 +498,13 @@ export default function RecursoGlosaDemonstrativo() {
                             <td className="p-2 text-xs text-muted-foreground">{item.justificativasPreenchidas}/{item.itensGlosados} preenchidas</td>
                             <td className="p-2">{item.convenio}</td>
                             <td className="p-2 text-right">{item.itensGlosados}</td>
-                            <td className="p-2 text-right text-red-600">{formatCurrency(Number(item.valorGlosa))}</td>
+                            <td className="p-2 text-right">{formatCurrency(Number(item.valorFaturado))}</td>
+                            <td className="p-2 text-right">{formatCurrency(Number(item.valorPago))}</td>
+                            <td className="p-2 text-right text-red-600 font-medium">{formatCurrency(Number(item.valorGlosa))}</td>
                           </tr>
                           {expandedMotivo === motivoKey && (
                             <tr key={`${motivoKey}-detail`}>
-                              <td colSpan={7} className="p-0">
+                              <td colSpan={9} className="p-0">
                                 <div className="bg-muted/20 p-4 border-b">
                                   <div className="flex items-center justify-between mb-3">
                                     <span className="text-sm font-medium">Itens com motivo {item.codigoGlosa === 'SEM_CODIGO' ? 'Sem código' : item.codigoGlosa} ({detalheMotivo?.length || 0} ocorrências)</span>
@@ -589,18 +604,18 @@ export default function RecursoGlosaDemonstrativo() {
                       />
                     </div>
                   ) : (
-                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={(e) => { e.stopPropagation(); setEditingValorRecurso({ id: row.id, value: String(row.valorRecurso) }); }}>
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={(e) => { e.stopPropagation(); setEditingValorRecurso({ id: row.id, value: String(row.valorRecurso), fonte: row.fonte }); }}>
                       {formatCurrency(row.valorRecurso)}
                     </span>
                   )}
                 </td>
                 <td className="p-2 text-center">
                   {row.glosaAceita ? (
-                    <Badge variant="destructive" className="text-xs cursor-pointer" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: false }); }}>
+                    <Badge variant="destructive" className="text-xs cursor-pointer" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: false, fonte: row.fonte }); }}>
                       <Ban className="h-3 w-3 mr-1" /> Aceita
                     </Badge>
                   ) : (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: true }); }}>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: true, fonte: row.fonte }); }}>
                       <Check className="h-3 w-3 mr-1" /> Aceitar
                     </Button>
                   )}
@@ -621,7 +636,7 @@ export default function RecursoGlosaDemonstrativo() {
                   ) : (
                     <span
                       className={`cursor-pointer hover:underline ${row.justificativa ? 'text-green-700' : 'text-muted-foreground italic'}`}
-                      onClick={(e) => { e.stopPropagation(); setEditingJustificativa({ id: row.id, value: row.justificativa || '' }); }}
+                      onClick={(e) => { e.stopPropagation(); setEditingJustificativa({ id: row.id, value: row.justificativa || '', fonte: row.fonte }); }}
                     >
                       {row.justificativa || 'Clique para adicionar'} ✏️
                     </span>

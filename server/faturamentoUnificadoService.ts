@@ -4491,12 +4491,27 @@ export async function competenciasDemonstrativo(estabelecimentoId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   const [rows] = await db.execute(sql.raw(
-    `SELECT DATE_FORMAT(data_referencia, '%Y-%m') as competencia, COUNT(*) as total
-     FROM recebimentos_excel
-     WHERE estabelecimentoId = ${estabelecimentoId}
-       AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')
-     GROUP BY DATE_FORMAT(data_referencia, '%Y-%m')
-     ORDER BY competencia DESC`
+    `SELECT competencia, SUM(total) as total FROM (
+      SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m') as competencia, COUNT(*) as total
+      FROM demonstrativo d
+      WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL
+      GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m')
+      UNION ALL
+      SELECT DATE_FORMAT(re.data_pagto, '%Y-%m') as competencia, COUNT(*) as total
+      FROM recebimentos_excel re
+      WHERE re.estabelecimentoId = ${estabelecimentoId}
+        AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))
+        AND re.data_pagto IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM demonstrativo d2
+          WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+          AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+          AND d2.valor_glosa > 0
+        )
+      GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m')
+    ) unified
+    GROUP BY competencia
+    ORDER BY competencia DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.competencia);
 }
@@ -4507,17 +4522,34 @@ export async function competenciasDemonstrativo(estabelecimentoId: number) {
 export async function conveniosDemonstrativo(estabelecimentoId: number, competencia?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  let where = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
+  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0`;
+  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
   if (competencia) {
-    where += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
   }
   const [rows] = await db.execute(sql.raw(
-    `SELECT re.convenioId, c.nome as convenio, COUNT(*) as total
-     FROM recebimentos_excel re
-     LEFT JOIN convenios c ON c.id = re.convenioId
-     ${where}
-     GROUP BY re.convenioId, c.nome
-     ORDER BY total DESC`
+    `SELECT convenioId, convenio, SUM(total) as total FROM (
+      SELECT d.convenio_id as convenioId, c.nome as convenio, COUNT(*) as total
+      FROM demonstrativo d
+      LEFT JOIN convenios c ON c.id = d.convenio_id
+      ${whereDemo}
+      GROUP BY d.convenio_id, c.nome
+      UNION ALL
+      SELECT re.convenioId, c.nome as convenio, COUNT(*) as total
+      FROM recebimentos_excel re
+      LEFT JOIN convenios c ON c.id = re.convenioId
+      ${whereExcel}
+      AND NOT EXISTS (
+        SELECT 1 FROM demonstrativo d2
+        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+        AND d2.valor_glosa > 0
+      )
+      GROUP BY re.convenioId, c.nome
+    ) unified
+    GROUP BY convenioId, convenio
+    ORDER BY total DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.convenioId);
 }
@@ -4532,20 +4564,35 @@ export async function datasPagamentoDemonstrativo(params: {
 }): Promise<{ dataPagto: string; total: number }[]> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  let where = `WHERE re.estabelecimentoId = ${params.estabelecimentoId} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO') AND re.data_pagto IS NOT NULL`;
+  let whereDemo = `WHERE d.estabelecimentoId = ${params.estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL`;
+  let whereExcel = `WHERE re.estabelecimentoId = ${params.estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0)) AND re.data_pagto IS NOT NULL`;
   if (params.competencia) {
-    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
+    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
+    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
   }
   if (params.convenioId) {
-    where += ` AND re.convenioId = ${params.convenioId}`;
+    whereDemo += ` AND d.convenio_id = ${params.convenioId}`;
+    whereExcel += ` AND re.convenioId = ${params.convenioId}`;
   }
   const [rows] = await db.execute(sql.raw(`
-    SELECT 
-      DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto,
-      COUNT(*) as total
-    FROM recebimentos_excel re
-    ${where}
-    GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+    SELECT dataPagto, SUM(total) as total FROM (
+      SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') as dataPagto, COUNT(*) as total
+      FROM demonstrativo d
+      ${whereDemo}
+      GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m-%d')
+      UNION ALL
+      SELECT DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto, COUNT(*) as total
+      FROM recebimentos_excel re
+      ${whereExcel}
+      AND NOT EXISTS (
+        SELECT 1 FROM demonstrativo d2
+        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+        AND d2.valor_glosa > 0
+      )
+      GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+    ) unified
+    GROUP BY dataPagto
     ORDER BY dataPagto DESC
   `));
   return (rows as unknown as any[]).map((r: any) => ({
@@ -4555,7 +4602,7 @@ export async function datasPagamentoDemonstrativo(params: {
 }
 
 /**
- * Itens glosados do demonstrativo (recebimentos_excel) para recurso
+ * Itens glosados do demonstrativo (UNION demonstrativo + recebimentos_excel) para recurso
  * Suporta agrupamento por guia, item e motivo
  */
 export async function itensGlosadosDemonstrativo(params: {
@@ -4570,109 +4617,177 @@ export async function itensGlosadosDemonstrativo(params: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  
   const { estabelecimentoId, competencia, convenioId, dataPagto, agrupamento, busca, page = 1, pageSize = 50 } = params;
   const offset = (page - 1) * pageSize;
-  
-  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
+
+  // Build WHERE for demonstrativo table
+  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0`;
   if (competencia) {
-    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
   }
   if (convenioId) {
-    where += ` AND re.convenioId = ${convenioId}`;
+    whereDemo += ` AND d.convenio_id = ${convenioId}`;
   }
   if (dataPagto) {
-    where += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
   }
   if (busca) {
     const b = busca.replace(/'/g, "''");
-    where += ` AND (re.numero_guia LIKE '%${b}%' OR re.nome_beneficiario LIKE '%${b}%' OR re.item LIKE '%${b}%' OR re.item_desc LIKE '%${b}%')`;
+    whereDemo += ` AND (d.numero_guia LIKE '%${b}%' OR d.nome_beneficiario LIKE '%${b}%' OR d.codigo_item LIKE '%${b}%' OR d.descricao_item LIKE '%${b}%')`;
   }
-  
+
+  // Build WHERE for recebimentos_excel table
+  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
+  if (competencia) {
+    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    whereExcel += ` AND re.convenioId = ${convenioId}`;
+  }
+  if (dataPagto) {
+    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+  }
+  if (busca) {
+    const b = busca.replace(/'/g, "''");
+    whereExcel += ` AND (re.numero_guia LIKE '%${b}%' OR re.nome_beneficiario LIKE '%${b}%' OR re.item LIKE '%${b}%' OR re.item_desc LIKE '%${b}%')`;
+  }
+
+  const notExistsClause = `AND NOT EXISTS (
+    SELECT 1 FROM demonstrativo d2
+    WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+    AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+    AND d2.valor_glosa > 0
+  )`;
+
+  // UNION subquery for unified data
+  const unionSubquery = `(
+    SELECT 
+      d.id as id, 'demo' as fonte,
+      d.numero_guia as guia, d.nome_beneficiario as paciente,
+      d.protocolo, d.lote_prestador as lote, d.carteira_beneficiario as carteirinha,
+      d.codigo_item as codigo, d.descricao_item as descricao,
+      d.data_execucao as dataExecucao,
+      d.quantidade as qtde,
+      d.convenio_id as convenioId, c.nome as convenio,
+      COALESCE(d.valor_pago, 0) as valorPago,
+      COALESCE(d.valor_glosa, 0) as valorGlosa,
+      COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
+      d.codigo_glosa as codigoGlosa,
+      d.classificacao_glosa as classificacaoGlosa,
+      d.recurso_status as recursoStatus,
+      d.justificativa_recurso as justificativa,
+      COALESCE(d.valor_recurso, 0) as valorRecurso,
+      COALESCE(d.glosa_aceita, 0) as glosaAceita,
+      d.glosa_aceita_por as glosaAceitaPor,
+      d.erro_tiss as erroTiss,
+      d.tipo_lancamento as tipo
+    FROM demonstrativo d
+    LEFT JOIN convenios c ON c.id = d.convenio_id
+    ${whereDemo}
+    UNION ALL
+    SELECT 
+      re.id as id, 'excel' as fonte,
+      re.numero_guia as guia, re.nome_beneficiario as paciente,
+      re.protocolo_tiss as protocolo, re.lote_prestador as lote, re.beneficiario as carteirinha,
+      re.item as codigo, re.item_desc as descricao,
+      re.data_execucao as dataExecucao,
+      re.quantidade as qtde,
+      re.convenioId, c.nome as convenio,
+      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
+      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
+      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
+      re.codigo_glosa as codigoGlosa,
+      NULL as classificacaoGlosa,
+      re.status_recurso_item as recursoStatus,
+      re.justificativa_recurso as justificativa,
+      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
+      re.glosa_aceita as glosaAceita,
+      re.glosa_aceita_por as glosaAceitaPor,
+      re.erro_tiss as erroTiss,
+      re.tipo_lancamento as tipo
+    FROM recebimentos_excel re
+    LEFT JOIN convenios c ON c.id = re.convenioId
+    ${whereExcel}
+    ${notExistsClause}
+  )`;
+
   let query = '';
   let countQuery = '';
-  
+
   if (agrupamento === 'guia') {
     query = `
       SELECT 
-        re.numero_guia as guia,
-        MAX(re.beneficiario) as matricula,
-        MAX(re.protocolo_tiss) as protocolo,
-        MAX(re.nome_beneficiario) as paciente,
-        MAX(DATE_FORMAT(re.data_inicio_faturamento_internacao, '%Y-%m-%d')) as dataInicio,
-        MAX(DATE_FORMAT(re.data_fim_faturamento_internacao, '%Y-%m-%d')) as dataFim,
-        MAX(c.nome) as convenio,
+        u.guia,
+        MAX(u.paciente) as paciente,
+        MAX(u.protocolo) as protocolo,
+        MAX(u.lote) as lote,
+        MAX(u.carteirinha) as carteirinha,
+        MAX(u.convenio) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
-        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
-        SUM(CASE WHEN re.glosa_aceita = 0 THEN COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) ELSE 0 END) as valorRecursado,
-        SUM(CASE WHEN re.glosa_aceita = 1 THEN COALESCE(re.valor_glosa, re.valor_pagamento, 0) ELSE 0 END) as valorGlosaAceita,
-        CASE 
-          WHEN SUM(CASE WHEN re.justificativa_recurso IS NOT NULL OR re.glosa_aceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
-          WHEN SUM(CASE WHEN re.justificativa_recurso IS NULL AND re.glosa_aceita = 0 THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+        SUM(u.valorFaturado) as valorFaturado,
+        SUM(u.valorPago) as valorPago,
+        SUM(u.valorGlosa) as valorGlosa,
+        SUM(COALESCE(u.valorRecurso, 0)) as valorRecursado,
+        SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
+        CASE
+          WHEN SUM(CASE WHEN u.recursoStatus IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN u.recursoStatus IS NULL THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
           ELSE 'Iniciado'
         END as statusRecurso
-      FROM recebimentos_excel re
-      LEFT JOIN convenios c ON c.id = re.convenioId
-      ${where}
-      GROUP BY re.numero_guia
-      ORDER BY re.numero_guia DESC
+      FROM ${unionSubquery} u
+      GROUP BY u.guia
+      ORDER BY SUM(u.valorGlosa) DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `;
-    countQuery = `SELECT COUNT(DISTINCT re.numero_guia) as total FROM recebimentos_excel re ${where}`;
+    countQuery = `SELECT COUNT(DISTINCT u.guia) as total FROM ${unionSubquery} u`;
   } else if (agrupamento === 'item') {
     query = `
       SELECT 
-        re.item as codigo,
-        MAX(re.item_desc) as descricao,
-        MAX(c.nome) as convenio,
+        u.codigo,
+        MAX(u.descricao) as descricao,
+        MAX(u.tipo) as tipo,
+        MAX(u.convenio) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
-        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
-        SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
-      FROM recebimentos_excel re
-      LEFT JOIN convenios c ON c.id = re.convenioId
-      ${where}
-      GROUP BY re.item
+        SUM(u.valorFaturado) as valorFaturado,
+        SUM(u.valorPago) as valorPago,
+        SUM(u.valorGlosa) as valorGlosa,
+        NULL as justificativasPreenchidas
+      FROM ${unionSubquery} u
+      GROUP BY u.codigo
       ORDER BY COUNT(*) DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `;
-    countQuery = `SELECT COUNT(DISTINCT re.item) as total FROM recebimentos_excel re ${where}`;
+    countQuery = `SELECT COUNT(DISTINCT u.codigo) as total FROM ${unionSubquery} u`;
   } else {
     // motivo
     query = `
       SELECT 
-        COALESCE(re.codigo_glosa, 'SEM_CODIGO') as codigoGlosa,
+        COALESCE(u.codigoGlosa, 'SEM_CODIGO') as codigoGlosa,
         MAX(mg.descricao) as motivoGlosa,
-        MAX(c.nome) as convenio,
+        MAX(u.convenio) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
-        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
-        SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
-      FROM recebimentos_excel re
-      LEFT JOIN convenios c ON c.id = re.convenioId
-      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
-      ${where}
-      GROUP BY COALESCE(re.codigo_glosa, 'SEM_CODIGO')
+        SUM(u.valorFaturado) as valorFaturado,
+        SUM(u.valorPago) as valorPago,
+        SUM(u.valorGlosa) as valorGlosa,
+        NULL as justificativasPreenchidas
+      FROM ${unionSubquery} u
+      LEFT JOIN motivos_glosa mg ON mg.codigo = u.codigoGlosa
+      GROUP BY COALESCE(u.codigoGlosa, 'SEM_CODIGO')
       ORDER BY COUNT(*) DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `;
-    countQuery = `SELECT COUNT(DISTINCT COALESCE(re.codigo_glosa, 'SEM_CODIGO')) as total FROM recebimentos_excel re ${where}`;
+    countQuery = `SELECT COUNT(DISTINCT COALESCE(u.codigoGlosa, 'SEM_CODIGO')) as total FROM ${unionSubquery} u`;
   }
-  
+
   // Query de resumo para KPIs
   const resumoQuery = `
     SELECT 
       COUNT(*) as totalItens,
-      COUNT(DISTINCT re.numero_guia) as totalGuias,
-      SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as totalValorFaturado,
-      SUM(COALESCE(re.valor_pagamento, 0)) as totalValorPago,
-      SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as totalValorGlosa
-    FROM recebimentos_excel re
-    ${where}
+      COUNT(DISTINCT u.guia) as totalGuias,
+      SUM(u.valorFaturado) as totalValorFaturado,
+      SUM(u.valorPago) as totalValorPago,
+      SUM(u.valorGlosa) as totalValorGlosa
+    FROM ${unionSubquery} u
   `;
 
   const [[items], [countResult], [resumoResult]] = await Promise.all([
@@ -4682,7 +4797,6 @@ export async function itensGlosadosDemonstrativo(params: {
   ]);
   const total = (countResult as any[])[0]?.total || 0;
   const resumoRow = (resumoResult as any[])[0] || {};
-  
   return {
     items: items as any[],
     total: Number(total),
@@ -4700,49 +4814,85 @@ export async function itensGlosadosDemonstrativo(params: {
 }
 
 /**
- * Detalhe dos itens glosados de uma guia no demonstrativo
+ * Detalhe dos itens glosados de uma guia no demonstrativo (UNION)
  */
 export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
   estabelecimentoId: number;
   guia: string;
   competencia?: string;
   convenioId?: number;
+  dataPagto?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  
-  const { estabelecimentoId, guia, competencia, convenioId } = params;
-  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.numero_guia = '${guia.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
-  if (competencia) {
-    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    where += ` AND re.convenioId = ${convenioId}`;
-  }
-  
+  const { estabelecimentoId, guia, competencia, convenioId, dataPagto } = params;
+
+  // Query from demonstrativo table
+  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.numero_guia = '${guia.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
+  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
+  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
+  // Query from recebimentos_excel table
+  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.numero_guia = '${guia.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
+  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
+  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
   const [rows] = await db.execute(sql.raw(`
-    SELECT 
-      re.id,
-      re.item as codigo,
-      re.item_desc as descricao,
-      re.tipo_item as tipo,
-      re.quantidade as qtde,
-      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
-      COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
-      re.codigo_glosa as codigoGlosa,
-      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
-      re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-      re.glosa_aceita as glosaAceita,
-      re.glosa_aceita_por as glosaAceitaPor
-    FROM recebimentos_excel re
-    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
-    ${where}
-    ORDER BY re.data_execucao, re.item
+    SELECT * FROM (
+      SELECT 
+        d.id, 'demo' as fonte,
+        d.numero_guia as guia,
+        d.codigo_item as codigo,
+        d.descricao_item as descricao,
+        d.tipo_lancamento as tipo,
+        d.nome_beneficiario as paciente,
+        DATE_FORMAT(d.data_execucao, '%Y-%m-%d') as dataExecucao,
+        d.quantidade as qtde,
+        COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
+        COALESCE(d.valor_pago, 0) as valorPago,
+        COALESCE(d.valor_glosa, 0) as valorGlosa,
+        d.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        d.justificativa_recurso as justificativa,
+        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.glosa_aceita, 0) as glosaAceita,
+        d.glosa_aceita_por as glosaAceitaPor
+      FROM demonstrativo d
+      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      ${whereDemo}
+      UNION ALL
+      SELECT 
+        re.id, 'excel' as fonte,
+        re.numero_guia as guia,
+        re.item as codigo,
+        re.item_desc as descricao,
+        re.tipo_lancamento as tipo,
+        re.nome_beneficiario as paciente,
+        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+        re.quantidade as qtde,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
+        re.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        re.justificativa_recurso as justificativa,
+        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
+        re.glosa_aceita as glosaAceita,
+        re.glosa_aceita_por as glosaAceitaPor
+      FROM recebimentos_excel re
+      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      ${whereExcel}
+      AND NOT EXISTS (
+        SELECT 1 FROM demonstrativo d2
+        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+        AND d2.valor_glosa > 0
+      )
+    ) unified
+    ORDER BY guia, dataExecucao
   `));
-  
   return (rows as any[]).map((r: any) => ({
     ...r,
     valorFaturado: Number(r.valorFaturado),
@@ -4753,50 +4903,84 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
     dataExecucao: r.dataExecucao || null,
   }));
 }
-
 /**
- * Detalhe dos itens glosados por item no demonstrativo
+ * Detalhe dos itens glosados por código de item no demonstrativo (UNION)
  */
 export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
   estabelecimentoId: number;
   item: string;
   competencia?: string;
   convenioId?: number;
+  dataPagto?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  
-  const { estabelecimentoId, item, competencia, convenioId } = params;
-  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.item = '${item.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
-  if (competencia) {
-    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    where += ` AND re.convenioId = ${convenioId}`;
-  }
-  
+  const { estabelecimentoId, item: codigo, competencia, convenioId, dataPagto } = params;
+
+  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.codigo_item = '${codigo.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
+  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
+  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
+  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.item = '${codigo.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
+  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
+  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
   const [rows] = await db.execute(sql.raw(`
-    SELECT 
-      re.id,
-      re.numero_guia as guia,
-      re.nome_beneficiario as paciente,
-      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-      re.quantidade as qtde,
-      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
-      COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
-      re.codigo_glosa as codigoGlosa,
-      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
-      re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-      re.glosa_aceita as glosaAceita,
-      re.glosa_aceita_por as glosaAceitaPor
-    FROM recebimentos_excel re
-    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
-    ${where}
-    ORDER BY re.numero_guia, re.data_execucao
+    SELECT * FROM (
+      SELECT 
+        d.id, 'demo' as fonte,
+        d.numero_guia as guia,
+        d.codigo_item as codigo,
+        d.descricao_item as descricao,
+        d.tipo_lancamento as tipo,
+        d.nome_beneficiario as paciente,
+        DATE_FORMAT(d.data_execucao, '%Y-%m-%d') as dataExecucao,
+        d.quantidade as qtde,
+        COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
+        COALESCE(d.valor_pago, 0) as valorPago,
+        COALESCE(d.valor_glosa, 0) as valorGlosa,
+        d.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        d.justificativa_recurso as justificativa,
+        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.glosa_aceita, 0) as glosaAceita,
+        d.glosa_aceita_por as glosaAceitaPor
+      FROM demonstrativo d
+      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      ${whereDemo}
+      UNION ALL
+      SELECT 
+        re.id, 'excel' as fonte,
+        re.numero_guia as guia,
+        re.item as codigo,
+        re.item_desc as descricao,
+        re.tipo_lancamento as tipo,
+        re.nome_beneficiario as paciente,
+        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+        re.quantidade as qtde,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
+        re.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        re.justificativa_recurso as justificativa,
+        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
+        re.glosa_aceita as glosaAceita,
+        re.glosa_aceita_por as glosaAceitaPor
+      FROM recebimentos_excel re
+      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      ${whereExcel}
+      AND NOT EXISTS (
+        SELECT 1 FROM demonstrativo d2
+        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+        AND d2.valor_glosa > 0
+      )
+    ) unified
+    ORDER BY guia, dataExecucao
   `));
-  
   return (rows as any[]).map((r: any) => ({
     ...r,
     valorFaturado: Number(r.valorFaturado),
@@ -4807,53 +4991,87 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
     dataExecucao: r.dataExecucao || null,
   }));
 }
-
 /**
- * Detalhe dos itens glosados por motivo no demonstrativo
+ * Detalhe dos itens glosados por motivo no demonstrativo (UNION)
  */
 export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
   estabelecimentoId: number;
   codigoGlosa: string;
   competencia?: string;
   convenioId?: number;
+  dataPagto?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  
-  const { estabelecimentoId, codigoGlosa, competencia, convenioId } = params;
-  let codigoFilter = codigoGlosa === 'SEM_CODIGO' ? `AND re.codigo_glosa IS NULL` : `AND re.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} ${codigoFilter} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
-  if (competencia) {
-    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    where += ` AND re.convenioId = ${convenioId}`;
-  }
-  
+  const { estabelecimentoId, codigoGlosa, competencia, convenioId, dataPagto } = params;
+
+  const codigoFilterDemo = codigoGlosa === 'SEM_CODIGO' ? `AND d.codigo_glosa IS NULL` : `AND d.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+  const codigoFilterExcel = codigoGlosa === 'SEM_CODIGO' ? `AND re.codigo_glosa IS NULL` : `AND re.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+
+  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} ${codigoFilterDemo} AND d.valor_glosa > 0`;
+  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
+  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
+  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} ${codigoFilterExcel} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
+  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
+  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+
   const [rows] = await db.execute(sql.raw(`
-    SELECT 
-      re.id,
-      re.numero_guia as guia,
-      re.nome_beneficiario as paciente,
-      re.item as codigo,
-      re.item_desc as descricao,
-      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-      re.quantidade as qtde,
-      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
-      COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
-      re.codigo_glosa as codigoGlosa,
-      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
-      re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-      re.glosa_aceita as glosaAceita,
-      re.glosa_aceita_por as glosaAceitaPor
-    FROM recebimentos_excel re
-    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
-    ${where}
-    ORDER BY re.numero_guia, re.data_execucao
+    SELECT * FROM (
+      SELECT 
+        d.id, 'demo' as fonte,
+        d.numero_guia as guia,
+        d.codigo_item as codigo,
+        d.descricao_item as descricao,
+        d.tipo_lancamento as tipo,
+        d.nome_beneficiario as paciente,
+        DATE_FORMAT(d.data_execucao, '%Y-%m-%d') as dataExecucao,
+        d.quantidade as qtde,
+        COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
+        COALESCE(d.valor_pago, 0) as valorPago,
+        COALESCE(d.valor_glosa, 0) as valorGlosa,
+        d.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        d.justificativa_recurso as justificativa,
+        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.glosa_aceita, 0) as glosaAceita,
+        d.glosa_aceita_por as glosaAceitaPor
+      FROM demonstrativo d
+      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      ${whereDemo}
+      UNION ALL
+      SELECT 
+        re.id, 'excel' as fonte,
+        re.numero_guia as guia,
+        re.item as codigo,
+        re.item_desc as descricao,
+        re.tipo_lancamento as tipo,
+        re.nome_beneficiario as paciente,
+        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+        re.quantidade as qtde,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
+        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
+        re.codigo_glosa as codigoGlosa,
+        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        re.justificativa_recurso as justificativa,
+        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
+        re.glosa_aceita as glosaAceita,
+        re.glosa_aceita_por as glosaAceitaPor
+      FROM recebimentos_excel re
+      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      ${whereExcel}
+      AND NOT EXISTS (
+        SELECT 1 FROM demonstrativo d2
+        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+        AND d2.valor_glosa > 0
+      )
+    ) unified
+    ORDER BY guia, dataExecucao
   `));
-  
   return (rows as any[]).map((r: any) => ({
     ...r,
     valorFaturado: Number(r.valorFaturado),
@@ -4864,15 +5082,15 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
     dataExecucao: r.dataExecucao || null,
   }));
 }
-
 /**
  * Salvar justificativa de recurso no demonstrativo
  */
-export async function salvarJustificativaDemonstrativo(recebimentoId: number, justificativa: string) {
+export async function salvarJustificativaDemonstrativo(recebimentoId: number, justificativa: string, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
+  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
   await db.execute(sql.raw(
-    `UPDATE recebimentos_excel SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${recebimentoId}`
+    `UPDATE ${tabela} SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${recebimentoId}`
   ));
   return { success: true };
 }
@@ -4880,11 +5098,12 @@ export async function salvarJustificativaDemonstrativo(recebimentoId: number, ju
 /**
  * Salvar valor recurso no demonstrativo
  */
-export async function salvarValorRecursoDemonstrativo(recebimentoId: number, valor: number) {
+export async function salvarValorRecursoDemonstrativo(recebimentoId: number, valor: number, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
+  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
   await db.execute(sql.raw(
-    `UPDATE recebimentos_excel SET valor_recurso = ${valor} WHERE id = ${recebimentoId}`
+    `UPDATE ${tabela} SET valor_recurso = ${valor} WHERE id = ${recebimentoId}`
   ));
   return { success: true };
 }
@@ -4892,16 +5111,17 @@ export async function salvarValorRecursoDemonstrativo(recebimentoId: number, val
 /**
  * Marcar glosa aceita no demonstrativo
  */
-export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, aceita: boolean, usuario: string) {
+export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, aceita: boolean, usuario: string, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
+  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
   if (aceita) {
     await db.execute(sql.raw(
-      `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id = ${recebimentoId}`
+      `UPDATE ${tabela} SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id = ${recebimentoId}`
     ));
   } else {
     await db.execute(sql.raw(
-      `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id = ${recebimentoId}`
+      `UPDATE ${tabela} SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id = ${recebimentoId}`
     ));
   }
   return { success: true };

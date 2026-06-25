@@ -886,6 +886,7 @@ export const faturamentoUnificadoRouter = router({
       guia: z.string(),
       competencia: z.string().optional(),
       convenioId: z.number().optional(),
+      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalheGuiaDemonstrativo(input);
@@ -897,6 +898,7 @@ export const faturamentoUnificadoRouter = router({
       item: z.string(),
       competencia: z.string().optional(),
       convenioId: z.number().optional(),
+      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalhePorItemDemonstrativo(input);
@@ -908,27 +910,28 @@ export const faturamentoUnificadoRouter = router({
       codigoGlosa: z.string(),
       competencia: z.string().optional(),
       convenioId: z.number().optional(),
+      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalhePorMotivoDemonstrativo(input);
     }),
 
   salvarJustificativaDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoId: z.number(), justificativa: z.string() }))
+    .input(z.object({ recebimentoId: z.number(), justificativa: z.string(), fonte: z.string().optional() }))
     .mutation(async ({ input }) => {
-      return await faturamentoService.salvarJustificativaDemonstrativo(input.recebimentoId, input.justificativa);
+      return await faturamentoService.salvarJustificativaDemonstrativo(input.recebimentoId, input.justificativa, input.fonte);
     }),
 
   salvarValorRecursoDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoId: z.number(), valor: z.number() }))
+    .input(z.object({ recebimentoId: z.number(), valor: z.number(), fonte: z.string().optional() }))
     .mutation(async ({ input }) => {
-      return await faturamentoService.salvarValorRecursoDemonstrativo(input.recebimentoId, input.valor);
+      return await faturamentoService.salvarValorRecursoDemonstrativo(input.recebimentoId, input.valor, input.fonte);
     }),
 
   marcarGlosaAceitaDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoId: z.number(), aceita: z.boolean() }))
+    .input(z.object({ recebimentoId: z.number(), aceita: z.boolean(), fonte: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      return await faturamentoService.marcarGlosaAceitaDemonstrativo(input.recebimentoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+      return await faturamentoService.marcarGlosaAceitaDemonstrativo(input.recebimentoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido', input.fonte);
     }),
 
   marcarGlosaAceitaEmLoteDemonstrativo: protectedProcedure

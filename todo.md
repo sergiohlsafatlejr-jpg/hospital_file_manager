@@ -4136,3 +4136,10 @@
 - [x] Adicionar filtro por Data de Pagamento (data_pagto) - backend: nova função datasPagamentoDemonstrativo + parâmetro dataPagto na query principal
 - [x] Adicionar filtro por Data de Pagamento no frontend (Select com datas disponíveis)
 - [x] Verificar filtro de convênios (já funcionava corretamente com convenioId/convenio/total)
+## Correções Recurso Glosa Demonstrativo - Sessão 10 (25/06/2025)
+- [x] Bug: Filtro de convênio corrigido (WHERE com re. prefix + UNION de demonstrativo + recebimentos_excel)
+- [x] Bug: Drill-down corrigido (enabled correto por aba + parâmetros dataPagto passados)
+- [x] Bug: Valores corrigidos - Informado = Pago + Glosa (UNION de demonstrativo XML + recebimentos_excel)
+- [x] Campos lote, protocolo, carteirinha adicionados no agrupamento por guia/paciente
+- [x] Bug: Bradesco agora busca dados do XML (tabela demonstrativo) com valores corretos + filtro COALESCE > 0 no excel
+- [x] Layout ajustado: colunas lote/protocolo/carteirinha, tipo na aba item, valores consistentes
