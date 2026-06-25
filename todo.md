@@ -4068,3 +4068,15 @@
 - [x] Criar cadastro de vinculações padrão (código faturado ↔ código pago) para aprendizado automático
 - [x] Aplicar vinculações padrão automaticamente nas próximas conciliações
 - [x] Corrigir tela de Recurso de Glosa via Conciliação (não está abrindo/mostrando dados - bug GROUP BY)
+
+## Melhorias Tela Recurso de Glosa e KPIs (25/06/2025 - Sessão 3)
+
+- [x] KPIs da tela de itens atualizam automaticamente ao alterar vinculações (invalidate queries)
+- [x] KPIs da tela de itens no mesmo formato da tela de conciliação (cards coloridos) - adicionado card Glosa separado
+- [x] Reformular cabeçalho da tela Recurso de Glosa: Guia, Matrícula, Lote, Protocolo, Nome, Data Início, Data Fim, Convênio, Itens Glosados, Valor Faturado, Valor Pago, Valor Glosa, Status
+- [x] Acrescentar data do item dentro dos itens glosados expandidos
+- [x] Criar abas de agrupamento: Glosas por Item, Glosas por Motivo, Guias por Paciente
+- [x] Respostas automáticas para mesmo motivo/item aplicáveis em outras guias/pacientes (botão Replicar)
+- [x] Status de recurso parcial/total por item (tabela recursos_glosa_lotes e recursos_glosa_itens)
+- [x] Armazenamento de recursos feitos e exibição na tela de acompanhamento
+- [x] Investigar divergência de valores - Total Faturado (588k) é o cobrado pelo hospital, Recebimentos Excel (794k) é o pago pelo convênio (inclui acréscimos). Adicionado KPI separado com valor pago e glosa.

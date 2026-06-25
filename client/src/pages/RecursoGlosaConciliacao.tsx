@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil } from "lucide-react";
+import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy } from "lucide-react";
 import * as XLSX from "xlsx";
 
 function formatarMoeda(valor: number): string {
@@ -23,7 +23,7 @@ export default function RecursoGlosaConciliacao() {
   const [competencia, setCompetencia] = useState<string>("todos");
   const [dataPagto, setDataPagto] = useState<string>("todos");
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
-  const [agrupamento, setAgrupamento] = useState<"guia" | "data" | "lote">("guia");
+  const [agrupamento, setAgrupamento] = useState<"guia" | "data" | "lote" | "item" | "motivo">("guia");
   const [busca, setBusca] = useState("");
   const [apenasNaoRecursados, setApenasNaoRecursados] = useState(true);
   const [guiasSelecionadas, setGuiasSelecionadas] = useState<Set<string>>(new Set());
@@ -40,6 +40,7 @@ export default function RecursoGlosaConciliacao() {
   const [justificativasItens, setJustificativasItens] = useState<Record<number, string>>({});
   const [gerandoIA, setGerandoIA] = useState(false);
   const [editandoJustificativa, setEditandoJustificativa] = useState<number | null>(null);
+  const [replicandoJustificativas, setReplicandoJustificativas] = useState(false);
 
   // Queries
   const { data: competencias } = trpc.faturamentoUnificado.competenciasConciliados.useQuery(
@@ -147,6 +148,18 @@ export default function RecursoGlosaConciliacao() {
     },
   });
 
+  // Mutation para replicar justificativas em outras guias com mesmo motivo/item
+  const replicarJustificativasMutation = trpc.faturamentoUnificado.replicarJustificativas.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Justificativas replicadas para ${data.totalReplicados} itens em ${data.totalGuias} guias!`);
+      setReplicandoJustificativas(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao replicar justificativas: " + error.message);
+      setReplicandoJustificativas(false);
+    },
+  });
+
   // Handlers
   const toggleGuiaSelecionada = (chave: string) => {
     setGuiasSelecionadas(prev => {
@@ -242,6 +255,41 @@ export default function RecursoGlosaConciliacao() {
       return;
     }
     handleGerarJustificativasIA();
+  };
+
+  // Handler para replicar justificativas para mesmo motivo/item em outras guias
+  const handleReplicarJustificativas = () => {
+    if (!detalheGuia || Object.keys(justificativasItens).length === 0) {
+      toast.error("Nenhuma justificativa para replicar");
+      return;
+    }
+    setReplicandoJustificativas(true);
+    
+    // Mapear motivo/item -> justificativa
+    const justificativasPorMotivo: Record<string, string> = {};
+    const justificativasPorItem: Record<string, string> = {};
+    
+    for (const d of detalheGuia) {
+      const justificativa = justificativasItens[d.id];
+      if (justificativa) {
+        if (d.codigoGlosa) {
+          const key = `${d.codigoGlosa}-${d.codigoItem || ''}`;
+          justificativasPorMotivo[key] = justificativa;
+        }
+        if (d.codigoItem) {
+          justificativasPorItem[d.codigoItem] = justificativa;
+        }
+      }
+    }
+    
+    replicarJustificativasMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      justificativasPorMotivo,
+      justificativasPorItem,
+      guiaOrigem: guiaExpandida || '',
+      competencia: competencia !== 'todos' ? competencia : undefined,
+      convenioId: convenioFiltro !== 'todos' ? parseInt(convenioFiltro) : undefined,
+    });
   };
 
   const resumo = itensGlosados?.resumo;
@@ -363,11 +411,13 @@ export default function RecursoGlosaConciliacao() {
               </Select>
 
               <Select value={agrupamento} onValueChange={(v: any) => setAgrupamento(v)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Agrupar por" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="guia">Por Guia</SelectItem>
+                  <SelectItem value="guia">Por Guia/Paciente</SelectItem>
+                  <SelectItem value="item">Por Item</SelectItem>
+                  <SelectItem value="motivo">Por Motivo de Glosa</SelectItem>
                   <SelectItem value="data">Por Data</SelectItem>
                   <SelectItem value="lote">Por Lote</SelectItem>
                 </SelectContent>
@@ -420,8 +470,31 @@ export default function RecursoGlosaConciliacao() {
                         />
                       </th>
                       <th className="p-2 w-8"></th>
-                      <th className="p-2 text-left">{agrupamento === 'guia' ? 'Guia' : agrupamento === 'data' ? 'Data' : 'Lote'}</th>
-                      {agrupamento === 'guia' && <th className="p-2 text-left">Paciente</th>}
+                      {agrupamento === 'guia' && (
+                        <>
+                          <th className="p-2 text-left">Guia</th>
+                          <th className="p-2 text-left">Matrícula</th>
+                          <th className="p-2 text-left">Lote</th>
+                          <th className="p-2 text-left">Protocolo</th>
+                          <th className="p-2 text-left">Nome</th>
+                          <th className="p-2 text-left">Data Início</th>
+                          <th className="p-2 text-left">Data Fim</th>
+                        </>
+                      )}
+                      {agrupamento === 'item' && (
+                        <>
+                          <th className="p-2 text-left">Código</th>
+                          <th className="p-2 text-left">Descrição</th>
+                        </>
+                      )}
+                      {agrupamento === 'motivo' && (
+                        <>
+                          <th className="p-2 text-left">Cód. Glosa</th>
+                          <th className="p-2 text-left">Motivo</th>
+                        </>
+                      )}
+                      {agrupamento === 'data' && <th className="p-2 text-left">Data</th>}
+                      {agrupamento === 'lote' && <th className="p-2 text-left">Lote</th>}
                       <th className="p-2 text-left">Convênio</th>
                       <th className="p-2 text-right">Itens Glosados</th>
                       <th className="p-2 text-right">Valor Faturado</th>
@@ -454,12 +527,31 @@ export default function RecursoGlosaConciliacao() {
                                 : <ChevronRight className="h-4 w-4" />
                             )}
                           </td>
-                          <td className="p-2 font-mono font-medium">
-                            {agrupamento === 'guia' ? item.numeroGuia : agrupamento === 'data' ? item.dataExecucao : item.lote}
-                          </td>
                           {agrupamento === 'guia' && (
-                            <td className="p-2 max-w-[200px] truncate">{item.pacienteNome || '-'}</td>
+                            <>
+                              <td className="p-2 font-mono font-medium">{item.numeroGuia}</td>
+                              <td className="p-2 text-xs">{item.matricula || '-'}</td>
+                              <td className="p-2 text-xs">{item.lote || '-'}</td>
+                              <td className="p-2 text-xs">{item.protocolo || '-'}</td>
+                              <td className="p-2 max-w-[150px] truncate">{item.pacienteNome || '-'}</td>
+                              <td className="p-2 text-xs">{item.dataInicio ? new Date(item.dataInicio + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                              <td className="p-2 text-xs">{item.dataFim ? new Date(item.dataFim + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                            </>
                           )}
+                          {agrupamento === 'item' && (
+                            <>
+                              <td className="p-2 font-mono font-medium">{item.codigoItem}</td>
+                              <td className="p-2 max-w-[200px] truncate">{item.descricaoItem || '-'}</td>
+                            </>
+                          )}
+                          {agrupamento === 'motivo' && (
+                            <>
+                              <td className="p-2 font-mono">{item.codigoGlosa || '-'}</td>
+                              <td className="p-2 max-w-[200px] truncate">{item.motivoGlosaDesc || '-'}</td>
+                            </>
+                          )}
+                          {agrupamento === 'data' && <td className="p-2 font-mono">{item.dataExecucao}</td>}
+                          {agrupamento === 'lote' && <td className="p-2 font-mono">{item.lote || '-'}</td>}
                           <td className="p-2">{item.convenio || '-'}</td>
                           <td className="p-2 text-right font-medium">{item.totalItensGlosados}</td>
                           <td className="p-2 text-right">{formatarMoeda(item.valorFaturado)}</td>
@@ -481,7 +573,7 @@ export default function RecursoGlosaConciliacao() {
                         /* Detalhe expandido da guia com campo de justificativa */
                         agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
                           <tr key={`detail-${item.chave}`}>
-                            <td colSpan={10} className="p-0">
+                            <td colSpan={14} className="p-0">
                               <div className="bg-muted/20 border-l-4 border-primary/30 p-3 mx-2 mb-2 rounded">
                                 {/* Header do detalhe com botão IA */}
                                 <div className="flex items-center justify-between mb-3">
@@ -493,28 +585,54 @@ export default function RecursoGlosaConciliacao() {
                                       </Badge>
                                     )}
                                   </p>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleGerarJustificativasIA();
-                                    }}
-                                    disabled={gerandoIA}
-                                    className="text-xs"
-                                  >
-                                    {gerandoIA ? (
-                                      <>
-                                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                        Gerando...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Sparkles className="h-3 w-3 mr-1" />
-                                        Gerar Justificativas com IA
-                                      </>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleGerarJustificativasIA();
+                                      }}
+                                      disabled={gerandoIA}
+                                      className="text-xs"
+                                    >
+                                      {gerandoIA ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                          Gerando...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles className="h-3 w-3 mr-1" />
+                                          Gerar com IA
+                                        </>
+                                      )}
+                                    </Button>
+                                    {totalJustificativasPreenchidas > 0 && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleReplicarJustificativas();
+                                        }}
+                                        disabled={replicandoJustificativas}
+                                        className="text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                                      >
+                                        {replicandoJustificativas ? (
+                                          <>
+                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                            Replicando...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="h-3 w-3 mr-1" />
+                                            Replicar em Outras Guias
+                                          </>
+                                        )}
+                                      </Button>
                                     )}
-                                  </Button>
+                                  </div>
                                 </div>
 
                                 <table className="w-full text-xs">
@@ -523,6 +641,7 @@ export default function RecursoGlosaConciliacao() {
                                       <th className="p-1 text-left">Código</th>
                                       <th className="p-1 text-left">Descrição</th>
                                       <th className="p-1 text-left">Tipo</th>
+                                      <th className="p-1 text-left">Data</th>
                                       <th className="p-1 text-center">Qtde</th>
                                       <th className="p-1 text-right">Faturado</th>
                                       <th className="p-1 text-right">Pago</th>
@@ -538,6 +657,7 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 font-mono">{d.codigoItem}</td>
                                         <td className="p-1 max-w-[180px] truncate">{d.descricaoItem}</td>
                                         <td className="p-1">{d.tipoItem || '-'}</td>
+                                        <td className="p-1 text-xs">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>

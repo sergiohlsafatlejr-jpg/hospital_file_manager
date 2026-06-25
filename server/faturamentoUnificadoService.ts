@@ -2512,14 +2512,16 @@ export async function resumoConciliadosAutomatico(params: {
     resumo.valorTotalDiferenca += valDif;
 
     switch (row.statusConciliacao) {
-      case 'conciliado': resumo.totalConciliados = count; break;
+      case 'conciliado': resumo.totalConciliados += count; break;
+      case 'conciliado_manual': resumo.totalConciliados += count; break;
       case 'divergente': resumo.totalAcrescimos += count; break;
-      case 'nao_recebido': resumo.totalNaoRecebidos = count; break;
-      case 'sem_pagamento': resumo.totalSemPagamento = count; break;
-      case 'glosa_total': resumo.totalGlosaTotal = count; break;
-      case 'glosa_parcial': resumo.totalGlosaParcial = count; break;
-      case 'terceiro': resumo.totalTerceiros = count; break;
-      case 'acrescimo': resumo.totalAcrescimos = count; break;
+      case 'nao_recebido': resumo.totalNaoRecebidos += count; break;
+      case 'sem_pagamento': resumo.totalSemPagamento += count; break;
+      case 'glosa_total': resumo.totalGlosaTotal += count; break;
+      case 'glosa_parcial': resumo.totalGlosaParcial += count; break;
+      case 'terceiro': resumo.totalTerceiros += count; break;
+      case 'acrescimo': resumo.totalAcrescimos += count; break;
+      case 'absorvido': resumo.totalAcrescimos += count; break;
     }
   }
 
@@ -3308,7 +3310,7 @@ export async function itensGlosadosParaRecurso(params: {
   dataPagto?: string;
   loteXml?: string;
   loteRetorno?: string;
-  agrupamento?: 'guia' | 'data' | 'lote';
+  agrupamento?: 'guia' | 'data' | 'lote' | 'item' | 'motivo';
   busca?: string;
   apenasNaoRecursados?: boolean;
   limit?: number;
@@ -3362,6 +3364,11 @@ export async function itensGlosadosParaRecurso(params: {
       ca.convenioId,
       ca.competencia,
       MAX(ca.pacienteNome) as pacienteNome,
+      MAX(fu.carteiraBeneficiario) as matricula,
+      MAX(fu.lotePrestador) as lote,
+      MAX(fu.protocolo) as protocolo,
+      MIN(ca.dataExecucao) as dataInicio,
+      MAX(ca.dataExecucao) as dataFim,
       COUNT(*) as totalItensGlosados,
       SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
       SUM(COALESCE(ca.valorPago, 0)) as valorPago,
@@ -3390,6 +3397,56 @@ export async function itensGlosadosParaRecurso(params: {
       GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
     `;
     orderBy = 'ORDER BY dataExecucao DESC, valorGlosa DESC';
+  } else if (agrupamento === 'item') {
+    groupByField = 'ca.codigoItem, ca.descricaoItem, ca.convenio, ca.convenioId';
+    selectFields = `
+      CONCAT(ca.codigoItem, '-', ca.convenioId) as chave,
+      ca.codigoItem,
+      ca.descricaoItem,
+      ca.convenio,
+      ca.convenioId,
+      NULL as numeroGuia,
+      MAX(ca.competencia) as competencia,
+      NULL as pacienteNome,
+      NULL as matricula,
+      NULL as lote,
+      NULL as protocolo,
+      NULL as dataInicio,
+      NULL as dataFim,
+      COUNT(*) as totalItensGlosados,
+      SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as valorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      MAX(ca.xmlRecursoGerado) as xmlGerado,
+      MAX(ca.dataExecucao) as dataExecucao,
+      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
+    `;
+    orderBy = 'ORDER BY totalItensGlosados DESC, valorGlosa DESC';
+  } else if (agrupamento === 'motivo') {
+    groupByField = 'ca.codigoGlosa, ca.convenio, ca.convenioId';
+    selectFields = `
+      CONCAT(COALESCE(ca.codigoGlosa, 'SEM_CODIGO'), '-', ca.convenioId) as chave,
+      ca.codigoGlosa,
+      COALESCE(MAX(mg2.descricao), ca.motivoGlosa, 'Sem motivo identificado') as motivoGlosaDesc,
+      ca.convenio,
+      ca.convenioId,
+      NULL as numeroGuia,
+      MAX(ca.competencia) as competencia,
+      NULL as pacienteNome,
+      NULL as matricula,
+      NULL as lote,
+      NULL as protocolo,
+      NULL as dataInicio,
+      NULL as dataFim,
+      COUNT(*) as totalItensGlosados,
+      SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
+      SUM(COALESCE(ca.valorPago, 0)) as valorPago,
+      SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      MAX(ca.xmlRecursoGerado) as xmlGerado,
+      MAX(ca.dataExecucao) as dataExecucao,
+      GROUP_CONCAT(DISTINCT ca.codigoItem ORDER BY ca.codigoItem SEPARATOR ', ') as codigosItem
+    `;
+    orderBy = 'ORDER BY totalItensGlosados DESC, valorGlosa DESC';
   } else {
     // lote
     groupByField = 'fu.lotePrestador, ca.convenio, ca.convenioId';
@@ -3423,10 +3480,12 @@ export async function itensGlosadosParaRecurso(params: {
   `;
 
   // Main query
+  const motivoJoin = agrupamento === 'motivo' ? `LEFT JOIN motivosGlosa mg2 ON ca.codigoGlosa = mg2.codigo AND mg2.ativo = 'sim'` : '';
   const mainQuery = `
     SELECT ${selectFields}
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+    ${motivoJoin}
     ${whereClause}
     GROUP BY ${groupByField}
     ${orderBy}
@@ -3463,8 +3522,17 @@ export async function itensGlosadosParaRecurso(params: {
       convenioId: Number(r.convenioId),
       competencia: r.competencia,
       pacienteNome: r.pacienteNome,
+      matricula: r.matricula || null,
+      lote: r.lote || null,
+      protocolo: r.protocolo || null,
+      dataInicio: r.dataInicio || null,
+      dataFim: r.dataFim || null,
       dataExecucao: r.dataExecucao || r.dataExecucaoMax,
-      lote: r.lote,
+      codigoItem: r.codigoItem || null,
+      descricaoItem: r.descricaoItem || null,
+      codigoGlosa: r.codigoGlosa || null,
+      motivoGlosaDesc: r.motivoGlosaDesc || null,
+      codigosItem: r.codigosItem || null,
       totalItensGlosados: Number(r.totalItensGlosados),
       valorFaturado: Number(r.valorFaturado),
       valorPago: Number(r.valorPago),
@@ -3922,4 +3990,204 @@ export async function buscarVinculacoesAplicaveis(params: {
     `SELECT * FROM vinculacoes_padrao ${where} ORDER BY vezesUsado DESC`
   ));
   return rows as unknown as any[];
+}
+
+
+export async function replicarJustificativas(params: {
+  estabelecimentoId: number;
+  justificativasPorMotivo: Record<string, string>;
+  justificativasPorItem: Record<string, string>;
+  guiaOrigem: string;
+  competencia?: string;
+  convenioId?: number;
+}) {
+  const { estabelecimentoId, justificativasPorMotivo, justificativasPorItem, guiaOrigem, competencia, convenioId } = params;
+  
+  // Buscar todos os itens glosados (exceto a guia de origem) que tenham mesmo motivo ou item
+  let whereClause = `WHERE ca.estabelecimentoId = ${estabelecimentoId}
+    AND ca.statusConciliacao IN ('glosa_total', 'glosa_parcial')
+    AND ca.numeroGuia != '${guiaOrigem.replace(/'/g, "''")}'`;
+  
+  if (competencia) {
+    whereClause += ` AND ca.competencia LIKE '${competencia.replace(/'/g, "''")}%'`;
+  }
+  if (convenioId) {
+    whereClause += ` AND ca.convenioId = ${convenioId}`;
+  }
+
+  const [itens] = await db.execute(sql.raw(`
+    SELECT ca.id, ca.codigoItem, ca.codigoGlosa, ca.numeroGuia
+    FROM conciliados_automatico ca
+    ${whereClause}
+  `));
+
+  const itensArray = itens as unknown as any[];
+  let totalReplicados = 0;
+  const guiasAfetadas = new Set<string>();
+  const idsParaAtualizar: { id: number; justificativa: string }[] = [];
+
+  for (const item of itensArray) {
+    // Tentar match por motivo+item primeiro
+    const keyMotivo = `${item.codigoGlosa || ''}-${item.codigoItem || ''}`;
+    if (justificativasPorMotivo[keyMotivo]) {
+      idsParaAtualizar.push({ id: item.id, justificativa: justificativasPorMotivo[keyMotivo] });
+      guiasAfetadas.add(item.numeroGuia);
+      totalReplicados++;
+      continue;
+    }
+    // Depois tentar match por item
+    if (item.codigoItem && justificativasPorItem[item.codigoItem]) {
+      idsParaAtualizar.push({ id: item.id, justificativa: justificativasPorItem[item.codigoItem] });
+      guiasAfetadas.add(item.numeroGuia);
+      totalReplicados++;
+    }
+  }
+
+  // Salvar as justificativas replicadas no banco (tabela recursos_glosa se existir, ou na conciliados_automatico)
+  // Por agora, salvar na tabela recursos_glosa_justificativas
+  if (idsParaAtualizar.length > 0) {
+    // Criar tabela se não existir
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS recursos_glosa_justificativas (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        conciliadoId INT NOT NULL,
+        justificativa TEXT NOT NULL,
+        criadoEm DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atualizadoEm DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_conciliado (conciliadoId)
+      )
+    `));
+
+    // Inserir/atualizar justificativas em lote
+    const values = idsParaAtualizar.map(i => 
+      `(${i.id}, '${i.justificativa.replace(/'/g, "''")}')`
+    ).join(',');
+
+    await db.execute(sql.raw(`
+      INSERT INTO recursos_glosa_justificativas (conciliadoId, justificativa)
+      VALUES ${values}
+      ON DUPLICATE KEY UPDATE justificativa = VALUES(justificativa), atualizadoEm = CURRENT_TIMESTAMP
+    `));
+  }
+
+  return {
+    totalReplicados,
+    totalGuias: guiasAfetadas.size,
+  };
+}
+
+
+// ============ LOTES DE RECURSO DE GLOSA ============
+
+export async function criarLoteRecurso(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  convenioNome?: string;
+  competencia?: string;
+  guias: string[];
+  statusRecurso: 'parcial' | 'total';
+  criadoPor: string;
+  xmlUrl?: string;
+  justificativasItens?: Record<number, string>;
+}) {
+  const { estabelecimentoId, convenioId, convenioNome, competencia, guias, statusRecurso, criadoPor, xmlUrl, justificativasItens } = params;
+  
+  // Buscar itens glosados das guias selecionadas
+  const guiasIn = guias.map(g => `'${g.replace(/'/g, "''")}'`).join(',');
+  const [itens] = await db.execute(sql.raw(`
+    SELECT id, COALESCE(valorGlosa, 0) as valorGlosa, COALESCE(valorFaturado, 0) as valorFaturado
+    FROM conciliados_automatico
+    WHERE estabelecimentoId = ${estabelecimentoId}
+      AND numeroGuia IN (${guiasIn})
+      AND statusConciliacao IN ('glosa_total', 'glosa_parcial')
+  `));
+  
+  const itensArray = itens as unknown as any[];
+  const totalItens = itensArray.length;
+  const valorTotalGlosa = itensArray.reduce((sum: number, i: any) => sum + Number(i.valorGlosa || 0), 0);
+  const valorTotalRecursado = statusRecurso === 'total' ? valorTotalGlosa : valorTotalGlosa * 0.5; // parcial = 50% por padrão
+
+  // Criar lote
+  const [result] = await db.execute(sql.raw(`
+    INSERT INTO recursos_glosa_lotes (estabelecimentoId, convenioId, convenioNome, competencia, statusRecurso, totalGuias, totalItens, valorTotalGlosa, valorTotalRecursado, xmlUrl, criadoPor)
+    VALUES (${estabelecimentoId}, ${convenioId || 'NULL'}, ${convenioNome ? `'${convenioNome.replace(/'/g, "''")}'` : 'NULL'}, ${competencia ? `'${competencia}'` : 'NULL'}, '${statusRecurso}', ${guias.length}, ${totalItens}, ${valorTotalGlosa}, ${valorTotalRecursado}, ${xmlUrl ? `'${xmlUrl}'` : 'NULL'}, '${criadoPor.replace(/'/g, "''")}')
+  `));
+  
+  const loteId = (result as any).insertId;
+  
+  // Vincular itens ao lote
+  if (itensArray.length > 0) {
+    const values = itensArray.map((i: any) => {
+      const justificativa = justificativasItens?.[i.id] || '';
+      const valorRecursado = statusRecurso === 'total' ? Number(i.valorGlosa) : Number(i.valorGlosa) * 0.5;
+      return `(${loteId}, ${i.id}, 'recurso_${statusRecurso}', '${justificativa.replace(/'/g, "''")}', ${valorRecursado})`;
+    }).join(',');
+    
+    await db.execute(sql.raw(`
+      INSERT INTO recursos_glosa_itens (loteId, conciliadoId, statusItem, justificativa, valorRecursado)
+      VALUES ${values}
+    `));
+  }
+  
+  return { loteId, totalItens, totalGuias: guias.length, valorTotalGlosa, valorTotalRecursado };
+}
+
+export async function listarLotesRecurso(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  statusRecurso?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const { estabelecimentoId, convenioId, statusRecurso, limit = 20, offset = 0 } = params;
+  
+  let whereClause = `WHERE estabelecimentoId = ${estabelecimentoId}`;
+  if (convenioId) whereClause += ` AND convenioId = ${convenioId}`;
+  if (statusRecurso) whereClause += ` AND statusRecurso = '${statusRecurso}'`;
+  
+  const [rows] = await db.execute(sql.raw(`
+    SELECT * FROM recursos_glosa_lotes
+    ${whereClause}
+    ORDER BY criadoEm DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `));
+  
+  const [countResult] = await db.execute(sql.raw(`
+    SELECT COUNT(*) as total FROM recursos_glosa_lotes ${whereClause}
+  `));
+  
+  return {
+    items: rows as unknown as any[],
+    total: Number((countResult as unknown as any[])[0]?.total || 0),
+  };
+}
+
+export async function detalheLoteRecurso(loteId: number) {
+  const [lote] = await db.execute(sql.raw(`
+    SELECT * FROM recursos_glosa_lotes WHERE id = ${loteId}
+  `));
+  
+  const [itens] = await db.execute(sql.raw(`
+    SELECT rgi.*, ca.codigoItem, ca.descricaoItem, ca.numeroGuia, ca.pacienteNome, ca.codigoGlosa, ca.motivoGlosa, ca.valorFaturado, ca.valorPago, ca.valorGlosa, ca.dataExecucao
+    FROM recursos_glosa_itens rgi
+    JOIN conciliados_automatico ca ON rgi.conciliadoId = ca.id
+    WHERE rgi.loteId = ${loteId}
+    ORDER BY ca.numeroGuia, ca.codigoItem
+  `));
+  
+  return {
+    lote: (lote as unknown as any[])[0] || null,
+    itens: itens as unknown as any[],
+  };
+}
+
+export async function atualizarStatusLote(loteId: number, statusRecurso: string, observacao?: string) {
+  let setClause = `statusRecurso = '${statusRecurso}'`;
+  if (observacao) setClause += `, observacao = '${observacao.replace(/'/g, "''")}'`;
+  
+  await db.execute(sql.raw(`
+    UPDATE recursos_glosa_lotes SET ${setClause} WHERE id = ${loteId}
+  `));
+  
+  return { success: true };
 }

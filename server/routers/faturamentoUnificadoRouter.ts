@@ -575,7 +575,7 @@ export const faturamentoUnificadoRouter = router({
       dataPagto: z.string().optional(),
       loteXml: z.string().optional(),
       loteRetorno: z.string().optional(),
-      agrupamento: z.enum(['guia', 'data', 'lote']).default('guia'),
+      agrupamento: z.enum(['guia', 'data', 'lote', 'item', 'motivo']).default('guia'),
       busca: z.string().optional(),
       apenasNaoRecursados: z.boolean().optional(),
       limit: z.number().optional(),
@@ -700,5 +700,83 @@ export const faturamentoUnificadoRouter = router({
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.excluirVinculacaoPadrao(input.id, input.estabelecimentoId);
+    }),
+
+  /**
+   * Replicar justificativas para mesmo motivo/item em outras guias
+   */
+  replicarJustificativas: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      justificativasPorMotivo: z.record(z.string(), z.string()),
+      justificativasPorItem: z.record(z.string(), z.string()),
+      guiaOrigem: z.string(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.replicarJustificativas(input);
+    }),
+
+  /**
+   * Criar lote de recurso de glosa
+   */
+  criarLoteRecurso: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      convenioNome: z.string().optional(),
+      competencia: z.string().optional(),
+      guias: z.array(z.string()).min(1),
+      statusRecurso: z.enum(['parcial', 'total']),
+      xmlUrl: z.string().optional(),
+      justificativasItens: z.record(z.string(), z.string()).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const justificativasItensNumeric = input.justificativasItens
+        ? Object.fromEntries(Object.entries(input.justificativasItens).map(([k, v]) => [Number(k), v]))
+        : undefined;
+      return await faturamentoService.criarLoteRecurso({
+        ...input,
+        criadoPor: ctx.user?.name || 'Sistema',
+        justificativasItens: justificativasItensNumeric,
+      });
+    }),
+
+  /**
+   * Listar lotes de recurso de glosa
+   */
+  listarLotesRecurso: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      statusRecurso: z.string().optional(),
+      limit: z.number().optional(),
+      offset: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.listarLotesRecurso(input);
+    }),
+
+  /**
+   * Detalhe de um lote de recurso
+   */
+  detalheLoteRecurso: protectedProcedure
+    .input(z.object({ loteId: z.number() }))
+    .query(async ({ input }) => {
+      return await faturamentoService.detalheLoteRecurso(input.loteId);
+    }),
+
+  /**
+   * Atualizar status de um lote de recurso
+   */
+  atualizarStatusLote: protectedProcedure
+    .input(z.object({
+      loteId: z.number(),
+      statusRecurso: z.string(),
+      observacao: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.atualizarStatusLote(input.loteId, input.statusRecurso, input.observacao);
     }),
 });

@@ -388,6 +388,7 @@ export default function ConciliacaoCruzada() {
       setModalGlosaAberto(false);
       setMotivoGlosa("");
       setCodigoGlosa("");
+      refetchItensConciliados();
       refetchGuiasConciliadas();
       refetchResumo();
     },
@@ -400,6 +401,7 @@ export default function ConciliacaoCruzada() {
       setModalGlosaAberto(false);
       setMotivoGlosa("");
       setCodigoGlosa("");
+      refetchItensConciliados();
       refetchGuiasConciliadas();
       refetchResumo();
     },
@@ -410,6 +412,7 @@ export default function ConciliacaoCruzada() {
     onSuccess: (data) => {
       toast.success(`${data.atualizados} itens revertidos para não recebido`);
       setItensSelecionadosGlosa(new Set());
+      refetchItensConciliados();
       refetchGuiasConciliadas();
       refetchResumo();
     },
@@ -1318,7 +1321,15 @@ export default function ConciliacaoCruzada() {
                         <CardContent className="p-2">
                           <p className="text-xs opacity-80">Total Faturado</p>
                           <p className="text-lg font-bold">{formatarMoeda(resumoConciliados.valorTotalFaturado)}</p>
-                          <p className="text-[10px] opacity-70">Glosa: {formatarMoeda(resumoConciliados.valorTotalGlosa)}</p>
+                          <p className="text-[10px] opacity-70">Pago: {formatarMoeda(resumoConciliados.valorTotalPago)}</p>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="bg-gradient-to-br from-rose-500 to-rose-600 text-white">
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Glosa</p>
+                          <p className="text-lg font-bold">{formatarMoeda(resumoConciliados.valorTotalGlosa)}</p>
+                          <p className="text-[10px] opacity-70">Diferença: {formatarMoeda(resumoConciliados.valorTotalDiferenca)}</p>
                         </CardContent>
                       </Card>
                     </div>
