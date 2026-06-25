@@ -4124,3 +4124,7 @@
 - [x] Renomear aba de "Recurso de Glosa" para "Recurso Glosa Conciliação" no sidebar
 - [x] Remover função de recurso da aba "Análise de Glosa" (manter apenas como relatório)
 - [x] Criar nova aba "Recurso Glosa Demonstrativo" no módulo Recurso de Glosa (dados do recebimentos_excel)
+
+## Correções Recurso Glosa Demonstrativo - Dados e KPIs
+- [x] Corrigir query do demonstrativo que não retorna dados (useEstabelecimento usava 'selecionado' em vez de 'estabelecimentoAtual')
+- [x] Adicionar KPIs: Total Guias, Total Itens Glosados, Valor Faturado, Valor Glosa (via resumo do backend)

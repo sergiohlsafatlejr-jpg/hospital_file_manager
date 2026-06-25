@@ -4627,9 +4627,25 @@ export async function itensGlosadosDemonstrativo(params: {
     countQuery = `SELECT COUNT(DISTINCT COALESCE(re.codigo_glosa, 'SEM_CODIGO')) as total FROM recebimentos_excel re ${where}`;
   }
   
-  const [items] = await db.execute(sql.raw(query));
-  const [countResult] = await db.execute(sql.raw(countQuery));
+  // Query de resumo para KPIs
+  const resumoQuery = `
+    SELECT 
+      COUNT(*) as totalItens,
+      COUNT(DISTINCT re.numero_guia) as totalGuias,
+      SUM(COALESCE(re.valor_informado, 0)) as totalValorFaturado,
+      SUM(COALESCE(re.valor_pagamento, 0)) as totalValorPago,
+      SUM(COALESCE(re.valor_glosa, 0)) as totalValorGlosa
+    FROM recebimentos_excel re
+    ${where}
+  `;
+
+  const [[items], [countResult], [resumoResult]] = await Promise.all([
+    db.execute(sql.raw(query)),
+    db.execute(sql.raw(countQuery)),
+    db.execute(sql.raw(resumoQuery)),
+  ]);
   const total = (countResult as any[])[0]?.total || 0;
+  const resumoRow = (resumoResult as any[])[0] || {};
   
   return {
     items: items as any[],
@@ -4637,6 +4653,13 @@ export async function itensGlosadosDemonstrativo(params: {
     page,
     pageSize,
     totalPages: Math.ceil(Number(total) / pageSize),
+    resumo: {
+      totalItens: Number(resumoRow.totalItens || 0),
+      totalGuias: Number(resumoRow.totalGuias || 0),
+      totalValorFaturado: Number(resumoRow.totalValorFaturado || 0),
+      totalValorPago: Number(resumoRow.totalValorPago || 0),
+      totalValorGlosa: Number(resumoRow.totalValorGlosa || 0),
+    },
   };
 }
 

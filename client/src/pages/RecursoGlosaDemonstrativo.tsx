@@ -12,9 +12,9 @@ import { toast } from "sonner";
 import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag } from "lucide-react";
 
 export default function RecursoGlosaDemonstrativo() {
-  const { selecionado } = useEstabelecimento();
+  const { estabelecimentoAtual } = useEstabelecimento();
   const { user } = useAuth();
-  const estabelecimentoId = selecionado?.id || 0;
+  const estabelecimentoId = estabelecimentoAtual?.id || 0;
 
   // States
   const [competencia, setCompetencia] = useState<string>("");
@@ -34,14 +34,14 @@ export default function RecursoGlosaDemonstrativo() {
     { enabled: !!estabelecimentoId }
   );
   const { data: convenios } = trpc.faturamentoUnificado.conveniosDemonstrativo.useQuery(
-    { estabelecimentoId, competencia: competencia || undefined },
+    { estabelecimentoId, competencia: competencia && competencia !== 'todas' ? competencia : undefined },
     { enabled: !!estabelecimentoId }
   );
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosDemonstrativo.useQuery(
     {
       estabelecimentoId,
-      competencia: competencia || undefined,
-      convenioId: convenioId ? Number(convenioId) : undefined,
+      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
+      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
       agrupamento,
       busca: busca || undefined,
       page,
@@ -54,8 +54,8 @@ export default function RecursoGlosaDemonstrativo() {
     {
       estabelecimentoId,
       guia: expandedGuia || "",
-      competencia: competencia || undefined,
-      convenioId: convenioId ? Number(convenioId) : undefined,
+      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
+      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
     },
     { enabled: !!expandedGuia }
   );
@@ -64,8 +64,8 @@ export default function RecursoGlosaDemonstrativo() {
     {
       estabelecimentoId,
       item: expandedItem || "",
-      competencia: competencia || undefined,
-      convenioId: convenioId ? Number(convenioId) : undefined,
+      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
+      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
     },
     { enabled: !!expandedItem }
   );
@@ -74,8 +74,8 @@ export default function RecursoGlosaDemonstrativo() {
     {
       estabelecimentoId,
       codigoGlosa: expandedMotivo || "",
-      competencia: competencia || undefined,
-      convenioId: convenioId ? Number(convenioId) : undefined,
+      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
+      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
     },
     { enabled: !!expandedMotivo }
   );
@@ -171,8 +171,8 @@ export default function RecursoGlosaDemonstrativo() {
     }
     replicarMutation.mutate({
       estabelecimentoId,
-      competencia: competencia || undefined,
-      convenioId: convenioId ? Number(convenioId) : undefined,
+      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
+      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
       item,
       codigoGlosa,
       justificativa,
@@ -246,6 +246,36 @@ export default function RecursoGlosaDemonstrativo() {
           </div>
         </CardContent>
       </Card>
+
+      {/* KPIs */}
+      {itensGlosados?.resumo && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Total Guias</p>
+              <p className="text-xl font-bold">{itensGlosados.resumo.totalGuias}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Total Itens Glosados</p>
+              <p className="text-xl font-bold">{itensGlosados.resumo.totalItens}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Valor Faturado</p>
+              <p className="text-xl font-bold text-blue-600">{formatCurrency(itensGlosados.resumo.totalValorFaturado)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">Valor Glosa</p>
+              <p className="text-xl font-bold text-red-600">{formatCurrency(itensGlosados.resumo.totalValorGlosa)}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Tabs de agrupamento */}
       <Tabs value={agrupamento} onValueChange={(v) => { setAgrupamento(v as any); setPage(1); setExpandedGuia(null); setExpandedItem(null); setExpandedMotivo(null); }}>
