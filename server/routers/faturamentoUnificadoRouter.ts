@@ -935,9 +935,9 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   marcarGlosaAceitaEmLoteDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoIds: z.array(z.number()), aceita: z.boolean() }))
+    .input(z.object({ items: z.array(z.object({ id: z.number(), fonte: z.string() })), aceita: z.boolean() }))
     .mutation(async ({ input, ctx }) => {
-      return await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.recebimentoIds, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+      return await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.items, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
     }),
 
   replicarJustificativasDemonstrativo: protectedProcedure

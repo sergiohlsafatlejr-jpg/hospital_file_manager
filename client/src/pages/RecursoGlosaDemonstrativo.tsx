@@ -190,9 +190,9 @@ export default function RecursoGlosaDemonstrativo() {
     });
   };
 
-  const handleAceitarTodas = (ids: number[]) => {
-    if (ids.length === 0) return;
-    aceitarEmLoteMutation.mutate({ recebimentoIds: ids, aceita: true });
+  const handleAceitarTodas = (items: Array<{id: number; fonte: string}>) => {
+    if (items.length === 0) return;
+    aceitarEmLoteMutation.mutate({ items, aceita: true });
   };
 
   const formatCurrency = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
@@ -381,7 +381,7 @@ export default function RecursoGlosaDemonstrativo() {
                                     <Button size="sm" variant="outline" onClick={() => detalheGuia && handleGerarIA(detalheGuia.map((d: any) => d.id))} disabled={gerarIAMutation.isPending}>
                                       <Sparkles className="h-3 w-3 mr-1" /> Gerar com IA
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={() => detalheGuia && handleAceitarTodas(detalheGuia.filter((d: any) => !d.glosaAceita).map((d: any) => d.id))} disabled={aceitarEmLoteMutation.isPending}>
+                                    <Button size="sm" variant="outline" onClick={() => detalheGuia && handleAceitarTodas(detalheGuia.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
                                       <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
                                     </Button>
                                   </div>
@@ -456,7 +456,7 @@ export default function RecursoGlosaDemonstrativo() {
                                     }} disabled={replicarMutation.isPending}>
                                       <Copy className="h-3 w-3 mr-1" /> Replicar em Todas as Contas
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={() => detalheItem && handleAceitarTodas(detalheItem.filter((d: any) => !d.glosaAceita).map((d: any) => d.id))} disabled={aceitarEmLoteMutation.isPending}>
+                                    <Button size="sm" variant="outline" onClick={() => detalheItem && handleAceitarTodas(detalheItem.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
                                       <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
                                     </Button>
                                   </div>
@@ -531,7 +531,7 @@ export default function RecursoGlosaDemonstrativo() {
                                       }} disabled={replicarMutation.isPending}>
                                         <Copy className="h-3 w-3 mr-1" /> Replicar em Todas as Contas
                                       </Button>
-                                      <Button size="sm" variant="outline" onClick={() => detalheMotivo && handleAceitarTodas(detalheMotivo.filter((d: any) => !d.glosaAceita).map((d: any) => d.id))} disabled={aceitarEmLoteMutation.isPending}>
+                                      <Button size="sm" variant="outline" onClick={() => detalheMotivo && handleAceitarTodas(detalheMotivo.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
                                         <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
                                       </Button>
                                     </div>
@@ -608,8 +608,8 @@ export default function RecursoGlosaDemonstrativo() {
                     <div className="flex items-center gap-1">
                       <Input
                         className="h-6 w-20 text-xs"
-                        value={editingValorRecurso.value}
-                        onChange={(e) => setEditingValorRecurso({ ...editingValorRecurso, value: e.target.value })}
+                        value={editingValorRecurso!.value}
+                        onChange={(e) => setEditingValorRecurso({ ...editingValorRecurso!, value: e.target.value })}
                         onKeyDown={(e) => e.key === 'Enter' && handleSalvarValorRecurso()}
                         onBlur={handleSalvarValorRecurso}
                         autoFocus
@@ -638,8 +638,8 @@ export default function RecursoGlosaDemonstrativo() {
                     <div className="flex items-center gap-1">
                       <Input
                         className="h-6 text-xs"
-                        value={editingJustificativa.value}
-                        onChange={(e) => setEditingJustificativa({ ...editingJustificativa, value: e.target.value })}
+                        value={editingJustificativa!.value}
+                        onChange={(e) => setEditingJustificativa({ ...editingJustificativa!, value: e.target.value })}
                         onKeyDown={(e) => e.key === 'Enter' && handleSalvarJustificativa()}
                         onBlur={handleSalvarJustificativa}
                         autoFocus

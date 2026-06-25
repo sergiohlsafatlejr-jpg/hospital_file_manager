@@ -4149,3 +4149,7 @@
 - [x] Bug: Status mostrando "Finalizado" em tudo (corrigido: lógica sem_recurso/pendente = Pendente)
 - [x] Coluna Tipo (tipo_lancamento) adicionada na aba Item e no detalhe drill-down
 - [x] Texto "Nenhum item encontrado" em vez de "Carregando..." quando array vazio
+## Correções Recurso Glosa Demonstrativo - Sessão 12 (25/06/2025)
+- [x] Bug: Status permanece "Pendente" (corrigido: sem_recurso/recurso_criado/recursado/aceita agora são considerados "analisado")
+- [x] Bug: "Replicar em Todas as Contas" e "Aceitar Todas" não funcionam (corrigido: agora atualiza AMBAS tabelas demo+excel separando por fonte)
+- [x] Bug: Motivo de glosa "Não informado" para Unimed (investigado: XML dez/2025 não traz codigo_glosa; abr/2026 funciona corretamente)

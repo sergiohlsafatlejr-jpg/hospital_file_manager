@@ -4730,8 +4730,8 @@ export async function itensGlosadosDemonstrativo(params: {
         SUM(COALESCE(u.valorRecurso, 0)) as valorRecursado,
         SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
         CASE
-          WHEN SUM(CASE WHEN u.recursoStatus IS NOT NULL AND u.recursoStatus NOT IN ('sem_recurso', 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
-          WHEN SUM(CASE WHEN u.recursoStatus IS NULL OR u.recursoStatus IN ('sem_recurso', 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+          WHEN SUM(CASE WHEN (u.recursoStatus IS NOT NULL AND u.recursoStatus NOT IN ('pendente')) OR u.glosaAceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN u.recursoStatus IS NULL OR u.recursoStatus = 'pendente' THEN 1 ELSE 0 END) - SUM(CASE WHEN u.glosaAceita = 1 AND (u.recursoStatus IS NULL OR u.recursoStatus = 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
           ELSE 'Iniciado'
         END as statusRecurso
       FROM ${unionSubquery} u
@@ -5130,21 +5130,38 @@ export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, acei
 /**
  * Marcar glosa aceita em lote no demonstrativo
  */
-export async function marcarGlosaAceitaEmLoteDemonstrativo(recebimentoIds: number[], aceita: boolean, usuario: string) {
+export async function marcarGlosaAceitaEmLoteDemonstrativo(items: Array<{id: number; fonte: string}>, aceita: boolean, usuario: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  if (recebimentoIds.length === 0) return { success: true, affected: 0 };
-  const ids = recebimentoIds.join(',');
+  if (items.length === 0) return { success: true, affected: 0 };
+  
+  const demoIds = items.filter(i => i.fonte === 'demo').map(i => i.id);
+  const excelIds = items.filter(i => i.fonte !== 'demo').map(i => i.id);
+  
   if (aceita) {
-    await db.execute(sql.raw(
-      `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id IN (${ids})`
-    ));
+    if (demoIds.length > 0) {
+      await db.execute(sql.raw(
+        `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE id IN (${demoIds.join(',')})`
+      ));
+    }
+    if (excelIds.length > 0) {
+      await db.execute(sql.raw(
+        `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id IN (${excelIds.join(',')})`
+      ));
+    }
   } else {
-    await db.execute(sql.raw(
-      `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id IN (${ids})`
-    ));
+    if (demoIds.length > 0) {
+      await db.execute(sql.raw(
+        `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE id IN (${demoIds.join(',')})`
+      ));
+    }
+    if (excelIds.length > 0) {
+      await db.execute(sql.raw(
+        `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id IN (${excelIds.join(',')})`
+      ));
+    }
   }
-  return { success: true, affected: recebimentoIds.length };
+  return { success: true, affected: items.length };
 }
 
 /**
@@ -5162,29 +5179,38 @@ export async function replicarJustificativasDemonstrativo(params: {
   if (!db) throw new Error("Database não disponível");
   
   const { estabelecimentoId, competencia, convenioId, item, codigoGlosa, justificativa } = params;
-  let where = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
-  if (competencia) {
-    where += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    where += ` AND convenioId = ${convenioId}`;
-  }
-  if (item) {
-    where += ` AND item = '${item.replace(/'/g, "''")}'`;
-  }
+  const escapedJust = justificativa.replace(/'/g, "''");
+  let totalAffected = 0;
+
+  // Update demonstrativo
+  let whereDemo = `WHERE estabelecimentoId = ${estabelecimentoId} AND valor_glosa > 0`;
+  if (competencia) whereDemo += ` AND DATE_FORMAT(data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereDemo += ` AND convenio_id = ${convenioId}`;
+  if (item) whereDemo += ` AND codigo_item = '${item.replace(/'/g, "''")}'`;
   if (codigoGlosa) {
-    if (codigoGlosa === 'SEM_CODIGO') {
-      where += ` AND codigo_glosa IS NULL`;
-    } else {
-      where += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-    }
+    if (codigoGlosa === 'SEM_CODIGO') whereDemo += ` AND codigo_glosa IS NULL`;
+    else whereDemo += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
   }
-  
-  const [result] = await db.execute(sql.raw(
-    `UPDATE recebimentos_excel SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' ${where}`
+  const [resultDemo] = await db.execute(sql.raw(
+    `UPDATE demonstrativo SET justificativa_recurso = '${escapedJust}', recurso_status = 'recurso_criado' ${whereDemo}`
   ));
-  
-  return { success: true, affected: (result as any).affectedRows || 0 };
+  totalAffected += (resultDemo as any).affectedRows || 0;
+
+  // Update recebimentos_excel
+  let whereExcel = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
+  if (competencia) whereExcel += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  if (convenioId) whereExcel += ` AND convenioId = ${convenioId}`;
+  if (item) whereExcel += ` AND item = '${item.replace(/'/g, "''")}'`;
+  if (codigoGlosa) {
+    if (codigoGlosa === 'SEM_CODIGO') whereExcel += ` AND codigo_glosa IS NULL`;
+    else whereExcel += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+  }
+  const [resultExcel] = await db.execute(sql.raw(
+    `UPDATE recebimentos_excel SET justificativa_recurso = '${escapedJust}', status_recurso_item = 'recursado' ${whereExcel}`
+  ));
+  totalAffected += (resultExcel as any).affectedRows || 0;
+
+  return { success: true, affected: totalAffected };
 }
 
 /**
