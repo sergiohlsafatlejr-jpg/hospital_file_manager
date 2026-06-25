@@ -809,4 +809,28 @@ export const faturamentoUnificadoRouter = router({
     .mutation(async ({ input }) => {
       return await faturamentoService.atualizarStatusLote(input.loteId, input.statusRecurso, input.observacao);
     }),
+
+  /**
+   * Marcar item como glosa aceita
+   */
+  marcarGlosaAceita: protectedProcedure
+    .input(z.object({
+      conciliadoId: z.number(),
+      aceita: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.marcarGlosaAceita(input.conciliadoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+    }),
+
+  /**
+   * Salvar valor do recurso para um item
+   */
+  salvarValorRecurso: protectedProcedure
+    .input(z.object({
+      conciliadoId: z.number(),
+      valorRecurso: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.salvarValorRecurso(input.conciliadoId, input.valorRecurso);
+    }),
 });

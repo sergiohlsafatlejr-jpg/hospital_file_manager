@@ -3373,9 +3373,16 @@ export async function itensGlosadosParaRecurso(params: {
       SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
       SUM(COALESCE(ca.valorPago, 0)) as valorPago,
       SUM(COALESCE(ca.valorGlosa, 0)) as valorGlosa,
+      SUM(CASE WHEN ca.glosaAceita = 0 OR ca.glosaAceita IS NULL THEN COALESCE(ca.valorRecurso, ca.valorGlosa, 0) ELSE 0 END) as valorRecursado,
+      SUM(CASE WHEN ca.glosaAceita = 1 THEN COALESCE(ca.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
       MAX(ca.xmlRecursoGerado) as xmlGerado,
       MAX(ca.dataExecucao) as dataExecucao,
-      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa
+      GROUP_CONCAT(DISTINCT ca.codigoGlosa ORDER BY ca.codigoGlosa SEPARATOR ', ') as codigosGlosa,
+      CASE 
+        WHEN SUM(CASE WHEN ca.statusRecursoItem IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN 'pendente'
+        WHEN SUM(CASE WHEN ca.statusRecursoItem IS NULL THEN 1 ELSE 0 END) = 0 THEN 'finalizado'
+        ELSE 'iniciado'
+      END as statusRecurso
     `;
     orderBy = 'ORDER BY ca.competencia DESC, valorGlosa DESC';
   } else if (agrupamento === 'data') {
@@ -3541,6 +3548,9 @@ export async function itensGlosadosParaRecurso(params: {
       valorGlosa: Number(r.valorGlosa),
       xmlGerado: Number(r.xmlGerado) === 1,
       codigosGlosa: r.codigosGlosa,
+      valorRecursado: Number(r.valorRecursado || 0),
+      valorGlosaAceita: Number(r.valorGlosaAceita || 0),
+      statusRecurso: r.statusRecurso || 'pendente',
     })),
     total,
     resumo: {
@@ -3600,7 +3610,12 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
       ca.competencia,
-      ca.pacienteNome
+      ca.pacienteNome,
+      ca.glosaAceita,
+      ca.glosaAceitaPor,
+      ca.glosaAceitaEm,
+      ca.valorRecurso,
+      ca.statusRecursoItem
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
     LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id
@@ -3626,6 +3641,11 @@ export async function itensGlosadosDetalheGuia(params: {
     xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
     competencia: r.competencia,
     pacienteNome: r.pacienteNome,
+    glosaAceita: Number(r.glosaAceita) === 1,
+    glosaAceitaPor: r.glosaAceitaPor,
+    glosaAceitaEm: r.glosaAceitaEm,
+    valorRecurso: r.valorRecurso ? Number(r.valorRecurso) : null,
+    statusRecursoItem: r.statusRecursoItem,
   }));
 }
 
@@ -4006,6 +4026,9 @@ export async function replicarJustificativas(params: {
 }) {
   const { estabelecimentoId, justificativasPorMotivo, justificativasPorItem, guiaOrigem, competencia, convenioId } = params;
   
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
   // Buscar todos os itens glosados (exceto a guia de origem) que tenham mesmo motivo ou item
   let whereClause = `WHERE ca.estabelecimentoId = ${estabelecimentoId}
     AND ca.statusConciliacao IN ('glosa_total', 'glosa_parcial')
@@ -4350,4 +4373,61 @@ export async function itensGlosadosDetalhePorMotivo(params: {
     xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
     competencia: r.competencia,
   }));
+}
+
+/**
+ * Marcar um item conciliado como glosa aceita
+ */
+export async function marcarGlosaAceita(conciliadoId: number, aceita: boolean, usuario: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // Criar coluna se não existir
+  await db.execute(sql.raw(`
+    ALTER TABLE conciliados_automatico 
+    ADD COLUMN IF NOT EXISTS glosaAceita TINYINT(1) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS glosaAceitaPor VARCHAR(255) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS glosaAceitaEm DATETIME DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS valorRecurso DECIMAL(12,2) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS statusRecursoItem VARCHAR(50) DEFAULT NULL
+  `));
+
+  if (aceita) {
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET glosaAceita = 1, glosaAceitaPor = '${usuario.replace(/'/g, "''")}', glosaAceitaEm = NOW(), statusRecursoItem = 'aceita'
+      WHERE id = ${conciliadoId}
+    `));
+  } else {
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET glosaAceita = 0, glosaAceitaPor = NULL, glosaAceitaEm = NULL, statusRecursoItem = NULL
+      WHERE id = ${conciliadoId}
+    `));
+  }
+
+  return { success: true };
+}
+
+/**
+ * Salvar valor do recurso para um item conciliado
+ */
+export async function salvarValorRecurso(conciliadoId: number, valorRecurso: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // Criar coluna se não existir
+  await db.execute(sql.raw(`
+    ALTER TABLE conciliados_automatico 
+    ADD COLUMN IF NOT EXISTS valorRecurso DECIMAL(12,2) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS statusRecursoItem VARCHAR(50) DEFAULT NULL
+  `));
+
+  await db.execute(sql.raw(`
+    UPDATE conciliados_automatico 
+    SET valorRecurso = ${valorRecurso}, statusRecursoItem = COALESCE(statusRecursoItem, 'iniciado')
+    WHERE id = ${conciliadoId}
+  `));
+
+  return { success: true };
 }

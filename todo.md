@@ -4095,3 +4095,13 @@
 - [x] Aba "Por Motivo de Glosa" não mostra dados (query bug)
 - [x] Filtro de convênios não abre (Select bug)
 - [x] Datas (início, fim, data item) devem vir do demonstrativo (faturamento_unificado)
+
+## Correções e Melhorias Recurso de Glosa - Sessão 6 (25/06/2025)
+
+- [x] Bug: Data do item mostra "Invalid Date" no detalhe expandido
+- [x] Bug: Erro "db is not defined" ao replicar justificativas
+- [x] Campo "Valor do Recurso" editável nos itens (default = valor glosado, editável manualmente)
+- [x] Tag "Glosa Aceita" nos itens (botão para marcar como aceita + coluna com usuário que aceitou)
+- [x] Coluna "Valor Recursado" no agrupamento por guia/paciente (soma dos itens recursados)
+- [x] Coluna "Valor Glosa Aceita" no agrupamento por guia/paciente (soma dos itens aceitos)
+- [x] Status dinâmico: "Iniciado" quando usuário começa o processo, "Finalizado" quando todos itens da guia estão recursados ou aceitos

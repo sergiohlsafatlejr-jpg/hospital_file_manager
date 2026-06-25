@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy, List, Tag, Users } from "lucide-react";
+import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy, List, Tag, Users, Ban, Check, ThumbsDown } from "lucide-react";
 import * as XLSX from "xlsx";
 
 function formatarMoeda(valor: number): string {
@@ -44,6 +44,12 @@ export default function RecursoGlosaConciliacao() {
   const [gerandoIA, setGerandoIA] = useState(false);
   const [editandoJustificativa, setEditandoJustificativa] = useState<number | null>(null);
   const [replicandoJustificativas, setReplicandoJustificativas] = useState(false);
+  // Estado para valor do recurso editável por item (id -> valor)
+  const [valoresRecurso, setValoresRecurso] = useState<Record<number, string>>({});
+  const [editandoValorRecurso, setEditandoValorRecurso] = useState<number | null>(null);
+  // Estado para itens marcados como glosa aceita (id -> true)
+  const [itensGlosaAceita, setItensGlosaAceita] = useState<Record<number, boolean>>({});
+  const [salvandoGlosaAceita, setSalvandoGlosaAceita] = useState(false);
 
   // Queries
   const { data: competencias } = trpc.faturamentoUnificado.competenciasConciliados.useQuery(
@@ -184,6 +190,28 @@ export default function RecursoGlosaConciliacao() {
     onError: (error) => {
       toast.error("Erro ao replicar justificativas: " + error.message);
       setReplicandoJustificativas(false);
+    },
+  });
+
+  // Mutation para marcar item como glosa aceita
+  const marcarGlosaAceitaMutation = trpc.faturamentoUnificado.marcarGlosaAceita.useMutation({
+    onSuccess: () => {
+      toast.success("Item marcado com sucesso!");
+      setSalvandoGlosaAceita(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao marcar glosa aceita: " + error.message);
+      setSalvandoGlosaAceita(false);
+    },
+  });
+
+  // Mutation para salvar valor do recurso
+  const salvarValorRecursoMutation = trpc.faturamentoUnificado.salvarValorRecurso.useMutation({
+    onSuccess: () => {
+      toast.success("Valor do recurso salvo!");
+    },
+    onError: (error) => {
+      toast.error("Erro ao salvar valor: " + error.message);
     },
   });
 
@@ -598,6 +626,12 @@ export default function RecursoGlosaConciliacao() {
                       <th className="p-2 text-right">Valor Faturado</th>
                       <th className="p-2 text-right">Valor Pago</th>
                       <th className="p-2 text-right">Valor Glosa</th>
+                      {agrupamento === 'guia' && (
+                        <>
+                          <th className="p-2 text-right">Vlr Recursado</th>
+                          <th className="p-2 text-right">Vlr Aceita</th>
+                        </>
+                      )}
                       <th className="p-2 text-center">Status</th>
                     </tr>
                   </thead>
@@ -692,8 +726,24 @@ export default function RecursoGlosaConciliacao() {
                           <td className="p-2 text-right">{formatarMoeda(item.valorFaturado)}</td>
                           <td className="p-2 text-right">{formatarMoeda(item.valorPago)}</td>
                           <td className="p-2 text-right font-medium text-red-600">{formatarMoeda(item.valorGlosa)}</td>
+                          {agrupamento === 'guia' && (
+                            <>
+                              <td className="p-2 text-right text-blue-700 font-medium">{formatarMoeda(item.valorRecursado || 0)}</td>
+                              <td className="p-2 text-right text-orange-600 font-medium">{formatarMoeda(item.valorGlosaAceita || 0)}</td>
+                            </>
+                          )}
                           <td className="p-2 text-center">
-                            {item.xmlGerado ? (
+                            {item.statusRecurso === 'finalizado' ? (
+                              <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Finalizado
+                              </Badge>
+                            ) : item.statusRecurso === 'iniciado' ? (
+                              <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
+                                <Loader2 className="h-3 w-3 mr-1" />
+                                Iniciado
+                              </Badge>
+                            ) : item.xmlGerado ? (
                               <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
                                 <CheckCircle2 className="h-3 w-3 mr-1" />
                                 Recursado
@@ -745,7 +795,7 @@ export default function RecursoGlosaConciliacao() {
                                       <tr key={d.id} className="border-b border-dashed">
                                         <td className="p-1 font-mono">{d.numeroGuia}</td>
                                         <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
-                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao).toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
@@ -811,7 +861,7 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
                                         <td className="p-1 font-mono">{d.codigoItem}</td>
                                         <td className="p-1 max-w-[120px] truncate">{d.descricaoItem || '-'}</td>
-                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao).toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
                                         <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
@@ -836,7 +886,7 @@ export default function RecursoGlosaConciliacao() {
                         /* Detalhe expandido da guia com campo de justificativa */
                         agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
                           <tr key={`detail-${item.chave}`}>
-                            <td colSpan={14} className="p-0">
+                            <td colSpan={16} className="p-0">
                               <div className="bg-muted/20 border-l-4 border-primary/30 p-3 mx-2 mb-2 rounded">
                                 {/* Header do detalhe com botão IA */}
                                 <div className="flex items-center justify-between mb-3">
@@ -911,16 +961,18 @@ export default function RecursoGlosaConciliacao() {
                                       <th className="p-1 text-right">Glosa</th>
                                       <th className="p-1 text-left">Cód. Glosa</th>
                                       <th className="p-1 text-left">Motivo</th>
+                                      <th className="p-1 text-right">Vlr Recurso</th>
+                                      <th className="p-1 text-center">Aceita</th>
                                       <th className="p-1 text-left min-w-[200px]">Justificativa Recurso</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {detalheGuia.map((d: any) => (
-                                      <tr key={d.id} className="border-b border-dashed">
+                                      <tr key={d.id} className={`border-b border-dashed ${itensGlosaAceita[d.id] ? 'bg-orange-50' : ''}`}>
                                         <td className="p-1 font-mono">{d.codigoItem}</td>
                                         <td className="p-1 max-w-[180px] truncate">{d.descricaoItem}</td>
                                         <td className="p-1">{d.tipoItem || '-'}</td>
-                                        <td className="p-1 text-xs">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="p-1 text-xs">{d.dataExecucao ? new Date(d.dataExecucao).toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
@@ -931,6 +983,55 @@ export default function RecursoGlosaConciliacao() {
                                           )}
                                         </td>
                                         <td className="p-1 max-w-[120px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
+                                        <td className="p-1 text-right">
+                                          {editandoValorRecurso === d.id ? (
+                                            <Input
+                                              className="h-6 text-xs w-20"
+                                              type="number"
+                                              step="0.01"
+                                              value={valoresRecurso[d.id] ?? d.valorGlosa}
+                                              onChange={(e) => setValoresRecurso(prev => ({ ...prev, [d.id]: e.target.value }))}
+                                              onBlur={() => {
+                                                setEditandoValorRecurso(null);
+                                                const val = parseFloat(valoresRecurso[d.id] ?? String(d.valorGlosa));
+                                                if (!isNaN(val)) {
+                                                  salvarValorRecursoMutation.mutate({ conciliadoId: d.id, valorRecurso: val });
+                                                }
+                                              }}
+                                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                              autoFocus
+                                            />
+                                          ) : (
+                                            <span
+                                              className="cursor-pointer hover:underline text-blue-700 text-xs"
+                                              onClick={(e) => { e.stopPropagation(); setEditandoValorRecurso(d.id); if (!valoresRecurso[d.id]) setValoresRecurso(prev => ({ ...prev, [d.id]: String(d.valorRecurso ?? d.valorGlosa) })); }}
+                                            >
+                                              {formatarMoeda(Number(valoresRecurso[d.id] ?? d.valorRecurso ?? d.valorGlosa))}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="p-1 text-center">
+                                          <Button
+                                            variant={itensGlosaAceita[d.id] || d.glosaAceita ? "destructive" : "outline"}
+                                            size="sm"
+                                            className="h-5 px-1 text-[10px]"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const novoEstado = !(itensGlosaAceita[d.id] || d.glosaAceita);
+                                              setItensGlosaAceita(prev => ({ ...prev, [d.id]: novoEstado }));
+                                              marcarGlosaAceitaMutation.mutate({ conciliadoId: d.id, aceita: novoEstado });
+                                            }}
+                                          >
+                                            {itensGlosaAceita[d.id] || d.glosaAceita ? (
+                                              <><ThumbsDown className="h-3 w-3 mr-0.5" /> Aceita</>
+                                            ) : (
+                                              <><Check className="h-3 w-3 mr-0.5" /> Aceitar</>
+                                            )}
+                                          </Button>
+                                          {(itensGlosaAceita[d.id] || d.glosaAceita) && d.glosaAceitaPor && (
+                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                          )}
+                                        </td>
                                         <td className="p-1 min-w-[200px]">
                                           {editandoJustificativa === d.id ? (
                                             <div className="flex gap-1">
