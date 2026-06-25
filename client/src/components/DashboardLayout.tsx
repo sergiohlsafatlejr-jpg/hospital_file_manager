@@ -155,7 +155,9 @@ const menuItems: MenuItem[] = [
 
   // Módulo 4 - Recurso de Glosa
   { icon: Gavel, label: "Recurso de Glosa", path: "/analise-glosa", modulo: "analiseGlosa", children: [
-    { icon: Search, label: "Análise de Glosa", path: "/analise-glosa", modulo: "analiseGlosa" },
+    { icon: Search, label: "Relatório de Glosas", path: "/analise-glosa", modulo: "analiseGlosa" },
+    { icon: FileText, label: "Recurso Glosa Conciliação", path: "/recurso-glosa-conciliacao", modulo: "recursosGlosa" },
+    { icon: FileText, label: "Recurso Glosa Demonstrativo", path: "/recurso-glosa-demonstrativo", modulo: "recursosGlosa" },
     { icon: Eye, label: "Recursos Analisados", path: "/recursos", modulo: "recursosGlosa" },
     { icon: Send, label: "Envio de Lote", path: "/envio-recursos-lote", modulo: "recursosGlosa" },
     { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
@@ -212,7 +214,7 @@ const menuItems: MenuItem[] = [
     { icon: Link2, label: "Conciliação Cruzada", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas" },
     { icon: Brain, label: "Vinculação Inteligente", path: "/vinculacao-inteligente", modulo: "conciliacaoContasPagas" },
     { icon: BookOpen, label: "Vinculações Padrão", path: "/vinculacoes-padrao", modulo: "conciliacaoContasPagas" },
-    { icon: FileText, label: "Recurso de Glosa", path: "/recurso-glosa-conciliacao", modulo: "conciliacaoContasPagas" },
+
   ]},
 
   // Módulo 8 - NFS-e (disponível para TODOS os estabelecimentos)

@@ -4478,3 +4478,510 @@ export async function marcarGlosaAceitaEmLote(conciliadoIds: number[], aceita: b
 
   return { success: true, total: conciliadoIds.length };
 }
+
+
+// =====================================================
+// RECURSO GLOSA DEMONSTRATIVO - Funções para a nova tela
+// =====================================================
+
+/**
+ * Competências disponíveis no recebimentos_excel para o filtro
+ */
+export async function competenciasDemonstrativo(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  const [rows] = await db.execute(sql.raw(
+    `SELECT DATE_FORMAT(data_referencia, '%Y-%m') as competencia, COUNT(*) as total
+     FROM recebimentos_excel
+     WHERE estabelecimentoId = ${estabelecimentoId}
+       AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')
+     GROUP BY DATE_FORMAT(data_referencia, '%Y-%m')
+     ORDER BY competencia DESC`
+  ));
+  return (rows as unknown as any[]).filter((r: any) => r.competencia);
+}
+
+/**
+ * Convênios disponíveis no recebimentos_excel para o filtro
+ */
+export async function conveniosDemonstrativo(estabelecimentoId: number, competencia?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  let where = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  const [rows] = await db.execute(sql.raw(
+    `SELECT re.convenioId, c.nome as convenio, COUNT(*) as total
+     FROM recebimentos_excel re
+     LEFT JOIN convenios c ON c.id = re.convenioId
+     ${where}
+     GROUP BY re.convenioId, c.nome
+     ORDER BY total DESC`
+  ));
+  return (rows as unknown as any[]).filter((r: any) => r.convenioId);
+}
+
+/**
+ * Itens glosados do demonstrativo (recebimentos_excel) para recurso
+ * Suporta agrupamento por guia, item e motivo
+ */
+export async function itensGlosadosDemonstrativo(params: {
+  estabelecimentoId: number;
+  competencia?: string;
+  convenioId?: number;
+  agrupamento: 'guia' | 'item' | 'motivo';
+  busca?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { estabelecimentoId, competencia, convenioId, agrupamento, busca, page = 1, pageSize = 50 } = params;
+  const offset = (page - 1) * pageSize;
+  
+  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    where += ` AND re.convenioId = ${convenioId}`;
+  }
+  if (busca) {
+    const b = busca.replace(/'/g, "''");
+    where += ` AND (re.numero_guia LIKE '%${b}%' OR re.nome_beneficiario LIKE '%${b}%' OR re.item LIKE '%${b}%' OR re.item_desc LIKE '%${b}%')`;
+  }
+  
+  let query = '';
+  let countQuery = '';
+  
+  if (agrupamento === 'guia') {
+    query = `
+      SELECT 
+        re.numero_guia as guia,
+        MAX(re.beneficiario) as matricula,
+        MAX(re.protocolo_tiss) as protocolo,
+        MAX(re.nome_beneficiario) as paciente,
+        MAX(DATE_FORMAT(re.data_inicio_faturamento_internacao, '%Y-%m-%d')) as dataInicio,
+        MAX(DATE_FORMAT(re.data_fim_faturamento_internacao, '%Y-%m-%d')) as dataFim,
+        MAX(c.nome) as convenio,
+        COUNT(*) as itensGlosados,
+        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
+        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
+        SUM(CASE WHEN re.glosa_aceita = 0 THEN COALESCE(re.valor_recurso, re.valor_glosa, 0) ELSE 0 END) as valorRecursado,
+        SUM(CASE WHEN re.glosa_aceita = 1 THEN COALESCE(re.valor_glosa, 0) ELSE 0 END) as valorGlosaAceita,
+        CASE 
+          WHEN SUM(CASE WHEN re.justificativa_recurso IS NOT NULL OR re.glosa_aceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN re.justificativa_recurso IS NULL AND re.glosa_aceita = 0 THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+          ELSE 'Iniciado'
+        END as statusRecurso
+      FROM recebimentos_excel re
+      LEFT JOIN convenios c ON c.id = re.convenioId
+      ${where}
+      GROUP BY re.numero_guia
+      ORDER BY re.numero_guia DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    countQuery = `SELECT COUNT(DISTINCT re.numero_guia) as total FROM recebimentos_excel re ${where}`;
+  } else if (agrupamento === 'item') {
+    query = `
+      SELECT 
+        re.item as codigo,
+        MAX(re.item_desc) as descricao,
+        MAX(c.nome) as convenio,
+        COUNT(*) as itensGlosados,
+        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
+        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
+        SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
+      FROM recebimentos_excel re
+      LEFT JOIN convenios c ON c.id = re.convenioId
+      ${where}
+      GROUP BY re.item
+      ORDER BY COUNT(*) DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    countQuery = `SELECT COUNT(DISTINCT re.item) as total FROM recebimentos_excel re ${where}`;
+  } else {
+    // motivo
+    query = `
+      SELECT 
+        COALESCE(re.codigo_glosa, 'SEM_CODIGO') as codigoGlosa,
+        MAX(mg.descricao) as motivoGlosa,
+        MAX(c.nome) as convenio,
+        COUNT(*) as itensGlosados,
+        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
+        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
+        SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
+      FROM recebimentos_excel re
+      LEFT JOIN convenios c ON c.id = re.convenioId
+      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      ${where}
+      GROUP BY COALESCE(re.codigo_glosa, 'SEM_CODIGO')
+      ORDER BY COUNT(*) DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `;
+    countQuery = `SELECT COUNT(DISTINCT COALESCE(re.codigo_glosa, 'SEM_CODIGO')) as total FROM recebimentos_excel re ${where}`;
+  }
+  
+  const [items] = await db.execute(sql.raw(query));
+  const [countResult] = await db.execute(sql.raw(countQuery));
+  const total = (countResult as any[])[0]?.total || 0;
+  
+  return {
+    items: items as any[],
+    total: Number(total),
+    page,
+    pageSize,
+    totalPages: Math.ceil(Number(total) / pageSize),
+  };
+}
+
+/**
+ * Detalhe dos itens glosados de uma guia no demonstrativo
+ */
+export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
+  estabelecimentoId: number;
+  guia: string;
+  competencia?: string;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { estabelecimentoId, guia, competencia, convenioId } = params;
+  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.numero_guia = '${guia.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    where += ` AND re.convenioId = ${convenioId}`;
+  }
+  
+  const [rows] = await db.execute(sql.raw(`
+    SELECT 
+      re.id,
+      re.item as codigo,
+      re.item_desc as descricao,
+      re.tipo_item as tipo,
+      re.quantidade as qtde,
+      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_pagamento, 0) as valorPago,
+      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      re.codigo_glosa as codigoGlosa,
+      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+      re.justificativa_recurso as justificativa,
+      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      re.glosa_aceita as glosaAceita,
+      re.glosa_aceita_por as glosaAceitaPor
+    FROM recebimentos_excel re
+    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+    ${where}
+    ORDER BY re.data_execucao, re.item
+  `));
+  
+  return (rows as any[]).map((r: any) => ({
+    ...r,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    valorRecurso: Number(r.valorRecurso),
+    glosaAceita: Boolean(r.glosaAceita),
+    dataExecucao: r.dataExecucao || null,
+  }));
+}
+
+/**
+ * Detalhe dos itens glosados por item no demonstrativo
+ */
+export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
+  estabelecimentoId: number;
+  item: string;
+  competencia?: string;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { estabelecimentoId, item, competencia, convenioId } = params;
+  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.item = '${item.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    where += ` AND re.convenioId = ${convenioId}`;
+  }
+  
+  const [rows] = await db.execute(sql.raw(`
+    SELECT 
+      re.id,
+      re.numero_guia as guia,
+      re.nome_beneficiario as paciente,
+      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+      re.quantidade as qtde,
+      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_pagamento, 0) as valorPago,
+      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      re.codigo_glosa as codigoGlosa,
+      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+      re.justificativa_recurso as justificativa,
+      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      re.glosa_aceita as glosaAceita,
+      re.glosa_aceita_por as glosaAceitaPor
+    FROM recebimentos_excel re
+    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+    ${where}
+    ORDER BY re.numero_guia, re.data_execucao
+  `));
+  
+  return (rows as any[]).map((r: any) => ({
+    ...r,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    valorRecurso: Number(r.valorRecurso),
+    glosaAceita: Boolean(r.glosaAceita),
+    dataExecucao: r.dataExecucao || null,
+  }));
+}
+
+/**
+ * Detalhe dos itens glosados por motivo no demonstrativo
+ */
+export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
+  estabelecimentoId: number;
+  codigoGlosa: string;
+  competencia?: string;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { estabelecimentoId, codigoGlosa, competencia, convenioId } = params;
+  let codigoFilter = codigoGlosa === 'SEM_CODIGO' ? `AND re.codigo_glosa IS NULL` : `AND re.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+  let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} ${codigoFilter} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    where += ` AND re.convenioId = ${convenioId}`;
+  }
+  
+  const [rows] = await db.execute(sql.raw(`
+    SELECT 
+      re.id,
+      re.numero_guia as guia,
+      re.nome_beneficiario as paciente,
+      re.item as codigo,
+      re.item_desc as descricao,
+      DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
+      re.quantidade as qtde,
+      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_pagamento, 0) as valorPago,
+      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      re.codigo_glosa as codigoGlosa,
+      COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+      re.justificativa_recurso as justificativa,
+      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      re.glosa_aceita as glosaAceita,
+      re.glosa_aceita_por as glosaAceitaPor
+    FROM recebimentos_excel re
+    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+    ${where}
+    ORDER BY re.numero_guia, re.data_execucao
+  `));
+  
+  return (rows as any[]).map((r: any) => ({
+    ...r,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    valorRecurso: Number(r.valorRecurso),
+    glosaAceita: Boolean(r.glosaAceita),
+    dataExecucao: r.dataExecucao || null,
+  }));
+}
+
+/**
+ * Salvar justificativa de recurso no demonstrativo
+ */
+export async function salvarJustificativaDemonstrativo(recebimentoId: number, justificativa: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  await db.execute(sql.raw(
+    `UPDATE recebimentos_excel SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${recebimentoId}`
+  ));
+  return { success: true };
+}
+
+/**
+ * Salvar valor recurso no demonstrativo
+ */
+export async function salvarValorRecursoDemonstrativo(recebimentoId: number, valor: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  await db.execute(sql.raw(
+    `UPDATE recebimentos_excel SET valor_recurso = ${valor} WHERE id = ${recebimentoId}`
+  ));
+  return { success: true };
+}
+
+/**
+ * Marcar glosa aceita no demonstrativo
+ */
+export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, aceita: boolean, usuario: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  if (aceita) {
+    await db.execute(sql.raw(
+      `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id = ${recebimentoId}`
+    ));
+  } else {
+    await db.execute(sql.raw(
+      `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id = ${recebimentoId}`
+    ));
+  }
+  return { success: true };
+}
+
+/**
+ * Marcar glosa aceita em lote no demonstrativo
+ */
+export async function marcarGlosaAceitaEmLoteDemonstrativo(recebimentoIds: number[], aceita: boolean, usuario: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  if (recebimentoIds.length === 0) return { success: true, affected: 0 };
+  const ids = recebimentoIds.join(',');
+  if (aceita) {
+    await db.execute(sql.raw(
+      `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id IN (${ids})`
+    ));
+  } else {
+    await db.execute(sql.raw(
+      `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id IN (${ids})`
+    ));
+  }
+  return { success: true, affected: recebimentoIds.length };
+}
+
+/**
+ * Replicar justificativas no demonstrativo (por item ou motivo)
+ */
+export async function replicarJustificativasDemonstrativo(params: {
+  estabelecimentoId: number;
+  competencia?: string;
+  convenioId?: number;
+  item?: string;
+  codigoGlosa?: string;
+  justificativa: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { estabelecimentoId, competencia, convenioId, item, codigoGlosa, justificativa } = params;
+  let where = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
+  if (competencia) {
+    where += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
+  }
+  if (convenioId) {
+    where += ` AND convenioId = ${convenioId}`;
+  }
+  if (item) {
+    where += ` AND item = '${item.replace(/'/g, "''")}'`;
+  }
+  if (codigoGlosa) {
+    if (codigoGlosa === 'SEM_CODIGO') {
+      where += ` AND codigo_glosa IS NULL`;
+    } else {
+      where += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+    }
+  }
+  
+  const [result] = await db.execute(sql.raw(
+    `UPDATE recebimentos_excel SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' ${where}`
+  ));
+  
+  return { success: true, affected: (result as any).affectedRows || 0 };
+}
+
+/**
+ * Gerar justificativas com IA para o demonstrativo
+ */
+export async function gerarJustificativasIADemonstrativo(params: {
+  estabelecimentoId: number;
+  recebimentoIds: number[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  
+  const { recebimentoIds } = params;
+  if (recebimentoIds.length === 0) return { justificativas: [] };
+  
+  const ids = recebimentoIds.join(',');
+  const [rows] = await db.execute(sql.raw(`
+    SELECT re.id, re.item, re.item_desc, re.codigo_glosa, mg.descricao as motivoGlosa, re.valor_glosa
+    FROM recebimentos_excel re
+    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+    WHERE re.id IN (${ids})
+  `));
+  
+  const items = rows as any[];
+  
+  // Usar LLM para gerar justificativas
+  const { invokeLLM } = await import("./_core/llm");
+  
+  const prompt = items.map((item: any) => 
+    `Item: ${item.item} - ${item.item_desc || 'Sem descrição'}, Motivo Glosa: ${item.motivoGlosa || item.codigo_glosa || 'Não informado'}, Valor: R$ ${Number(item.valor_glosa).toFixed(2)}`
+  ).join('\n');
+  
+  const response = await invokeLLM({
+    messages: [
+      { role: "system", content: "Você é um especialista em faturamento hospitalar e recursos de glosa. Gere justificativas técnicas e profissionais para cada item glosado. Responda em JSON com array de objetos {id, justificativa}. Cada justificativa deve ter no máximo 150 caracteres e ser específica ao motivo da glosa." },
+      { role: "user", content: `Gere justificativas de recurso para os seguintes itens glosados:\n${prompt}\n\nIDs: ${items.map((i: any) => i.id).join(',')}` }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "justificativas",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            justificativas: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number" },
+                  justificativa: { type: "string" }
+                },
+                required: ["id", "justificativa"],
+                additionalProperties: false
+              }
+            }
+          },
+          required: ["justificativas"],
+          additionalProperties: false
+        }
+      }
+    }
+  });
+  
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) return { justificativas: [] };
+  
+  const parsed = JSON.parse(content);
+  
+  // Salvar as justificativas no banco
+  for (const j of parsed.justificativas) {
+    await db.execute(sql.raw(
+      `UPDATE recebimentos_excel SET justificativa_recurso = '${String(j.justificativa).replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${j.id}`
+    ));
+  }
+  
+  return parsed;
+}

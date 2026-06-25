@@ -110,6 +110,7 @@ const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente")
 const RelatorioFisioterapia = lazy(() => import("./pages/RelatorioFisioterapia"));
 const ComparativoMesAMes = lazy(() => import("./pages/ComparativoMesAMes"));
 const RecursoGlosaConciliacao = lazy(() => import("./pages/RecursoGlosaConciliacao"));
+const RecursoGlosaDemonstrativo = lazy(() => import("./pages/RecursoGlosaDemonstrativo"));
 
 function PageLoader() {
   return (
@@ -184,6 +185,7 @@ function Router() {
         <Route path={"/conciliacao-cruzada"} component={ConciliacaoCruzada} />
         <Route path={"/vinculacoes-padrao"} component={VinculacoesPadrao} />
         <Route path={"/recurso-glosa-conciliacao"} component={RecursoGlosaConciliacao} />
+        <Route path={"/recurso-glosa-demonstrativo"} component={RecursoGlosaDemonstrativo} />
         <Route path={"/contas-faturadas"} component={ConciliacaoContasFaturadas} />
         <Route path={"/contas-faturadas/:conta"} component={DetalhesContaFaturada} />
         <Route path={"/recebimentos-xml"} component={RecebimentosXml} />

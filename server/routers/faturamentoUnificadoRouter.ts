@@ -845,4 +845,110 @@ export const faturamentoUnificadoRouter = router({
     .mutation(async ({ input, ctx }) => {
       return await faturamentoService.marcarGlosaAceitaEmLote(input.conciliadoIds, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
     }),
+
+  // ===== RECURSO GLOSA DEMONSTRATIVO =====
+  competenciasDemonstrativo: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number() }))
+    .query(async ({ input }) => {
+      return await faturamentoService.competenciasDemonstrativo(input.estabelecimentoId);
+    }),
+
+  conveniosDemonstrativo: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number(), competencia: z.string().optional() }))
+    .query(async ({ input }) => {
+      return await faturamentoService.conveniosDemonstrativo(input.estabelecimentoId, input.competencia);
+    }),
+
+  itensGlosadosDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+      agrupamento: z.enum(['guia', 'item', 'motivo']),
+      busca: z.string().optional(),
+      page: z.number().optional(),
+      pageSize: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDemonstrativo(input);
+    }),
+
+  itensGlosadosDetalheGuiaDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      guia: z.string(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalheGuiaDemonstrativo(input);
+    }),
+
+  itensGlosadosDetalhePorItemDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      item: z.string(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalhePorItemDemonstrativo(input);
+    }),
+
+  itensGlosadosDetalhePorMotivoDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      codigoGlosa: z.string(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalhePorMotivoDemonstrativo(input);
+    }),
+
+  salvarJustificativaDemonstrativo: protectedProcedure
+    .input(z.object({ recebimentoId: z.number(), justificativa: z.string() }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.salvarJustificativaDemonstrativo(input.recebimentoId, input.justificativa);
+    }),
+
+  salvarValorRecursoDemonstrativo: protectedProcedure
+    .input(z.object({ recebimentoId: z.number(), valor: z.number() }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.salvarValorRecursoDemonstrativo(input.recebimentoId, input.valor);
+    }),
+
+  marcarGlosaAceitaDemonstrativo: protectedProcedure
+    .input(z.object({ recebimentoId: z.number(), aceita: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.marcarGlosaAceitaDemonstrativo(input.recebimentoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+    }),
+
+  marcarGlosaAceitaEmLoteDemonstrativo: protectedProcedure
+    .input(z.object({ recebimentoIds: z.array(z.number()), aceita: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.recebimentoIds, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+    }),
+
+  replicarJustificativasDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      competencia: z.string().optional(),
+      convenioId: z.number().optional(),
+      item: z.string().optional(),
+      codigoGlosa: z.string().optional(),
+      justificativa: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.replicarJustificativasDemonstrativo(input);
+    }),
+
+  gerarJustificativasIADemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      recebimentoIds: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.gerarJustificativasIADemonstrativo(input);
+    }),
 });

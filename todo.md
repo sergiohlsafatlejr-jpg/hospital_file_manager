@@ -4117,3 +4117,10 @@
 
 - [x] Replicar justificativas não atualiza automaticamente (invalidar queries após replicar)
 - [x] Botão "Aceitar Todas" em lote nas abas Por Item, Por Motivo e Por Guia (marcar glosa aceita em todos os itens de uma vez)
+
+## Reorganização Módulo Recurso de Glosa - Sessão 9 (25/06/2025)
+
+- [x] Mover "Recurso Glosa Conciliação" do módulo Conciliações para o módulo Recurso de Glosa
+- [x] Renomear aba de "Recurso de Glosa" para "Recurso Glosa Conciliação" no sidebar
+- [x] Remover função de recurso da aba "Análise de Glosa" (manter apenas como relatório)
+- [x] Criar nova aba "Recurso Glosa Demonstrativo" no módulo Recurso de Glosa (dados do recebimentos_excel)

@@ -111,9 +111,7 @@ export default function AnaliseGlosa() {
   const [dataPagamentoFiltro, setDataPagamentoFiltro] = useState<string>("");
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensSelecionados, setItensSelecionados] = useState<Set<number>>(new Set());
-  const [dialogRecurso, setDialogRecurso] = useState(false);
-  const [recursoForm, setRecursoForm] = useState({ motivo: "", argumento: "", prioridade: "media" as "baixa" | "media" | "alta" | "urgente" });
-  const [carregandoSugestao, setCarregandoSugestao] = useState(false);
+
   const [classificandoItem, setClassificandoItem] = useState<number | null>(null);
   const [dialogAceite, setDialogAceite] = useState(false);
   const [itemParaAceitar, setItemParaAceitar] = useState<number | null>(null);
@@ -181,63 +179,7 @@ export default function AnaliseGlosa() {
       pageSize: 50,
     });
 
-  const criarRecursoBatchMutation = trpc.recursos.createBatch.useMutation({
-    onSuccess: (data) => {
-      if (data.sucesso > 0) {
-        toast.success(`${data.sucesso} recurso(s) criado(s) com sucesso!`);
-      }
-      if (data.falhas > 0) {
-        toast.error(`${data.falhas} recurso(s) falharam`);
-      }
-      setItensSelecionados(new Set());
-      setDialogRecurso(false);
-      setRecursoForm({ motivo: "", argumento: "", prioridade: "media" });
-    },
-    onError: (error) => toast.error(error.message),
-  });
 
-  const sugerirArgumentoMutation = trpc.recursos.sugerirArgumentoIA.useMutation({
-    onSuccess: (data) => {
-      if (data.argumento) {
-        // Extrair texto do argumento (pode ser string ou array de content)
-        const argumentoTexto = typeof data.argumento === 'string' 
-          ? data.argumento 
-          : Array.isArray(data.argumento) 
-            ? data.argumento.map((c: any) => c.text || '').join('')
-            : String(data.argumento);
-        
-        // Verificar se o argumento é válido (não vazio e não genérico)
-        const argumentoLimpo = argumentoTexto.trim();
-        if (argumentoLimpo.length < 20 || argumentoLimpo.toLowerCase().includes('não foi possível')) {
-          toast.warning(
-            "A IA não conseguiu gerar uma sugestão específica para este motivo de glosa. " +
-            "Isso pode ocorrer quando não há histórico de contestações similares ou o código de glosa não está no dicionário. " +
-            "Por favor, insira o argumento manualmente.",
-            { duration: 8000 }
-          );
-        } else {
-          setRecursoForm(prev => ({ ...prev, argumento: argumentoLimpo }));
-          toast.success("Sugestão de argumento gerada com IA!");
-        }
-      } else {
-        toast.warning(
-          "A IA não conseguiu gerar uma sugestão para este item. " +
-          "Possíveis motivos: código de glosa desconhecido, sem histórico de contestações similares, ou dados insuficientes. " +
-          "Por favor, insira o argumento manualmente.",
-          { duration: 8000 }
-        );
-      }
-      setCarregandoSugestao(false);
-    },
-    onError: (error) => {
-      toast.error(
-        "Erro ao gerar sugestão com IA: " + error.message + 
-        ". Por favor, tente novamente ou insira o argumento manualmente.",
-        { duration: 6000 }
-      );
-      setCarregandoSugestao(false);
-    },
-  });
 
   // Mutation para classificar glosa (aceitar ou recursar)
   const classificarGlosaMutation = trpc.recursos.classificarGlosa.useMutation({
@@ -371,97 +313,14 @@ export default function AnaliseGlosa() {
     setItensSelecionados(newSet);
   };
 
-  // Filtrar apenas itens sem recurso criado
-  const itensSemRecurso = useMemo(() => {
-    return itensGlosados?.items?.filter(i => !i.recursoStatus || i.recursoStatus === "sem_recurso") || [];
-  }, [itensGlosados?.items]);
-
   const selecionarTodos = () => {
     if (!itensGlosados?.items) return;
-    // Selecionar apenas itens que ainda não têm recurso
-    const itensSelecionaveis = itensSemRecurso;
+    const itensSelecionaveis = itensGlosados.items;
     if (itensSelecionados.size === itensSelecionaveis.length && itensSelecionaveis.length > 0) {
       setItensSelecionados(new Set());
     } else {
       setItensSelecionados(new Set(itensSelecionaveis.map(i => i.id)));
     }
-  };
-
-  const abrirDialogRecurso = () => {
-    if (itensSelecionados.size === 0) {
-      toast.error("Selecione pelo menos um item para criar recurso");
-      return;
-    }
-    const primeiroItem = itensGlosados?.items?.find(i => itensSelecionados.has(i.id));
-    const motivoGlosa = primeiroItem?.motivoGlosa || "";
-    
-    setRecursoForm({
-      motivo: motivoGlosa,
-      argumento: "",
-      prioridade: "media",
-    });
-    setDialogRecurso(true);
-
-    // Automate AI suggestion using extracted metadata
-    if (primeiroItem) {
-      const codigoGlosa = primeiroItem.codigoGlosa || primeiroItem.motivoGlosa?.match(/\d{4}/)?.[0] || "0000";
-      setCarregandoSugestao(true);
-      sugerirArgumentoMutation.mutate({
-        codigoGlosa,
-        convenioId: primeiroItem.convenioId,
-        codigoProcedimento: primeiroItem.codigo,
-        valorGlosado: primeiroItem.valorGlosado.toString(),
-        pacienteNome: primeiroItem.pacienteNome,
-        pacienteCarteirinha: primeiroItem.pacienteCarteirinha,
-        guiaNumero: primeiroItem.guiaNumero,
-      });
-    }
-  };
-
-  const handleCriarRecurso = () => {
-    if (!recursoForm.argumento.trim()) {
-      toast.error("Informe o argumento do recurso");
-      return;
-    }
-    const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
-    
-    criarRecursoBatchMutation.mutate({
-      itens: itens.map(item => ({
-        procedimentoId: item.id, // ID do procedimento para marcar como "recurso criado"
-        convenioId: item.convenioId,
-        estabelecimentoId: estabelecimentoAtual?.id,
-        codigoProcedimento: item.codigo,
-        descricaoProcedimento: item.descricao || "",
-        valorGlosado: item.valorGlosado.toString(),
-        valorCobrado: item.valorCobrado.toString(),
-        motivoGlosaConvenio: item.motivoGlosa,
-        pacienteNome: item.pacienteNome,
-        pacienteCarteirinha: item.pacienteCarteirinha || "",
-        guiaNumero: item.guiaNumero,
-      })),
-      estabelecimentoId: estabelecimentoAtual?.id,
-      justificativaRecurso: `${recursoForm.motivo}\n\n${recursoForm.argumento}`,
-      prioridade: recursoForm.prioridade,
-    });
-  };
-
-  const handleSugerirArgumento = () => {
-    const itens = itensGlosados?.items?.filter(i => itensSelecionados.has(i.id)) || [];
-    if (itens.length === 0) return;
-    
-    const primeiroItem = itens[0];
-    const codigoGlosa = primeiroItem.codigoGlosa || primeiroItem.motivoGlosa?.match(/\d{4}/)?.[0] || "0000";
-    
-    setCarregandoSugestao(true);
-    sugerirArgumentoMutation.mutate({
-      codigoGlosa,
-      convenioId: primeiroItem.convenioId,
-      codigoProcedimento: primeiroItem.codigo,
-      valorGlosado: primeiroItem.valorGlosado.toString(),
-      pacienteNome: primeiroItem.pacienteNome,
-      pacienteCarteirinha: primeiroItem.pacienteCarteirinha,
-      guiaNumero: primeiroItem.guiaNumero,
-    });
   };
 
   const formatCurrency = (value: number) => {
@@ -1010,35 +869,7 @@ export default function AnaliseGlosa() {
                           </ul>
                         </div>
                       )}
-                      <div className="mt-3 pt-3 border-t border-amber-200">
-                        <Button 
-                          size="sm" 
-                          className="w-full bg-amber-600 hover:bg-amber-700"
-                          onClick={() => {
-                            // Selecionar todos os itens do código de glosa atual
-                            if (itensGlosados?.items) {
-                              const itensDoCodigoAtual = itensGlosados.items.filter(item => {
-                                const codigoItem = item.codigoGlosa || item.motivoGlosa?.match(/\d{4}/)?.[0] || "";
-                                return codigoItem === codigoGlosaFiltro;
-                              });
-                              setItensSelecionados(new Set(itensDoCodigoAtual.map(i => i.id)));
-                              // Abrir dialog com argumento pré-preenchido do dicionário
-                              setRecursoForm({
-                                motivo: `Código ${codigoGlosaFiltro}: ${GLOSAS_TISS[codigoGlosaFiltro].descricaoSimplificada}`,
-                                argumento: GLOSAS_TISS[codigoGlosaFiltro].argumentoContestacao || "",
-                                prioridade: "media",
-                              });
-                              setDialogRecurso(true);
-                            }
-                          }}
-                        >
-                          <Gavel className="h-4 w-4 mr-2" />
-                          Criar Recurso em Lote para Todos os Itens ({itensGlosados?.items?.filter(item => {
-                            const codigoItem = item.codigoGlosa || item.motivoGlosa?.match(/\d{4}/)?.[0] || "";
-                            return codigoItem === codigoGlosaFiltro;
-                          }).length || 0})
-                        </Button>
-                      </div>
+
                     </div>
                   </div>
                 </CardContent>
@@ -1279,14 +1110,7 @@ export default function AnaliseGlosa() {
                       <ThumbsUp className="h-4 w-4 mr-2" />
                       Aceitar Selecionados ({itensSelecionados.size})
                     </Button>
-                    <Button 
-                      size="sm" 
-                      onClick={abrirDialogRecurso}
-                      disabled={itensSelecionados.size === 0}
-                    >
-                      <Gavel className="h-4 w-4 mr-2" />
-                      Criar Recurso ({itensSelecionados.size})
-                    </Button>
+
                   </div>
                 </div>
               </CardHeader>
@@ -2020,107 +1844,7 @@ export default function AnaliseGlosa() {
           </TabsContent>
         </Tabs>
 
-        {/* Dialog para criar recurso em lote */}
-        <Dialog open={dialogRecurso} onOpenChange={setDialogRecurso}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileWarning className="h-5 w-5" />
-                Criar Recursos de Glosa em Lote
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="bg-muted p-3 rounded-lg">
-                <Label className="text-sm font-medium">Itens Selecionados</Label>
-                <p className="text-2xl font-bold text-primary">
-                  {itensSelecionados.size} item(s)
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Todos os itens receberão o mesmo argumento de recurso
-                </p>
-                {recursoForm.motivo.startsWith("Código ") && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                      <BookOpen className="h-3 w-3 mr-1" />
-                      Argumento do Dicionário TISS
-                    </Badge>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <Label>Motivo da Glosa</Label>
-                <Input
-                  value={recursoForm.motivo}
-                  onChange={(e) => setRecursoForm({ ...recursoForm, motivo: e.target.value })}
-                  placeholder="Código ou descrição do motivo"
-                />
-              </div>
 
-              <div>
-                <Label>Prioridade</Label>
-                <Select 
-                  value={recursoForm.prioridade} 
-                  onValueChange={(v) => setRecursoForm({ ...recursoForm, prioridade: v as any })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="baixa">Baixa</SelectItem>
-                    <SelectItem value="media">Média</SelectItem>
-                    <SelectItem value="alta">Alta</SelectItem>
-                    <SelectItem value="urgente">Urgente</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label>Argumento do Recurso</Label>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleSugerirArgumento}
-                    disabled={carregandoSugestao || sugerirArgumentoMutation.isPending}
-                    className="gap-1"
-                  >
-                    {carregandoSugestao ? (
-                      <><Loader2 className="h-3 w-3 animate-spin" /> Gerando...</>
-                    ) : (
-                      <><Sparkles className="h-3 w-3" /> Sugerir com IA</>
-                    )}
-                  </Button>
-                </div>
-                <Textarea
-                  value={recursoForm.argumento}
-                  onChange={(e) => setRecursoForm({ ...recursoForm, argumento: e.target.value })}
-                  placeholder="Descreva a justificativa para contestar a glosa..."
-                  rows={6}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Clique em "Sugerir com IA" para gerar um argumento baseado no histórico de contestações bem-sucedidas
-                </p>
-              </div>
-            </div>
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setDialogRecurso(false)}>
-                Cancelar
-              </Button>
-              <Button 
-                onClick={handleCriarRecurso} 
-                disabled={criarRecursoBatchMutation.isPending || !recursoForm.argumento.trim()}
-                className="gap-1"
-              >
-                {criarRecursoBatchMutation.isPending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</>
-                ) : (
-                  <>Criar {itensSelecionados.size} Recurso(s)</>
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Dialog para aceitar glosa com motivo */}
         <Dialog open={dialogAceite} onOpenChange={setDialogAceite}>
