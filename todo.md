@@ -4143,3 +4143,9 @@
 - [x] Campos lote, protocolo, carteirinha adicionados no agrupamento por guia/paciente
 - [x] Bug: Bradesco agora busca dados do XML (tabela demonstrativo) com valores corretos + filtro COALESCE > 0 no excel
 - [x] Layout ajustado: colunas lote/protocolo/carteirinha, tipo na aba item, valores consistentes
+## Correções Recurso Glosa Demonstrativo - Sessão 11 (25/06/2025)
+- [x] Bug: Filtros sem cabeçalho/label (Competência, Convênio, Data Pagamento, Busca)
+- [x] Bug: Itens da guia não abrem no drill-down (corrigido: motivos_glosa → motivosGlosa)
+- [x] Bug: Status mostrando "Finalizado" em tudo (corrigido: lógica sem_recurso/pendente = Pendente)
+- [x] Coluna Tipo (tipo_lancamento) adicionada na aba Item e no detalhe drill-down
+- [x] Texto "Nenhum item encontrado" em vez de "Carregando..." quando array vazio

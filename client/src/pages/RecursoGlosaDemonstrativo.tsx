@@ -210,15 +210,17 @@ export default function RecursoGlosaDemonstrativo() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Recurso Glosa Demonstrativo</h1>
-        <Badge variant="outline" className="text-xs">Fonte: Demonstrativo (Recebimentos Excel)</Badge>
+        <Badge variant="outline" className="text-xs">Fonte: Demonstrativo XML + Recebimentos Excel</Badge>
       </div>
 
       {/* Filtros */}
       <Card>
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <Select value={competencia} onValueChange={(v) => { setCompetencia(v); setPage(1); }}>
-              <SelectTrigger><SelectValue placeholder="Competência" /></SelectTrigger>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Competência</label>
+              <Select value={competencia} onValueChange={(v) => { setCompetencia(v); setPage(1); }}>
+                <SelectTrigger><SelectValue placeholder="Competência" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="todas">Todas</SelectItem>
                 {competencias?.map((c: any) => (
@@ -227,10 +229,13 @@ export default function RecursoGlosaDemonstrativo() {
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+              </Select>
+            </div>
 
-            <Select value={convenioId} onValueChange={(v) => { setConvenioId(v); setPage(1); }}>
-              <SelectTrigger><SelectValue placeholder="Convênio" /></SelectTrigger>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Convênio</label>
+              <Select value={convenioId} onValueChange={(v) => { setConvenioId(v); setPage(1); }}>
+                <SelectTrigger><SelectValue placeholder="Convênio" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 {convenios?.map((c: any) => (
@@ -239,10 +244,13 @@ export default function RecursoGlosaDemonstrativo() {
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+              </Select>
+            </div>
 
-            <Select value={dataPagto} onValueChange={(v) => { setDataPagto(v); setPage(1); }}>
-              <SelectTrigger><SelectValue placeholder="Data Pagamento" /></SelectTrigger>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Data Pagamento</label>
+              <Select value={dataPagto} onValueChange={(v) => { setDataPagto(v); setPage(1); }}>
+                <SelectTrigger><SelectValue placeholder="Data Pagamento" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todas</SelectItem>
                 {datasPagamento?.map((d: any) => (
@@ -251,16 +259,20 @@ export default function RecursoGlosaDemonstrativo() {
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+              </Select>
+            </div>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar guia, paciente, item..."
-                className="pl-9"
-                value={busca}
-                onChange={(e) => { setBusca(e.target.value); setPage(1); }}
-              />
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Busca</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar guia, paciente, item..."
+                  className="pl-9"
+                  value={busca}
+                  onChange={(e) => { setBusca(e.target.value); setPage(1); }}
+                />
+              </div>
             </div>
 
             <div className="text-sm text-muted-foreground flex items-center">
@@ -553,7 +565,7 @@ export default function RecursoGlosaDemonstrativo() {
 
   // Função auxiliar para renderizar tabela de detalhe
   function renderDetalheTable(data: any[], tipo: 'guia' | 'item' | 'motivo') {
-    if (!data || data.length === 0) return <p className="text-sm text-muted-foreground">Carregando...</p>;
+    if (!data || data.length === 0) return <p className="text-sm text-muted-foreground">Nenhum item encontrado</p>;
     return (
       <div className="overflow-x-auto">
         <table className="w-full text-xs">

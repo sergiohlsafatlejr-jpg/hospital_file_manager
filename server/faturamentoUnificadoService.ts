@@ -4730,8 +4730,8 @@ export async function itensGlosadosDemonstrativo(params: {
         SUM(COALESCE(u.valorRecurso, 0)) as valorRecursado,
         SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
         CASE
-          WHEN SUM(CASE WHEN u.recursoStatus IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
-          WHEN SUM(CASE WHEN u.recursoStatus IS NULL THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+          WHEN SUM(CASE WHEN u.recursoStatus IS NOT NULL AND u.recursoStatus NOT IN ('sem_recurso', 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN u.recursoStatus IS NULL OR u.recursoStatus IN ('sem_recurso', 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
           ELSE 'Iniciado'
         END as statusRecurso
       FROM ${unionSubquery} u
@@ -4771,7 +4771,7 @@ export async function itensGlosadosDemonstrativo(params: {
         SUM(u.valorGlosa) as valorGlosa,
         NULL as justificativasPreenchidas
       FROM ${unionSubquery} u
-      LEFT JOIN motivos_glosa mg ON mg.codigo = u.codigoGlosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = u.codigoGlosa
       GROUP BY COALESCE(u.codigoGlosa, 'SEM_CODIGO')
       ORDER BY COUNT(*) DESC
       LIMIT ${pageSize} OFFSET ${offset}
@@ -4860,7 +4860,7 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
-      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -4882,7 +4882,7 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
-      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2
@@ -4948,7 +4948,7 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
-      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -4970,7 +4970,7 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
-      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2
@@ -5039,7 +5039,7 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
-      LEFT JOIN motivos_glosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -5061,7 +5061,7 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
-      LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2
@@ -5204,7 +5204,7 @@ export async function gerarJustificativasIADemonstrativo(params: {
   const [rows] = await db.execute(sql.raw(`
     SELECT re.id, re.item, re.item_desc, re.codigo_glosa, mg.descricao as motivoGlosa, re.valor_glosa
     FROM recebimentos_excel re
-    LEFT JOIN motivos_glosa mg ON mg.codigo = re.codigo_glosa
+    LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
     WHERE re.id IN (${ids})
   `));
   
