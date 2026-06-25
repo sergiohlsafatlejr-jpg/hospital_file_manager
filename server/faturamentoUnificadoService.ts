@@ -3534,8 +3534,8 @@ export async function itensGlosadosParaRecurso(params: {
       matricula: r.matricula || null,
       lote: r.lote || null,
       protocolo: r.protocolo || null,
-      dataInicio: r.dataInicio || null,
-      dataFim: r.dataFim || null,
+      dataInicio: r.dataInicio ? (r.dataInicio instanceof Date ? r.dataInicio.toISOString().split('T')[0] : String(r.dataInicio).split(' ')[0].split('T')[0]) : null,
+      dataFim: r.dataFim ? (r.dataFim instanceof Date ? r.dataFim.toISOString().split('T')[0] : String(r.dataFim).split(' ')[0].split('T')[0]) : null,
       dataExecucao: r.dataExecucao || r.dataExecucaoMax,
       codigoItem: r.codigoItem || null,
       descricaoItem: r.descricaoItem || null,
@@ -3629,7 +3629,7 @@ export async function itensGlosadosDetalheGuia(params: {
     codigoItem: r.codigoItem,
     descricaoItem: r.descricaoItem,
     tipoItem: r.tipoItem,
-    dataExecucao: r.dataExecucao,
+    dataExecucao: r.dataExecucao ? (r.dataExecucao instanceof Date ? r.dataExecucao.toISOString().split('T')[0] : String(r.dataExecucao).split(' ')[0].split('T')[0]) : null,
     quantidade: Number(r.quantidade) || 1,
     valorFaturado: Number(r.valorFaturado),
     valorPago: Number(r.valorPago),
@@ -4080,7 +4080,7 @@ export async function replicarJustificativas(params: {
         justificativa TEXT NOT NULL,
         criadoEm DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizadoEm DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_conciliado (conciliadoId)
+        UNIQUE INDEX idx_conciliado_unique (conciliadoId)
       )
     `));
 
@@ -4268,9 +4268,14 @@ export async function itensGlosadosDetalhePorItem(params: {
       COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
-      ca.competencia
+      ca.competencia,
+      ca.glosaAceita,
+      ca.glosaAceitaPor,
+      ca.valorRecurso,
+      rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     ${whereClause}
     ORDER BY ca.pacienteNome, ca.dataExecucao
   `;
@@ -4281,7 +4286,7 @@ export async function itensGlosadosDetalhePorItem(params: {
     codigoItem: r.codigoItem,
     descricaoItem: r.descricaoItem,
     tipoItem: r.tipoItem,
-    dataExecucao: r.dataExecucao,
+    dataExecucao: r.dataExecucao ? (r.dataExecucao instanceof Date ? r.dataExecucao.toISOString().split('T')[0] : String(r.dataExecucao).split(' ')[0].split('T')[0]) : null,
     quantidade: Number(r.quantidade) || 1,
     numeroGuia: r.numeroGuia,
     pacienteNome: r.pacienteNome,
@@ -4293,6 +4298,10 @@ export async function itensGlosadosDetalhePorItem(params: {
     statusConciliacao: r.statusConciliacao,
     xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
     competencia: r.competencia,
+    glosaAceita: Number(r.glosaAceita) === 1,
+    glosaAceitaPor: r.glosaAceitaPor,
+    valorRecurso: r.valorRecurso ? Number(r.valorRecurso) : null,
+    justificativaRecurso: r.justificativaRecurso,
   }));
 }
 
@@ -4347,9 +4356,14 @@ export async function itensGlosadosDetalhePorMotivo(params: {
       COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
-      ca.competencia
+      ca.competencia,
+      ca.glosaAceita,
+      ca.glosaAceitaPor,
+      ca.valorRecurso,
+      rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     ${whereClause}
     ORDER BY ca.pacienteNome, ca.dataExecucao
   `;
@@ -4360,7 +4374,7 @@ export async function itensGlosadosDetalhePorMotivo(params: {
     codigoItem: r.codigoItem,
     descricaoItem: r.descricaoItem,
     tipoItem: r.tipoItem,
-    dataExecucao: r.dataExecucao,
+    dataExecucao: r.dataExecucao ? (r.dataExecucao instanceof Date ? r.dataExecucao.toISOString().split('T')[0] : String(r.dataExecucao).split(' ')[0].split('T')[0]) : null,
     quantidade: Number(r.quantidade) || 1,
     numeroGuia: r.numeroGuia,
     pacienteNome: r.pacienteNome,
@@ -4372,6 +4386,10 @@ export async function itensGlosadosDetalhePorMotivo(params: {
     statusConciliacao: r.statusConciliacao,
     xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
     competencia: r.competencia,
+    glosaAceita: Number(r.glosaAceita) === 1,
+    glosaAceitaPor: r.glosaAceitaPor,
+    valorRecurso: r.valorRecurso ? Number(r.valorRecurso) : null,
+    justificativaRecurso: r.justificativaRecurso,
   }));
 }
 
@@ -4395,13 +4413,13 @@ export async function marcarGlosaAceita(conciliadoId: number, aceita: boolean, u
   if (aceita) {
     await db.execute(sql.raw(`
       UPDATE conciliados_automatico 
-      SET glosaAceita = 1, glosaAceitaPor = '${usuario.replace(/'/g, "''")}', glosaAceitaEm = NOW(), statusRecursoItem = 'aceita'
+      SET glosaAceita = 1, glosaAceitaPor = '${usuario.replace(/'/g, "''")}', glosaAceitaEm = NOW(), statusRecursoItem = 'aceita', valorRecurso = 0
       WHERE id = ${conciliadoId}
     `));
   } else {
     await db.execute(sql.raw(`
       UPDATE conciliados_automatico 
-      SET glosaAceita = 0, glosaAceitaPor = NULL, glosaAceitaEm = NULL, statusRecursoItem = NULL
+      SET glosaAceita = 0, glosaAceitaPor = NULL, glosaAceitaEm = NULL, statusRecursoItem = NULL, valorRecurso = NULL
       WHERE id = ${conciliadoId}
     `));
   }

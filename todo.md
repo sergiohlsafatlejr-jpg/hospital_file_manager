@@ -4105,3 +4105,10 @@
 - [x] Coluna "Valor Recursado" no agrupamento por guia/paciente (soma dos itens recursados)
 - [x] Coluna "Valor Glosa Aceita" no agrupamento por guia/paciente (soma dos itens aceitos)
 - [x] Status dinâmico: "Iniciado" quando usuário começa o processo, "Finalizado" quando todos itens da guia estão recursados ou aceitos
+
+## Correções Recurso de Glosa - Sessão 7 (25/06/2025)
+
+- [x] Ao marcar glosa aceita, valor recursado do item deve ficar R$ 0,00
+- [x] Agrupamento da guia: Vlr Recursado e status devem refletir itens aceitos (0 para aceitos)
+- [x] Replicar justificativas corrigido (UNIQUE index no conciliadoId para ON DUPLICATE KEY funcionar)
+- [x] Nas abas Por Item e Por Motivo de Glosa: adicionadas colunas Vlr Recurso e Aceita nos detalhes

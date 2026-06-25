@@ -787,12 +787,14 @@ export default function RecursoGlosaConciliacao() {
                                       <th className="p-1 text-right">Glosa</th>
                                       <th className="p-1 text-left">Cód. Glosa</th>
                                       <th className="p-1 text-left">Motivo</th>
+                                      <th className="p-1 text-right">Vlr Recurso</th>
+                                      <th className="p-1 text-center">Aceita</th>
                                       <th className="p-1 text-left min-w-[200px]">Justificativa</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {detalheItem.map((d: any) => (
-                                      <tr key={d.id} className="border-b border-dashed">
+                                      <tr key={d.id} className={`border-b border-dashed ${d.glosaAceita || itensGlosaAceita[d.id] ? 'bg-orange-50' : ''}`}>
                                         <td className="p-1 font-mono">{d.numeroGuia}</td>
                                         <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
                                         <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao).toLocaleDateString('pt-BR') : '-'}</td>
@@ -802,12 +804,39 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
                                         <td className="p-1">{d.codigoGlosa && <Badge variant="outline" className="text-xs">{d.codigoGlosa}</Badge>}</td>
                                         <td className="p-1 max-w-[100px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
+                                        <td className="p-1 text-right">
+                                          <span className={`text-xs ${(itensGlosaAceita[d.id] || d.glosaAceita) ? 'text-muted-foreground line-through' : 'text-blue-700'}`}>
+                                            {formatarMoeda((itensGlosaAceita[d.id] || d.glosaAceita) ? 0 : Number(valoresRecurso[d.id] ?? d.valorRecurso ?? d.valorGlosa))}
+                                          </span>
+                                        </td>
+                                        <td className="p-1 text-center">
+                                          <Button
+                                            variant={(itensGlosaAceita[d.id] || d.glosaAceita) ? "destructive" : "outline"}
+                                            size="sm"
+                                            className="h-5 px-1 text-[10px]"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const novoEstado = !(itensGlosaAceita[d.id] || d.glosaAceita);
+                                              setItensGlosaAceita(prev => ({ ...prev, [d.id]: novoEstado }));
+                                              marcarGlosaAceitaMutation.mutate({ conciliadoId: d.id, aceita: novoEstado });
+                                            }}
+                                          >
+                                            {(itensGlosaAceita[d.id] || d.glosaAceita) ? (
+                                              <><ThumbsDown className="h-3 w-3 mr-0.5" /> Aceita</>
+                                            ) : (
+                                              <><Check className="h-3 w-3 mr-0.5" /> Aceitar</>
+                                            )}
+                                          </Button>
+                                          {(itensGlosaAceita[d.id] || d.glosaAceita) && (d.glosaAceitaPor) && (
+                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                          )}
+                                        </td>
                                         <td className="p-1 min-w-[200px]">
                                           {editandoJustificativa === d.id ? (
                                             <Input className="h-6 text-xs" value={justificativasItens[d.id] || ''} onChange={(e) => setJustificativasItens(prev => ({...prev, [d.id]: e.target.value}))} maxLength={150} placeholder="Justificativa" onBlur={() => setEditandoJustificativa(null)} onKeyDown={(e) => { if (e.key === 'Enter') setEditandoJustificativa(null); }} autoFocus />
                                           ) : (
-                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); }}>
-                                              {justificativasItens[d.id] ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id]}</span> : <span className="text-xs">Clique para adicionar</span>}
+                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] || d.justificativaRecurso ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); if (!justificativasItens[d.id] && d.justificativaRecurso) setJustificativasItens(prev => ({...prev, [d.id]: d.justificativaRecurso})); }}>
+                                              {justificativasItens[d.id] || d.justificativaRecurso ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id] || d.justificativaRecurso}</span> : <span className="text-xs">Clique para adicionar</span>}
                                               <Pencil className="h-3 w-3 flex-shrink-0" />
                                             </div>
                                           )}
@@ -851,12 +880,14 @@ export default function RecursoGlosaConciliacao() {
                                       <th className="p-1 text-right">Faturado</th>
                                       <th className="p-1 text-right">Pago</th>
                                       <th className="p-1 text-right">Glosa</th>
+                                      <th className="p-1 text-right">Vlr Recurso</th>
+                                      <th className="p-1 text-center">Aceita</th>
                                       <th className="p-1 text-left min-w-[200px]">Justificativa</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {detalheMotivo.map((d: any) => (
-                                      <tr key={d.id} className="border-b border-dashed">
+                                      <tr key={d.id} className={`border-b border-dashed ${d.glosaAceita || itensGlosaAceita[d.id] ? 'bg-orange-50' : ''}`}>
                                         <td className="p-1 font-mono">{d.numeroGuia}</td>
                                         <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
                                         <td className="p-1 font-mono">{d.codigoItem}</td>
@@ -865,12 +896,39 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
                                         <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1 text-right">
+                                          <span className={`text-xs ${(itensGlosaAceita[d.id] || d.glosaAceita) ? 'text-muted-foreground line-through' : 'text-blue-700'}`}>
+                                            {formatarMoeda((itensGlosaAceita[d.id] || d.glosaAceita) ? 0 : Number(valoresRecurso[d.id] ?? d.valorRecurso ?? d.valorGlosa))}
+                                          </span>
+                                        </td>
+                                        <td className="p-1 text-center">
+                                          <Button
+                                            variant={(itensGlosaAceita[d.id] || d.glosaAceita) ? "destructive" : "outline"}
+                                            size="sm"
+                                            className="h-5 px-1 text-[10px]"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const novoEstado = !(itensGlosaAceita[d.id] || d.glosaAceita);
+                                              setItensGlosaAceita(prev => ({ ...prev, [d.id]: novoEstado }));
+                                              marcarGlosaAceitaMutation.mutate({ conciliadoId: d.id, aceita: novoEstado });
+                                            }}
+                                          >
+                                            {(itensGlosaAceita[d.id] || d.glosaAceita) ? (
+                                              <><ThumbsDown className="h-3 w-3 mr-0.5" /> Aceita</>
+                                            ) : (
+                                              <><Check className="h-3 w-3 mr-0.5" /> Aceitar</>
+                                            )}
+                                          </Button>
+                                          {(itensGlosaAceita[d.id] || d.glosaAceita) && (d.glosaAceitaPor) && (
+                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                          )}
+                                        </td>
                                         <td className="p-1 min-w-[200px]">
                                           {editandoJustificativa === d.id ? (
                                             <Input className="h-6 text-xs" value={justificativasItens[d.id] || ''} onChange={(e) => setJustificativasItens(prev => ({...prev, [d.id]: e.target.value}))} maxLength={150} placeholder="Justificativa" onBlur={() => setEditandoJustificativa(null)} onKeyDown={(e) => { if (e.key === 'Enter') setEditandoJustificativa(null); }} autoFocus />
                                           ) : (
-                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); }}>
-                                              {justificativasItens[d.id] ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id]}</span> : <span className="text-xs">Clique para adicionar</span>}
+                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] || d.justificativaRecurso ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); if (!justificativasItens[d.id] && d.justificativaRecurso) setJustificativasItens(prev => ({...prev, [d.id]: d.justificativaRecurso})); }}>
+                                              {justificativasItens[d.id] || d.justificativaRecurso ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id] || d.justificativaRecurso}</span> : <span className="text-xs">Clique para adicionar</span>}
                                               <Pencil className="h-3 w-3 flex-shrink-0" />
                                             </div>
                                           )}
