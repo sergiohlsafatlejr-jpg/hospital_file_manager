@@ -3367,8 +3367,8 @@ export async function itensGlosadosParaRecurso(params: {
       MAX(fu.carteiraBeneficiario) as matricula,
       MAX(fu.lotePrestador) as lote,
       MAX(fu.protocolo) as protocolo,
-      MIN(ca.dataExecucao) as dataInicio,
-      MAX(ca.dataExecucao) as dataFim,
+      COALESCE(MIN(re.data_inicio_faturamento_internacao), MIN(ca.dataExecucao)) as dataInicio,
+      COALESCE(MAX(re.data_fim_faturamento_internacao), MAX(ca.dataExecucao)) as dataFim,
       COUNT(*) as totalItensGlosados,
       SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
       SUM(COALESCE(ca.valorPago, 0)) as valorPago,
@@ -3427,7 +3427,7 @@ export async function itensGlosadosParaRecurso(params: {
     selectFields = `
       CONCAT(COALESCE(ca.codigoGlosa, 'SEM_CODIGO'), '-', ca.convenioId) as chave,
       ca.codigoGlosa,
-      COALESCE(MAX(mg2.descricao), ca.motivoGlosa, 'Sem motivo identificado') as motivoGlosaDesc,
+      COALESCE(MAX(mg2.descricao), MAX(ca.motivoGlosa), 'Sem motivo identificado') as motivoGlosaDesc,
       ca.convenio,
       ca.convenioId,
       NULL as numeroGuia,
@@ -3481,11 +3481,13 @@ export async function itensGlosadosParaRecurso(params: {
 
   // Main query
   const motivoJoin = agrupamento === 'motivo' ? `LEFT JOIN motivosGlosa mg2 ON ca.codigoGlosa = mg2.codigo AND mg2.ativo = 'sim'` : '';
+  const recebimentoJoin = agrupamento === 'guia' ? `LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id` : '';
   const mainQuery = `
     SELECT ${selectFields}
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     ${motivoJoin}
+    ${recebimentoJoin}
     ${whereClause}
     GROUP BY ${groupByField}
     ${orderBy}
@@ -3578,7 +3580,7 @@ export async function itensGlosadosDetalheGuia(params: {
   }
   if (params.dataPagto) {
     const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND ca.recebimentoId IN (SELECT re2.id FROM recebimentos_excel re2 WHERE DATE_FORMAT(re2.data_pagto, '%Y-%m-%d') = '${dp}')`;
   }
 
   const query = `
@@ -3587,7 +3589,7 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.codigoItem,
       ca.descricaoItem,
       ca.tipoItem,
-      ca.dataExecucao,
+      COALESCE(re.data_execucao, ca.dataExecucao) as dataExecucao,
       ca.quantidade,
       COALESCE(ca.valorFaturado, 0) as valorFaturado,
       COALESCE(ca.valorPago, 0) as valorPago,
@@ -3601,6 +3603,7 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.pacienteNome
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id
     ${whereClause}
     ORDER BY ca.dataExecucao, ca.codigoItem
   `;
@@ -4285,7 +4288,11 @@ export async function itensGlosadosDetalhePorMotivo(params: {
   if (!db) throw new Error("Database não disponível");
 
   let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
-  whereClause += ` AND ca.codigoGlosa = '${params.codigoGlosa.replace(/'/g, "''")}'`;
+  if (params.codigoGlosa === 'SEM_CODIGO') {
+    whereClause += ` AND (ca.codigoGlosa IS NULL OR ca.codigoGlosa = '')`;
+  } else {
+    whereClause += ` AND ca.codigoGlosa = '${params.codigoGlosa.replace(/'/g, "''")}'`;
+  }
   whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
   whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
 

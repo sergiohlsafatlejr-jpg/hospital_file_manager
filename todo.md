@@ -4088,3 +4088,10 @@
 - [x] Abas na tela Recurso de Glosa: por Item, por Motivo, por Guia/Paciente - com funcionalidade real
 - [x] Seleção de itens iguais (ex: todas as diárias) para aplicar justificativa em grupo
 - [x] Exibir motivos de glosa e permitir justificativas por grupo de itens
+
+## Correções Recurso de Glosa - Sessão 5 (25/06/2025)
+
+- [x] Coluna de justificativa nos agrupamentos por item e motivo (com replicação para todas as guias)
+- [x] Aba "Por Motivo de Glosa" não mostra dados (query bug)
+- [x] Filtro de convênios não abre (Select bug)
+- [x] Datas (início, fim, data item) devem vir do demonstrativo (faturamento_unificado)

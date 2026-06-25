@@ -319,6 +319,68 @@ export default function RecursoGlosaConciliacao() {
     });
   };
 
+  // Handler para replicar justificativas a partir da aba "Por Item"
+  const handleReplicarJustificativasItem = () => {
+    if (!detalheItem || Object.keys(justificativasItens).length === 0) {
+      toast.error("Nenhuma justificativa para replicar");
+      return;
+    }
+    setReplicandoJustificativas(true);
+    const justificativasPorMotivo: Record<string, string> = {};
+    const justificativasPorItem: Record<string, string> = {};
+    for (const d of detalheItem) {
+      const justificativa = justificativasItens[d.id];
+      if (justificativa) {
+        if (d.codigoGlosa) {
+          const key = `${d.codigoGlosa}-${d.codigoItem || ''}`;
+          justificativasPorMotivo[key] = justificativa;
+        }
+        if (d.codigoItem) {
+          justificativasPorItem[d.codigoItem] = justificativa;
+        }
+      }
+    }
+    replicarJustificativasMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      justificativasPorMotivo,
+      justificativasPorItem,
+      guiaOrigem: detalheItem[0]?.numeroGuia || '',
+      competencia: competencia !== 'todos' ? competencia : undefined,
+      convenioId: convenioFiltro !== 'todos' ? parseInt(convenioFiltro) : undefined,
+    });
+  };
+
+  // Handler para replicar justificativas a partir da aba "Por Motivo"
+  const handleReplicarJustificativasMotivo = () => {
+    if (!detalheMotivo || Object.keys(justificativasItens).length === 0) {
+      toast.error("Nenhuma justificativa para replicar");
+      return;
+    }
+    setReplicandoJustificativas(true);
+    const justificativasPorMotivo: Record<string, string> = {};
+    const justificativasPorItem: Record<string, string> = {};
+    for (const d of detalheMotivo) {
+      const justificativa = justificativasItens[d.id];
+      if (justificativa) {
+        if (d.codigoGlosa) {
+          const key = `${d.codigoGlosa}-${d.codigoItem || ''}`;
+          justificativasPorMotivo[key] = justificativa;
+        }
+        if (d.codigoItem) {
+          justificativasPorItem[d.codigoItem] = justificativa;
+        }
+      }
+    }
+    replicarJustificativasMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      justificativasPorMotivo,
+      justificativasPorItem,
+      guiaOrigem: detalheMotivo[0]?.numeroGuia || '',
+      competencia: competencia !== 'todos' ? competencia : undefined,
+      convenioId: convenioFiltro !== 'todos' ? parseInt(convenioFiltro) : undefined,
+    });
+  };
+
   const resumo = itensGlosados?.resumo;
 
   // Contagem de justificativas preenchidas
@@ -432,7 +494,7 @@ export default function RecursoGlosaConciliacao() {
                 <SelectContent>
                   <SelectItem value="todos">Todos Convênios</SelectItem>
                   {convenios?.map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
+                    <SelectItem key={c.convenioId || c.id} value={String(c.convenioId || c.id)}>{c.convenio || c.nome}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -519,12 +581,14 @@ export default function RecursoGlosaConciliacao() {
                         <>
                           <th className="p-2 text-left">Código</th>
                           <th className="p-2 text-left">Descrição</th>
+                          <th className="p-2 text-left">Justificativa</th>
                         </>
                       )}
                       {agrupamento === 'motivo' && (
                         <>
                           <th className="p-2 text-left">Cód. Glosa</th>
                           <th className="p-2 text-left">Motivo</th>
+                          <th className="p-2 text-left">Justificativa</th>
                         </>
                       )}
                       {agrupamento === 'data' && <th className="p-2 text-left">Data</th>}
@@ -547,8 +611,9 @@ export default function RecursoGlosaConciliacao() {
                               setGuiaExpandida(guiaExpandida === item.numeroGuia ? null : item.numeroGuia);
                             } else if (agrupamento === 'item' && item.codigoItem) {
                               setItemExpandido(itemExpandido === item.codigoItem ? null : item.codigoItem);
-                            } else if (agrupamento === 'motivo' && item.codigoGlosa) {
-                              setMotivoExpandido(motivoExpandido === item.codigoGlosa ? null : item.codigoGlosa);
+                            } else if (agrupamento === 'motivo') {
+                              const motivoKey = item.codigoGlosa || 'SEM_CODIGO';
+                              setMotivoExpandido(motivoExpandido === motivoKey ? null : motivoKey);
                             }
                           }}
                         >
@@ -570,7 +635,7 @@ export default function RecursoGlosaConciliacao() {
                                 : <ChevronRight className="h-4 w-4" />
                             )}
                             {agrupamento === 'motivo' && (
-                              motivoExpandido === item.codigoGlosa
+                              motivoExpandido === (item.codigoGlosa || 'SEM_CODIGO')
                                 ? <ChevronDown className="h-4 w-4" />
                                 : <ChevronRight className="h-4 w-4" />
                             )}
@@ -590,12 +655,34 @@ export default function RecursoGlosaConciliacao() {
                             <>
                               <td className="p-2 font-mono font-medium">{item.codigoItem}</td>
                               <td className="p-2 max-w-[200px] truncate">{item.descricaoItem || '-'}</td>
+                              <td className="p-2 max-w-[200px]">
+                                {detalheItem && itemExpandido === item.codigoItem ? (
+                                  <span className="text-xs text-green-700">
+                                    {detalheItem.filter((d: any) => justificativasItens[d.id]).length > 0
+                                      ? `${detalheItem.filter((d: any) => justificativasItens[d.id]).length}/${detalheItem.length} preenchidas`
+                                      : <span className="text-muted-foreground italic">Expandir para preencher</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">Expandir para preencher</span>
+                                )}
+                              </td>
                             </>
                           )}
                           {agrupamento === 'motivo' && (
                             <>
                               <td className="p-2 font-mono">{item.codigoGlosa || '-'}</td>
                               <td className="p-2 max-w-[200px] truncate">{item.motivoGlosaDesc || '-'}</td>
+                              <td className="p-2 max-w-[200px]">
+                                {detalheMotivo && motivoExpandido === (item.codigoGlosa || 'SEM_CODIGO') ? (
+                                  <span className="text-xs text-green-700">
+                                    {detalheMotivo.filter((d: any) => justificativasItens[d.id]).length > 0
+                                      ? `${detalheMotivo.filter((d: any) => justificativasItens[d.id]).length}/${detalheMotivo.length} preenchidas`
+                                      : <span className="text-muted-foreground italic">Expandir para preencher</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">Expandir para preencher</span>
+                                )}
+                              </td>
                             </>
                           )}
                           {agrupamento === 'data' && <td className="p-2 font-mono">{item.dataExecucao}</td>}
@@ -631,6 +718,11 @@ export default function RecursoGlosaConciliacao() {
                                     <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGerarJustificativasIA(); }} disabled={gerandoIA} className="text-xs">
                                       {gerandoIA ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Gerando...</> : <><Sparkles className="h-3 w-3 mr-1" />Gerar com IA</>}
                                     </Button>
+                                    {detalheItem.some((d: any) => justificativasItens[d.id]) && (
+                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleReplicarJustificativasItem(); }} disabled={replicandoJustificativas} className="text-xs text-blue-600 border-blue-200 hover:bg-blue-50">
+                                        {replicandoJustificativas ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Replicando...</> : <><Copy className="h-3 w-3 mr-1" />Replicar em Todas as Contas</>}
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">
@@ -679,7 +771,7 @@ export default function RecursoGlosaConciliacao() {
                           </tr>
                         ),
                         /* Detalhe expandido - por motivo */
-                        agrupamento === 'motivo' && motivoExpandido === item.codigoGlosa && detalheMotivo && (
+                        agrupamento === 'motivo' && motivoExpandido === (item.codigoGlosa || 'SEM_CODIGO') && detalheMotivo && (
                           <tr key={`detail-motivo-${item.chave}`}>
                             <td colSpan={8} className="p-0">
                               <div className="bg-muted/20 border-l-4 border-orange-400/50 p-3 mx-2 mb-2 rounded">
@@ -691,6 +783,11 @@ export default function RecursoGlosaConciliacao() {
                                     <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGerarJustificativasIA(); }} disabled={gerandoIA} className="text-xs">
                                       {gerandoIA ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Gerando...</> : <><Sparkles className="h-3 w-3 mr-1" />Gerar com IA</>}
                                     </Button>
+                                    {detalheMotivo.some((d: any) => justificativasItens[d.id]) && (
+                                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleReplicarJustificativasMotivo(); }} disabled={replicandoJustificativas} className="text-xs text-orange-600 border-orange-200 hover:bg-orange-50">
+                                        {replicandoJustificativas ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Replicando...</> : <><Copy className="h-3 w-3 mr-1" />Replicar em Todas as Contas</>}
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                                 <table className="w-full text-xs">
