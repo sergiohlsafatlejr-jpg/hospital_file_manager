@@ -518,7 +518,7 @@ export default function ConciliacaoCruzada() {
     if (!metodo) return <span className="text-muted-foreground text-xs">-</span>;
     // Se é manual e tem executadoPor, mostrar nome do usuário
     if (metodo === 'manual' || metodo === 'conciliacao_manual') {
-      const nomeUsuario = item?.executadoPor;
+      const nomeUsuario = item?.executadoPorNome || item?.executadoPor;
       if (nomeUsuario) {
         return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">{nomeUsuario}</Badge>;
       }

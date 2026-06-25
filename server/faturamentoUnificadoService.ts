@@ -2799,7 +2799,7 @@ export async function itensConciliadosPorGuia(params: {
       COALESCE(ca.diferenca, 0) as diferenca,
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
       ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm,
-      ca.executadoPor
+      ca.executadoPor, ca.executadoPorNome
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
@@ -2999,7 +2999,7 @@ export async function vincularItensManual(params: {
         vinculadoAoId = ${params.itemGlosaId},
         diferenca = 0,
         percentualDiferenca = 0,
-        executadoPor = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
+        executadoPorNome = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
     WHERE id IN (${params.itemAcrescimoIds.join(',')})
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
@@ -3020,7 +3020,7 @@ export async function vincularItensManual(params: {
         motivoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${motivoGlosaFinal.replace(/'/g, "''")}' ELSE NULL END,
         diferenca = ${glosaReal},
         percentualDiferenca = ${percentualGlosa},
-        executadoPor = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
+        executadoPorNome = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
     WHERE id = ${params.itemGlosaId}
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
@@ -3072,7 +3072,8 @@ export async function desvincularItensManual(params: {
           metodoConciliacao = NULL,
           vinculadoAoId = NULL,
           diferenca = -valorPago,
-          percentualDiferenca = 0
+          percentualDiferenca = 0,
+          executadoPorNome = NULL
       WHERE id = ${params.itemId}
         AND estabelecimentoId = ${params.estabelecimentoId}
     `));
@@ -3088,7 +3089,8 @@ export async function desvincularItensManual(params: {
           valorGlosa = valorFaturado,
           codigoGlosa = COALESCE(codigoGlosa, '9999'),
           diferenca = valorFaturado,
-          percentualDiferenca = 100
+          percentualDiferenca = 100,
+          executadoPorNome = NULL
       WHERE id = ${params.itemId}
         AND estabelecimentoId = ${params.estabelecimentoId}
     `));
@@ -3110,7 +3112,8 @@ export async function desvincularItensManual(params: {
               metodoConciliacao = NULL,
               vinculadoAoId = NULL,
               diferenca = -valorPago,
-              percentualDiferenca = 0
+              percentualDiferenca = 0,
+              executadoPorNome = NULL
           WHERE id = ${parId}
             AND estabelecimentoId = ${params.estabelecimentoId}
         `));
@@ -3125,7 +3128,8 @@ export async function desvincularItensManual(params: {
               valorGlosa = valorFaturado,
               codigoGlosa = COALESCE(codigoGlosa, '9999'),
               diferenca = valorFaturado,
-              percentualDiferenca = 100
+              percentualDiferenca = 100,
+              executadoPorNome = NULL
           WHERE id = ${parId}
             AND estabelecimentoId = ${params.estabelecimentoId}
         `));
