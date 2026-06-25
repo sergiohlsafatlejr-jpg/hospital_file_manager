@@ -4191,3 +4191,156 @@ export async function atualizarStatusLote(loteId: number, statusRecurso: string,
   
   return { success: true };
 }
+
+
+// ============ DETALHE POR ITEM E POR MOTIVO ============
+
+/**
+ * Detalha itens glosados filtrados por código de item (para aba "Por Item")
+ * Retorna todas as guias/pacientes que tiveram esse item glosado
+ */
+export async function itensGlosadosDetalhePorItem(params: {
+  estabelecimentoId: number;
+  codigoItem: string;
+  convenioId?: number;
+  competencia?: string;
+  dataPagto?: string;
+}): Promise<any[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  whereClause += ` AND ca.codigoItem = '${params.codigoItem.replace(/'/g, "''")}'`;
+  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
+  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.competencia) {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+  if (params.dataPagto) {
+    const dp = params.dataPagto.replace(/'/g, "''");
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+  }
+
+  const query = `
+    SELECT 
+      ca.id,
+      ca.codigoItem,
+      ca.descricaoItem,
+      ca.tipoItem,
+      ca.dataExecucao,
+      ca.quantidade,
+      ca.numeroGuia,
+      ca.pacienteNome,
+      COALESCE(ca.valorFaturado, 0) as valorFaturado,
+      COALESCE(ca.valorPago, 0) as valorPago,
+      COALESCE(ca.valorGlosa, 0) as valorGlosa,
+      ca.codigoGlosa,
+      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      ca.statusConciliacao,
+      ca.xmlRecursoGerado,
+      ca.competencia
+    FROM conciliados_automatico ca
+    LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    ${whereClause}
+    ORDER BY ca.pacienteNome, ca.dataExecucao
+  `;
+
+  const [rows] = await db.execute(sql.raw(query));
+  return (rows as unknown as any[]).map((r: any) => ({
+    id: Number(r.id),
+    codigoItem: r.codigoItem,
+    descricaoItem: r.descricaoItem,
+    tipoItem: r.tipoItem,
+    dataExecucao: r.dataExecucao,
+    quantidade: Number(r.quantidade) || 1,
+    numeroGuia: r.numeroGuia,
+    pacienteNome: r.pacienteNome,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    codigoGlosa: r.codigoGlosa,
+    motivoGlosa: r.motivoGlosa,
+    statusConciliacao: r.statusConciliacao,
+    xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
+    competencia: r.competencia,
+  }));
+}
+
+/**
+ * Detalha itens glosados filtrados por motivo de glosa (para aba "Por Motivo")
+ * Retorna todas as guias/pacientes que tiveram esse motivo de glosa
+ */
+export async function itensGlosadosDetalhePorMotivo(params: {
+  estabelecimentoId: number;
+  codigoGlosa: string;
+  convenioId?: number;
+  competencia?: string;
+  dataPagto?: string;
+}): Promise<any[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  whereClause += ` AND ca.codigoGlosa = '${params.codigoGlosa.replace(/'/g, "''")}'`;
+  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
+  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+
+  if (params.convenioId) {
+    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+  }
+  if (params.competencia) {
+    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+  }
+  if (params.dataPagto) {
+    const dp = params.dataPagto.replace(/'/g, "''");
+    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+  }
+
+  const query = `
+    SELECT 
+      ca.id,
+      ca.codigoItem,
+      ca.descricaoItem,
+      ca.tipoItem,
+      ca.dataExecucao,
+      ca.quantidade,
+      ca.numeroGuia,
+      ca.pacienteNome,
+      COALESCE(ca.valorFaturado, 0) as valorFaturado,
+      COALESCE(ca.valorPago, 0) as valorPago,
+      COALESCE(ca.valorGlosa, 0) as valorGlosa,
+      ca.codigoGlosa,
+      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      ca.statusConciliacao,
+      ca.xmlRecursoGerado,
+      ca.competencia
+    FROM conciliados_automatico ca
+    LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    ${whereClause}
+    ORDER BY ca.pacienteNome, ca.dataExecucao
+  `;
+
+  const [rows] = await db.execute(sql.raw(query));
+  return (rows as unknown as any[]).map((r: any) => ({
+    id: Number(r.id),
+    codigoItem: r.codigoItem,
+    descricaoItem: r.descricaoItem,
+    tipoItem: r.tipoItem,
+    dataExecucao: r.dataExecucao,
+    quantidade: Number(r.quantidade) || 1,
+    numeroGuia: r.numeroGuia,
+    pacienteNome: r.pacienteNome,
+    valorFaturado: Number(r.valorFaturado),
+    valorPago: Number(r.valorPago),
+    valorGlosa: Number(r.valorGlosa),
+    codigoGlosa: r.codigoGlosa,
+    motivoGlosa: r.motivoGlosa,
+    statusConciliacao: r.statusConciliacao,
+    xmlRecursoGerado: Number(r.xmlRecursoGerado) === 1,
+    competencia: r.competencia,
+  }));
+}

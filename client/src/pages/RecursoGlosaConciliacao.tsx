@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy } from "lucide-react";
+import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy, List, Tag, Users } from "lucide-react";
 import * as XLSX from "xlsx";
 
 function formatarMoeda(valor: number): string {
@@ -28,6 +29,8 @@ export default function RecursoGlosaConciliacao() {
   const [apenasNaoRecursados, setApenasNaoRecursados] = useState(true);
   const [guiasSelecionadas, setGuiasSelecionadas] = useState<Set<string>>(new Set());
   const [guiaExpandida, setGuiaExpandida] = useState<string | null>(null);
+  const [itemExpandido, setItemExpandido] = useState<string | null>(null);
+  const [motivoExpandido, setMotivoExpandido] = useState<string | null>(null);
   const [dialogXml, setDialogXml] = useState(false);
   const [dialogExcel, setDialogExcel] = useState(false);
   const [justificativa, setJustificativa] = useState("");
@@ -85,7 +88,31 @@ export default function RecursoGlosaConciliacao() {
       competencia: competencia !== "todos" ? competencia : undefined,
       dataPagto: dataPagto !== "todos" ? dataPagto : undefined,
     },
-    { enabled: !!estabelecimentoAtual?.id && !!guiaExpandida }
+    { enabled: !!estabelecimentoAtual?.id && !!guiaExpandida && agrupamento === 'guia' }
+  );
+
+  // Detalhe por item expandido
+  const { data: detalheItem } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItem.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      codigoItem: itemExpandido || "",
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+      competencia: competencia !== "todos" ? competencia : undefined,
+      dataPagto: dataPagto !== "todos" ? dataPagto : undefined,
+    },
+    { enabled: !!estabelecimentoAtual?.id && !!itemExpandido && agrupamento === 'item' }
+  );
+
+  // Detalhe por motivo expandido
+  const { data: detalheMotivo } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivo.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      codigoGlosa: motivoExpandido || "",
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+      competencia: competencia !== "todos" ? competencia : undefined,
+      dataPagto: dataPagto !== "todos" ? dataPagto : undefined,
+    },
+    { enabled: !!estabelecimentoAtual?.id && !!motivoExpandido && agrupamento === 'motivo' }
   );
 
   // Mutations
@@ -410,18 +437,7 @@ export default function RecursoGlosaConciliacao() {
                 </SelectContent>
               </Select>
 
-              <Select value={agrupamento} onValueChange={(v: any) => setAgrupamento(v)}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Agrupar por" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="guia">Por Guia/Paciente</SelectItem>
-                  <SelectItem value="item">Por Item</SelectItem>
-                  <SelectItem value="motivo">Por Motivo de Glosa</SelectItem>
-                  <SelectItem value="data">Por Data</SelectItem>
-                  <SelectItem value="lote">Por Lote</SelectItem>
-                </SelectContent>
-              </Select>
+
 
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -444,6 +460,24 @@ export default function RecursoGlosaConciliacao() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Abas de Agrupamento */}
+        <Tabs value={agrupamento} onValueChange={(v: any) => { setAgrupamento(v); setGuiasSelecionadas(new Set()); setGuiaExpandida(null); setItemExpandido(null); setMotivoExpandido(null); }} className="w-full">
+          <TabsList className="bg-muted/60 flex-wrap h-auto gap-1 p-1 mb-4">
+            <TabsTrigger value="guia" className="gap-1.5">
+              <Users className="h-3.5 w-3.5" />
+              Por Guia/Paciente
+            </TabsTrigger>
+            <TabsTrigger value="item" className="gap-1.5">
+              <List className="h-3.5 w-3.5" />
+              Por Item
+            </TabsTrigger>
+            <TabsTrigger value="motivo" className="gap-1.5">
+              <Tag className="h-3.5 w-3.5" />
+              Por Motivo de Glosa
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* Tabela de Guias */}
         <Card>
@@ -511,6 +545,10 @@ export default function RecursoGlosaConciliacao() {
                           onClick={() => {
                             if (agrupamento === 'guia' && item.numeroGuia) {
                               setGuiaExpandida(guiaExpandida === item.numeroGuia ? null : item.numeroGuia);
+                            } else if (agrupamento === 'item' && item.codigoItem) {
+                              setItemExpandido(itemExpandido === item.codigoItem ? null : item.codigoItem);
+                            } else if (agrupamento === 'motivo' && item.codigoGlosa) {
+                              setMotivoExpandido(motivoExpandido === item.codigoGlosa ? null : item.codigoGlosa);
                             }
                           }}
                         >
@@ -523,6 +561,16 @@ export default function RecursoGlosaConciliacao() {
                           <td className="p-2">
                             {agrupamento === 'guia' && (
                               guiaExpandida === item.numeroGuia
+                                ? <ChevronDown className="h-4 w-4" />
+                                : <ChevronRight className="h-4 w-4" />
+                            )}
+                            {agrupamento === 'item' && (
+                              itemExpandido === item.codigoItem
+                                ? <ChevronDown className="h-4 w-4" />
+                                : <ChevronRight className="h-4 w-4" />
+                            )}
+                            {agrupamento === 'motivo' && (
+                              motivoExpandido === item.codigoGlosa
                                 ? <ChevronDown className="h-4 w-4" />
                                 : <ChevronRight className="h-4 w-4" />
                             )}
@@ -570,6 +618,124 @@ export default function RecursoGlosaConciliacao() {
                             )}
                           </td>
                         </tr>,
+                        /* Detalhe expandido - por item */
+                        agrupamento === 'item' && itemExpandido === item.codigoItem && detalheItem && (
+                          <tr key={`detail-item-${item.chave}`}>
+                            <td colSpan={8} className="p-0">
+                              <div className="bg-muted/20 border-l-4 border-blue-400/50 p-3 mx-2 mb-2 rounded">
+                                <div className="flex items-center justify-between mb-3">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    Guias com item {item.codigoItem} ({detalheItem.length} ocorrências)
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGerarJustificativasIA(); }} disabled={gerandoIA} className="text-xs">
+                                      {gerandoIA ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Gerando...</> : <><Sparkles className="h-3 w-3 mr-1" />Gerar com IA</>}
+                                    </Button>
+                                  </div>
+                                </div>
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b">
+                                      <th className="p-1 text-left">Guia</th>
+                                      <th className="p-1 text-left">Paciente</th>
+                                      <th className="p-1 text-left">Data</th>
+                                      <th className="p-1 text-center">Qtde</th>
+                                      <th className="p-1 text-right">Faturado</th>
+                                      <th className="p-1 text-right">Pago</th>
+                                      <th className="p-1 text-right">Glosa</th>
+                                      <th className="p-1 text-left">Cód. Glosa</th>
+                                      <th className="p-1 text-left">Motivo</th>
+                                      <th className="p-1 text-left min-w-[200px]">Justificativa</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {detalheItem.map((d: any) => (
+                                      <tr key={d.id} className="border-b border-dashed">
+                                        <td className="p-1 font-mono">{d.numeroGuia}</td>
+                                        <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
+                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="p-1 text-center">{d.quantidade}</td>
+                                        <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
+                                        <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
+                                        <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1">{d.codigoGlosa && <Badge variant="outline" className="text-xs">{d.codigoGlosa}</Badge>}</td>
+                                        <td className="p-1 max-w-[100px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
+                                        <td className="p-1 min-w-[200px]">
+                                          {editandoJustificativa === d.id ? (
+                                            <Input className="h-6 text-xs" value={justificativasItens[d.id] || ''} onChange={(e) => setJustificativasItens(prev => ({...prev, [d.id]: e.target.value}))} maxLength={150} placeholder="Justificativa" onBlur={() => setEditandoJustificativa(null)} onKeyDown={(e) => { if (e.key === 'Enter') setEditandoJustificativa(null); }} autoFocus />
+                                          ) : (
+                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); }}>
+                                              {justificativasItens[d.id] ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id]}</span> : <span className="text-xs">Clique para adicionar</span>}
+                                              <Pencil className="h-3 w-3 flex-shrink-0" />
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        ),
+                        /* Detalhe expandido - por motivo */
+                        agrupamento === 'motivo' && motivoExpandido === item.codigoGlosa && detalheMotivo && (
+                          <tr key={`detail-motivo-${item.chave}`}>
+                            <td colSpan={8} className="p-0">
+                              <div className="bg-muted/20 border-l-4 border-orange-400/50 p-3 mx-2 mb-2 rounded">
+                                <div className="flex items-center justify-between mb-3">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    Itens com motivo "{item.motivoGlosaDesc || item.codigoGlosa}" ({detalheMotivo.length} ocorrências)
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleGerarJustificativasIA(); }} disabled={gerandoIA} className="text-xs">
+                                      {gerandoIA ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Gerando...</> : <><Sparkles className="h-3 w-3 mr-1" />Gerar com IA</>}
+                                    </Button>
+                                  </div>
+                                </div>
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b">
+                                      <th className="p-1 text-left">Guia</th>
+                                      <th className="p-1 text-left">Paciente</th>
+                                      <th className="p-1 text-left">Código Item</th>
+                                      <th className="p-1 text-left">Descrição</th>
+                                      <th className="p-1 text-left">Data</th>
+                                      <th className="p-1 text-right">Faturado</th>
+                                      <th className="p-1 text-right">Pago</th>
+                                      <th className="p-1 text-right">Glosa</th>
+                                      <th className="p-1 text-left min-w-[200px]">Justificativa</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {detalheMotivo.map((d: any) => (
+                                      <tr key={d.id} className="border-b border-dashed">
+                                        <td className="p-1 font-mono">{d.numeroGuia}</td>
+                                        <td className="p-1 max-w-[120px] truncate">{d.pacienteNome || '-'}</td>
+                                        <td className="p-1 font-mono">{d.codigoItem}</td>
+                                        <td className="p-1 max-w-[120px] truncate">{d.descricaoItem || '-'}</td>
+                                        <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
+                                        <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
+                                        <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1 min-w-[200px]">
+                                          {editandoJustificativa === d.id ? (
+                                            <Input className="h-6 text-xs" value={justificativasItens[d.id] || ''} onChange={(e) => setJustificativasItens(prev => ({...prev, [d.id]: e.target.value}))} maxLength={150} placeholder="Justificativa" onBlur={() => setEditandoJustificativa(null)} onKeyDown={(e) => { if (e.key === 'Enter') setEditandoJustificativa(null); }} autoFocus />
+                                          ) : (
+                                            <div className={`flex items-center gap-1 cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50 ${justificativasItens[d.id] ? 'text-green-700 bg-green-50' : 'text-muted-foreground italic'}`} onClick={(e) => { e.stopPropagation(); setEditandoJustificativa(d.id); }}>
+                                              {justificativasItens[d.id] ? <span className="truncate max-w-[180px] text-xs">{justificativasItens[d.id]}</span> : <span className="text-xs">Clique para adicionar</span>}
+                                              <Pencil className="h-3 w-3 flex-shrink-0" />
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        ),
                         /* Detalhe expandido da guia com campo de justificativa */
                         agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
                           <tr key={`detail-${item.chave}`}>

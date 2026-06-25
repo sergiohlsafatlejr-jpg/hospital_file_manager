@@ -369,6 +369,31 @@ export default function ConciliacaoCruzada() {
     }
   }, [statusJob?.status, statusJob?.resultado]);
 
+  // Atualizar KPIs internos da guia quando os itens são re-buscados
+  useEffect(() => {
+    if (guiaConciliadaSelecionada && itensConciliadosGuia && itensConciliadosGuia.length > 0) {
+      const itensAtivos = itensConciliadosGuia.filter((i: any) => i.statusConciliacao !== 'absorvido');
+      const valorFaturado = itensAtivos.reduce((s: number, i: any) => s + Number(i.valorFaturado || 0), 0);
+      const valorPago = itensAtivos.reduce((s: number, i: any) => s + Number(i.valorPago || 0), 0);
+      const valorGlosa = itensAtivos.reduce((s: number, i: any) => s + Number(i.valorGlosa || 0), 0);
+      const diferenca = itensAtivos.reduce((s: number, i: any) => s + (Number(i.diferenca || 0) < 0 ? Number(i.diferenca) : 0), 0);
+      const totalItens = itensAtivos.length;
+      const itensDesassociados = itensAtivos.filter((i: any) => ['nao_recebido', 'divergente', 'acrescimo'].includes(i.statusConciliacao)).length;
+      const statusGuia = itensDesassociados > 0 ? 'nao_conciliado' : valorPago === 0 ? 'sem_pagamento' : 'conciliado';
+      
+      setGuiaConciliadaSelecionada((prev: any) => ({
+        ...prev,
+        valorFaturado,
+        valorPago,
+        valorGlosa,
+        diferenca,
+        totalItens,
+        itensDesassociados,
+        statusGuia,
+      }));
+    }
+  }, [itensConciliadosGuia]);
+
   const resetarConc = trpc.faturamentoUnificado.resetarConciliacao.useMutation({
     onSuccess: (data) => {
       toast.success(`${data.resetados} registros de conciliação removidos`);
@@ -953,57 +978,60 @@ export default function ConciliacaoCruzada() {
                   </div>
                 </div>
 
-                {/* Cards resumo da guia */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200">
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Faturado</p>
-                      <p className="text-lg font-bold text-blue-600">{formatarMoeda(Number(guiaConciliadaSelecionada.valorFaturado))}</p>
+                {/* Cards resumo da guia - formato colorido igual tela principal */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                  <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Faturado</p>
+                      <p className="text-lg font-bold">{formatarMoeda(Number(guiaConciliadaSelecionada.valorFaturado))}</p>
+                      <p className="text-[10px] opacity-70">{guiaConciliadaSelecionada.totalItens} itens</p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-green-50 dark:bg-green-950 border-green-200">
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Recebido</p>
-                      <p className="text-lg font-bold text-green-600">{formatarMoeda(Number(guiaConciliadaSelecionada.valorPago))}</p>
+                  <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Recebido</p>
+                      <p className="text-lg font-bold">{formatarMoeda(Number(guiaConciliadaSelecionada.valorPago))}</p>
+                      <p className="text-[10px] opacity-70">
+                        {Number(guiaConciliadaSelecionada.valorFaturado) > 0 
+                          ? ((Number(guiaConciliadaSelecionada.valorPago) / Number(guiaConciliadaSelecionada.valorFaturado)) * 100).toFixed(0) + '%'
+                          : '-'}
+                      </p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-red-50 dark:bg-red-950 border-red-200">
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Glosado</p>
-                      <p className="text-lg font-bold text-red-600">{formatarMoeda(Number(guiaConciliadaSelecionada.valorGlosa))}</p>
+                  <Card className="bg-gradient-to-br from-red-600 to-red-700 text-white">
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Glosado</p>
+                      <p className="text-lg font-bold">{formatarMoeda(Number(guiaConciliadaSelecionada.valorGlosa))}</p>
+                      <p className="text-[10px] opacity-70">
+                        {Number(guiaConciliadaSelecionada.valorFaturado) > 0 
+                          ? ((Number(guiaConciliadaSelecionada.valorGlosa) / Number(guiaConciliadaSelecionada.valorFaturado)) * 100).toFixed(0) + '% do faturado'
+                          : '-'}
+                      </p>
                     </CardContent>
                   </Card>
-                  <Card className={`border-2 ${Number(guiaConciliadaSelecionada.diferenca) < 0 ? 'bg-teal-50 dark:bg-teal-950 border-teal-300' : 'bg-gray-50 dark:bg-gray-950 border-gray-200'}`}>
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Acréscimo</p>
-                      <p className={`text-lg font-bold ${Number(guiaConciliadaSelecionada.diferenca) < 0 ? 'text-teal-600' : 'text-gray-500'}`}>
+                  <Card className="bg-gradient-to-br from-teal-500 to-teal-600 text-white">
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Acréscimo</p>
+                      <p className="text-lg font-bold">
                         {Number(guiaConciliadaSelecionada.diferenca) < 0 ? formatarMoeda(Math.abs(Number(guiaConciliadaSelecionada.diferenca))) : '-'}
                       </p>
+                      <p className="text-[10px] opacity-70">Pagos s/ faturamento</p>
                     </CardContent>
                   </Card>
-                  <Card className="border-2">
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Status</p>
-                      <div className="mt-1">
-                        {guiaConciliadaSelecionada.statusGuia === 'conciliado' ? (
-                          <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
-                        ) : guiaConciliadaSelecionada.statusGuia === 'sem_pagamento' ? (
-                          <Badge className="bg-gray-500 hover:bg-gray-600"><AlertCircle className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>
-                        ) : (
-                          <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {guiaConciliadaSelecionada.totalItens} itens
+                  <Card className={`bg-gradient-to-br ${guiaConciliadaSelecionada.statusGuia === 'conciliado' ? 'from-emerald-500 to-emerald-600' : guiaConciliadaSelecionada.statusGuia === 'sem_pagamento' ? 'from-gray-500 to-gray-600' : 'from-orange-500 to-orange-600'} text-white`}>
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Status</p>
+                      <p className="text-lg font-bold">
+                        {guiaConciliadaSelecionada.statusGuia === 'conciliado' ? 'Conciliado' : guiaConciliadaSelecionada.statusGuia === 'sem_pagamento' ? 'Sem Pgto' : 'Não Conciliado'}
                       </p>
-                      <div className="mt-1">
-                        <p className="text-xs text-muted-foreground">Desassociados</p>
-                        {Number(guiaConciliadaSelecionada.itensDesassociados || 0) > 0 ? (
-                          <Badge className="bg-orange-500 hover:bg-orange-600 mt-0.5">{guiaConciliadaSelecionada.itensDesassociados}</Badge>
-                        ) : (
-                          <Badge className="bg-green-500 hover:bg-green-600 mt-0.5">0</Badge>
-                        )}
-                      </div>
+                      <p className="text-[10px] opacity-70">{guiaConciliadaSelecionada.totalItens} itens</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={`bg-gradient-to-br ${Number(guiaConciliadaSelecionada.itensDesassociados || 0) > 0 ? 'from-amber-500 to-amber-600' : 'from-slate-500 to-slate-600'} text-white`}>
+                    <CardContent className="p-2">
+                      <p className="text-xs opacity-80">Desassociados</p>
+                      <p className="text-lg font-bold">{guiaConciliadaSelecionada.itensDesassociados || 0}</p>
+                      <p className="text-[10px] opacity-70">itens pendentes</p>
                     </CardContent>
                   </Card>
                 </div>

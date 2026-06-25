@@ -4080,3 +4080,11 @@
 - [x] Status de recurso parcial/total por item (tabela recursos_glosa_lotes e recursos_glosa_itens)
 - [x] Armazenamento de recursos feitos e exibição na tela de acompanhamento
 - [x] Investigar divergência de valores - Total Faturado (588k) é o cobrado pelo hospital, Recebimentos Excel (794k) é o pago pelo convênio (inclui acréscimos). Adicionado KPI separado com valor pago e glosa.
+
+## Correções KPIs Internos e Abas Recurso de Glosa (25/06/2025 - Sessão 4)
+
+- [x] KPIs internos da guia (drill-down) no mesmo formato colorido da tela principal (cards gradiente)
+- [x] KPIs internos atualizam automaticamente ao alterar vinculações (useEffect recalcula ao refetch)
+- [x] Abas na tela Recurso de Glosa: por Item, por Motivo, por Guia/Paciente - com funcionalidade real
+- [x] Seleção de itens iguais (ex: todas as diárias) para aplicar justificativa em grupo
+- [x] Exibir motivos de glosa e permitir justificativas por grupo de itens

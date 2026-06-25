@@ -759,6 +759,36 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   /**
+   * Detalhe de itens glosados por código de item (para aba "Por Item")
+   */
+  itensGlosadosDetalhePorItem: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      codigoItem: z.string(),
+      convenioId: z.number().optional(),
+      competencia: z.string().optional(),
+      dataPagto: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalhePorItem(input);
+    }),
+
+  /**
+   * Detalhe de itens glosados por motivo de glosa (para aba "Por Motivo")
+   */
+  itensGlosadosDetalhePorMotivo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      codigoGlosa: z.string(),
+      convenioId: z.number().optional(),
+      competencia: z.string().optional(),
+      dataPagto: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.itensGlosadosDetalhePorMotivo(input);
+    }),
+
+  /**
    * Detalhe de um lote de recurso
    */
   detalheLoteRecurso: protectedProcedure
