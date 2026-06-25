@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -284,8 +284,8 @@ export default function RecursoGlosaDemonstrativo() {
                     ) : items.length === 0 ? (
                       <tr><td colSpan={13} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
-                      <>
-                        <tr key={item.guia} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedGuia(expandedGuia === item.guia ? null : item.guia)}>
+                      <Fragment key={item.guia}>
+                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedGuia(expandedGuia === item.guia ? null : item.guia)}>
                           <td className="p-2">{expandedGuia === item.guia ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.guia}</td>
                           <td className="p-2">{item.paciente}</td>
@@ -324,7 +324,7 @@ export default function RecursoGlosaDemonstrativo() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -357,8 +357,8 @@ export default function RecursoGlosaDemonstrativo() {
                     ) : items.length === 0 ? (
                       <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
-                      <>
-                        <tr key={item.codigo} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedItem(expandedItem === item.codigo ? null : item.codigo)}>
+                      <Fragment key={item.codigo}>
+                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedItem(expandedItem === item.codigo ? null : item.codigo)}>
                           <td className="p-2">{expandedItem === item.codigo ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.codigo}</td>
                           <td className="p-2">{item.descricao}</td>
@@ -395,7 +395,7 @@ export default function RecursoGlosaDemonstrativo() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -429,8 +429,8 @@ export default function RecursoGlosaDemonstrativo() {
                     ) : items.map((item: any) => {
                       const motivoKey = item.codigoGlosa || 'SEM_CODIGO';
                       return (
-                        <>
-                          <tr key={motivoKey} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedMotivo(expandedMotivo === motivoKey ? null : motivoKey)}>
+                        <Fragment key={motivoKey}>
+                          <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedMotivo(expandedMotivo === motivoKey ? null : motivoKey)}>
                             <td className="p-2">{expandedMotivo === motivoKey ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                             <td className="p-2 font-mono text-xs">{item.codigoGlosa === 'SEM_CODIGO' ? '-' : item.codigoGlosa}</td>
                             <td className="p-2">{item.motivoGlosa || 'Não informado'}</td>
@@ -466,7 +466,7 @@ export default function RecursoGlosaDemonstrativo() {
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>
