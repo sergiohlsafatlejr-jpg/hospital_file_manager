@@ -1145,8 +1145,25 @@ export async function executarConciliacaoAutomatica(params: {
   const [vincRows] = await db.execute(sql.raw(queryVinculacao));
   const vinculacoes = vincRows as unknown as any[];
 
-  // Criar mapa de vinculação: codigoHospital → codigoConvenio
+  // Buscar também vinculações padrão cadastradas manualmente
+  let whereVincPadrao = `WHERE vp.estabelecimentoId = ${params.estabelecimentoId} AND vp.ativo = 1`;
+  if (params.convenioId) {
+    whereVincPadrao += ` AND (vp.convenioId = ${params.convenioId} OR vp.convenioId IS NULL)`;
+  }
+  const [vincPadraoRows] = await db.execute(sql.raw(
+    `SELECT vp.codigoFaturado as codigoHospital, vp.codigoRecebido as codigoConvenio, vp.convenioId
+    FROM vinculacoes_padrao vp
+    ${whereVincPadrao}`
+  ));
+  const vinculacoesPadrao = vincPadraoRows as unknown as any[];
+
+  // Criar mapa de vinculação: codigoHospital → codigoConvenio (aprendidas + padrão)
   const mapaVinculacao = new Map<string, string>();
+  // Primeiro as padrão (menor prioridade)
+  for (const v of vinculacoesPadrao) {
+    mapaVinculacao.set(v.codigoHospital, v.codigoConvenio);
+  }
+  // Depois as aprendidas (sobrescrevem se houver conflito)
   for (const v of vinculacoes) {
     mapaVinculacao.set(v.codigoHospital, v.codigoConvenio);
   }
@@ -2426,6 +2443,9 @@ export async function resumoConciliadosAutomatico(params: {
   totalConciliados: number;
   totalDivergentes: number;
   totalNaoRecebidos: number;
+  totalGlosaTotal: number;
+  totalGlosaParcial: number;
+  totalSemPagamento: number;
   totalTerceiros: number;
   totalAcrescimos: number;
   valorTotalFaturado: number;
@@ -2778,7 +2798,8 @@ export async function itensConciliadosPorGuia(params: {
       ca.statusConciliacao, ca.metodoConciliacao, ca.vinculadoAoId,
       COALESCE(ca.diferenca, 0) as diferenca,
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
-      ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm
+      ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm,
+      ca.executadoPor
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
@@ -2916,6 +2937,7 @@ export async function vincularItensManual(params: {
   estabelecimentoId: number;
   itemAcrescimoIds: number[];
   itemGlosaId: number;
+  executadoPor?: string;
 }): Promise<{ sucesso: boolean; mensagem: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
@@ -2976,7 +2998,8 @@ export async function vincularItensManual(params: {
         metodoConciliacao = 'manual',
         vinculadoAoId = ${params.itemGlosaId},
         diferenca = 0,
-        percentualDiferenca = 0
+        percentualDiferenca = 0,
+        executadoPor = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
     WHERE id IN (${params.itemAcrescimoIds.join(',')})
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
@@ -2996,7 +3019,8 @@ export async function vincularItensManual(params: {
         codigoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${codigoGlosaFinal}' ELSE NULL END,
         motivoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${motivoGlosaFinal.replace(/'/g, "''")}' ELSE NULL END,
         diferenca = ${glosaReal},
-        percentualDiferenca = ${percentualGlosa}
+        percentualDiferenca = ${percentualGlosa},
+        executadoPor = ${params.executadoPor ? `'${params.executadoPor.replace(/'/g, "''")}'` : 'NULL'}
     WHERE id = ${params.itemGlosaId}
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
@@ -3326,7 +3350,7 @@ export async function itensGlosadosParaRecurso(params: {
   let orderBy: string;
 
   if (agrupamento === 'guia') {
-    groupByField = 'ca.numeroGuia, ca.convenioId, ca.competencia';
+    groupByField = 'ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia';
     selectFields = `
       ca.numeroGuia as chave,
       ca.numeroGuia,
@@ -3344,7 +3368,7 @@ export async function itensGlosadosParaRecurso(params: {
     `;
     orderBy = 'ORDER BY ca.competencia DESC, valorGlosa DESC';
   } else if (agrupamento === 'data') {
-    groupByField = 'ca.dataExecucao, ca.convenioId';
+    groupByField = 'ca.dataExecucao, ca.convenio, ca.convenioId';
     selectFields = `
       DATE_FORMAT(ca.dataExecucao, '%Y-%m-%d') as chave,
       DATE_FORMAT(ca.dataExecucao, '%Y-%m-%d') as dataExecucao,
@@ -3364,14 +3388,14 @@ export async function itensGlosadosParaRecurso(params: {
     orderBy = 'ORDER BY dataExecucao DESC, valorGlosa DESC';
   } else {
     // lote
-    groupByField = 'fu.lotePrestador, ca.convenioId';
+    groupByField = 'fu.lotePrestador, ca.convenio, ca.convenioId';
     selectFields = `
       COALESCE(fu.lotePrestador, 'SEM_LOTE') as chave,
       COALESCE(fu.lotePrestador, 'Sem Lote') as lote,
       ca.convenio,
       ca.convenioId,
       NULL as numeroGuia,
-      ca.competencia,
+      MAX(ca.competencia) as competencia,
       NULL as pacienteNome,
       COUNT(*) as totalItensGlosados,
       SUM(COALESCE(ca.valorFaturado, 0)) as valorFaturado,
@@ -3783,4 +3807,115 @@ Responda APENAS com JSON válido.`
 
   const resultado = JSON.parse(content);
   return resultado;
+}
+
+
+// ============================================================
+// VINCULAÇÕES PADRÃO - CADASTRO E APRENDIZADO AUTOMÁTICO
+// ============================================================
+
+/**
+ * Listar vinculações padrão de um estabelecimento
+ */
+export async function listarVinculacoesPadrao(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let where = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND ativo = 1`;
+  if (params.convenioId) {
+    where += ` AND (convenioId = ${params.convenioId} OR convenioId IS NULL)`;
+  }
+
+  const [rows] = await db.execute(sql.raw(
+    `SELECT * FROM vinculacoes_padrao ${where} ORDER BY vezesUsado DESC, updatedAt DESC`
+  ));
+  return rows as unknown as any[];
+}
+
+/**
+ * Criar ou atualizar uma vinculação padrão
+ */
+export async function salvarVinculacaoPadrao(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  codigoFaturado: string;
+  codigoRecebido: string;
+  descricaoFaturado?: string;
+  descricaoRecebido?: string;
+  tipoItem?: string;
+  criadoPor?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  const convenioVal = params.convenioId ? String(params.convenioId) : 'NULL';
+  const descFat = params.descricaoFaturado ? `'${params.descricaoFaturado.replace(/'/g, "''")}'` : 'NULL';
+  const descRec = params.descricaoRecebido ? `'${params.descricaoRecebido.replace(/'/g, "''")}'` : 'NULL';
+  const tipo = params.tipoItem ? `'${params.tipoItem.replace(/'/g, "''")}'` : 'NULL';
+  const criado = params.criadoPor ? `'${params.criadoPor.replace(/'/g, "''")}'` : 'NULL';
+
+  await db.execute(sql.raw(
+    `INSERT INTO vinculacoes_padrao (estabelecimentoId, convenioId, codigoFaturado, codigoRecebido, descricaoFaturado, descricaoRecebido, tipoItem, criadoPor, vezesUsado)
+     VALUES (${params.estabelecimentoId}, ${convenioVal}, '${params.codigoFaturado.replace(/'/g, "''")}', '${params.codigoRecebido.replace(/'/g, "''")}', ${descFat}, ${descRec}, ${tipo}, ${criado}, 1)
+     ON DUPLICATE KEY UPDATE vezesUsado = vezesUsado + 1, descricaoFaturado = COALESCE(${descFat}, descricaoFaturado), descricaoRecebido = COALESCE(${descRec}, descricaoRecebido), updatedAt = NOW()`
+  ));
+  return { success: true };
+}
+
+/**
+ * Registrar vinculação automática quando o usuário faz manualmente
+ * Chamado após vincularItensManual para "aprender" a associação
+ */
+export async function aprenderVinculacao(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  codigoFaturado: string;
+  codigoRecebido: string;
+  descricaoFaturado?: string;
+  descricaoRecebido?: string;
+  tipoItem?: string;
+  criadoPor?: string;
+}) {
+  return salvarVinculacaoPadrao(params);
+}
+
+/**
+ * Excluir uma vinculação padrão
+ */
+export async function excluirVinculacaoPadrao(id: number, estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  await db.execute(sql.raw(
+    `UPDATE vinculacoes_padrao SET ativo = 0 WHERE id = ${id} AND estabelecimentoId = ${estabelecimentoId}`
+  ));
+  return { success: true };
+}
+
+/**
+ * Buscar vinculações padrão que correspondam a itens de acréscimo
+ * Usado pela conciliação automática para aplicar vinculações aprendidas
+ */
+export async function buscarVinculacoesAplicaveis(params: {
+  estabelecimentoId: number;
+  convenioId?: number;
+  codigosRecebidos: string[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  if (!params.codigosRecebidos.length) return [];
+
+  const codigosIn = params.codigosRecebidos.map(c => `'${c.replace(/'/g, "''")}'`).join(',');
+  let where = `WHERE estabelecimentoId = ${params.estabelecimentoId} AND ativo = 1 AND codigoRecebido IN (${codigosIn})`;
+  if (params.convenioId) {
+    where += ` AND (convenioId = ${params.convenioId} OR convenioId IS NULL)`;
+  }
+
+  const [rows] = await db.execute(sql.raw(
+    `SELECT * FROM vinculacoes_padrao ${where} ORDER BY vezesUsado DESC`
+  ));
+  return rows as unknown as any[];
 }

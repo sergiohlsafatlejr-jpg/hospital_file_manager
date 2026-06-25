@@ -387,8 +387,8 @@ export const faturamentoUnificadoRouter = router({
       itemAcrescimoIds: z.array(z.number()).min(1),
       itemGlosaId: z.number(),
     }))
-    .mutation(async ({ input }) => {
-      return await faturamentoService.vincularItensManual(input);
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.vincularItensManual({ ...input, executadoPor: ctx.user?.name || 'Usuário' });
     }),
 
   /**
@@ -663,5 +663,42 @@ export const faturamentoUnificadoRouter = router({
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.gerarJustificativasIA(input);
+    }),
+
+  // ===== VINCULAÇÕES PADRÃO =====
+
+  listarVinculacoesPadrao: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.listarVinculacoesPadrao(input);
+    }),
+
+  salvarVinculacaoPadrao: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number(),
+      convenioId: z.number().optional(),
+      codigoFaturado: z.string(),
+      codigoRecebido: z.string(),
+      descricaoFaturado: z.string().optional(),
+      descricaoRecebido: z.string().optional(),
+      tipoItem: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.salvarVinculacaoPadrao({
+        ...input,
+        criadoPor: ctx.user?.name || ctx.user?.openId || 'sistema',
+      });
+    }),
+
+  excluirVinculacaoPadrao: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      estabelecimentoId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.excluirVinculacaoPadrao(input.id, input.estabelecimentoId);
     }),
 });

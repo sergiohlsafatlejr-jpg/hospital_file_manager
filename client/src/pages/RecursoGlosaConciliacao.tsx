@@ -42,7 +42,7 @@ export default function RecursoGlosaConciliacao() {
   const [editandoJustificativa, setEditandoJustificativa] = useState<number | null>(null);
 
   // Queries
-  const { data: competencias } = trpc.faturamentoUnificado.competenciasDisponiveis.useQuery(
+  const { data: competencias } = trpc.faturamentoUnificado.competenciasConciliados.useQuery(
     { estabelecimentoId: estabelecimentoAtual?.id || 0 },
     { enabled: !!estabelecimentoAtual?.id }
   );

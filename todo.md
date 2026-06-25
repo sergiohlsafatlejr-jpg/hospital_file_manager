@@ -4054,3 +4054,17 @@
 - [x] Exibir total de acréscimos selecionados e soma dos valores no modal
 - [x] Corrigir bug TypeScript: substituir referências a setItemParaVincular por setItensAcrescimoSelecionados
 - [x] Build compilando com sucesso
+
+
+## Melhorias Tela Conciliação Cruzada - Itens e UX (25/06/2026)
+- [x] Renomear status: conciliado → associado, glosa_s_motivo → associado (quando já tem associação)
+- [x] Renomear status: desassociados para itens sem associação
+- [x] Campo método: substituir por "Sistema" ou nome do usuário que fez a vinculação
+- [x] Cores na coluna glosa: valor zerado em cinza, com valor de glosa em vermelho
+- [x] Filtro na tela de itens para ver somente itens sem associação (desassociados)
+- [x] Persistir filtros ao navegar entre páginas (não perder filtros ao voltar)
+- [x] KPIs com valores corretos (atualizar quando glosa muda), reduzir tamanho dos cards, manter fonte
+- [x] Fixar filtros e KPIs no topo com barra de rolagem nas contas e itens
+- [x] Criar cadastro de vinculações padrão (código faturado ↔ código pago) para aprendizado automático
+- [x] Aplicar vinculações padrão automaticamente nas próximas conciliações
+- [x] Corrigir tela de Recurso de Glosa via Conciliação (não está abrindo/mostrando dados - bug GROUP BY)

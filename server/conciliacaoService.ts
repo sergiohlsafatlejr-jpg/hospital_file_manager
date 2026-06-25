@@ -120,7 +120,7 @@ export async function executarConciliacao(input: ConciliacaoInput): Promise<Resu
     ORDER BY numero_guia, item`)
   ) as unknown as ItemDemo[];
   
-  // 4. Buscar vinculações de códigos existentes
+  // 4. Buscar vinculações de códigos existentes (vinculacao_codigos + vinculacoes_padrao)
   const convFilter = convenioId ? `AND (convenioId = ${convenioId} OR convenioId IS NULL)` : '';
   const vinculacoes = await db.execute(
     sql.raw(`SELECT id, codigoHospital, codigoConvenio, descricaoHospital, descricaoConvenio
@@ -128,10 +128,21 @@ export async function executarConciliacao(input: ConciliacaoInput): Promise<Resu
     WHERE estabelecimentoId = ${estabelecimentoId} AND ativo = 'sim' ${convFilter}`)
   ) as unknown as VinculacaoCodigo[];
   
+  // Buscar também vinculações padrão cadastradas manualmente
+  const vinculacoesPadrao = await db.execute(
+    sql.raw(`SELECT id, codigoFaturado as codigoHospital, codigoRecebido as codigoConvenio, 
+      descricaoFaturado as descricaoHospital, descricaoRecebido as descricaoConvenio
+    FROM vinculacoes_padrao
+    WHERE estabelecimentoId = ${estabelecimentoId} AND ativo = 1 ${convFilter}`)
+  ) as unknown as VinculacaoCodigo[];
+  
+  // Mesclar vinculações (padrão tem prioridade menor que as aprendidas)
+  const todasVinculacoes = [...vinculacoes, ...vinculacoesPadrao];
+  
   // Criar mapas de vinculação (hospital -> convênio e convênio -> hospital)
   const mapaHospitalParaConvenio = new Map<string, VinculacaoCodigo>();
   const mapaConvenioParaHospital = new Map<string, VinculacaoCodigo>();
-  for (const v of vinculacoes) {
+  for (const v of todasVinculacoes) {
     mapaHospitalParaConvenio.set(v.codigoHospital, v);
     mapaConvenioParaHospital.set(v.codigoConvenio, v);
   }

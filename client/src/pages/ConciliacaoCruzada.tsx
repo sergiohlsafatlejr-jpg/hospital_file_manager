@@ -37,13 +37,32 @@ export default function ConciliacaoCruzada() {
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("conciliados");
 
-  // Filtros compartilhados
-  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>("todos");
-  const [convenioFiltro, setConvenioFiltro] = useState("todos");
-  const [statusFiltro, setStatusFiltro] = useState("todos");
-  const [loteXmlFiltro, setLoteXmlFiltro] = useState("todos");
-  const [loteRetornoFiltro, setLoteRetornoFiltro] = useState("todos");
-  const [dataPagtoFiltro, setDataPagtoFiltro] = useState("todos");
+  // Filtros compartilhados - persistidos em localStorage
+  const storageKey = `conciliacao_filtros_${estabelecimentoId}`;
+  const savedFilters = useMemo(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  }, [storageKey]);
+  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(savedFilters?.competencia || "todos");
+  const [convenioFiltro, setConvenioFiltro] = useState(savedFilters?.convenio || "todos");
+  const [statusFiltro, setStatusFiltro] = useState(savedFilters?.status || "todos");
+  const [loteXmlFiltro, setLoteXmlFiltro] = useState(savedFilters?.loteXml || "todos");
+  const [loteRetornoFiltro, setLoteRetornoFiltro] = useState(savedFilters?.loteRetorno || "todos");
+  const [dataPagtoFiltro, setDataPagtoFiltro] = useState(savedFilters?.dataPagto || "todos");
+
+  // Salvar filtros no localStorage quando mudarem
+  useEffect(() => {
+    localStorage.setItem(storageKey, JSON.stringify({
+      competencia: competenciaFiltro,
+      convenio: convenioFiltro,
+      status: statusFiltro,
+      loteXml: loteXmlFiltro,
+      loteRetorno: loteRetornoFiltro,
+      dataPagto: dataPagtoFiltro,
+    }));
+  }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey]);
   const [loteXmlOpen, setLoteXmlOpen] = useState(false);
   const [loteRetornoOpen, setLoteRetornoOpen] = useState(false);
   const [busca, setBusca] = useState("");
@@ -99,6 +118,7 @@ export default function ConciliacaoCruzada() {
 
   // Conciliação manual - vinculação de itens
   const [modalVinculacaoManualAberto, setModalVinculacaoManualAberto] = useState(false);
+  const [filtroStatusItens, setFiltroStatusItens] = useState<string>('todos');
   const [itensAcrescimoSelecionados, setItensAcrescimoSelecionados] = useState<number[]>([]);
   const [itemCandidatoSelecionado, setItemCandidatoSelecionado] = useState<number | null>(null);
 
@@ -459,62 +479,53 @@ export default function ConciliacaoCruzada() {
 
   const getStatusBadge = (status: string, item?: any) => {
     // Se o item tem motivo de glosa informado pelo convênio (codigoGlosa preenchido e diferente de 9999),
-    // significa que foi encontrado no retorno do convênio E o convênio justificou a glosa = Conciliado
+    // significa que foi encontrado no retorno do convênio E o convênio justificou a glosa = Associado
     if (item && item.codigoGlosa && item.codigoGlosa !== '9999') {
-      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
     }
-    // Se o item tem código 9999, significa glosa sem motivo informado pelo convênio
+    // Se o item tem código 9999, mas já tem vinculação (metodoConciliacao != null), mostrar como Associado
+    if (item && item.codigoGlosa === '9999' && item.metodoConciliacao) {
+      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
+    }
+    // Se o item tem código 9999 sem associação, mostrar como Desassociado
     if (item && item.codigoGlosa === '9999') {
-      return <Badge className="bg-red-500 hover:bg-red-600"><AlertTriangle className="w-3 h-3 mr-1" /> Glosa s/ Motivo</Badge>;
+      return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertTriangle className="w-3 h-3 mr-1" /> Desassociado</Badge>;
     }
     switch (status) {
       case 'conciliado':
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
       case 'glosa_total':
       case 'glosa_parcial':
-        // Se chegou aqui sem item (ex: status de guia), mostrar como Conciliado
-        // pois o match com retorno do convênio já ocorreu
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
       case 'divergente':
       case 'acrescimo':
         return <Badge className="bg-teal-500 hover:bg-teal-600"><TrendingUp className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
       case 'terceiro':
         return <Badge className="bg-purple-500 hover:bg-purple-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Terceiro</Badge>;
       case 'conciliado_manual':
-        return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado Manualmente</Badge>;
+        return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
       case 'glosado':
         return <Badge className="bg-purple-500 hover:bg-purple-600"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
       case 'sem_pagamento':
       case 'nao_recebido':
       case 'pendente':
       default:
-        return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Sem Conciliação</Badge>;
+        return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Desassociado</Badge>;
     }
   };
 
-  const getMetodoBadge = (metodo: string | null) => {
+  const getMetodoBadge = (metodo: string | null, item?: any) => {
     if (!metodo) return <span className="text-muted-foreground text-xs">-</span>;
-    switch (metodo) {
-      case 'guia_codigo':
-        return <Badge variant="outline" className="text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300">Guia+Código</Badge>;
-      case 'guia_codigo_tuss':
-        return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">Guia+TUSS</Badge>;
-      case 'vinculacao':
-        return <Badge variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300">De-Para</Badge>;
-      case 'paciente_codigo':
-        return <Badge variant="outline" className="text-xs bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Paciente+Código</Badge>;
-      case 'agrupamento':
-        return <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">Agrupado</Badge>;
-      case 'agrupamento_recebimentos':
-        return <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">Agrup. Rec.</Badge>;
-      case 'acrescimo_demonstrativo':
-        return <Badge variant="outline" className="text-xs bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300">Demonstrativo</Badge>;
-      case 'manual':
-      case 'conciliacao_manual':
-        return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">Manual</Badge>;
-      default:
-        return <Badge variant="outline" className="text-xs">{metodo}</Badge>;
+    // Se é manual e tem executadoPor, mostrar nome do usuário
+    if (metodo === 'manual' || metodo === 'conciliacao_manual') {
+      const nomeUsuario = item?.executadoPor;
+      if (nomeUsuario) {
+        return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">{nomeUsuario}</Badge>;
+      }
+      return <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">Manual</Badge>;
     }
+    // Todos os métodos automáticos mostram "Sistema"
+    return <Badge variant="outline" className="text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300">Sistema</Badge>;
   };
 
   const abrirDetalhes = (conta: any) => {
@@ -591,7 +602,7 @@ export default function ConciliacaoCruzada() {
         'Valor Total Faturado': resumoConciliados.valorTotalFaturado,
         'Valor Total Pago': resumoConciliados.valorTotalPago,
         'Valor Total Glosa': resumoConciliados.valorTotalGlosa,
-        'Valor Total Acréscimo': resumoConciliados.valorTotalAcrescimo || 0,
+        'Valor Total Acréscimo': resumoConciliados.valorTotalDiferenca || 0,
       }]);
       XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
     }
@@ -660,7 +671,9 @@ export default function ConciliacaoCruzada() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-4 flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+        {/* Seção fixa: cabeçalho + filtros */}
+        <div className="flex-shrink-0 space-y-4">
         {/* Cabeçalho */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
@@ -873,7 +886,10 @@ export default function ConciliacaoCruzada() {
             </div>
           </CardContent>
         </Card>
+        </div>
 
+        {/* Seção scrollável: abas + conteúdo */}
+        <div className="flex-1 overflow-y-auto space-y-4">
         {/* Abas */}
         <Tabs value={abaAtiva} onValueChange={(v) => { setAbaAtiva(v); setGuiaConciliadaSelecionada(null); }}>
           <TabsList className="grid w-full grid-cols-3 max-w-xl">
@@ -998,6 +1014,17 @@ export default function ConciliacaoCruzada() {
                         Itens da Guia ({itensConciliadosGuia?.filter((i: any) => i.statusConciliacao !== 'absorvido').length || 0})
                       </CardTitle>
                       <div className="flex items-center gap-2 flex-wrap">
+                        <Select value={filtroStatusItens} onValueChange={setFiltroStatusItens}>
+                          <SelectTrigger className="w-[180px] h-8 text-xs">
+                            <SelectValue placeholder="Filtrar status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos os Itens</SelectItem>
+                            <SelectItem value="desassociados">Somente Desassociados</SelectItem>
+                            <SelectItem value="associados">Somente Associados</SelectItem>
+                            <SelectItem value="acrescimos">Somente Acréscimos</SelectItem>
+                          </SelectContent>
+                        </Select>
                         {/* Botões de ação de glosa */}
                         {itensConciliadosGuia && itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'nao_recebido' || i.statusConciliacao === 'divergente' || i.statusConciliacao === 'acrescimo') && (
                           <>
@@ -1130,7 +1157,19 @@ export default function ConciliacaoCruzada() {
                             </tr>
                           </thead>
                           <tbody>
-                            {itensConciliadosGuia.filter((item: any) => item.statusConciliacao !== 'absorvido').map((item: any, index: number) => (
+                            {itensConciliadosGuia.filter((item: any) => {
+                              if (item.statusConciliacao === 'absorvido') return false;
+                              if (filtroStatusItens === 'desassociados') {
+                                return ['nao_recebido', 'sem_pagamento', 'pendente'].includes(item.statusConciliacao) || (item.codigoGlosa === '9999' && !item.metodoConciliacao);
+                              }
+                              if (filtroStatusItens === 'associados') {
+                                return ['conciliado', 'glosa_total', 'glosa_parcial', 'conciliado_manual'].includes(item.statusConciliacao) || (item.metodoConciliacao && item.statusConciliacao !== 'acrescimo');
+                              }
+                              if (filtroStatusItens === 'acrescimos') {
+                                return item.statusConciliacao === 'acrescimo' || item.statusConciliacao === 'divergente';
+                              }
+                              return true;
+                            }).map((item: any, index: number) => (
                               <tr key={item.id || index} className={`border-b hover:bg-muted/50 ${
                                 (item.statusConciliacao === 'divergente' || item.statusConciliacao === 'acrescimo') ? 'bg-teal-50/50 dark:bg-teal-950/20' :
                                 item.statusConciliacao === 'nao_recebido' ? 'bg-red-50/50 dark:bg-red-950/20' :
@@ -1163,7 +1202,7 @@ export default function ConciliacaoCruzada() {
                                 <td className="p-3 text-right font-medium text-blue-600">{formatarMoeda(Number(item.valorFaturado))}</td>
                                 <td className="p-3 text-right font-medium text-purple-600">{formatarMoeda(Number(item.valorFaturadoProcessado || 0))}</td>
                                 <td className="p-3 text-right font-medium text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
-                                <td className="p-3 text-right font-medium text-red-600">{formatarMoeda(Number(item.valorGlosa))}</td>
+                                <td className={`p-3 text-right font-medium ${Number(item.valorGlosa) > 0 ? 'text-red-600' : 'text-gray-400'}`}>{formatarMoeda(Number(item.valorGlosa))}</td>
                                 <td className="p-3 text-sm max-w-[250px]" title={item.codigoGlosa ? `Cód: ${item.codigoGlosa}${item.motivoGlosa ? ' - ' + item.motivoGlosa : ''}${item.grupoGlosa ? ' [' + item.grupoGlosa + ']' : ''}` : ''}>
                                   {item.codigoGlosa ? (
                                     <div className="text-red-600">
@@ -1190,7 +1229,7 @@ export default function ConciliacaoCruzada() {
                                     </div>
                                   )}
                                 </td>
-                                <td className="p-3 text-center">{getMetodoBadge(item.metodoConciliacao)}</td>
+                                <td className="p-3 text-center">{getMetodoBadge(item.metodoConciliacao, item)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1222,99 +1261,64 @@ export default function ConciliacaoCruzada() {
                 {/* Cards de Resumo da Conciliação */}
                 {resumoConciliados && (resumoConciliados.totalConciliados + (resumoConciliados.totalGlosaTotal || 0) + (resumoConciliados.totalGlosaParcial || 0) + (resumoConciliados.totalNaoRecebidos || 0) + (resumoConciliados.totalTerceiros || 0)) > 0 ? (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
                       <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm opacity-80">Conciliados</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalConciliados}</p>
-                              <p className="text-xs opacity-70">{formatarMoeda(resumoConciliados.valorTotalPago)}</p>
-                            </div>
-                            <CheckCircle2 className="w-10 h-10 opacity-50" />
-                          </div>
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Conciliados</p>
+                          <p className="text-lg font-bold">{resumoConciliados.totalConciliados}</p>
+                          <p className="text-[10px] opacity-70">{formatarMoeda(resumoConciliados.valorTotalPago)}</p>
                         </CardContent>
                       </Card>
 
                       <Card className="bg-gradient-to-br from-red-600 to-red-700 text-white">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm opacity-80">Glosa Total</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalGlosaTotal || 0}</p>
-                              <p className="text-xs opacity-70">{formatarMoeda(resumoConciliados.valorTotalGlosa)} glosado</p>
-                            </div>
-                            <Ban className="w-10 h-10 opacity-50" />
-                          </div>
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Glosa Total</p>
+                          <p className="text-lg font-bold">{resumoConciliados.totalGlosaTotal || 0}</p>
+                          <p className="text-[10px] opacity-70">{formatarMoeda(resumoConciliados.valorTotalGlosa)}</p>
                         </CardContent>
                       </Card>
 
                       <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm opacity-80">Glosa Parcial</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalGlosaParcial || 0}</p>
-                              <p className="text-xs opacity-70">Parcialmente glosado</p>
-                            </div>
-                            <AlertCircle className="w-10 h-10 opacity-50" />
-                          </div>
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Glosa Parcial</p>
+                          <p className="text-lg font-bold">{resumoConciliados.totalGlosaParcial || 0}</p>
+                          <p className="text-[10px] opacity-70">Parcialmente glosado</p>
                         </CardContent>
                       </Card>
 
                       <Card className="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm opacity-80">Sem Pagamento</p>
-                              <p className="text-2xl font-bold">{resumoConciliados.totalNaoRecebidos || 0}</p>
-                              <p className="text-xs opacity-70">Sem retorno do convênio</p>
-                            </div>
-                            <Clock className="w-10 h-10 opacity-50" />
-                          </div>
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Sem Pagamento</p>
+                          <p className="text-lg font-bold">{resumoConciliados.totalNaoRecebidos || 0}</p>
+                          <p className="text-[10px] opacity-70">Sem retorno</p>
                         </CardContent>
                       </Card>
 
                       {(resumoConciliados.totalTerceiros || 0) > 0 && (
-                        <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm opacity-80">Terceiros</p>
-                                <p className="text-2xl font-bold">{resumoConciliados.totalTerceiros}</p>
-                                <p className="text-xs opacity-70">Pago direto ao terceiro</p>
-                              </div>
-                              <ExternalLink className="w-10 h-10 opacity-50" />
-                            </div>
+                        <Card className="bg-gradient-to-br from-slate-500 to-slate-600 text-white">
+                          <CardContent className="p-2">
+                            <p className="text-xs opacity-80">Terceiros</p>
+                            <p className="text-lg font-bold">{resumoConciliados.totalTerceiros}</p>
+                            <p className="text-[10px] opacity-70">Pago ao terceiro</p>
                           </CardContent>
                         </Card>
                       )}
 
                       {(resumoConciliados.totalAcrescimos || 0) > 0 && (
                         <Card className="bg-gradient-to-br from-teal-500 to-teal-600 text-white">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm opacity-80">Acréscimos</p>
-                                <p className="text-2xl font-bold">{resumoConciliados.totalAcrescimos}</p>
-                                <p className="text-xs opacity-70">Pagos sem faturamento</p>
-                              </div>
-                              <PlusCircle className="w-10 h-10 opacity-50" />
-                            </div>
+                          <CardContent className="p-2">
+                            <p className="text-xs opacity-80">Acréscimos</p>
+                            <p className="text-lg font-bold">{resumoConciliados.totalAcrescimos}</p>
+                            <p className="text-[10px] opacity-70">Pagos s/ faturamento</p>
                           </CardContent>
                         </Card>
                       )}
 
                       <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm opacity-80">Total Faturado</p>
-                              <p className="text-2xl font-bold">{formatarMoeda(resumoConciliados.valorTotalFaturado)}</p>
-                              <p className="text-xs opacity-70">Glosa: {formatarMoeda(resumoConciliados.valorTotalGlosa)}</p>
-                            </div>
-                            <DollarSign className="w-10 h-10 opacity-50" />
-                          </div>
+                        <CardContent className="p-2">
+                          <p className="text-xs opacity-80">Total Faturado</p>
+                          <p className="text-lg font-bold">{formatarMoeda(resumoConciliados.valorTotalFaturado)}</p>
+                          <p className="text-[10px] opacity-70">Glosa: {formatarMoeda(resumoConciliados.valorTotalGlosa)}</p>
                         </CardContent>
                       </Card>
                     </div>
@@ -1996,6 +2000,8 @@ export default function ConciliacaoCruzada() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        </div>
 
         {/* Modal de Geração de XML */}
         <Dialog open={modalXmlAberto} onOpenChange={setModalXmlAberto}>

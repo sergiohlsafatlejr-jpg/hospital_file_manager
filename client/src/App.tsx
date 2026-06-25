@@ -48,6 +48,7 @@ const ConciliacaoDetalhes = lazy(() => import("./pages/ConciliacaoDetalhes"));
 const RelatoriosBI = lazy(() => import("./pages/RelatoriosBI"));
 const ConciliacaoContasFaturadas = lazy(() => import("./pages/ConciliacaoContasFaturadas"));
 const ConciliacaoCruzada = lazy(() => import("./pages/ConciliacaoCruzada"));
+const VinculacoesPadrao = lazy(() => import("./pages/VinculacoesPadrao"));
 const DetalhesContaFaturada = lazy(() => import("./pages/DetalhesContaFaturada"));
 const ContaConvenioDetalhes = lazy(() => import("./pages/ContaConvenioDetalhes"));
 const RecebimentosXml = lazy(() => import("./pages/RecebimentosXml"));
@@ -181,6 +182,7 @@ function Router() {
         <Route path={"/previsao-glosa"} component={PrevisaoGlosa} />
         <Route path={"/motor-regras"} component={DashboardMotorRegras} />
         <Route path={"/conciliacao-cruzada"} component={ConciliacaoCruzada} />
+        <Route path={"/vinculacoes-padrao"} component={VinculacoesPadrao} />
         <Route path={"/recurso-glosa-conciliacao"} component={RecursoGlosaConciliacao} />
         <Route path={"/contas-faturadas"} component={ConciliacaoContasFaturadas} />
         <Route path={"/contas-faturadas/:conta"} component={DetalhesContaFaturada} />

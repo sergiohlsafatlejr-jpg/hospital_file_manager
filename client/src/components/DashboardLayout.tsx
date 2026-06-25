@@ -90,7 +90,6 @@ import {
   Bot,
   ShieldCheck,
   Crown,
-  FileText,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -212,6 +211,7 @@ const menuItems: MenuItem[] = [
   { icon: Scale, label: "Conciliações", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas", children: [
     { icon: Link2, label: "Conciliação Cruzada", path: "/conciliacao-cruzada", modulo: "conciliacaoContasPagas" },
     { icon: Brain, label: "Vinculação Inteligente", path: "/vinculacao-inteligente", modulo: "conciliacaoContasPagas" },
+    { icon: BookOpen, label: "Vinculações Padrão", path: "/vinculacoes-padrao", modulo: "conciliacaoContasPagas" },
     { icon: FileText, label: "Recurso de Glosa", path: "/recurso-glosa-conciliacao", modulo: "conciliacaoContasPagas" },
   ]},
 
