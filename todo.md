@@ -4046,3 +4046,11 @@
 - [x] Renomear filtro de competência para "Data de Referência"
 - [x] Backend: suportar filtro dataPagto na query itensGlosadosParaRecurso
 - [x] Backend: suportar filtro dataPagto na query itensGlosadosDetalheGuia
+
+## Vinculação Múltipla de Acréscimos na Conciliação Manual
+- [x] Alterar backend vincularItensManual para aceitar array de itemAcrescimoIds (somar valores pagos de múltiplos acréscimos)
+- [x] Alterar router tRPC para aceitar itemAcrescimoIds: z.array(z.number()).min(1)
+- [x] Alterar frontend para usar checkboxes (múltipla seleção) ao invés de radio buttons
+- [x] Exibir total de acréscimos selecionados e soma dos valores no modal
+- [x] Corrigir bug TypeScript: substituir referências a setItemParaVincular por setItensAcrescimoSelecionados
+- [x] Build compilando com sucesso

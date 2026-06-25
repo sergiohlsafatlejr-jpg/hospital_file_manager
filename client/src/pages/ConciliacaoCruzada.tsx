@@ -99,7 +99,7 @@ export default function ConciliacaoCruzada() {
 
   // Conciliação manual - vinculação de itens
   const [modalVinculacaoManualAberto, setModalVinculacaoManualAberto] = useState(false);
-  const [itemParaVincular, setItemParaVincular] = useState<any>(null);
+  const [itensAcrescimoSelecionados, setItensAcrescimoSelecionados] = useState<number[]>([]);
   const [itemCandidatoSelecionado, setItemCandidatoSelecionado] = useState<number | null>(null);
 
   // ===== QUERIES PARA ABA CONCILIADOS =====
@@ -402,7 +402,7 @@ export default function ConciliacaoCruzada() {
       if (data.sucesso) {
         toast.success(data.mensagem);
         setModalVinculacaoManualAberto(false);
-        setItemParaVincular(null);
+        setItensAcrescimoSelecionados([]);
         setItemCandidatoSelecionado(null);
         refetchItensConciliados();
         refetchGuiasConciliadas();
@@ -1059,7 +1059,7 @@ export default function ConciliacaoCruzada() {
                             variant="outline"
                             className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
                             onClick={() => {
-                              setItemParaVincular(null);
+                              setItensAcrescimoSelecionados([]);
                               setItemCandidatoSelecionado(null);
                               setModalVinculacaoManualAberto(true);
                             }}
@@ -2443,12 +2443,20 @@ export default function ConciliacaoCruzada() {
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Selecione um item de <strong>acréscimo</strong> (pago pelo convênio com código diferente) e vincule ao item <strong>não recebido/glosado</strong> correspondente.
+                Selecione um ou mais itens de <strong>acréscimo</strong> (pagos pelo convênio com código diferente) e vincule ao item <strong>não recebido/glosado</strong> correspondente.
               </p>
 
               {/* Lista de itens de acréscimo */}
               <div>
                 <Label className="text-sm font-semibold text-teal-700">Itens de Acréscimo (pagos com código diferente)</Label>
+                {itensAcrescimoSelecionados.length > 0 && (
+                  <span className="ml-2 text-sm text-teal-600 font-medium">
+                    {itensAcrescimoSelecionados.length} selecionado(s) | Total: {formatarMoeda(
+                      itensConciliadosGuia?.filter((i: any) => itensAcrescimoSelecionados.includes(i.id))
+                        .reduce((sum: number, i: any) => sum + (Number(i.valorPago) || 0), 0) || 0
+                    )}
+                  </span>
+                )}
                 <div className="mt-2 border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
@@ -2464,15 +2472,18 @@ export default function ConciliacaoCruzada() {
                         <tr 
                           key={item.id} 
                           className={`border-b cursor-pointer hover:bg-teal-50 dark:hover:bg-teal-950/20 ${
-                            itemParaVincular?.id === item.id ? 'bg-teal-100 dark:bg-teal-900/40 ring-2 ring-teal-500' : ''
+                            itensAcrescimoSelecionados.includes(item.id) ? 'bg-teal-100 dark:bg-teal-900/40 ring-2 ring-teal-500' : ''
                           }`}
                           onClick={() => {
-                            setItemParaVincular(item);
-                            setItemCandidatoSelecionado(null);
+                            setItensAcrescimoSelecionados(prev => 
+                              prev.includes(item.id) 
+                                ? prev.filter(id => id !== item.id)
+                                : [...prev, item.id]
+                            );
                           }}
                         >
                           <td className="p-2 text-center">
-                            <input type="radio" checked={itemParaVincular?.id === item.id} readOnly className="accent-teal-600" />
+                            <input type="checkbox" checked={itensAcrescimoSelecionados.includes(item.id)} readOnly className="accent-teal-600" />
                           </td>
                           <td className="p-2 font-mono">{item.codigoItem}</td>
                           <td className="p-2">{item.descricaoItem}</td>
@@ -2485,7 +2496,7 @@ export default function ConciliacaoCruzada() {
               </div>
 
               {/* Seta de vinculação */}
-              {itemParaVincular && (
+              {itensAcrescimoSelecionados.length > 0 && (
                 <div className="flex items-center justify-center">
                   <div className="flex items-center gap-2 text-blue-600">
                     <ChevronDown className="w-5 h-5" />
@@ -2496,7 +2507,7 @@ export default function ConciliacaoCruzada() {
               )}
 
               {/* Lista de itens não recebidos/glosados */}
-              {itemParaVincular && (
+              {itensAcrescimoSelecionados.length > 0 && (
                 <div>
                   <Label className="text-sm font-semibold text-red-700">Itens Não Recebidos / Glosados (faturados sem pagamento)</Label>
                   <div className="mt-2 border rounded-lg overflow-hidden">
@@ -2540,21 +2551,21 @@ export default function ConciliacaoCruzada() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setModalVinculacaoManualAberto(false); setItemParaVincular(null); setItemCandidatoSelecionado(null); }}>Cancelar</Button>
+              <Button variant="outline" onClick={() => { setModalVinculacaoManualAberto(false); setItensAcrescimoSelecionados([]); setItemCandidatoSelecionado(null); }}>Cancelar</Button>
               <Button
                 className="bg-blue-600 hover:bg-blue-700"
                 onClick={() => {
-                  if (!itemParaVincular || !itemCandidatoSelecionado) {
-                    toast.error('Selecione um item de acréscimo e um item não recebido/glosado');
+                  if (itensAcrescimoSelecionados.length === 0 || !itemCandidatoSelecionado) {
+                    toast.error('Selecione pelo menos um item de acréscimo e um item não recebido/glosado');
                     return;
                   }
                   vincularManualMut.mutate({
                     estabelecimentoId,
-                    itemAcrescimoId: itemParaVincular.id,
+                    itemAcrescimoIds: itensAcrescimoSelecionados,
                     itemGlosaId: itemCandidatoSelecionado,
                   });
                 }}
-                disabled={!itemParaVincular || !itemCandidatoSelecionado || vincularManualMut.isPending}
+                disabled={itensAcrescimoSelecionados.length === 0 || !itemCandidatoSelecionado || vincularManualMut.isPending}
               >
                 {vincularManualMut.isPending ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />

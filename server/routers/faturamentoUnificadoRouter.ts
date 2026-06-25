@@ -384,7 +384,7 @@ export const faturamentoUnificadoRouter = router({
   vincularItensManual: protectedProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
-      itemAcrescimoId: z.number(),
+      itemAcrescimoIds: z.array(z.number()).min(1),
       itemGlosaId: z.number(),
     }))
     .mutation(async ({ input }) => {

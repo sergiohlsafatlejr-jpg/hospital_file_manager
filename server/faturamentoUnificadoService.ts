@@ -2914,61 +2914,62 @@ export async function reverterGlosa(params: {
  */
 export async function vincularItensManual(params: {
   estabelecimentoId: number;
-  itemAcrescimoId: number;
+  itemAcrescimoIds: number[];
   itemGlosaId: number;
 }): Promise<{ sucesso: boolean; mensagem: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  // Verificar se ambos os itens existem e pertencem ao mesmo estabelecimento/guia
+  const allIds = [...params.itemAcrescimoIds, params.itemGlosaId];
+
+  // Verificar se todos os itens existem e pertencem ao mesmo estabelecimento
   const [rows] = await db.execute(sql.raw(`
     SELECT id, numeroGuia, contaNumero, statusConciliacao, codigoItem, descricaoItem, 
-           valorFaturado, valorPago, recebimentoId, faturamentoUnificadoId
+           valorFaturado, valorPago, recebimentoId, faturamentoUnificadoId, codigoGlosa, motivoGlosa
     FROM conciliados_automatico 
-    WHERE id IN (${params.itemAcrescimoId}, ${params.itemGlosaId})
+    WHERE id IN (${allIds.join(',')})
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
 
   const itens = rows as any[];
-  if (itens.length !== 2) {
+  if (itens.length !== allIds.length) {
     return { sucesso: false, mensagem: 'Itens não encontrados ou não pertencem ao mesmo estabelecimento' };
   }
 
-  const itemAcrescimo = itens.find((i: any) => i.id === params.itemAcrescimoId);
+  const itensAcrescimo = itens.filter((i: any) => params.itemAcrescimoIds.includes(i.id));
   const itemGlosa = itens.find((i: any) => i.id === params.itemGlosaId);
 
-  if (!itemAcrescimo || !itemGlosa) {
+  if (itensAcrescimo.length === 0 || !itemGlosa) {
     return { sucesso: false, mensagem: 'Itens não encontrados' };
   }
 
   // Verificar que são da mesma guia
-  const guiaAcrescimo = itemAcrescimo.numeroGuia || itemAcrescimo.contaNumero;
   const guiaGlosa = itemGlosa.numeroGuia || itemGlosa.contaNumero;
-  if (guiaAcrescimo !== guiaGlosa) {
-    return { sucesso: false, mensagem: 'Os itens devem pertencer à mesma guia' };
+  for (const itemAcr of itensAcrescimo) {
+    const guiaAcr = itemAcr.numeroGuia || itemAcr.contaNumero;
+    if (guiaAcr !== guiaGlosa) {
+      return { sucesso: false, mensagem: 'Todos os itens devem pertencer à mesma guia' };
+    }
+    if (itemAcr.statusConciliacao !== 'acrescimo') {
+      return { sucesso: false, mensagem: `Item ${itemAcr.codigoItem} (id ${itemAcr.id}) tem status '${itemAcr.statusConciliacao}', esperado 'acrescimo'` };
+    }
   }
 
-  // Verificar status compatíveis (acréscimo deve ser 'acrescimo' e glosa deve ser 'glosa_total' ou 'sem_pagamento' ou 'nao_recebido')
-  if (itemAcrescimo.statusConciliacao !== 'acrescimo') {
-    return { sucesso: false, mensagem: `Item de acréscimo tem status '${itemAcrescimo.statusConciliacao}', esperado 'acrescimo'` };
-  }
   if (!['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(itemGlosa.statusConciliacao)) {
     return { sucesso: false, mensagem: `Item de glosa tem status '${itemGlosa.statusConciliacao}', esperado 'glosa_total', 'sem_pagamento' ou 'nao_recebido'` };
   }
 
-  // Vincular: 
-  // 1. Item de acréscimo: marca como 'absorvido' (será oculto da tela)
-  // 2. Item faturado (glosa): recebe o valorPago do acréscimo, calcula glosa real
-  const valorPagoAcrescimo = Number(itemAcrescimo.valorPago) || 0;
+  // Somar valores pagos de todos os acréscimos
+  const valorPagoTotal = itensAcrescimo.reduce((sum: number, i: any) => sum + (Number(i.valorPago) || 0), 0);
   const valorFaturadoGlosa = Number(itemGlosa.valorFaturado) || 0;
-  const glosaReal = valorFaturadoGlosa - valorPagoAcrescimo;
+  const glosaReal = valorFaturadoGlosa - valorPagoTotal;
   const percentualGlosa = valorFaturadoGlosa > 0 ? Math.round((glosaReal / valorFaturadoGlosa) * 10000) / 100 : 0;
 
   // Determinar o código/motivo de glosa: manter original se existir, senão usar 9999
   const codigoGlosaFinal = itemGlosa.codigoGlosa || '9999';
   const motivoGlosaFinal = itemGlosa.motivoGlosa || 'Glosa não informada pela operadora';
 
-  // Item de acréscimo: marcar como 'absorvido' (não aparece mais na tela)
+  // Marcar TODOS os itens de acréscimo como 'absorvido'
   await db.execute(sql.raw(`
     UPDATE conciliados_automatico 
     SET statusConciliacao = 'absorvido',
@@ -2976,22 +2977,21 @@ export async function vincularItensManual(params: {
         vinculadoAoId = ${params.itemGlosaId},
         diferenca = 0,
         percentualDiferenca = 0
-    WHERE id = ${params.itemAcrescimoId}
+    WHERE id IN (${params.itemAcrescimoIds.join(',')})
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
 
-  // Item faturado: atualizar com valor pago real e glosa calculada
-  // Se glosaReal > 0: é glosa parcial (pagou menos que o faturado)
-  // Se glosaReal <= 0: é conciliado (pagou igual ou mais)
+  // Item faturado: atualizar com valor pago real (soma dos acréscimos) e glosa calculada
   const statusFinal = glosaReal > 0 ? 'glosa_parcial' : 'conciliado_manual';
+  const primeiroRecebimentoId = itensAcrescimo.find((i: any) => i.recebimentoId)?.recebimentoId || null;
   
   await db.execute(sql.raw(`
     UPDATE conciliados_automatico 
     SET statusConciliacao = '${statusFinal}',
         metodoConciliacao = 'manual',
-        vinculadoAoId = ${params.itemAcrescimoId},
-        valorPago = ${valorPagoAcrescimo},
-        recebimentoId = ${itemAcrescimo.recebimentoId || 'NULL'},
+        vinculadoAoId = ${params.itemAcrescimoIds[0]},
+        valorPago = ${valorPagoTotal},
+        recebimentoId = ${primeiroRecebimentoId || 'NULL'},
         valorGlosa = CASE WHEN ${glosaReal} > 0 THEN ${glosaReal} ELSE 0 END,
         codigoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${codigoGlosaFinal}' ELSE NULL END,
         motivoGlosa = CASE WHEN ${glosaReal} > 0 THEN '${motivoGlosaFinal.replace(/'/g, "''")}' ELSE NULL END,
@@ -3001,9 +3001,10 @@ export async function vincularItensManual(params: {
       AND estabelecimentoId = ${params.estabelecimentoId}
   `));
 
+  const codigosAcrescimo = itensAcrescimo.map((i: any) => i.codigoItem).join(', ');
   return { 
     sucesso: true, 
-    mensagem: `Itens vinculados: ${itemGlosa.codigoItem} (faturado R$ ${valorFaturadoGlosa.toFixed(2)}) ↔ ${itemAcrescimo.codigoItem} (pago R$ ${valorPagoAcrescimo.toFixed(2)})${glosaReal > 0 ? ` | Glosa: R$ ${glosaReal.toFixed(2)}` : ''}` 
+    mensagem: `Vinculado: ${itemGlosa.codigoItem} (faturado R$ ${valorFaturadoGlosa.toFixed(2)}) ↔ ${itensAcrescimo.length} acréscimo(s) [${codigosAcrescimo}] (pago R$ ${valorPagoTotal.toFixed(2)})${glosaReal > 0 ? ` | Glosa: R$ ${glosaReal.toFixed(2)}` : ''}` 
   };
 }
 
