@@ -281,7 +281,7 @@ export default function DashboardHome() {
               <CardContent>
                 <div className="space-y-3">
                   {faturista.conveniosTop.map((c, i) => (
-                    <div key={c.convenio} className="flex items-center justify-between">
+                    <div key={`${c.convenio}-${i}`} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-muted-foreground w-5">{i + 1}.</span>
                         <span className="text-sm font-medium">{c.convenio}</span>
@@ -362,12 +362,12 @@ export default function DashboardHome() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {faturista.conveniosTop.map((c) => {
+                {faturista.conveniosTop.map((c, i) => {
                   const percentual = faturista.valorTotalFaturado > 0
                     ? (c.totalFaturado / faturista.valorTotalFaturado) * 100
                     : 0;
                   return (
-                    <div key={c.convenio} className="space-y-1">
+                    <div key={`${c.convenio}-${i}`} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{c.convenio}</span>
                         <div className="flex items-center gap-3">

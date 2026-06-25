@@ -329,8 +329,8 @@ export default function RecursoGlosaConciliacao() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todas Referências</SelectItem>
-                    {competencias?.map((c: string) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    {competencias?.map((c: any) => (
+                      <SelectItem key={c.competencia || c} value={c.competencia || c}>{c.competencia || c} ({c.total || ''})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -431,9 +431,8 @@ export default function RecursoGlosaConciliacao() {
                     </tr>
                   </thead>
                   <tbody>
-                    {itensGlosados.items.map((item: any) => (
-                      <>
-                        <tr
+                    {itensGlosados.items.map((item: any) => [
+                      <tr
                           key={item.chave}
                           className={`border-b hover:bg-muted/30 cursor-pointer ${guiasSelecionadas.has(item.chave) ? 'bg-primary/5' : ''}`}
                           onClick={() => {
@@ -478,10 +477,10 @@ export default function RecursoGlosaConciliacao() {
                               </Badge>
                             )}
                           </td>
-                        </tr>
-                        {/* Detalhe expandido da guia com campo de justificativa */}
-                        {agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
-                          <tr key={`${item.chave}-detail`}>
+                        </tr>,
+                        /* Detalhe expandido da guia com campo de justificativa */
+                        agrupamento === 'guia' && guiaExpandida === item.numeroGuia && detalheGuia && (
+                          <tr key={`detail-${item.chave}`}>
                             <td colSpan={10} className="p-0">
                               <div className="bg-muted/20 border-l-4 border-primary/30 p-3 mx-2 mb-2 rounded">
                                 {/* Header do detalhe com botão IA */}
@@ -592,9 +591,8 @@ export default function RecursoGlosaConciliacao() {
                               </div>
                             </td>
                           </tr>
-                        )}
-                      </>
-                    ))}
+                        ),
+                    ])}
                   </tbody>
                 </table>
               </div>
