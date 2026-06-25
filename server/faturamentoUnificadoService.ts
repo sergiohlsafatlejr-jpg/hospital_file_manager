@@ -4523,6 +4523,38 @@ export async function conveniosDemonstrativo(estabelecimentoId: number, competen
 }
 
 /**
+ * Datas de pagamento disponíveis no demonstrativo para filtro
+ */
+export async function datasPagamentoDemonstrativo(params: {
+  estabelecimentoId: number;
+  competencia?: string;
+  convenioId?: number;
+}): Promise<{ dataPagto: string; total: number }[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+  let where = `WHERE re.estabelecimentoId = ${params.estabelecimentoId} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO') AND re.data_pagto IS NOT NULL`;
+  if (params.competencia) {
+    where += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
+  }
+  if (params.convenioId) {
+    where += ` AND re.convenioId = ${params.convenioId}`;
+  }
+  const [rows] = await db.execute(sql.raw(`
+    SELECT 
+      DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto,
+      COUNT(*) as total
+    FROM recebimentos_excel re
+    ${where}
+    GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+    ORDER BY dataPagto DESC
+  `));
+  return (rows as unknown as any[]).map((r: any) => ({
+    dataPagto: r.dataPagto,
+    total: Number(r.total) || 0,
+  }));
+}
+
+/**
  * Itens glosados do demonstrativo (recebimentos_excel) para recurso
  * Suporta agrupamento por guia, item e motivo
  */
@@ -4530,6 +4562,7 @@ export async function itensGlosadosDemonstrativo(params: {
   estabelecimentoId: number;
   competencia?: string;
   convenioId?: number;
+  dataPagto?: string;
   agrupamento: 'guia' | 'item' | 'motivo';
   busca?: string;
   page?: number;
@@ -4538,7 +4571,7 @@ export async function itensGlosadosDemonstrativo(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   
-  const { estabelecimentoId, competencia, convenioId, agrupamento, busca, page = 1, pageSize = 50 } = params;
+  const { estabelecimentoId, competencia, convenioId, dataPagto, agrupamento, busca, page = 1, pageSize = 50 } = params;
   const offset = (page - 1) * pageSize;
   
   let where = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR re.situacao_item = 'GLOSADO')`;
@@ -4547,6 +4580,9 @@ export async function itensGlosadosDemonstrativo(params: {
   }
   if (convenioId) {
     where += ` AND re.convenioId = ${convenioId}`;
+  }
+  if (dataPagto) {
+    where += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
   }
   if (busca) {
     const b = busca.replace(/'/g, "''");
@@ -4567,11 +4603,11 @@ export async function itensGlosadosDemonstrativo(params: {
         MAX(DATE_FORMAT(re.data_fim_faturamento_internacao, '%Y-%m-%d')) as dataFim,
         MAX(c.nome) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
         SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
-        SUM(CASE WHEN re.glosa_aceita = 0 THEN COALESCE(re.valor_recurso, re.valor_glosa, 0) ELSE 0 END) as valorRecursado,
-        SUM(CASE WHEN re.glosa_aceita = 1 THEN COALESCE(re.valor_glosa, 0) ELSE 0 END) as valorGlosaAceita,
+        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
+        SUM(CASE WHEN re.glosa_aceita = 0 THEN COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) ELSE 0 END) as valorRecursado,
+        SUM(CASE WHEN re.glosa_aceita = 1 THEN COALESCE(re.valor_glosa, re.valor_pagamento, 0) ELSE 0 END) as valorGlosaAceita,
         CASE 
           WHEN SUM(CASE WHEN re.justificativa_recurso IS NOT NULL OR re.glosa_aceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
           WHEN SUM(CASE WHEN re.justificativa_recurso IS NULL AND re.glosa_aceita = 0 THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
@@ -4592,9 +4628,9 @@ export async function itensGlosadosDemonstrativo(params: {
         MAX(re.item_desc) as descricao,
         MAX(c.nome) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
         SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
+        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
         SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
       FROM recebimentos_excel re
       LEFT JOIN convenios c ON c.id = re.convenioId
@@ -4612,9 +4648,9 @@ export async function itensGlosadosDemonstrativo(params: {
         MAX(mg.descricao) as motivoGlosa,
         MAX(c.nome) as convenio,
         COUNT(*) as itensGlosados,
-        SUM(COALESCE(re.valor_informado, 0)) as valorFaturado,
+        SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as valorFaturado,
         SUM(COALESCE(re.valor_pagamento, 0)) as valorPago,
-        SUM(COALESCE(re.valor_glosa, 0)) as valorGlosa,
+        SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as valorGlosa,
         SUM(CASE WHEN re.justificativa_recurso IS NOT NULL THEN 1 ELSE 0 END) as justificativasPreenchidas
       FROM recebimentos_excel re
       LEFT JOIN convenios c ON c.id = re.convenioId
@@ -4632,9 +4668,9 @@ export async function itensGlosadosDemonstrativo(params: {
     SELECT 
       COUNT(*) as totalItens,
       COUNT(DISTINCT re.numero_guia) as totalGuias,
-      SUM(COALESCE(re.valor_informado, 0)) as totalValorFaturado,
+      SUM(COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0)) as totalValorFaturado,
       SUM(COALESCE(re.valor_pagamento, 0)) as totalValorPago,
-      SUM(COALESCE(re.valor_glosa, 0)) as totalValorGlosa
+      SUM(COALESCE(re.valor_glosa, re.valor_pagamento, 0)) as totalValorGlosa
     FROM recebimentos_excel re
     ${where}
   `;
@@ -4692,13 +4728,13 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
       re.tipo_item as tipo,
       re.quantidade as qtde,
       DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
       COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
       re.codigo_glosa as codigoGlosa,
       COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
       re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
       re.glosa_aceita as glosaAceita,
       re.glosa_aceita_por as glosaAceitaPor
     FROM recebimentos_excel re
@@ -4746,13 +4782,13 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
       re.nome_beneficiario as paciente,
       DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
       re.quantidade as qtde,
-      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
       COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
       re.codigo_glosa as codigoGlosa,
       COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
       re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
       re.glosa_aceita as glosaAceita,
       re.glosa_aceita_por as glosaAceitaPor
     FROM recebimentos_excel re
@@ -4803,13 +4839,13 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
       re.item_desc as descricao,
       DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
       re.quantidade as qtde,
-      COALESCE(re.valor_informado, 0) as valorFaturado,
+      COALESCE(re.valor_informado, re.valor_pagamento, 0) + COALESCE(re.valor_glosa, 0) as valorFaturado,
       COALESCE(re.valor_pagamento, 0) as valorPago,
-      COALESCE(re.valor_glosa, 0) as valorGlosa,
+      COALESCE(re.valor_glosa, re.valor_pagamento, 0) as valorGlosa,
       re.codigo_glosa as codigoGlosa,
       COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
       re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, 0) as valorRecurso,
+      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
       re.glosa_aceita as glosaAceita,
       re.glosa_aceita_por as glosaAceitaPor
     FROM recebimentos_excel re

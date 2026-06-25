@@ -859,11 +859,18 @@ export const faturamentoUnificadoRouter = router({
       return await faturamentoService.conveniosDemonstrativo(input.estabelecimentoId, input.competencia);
     }),
 
+  datasPagamentoDemonstrativo: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number(), competencia: z.string().optional(), convenioId: z.number().optional() }))
+    .query(async ({ input }) => {
+      return await faturamentoService.datasPagamentoDemonstrativo(input);
+    }),
+
   itensGlosadosDemonstrativo: protectedProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       competencia: z.string().optional(),
       convenioId: z.number().optional(),
+      dataPagto: z.string().optional(),
       agrupamento: z.enum(['guia', 'item', 'motivo']),
       busca: z.string().optional(),
       page: z.number().optional(),

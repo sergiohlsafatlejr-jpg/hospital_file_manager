@@ -19,6 +19,7 @@ export default function RecursoGlosaDemonstrativo() {
   // States
   const [competencia, setCompetencia] = useState<string>("");
   const [convenioId, setConvenioId] = useState<string>("");
+  const [dataPagto, setDataPagto] = useState<string>("");
   const [busca, setBusca] = useState("");
   const [agrupamento, setAgrupamento] = useState<"guia" | "item" | "motivo">("guia");
   const [expandedGuia, setExpandedGuia] = useState<string | null>(null);
@@ -37,11 +38,16 @@ export default function RecursoGlosaDemonstrativo() {
     { estabelecimentoId, competencia: competencia && competencia !== 'todas' ? competencia : undefined },
     { enabled: !!estabelecimentoId }
   );
+  const { data: datasPagamento } = trpc.faturamentoUnificado.datasPagamentoDemonstrativo.useQuery(
+    { estabelecimentoId, competencia: competencia && competencia !== 'todas' ? competencia : undefined, convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined },
+    { enabled: !!estabelecimentoId }
+  );
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosDemonstrativo.useQuery(
     {
       estabelecimentoId,
       competencia: competencia && competencia !== 'todas' ? competencia : undefined,
       convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
+      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
       agrupamento,
       busca: busca || undefined,
       page,
@@ -205,7 +211,7 @@ export default function RecursoGlosaDemonstrativo() {
       {/* Filtros */}
       <Card>
         <CardContent className="pt-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <Select value={competencia} onValueChange={(v) => { setCompetencia(v); setPage(1); }}>
               <SelectTrigger><SelectValue placeholder="Competência" /></SelectTrigger>
               <SelectContent>
@@ -225,6 +231,18 @@ export default function RecursoGlosaDemonstrativo() {
                 {convenios?.map((c: any) => (
                   <SelectItem key={c.convenioId} value={String(c.convenioId)}>
                     {c.convenio || `Conv. ${c.convenioId}`} ({c.total})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={dataPagto} onValueChange={(v) => { setDataPagto(v); setPage(1); }}>
+              <SelectTrigger><SelectValue placeholder="Data Pagamento" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas</SelectItem>
+                {datasPagamento?.map((d: any) => (
+                  <SelectItem key={d.dataPagto} value={d.dataPagto}>
+                    {new Date(d.dataPagto + 'T12:00:00').toLocaleDateString('pt-BR')} ({d.total})
                   </SelectItem>
                 ))}
               </SelectContent>

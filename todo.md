@@ -4128,3 +4128,11 @@
 ## Correções Recurso Glosa Demonstrativo - Dados e KPIs
 - [x] Corrigir query do demonstrativo que não retorna dados (useEstabelecimento usava 'selecionado' em vez de 'estabelecimentoAtual')
 - [x] Adicionar KPIs: Total Guias, Total Itens Glosados, Valor Faturado, Valor Glosa (via resumo do backend)
+## Correções Recurso Glosa Demonstrativo - Valores e Filtros (25/06/2025)
+- [x] Corrigir fórmulas de valor nas queries de agrupamento (guia, item, motivo): valorFaturado = COALESCE(valor_informado, valor_pagamento, 0) + COALESCE(valor_glosa, 0), valorGlosa = COALESCE(valor_glosa, valor_pagamento, 0)
+- [x] Corrigir fórmulas de valor na query de resumo/KPIs
+- [x] Corrigir fórmulas de valor nas 3 queries de detalhe (DetalheGuia, DetalhePorItem, DetalhePorMotivo)
+- [x] Corrigir valorRecurso para usar COALESCE(valor_recurso, valor_glosa, valor_pagamento, 0)
+- [x] Adicionar filtro por Data de Pagamento (data_pagto) - backend: nova função datasPagamentoDemonstrativo + parâmetro dataPagto na query principal
+- [x] Adicionar filtro por Data de Pagamento no frontend (Select com datas disponíveis)
+- [x] Verificar filtro de convênios (já funcionava corretamente com convenioId/convenio/total)
