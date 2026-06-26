@@ -4672,7 +4672,7 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(d.valor_pago, 0) as valorPago,
       COALESCE(d.valor_glosa, 0) as valorGlosa,
       COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
-      d.codigo_glosa as codigoGlosa,
+      COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       d.classificacao_glosa as classificacaoGlosa,
       d.recurso_status as recursoStatus,
       d.justificativa_recurso as justificativa,
@@ -4696,7 +4696,7 @@ export async function itensGlosadosDemonstrativo(params: {
       CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
       CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
       CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
-      re.codigo_glosa as codigoGlosa,
+      COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       NULL as classificacaoGlosa,
       re.status_recurso_item as recursoStatus,
       re.justificativa_recurso as justificativa,
@@ -4730,8 +4730,8 @@ export async function itensGlosadosDemonstrativo(params: {
         SUM(COALESCE(u.valorRecurso, 0)) as valorRecursado,
         SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
         CASE
-          WHEN SUM(CASE WHEN (u.recursoStatus IS NOT NULL AND u.recursoStatus NOT IN ('pendente')) OR u.glosaAceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
-          WHEN SUM(CASE WHEN u.recursoStatus IS NULL OR u.recursoStatus = 'pendente' THEN 1 ELSE 0 END) - SUM(CASE WHEN u.glosaAceita = 1 AND (u.recursoStatus IS NULL OR u.recursoStatus = 'pendente') THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+          WHEN SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN u.recursoStatus NOT IN ('recurso_criado', 'recursado') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
           ELSE 'Iniciado'
         END as statusRecurso
       FROM ${unionSubquery} u
@@ -4853,14 +4853,15 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
         COALESCE(d.valor_pago, 0) as valorPago,
         COALESCE(d.valor_glosa, 0) as valorGlosa,
-        d.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
         COALESCE(d.valor_recurso, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -4875,14 +4876,15 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        re.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         re.justificativa_recurso as justificativa,
         COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
       LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2
@@ -4941,14 +4943,16 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
         COALESCE(d.valor_pago, 0) as valorPago,
         COALESCE(d.valor_glosa, 0) as valorGlosa,
-        d.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
         COALESCE(d.valor_recurso, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
+      ${whereDemo}
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -4963,14 +4967,16 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        re.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         re.justificativa_recurso as justificativa,
         COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
       LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
+      ${whereExcel}
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2
@@ -5032,14 +5038,16 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
         COALESCE(d.valor_pago, 0) as valorPago,
         COALESCE(d.valor_glosa, 0) as valorGlosa,
-        d.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, d.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
         COALESCE(d.valor_recurso, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
+      ${whereDemo}
       ${whereDemo}
       UNION ALL
       SELECT 
@@ -5054,14 +5062,16 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
         CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        re.codigo_glosa as codigoGlosa,
-        COALESCE(mg.descricao, re.codigo_glosa, 'Não informado') as motivoGlosa,
+        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
+        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         re.justificativa_recurso as justificativa,
         COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
         re.glosa_aceita as glosaAceita,
         re.glosa_aceita_por as glosaAceitaPor
       FROM recebimentos_excel re
       LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
+      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
+      ${whereExcel}
       ${whereExcel}
       AND NOT EXISTS (
         SELECT 1 FROM demonstrativo d2

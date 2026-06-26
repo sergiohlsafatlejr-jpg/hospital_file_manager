@@ -4153,3 +4153,6 @@
 - [x] Bug: Status permanece "Pendente" (corrigido: sem_recurso/recurso_criado/recursado/aceita agora são considerados "analisado")
 - [x] Bug: "Replicar em Todas as Contas" e "Aceitar Todas" não funcionam (corrigido: agora atualiza AMBAS tabelas demo+excel separando por fonte)
 - [x] Bug: Motivo de glosa "Não informado" para Unimed (investigado: XML dez/2025 não traz codigo_glosa; abr/2026 funciona corretamente)
+## Correções Recurso Glosa Demonstrativo - Sessão 13 (26/06/2025)
+- [x] Bug: Status "Finalizado" em guias não analisadas (corrigido: sem_recurso+glosa_aceita=0 agora é Pendente)
+- [x] Bug: Código de glosa não aparece (RESOLVIDO: extrai código do campo erro_tiss quando codigo_glosa é NULL, formato "XXXX-descrição")
