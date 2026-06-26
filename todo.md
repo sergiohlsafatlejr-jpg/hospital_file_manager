@@ -4179,3 +4179,6 @@
 - [x] Pipeline do Processo (Guias Faturadas, NFs Emitidas, Demonstrativos, Recursos Feitos) mostra 0 (corrigido)
 - [x] Conciliação (Conciliados, Glosas, Sem Pagamento, Acréscimos) mostra 0 (corrigido)
 - [x] Top Convênios mostra "R$ NaN" e "NaN guias" (corrigido: conveniosTop agora desestrutura corretamente)
+
+## Bug XML Enviado - Número de Guia Incorreto (26/06/2026)
+- [x] Parser de XML enviado usa numeroGuiaPrestador como número da guia, mas deveria priorizar numeroGuiaOperadora quando disponível (corrigido: COALESCE no INSERT + UPDATE em 43.643 registros existentes)

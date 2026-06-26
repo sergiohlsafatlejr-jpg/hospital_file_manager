@@ -335,7 +335,7 @@ export async function popularDeXmlTiss(
       'XML_TISS',
       CAST(dedup.id AS CHAR),
       dedup.estabelecimentoId,
-      dedup.numero_guia_prestador,
+      COALESCE(dedup.numero_guia_operadora, dedup.numero_guia_prestador),
       dedup.numero_guia_operadora,
       dedup.senha,
       dedup.numero_lote,
@@ -356,7 +356,7 @@ export async function popularDeXmlTiss(
     FROM (
       SELECT ft.*,
         ROW_NUMBER() OVER (
-          PARTITION BY ft.numero_guia_prestador, ft.sequencial_item, ft.codigo_item, ft.data_execucao, ft.quantidade, ft.valor_faturado
+          PARTITION BY COALESCE(ft.numero_guia_operadora, ft.numero_guia_prestador), ft.sequencial_item, ft.codigo_item, ft.data_execucao, ft.quantidade, ft.valor_faturado
           ORDER BY ft.id ASC
         ) as rn
       FROM faturamento_tiss ft
