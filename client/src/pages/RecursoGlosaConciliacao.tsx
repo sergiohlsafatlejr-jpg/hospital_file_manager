@@ -921,7 +921,7 @@ export default function RecursoGlosaConciliacao() {
                                             )}
                                           </Button>
                                           {(itensGlosaAceita[d.id] || d.glosaAceita) && (d.glosaAceitaPor) && (
-                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                            <span className="text-[9px] text-muted-foreground flex items-center gap-1">{d.glosaAceitaPor?.includes('Aceite Auto') && (<span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[8px] font-semibold border border-purple-200"><svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Auto</span>)}{d.glosaAceitaPor}</span>
                                           )}
                                         </td>
                                         <td className="p-1 min-w-[200px]">
@@ -1016,7 +1016,7 @@ export default function RecursoGlosaConciliacao() {
                                             )}
                                           </Button>
                                           {(itensGlosaAceita[d.id] || d.glosaAceita) && (d.glosaAceitaPor) && (
-                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                            <span className="text-[9px] text-muted-foreground flex items-center gap-1">{d.glosaAceitaPor?.includes('Aceite Auto') && (<span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[8px] font-semibold border border-purple-200"><svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Auto</span>)}{d.glosaAceitaPor}</span>
                                           )}
                                         </td>
                                         <td className="p-1 min-w-[200px]">
@@ -1205,7 +1205,7 @@ export default function RecursoGlosaConciliacao() {
                                             )}
                                           </Button>
                                           {(itensGlosaAceita[d.id] || d.glosaAceita) && d.glosaAceitaPor && (
-                                            <span className="text-[9px] text-muted-foreground block">{d.glosaAceitaPor}</span>
+                                            <span className="text-[9px] text-muted-foreground flex items-center gap-1">{d.glosaAceitaPor?.includes('Aceite Auto') && (<span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[8px] font-semibold border border-purple-200"><svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Auto</span>)}{d.glosaAceitaPor}</span>
                                           )}
                                         </td>
                                         <td className="p-1 min-w-[200px]">

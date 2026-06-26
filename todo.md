@@ -4202,3 +4202,4 @@
 - [x] Padrões automáticos de aceite de glosa - Tela de configuração no frontend
 - [x] Padrões automáticos de aceite de glosa - Aplicar automaticamente na importação
 - [x] Padrões automáticos de aceite de glosa - Botão para aplicar nos dados existentes
+- [x] Selo/indicador visual 'Auto' na listagem de glosas para itens aceitos automaticamente (badge roxo com ícone raio)

@@ -675,7 +675,17 @@ export default function RecursoGlosaDemonstrativo() {
                       <Check className="h-3 w-3 mr-1" /> Aceitar
                     </Button>
                   )}
-                  {row.glosaAceitaPor && <div className="text-[10px] text-muted-foreground">{row.glosaAceitaPor}</div>}
+                  {row.glosaAceitaPor && (
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      {row.glosaAceitaPor.includes('Aceite Auto') && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-semibold border border-purple-200">
+                          <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                          Auto
+                        </span>
+                      )}
+                      {row.glosaAceitaPor}
+                    </div>
+                  )}
                 </td>
                 <td className="p-2">
                   {editingJustificativa?.id === row.id ? (

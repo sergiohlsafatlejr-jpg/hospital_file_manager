@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,12 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Plus, Trash2, Play, Search, CheckCircle2, AlertTriangle, Shield } from "lucide-react";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 
 export default function AceiteAutomaticoGlosa() {
-  const { toast } = useToast();
+
   const { estabelecimentoAtual } = useEstabelecimento();
   
   const [dialogAberto, setDialogAberto] = useState(false);
@@ -37,33 +37,30 @@ export default function AceiteAutomaticoGlosa() {
   // Mutations
   const criarMutation = trpc.aceiteAutomatico.criar.useMutation({
     onSuccess: () => {
-      toast({ title: "Padrão criado", description: "Padrão de aceite automático cadastrado com sucesso." });
+      toast.success("Padrão de aceite automático cadastrado com sucesso.");
       refetchPadroes();
       setDialogAberto(false);
       resetForm();
     },
     onError: (err) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
+      toast.error(err.message);
     },
   });
   
   const excluirMutation = trpc.aceiteAutomatico.excluir.useMutation({
     onSuccess: () => {
-      toast({ title: "Padrão removido", description: "Padrão de aceite automático desativado." });
+      toast.success("Padrão de aceite automático desativado.");
       refetchPadroes();
     },
   });
   
   const aplicarMutation = trpc.aceiteAutomatico.aplicarNosExistentes.useMutation({
     onSuccess: (data) => {
-      toast({ 
-        title: "Padrões aplicados", 
-        description: data.message,
-      });
+      toast.success(data.message);
       refetchPadroes();
     },
     onError: (err) => {
-      toast({ title: "Erro ao aplicar", description: err.message, variant: "destructive" });
+      toast.error(err.message);
     },
   });
   
@@ -77,7 +74,7 @@ export default function AceiteAutomaticoGlosa() {
   
   const handleCriar = () => {
     if (!novoCodigoGlosa) {
-      toast({ title: "Erro", description: "Informe o código da glosa.", variant: "destructive" });
+      toast.error("Informe o código da glosa.");
       return;
     }
     
@@ -92,7 +89,7 @@ export default function AceiteAutomaticoGlosa() {
   
   const handleAplicarTodos = () => {
     if (!padroes || padroes.length === 0) {
-      toast({ title: "Aviso", description: "Nenhum padrão cadastrado para aplicar.", variant: "destructive" });
+      toast.warning("Nenhum padrão cadastrado para aplicar.");
       return;
     }
     aplicarMutation.mutate({
