@@ -4685,14 +4685,14 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       d.classificacao_glosa as classificacaoGlosa,
       CASE 
-        WHEN d.justificativa_recurso IS NOT NULL AND d.valor_recurso > 0 AND d.glosa_aceita = 0 THEN 'recursado'
+        WHEN d.justificativa_recurso IS NOT NULL AND d.valor_recurso > 0 AND (d.glosa_aceita IS NULL OR d.glosa_aceita = 0) THEN 'recursado'
         WHEN d.glosa_aceita = 1 THEN 'aceita'
         WHEN rg_d.id IS NOT NULL THEN 'recurso_criado'
         WHEN d.recurso_status IS NOT NULL AND d.recurso_status != 'sem_recurso' THEN d.recurso_status
         ELSE NULL
       END as recursoStatus,
       d.justificativa_recurso as justificativa,
-      COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
+      CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
       COALESCE(d.glosa_aceita, 0) as glosaAceita,
       d.glosa_aceita_por as glosaAceitaPor,
       d.erro_tiss as erroTiss,
@@ -4723,7 +4723,7 @@ export async function itensGlosadosDemonstrativo(params: {
         ELSE NULL
       END as recursoStatus,
       re.justificativa_recurso as justificativa,
-      COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
+      CASE WHEN re.valor_recurso IS NOT NULL AND re.valor_recurso > 0 THEN re.valor_recurso ELSE COALESCE(re.valor_glosa, re.valor_pagamento, 0) END as valorRecurso,
       re.glosa_aceita as glosaAceita,
       re.glosa_aceita_por as glosaAceitaPor,
       re.erro_tiss as erroTiss,
@@ -4754,8 +4754,8 @@ export async function itensGlosadosDemonstrativo(params: {
         SUM(COALESCE(u.valorRecurso, 0)) as valorRecursado,
         SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as valorGlosaAceita,
         CASE
-          WHEN SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
-          WHEN SUM(CASE WHEN u.recursoStatus NOT IN ('recurso_criado', 'recursado') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
+          WHEN SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'aceita', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) = 0 THEN 'Pendente'
+          WHEN SUM(CASE WHEN (u.recursoStatus IS NULL OR u.recursoStatus NOT IN ('recurso_criado', 'recursado', 'aceita', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido')) AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN 1 ELSE 0 END) = 0 THEN 'Finalizado'
           ELSE 'Iniciado'
         END as statusRecurso
       FROM ${unionSubquery} u
@@ -4813,8 +4813,8 @@ export async function itensGlosadosDemonstrativo(params: {
       SUM(u.valorGlosa) as totalValorGlosa,
       SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN COALESCE(u.valorRecurso, u.valorGlosa, 0) ELSE 0 END) as totalValorRecurso,
       SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as totalValorAceite,
-      SUM(CASE WHEN (u.recursoStatus IS NULL OR u.recursoStatus = 'sem_recurso') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as totalValorNaoTrabalhado,
-      SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) as totalItensAnalisados
+      SUM(CASE WHEN (u.recursoStatus IS NULL) AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as totalValorNaoTrabalhado,
+      SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'aceita', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) as totalItensAnalisados
     FROM ${unionSubquery} u
   `;
 
@@ -4892,7 +4892,7 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
+        CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
@@ -4982,7 +4982,7 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
+        CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
@@ -5077,7 +5077,7 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
+        CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
