@@ -4684,7 +4684,13 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
       COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       d.classificacao_glosa as classificacaoGlosa,
-      COALESCE(d.recurso_status, CASE WHEN rg_d.id IS NOT NULL THEN 'recurso_criado' ELSE NULL END) as recursoStatus,
+      CASE 
+        WHEN d.justificativa_recurso IS NOT NULL AND d.valor_recurso > 0 AND d.glosa_aceita = 0 THEN 'recursado'
+        WHEN d.glosa_aceita = 1 THEN 'aceita'
+        WHEN rg_d.id IS NOT NULL THEN 'recurso_criado'
+        WHEN d.recurso_status IS NOT NULL AND d.recurso_status != 'sem_recurso' THEN d.recurso_status
+        ELSE NULL
+      END as recursoStatus,
       d.justificativa_recurso as justificativa,
       COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
       COALESCE(d.glosa_aceita, 0) as glosaAceita,
@@ -4709,7 +4715,13 @@ export async function itensGlosadosDemonstrativo(params: {
       CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
       COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       NULL as classificacaoGlosa,
-      COALESCE(re.status_recurso_item, CASE WHEN rg_e.id IS NOT NULL THEN 'recurso_criado' ELSE NULL END) as recursoStatus,
+      CASE 
+        WHEN re.justificativa_recurso IS NOT NULL AND re.valor_recurso > 0 AND (re.glosa_aceita IS NULL OR re.glosa_aceita = 0) THEN 'recursado'
+        WHEN re.glosa_aceita = 1 THEN 'aceita'
+        WHEN rg_e.id IS NOT NULL THEN 'recurso_criado'
+        WHEN re.status_recurso_item IS NOT NULL AND re.status_recurso_item != 'pendente' THEN re.status_recurso_item
+        ELSE NULL
+      END as recursoStatus,
       re.justificativa_recurso as justificativa,
       COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
       re.glosa_aceita as glosaAceita,

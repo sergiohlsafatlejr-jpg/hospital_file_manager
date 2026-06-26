@@ -4193,3 +4193,6 @@
 - [x] Reestruturar /envio-recursos-lote - mover botões Gerar Excel, Gerar XML, Baixar ZIP para esta tela
 - [x] Marcar lote como "Enviado" automaticamente após gerar arquivo (Excel/XML/ZIP)
 - [x] Simplificar /acompanhamento-recursos - mostrar apenas lotes enviados com Anexar PDF, Ver Detalhes, Prazos
+
+## Bug Status Guia Recurso Glosa Demonstrativo (26/06/2026)
+- [x] Guia com todos itens recursados ou aceitos mostra status "Iniciado" em vez de "Finalizado" (ex: guia 313503764) - corrigido: lógica de recursoStatus agora considera justificativa+valorRecurso como 'recursado' independente do campo recurso_status
