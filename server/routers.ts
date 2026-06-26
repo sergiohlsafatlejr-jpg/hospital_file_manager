@@ -3120,6 +3120,9 @@ export const appRouter = router({
           estabelecimentoId: z.number(),
           recursosIds: z.array(z.number()),
           descricao: z.string().optional(),
+          protocoloEnvio: z.string().optional(),
+          dataInicioConta: z.string().optional(),
+          dataFimConta: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -3129,6 +3132,9 @@ export const appRouter = router({
           userId: ctx.user.id,
           recursosIds: input.recursosIds,
           descricao: input.descricao,
+          protocoloEnvio: input.protocoloEnvio,
+          dataInicioConta: input.dataInicioConta,
+          dataFimConta: input.dataFimConta,
         });
       }),
 

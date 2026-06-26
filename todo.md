@@ -4185,3 +4185,11 @@
 
 ## Bug Importação CSV AnaliseContas (26/06/2026)
 - [x] Arquivo CSV AnaliseContas.1552729.2026053108242000.csv não aparece na listagem - corrigido: query filtrava por tipoArquivo='excel' excluindo CSVs da lista
+
+## Reestruturação Módulo de Recursos de Glosa (26/06/2026)
+- [x] Criar aba "Criação de Lotes" - listar guias finalizadas com valor a recursar por convênio
+- [x] Incluir campos: Lote, Protocolo, Data do item, Data início/fim da conta na criação
+- [x] Permitir seleção de guias e geração de lotes (1 guia por lote ou múltiplas)
+- [x] Reestruturar /envio-recursos-lote - mover botões Gerar Excel, Gerar XML, Baixar ZIP para esta tela
+- [x] Marcar lote como "Enviado" automaticamente após gerar arquivo (Excel/XML/ZIP)
+- [x] Simplificar /acompanhamento-recursos - mostrar apenas lotes enviados com Anexar PDF, Ver Detalhes, Prazos

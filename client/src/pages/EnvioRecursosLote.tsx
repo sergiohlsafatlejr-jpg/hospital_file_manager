@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { 
@@ -23,9 +24,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Search,
-  Download,
-  Loader2
+  Loader2,
+  Plus,
+  Calendar,
+  Hash
 } from "lucide-react";
+import { formatDateBR } from "@/lib/dateUtils";
 
 const formatCurrency = (value: number | string | null | undefined) => {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -40,12 +44,18 @@ export default function EnvioRecursosLote() {
   
   const [convenioExpandido, setConvenioExpandido] = useState<number | null>(null);
   const [recursosSelecionados, setRecursosSelecionados] = useState<Set<number>>(new Set());
-  const [dialogEnvio, setDialogEnvio] = useState(false);
-  const [convenioParaEnvio, setConvenioParaEnvio] = useState<{ id: number; nome: string } | null>(null);
-  const [protocoloEnvio, setProtocoloEnvio] = useState("");
+  const [dialogCriarLote, setDialogCriarLote] = useState(false);
+  const [convenioParaLote, setConvenioParaLote] = useState<{ id: number; nome: string } | null>(null);
   const [busca, setBusca] = useState("");
+  
+  // Campos adicionais para criação do lote
+  const [numeroLoteManual, setNumeroLoteManual] = useState("");
+  const [protocoloLote, setProtocoloLote] = useState("");
+  const [dataInicioConta, setDataInicioConta] = useState("");
+  const [dataFimConta, setDataFimConta] = useState("");
+  const [modoGuiaUnica, setModoGuiaUnica] = useState(false);
 
-  // Buscar recursos agrupados por convênio
+  // Buscar recursos agrupados por convênio (guias finalizadas com valor a recursar)
   const { data: recursosAgrupados, isLoading, refetch } = trpc.recursos.agrupadosPorConvenio.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
   });
@@ -63,28 +73,20 @@ export default function EnvioRecursosLote() {
   // Mutation para criar lote
   const criarLoteMutation = trpc.recursos.criarLote.useMutation({
     onSuccess: (data) => {
-      toast.success(`Lote ${data.numeroLote} criado com sucesso!`);
-      // Agora enviar o lote
-      enviarLoteMutation.mutate({
-        loteId: data.loteId,
-        protocoloEnvio: protocoloEnvio || undefined,
-      });
-    },
-    onError: (error) => toast.error("Erro ao criar lote: " + error.message),
-  });
-
-  // Mutation para enviar lote
-  const enviarLoteMutation = trpc.recursos.enviarLote.useMutation({
-    onSuccess: () => {
-      toast.success("Lote enviado com sucesso!");
-      setDialogEnvio(false);
-      setProtocoloEnvio("");
+      toast.success(`Lote ${data.numeroLote} criado com sucesso! Acesse "Acompanhamento Recursos" para gerar Excel/XML e enviar.`);
+      setDialogCriarLote(false);
+      setNumeroLoteManual("");
+      setProtocoloLote("");
+      setDataInicioConta("");
+      setDataFimConta("");
       setRecursosSelecionados(new Set());
-      setConvenioParaEnvio(null);
+      setConvenioParaLote(null);
+      setModoGuiaUnica(false);
       refetch();
       utils.recursos.agrupadosPorConvenio.invalidate();
+      utils.recursos.listarLotes.invalidate();
     },
-    onError: (error) => toast.error("Erro ao enviar lote: " + error.message),
+    onError: (error) => toast.error("Erro ao criar lote: " + error.message),
   });
 
   const handleExpandirConvenio = (convenioId: number) => {
@@ -115,35 +117,83 @@ export default function EnvioRecursosLote() {
     }
   };
 
-  const handleAbrirEnvio = (convenioId: number, convenioNome: string) => {
+  const handleAbrirCriarLote = (convenioId: number, convenioNome: string) => {
     if (recursosSelecionados.size === 0) {
-      toast.error("Selecione pelo menos um recurso para enviar");
+      toast.error("Selecione pelo menos um recurso para criar o lote");
       return;
     }
-    setConvenioParaEnvio({ id: convenioId, nome: convenioNome });
-    setDialogEnvio(true);
+    setConvenioParaLote({ id: convenioId, nome: convenioNome });
+    setDialogCriarLote(true);
   };
 
-  const handleEnviarLote = () => {
-    if (!convenioParaEnvio || !estabelecimentoAtual) return;
+  const handleCriarLote = () => {
+    if (!convenioParaLote || !estabelecimentoAtual) return;
 
-    criarLoteMutation.mutate({
-      convenioId: convenioParaEnvio.id,
-      estabelecimentoId: estabelecimentoAtual.id,
-      recursosIds: Array.from(recursosSelecionados),
-      descricao: `Lote de recursos - ${convenioParaEnvio.nome}`,
-    });
+    if (modoGuiaUnica) {
+      // Criar um lote para cada guia selecionada
+      const recursosArray = Array.from(recursosSelecionados);
+      const guiasMap = new Map<string, number[]>();
+      
+      for (const recursoId of recursosArray) {
+        const recurso = recursosConvenio?.find(r => r.id === recursoId);
+        if (recurso) {
+          const guia = recurso.guiaNumero || "sem_guia";
+          if (!guiasMap.has(guia)) {
+            guiasMap.set(guia, []);
+          }
+          guiasMap.get(guia)!.push(recursoId);
+        }
+      }
+
+      // Criar lote para cada guia
+      let count = 0;
+      for (const [guia, ids] of guiasMap) {
+        count++;
+        criarLoteMutation.mutate({
+          convenioId: convenioParaLote.id,
+          estabelecimentoId: estabelecimentoAtual.id,
+          recursosIds: ids,
+          descricao: `Lote - Guia ${guia} - ${convenioParaLote.nome}`,
+          protocoloEnvio: protocoloLote || undefined,
+          dataInicioConta: dataInicioConta || undefined,
+          dataFimConta: dataFimConta || undefined,
+        });
+      }
+    } else {
+      // Criar um único lote com todos os recursos selecionados
+      criarLoteMutation.mutate({
+        convenioId: convenioParaLote.id,
+        estabelecimentoId: estabelecimentoAtual.id,
+        recursosIds: Array.from(recursosSelecionados),
+        descricao: `Lote de recursos - ${convenioParaLote.nome}`,
+        protocoloEnvio: protocoloLote || undefined,
+        dataInicioConta: dataInicioConta || undefined,
+        dataFimConta: dataFimConta || undefined,
+      });
+    }
   };
 
-  const handleEnviarTodosConvenio = (convenioId: number, convenioNome: string, recursos: any[]) => {
+  const handleCriarLoteTodos = (convenioId: number, convenioNome: string, recursos: any[]) => {
     if (recursos.length === 0) {
-      toast.error("Não há recursos para enviar");
+      toast.error("Não há recursos para criar lote");
       return;
     }
     setRecursosSelecionados(new Set(recursos.map(r => r.id)));
-    setConvenioParaEnvio({ id: convenioId, nome: convenioNome });
-    setDialogEnvio(true);
+    setConvenioParaLote({ id: convenioId, nome: convenioNome });
+    setDialogCriarLote(true);
   };
+
+  // Filtrar recursos por busca
+  const recursosFiltrados = useMemo(() => {
+    if (!recursosConvenio || !busca) return recursosConvenio;
+    const termo = busca.toLowerCase();
+    return recursosConvenio.filter(r => 
+      r.guiaNumero?.toLowerCase().includes(termo) ||
+      r.pacienteNome?.toLowerCase().includes(termo) ||
+      r.codigoProcedimento?.toLowerCase().includes(termo) ||
+      r.descricaoProcedimento?.toLowerCase().includes(termo)
+    );
+  }, [recursosConvenio, busca]);
 
   if (!user) return null;
 
@@ -156,9 +206,9 @@ export default function EnvioRecursosLote() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Envio de Recursos em Lote</h1>
+          <h1 className="text-2xl font-bold">Criação de Lotes</h1>
           <p className="text-muted-foreground">
-            Agrupe e envie recursos de glosa por convênio de forma rápida
+            Selecione as guias finalizadas por convênio e crie lotes para envio de recursos
           </p>
         </div>
       </div>
@@ -173,7 +223,7 @@ export default function EnvioRecursosLote() {
           <CardContent>
             <div className="text-2xl font-bold">{recursosAgrupados?.length || 0}</div>
             <p className="text-xs text-muted-foreground">
-              Aguardando envio
+              Aguardando criação de lote
             </p>
           </CardContent>
         </Card>
@@ -186,7 +236,7 @@ export default function EnvioRecursosLote() {
           <CardContent>
             <div className="text-2xl font-bold">{totalRecursosPendentes}</div>
             <p className="text-xs text-muted-foreground">
-              Itens pendentes de envio
+              Itens pendentes de lote
             </p>
           </CardContent>
         </Card>
@@ -201,40 +251,28 @@ export default function EnvioRecursosLote() {
               {formatCurrency(valorTotalPendente)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Valor glosado a recursar
+              Valor total a recursar
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Busca */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por convênio..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Lista de Convênios */}
       <Card>
         <CardHeader>
-          <CardTitle>Recursos por Convênio</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" />
+            Guias Finalizadas por Convênio
+          </CardTitle>
           <CardDescription>
-            Clique em um convênio para ver os recursos e selecionar itens para envio em lote
+            Expanda um convênio para ver as guias e selecionar quais incluir no lote
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-24 w-full" />
+                <Skeleton key={i} className="h-20 w-full" />
               ))}
             </div>
           ) : !recursosAgrupados || recursosAgrupados.length === 0 ? (
@@ -242,108 +280,112 @@ export default function EnvioRecursosLote() {
               <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
               <h3 className="text-lg font-medium mb-2">Nenhum recurso pendente</h3>
               <p className="text-muted-foreground">
-                Todos os recursos foram enviados ou não há recursos criados
+                Todos os recursos já foram incluídos em lotes. Crie novos recursos nas telas de Recurso Glosa.
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {recursosAgrupados
-                .filter(g => !busca || g.convenioNome.toLowerCase().includes(busca.toLowerCase()))
-                .map((grupo) => (
+            <div className="space-y-3">
+              {recursosAgrupados.map((grupo) => (
                 <div key={grupo.convenioId} className="border rounded-lg overflow-hidden">
-                  {/* Cabeçalho do Convênio */}
+                  {/* Header do Convênio */}
                   <div
-                    className="p-4 bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer flex items-center justify-between"
+                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors"
                     onClick={() => handleExpandirConvenio(grupo.convenioId)}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="p-2 bg-primary/10 rounded-lg">
-                        <Building2 className="h-6 w-6 text-primary" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold">{grupo.convenioNome}</h3>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <FileText className="h-4 w-4" />
-                            {grupo.totalRecursos} recursos
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="h-4 w-4" />
-                            {formatCurrency(grupo.valorTotalGlosado)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEnviarTodosConvenio(grupo.convenioId, grupo.convenioNome, grupo.recursos);
-                        }}
-                      >
-                        <Send className="h-4 w-4 mr-1" />
-                        Enviar Todos
-                      </Button>
+                    <div className="flex items-center gap-3">
                       {convenioExpandido === grupo.convenioId ? (
                         <ChevronDown className="h-5 w-5 text-muted-foreground" />
                       ) : (
                         <ChevronRight className="h-5 w-5 text-muted-foreground" />
                       )}
+                      <Building2 className="h-5 w-5 text-blue-500" />
+                      <div>
+                        <h3 className="font-semibold">{grupo.convenioNome}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {grupo.totalRecursos} {grupo.totalRecursos === 1 ? "recurso" : "recursos"} pendentes
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div className="text-sm font-medium text-red-600">
+                          {formatCurrency(grupo.valorTotalGlosado)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Valor glosado</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCriarLoteTodos(grupo.convenioId, grupo.convenioNome, grupo.recursos);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Criar Lote (Todos)
+                      </Button>
                     </div>
                   </div>
 
-                  {/* Recursos do Convênio (Expandido) */}
+                  {/* Tabela de Recursos expandida */}
                   {convenioExpandido === grupo.convenioId && (
-                    <div className="p-4 border-t">
+                    <div className="border-t p-4 bg-muted/20">
                       {loadingRecursos ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                      ) : !recursosConvenio || recursosConvenio.length === 0 ? (
-                        <div className="text-center py-8 text-muted-foreground">
-                          Nenhum recurso encontrado
+                        <div className="space-y-2">
+                          {[1, 2, 3].map((i) => (
+                            <Skeleton key={i} className="h-10 w-full" />
+                          ))}
                         </div>
                       ) : (
                         <>
                           {/* Barra de ações */}
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                checked={recursosSelecionados.size === recursosConvenio.length}
-                                onCheckedChange={(checked) => handleSelecionarTodos(recursosConvenio, !!checked)}
+                          <div className="flex items-center justify-between mb-4 gap-4">
+                            <div className="relative flex-1 max-w-sm">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                placeholder="Buscar por guia, paciente, código..."
+                                value={busca}
+                                onChange={(e) => setBusca(e.target.value)}
+                                className="pl-10"
                               />
-                              <span className="text-sm text-muted-foreground">
-                                Selecionar todos ({recursosConvenio.length})
-                              </span>
                             </div>
-                            {recursosSelecionados.size > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">
+                                {recursosSelecionados.size} selecionados
+                              </Badge>
                               <Button
                                 size="sm"
-                                onClick={() => handleAbrirEnvio(grupo.convenioId, grupo.convenioNome)}
+                                onClick={() => handleAbrirCriarLote(grupo.convenioId, grupo.convenioNome)}
+                                disabled={recursosSelecionados.size === 0}
                               >
-                                <Send className="h-4 w-4 mr-1" />
-                                Enviar Selecionados ({recursosSelecionados.size})
+                                <Plus className="h-4 w-4 mr-1" />
+                                Criar Lote ({recursosSelecionados.size})
                               </Button>
-                            )}
+                            </div>
                           </div>
 
-                          {/* Tabela de Recursos */}
-                          <div className="border rounded-lg overflow-hidden">
+                          {/* Tabela */}
+                          <div className="rounded-md border overflow-x-auto">
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead className="w-12"></TableHead>
+                                  <TableHead className="w-[40px]">
+                                    <Checkbox
+                                      checked={recursosFiltrados && recursosFiltrados.length > 0 && recursosSelecionados.size === recursosFiltrados.length}
+                                      onCheckedChange={(checked) => handleSelecionarTodos(recursosFiltrados || [], !!checked)}
+                                    />
+                                  </TableHead>
                                   <TableHead>Guia</TableHead>
                                   <TableHead>Código</TableHead>
                                   <TableHead>Descrição</TableHead>
                                   <TableHead>Paciente</TableHead>
-                                  <TableHead className="text-right">Vl. Glosado</TableHead>
+                                  <TableHead>Data Item</TableHead>
+                                  <TableHead className="text-right">Valor Glosado</TableHead>
                                   <TableHead>Status</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {recursosConvenio.map((recurso) => (
+                                {(recursosFiltrados || []).map((recurso) => (
                                   <TableRow key={recurso.id}>
                                     <TableCell>
                                       <Checkbox
@@ -351,12 +393,17 @@ export default function EnvioRecursosLote() {
                                         onCheckedChange={(checked) => handleSelecionarRecurso(recurso.id, !!checked)}
                                       />
                                     </TableCell>
-                                    <TableCell className="font-medium">{recurso.guiaNumero || "-"}</TableCell>
+                                    <TableCell className="font-mono text-sm">
+                                      {recurso.guiaNumero || "-"}
+                                    </TableCell>
                                     <TableCell>{recurso.codigoProcedimento || "-"}</TableCell>
                                     <TableCell className="max-w-[200px] truncate">
                                       {recurso.descricaoProcedimento || "-"}
                                     </TableCell>
                                     <TableCell>{recurso.pacienteNome || "-"}</TableCell>
+                                    <TableCell>
+                                      {recurso.dataGlosa ? formatDateBR(recurso.dataGlosa) : "-"}
+                                    </TableCell>
                                     <TableCell className="text-right text-red-600 font-medium">
                                       {formatCurrency(recurso.valorGlosado)}
                                     </TableCell>
@@ -381,28 +428,29 @@ export default function EnvioRecursosLote() {
         </CardContent>
       </Card>
 
-      {/* Dialog de Envio */}
-      <Dialog open={dialogEnvio} onOpenChange={setDialogEnvio}>
-        <DialogContent>
+      {/* Dialog de Criação de Lote */}
+      <Dialog open={dialogCriarLote} onOpenChange={setDialogCriarLote}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Enviar Recursos em Lote</DialogTitle>
+            <DialogTitle>Criar Lote de Recursos</DialogTitle>
             <DialogDescription>
-              Você está prestes a criar um lote e enviar {recursosSelecionados.size} recursos para {convenioParaEnvio?.nome}
+              Configure os dados do lote para {convenioParaLote?.nome}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="flex items-center justify-between mb-2">
+            {/* Resumo */}
+            <div className="p-4 bg-muted rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Convênio:</span>
-                <span className="font-medium">{convenioParaEnvio?.nome}</span>
+                <span className="font-medium">{convenioParaLote?.nome}</span>
               </div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Recursos selecionados:</span>
                 <span className="font-medium">{recursosSelecionados.size}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Valor total:</span>
+                <span className="text-sm text-muted-foreground">Valor total glosado:</span>
                 <span className="font-medium text-red-600">
                   {formatCurrency(
                     recursosConvenio
@@ -413,28 +461,83 @@ export default function EnvioRecursosLote() {
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium mb-2 block">Protocolo de Envio (opcional)</label>
-              <Input
-                placeholder="Ex: 2024-001234"
-                value={protocoloEnvio}
-                onChange={(e) => setProtocoloEnvio(e.target.value)}
+            {/* Modo guia única */}
+            <div className="flex items-center space-x-2 p-3 border rounded-lg">
+              <Checkbox
+                id="modoGuiaUnica"
+                checked={modoGuiaUnica}
+                onCheckedChange={(checked) => setModoGuiaUnica(!!checked)}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Informe o protocolo se já tiver enviado ao convênio
-              </p>
+              <label htmlFor="modoGuiaUnica" className="text-sm font-medium cursor-pointer">
+                Criar um lote por guia (convênio permite somente uma guia por envio)
+              </label>
+            </div>
+
+            {/* Campos adicionais */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                  <Hash className="h-3.5 w-3.5" />
+                  Número do Lote (opcional)
+                </label>
+                <Input
+                  placeholder="Gerado automaticamente se não informado"
+                  value={numeroLoteManual}
+                  onChange={(e) => setNumeroLoteManual(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Deixe em branco para gerar automaticamente
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                  <FileText className="h-3.5 w-3.5" />
+                  Protocolo (opcional)
+                </label>
+                <Input
+                  placeholder="Ex: 2024-001234"
+                  value={protocoloLote}
+                  onChange={(e) => setProtocoloLote(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    Data Início Conta
+                  </label>
+                  <Input
+                    type="date"
+                    value={dataInicioConta}
+                    onChange={(e) => setDataInicioConta(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    Data Fim Conta
+                  </label>
+                  <Input
+                    type="date"
+                    value={dataFimConta}
+                    onChange={(e) => setDataFimConta(e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogEnvio(false)}>
+            <Button variant="outline" onClick={() => setDialogCriarLote(false)}>
               Cancelar
             </Button>
             <Button 
-              onClick={handleEnviarLote}
-              disabled={criarLoteMutation.isPending || enviarLoteMutation.isPending}
+              onClick={handleCriarLote}
+              disabled={criarLoteMutation.isPending}
             >
-              {(criarLoteMutation.isPending || enviarLoteMutation.isPending) ? (
+              {criarLoteMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Criando lote...
@@ -442,7 +545,7 @@ export default function EnvioRecursosLote() {
               ) : (
                 <>
                   <Package className="h-4 w-4 mr-2" />
-                  Criar Lote e Enviar
+                  {modoGuiaUnica ? "Criar Lotes (1 por guia)" : "Criar Lote"}
                 </>
               )}
             </Button>

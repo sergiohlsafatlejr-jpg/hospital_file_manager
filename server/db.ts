@@ -9638,6 +9638,9 @@ export async function criarLoteRecurso(params: {
   userId: number;
   recursosIds: number[];
   descricao?: string;
+  protocoloEnvio?: string;
+  dataInicioConta?: string;
+  dataFimConta?: string;
 }): Promise<{ loteId: number; numeroLote: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -9682,6 +9685,7 @@ export async function criarLoteRecurso(params: {
     valorTotalRecuperado: "0",
     quantidadeItens: params.recursosIds.length,
     status: "pendente_envio",
+    protocoloEnvio: params.protocoloEnvio || null,
     dataPrazoResposta,
     createdAt: new Date(),
   });

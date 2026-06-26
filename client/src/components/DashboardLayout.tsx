@@ -159,7 +159,7 @@ const menuItems: MenuItem[] = [
     { icon: FileText, label: "Recurso Glosa Conciliação", path: "/recurso-glosa-conciliacao", modulo: "recursosGlosa" },
     { icon: FileText, label: "Recurso Glosa Demonstrativo", path: "/recurso-glosa-demonstrativo", modulo: "recursosGlosa" },
     { icon: Eye, label: "Recursos Analisados", path: "/recursos", modulo: "recursosGlosa" },
-    { icon: Send, label: "Envio de Lote", path: "/envio-recursos-lote", modulo: "recursosGlosa" },
+    { icon: Package, label: "Criação de Lotes", path: "/envio-recursos-lote", modulo: "recursosGlosa" },
     { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
   ]},
 
