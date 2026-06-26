@@ -81,6 +81,14 @@ router.post('/api/internal/process-file', async (req, res) => {
     
     if (arquivo.direcao === "retornado") {
       await processRetornado(arquivoId, arquivo, buffer);
+      
+      // Aplicar padrões de aceite automático de glosa nos itens recém-importados
+      try {
+        await aplicarAceiteAutomaticoGlosa(arquivoId, arquivo.convenioId, arquivo.estabelecimentoId);
+      } catch (aceiteErr: any) {
+        console.error('[FileProcessor] Erro ao aplicar aceite automático:', aceiteErr?.message);
+        await plog(arquivoId, 'info', `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`);
+      }
     } else {
       await processEnvio(arquivoId, arquivo, buffer);
     }
@@ -408,6 +416,95 @@ async function processEnvio(arquivoId: number, arquivo: any, buffer: Buffer) {
   } else {
     await db.updateArquivoStatus(arquivoId, "processado");
     console.log('[FileProcessor] Arquivo processado, mas nenhum item encontrado.');
+  }
+}
+
+/**
+ * Aplica padrões de aceite automático de glosa nos itens recém-importados.
+ * Verifica a tabela glosas_aceite_automatico e marca os itens correspondentes.
+ */
+async function aplicarAceiteAutomaticoGlosa(arquivoId: number, convenioId?: number, estabelecimentoId?: number) {
+  const { getDb } = await import('./db');
+  const { glosasAceiteAutomatico } = await import('../drizzle/schema');
+  const { eq, and, or, isNull, sql } = await import('drizzle-orm');
+  
+  const database = await getDb();
+  if (!database) return;
+  
+  // Buscar padrões ativos que se aplicam a este convênio/estabelecimento
+  const conditions: any[] = [eq(glosasAceiteAutomatico.ativo, "sim")];
+  
+  // Padrões que se aplicam: sem convênio específico OU com o convênio do arquivo
+  // E sem estabelecimento específico OU com o estabelecimento do arquivo
+  const padroes = await database
+    .select()
+    .from(glosasAceiteAutomatico)
+    .where(eq(glosasAceiteAutomatico.ativo, "sim"));
+  
+  if (padroes.length === 0) return;
+  
+  // Filtrar padrões aplicáveis
+  const padroesAplicaveis = padroes.filter(p => {
+    // Verificar convênio: null = todos, ou deve bater
+    if (p.convenioId && convenioId && p.convenioId !== convenioId) return false;
+    // Verificar estabelecimento: null = todos, ou deve bater
+    if (p.estabelecimentoId && estabelecimentoId && p.estabelecimentoId !== estabelecimentoId) return false;
+    return true;
+  });
+  
+  if (padroesAplicaveis.length === 0) return;
+  
+  let totalAceitos = 0;
+  
+  for (const padrao of padroesAplicaveis) {
+    const codigoEscapado = padrao.codigoGlosa.replace(/'/g, "''");
+    
+    // Aplicar na tabela demonstrativo (itens do arquivo recém-importado)
+    const sqlDemo = `
+      UPDATE demonstrativo 
+      SET glosa_aceita = 1, 
+          glosa_aceita_por = 'Sistema (Aceite Auto: ${codigoEscapado})', 
+          glosa_aceita_em = NOW(),
+          valor_recurso = 0,
+          recurso_status = 'sem_recurso'
+      WHERE arquivo_id = ${arquivoId}
+        AND codigo_glosa = '${codigoEscapado}'
+        AND (glosa_aceita IS NULL OR glosa_aceita = 0)
+        AND valor_glosa > 0
+    `;
+    
+    try {
+      const [demoResult] = await database.execute(sql.raw(sqlDemo));
+      totalAceitos += (demoResult as any)?.affectedRows || 0;
+    } catch (e) {
+      // tabela pode não ter arquivo_id, tentar sem
+    }
+    
+    // Aplicar na tabela recebimentos_excel (itens do arquivo recém-importado)
+    const sqlExcel = `
+      UPDATE recebimentos_excel 
+      SET glosa_aceita = 1, 
+          glosa_aceita_por = 'Sistema (Aceite Auto: ${codigoEscapado})', 
+          glosa_aceita_em = NOW(),
+          valor_recurso = 0,
+          status_recurso_item = 'aceita'
+      WHERE arquivoId = ${arquivoId}
+        AND codigo_glosa = '${codigoEscapado}'
+        AND (glosa_aceita IS NULL OR glosa_aceita = 0)
+        AND (valor_glosa > 0 OR erro_tiss IS NOT NULL)
+    `;
+    
+    try {
+      const [excelResult] = await database.execute(sql.raw(sqlExcel));
+      totalAceitos += (excelResult as any)?.affectedRows || 0;
+    } catch (e) {
+      // ignore
+    }
+  }
+  
+  if (totalAceitos > 0) {
+    console.log(`[AceiteAutomatico] ${totalAceitos} itens marcados como aceite automático no arquivo ${arquivoId}`);
+    await plog(arquivoId, 'info', `Aceite automático: ${totalAceitos} itens glosados aceitos automaticamente (${padroesAplicaveis.length} padrões aplicados)`);
   }
 }
 

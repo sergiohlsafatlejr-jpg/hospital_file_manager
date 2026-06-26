@@ -112,6 +112,14 @@ const settingsMenuItems: SettingsMenuItem[] = [
     section: "IA e Regras",
     modulo: "dicionarioGlosas",
   },
+  {
+    icon: Shield,
+    label: "Aceite Automático Glosa",
+    path: "/aceite-automatico-glosa",
+    description: "Padrões de glosas aceitas automaticamente",
+    section: "IA e Regras",
+    modulo: "recursosGlosa",
+  },
   // Comunicação
   {
     icon: Megaphone,

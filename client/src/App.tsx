@@ -111,6 +111,7 @@ const RelatorioFisioterapia = lazy(() => import("./pages/RelatorioFisioterapia")
 const ComparativoMesAMes = lazy(() => import("./pages/ComparativoMesAMes"));
 const RecursoGlosaConciliacao = lazy(() => import("./pages/RecursoGlosaConciliacao"));
 const RecursoGlosaDemonstrativo = lazy(() => import("./pages/RecursoGlosaDemonstrativo"));
+const AceiteAutomaticoGlosa = lazy(() => import("./pages/AceiteAutomaticoGlosa"));
 
 function PageLoader() {
   return (
@@ -244,6 +245,7 @@ function Router() {
         <Route path={"/rh/plano-salarios"} component={PlanoSalarios} />
         <Route path={"/rpa-manager"} component={RpaManager} />
         <Route path={"/vinculacao-inteligente"} component={VinculacaoInteligente} />
+        <Route path={"/aceite-automatico-glosa"} component={AceiteAutomaticoGlosa} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

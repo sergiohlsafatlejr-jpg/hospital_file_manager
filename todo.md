@@ -4196,3 +4196,9 @@
 
 ## Bug Status Guia Recurso Glosa Demonstrativo (26/06/2026)
 - [x] Guia com todos itens recursados ou aceitos mostra status "Iniciado" em vez de "Finalizado" (ex: guia 313503764) - corrigido: lógica de recursoStatus agora considera justificativa+valorRecurso como 'recursado' independente do campo recurso_status
+
+- [x] Padrões automáticos de aceite de glosa - Tabela no banco (glosas_aceite_automatico)
+- [x] Padrões automáticos de aceite de glosa - Endpoints backend (CRUD + aplicar)
+- [x] Padrões automáticos de aceite de glosa - Tela de configuração no frontend
+- [x] Padrões automáticos de aceite de glosa - Aplicar automaticamente na importação
+- [x] Padrões automáticos de aceite de glosa - Botão para aplicar nos dados existentes

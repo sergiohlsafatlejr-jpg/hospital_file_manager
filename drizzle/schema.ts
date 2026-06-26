@@ -4781,3 +4781,50 @@ export const estabelecimentoFonteRelatorios = mysqlTable("estabelecimento_fonte_
 
 export type EstabelecimentoFonteRelatorio = typeof estabelecimentoFonteRelatorios.$inferSelect;
 export type InsertEstabelecimentoFonteRelatorio = typeof estabelecimentoFonteRelatorios.$inferInsert;
+
+
+
+// ============================================
+// TABELA DE PADRÕES DE ACEITE AUTOMÁTICO DE GLOSA
+// ============================================
+
+/**
+ * Padrões de Aceite Automático de Glosa
+ * Define quais códigos de glosa devem ser automaticamente aceitos (sem recurso)
+ * Pode ser configurado por convênio e/ou estabelecimento
+ */
+export const glosasAceiteAutomatico = mysqlTable("glosas_aceite_automatico", {
+  id: int("id").autoincrement().primaryKey(),
+  
+  // Código da glosa TISS (obrigatório)
+  codigoGlosa: varchar("codigo_glosa", { length: 20 }).notNull(),
+  
+  // Descrição do motivo (para referência rápida)
+  descricaoGlosa: text("descricao_glosa"),
+  
+  // Convênio (null = aplica para todos os convênios)
+  convenioId: int("convenio_id"),
+  
+  // Estabelecimento (null = aplica para todos os estabelecimentos)
+  estabelecimentoId: int("estabelecimento_id"),
+  
+  // Motivo do aceite automático (justificativa para auditoria)
+  motivoAceite: text("motivo_aceite"),
+  
+  // Quem cadastrou
+  criadoPor: int("criado_por"),
+  criadoPorNome: varchar("criado_por_nome", { length: 255 }),
+  
+  // Status
+  ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  codigoGlosaIdx: index("idx_aceite_auto_codigo").on(table.codigoGlosa),
+  convenioIdx: index("idx_aceite_auto_convenio").on(table.convenioId),
+  estabelecimentoIdx: index("idx_aceite_auto_estab").on(table.estabelecimentoId),
+}));
+
+export type GlosaAceiteAutomatico = typeof glosasAceiteAutomatico.$inferSelect;
+export type InsertGlosaAceiteAutomatico = typeof glosasAceiteAutomatico.$inferInsert;

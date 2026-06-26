@@ -844,6 +844,27 @@ const recebiveisRouter = router({
         await db.insert(demonstrativo).values(recordsToInsert.slice(i, i + BATCH_SIZE));
       }
 
+      // Aplicar aceite automático de glosa
+      try {
+        const { glosasAceiteAutomatico } = await import("../../drizzle/schema");
+        const { eq: eqOp, sql: sqlOp } = await import("drizzle-orm");
+        const padroesAtivos = await db.select().from(glosasAceiteAutomatico).where(eqOp(glosasAceiteAutomatico.ativo, "sim"));
+        const padroesAplicaveis = padroesAtivos.filter(p => {
+          if (p.convenioId && input.convenioId && p.convenioId !== input.convenioId) return false;
+          return true;
+        });
+        for (const padrao of padroesAplicaveis) {
+          const cod = padrao.codigoGlosa.replace(/'/g, "''");
+          await db.execute(sqlOp.raw(`
+            UPDATE demonstrativo 
+            SET glosa_aceita = 1, glosa_aceita_por = 'Sistema (Aceite Auto: ${cod})', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso'
+            WHERE arquivo_id = ${arquivoId} AND codigo_glosa = '${cod}' AND (glosa_aceita IS NULL OR glosa_aceita = 0) AND valor_glosa > 0
+          `));
+        }
+      } catch (aceiteErr) {
+        console.error('[Financeiro] Erro ao aplicar aceite automático:', aceiteErr);
+      }
+
       return { success: true, arquivoId };
     }),
 });
