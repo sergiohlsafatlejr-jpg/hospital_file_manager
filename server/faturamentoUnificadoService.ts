@@ -4676,7 +4676,7 @@ export async function itensGlosadosDemonstrativo(params: {
       d.classificacao_glosa as classificacaoGlosa,
       d.recurso_status as recursoStatus,
       d.justificativa_recurso as justificativa,
-      COALESCE(d.valor_recurso, 0) as valorRecurso,
+      COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
       COALESCE(d.glosa_aceita, 0) as glosaAceita,
       d.glosa_aceita_por as glosaAceitaPor,
       d.erro_tiss as erroTiss,
@@ -4856,7 +4856,7 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
@@ -4946,7 +4946,7 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d
@@ -5041,7 +5041,7 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
         COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
         COALESCE(mg.descricao, mg2.descricao, CASE WHEN d.erro_tiss IS NOT NULL AND d.erro_tiss != '' THEN SUBSTRING_INDEX(d.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
         d.justificativa_recurso as justificativa,
-        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
         COALESCE(d.glosa_aceita, 0) as glosaAceita,
         d.glosa_aceita_por as glosaAceitaPor
       FROM demonstrativo d

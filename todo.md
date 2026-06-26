@@ -4159,3 +4159,7 @@
 ## Melhorias UI Recurso Glosa - Sessão 14 (26/06/2025)
 - [x] Adicionar botão de voltar nas telas /recurso-glosa-demonstrativo e /recurso-glosa-conciliacao
 - [x] Melhorar KPIs: menores, com cores visuais (ícones coloridos, layout compacto com ícone + texto)
+## Melhoria Vlr Recursado - Sessão 15 (26/06/2025)
+- [x] Vlr Recursado na tela /recurso-glosa-demonstrativo: preencher automaticamente com valor da glosa (COALESCE com valor_glosa)
+- [x] Vlr Recursado: zerar quando aceitar a glosa (UPDATE SET valor_recurso = 0)
+- [x] Vlr Recursado: deixar campo editável/digitável (já era editável - clicável para digitar)
