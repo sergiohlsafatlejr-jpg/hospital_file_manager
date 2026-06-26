@@ -3509,7 +3509,11 @@ export async function itensGlosadosParaRecurso(params: {
       SUM(COALESCE(ca.valorFaturado, 0)) as totalValorFaturado,
       SUM(COALESCE(ca.valorPago, 0)) as totalValorPago,
       SUM(COALESCE(ca.valorGlosa, 0)) as totalValorGlosa,
-      SUM(CASE WHEN ca.xmlRecursoGerado = 1 THEN 1 ELSE 0 END) as totalJaRecursados
+      SUM(CASE WHEN ca.xmlRecursoGerado = 1 THEN 1 ELSE 0 END) as totalJaRecursados,
+      SUM(CASE WHEN ca.xmlRecursoGerado = 1 THEN COALESCE(ca.valorRecursado, ca.valorGlosa, 0) ELSE 0 END) as totalValorRecurso,
+      SUM(CASE WHEN ca.glosaAceita = 1 THEN COALESCE(ca.valorGlosa, 0) ELSE 0 END) as totalValorAceite,
+      SUM(CASE WHEN ca.xmlRecursoGerado = 0 AND (ca.glosaAceita IS NULL OR ca.glosaAceita = 0) THEN COALESCE(ca.valorGlosa, 0) ELSE 0 END) as totalValorNaoTrabalhado,
+      SUM(CASE WHEN ca.xmlRecursoGerado = 1 OR ca.glosaAceita = 1 THEN 1 ELSE 0 END) as totalItensAnalisados
     FROM conciliados_automatico ca
     ${whereClause}
   `;
@@ -3560,6 +3564,11 @@ export async function itensGlosadosParaRecurso(params: {
       totalValorPago: Number(resumoRow.totalValorPago || 0),
       totalValorGlosa: Number(resumoRow.totalValorGlosa || 0),
       totalJaRecursados: Number(resumoRow.totalJaRecursados || 0),
+      totalValorRecurso: Number(resumoRow.totalValorRecurso || 0),
+      totalValorAceite: Number(resumoRow.totalValorAceite || 0),
+      totalValorNaoTrabalhado: Number(resumoRow.totalValorNaoTrabalhado || 0),
+      totalItensAnalisados: Number(resumoRow.totalItensAnalisados || 0),
+      percentualAnalise: Number(resumoRow.totalItens || 0) > 0 ? Math.round((Number(resumoRow.totalItensAnalisados || 0) / Number(resumoRow.totalItens || 0)) * 10000) / 100 : 0,
     },
   };
 }
@@ -4660,6 +4669,7 @@ export async function itensGlosadosDemonstrativo(params: {
   )`;
 
   // UNION subquery for unified data
+  // Cruza com recursosGlosa para detectar itens que já têm recurso criado no /acompanhamento-recursos
   const unionSubquery = `(
     SELECT 
       d.id as id, 'demo' as fonte,
@@ -4674,7 +4684,7 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) as valorFaturado,
       COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       d.classificacao_glosa as classificacaoGlosa,
-      d.recurso_status as recursoStatus,
+      COALESCE(d.recurso_status, CASE WHEN rg_d.id IS NOT NULL THEN 'recurso_criado' ELSE NULL END) as recursoStatus,
       d.justificativa_recurso as justificativa,
       COALESCE(d.valor_recurso, d.valor_glosa, 0) as valorRecurso,
       COALESCE(d.glosa_aceita, 0) as glosaAceita,
@@ -4683,6 +4693,7 @@ export async function itensGlosadosDemonstrativo(params: {
       d.tipo_lancamento as tipo
     FROM demonstrativo d
     LEFT JOIN convenios c ON c.id = d.convenio_id
+    LEFT JOIN recursosGlosa rg_d ON rg_d.guiaNumero = d.numero_guia AND rg_d.codigoProcedimento = d.codigo_item AND rg_d.estabelecimentoId = d.estabelecimentoId
     ${whereDemo}
     UNION ALL
     SELECT 
@@ -4698,7 +4709,7 @@ export async function itensGlosadosDemonstrativo(params: {
       CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
       COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       NULL as classificacaoGlosa,
-      re.status_recurso_item as recursoStatus,
+      COALESCE(re.status_recurso_item, CASE WHEN rg_e.id IS NOT NULL THEN 'recurso_criado' ELSE NULL END) as recursoStatus,
       re.justificativa_recurso as justificativa,
       COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
       re.glosa_aceita as glosaAceita,
@@ -4707,6 +4718,7 @@ export async function itensGlosadosDemonstrativo(params: {
       re.tipo_lancamento as tipo
     FROM recebimentos_excel re
     LEFT JOIN convenios c ON c.id = re.convenioId
+    LEFT JOIN recursosGlosa rg_e ON rg_e.guiaNumero = re.numero_guia AND rg_e.codigoProcedimento = re.item AND rg_e.estabelecimentoId = re.estabelecimentoId
     ${whereExcel}
     ${notExistsClause}
   )`;
@@ -4786,7 +4798,11 @@ export async function itensGlosadosDemonstrativo(params: {
       COUNT(DISTINCT u.guia) as totalGuias,
       SUM(u.valorFaturado) as totalValorFaturado,
       SUM(u.valorPago) as totalValorPago,
-      SUM(u.valorGlosa) as totalValorGlosa
+      SUM(u.valorGlosa) as totalValorGlosa,
+      SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN COALESCE(u.valorRecurso, u.valorGlosa, 0) ELSE 0 END) as totalValorRecurso,
+      SUM(CASE WHEN u.glosaAceita = 1 THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as totalValorAceite,
+      SUM(CASE WHEN (u.recursoStatus IS NULL OR u.recursoStatus = 'sem_recurso') AND (u.glosaAceita IS NULL OR u.glosaAceita = 0) THEN COALESCE(u.valorGlosa, 0) ELSE 0 END) as totalValorNaoTrabalhado,
+      SUM(CASE WHEN u.recursoStatus IN ('recurso_criado', 'recursado', 'recurso_enviado', 'recurso_deferido', 'recurso_indeferido') OR u.glosaAceita = 1 THEN 1 ELSE 0 END) as totalItensAnalisados
     FROM ${unionSubquery} u
   `;
 
@@ -4797,6 +4813,9 @@ export async function itensGlosadosDemonstrativo(params: {
   ]);
   const total = (countResult as any[])[0]?.total || 0;
   const resumoRow = (resumoResult as any[])[0] || {};
+  const totalItens = Number(resumoRow.totalItens || 0);
+  const totalItensAnalisados = Number(resumoRow.totalItensAnalisados || 0);
+  const percentualAnalise = totalItens > 0 ? Math.round((totalItensAnalisados / totalItens) * 10000) / 100 : 0;
   return {
     items: items as any[],
     total: Number(total),
@@ -4804,11 +4823,16 @@ export async function itensGlosadosDemonstrativo(params: {
     pageSize,
     totalPages: Math.ceil(Number(total) / pageSize),
     resumo: {
-      totalItens: Number(resumoRow.totalItens || 0),
+      totalItens,
       totalGuias: Number(resumoRow.totalGuias || 0),
       totalValorFaturado: Number(resumoRow.totalValorFaturado || 0),
       totalValorPago: Number(resumoRow.totalValorPago || 0),
       totalValorGlosa: Number(resumoRow.totalValorGlosa || 0),
+      totalValorRecurso: Number(resumoRow.totalValorRecurso || 0),
+      totalValorAceite: Number(resumoRow.totalValorAceite || 0),
+      totalValorNaoTrabalhado: Number(resumoRow.totalValorNaoTrabalhado || 0),
+      totalItensAnalisados,
+      percentualAnalise,
     },
   };
 }

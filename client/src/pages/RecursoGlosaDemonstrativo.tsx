@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, FileText, AlertTriangle, DollarSign, TrendingDown } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, FileText, AlertTriangle, DollarSign, TrendingDown, CheckCircle, Clock, BarChart3 } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function RecursoGlosaDemonstrativo() {
@@ -291,46 +291,70 @@ export default function RecursoGlosaDemonstrativo() {
       </Card>
 
       {/* KPIs */}
-      {itensGlosados?.resumo && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
-              <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+      {itensGlosados?.resumo && (() => {
+        const resumo = itensGlosados.resumo;
+        const glosaInicial = resumo.totalValorGlosa;
+        const recurso = resumo.totalValorRecurso || 0;
+        const refaturamento = 0; // Placeholder - será preenchido quando implementado
+        const aceite = resumo.totalValorAceite || 0;
+        const naoTrabalhado = resumo.totalValorNaoTrabalhado || 0;
+        const recRecebido = 0; // Placeholder - será preenchido com dados do acompanhamento
+        const saldoAberto = glosaInicial - recurso - refaturamento - aceite - recRecebido;
+        return (
+          <div className="space-y-3">
+            {/* KPIs no estilo do modelo - linha única com todos os indicadores */}
+            <div className="rounded-lg border bg-card p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Glosa Inicial</p>
+                  <p className="text-sm font-bold text-red-600">{formatCurrency(glosaInicial)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Recurso</p>
+                  <p className="text-sm font-bold text-green-600">{formatCurrency(recurso)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Refaturamento</p>
+                  <p className="text-sm font-bold text-green-600">{formatCurrency(refaturamento)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Aceite</p>
+                  <p className="text-sm font-bold text-green-600">{formatCurrency(aceite)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Não trabalhado</p>
+                  <p className="text-sm font-bold text-red-600">{formatCurrency(naoTrabalhado)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Rec. Recebido</p>
+                  <p className="text-sm font-bold text-green-600">{formatCurrency(recRecebido)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-bold text-muted-foreground mb-1">Saldo aberto</p>
+                  <p className="text-sm font-bold text-green-600">{formatCurrency(Math.max(saldoAberto, 0))}</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total Guias</p>
-              <p className="text-lg font-semibold">{itensGlosados.resumo.totalGuias}</p>
+            {/* Barra de progresso da análise */}
+            <div className="rounded-lg border bg-card p-3 flex items-center gap-4">
+              <div className="flex items-center gap-2 shrink-0">
+                <BarChart3 className="h-4 w-4 text-purple-600" />
+                <span className="text-sm font-medium">Análise das glosas do período</span>
+              </div>
+              <div className="flex-1">
+                <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-700">
+                  <div className="bg-purple-600 h-4 rounded-full transition-all flex items-center justify-end pr-2" style={{ width: `${Math.max(Math.min(resumo.percentualAnalise || 0, 100), 8)}%` }}>
+                    <span className="text-[10px] font-bold text-white">{resumo.percentualAnalise?.toFixed(2) || '0.00'}%</span>
+                  </div>
+                </div>
+              </div>
+              {(resumo.percentualAnalise || 0) < 100 && (
+                <p className="text-xs text-red-500 font-bold shrink-0">Atenção! Podem haver glosas não submetidas</p>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-50 dark:bg-amber-900/20">
-              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Itens Glosados</p>
-              <p className="text-lg font-semibold">{itensGlosados.resumo.totalItens}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 dark:bg-blue-900/20">
-              <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Valor Faturado</p>
-              <p className="text-lg font-semibold text-blue-600">{formatCurrency(itensGlosados.resumo.totalValorFaturado)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 dark:bg-red-900/20">
-              <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Valor Glosa</p>
-              <p className="text-lg font-semibold text-red-600">{formatCurrency(itensGlosados.resumo.totalValorGlosa)}</p>
-            </div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Tabs de agrupamento */}
       <Tabs value={agrupamento} onValueChange={(v) => { setAgrupamento(v as any); setPage(1); setExpandedGuia(null); setExpandedItem(null); setExpandedMotivo(null); }}>

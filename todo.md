@@ -4166,3 +4166,10 @@
 ## Melhorias NFSe - Sessão 16 (26/06/2025)
 - [x] Filtro por data de emissão (período de/até) na tela NFSe
 - [x] Botão para gerar Excel (CSV) com os dados filtrados na tela NFSe
+## Correções Recurso Glosa - Sessão 17 (26/06/2025)
+- [ ] Bug: Itens com recurso criado no /acompanhamento-recursos aparecem como pendentes no /recurso-glosa-demonstrativo (devem ser Finalizado)
+- [ ] Redesenhar KPIs nas telas /recurso-glosa-demonstrativo e /recurso-glosa-conciliacao com campos: Glosa Inicial, Recurso, Refaturamento, Aceite, Não trabalhado, Rec. Recebido, Saldo aberto + barra de progresso
+
+## Correções Recurso Glosa - Sessão 18 (26/06/2026)
+- [x] Bug: Itens com recurso criado no /acompanhamento-recursos aparecem como pendentes no /recurso-glosa-demonstrativo (devem ser Finalizado)
+- [x] Redesenhar KPIs nas telas /recurso-glosa-demonstrativo e /recurso-glosa-conciliacao com campos: Glosa Inicial, Recurso, Refaturamento, Aceite, Não trabalhado, Rec. Recebido, Saldo aberto + barra de progresso "Análise das glosas do período"
