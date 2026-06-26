@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, FileText, AlertTriangle, DollarSign, TrendingDown } from "lucide-react";
+import { useLocation } from "wouter";
 
 export default function RecursoGlosaDemonstrativo() {
   const { estabelecimentoAtual } = useEstabelecimento();
@@ -206,10 +207,17 @@ export default function RecursoGlosaDemonstrativo() {
   const items = itensGlosados?.items || [];
   const totalPages = itensGlosados?.totalPages || 1;
 
+  const [, navigate] = useLocation();
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Recurso Glosa Demonstrativo</h1>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/analise-glosa')} title="Voltar">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-2xl font-bold">Recurso Glosa Demonstrativo</h1>
+        </div>
         <Badge variant="outline" className="text-xs">Fonte: Demonstrativo XML + Recebimentos Excel</Badge>
       </div>
 
@@ -284,31 +292,43 @@ export default function RecursoGlosaDemonstrativo() {
 
       {/* KPIs */}
       {itensGlosados?.resumo && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card>
-            <CardContent className="p-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+              <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Total Guias</p>
-              <p className="text-xl font-bold">{itensGlosados.resumo.totalGuias}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">Total Itens Glosados</p>
-              <p className="text-xl font-bold">{itensGlosados.resumo.totalItens}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
+              <p className="text-lg font-semibold">{itensGlosados.resumo.totalGuias}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-50 dark:bg-amber-900/20">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Itens Glosados</p>
+              <p className="text-lg font-semibold">{itensGlosados.resumo.totalItens}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 dark:bg-blue-900/20">
+              <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Valor Faturado</p>
-              <p className="text-xl font-bold text-blue-600">{formatCurrency(itensGlosados.resumo.totalValorFaturado)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
+              <p className="text-lg font-semibold text-blue-600">{formatCurrency(itensGlosados.resumo.totalValorFaturado)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 dark:bg-red-900/20">
+              <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Valor Glosa</p>
-              <p className="text-xl font-bold text-red-600">{formatCurrency(itensGlosados.resumo.totalValorGlosa)}</p>
-            </CardContent>
-          </Card>
+              <p className="text-lg font-semibold text-red-600">{formatCurrency(itensGlosados.resumo.totalValorGlosa)}</p>
+            </div>
+          </div>
         </div>
       )}
 

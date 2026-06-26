@@ -4156,3 +4156,6 @@
 ## Correções Recurso Glosa Demonstrativo - Sessão 13 (26/06/2025)
 - [x] Bug: Status "Finalizado" em guias não analisadas (corrigido: sem_recurso+glosa_aceita=0 agora é Pendente)
 - [x] Bug: Código de glosa não aparece (RESOLVIDO: extrai código do campo erro_tiss quando codigo_glosa é NULL, formato "XXXX-descrição")
+## Melhorias UI Recurso Glosa - Sessão 14 (26/06/2025)
+- [x] Adicionar botão de voltar nas telas /recurso-glosa-demonstrativo e /recurso-glosa-conciliacao
+- [x] Melhorar KPIs: menores, com cores visuais (ícones coloridos, layout compacto com ícone + texto)

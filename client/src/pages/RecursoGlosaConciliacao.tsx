@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy, List, Tag, Users, Ban, Check, ThumbsDown } from "lucide-react";
+import { FileSpreadsheet, FileCode, Search, Filter, ChevronDown, ChevronRight, AlertTriangle, CheckCircle2, Download, Sparkles, Loader2, Pencil, Copy, List, Tag, Users, Ban, Check, ThumbsDown, ArrowLeft, FileText, DollarSign, TrendingDown } from "lucide-react";
+import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 
 function formatarMoeda(valor: number): string {
@@ -21,6 +22,7 @@ function formatarMoeda(valor: number): string {
 
 export default function RecursoGlosaConciliacao() {
   const { estabelecimentoAtual } = useEstabelecimento();
+  const [, navigateTo] = useLocation();
   const [competencia, setCompetencia] = useState<string>("todos");
   const [dataPagto, setDataPagto] = useState<string>("todos");
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
@@ -475,11 +477,16 @@ export default function RecursoGlosaConciliacao() {
       <div className="space-y-4 p-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Recurso de Glosa - Conciliação</h1>
-            <p className="text-sm text-muted-foreground">
-              Gere recursos de glosa a partir dos itens identificados na conciliação cruzada
-            </p>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => navigateTo('/analise-glosa')} title="Voltar">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">Recurso de Glosa - Conciliação</h1>
+              <p className="text-sm text-muted-foreground">
+                Gere recursos de glosa a partir dos itens identificados na conciliação cruzada
+              </p>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
@@ -502,37 +509,52 @@ export default function RecursoGlosaConciliacao() {
 
         {/* Cards de Resumo */}
         {resumo && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Card>
-              <CardContent className="p-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+                <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Total Guias</p>
-                <p className="text-xl font-bold">{resumo.totalGuias}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-3">
-                <p className="text-xs text-muted-foreground">Total Itens Glosados</p>
-                <p className="text-xl font-bold">{resumo.totalItens}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-3">
+                <p className="text-lg font-semibold">{resumo.totalGuias}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-50 dark:bg-amber-900/20">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Itens Glosados</p>
+                <p className="text-lg font-semibold">{resumo.totalItens}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 dark:bg-blue-900/20">
+                <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Valor Faturado</p>
-                <p className="text-xl font-bold text-blue-600">{formatarMoeda(resumo.totalValorFaturado)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-3">
+                <p className="text-lg font-semibold text-blue-600">{formatarMoeda(resumo.totalValorFaturado)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 dark:bg-red-900/20">
+                <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Valor Glosa</p>
-                <p className="text-xl font-bold text-red-600">{formatarMoeda(resumo.totalValorGlosa)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-3">
+                <p className="text-lg font-semibold text-red-600">{formatarMoeda(resumo.totalValorGlosa)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-green-50 dark:bg-green-900/20">
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground">Já Recursados</p>
-                <p className="text-xl font-bold text-green-600">{resumo.totalJaRecursados}</p>
-              </CardContent>
-            </Card>
+                <p className="text-lg font-semibold text-green-600">{resumo.totalJaRecursados}</p>
+              </div>
+            </div>
           </div>
         )}
 
