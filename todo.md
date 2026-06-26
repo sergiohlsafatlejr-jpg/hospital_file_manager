@@ -4173,3 +4173,9 @@
 ## Correções Recurso Glosa - Sessão 18 (26/06/2026)
 - [x] Bug: Itens com recurso criado no /acompanhamento-recursos aparecem como pendentes no /recurso-glosa-demonstrativo (devem ser Finalizado)
 - [x] Redesenhar KPIs nas telas /recurso-glosa-demonstrativo e /recurso-glosa-conciliacao com campos: Glosa Inicial, Recurso, Refaturamento, Aceite, Não trabalhado, Rec. Recebido, Saldo aberto + barra de progresso "Análise das glosas do período"
+
+## Bug Dashboard/Home - KPIs zerados e NaN (26/06/2026)
+- [x] KPIs da tela inicial (Valor Faturado, Conciliação, Glosas, Recuperação) mostram R$ 0,00 / 0% (corrigido: desestruturação de database.execute retornava [rows] em vez de row)
+- [x] Pipeline do Processo (Guias Faturadas, NFs Emitidas, Demonstrativos, Recursos Feitos) mostra 0 (corrigido)
+- [x] Conciliação (Conciliados, Glosas, Sem Pagamento, Acréscimos) mostra 0 (corrigido)
+- [x] Top Convênios mostra "R$ NaN" e "NaN guias" (corrigido: conveniosTop agora desestrutura corretamente)

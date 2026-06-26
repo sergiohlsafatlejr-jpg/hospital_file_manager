@@ -19,8 +19,11 @@ export const dashboardHomeRouter = router({
       // Usar a competência mais recente se não especificada
       const compFilter = competencia || null;
 
+      // database.execute(sql.raw(...)) retorna [[rows], [fields]]
+      // Precisamos desestruturar corretamente
+
       // 1. FATURISTA: Totais de faturamento
-      const [faturamento] = await database.execute(sql.raw(`
+      const [faturamentoRows] = await database.execute(sql.raw(`
         SELECT 
           COUNT(*) as totalItens,
           COUNT(DISTINCT numeroGuia) as totalContas,
@@ -30,9 +33,10 @@ export const dashboardHomeRouter = router({
         WHERE estabelecimentoId = ${estabelecimentoId}
         ${compFilter ? `AND competencia = '${compFilter}'` : `AND competencia = (SELECT MAX(competencia) FROM faturamento_unificado WHERE estabelecimentoId = ${estabelecimentoId})`}
       `));
+      const faturamento = (faturamentoRows as any[])?.[0] || {};
 
       // 2. FATURISTA: Top 5 convênios por valor faturado
-      const conveniosTop = await database.execute(sql.raw(`
+      const [conveniosTopRows] = await database.execute(sql.raw(`
         SELECT 
           c.nome as convenio,
           COUNT(DISTINCT fu.numeroGuia) as totalGuias,
@@ -45,9 +49,10 @@ export const dashboardHomeRouter = router({
         ORDER BY totalFaturado DESC 
         LIMIT 5
       `));
+      const conveniosTop = (conveniosTopRows as any[]) || [];
 
       // 3. FATURISTA: Evolução mensal (últimos 6 meses)
-      const evolucaoMensal = await database.execute(sql.raw(`
+      const [evolucaoMensalRows] = await database.execute(sql.raw(`
         SELECT 
           competencia,
           COUNT(DISTINCT numeroGuia) as totalContas,
@@ -58,9 +63,10 @@ export const dashboardHomeRouter = router({
         ORDER BY competencia DESC 
         LIMIT 6
       `));
+      const evolucaoMensal = (evolucaoMensalRows as any[]) || [];
 
       // 4. RECURSO DE GLOSA: Status do fluxo
-      const [recursoStatus] = await database.execute(sql.raw(`
+      const [recursoStatusRows] = await database.execute(sql.raw(`
         SELECT 
           COUNT(*) as totalRecursos,
           SUM(CASE WHEN status = 'rascunho' THEN 1 ELSE 0 END) as rascunho,
@@ -76,9 +82,10 @@ export const dashboardHomeRouter = router({
         FROM recursosGlosa 
         WHERE estabelecimentoId = ${estabelecimentoId}
       `));
+      const recursoStatus = (recursoStatusRows as any[])?.[0] || {};
 
       // 5. RECURSO DE GLOSA: Recursos com prazo próximo (próximos 30 dias)
-      const recursosComPrazo = await database.execute(sql.raw(`
+      const [recursosComPrazoRows] = await database.execute(sql.raw(`
         SELECT 
           rg.id,
           rg.guiaNumero,
@@ -97,18 +104,20 @@ export const dashboardHomeRouter = router({
         ORDER BY rg.dataPrazoResposta ASC
         LIMIT 10
       `));
+      const recursosComPrazo = (recursosComPrazoRows as any[]) || [];
 
       // 6. RECURSO DE GLOSA: Fluxo do processo (pipeline)
-      const [fluxoPipeline] = await database.execute(sql.raw(`
+      const [fluxoPipelineRows] = await database.execute(sql.raw(`
         SELECT
           (SELECT COUNT(DISTINCT fu.numeroGuia) FROM faturamento_unificado fu WHERE fu.estabelecimentoId = ${estabelecimentoId} ${compFilter ? `AND fu.competencia = '${compFilter}'` : ''}) as totalGuiasFaturadas,
           (SELECT COUNT(*) FROM nfse_notas n JOIN nfse_hospitais h ON n.hospitalId = h.id WHERE h.estabelecimentoId = ${estabelecimentoId}) as totalNfEmitidas,
           (SELECT COUNT(DISTINCT a.id) FROM arquivos a WHERE a.estabelecimentoId = ${estabelecimentoId} AND a.direcao = 'retornado' AND a.status = 'processado') as totalDemonstrativosImportados,
           (SELECT COUNT(*) FROM recursosGlosa WHERE estabelecimentoId = ${estabelecimentoId} AND status NOT IN ('rascunho','cancelado')) as totalRecursosFeitos
       `));
+      const fluxoPipeline = (fluxoPipelineRows as any[])?.[0] || {};
 
       // 7. CONCILIAÇÃO: Resumo
-      const [conciliacao] = await database.execute(sql.raw(`
+      const [conciliacaoRows] = await database.execute(sql.raw(`
         SELECT 
           COUNT(*) as totalItens,
           SUM(CASE WHEN ca.statusConciliacao = 'conciliado' THEN 1 ELSE 0 END) as conciliados,
@@ -122,37 +131,38 @@ export const dashboardHomeRouter = router({
         WHERE fu.estabelecimentoId = ${estabelecimentoId}
         ${compFilter ? `AND fu.competencia = '${compFilter}'` : ''}
       `));
+      const conciliacao = (conciliacaoRows as any[])?.[0] || {};
 
       return {
         faturista: {
-          totalItens: Number((faturamento as any)?.totalItens || 0),
-          totalContas: Number((faturamento as any)?.totalContas || 0),
-          valorTotalFaturado: Number((faturamento as any)?.valorTotalFaturado || 0),
-          competenciaAtual: (faturamento as any)?.competenciaAtual || compFilter || '',
-          conveniosTop: (conveniosTop as any[]).map((c: any) => ({
-            convenio: c.convenio,
-            totalGuias: Number(c.totalGuias),
-            totalFaturado: Number(c.totalFaturado),
+          totalItens: Number(faturamento?.totalItens || 0),
+          totalContas: Number(faturamento?.totalContas || 0),
+          valorTotalFaturado: Number(faturamento?.valorTotalFaturado || 0),
+          competenciaAtual: faturamento?.competenciaAtual || compFilter || '',
+          conveniosTop: conveniosTop.map((c: any) => ({
+            convenio: c.convenio || 'Sem convênio',
+            totalGuias: Number(c.totalGuias || 0),
+            totalFaturado: Number(c.totalFaturado || 0),
           })),
-          evolucaoMensal: (evolucaoMensal as any[]).map((e: any) => ({
+          evolucaoMensal: evolucaoMensal.map((e: any) => ({
             competencia: e.competencia,
-            totalContas: Number(e.totalContas),
-            valorFaturado: Number(e.valorFaturado),
+            totalContas: Number(e.totalContas || 0),
+            valorFaturado: Number(e.valorFaturado || 0),
           })).reverse(),
         },
         recursoGlosa: {
-          totalRecursos: Number((recursoStatus as any)?.totalRecursos || 0),
-          rascunho: Number((recursoStatus as any)?.rascunho || 0),
-          pendenteEnvio: Number((recursoStatus as any)?.pendenteEnvio || 0),
-          enviado: Number((recursoStatus as any)?.enviado || 0),
-          emAnalise: Number((recursoStatus as any)?.emAnalise || 0),
-          deferido: Number((recursoStatus as any)?.deferido || 0),
-          deferidoParcial: Number((recursoStatus as any)?.deferidoParcial || 0),
-          indeferido: Number((recursoStatus as any)?.indeferido || 0),
-          valorTotalGlosado: Number((recursoStatus as any)?.valorTotalGlosado || 0),
-          valorTotalRecursado: Number((recursoStatus as any)?.valorTotalRecursado || 0),
-          valorTotalRecuperado: Number((recursoStatus as any)?.valorTotalRecuperado || 0),
-          recursosComPrazo: (recursosComPrazo as any[]).map((r: any) => ({
+          totalRecursos: Number(recursoStatus?.totalRecursos || 0),
+          rascunho: Number(recursoStatus?.rascunho || 0),
+          pendenteEnvio: Number(recursoStatus?.pendenteEnvio || 0),
+          enviado: Number(recursoStatus?.enviado || 0),
+          emAnalise: Number(recursoStatus?.emAnalise || 0),
+          deferido: Number(recursoStatus?.deferido || 0),
+          deferidoParcial: Number(recursoStatus?.deferidoParcial || 0),
+          indeferido: Number(recursoStatus?.indeferido || 0),
+          valorTotalGlosado: Number(recursoStatus?.valorTotalGlosado || 0),
+          valorTotalRecursado: Number(recursoStatus?.valorTotalRecursado || 0),
+          valorTotalRecuperado: Number(recursoStatus?.valorTotalRecuperado || 0),
+          recursosComPrazo: recursosComPrazo.map((r: any) => ({
             id: r.id,
             guiaNumero: r.guiaNumero,
             pacienteNome: r.pacienteNome,
@@ -164,19 +174,19 @@ export const dashboardHomeRouter = router({
           })),
         },
         fluxoPipeline: {
-          totalGuiasFaturadas: Number((fluxoPipeline as any)?.totalGuiasFaturadas || 0),
-          totalNfEmitidas: Number((fluxoPipeline as any)?.totalNfEmitidas || 0),
-          totalDemonstrativosImportados: Number((fluxoPipeline as any)?.totalDemonstrativosImportados || 0),
-          totalRecursosFeitos: Number((fluxoPipeline as any)?.totalRecursosFeitos || 0),
+          totalGuiasFaturadas: Number(fluxoPipeline?.totalGuiasFaturadas || 0),
+          totalNfEmitidas: Number(fluxoPipeline?.totalNfEmitidas || 0),
+          totalDemonstrativosImportados: Number(fluxoPipeline?.totalDemonstrativosImportados || 0),
+          totalRecursosFeitos: Number(fluxoPipeline?.totalRecursosFeitos || 0),
         },
         conciliacao: {
-          totalItens: Number((conciliacao as any)?.totalItens || 0),
-          conciliados: Number((conciliacao as any)?.conciliados || 0),
-          glosados: Number((conciliacao as any)?.glosados || 0),
-          semPagamento: Number((conciliacao as any)?.semPagamento || 0),
-          acrescimos: Number((conciliacao as any)?.acrescimos || 0),
-          totalPago: Number((conciliacao as any)?.totalPago || 0),
-          totalGlosa: Number((conciliacao as any)?.totalGlosa || 0),
+          totalItens: Number(conciliacao?.totalItens || 0),
+          conciliados: Number(conciliacao?.conciliados || 0),
+          glosados: Number(conciliacao?.glosados || 0),
+          semPagamento: Number(conciliacao?.semPagamento || 0),
+          acrescimos: Number(conciliacao?.acrescimos || 0),
+          totalPago: Number(conciliacao?.totalPago || 0),
+          totalGlosa: Number(conciliacao?.totalGlosa || 0),
         },
       };
     }),
