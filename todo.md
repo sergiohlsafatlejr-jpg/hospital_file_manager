@@ -4182,3 +4182,6 @@
 
 ## Bug XML Enviado - Número de Guia Incorreto (26/06/2026)
 - [x] Parser de XML enviado usa numeroGuiaPrestador como número da guia, mas deveria priorizar numeroGuiaOperadora quando disponível (corrigido: COALESCE no INSERT + UPDATE em 43.643 registros existentes)
+
+## Bug Importação CSV AnaliseContas (26/06/2026)
+- [x] Arquivo CSV AnaliseContas.1552729.2026053108242000.csv não aparece na listagem - corrigido: query filtrava por tipoArquivo='excel' excluindo CSVs da lista

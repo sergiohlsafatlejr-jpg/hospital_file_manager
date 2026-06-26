@@ -753,7 +753,6 @@ function ArquivosImportadosExcelTab({
     {
       estabelecimentoId,
       direcao: "retornado",
-      tipoArquivo: "excel",
     },
     { enabled: !!estabelecimentoId }
   );

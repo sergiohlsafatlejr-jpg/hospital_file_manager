@@ -99,7 +99,8 @@ router.post('/api/internal/process-file', async (req, res) => {
 });
 
 async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer) {
-  const tipoArquivo = arquivo.nome.toLowerCase().endsWith('.xml') ? 'xml' : 'excel';
+  const nomeArquivo = arquivo.nome.toLowerCase();
+  const tipoArquivo = nomeArquivo.endsWith('.xml') ? 'xml' : nomeArquivo.endsWith('.csv') ? 'csv' : 'excel';
   // Corrigir timezone: extrair apenas a data (YYYY-MM-DD) para evitar que UTC-3 mude o dia
   const dataReferenciaUpload = arquivo.dataReferencia 
     ? new Date(new Date(arquivo.dataReferencia).toISOString().split('T')[0] + 'T12:00:00Z') 
@@ -109,6 +110,79 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
     : undefined;
   
   let totalProcessados = 0;
+  
+  // CSV retornado - detectar formato IPASGO
+  if (tipoArquivo === 'csv') {
+    await plog(arquivoId, 'info', `Processando CSV retornado: ${arquivo.nome}`);
+    
+    const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
+    
+    // Decodificar buffer (pode ser UTF-16LE ou ISO-8859-1)
+    let csvContent = decodeIpasgoBuffer(buffer);
+    
+    // Se não detectou como UTF-16LE, tentar ISO-8859-1
+    if (!detectIpasgoFormat(csvContent)) {
+      csvContent = buffer.toString('latin1');
+    }
+    
+    if (detectIpasgoFormat(csvContent)) {
+      await plog(arquivoId, 'info', 'Formato IPASGO detectado, processando...');
+      
+      // Excluir dados antigos
+      await db.deleteRecebimentosExcelByArquivo(arquivoId);
+      await db.deleteDemonstrativoByArquivo(arquivoId);
+      
+      const result = parseIpasgoCSV(
+        csvContent,
+        arquivoId,
+        arquivo.convenioId,
+        arquivo.estabelecimentoId || undefined,
+        dataReferenciaUpload,
+        dataPagamentoUpload
+      );
+      
+      if (result.success && result.items.length > 0) {
+        await plog(arquivoId, 'info', `IPASGO parsed: ${result.items.length} itens, ${result.totalGuias} guias, ${result.totalLotes} lotes`);
+        await db.updateArquivoProgresso(arquivoId, 20, 0, result.items.length);
+        
+        // Inserir em batches
+        const BATCH_SIZE = 1000;
+        for (let i = 0; i < result.items.length; i += BATCH_SIZE) {
+          const batch = result.items.slice(i, i + BATCH_SIZE);
+          const inserted = await db.insertRecebimentosExcelBatch(batch);
+          totalProcessados += inserted;
+          const progresso = Math.round(20 + (totalProcessados / result.items.length) * 60);
+          await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, result.items.length);
+        }
+        
+        // Sincronizar demonstrativo
+        if (totalProcessados > 0) {
+          await db.updateArquivoProgresso(arquivoId, 90, totalProcessados, totalProcessados);
+          try {
+            const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+            const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+            await plog(arquivoId, 'info', `Demonstrativo sincronizado: ${syncResult.total} itens`);
+          } catch (syncError: any) {
+            await plog(arquivoId, 'error', `Erro ao sincronizar demonstrativo: ${syncError?.message}`);
+          }
+        }
+      } else {
+        await plog(arquivoId, 'error', `IPASGO parse falhou: ${result.error || 'Nenhum item encontrado'}`);
+        await db.updateArquivoStatus(arquivoId, "erro");
+        return;
+      }
+    } else {
+      // CSV não é IPASGO - tentar parser genérico
+      await plog(arquivoId, 'error', `CSV não reconhecido como formato IPASGO: ${arquivo.nome}`);
+      await db.updateArquivoStatus(arquivoId, "erro");
+      return;
+    }
+    
+    await db.updateArquivoStatus(arquivoId, "processado");
+    await db.updateArquivoProgresso(arquivoId, 100, totalProcessados, totalProcessados);
+    await plog(arquivoId, 'info', `CSV IPASGO concluído: ${totalProcessados} itens`);
+    return;
+  }
   
   if (tipoArquivo === 'excel') {
     // Excluir dados antigos
