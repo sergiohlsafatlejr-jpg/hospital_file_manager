@@ -725,6 +725,8 @@ Retorne APENAS um JSON válido com os campos que conseguir identificar. Se não 
       estabelecimentoId: z.number().optional(),
       dataInicio: z.string().optional(),
       dataFim: z.string().optional(),
+      nfEmitida: z.enum(["sim", "nao"]).optional(),
+      busca: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = (await getDb())!;
@@ -733,6 +735,8 @@ Retorne APENAS um JSON válido com os campos que conseguir identificar. Se não 
         conditions.push(eq(nfseHospitais.estabelecimentoId, input.estabelecimentoId));
       }
       if (input.hospitalId) conditions.push(eq(nfseNotas.hospitalId, input.hospitalId));
+      if (input.nfEmitida) conditions.push(eq(nfseNotas.nfEmitida, input.nfEmitida));
+      if (input.busca) conditions.push(like(nfseNotas.numeroNf, `%${input.busca}%`));
       if (input.dataInicio) {
         conditions.push(gte(nfseNotas.dataEmissao, new Date(input.dataInicio)));
       }

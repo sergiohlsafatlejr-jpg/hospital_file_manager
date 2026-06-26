@@ -200,11 +200,14 @@ function NotasFiscaisTab() {
   const [busca, setBusca] = useState("");
   const [hospitalFilter, setHospitalFilter] = useState<number | undefined>();
   const [statusFilter, setStatusFilter] = useState<"sim" | "nao" | undefined>();
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
   const [page, setPage] = useState(0);
   const [editingNota, setEditingNota] = useState<any>(null);
   const [showForm, setShowForm] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: hospitais } = trpc.nfse.hospitais.listar.useQuery(estabId ? { estabelecimentoId: estabId } : undefined);
   const { data: convenios } = trpc.nfse.convenios.listar.useQuery();
@@ -213,6 +216,8 @@ function NotasFiscaisTab() {
     estabelecimentoId: estabId,
     nfEmitida: statusFilter,
     busca: busca || undefined,
+    dataInicio: dataInicio || undefined,
+    dataFim: dataFim || undefined,
     limit: 20,
     offset: page * 20,
   });
@@ -245,6 +250,50 @@ function NotasFiscaisTab() {
   });
 
   const fmt = (v: number | string) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const data = await utils.client.nfse.notas.exportar.query({
+        hospitalId: hospitalFilter,
+        estabelecimentoId: estabId,
+        nfEmitida: statusFilter,
+        busca: busca || undefined,
+        dataInicio: dataInicio || undefined,
+        dataFim: dataFim || undefined,
+      });
+      if (!data || data.length === 0) {
+        toast.error("Nenhum dado para exportar");
+        return;
+      }
+      const headers = ["N\u00ba NF", "Hospital", "Conv\u00eanio", "Data Emiss\u00e3o", "Data Faturamento", "Valor Bruto", "Valor L\u00edquido", "XML Emitido", "NF Emitida", "Observa\u00e7\u00f5es"];
+      const rows = data.map((n: any) => [
+        n.numeroNf,
+        n.hospitalNome || "",
+        n.convenioNome || "",
+        n.dataEmissao ? new Date(n.dataEmissao).toLocaleDateString("pt-BR") : "",
+        n.dataFaturamento ? new Date(n.dataFaturamento).toLocaleDateString("pt-BR") : "",
+        Number(n.valorBruto || 0).toFixed(2).replace(".", ","),
+        Number(n.valorLiquido || 0).toFixed(2).replace(".", ","),
+        n.xmlDemonstrativoEmitido === "sim" ? "Sim" : "N\u00e3o",
+        n.nfEmitida === "sim" ? "Sim" : "N\u00e3o",
+        (n.observacoes || "").replace(/[\n\r]/g, " "),
+      ]);
+      const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map((r: string[]) => r.join(";"))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `notas_fiscais_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${data.length} notas exportadas`);
+    } catch (e: any) {
+      toast.error("Erro ao exportar: " + e.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handlePdfImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -323,9 +372,31 @@ function NotasFiscaisTab() {
             <SelectItem value="nao">Pendentes</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Emissão:</Label>
+          <Input
+            type="date"
+            value={dataInicio}
+            onChange={(e) => { setDataInicio(e.target.value); setPage(0); }}
+            className="w-[140px] h-9"
+            placeholder="De"
+          />
+          <span className="text-muted-foreground text-xs">até</span>
+          <Input
+            type="date"
+            value={dataFim}
+            onChange={(e) => { setDataFim(e.target.value); setPage(0); }}
+            className="w-[140px] h-9"
+            placeholder="Até"
+          />
+        </div>
 
         <div className="flex gap-2 ml-auto">
           <input type="file" ref={fileInputRef} accept=".pdf" className="hidden" onChange={handlePdfImport} />
+          <Button variant="outline" onClick={() => handleExportExcel()} disabled={isExporting}>
+            <Download className="h-4 w-4 mr-2" />
+            {isExporting ? "Exportando..." : "Excel"}
+          </Button>
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importarPdfMutation.isPending}>
             <Brain className="h-4 w-4 mr-2" />
             {importarPdfMutation.isPending ? "Analisando..." : "Importar PDF com IA"}

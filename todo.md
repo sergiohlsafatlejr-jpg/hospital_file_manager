@@ -4163,3 +4163,6 @@
 - [x] Vlr Recursado na tela /recurso-glosa-demonstrativo: preencher automaticamente com valor da glosa (COALESCE com valor_glosa)
 - [x] Vlr Recursado: zerar quando aceitar a glosa (UPDATE SET valor_recurso = 0)
 - [x] Vlr Recursado: deixar campo editável/digitável (já era editável - clicável para digitar)
+## Melhorias NFSe - Sessão 16 (26/06/2025)
+- [x] Filtro por data de emissão (período de/até) na tela NFSe
+- [x] Botão para gerar Excel (CSV) com os dados filtrados na tela NFSe
