@@ -648,7 +648,9 @@ export default function RecursoGlosaDemonstrativo() {
                 <td className="p-2 font-mono">{row.codigoGlosa || '-'}</td>
                 <td className="p-2 max-w-[150px] truncate">{row.motivoGlosa}</td>
                 <td className="p-2 text-right">
-                  {editingValorRecurso?.id === row.id ? (
+                  {row.glosaAceita ? (
+                    <span className="text-muted-foreground">R$ 0,00</span>
+                  ) : editingValorRecurso?.id === row.id ? (
                     <div className="flex items-center gap-1">
                       <Input
                         className="h-6 w-20 text-xs"

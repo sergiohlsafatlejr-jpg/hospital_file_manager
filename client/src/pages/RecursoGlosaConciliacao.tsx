@@ -1160,7 +1160,9 @@ export default function RecursoGlosaConciliacao() {
                                         </td>
                                         <td className="p-1 max-w-[120px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
                                         <td className="p-1 text-right">
-                                          {editandoValorRecurso === d.id ? (
+                                          {(d.glosaAceita || itensGlosaAceita[d.id]) ? (
+                                            <span className="text-muted-foreground text-xs">R$ 0,00</span>
+                                          ) : editandoValorRecurso === d.id ? (
                                             <Input
                                               className="h-6 text-xs w-20"
                                               type="number"

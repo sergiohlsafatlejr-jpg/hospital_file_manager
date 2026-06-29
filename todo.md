@@ -4203,3 +4203,6 @@
 - [x] Padrões automáticos de aceite de glosa - Aplicar automaticamente na importação
 - [x] Padrões automáticos de aceite de glosa - Botão para aplicar nos dados existentes
 - [x] Selo/indicador visual 'Auto' na listagem de glosas para itens aceitos automaticamente (badge roxo com ícone raio)
+- [x] Bug: Aceitar glosa deve zerar valor_recurso para 0 (demonstrativo)
+- [x] Bug: Status da guia deve ser Finalizado quando todos itens estão aceitos ou recursados (com justificativa preenchida)
+- [x] Bug: Exibir valor_recurso = 0 para itens aceitos no frontend

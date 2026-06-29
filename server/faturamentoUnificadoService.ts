@@ -4685,14 +4685,14 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       d.classificacao_glosa as classificacaoGlosa,
       CASE 
-        WHEN d.justificativa_recurso IS NOT NULL AND d.valor_recurso > 0 AND (d.glosa_aceita IS NULL OR d.glosa_aceita = 0) THEN 'recursado'
         WHEN d.glosa_aceita = 1 THEN 'aceita'
+        WHEN d.justificativa_recurso IS NOT NULL AND d.justificativa_recurso != '' AND (d.glosa_aceita IS NULL OR d.glosa_aceita = 0) THEN 'recursado'
         WHEN rg_d.id IS NOT NULL THEN 'recurso_criado'
         WHEN d.recurso_status IS NOT NULL AND d.recurso_status != 'sem_recurso' THEN d.recurso_status
         ELSE NULL
       END as recursoStatus,
       d.justificativa_recurso as justificativa,
-      CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
+      CASE WHEN d.glosa_aceita = 1 THEN 0 WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END as valorRecurso,
       COALESCE(d.glosa_aceita, 0) as glosaAceita,
       d.glosa_aceita_por as glosaAceitaPor,
       d.erro_tiss as erroTiss,
@@ -4716,14 +4716,14 @@ export async function itensGlosadosDemonstrativo(params: {
       COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
       NULL as classificacaoGlosa,
       CASE 
-        WHEN re.justificativa_recurso IS NOT NULL AND re.valor_recurso > 0 AND (re.glosa_aceita IS NULL OR re.glosa_aceita = 0) THEN 'recursado'
         WHEN re.glosa_aceita = 1 THEN 'aceita'
+        WHEN re.justificativa_recurso IS NOT NULL AND re.justificativa_recurso != '' AND (re.glosa_aceita IS NULL OR re.glosa_aceita = 0) THEN 'recursado'
         WHEN rg_e.id IS NOT NULL THEN 'recurso_criado'
         WHEN re.status_recurso_item IS NOT NULL AND re.status_recurso_item != 'pendente' THEN re.status_recurso_item
         ELSE NULL
       END as recursoStatus,
       re.justificativa_recurso as justificativa,
-      CASE WHEN re.valor_recurso IS NOT NULL AND re.valor_recurso > 0 THEN re.valor_recurso ELSE COALESCE(re.valor_glosa, re.valor_pagamento, 0) END as valorRecurso,
+      CASE WHEN re.glosa_aceita = 1 THEN 0 WHEN re.valor_recurso IS NOT NULL AND re.valor_recurso > 0 THEN re.valor_recurso ELSE COALESCE(re.valor_glosa, re.valor_pagamento, 0) END as valorRecurso,
       re.glosa_aceita as glosaAceita,
       re.glosa_aceita_por as glosaAceitaPor,
       re.erro_tiss as erroTiss,
