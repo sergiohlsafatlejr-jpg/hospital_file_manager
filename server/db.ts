@@ -10299,6 +10299,7 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
 
       return `
                             <ans:itensGuia>
+                                <ans:sequencialItem>${index + 1}</ans:sequencialItem>
                                 <ans:dataInicio>${dataExecucao}</ans:dataInicio>
                                 <ans:procRecurso>
                                     <ans:codigoTabela>${codigoTabela}</ans:codigoTabela>
