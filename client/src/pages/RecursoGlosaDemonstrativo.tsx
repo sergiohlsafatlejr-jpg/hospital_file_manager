@@ -160,6 +160,8 @@ export default function RecursoGlosaDemonstrativo() {
       recebimentoId: editingJustificativa.id,
       justificativa: editingJustificativa.value,
       fonte: editingJustificativa.fonte,
+      estabelecimentoId,
+      guia: expandedGuia || undefined,
     });
   };
 
@@ -193,7 +195,7 @@ export default function RecursoGlosaDemonstrativo() {
 
   const handleAceitarTodas = (items: Array<{id: number; fonte: string}>) => {
     if (items.length === 0) return;
-    aceitarEmLoteMutation.mutate({ items, aceita: true });
+    aceitarEmLoteMutation.mutate({ items, aceita: true, estabelecimentoId, guia: expandedGuia || undefined });
   };
 
   const formatCurrency = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
@@ -669,11 +671,11 @@ export default function RecursoGlosaDemonstrativo() {
                 </td>
                 <td className="p-2 text-center">
                   {row.glosaAceita ? (
-                    <Badge variant="destructive" className="text-xs cursor-pointer" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: false, fonte: row.fonte }); }}>
+                    <Badge variant="destructive" className="text-xs cursor-pointer" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: false, fonte: row.fonte, estabelecimentoId, guia: expandedGuia || row.guia }); }}>
                       <Ban className="h-3 w-3 mr-1" /> Aceita
                     </Badge>
                   ) : (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: true, fonte: row.fonte }); }}>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={(e) => { e.stopPropagation(); marcarGlosaAceitaMutation.mutate({ recebimentoId: row.id, aceita: true, fonte: row.fonte, estabelecimentoId, guia: expandedGuia || row.guia }); }}>
                       <Check className="h-3 w-3 mr-1" /> Aceitar
                     </Button>
                   )}

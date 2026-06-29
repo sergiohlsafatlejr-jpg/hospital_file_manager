@@ -917,9 +917,17 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   salvarJustificativaDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoId: z.number(), justificativa: z.string(), fonte: z.string().optional() }))
-    .mutation(async ({ input }) => {
-      return await faturamentoService.salvarJustificativaDemonstrativo(input.recebimentoId, input.justificativa, input.fonte);
+    .input(z.object({ recebimentoId: z.number(), justificativa: z.string(), fonte: z.string().optional(), estabelecimentoId: z.number().optional(), guia: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await faturamentoService.salvarJustificativaDemonstrativo(input.recebimentoId, input.justificativa, input.fonte);
+      if (input.estabelecimentoId && input.guia) {
+        await faturamentoService.verificarGuiaFinalizadaECriarRecursos({
+          estabelecimentoId: input.estabelecimentoId,
+          guia: input.guia,
+          userId: ctx.user.id,
+        });
+      }
+      return result;
     }),
 
   salvarValorRecursoDemonstrativo: protectedProcedure
@@ -929,15 +937,31 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   marcarGlosaAceitaDemonstrativo: protectedProcedure
-    .input(z.object({ recebimentoId: z.number(), aceita: z.boolean(), fonte: z.string().optional() }))
+    .input(z.object({ recebimentoId: z.number(), aceita: z.boolean(), fonte: z.string().optional(), estabelecimentoId: z.number().optional(), guia: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      return await faturamentoService.marcarGlosaAceitaDemonstrativo(input.recebimentoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido', input.fonte);
+      const result = await faturamentoService.marcarGlosaAceitaDemonstrativo(input.recebimentoId, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido', input.fonte);
+      if (input.estabelecimentoId && input.guia) {
+        await faturamentoService.verificarGuiaFinalizadaECriarRecursos({
+          estabelecimentoId: input.estabelecimentoId,
+          guia: input.guia,
+          userId: ctx.user.id,
+        });
+      }
+      return result;
     }),
 
   marcarGlosaAceitaEmLoteDemonstrativo: protectedProcedure
-    .input(z.object({ items: z.array(z.object({ id: z.number(), fonte: z.string() })), aceita: z.boolean() }))
+    .input(z.object({ items: z.array(z.object({ id: z.number(), fonte: z.string() })), aceita: z.boolean(), estabelecimentoId: z.number().optional(), guia: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      return await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.items, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+      const result = await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.items, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
+      if (input.estabelecimentoId && input.guia) {
+        await faturamentoService.verificarGuiaFinalizadaECriarRecursos({
+          estabelecimentoId: input.estabelecimentoId,
+          guia: input.guia,
+          userId: ctx.user.id,
+        });
+      }
+      return result;
     }),
 
   replicarJustificativasDemonstrativo: protectedProcedure

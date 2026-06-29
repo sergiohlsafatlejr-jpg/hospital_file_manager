@@ -4206,3 +4206,4 @@
 - [x] Bug: Aceitar glosa deve zerar valor_recurso para 0 (demonstrativo)
 - [x] Bug: Status da guia deve ser Finalizado quando todos itens estão aceitos ou recursados (com justificativa preenchida)
 - [x] Bug: Exibir valor_recurso = 0 para itens aceitos no frontend
+- [x] Criar automaticamente registros na tabela recursosGlosa quando guia é finalizada no Recurso Glosa Demonstrativo (itens recursados vão para Criação de Lotes)

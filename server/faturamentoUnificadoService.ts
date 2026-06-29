@@ -5336,3 +5336,135 @@ export async function gerarJustificativasIADemonstrativo(params: {
   
   return parsed;
 }
+
+
+/**
+ * Verifica se todos os itens de uma guia no demonstrativo estão decididos (aceitos ou recursados).
+ * Se sim, cria automaticamente registros na tabela recursosGlosa para os itens recursados
+ * (que têm justificativa preenchida e não são aceitos), para que apareçam na Criação de Lotes.
+ */
+export async function verificarGuiaFinalizadaECriarRecursos(params: {
+  estabelecimentoId: number;
+  guia: string;
+  userId: number;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) return { finalizada: false, recursosCriados: 0 };
+
+  const { estabelecimentoId, guia, userId, convenioId } = params;
+  const guiaEsc = guia.replace(/'/g, "''");
+
+  // 1. Buscar todos os itens glosados da guia (demonstrativo + recebimentos_excel)
+  const [rows] = await db.execute(sql.raw(`
+    SELECT * FROM (
+      SELECT 
+        d.id, 'demo' as fonte,
+        d.numero_guia as guia,
+        d.codigo_item as codigoItem,
+        d.descricao_item as descricaoItem,
+        d.nome_beneficiario as paciente,
+        d.convenio_id as convenioId,
+        COALESCE(d.valor_glosa, 0) as valorGlosa,
+        COALESCE(d.valor_recurso, 0) as valorRecurso,
+        d.justificativa_recurso as justificativa,
+        COALESCE(d.glosa_aceita, 0) as glosaAceita,
+        d.codigo_glosa as codigoGlosa,
+        d.erro_tiss as erroTiss
+      FROM demonstrativo d
+      WHERE d.estabelecimentoId = ${estabelecimentoId} 
+        AND d.numero_guia = '${guiaEsc}' 
+        AND d.valor_glosa > 0
+      UNION ALL
+      SELECT 
+        re.id, 'excel' as fonte,
+        re.numero_guia as guia,
+        re.item as codigoItem,
+        re.item_desc as descricaoItem,
+        re.nome_beneficiario as paciente,
+        re.convenioId as convenioId,
+        COALESCE(re.valor_glosa, 0) as valorGlosa,
+        COALESCE(re.valor_recurso, 0) as valorRecurso,
+        re.justificativa_recurso as justificativa,
+        COALESCE(re.glosa_aceita, 0) as glosaAceita,
+        re.codigo_glosa as codigoGlosa,
+        re.erro_tiss as erroTiss
+      FROM recebimentos_excel re
+      WHERE re.estabelecimentoId = ${estabelecimentoId} 
+        AND re.numero_guia = '${guiaEsc}' 
+        AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))
+        AND NOT EXISTS (
+          SELECT 1 FROM demonstrativo d2
+          WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
+          AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
+          AND d2.valor_glosa > 0
+        )
+    ) unified
+  `));
+
+  const itens = rows as any[];
+  if (itens.length === 0) return { finalizada: false, recursosCriados: 0 };
+
+  // 2. Verificar se TODOS os itens estão decididos (aceitos ou com justificativa)
+  const itensPendentes = itens.filter(
+    (item: any) => !item.glosaAceita && (!item.justificativa || item.justificativa.trim() === '')
+  );
+
+  if (itensPendentes.length > 0) {
+    return { finalizada: false, recursosCriados: 0 };
+  }
+
+  // 3. A guia está finalizada! Criar registros na tabela recursosGlosa para itens recursados
+  const itensRecursados = itens.filter(
+    (item: any) => !item.glosaAceita && item.justificativa && item.justificativa.trim() !== ''
+  );
+
+  if (itensRecursados.length === 0) {
+    return { finalizada: true, recursosCriados: 0 };
+  }
+
+  // 4. Verificar quais itens já têm recurso criado (evitar duplicatas)
+  const [guiaRecursos] = await db.execute(sql.raw(`
+    SELECT codigoProcedimento FROM recursosGlosa 
+    WHERE guiaNumero = '${guiaEsc}' 
+      AND estabelecimentoId = ${estabelecimentoId}
+      AND status NOT IN ('cancelado')
+  `));
+  const recursosExistentes = new Set((guiaRecursos as any[]).map((r: any) => r.codigoProcedimento));
+
+  let recursosCriados = 0;
+  const convId = convenioId || (itensRecursados[0]?.convenioId ? Number(itensRecursados[0].convenioId) : null);
+
+  for (const item of itensRecursados) {
+    // Pular se já existe recurso para este item nesta guia
+    if (recursosExistentes.has(item.codigoItem)) continue;
+
+    const motivoGlosa = item.codigoGlosa || item.erroTiss || '';
+    const valorGlosado = Number(item.valorGlosa) || 0;
+    const valorRecurso = Number(item.valorRecurso) || valorGlosado;
+
+    await db.execute(sql.raw(`
+      INSERT INTO recursosGlosa (
+        convenioId, estabelecimentoId, userId,
+        codigoProcedimento, descricaoProcedimento, guiaNumero, pacienteNome,
+        valorCobrado, valorGlosado,
+        motivoGlosaConvenio, justificativaRecurso,
+        status, prioridade, createdAt, updatedAt
+      ) VALUES (
+        ${convId || 'NULL'}, ${estabelecimentoId}, ${userId},
+        '${(item.codigoItem || '').replace(/'/g, "''")}',
+        '${(item.descricaoItem || '').replace(/'/g, "''")}',
+        '${guiaEsc}',
+        '${(item.paciente || '').replace(/'/g, "''")}',
+        ${valorRecurso}, ${valorGlosado},
+        '${motivoGlosa.replace(/'/g, "''")}',
+        '${item.justificativa.replace(/'/g, "''")}',
+        'pendente_envio', 'media', NOW(), NOW()
+      )
+    `));
+    recursosCriados++;
+    recursosExistentes.add(item.codigoItem);
+  }
+
+  return { finalizada: true, recursosCriados };
+}
