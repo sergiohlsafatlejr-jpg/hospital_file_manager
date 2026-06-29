@@ -33,7 +33,8 @@ import {
   Send,
   Loader2,
   Archive,
-  Layers
+  Layers,
+  RefreshCw
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDateBR, toInputDateValue } from "@/lib/dateUtils";
@@ -548,6 +549,10 @@ export default function AcompanhamentoRecursos() {
                     Baixar XML
                   </Button>
                 )}
+                <Button size="sm" variant="outline" onClick={(e) => handleExportarXml(lote.id, e)} disabled={exportandoXml === lote.id} title="Regerar XML com dados atualizados" className="text-orange-600 border-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950">
+                  {exportandoXml === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                  Regerar XML
+                </Button>
                 <Button size="sm" variant="outline" onClick={(e) => handleAbrirAnexarPdf(lote.id, e, lote.anexoPdfUrl)}>
                   {lote.anexoPdfUrl ? <><Eye className="h-4 w-4 mr-1" /> Ver PDF</> : <><Upload className="h-4 w-4 mr-1" /> Anexar PDF</>}
                 </Button>

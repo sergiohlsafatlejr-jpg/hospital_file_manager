@@ -4208,3 +4208,4 @@
 - [x] Bug: Exibir valor_recurso = 0 para itens aceitos no frontend
 - [x] Criar automaticamente registros na tabela recursosGlosa quando guia é finalizada no Recurso Glosa Demonstrativo (itens recursados vão para Criação de Lotes)
 - [x] Adicionar tag <ans:sequencialItem> no XML de recurso de glosa (TISS)
+- [x] Botão "Regerar XML" na aba Acompanhamento para regenerar XML com dados atualizados (tag sequencialItem)
