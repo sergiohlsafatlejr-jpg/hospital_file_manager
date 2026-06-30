@@ -51,6 +51,7 @@ import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRout
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
 import { aceiteAutomaticoRouter } from "./routers/aceiteAutomaticoRouter";
+import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -130,6 +131,7 @@ export const appRouter = router({
   comparativoMesAMes: comparativoMesAMesRouter,
   fonteRelatorios: fonteRelatoriosRouter,
   aceiteAutomatico: aceiteAutomaticoRouter,
+  faturamentoDigitacao: faturamentoDigitacaoRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

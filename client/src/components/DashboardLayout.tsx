@@ -220,6 +220,9 @@ const menuItems: MenuItem[] = [
   // Módulo 8 - NFS-e (disponível para TODOS os estabelecimentos)
   { icon: Receipt, label: "NFS-e", path: "/nfse", modulo: "faturamento" },
 
+  // Módulo 9 - Faturamento (Digitação de Guias)
+  { icon: FileText, label: "Faturamento", path: "/faturamento", modulo: "faturamento" },
+
   // ===== MÓDULOS SAFATLE (admin only, só quando Safatle está selecionado) =====
   { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   { icon: DollarSign, label: "Financeiro", path: "/financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },

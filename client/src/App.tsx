@@ -112,6 +112,8 @@ const ComparativoMesAMes = lazy(() => import("./pages/ComparativoMesAMes"));
 const RecursoGlosaConciliacao = lazy(() => import("./pages/RecursoGlosaConciliacao"));
 const RecursoGlosaDemonstrativo = lazy(() => import("./pages/RecursoGlosaDemonstrativo"));
 const AceiteAutomaticoGlosa = lazy(() => import("./pages/AceiteAutomaticoGlosa"));
+const FaturamentoDigitacao = lazy(() => import("./pages/FaturamentoDigitacao"));
+const FaturamentoGuiaEditor = lazy(() => import("./pages/FaturamentoGuiaEditor"));
 
 function PageLoader() {
   return (
@@ -246,6 +248,9 @@ function Router() {
         <Route path={"/rpa-manager"} component={RpaManager} />
         <Route path={"/vinculacao-inteligente"} component={VinculacaoInteligente} />
         <Route path={"/aceite-automatico-glosa"} component={AceiteAutomaticoGlosa} />
+        <Route path={"/faturamento"} component={FaturamentoDigitacao} />
+        <Route path={"/faturamento/nova-guia"} component={FaturamentoGuiaEditor} />
+        <Route path={"/faturamento/guia/:id"} component={FaturamentoGuiaEditor} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

@@ -4209,3 +4209,16 @@
 - [x] Criar automaticamente registros na tabela recursosGlosa quando guia é finalizada no Recurso Glosa Demonstrativo (itens recursados vão para Criação de Lotes)
 - [x] Adicionar tag <ans:sequencialItem> no XML de recurso de glosa (TISS)
 - [x] Botão "Regerar XML" na aba Acompanhamento para regenerar XML com dados atualizados (tag sequencialItem)
+
+## Módulo Faturamento - Digitação de Guias
+
+- [x] Schema banco de dados (guias_faturamento, itens_guia_faturamento, lotes_faturamento, pacientes)
+- [x] Backend router CRUD completo (guias, itens, lotes, pacientes)
+- [x] Tela de listagem de guias digitadas com filtros
+- [x] Editor de guia SADT (formulário completo com procedimentos)
+- [x] Editor de guia Internação (campos específicos: tipo internação, regime, CID-10)
+- [x] Cadastro automático de pacientes ao digitar guia
+- [x] Busca de procedimentos na tabela TUSS
+- [x] Geração de XML TISS 3.05 (lote de guias SADT e Internação)
+- [x] Exportação Excel formato Unimed FORM 3061
+- [x] Integração no menu lateral (módulo Faturamento Digitação)

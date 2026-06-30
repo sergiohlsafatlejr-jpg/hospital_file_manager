@@ -4828,3 +4828,140 @@ export const glosasAceiteAutomatico = mysqlTable("glosas_aceite_automatico", {
 
 export type GlosaAceiteAutomatico = typeof glosasAceiteAutomatico.$inferSelect;
 export type InsertGlosaAceiteAutomatico = typeof glosasAceiteAutomatico.$inferInsert;
+
+
+// ==========================================
+// MÓDULO DE FATURAMENTO - DIGITAÇÃO DE GUIAS
+// ==========================================
+
+// Tabela de Pacientes (cadastro automático ao digitar guias)
+export const pacientes = mysqlTable("pacientes", {
+  id: int("id").primaryKey().autoincrement(),
+  estabelecimentoId: int("estabelecimento_id"),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  carteirinha: varchar("carteirinha", { length: 100 }),
+  cpf: varchar("cpf", { length: 14 }),
+  dataNascimento: varchar("data_nascimento", { length: 10 }),
+  sexo: mysqlEnum("sexo", ["M", "F", "I"]),
+  convenioId: int("convenio_id"),
+  telefone: varchar("telefone", { length: 20 }),
+  email: varchar("email", { length: 255 }),
+  endereco: text("endereco"),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  nomeIdx: index("idx_pacientes_nome").on(table.nome),
+  carteirinhaIdx: index("idx_pacientes_carteirinha").on(table.carteirinha),
+  convenioIdx: index("idx_pacientes_convenio").on(table.convenioId),
+}));
+export type Paciente = typeof pacientes.$inferSelect;
+export type InsertPaciente = typeof pacientes.$inferInsert;
+
+// Guias de Faturamento (SADT e Internação)
+export const guiasFaturamento = mysqlTable("guias_faturamento", {
+  id: int("id").primaryKey().autoincrement(),
+  estabelecimentoId: int("estabelecimento_id").notNull(),
+  convenioId: int("convenio_id").notNull(),
+  pacienteId: int("paciente_id"),
+  tipoGuia: mysqlEnum("tipo_guia", ["sadt", "internacao"]).notNull(),
+  numeroGuiaPrestador: varchar("numero_guia_prestador", { length: 50 }),
+  numeroGuiaOperadora: varchar("numero_guia_operadora", { length: 50 }),
+  senha: varchar("senha", { length: 50 }),
+  carteirinha: varchar("carteirinha", { length: 100 }),
+  nomePaciente: varchar("nome_paciente", { length: 255 }).notNull(),
+  dataAtendimento: varchar("data_atendimento", { length: 10 }),
+  dataInicio: varchar("data_inicio", { length: 10 }),
+  dataFim: varchar("data_fim", { length: 10 }),
+  nomeSolicitante: varchar("nome_solicitante", { length: 255 }),
+  conselhoProfSolicitante: varchar("conselho_prof_solicitante", { length: 20 }),
+  numeroConselhoProfSolicitante: varchar("numero_conselho_prof_solicitante", { length: 20 }),
+  ufConselhoProfSolicitante: varchar("uf_conselho_prof_solicitante", { length: 2 }),
+  cbosConselhoProfSolicitante: varchar("cbos_conselho_prof_solicitante", { length: 10 }),
+  nomeExecutante: varchar("nome_executante", { length: 255 }),
+  conselhoProfExecutante: varchar("conselho_prof_executante", { length: 20 }),
+  numeroConselhoProfExecutante: varchar("numero_conselho_prof_executante", { length: 20 }),
+  ufConselhoProfExecutante: varchar("uf_conselho_prof_executante", { length: 2 }),
+  cbosConselhoProfExecutante: varchar("cbos_conselho_prof_executante", { length: 10 }),
+  caraterAtendimento: mysqlEnum("carater_atendimento", ["eletivo", "urgencia"]).default("eletivo"),
+  tipoInternacao: varchar("tipo_internacao", { length: 2 }),
+  regimeInternacao: varchar("regime_internacao", { length: 2 }),
+  cid10Principal: varchar("cid10_principal", { length: 10 }),
+  cid10Secundario: varchar("cid10_secundario", { length: 10 }),
+  indicacaoClinica: text("indicacao_clinica"),
+  valorTotal: decimal("valor_total", { precision: 12, scale: 2 }).default("0"),
+  status: mysqlEnum("status", ["rascunho", "finalizada", "em_lote", "enviada"]).default("rascunho").notNull(),
+  loteId: int("lote_id"),
+  observacoes: text("observacoes"),
+  tipoServico: varchar("tipo_servico", { length: 50 }),
+  criadoPor: int("criado_por"),
+  criadoPorNome: varchar("criado_por_nome", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabelecimentoIdx: index("idx_guias_fat_estab").on(table.estabelecimentoId),
+  convenioIdx: index("idx_guias_fat_convenio").on(table.convenioId),
+  statusIdx: index("idx_guias_fat_status").on(table.status),
+  pacienteIdx: index("idx_guias_fat_paciente").on(table.pacienteId),
+  loteIdx: index("idx_guias_fat_lote").on(table.loteId),
+}));
+export type GuiaFaturamento = typeof guiasFaturamento.$inferSelect;
+export type InsertGuiaFaturamento = typeof guiasFaturamento.$inferInsert;
+
+// Itens da Guia de Faturamento
+export const itensGuiaFaturamento = mysqlTable("itens_guia_faturamento", {
+  id: int("id").primaryKey().autoincrement(),
+  guiaId: int("guia_id").notNull(),
+  sequencial: int("sequencial").notNull().default(1),
+  tipoItem: mysqlEnum("tipo_item", ["procedimento", "material", "medicamento", "taxa", "diaria", "opme", "gases"]).notNull(),
+  codigoTabela: varchar("codigo_tabela", { length: 5 }),
+  codigoProcedimento: varchar("codigo_procedimento", { length: 20 }).notNull(),
+  descricao: varchar("descricao", { length: 500 }).notNull(),
+  dataExecucao: varchar("data_execucao", { length: 10 }),
+  horaInicio: varchar("hora_inicio", { length: 5 }),
+  horaFim: varchar("hora_fim", { length: 5 }),
+  quantidade: decimal("quantidade", { precision: 10, scale: 2 }).default("1").notNull(),
+  valorUnitario: decimal("valor_unitario", { precision: 12, scale: 4 }).default("0").notNull(),
+  valorTotal: decimal("valor_total", { precision: 12, scale: 2 }).default("0").notNull(),
+  fatorReducao: decimal("fator_reducao", { precision: 5, scale: 2 }).default("1"),
+  viaAcesso: varchar("via_acesso", { length: 5 }),
+  tecnica: varchar("tecnica", { length: 5 }),
+  grauParticipacao: varchar("grau_participacao", { length: 5 }),
+  registroAnvisa: varchar("registro_anvisa", { length: 30 }),
+  codigoRefFabricante: varchar("codigo_ref_fabricante", { length: 50 }),
+  autorizacaoFuncionamento: varchar("autorizacao_funcionamento", { length: 50 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  guiaIdx: index("idx_itens_guia_fat_guia").on(table.guiaId),
+}));
+export type ItemGuiaFaturamento = typeof itensGuiaFaturamento.$inferSelect;
+export type InsertItemGuiaFaturamento = typeof itensGuiaFaturamento.$inferInsert;
+
+// Lotes de Faturamento
+export const lotesFaturamento = mysqlTable("lotes_faturamento", {
+  id: int("id").primaryKey().autoincrement(),
+  estabelecimentoId: int("estabelecimento_id").notNull(),
+  convenioId: int("convenio_id").notNull(),
+  numeroLote: varchar("numero_lote", { length: 50 }).notNull(),
+  competencia: varchar("competencia", { length: 7 }),
+  valorTotal: decimal("valor_total", { precision: 14, scale: 2 }).default("0"),
+  totalGuias: int("total_guias").default(0),
+  status: mysqlEnum("status", ["aberto", "fechado", "enviado"]).default("aberto").notNull(),
+  formatoExportacao: mysqlEnum("formato_exportacao", ["xml_tiss", "excel_unimed"]),
+  xmlUrl: text("xml_url"),
+  xmlKey: varchar("xml_key", { length: 512 }),
+  excelUrl: text("excel_url"),
+  excelKey: varchar("excel_key", { length: 512 }),
+  dataEnvio: timestamp("data_envio"),
+  criadoPor: int("criado_por"),
+  criadoPorNome: varchar("criado_por_nome", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  estabelecimentoIdx: index("idx_lotes_fat_estab").on(table.estabelecimentoId),
+  convenioIdx: index("idx_lotes_fat_convenio").on(table.convenioId),
+  statusIdx: index("idx_lotes_fat_status").on(table.status),
+}));
+export type LoteFaturamento = typeof lotesFaturamento.$inferSelect;
+export type InsertLoteFaturamento = typeof lotesFaturamento.$inferInsert;
