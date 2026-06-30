@@ -65,6 +65,8 @@ export default function FaturamentoGuiaEditor() {
   const [itemTecnica, setItemTecnica] = useState("");
   const [itemGrauParticipacao, setItemGrauParticipacao] = useState("");
   const [buscaTuss, setBuscaTuss] = useState("");
+  const [buscaTabPreco, setBuscaTabPreco] = useState("");
+  const [fonteBusca, setFonteBusca] = useState<"tuss" | "tabela_preco">("tabela_preco");
 
   // Queries
   const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery();
@@ -77,7 +79,28 @@ export default function FaturamentoGuiaEditor() {
   );
   const { data: resultadosTuss } = trpc.faturamentoDigitacao.buscarProcedimentoTuss.useQuery(
     { busca: buscaTuss },
-    { enabled: buscaTuss.length >= 2 }
+    { enabled: buscaTuss.length >= 2 && fonteBusca === "tuss" }
+  );
+
+  // Mapeamento de tipo de item para tipo da tabela de preço
+  const mapTipoParaTabela = (tipo: string): "procedimentos" | "mat_med" | "taxas" | "diarias" | undefined => {
+    switch (tipo) {
+      case "procedimento": return "procedimentos";
+      case "material": case "medicamento": case "opme": case "gases": return "mat_med";
+      case "taxa": return "taxas";
+      case "diaria": return "diarias";
+      default: return undefined;
+    }
+  };
+
+  const { data: resultadosTabPreco } = trpc.faturamentoDigitacao.buscarItemTabelaPreco.useQuery(
+    {
+      convenioId: convenioId!,
+      estabelecimentoId,
+      tipo: mapTipoParaTabela(itemTipo),
+      busca: buscaTabPreco,
+    },
+    { enabled: fonteBusca === "tabela_preco" && buscaTabPreco.length >= 2 && !!convenioId }
   );
 
   // Load guia data when editing
@@ -241,6 +264,14 @@ export default function FaturamentoGuiaEditor() {
     setItemDescricao(proc.descricao);
     if (proc.valor_referencia) setItemValorUnit(String(proc.valor_referencia));
     setBuscaTuss("");
+  };
+
+  const handleSelecionarTabPreco = (item: any) => {
+    setItemCodigo(item.codigo);
+    setItemDescricao(item.nome);
+    setItemValorUnit(String(item.valor));
+    setBuscaTabPreco("");
+    toast.success(`Valor preenchido da tabela do convênio: R$ ${Number(item.valor).toFixed(2)}`);
   };
 
   // Calcular valor total do item
@@ -617,30 +648,89 @@ export default function FaturamentoGuiaEditor() {
               <DialogTitle>Adicionar Item/Procedimento</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Busca TUSS */}
-              <div>
-                <Label>Buscar na Tabela TUSS</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    value={buscaTuss}
-                    onChange={(e) => setBuscaTuss(e.target.value)}
-                    placeholder="Digite código ou descrição..."
-                    className="pl-9"
-                  />
+              {/* Fonte de busca */}
+              <div className="flex items-center gap-4 mb-2">
+                <Label className="text-sm font-medium">Buscar em:</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={fonteBusca === "tabela_preco" ? "default" : "outline"}
+                    onClick={() => setFonteBusca("tabela_preco")}
+                    className="text-xs"
+                  >
+                    Tabela do Convênio
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={fonteBusca === "tuss" ? "default" : "outline"}
+                    onClick={() => setFonteBusca("tuss")}
+                    className="text-xs"
+                  >
+                    Tabela TUSS
+                  </Button>
                 </div>
-                {resultadosTuss && (resultadosTuss as any[]).length > 0 && buscaTuss.length >= 2 && (
-                  <div className="border rounded-md mt-1 max-h-40 overflow-y-auto">
-                    {(resultadosTuss as any[]).map((proc: any, idx: number) => (
-                      <div key={idx} className="p-2 hover:bg-muted cursor-pointer border-b last:border-b-0 text-sm"
-                        onClick={() => handleSelecionarTuss(proc)}>
-                        <span className="font-mono text-xs text-blue-600">{proc.codigo}</span> - {proc.descricao}
-                        {proc.valor_referencia && <span className="ml-2 text-green-600">R$ {Number(proc.valor_referencia).toFixed(2)}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+
+              {/* Busca Tabela de Preço do Convênio */}
+              {fonteBusca === "tabela_preco" && (
+                <div>
+                  <Label>Buscar na Tabela do Convênio {!convenioId && <span className="text-red-500 text-xs">(selecione um convênio primeiro)</span>}</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      value={buscaTabPreco}
+                      onChange={(e) => setBuscaTabPreco(e.target.value)}
+                      placeholder="Digite código ou nome do item..."
+                      className="pl-9"
+                      disabled={!convenioId}
+                    />
+                  </div>
+                  {resultadosTabPreco && (resultadosTabPreco as any[]).length > 0 && buscaTabPreco.length >= 2 && (
+                    <div className="border rounded-md mt-1 max-h-40 overflow-y-auto bg-background">
+                      {(resultadosTabPreco as any[]).map((item: any, idx: number) => (
+                        <div key={idx} className="p-2 hover:bg-muted cursor-pointer border-b last:border-b-0 text-sm"
+                          onClick={() => handleSelecionarTabPreco(item)}>
+                          <span className="font-mono text-xs text-blue-600">{item.codigo}</span> - {item.nome}
+                          <span className="ml-2 text-green-600 font-medium">R$ {Number(item.valor).toFixed(2)}</span>
+                          <Badge variant="outline" className="ml-2 text-xs">{item.tipo}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {resultadosTabPreco && (resultadosTabPreco as any[]).length === 0 && buscaTabPreco.length >= 2 && convenioId && (
+                    <p className="text-xs text-muted-foreground mt-1">Nenhum item encontrado na tabela do convênio. Tente buscar na Tabela TUSS.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Busca TUSS */}
+              {fonteBusca === "tuss" && (
+                <div>
+                  <Label>Buscar na Tabela TUSS</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      value={buscaTuss}
+                      onChange={(e) => setBuscaTuss(e.target.value)}
+                      placeholder="Digite código ou descrição..."
+                      className="pl-9"
+                    />
+                  </div>
+                  {resultadosTuss && (resultadosTuss as any[]).length > 0 && buscaTuss.length >= 2 && (
+                    <div className="border rounded-md mt-1 max-h-40 overflow-y-auto">
+                      {(resultadosTuss as any[]).map((proc: any, idx: number) => (
+                        <div key={idx} className="p-2 hover:bg-muted cursor-pointer border-b last:border-b-0 text-sm"
+                          onClick={() => handleSelecionarTuss(proc)}>
+                          <span className="font-mono text-xs text-blue-600">{proc.codigo}</span> - {proc.descricao}
+                          {proc.valor_referencia && <span className="ml-2 text-green-600">R$ {Number(proc.valor_referencia).toFixed(2)}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3">
                 <div>

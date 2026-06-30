@@ -4222,3 +4222,4 @@
 - [x] Geração de XML TISS 3.05 (lote de guias SADT e Internação)
 - [x] Exportação Excel formato Unimed FORM 3061
 - [x] Integração no menu lateral (módulo Faturamento Digitação)
+- [x] Integrar busca nas tabelas de preço do convênio na digitação de guias (preenchimento automático de código, descrição e valor)

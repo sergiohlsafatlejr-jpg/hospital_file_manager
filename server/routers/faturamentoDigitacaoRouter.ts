@@ -530,4 +530,57 @@ export const faturamentoDigitacaoRouter = router({
       const { gerarExcelUnimedForm3061 } = await import("../faturamentoExportService");
       return gerarExcelUnimedForm3061(input.loteId);
     }),
+
+  // ========== BUSCA TABELAS DE PREÇO ==========
+  buscarItemTabelaPreco: protectedProcedure
+    .input(z.object({
+      convenioId: z.number(),
+      estabelecimentoId: z.number().optional(),
+      tipo: z.enum(["procedimentos", "mat_med", "taxas", "diarias"]).optional(),
+      busca: z.string().min(2),
+      limit: z.number().optional().default(20),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      
+      const conditions = [
+        sql`convenioId = ${input.convenioId}`,
+        sql`ativo = 'sim'`,
+        sql`vigenciaInicio <= NOW()`,
+        sql`(codigo LIKE ${`%${input.busca}%`} OR nome LIKE ${`%${input.busca}%`})`,
+      ];
+      
+      if (input.estabelecimentoId) {
+        conditions.push(sql`(estabelecimentoId = ${input.estabelecimentoId} OR estabelecimentoId IS NULL)`);
+      }
+      
+      if (input.tipo) {
+        conditions.push(sql`tipo = ${input.tipo}`);
+      }
+      
+      const whereClause = sql.join(conditions, sql` AND `);
+      
+      const results = await db.execute(sql`
+        SELECT id, codigo, nome, valor, tipo, unidade
+        FROM tabelasPreco
+        WHERE ${whereClause}
+        ORDER BY nome ASC
+        LIMIT ${input.limit}
+      `);
+      
+      return (results as any)[0] || [];
+    }),
+
+  obterPrecoItem: protectedProcedure
+    .input(z.object({
+      convenioId: z.number(),
+      codigo: z.string(),
+      tipo: z.enum(["procedimentos", "mat_med", "taxas", "diarias"]).optional(),
+    }))
+    .query(async ({ input }) => {
+      const { getPrecoItem } = await import("../db");
+      const valor = await getPrecoItem(input.convenioId, input.codigo, input.tipo);
+      return { valor };
+    }),
 });
