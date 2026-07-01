@@ -4230,3 +4230,5 @@
 - [x] Adicionar criação de registro resumo para guias sem detalhesGuia (guias glosadas integralmente no nível da guia)
 - [x] Reprocessar arquivo DC_000043 da Sulamérica (21 itens extraídos, 3 com glosa: guias 227983746, 228433067, 230555845)
 - [x] Fallback: quando guia glosada integralmente (sem itens no retorno), buscar itens do faturamento_tiss (envio) para exibir na tela de Recurso Glosa Demonstrativo
+- [x] Corrigir busca na Tabela do Convênio (case-insensitive) - collation utf8mb4_bin impedia busca com letras minúsculas
+- [x] Corrigir busca na Tabela TUSS (case-insensitive) - mesmo problema

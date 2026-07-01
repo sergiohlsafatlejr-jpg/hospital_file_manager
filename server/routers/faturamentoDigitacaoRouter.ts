@@ -509,7 +509,7 @@ export const faturamentoDigitacaoRouter = router({
       const results = await db.execute(sql`
         SELECT codigo, descricao, valorReferencia as valor_referencia, categoria
         FROM codigosProcedimentos
-        WHERE (codigo LIKE ${`%${input.busca}%`} OR descricao LIKE ${`%${input.busca}%`})
+        WHERE (LOWER(codigo) LIKE ${`%${input.busca.toLowerCase()}%`} OR LOWER(descricao) LIKE ${`%${input.busca.toLowerCase()}%`})
         AND ativo = 'sim'
         LIMIT 20
       `);
@@ -548,7 +548,7 @@ export const faturamentoDigitacaoRouter = router({
         sql`convenioId = ${input.convenioId}`,
         sql`ativo = 'sim'`,
         sql`vigenciaInicio <= NOW()`,
-        sql`(codigo LIKE ${`%${input.busca}%`} OR nome LIKE ${`%${input.busca}%`})`,
+        sql`(LOWER(codigo) LIKE ${`%${input.busca.toLowerCase()}%`} OR LOWER(nome) LIKE ${`%${input.busca.toLowerCase()}%`})`,
       ];
       
       if (input.estabelecimentoId) {
