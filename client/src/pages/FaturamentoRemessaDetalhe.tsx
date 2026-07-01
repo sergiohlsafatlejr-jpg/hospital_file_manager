@@ -31,10 +31,11 @@ export default function FaturamentoRemessaDetalhe() {
   const { data: lotes } = trpc.faturamentoDigitacao.listarLotes.useQuery({});
   const lote = lotes?.find((l: any) => l.id === loteId);
 
-  const { data: guias, refetch: refetchGuias } = trpc.faturamentoDigitacao.listarGuias.useQuery({
+  const { data: guiasData, refetch: refetchGuias } = trpc.faturamentoDigitacao.listarGuias.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
     loteId,
   });
+  const guias = guiasData?.guias || [];
 
   const atualizarLote = trpc.faturamentoDigitacao.atualizarLote.useMutation({
     onSuccess: () => {
@@ -162,7 +163,7 @@ export default function FaturamentoRemessaDetalhe() {
         <Card>
           <CardContent className="p-0">
             <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="font-semibold">Guias da Remessa ({guias?.length || 0})</h2>
+              <h2 className="font-semibold">Guias da Remessa ({guias.length})</h2>
             </div>
             <Table>
               <TableHeader>
@@ -177,7 +178,7 @@ export default function FaturamentoRemessaDetalhe() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(!guias || guias.length === 0) ? (
+                {(guias.length === 0) ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Nenhuma guia nesta remessa. Clique em "Nova Guia" para adicionar.
