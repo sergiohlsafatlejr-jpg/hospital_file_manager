@@ -419,7 +419,8 @@ export async function parseXmlRecebimentoTiss(
       const valorGlosaProtocoloTotal = protocoloXml.match(/<(?:ans:)?valorGlosaProtocoloTotal>([^<]+)<\/(?:ans:)?valorGlosaProtocoloTotal>/)?.[1];
       
       // ========== PROCESSAR GUIAS (relacaoGuias) ==========
-      const guiaRegex = /<(?:ans:)?(?:dadosGuia|relacaoGuias)>([\s\S]*?)<\/(?:ans:)?(?:dadosGuia|relacaoGuias)>/g;
+      // Nota: relacaoGuias pode ter atributos (ex: xmlns:ns2="..."), por isso usamos [^>]* na abertura
+      const guiaRegex = /<(?:ans:)?(?:dadosGuia|relacaoGuias)[^>]*>([\s\S]*?)<\/(?:ans:)?(?:dadosGuia|relacaoGuias)>/g;
       let guiaMatch;
       
       while ((guiaMatch = guiaRegex.exec(protocoloXml)) !== null) {
@@ -457,8 +458,10 @@ export async function parseXmlRecebimentoTiss(
         // ========== PROCESSAR ITENS (detalhesGuia) ==========
         const itemRegex = /<(?:ans:)?(?:dadosPagamento|detalhesGuia)>([\s\S]*?)<\/(?:ans:)?(?:dadosPagamento|detalhesGuia)>/g;
         let itemMatch;
+        let foundItems = false;
         
         while ((itemMatch = itemRegex.exec(guiaXml)) !== null) {
+          foundItems = true;
           const itemXml = itemMatch[1];
           
           const sequencialItem = itemXml.match(/<(?:ans:)?sequencialItem>([^<]+)<\/(?:ans:)?sequencialItem>/)?.[1];
@@ -560,6 +563,67 @@ export async function parseXmlRecebimentoTiss(
             valorFinalReceber,
             
             // Metadados
+            origemDado: 'xml',
+            convenioId,
+            dataReferencia,
+            estabelecimentoId,
+          });
+        }
+        
+        // Se a guia não tem detalhesGuia mas tem dados (valorInformadoGuia), criar um registro resumo
+        // Isso cobre guias glosadas integralmente no nível da guia (ex: Sulamérica com motivoGlosaGuia)
+        if (!foundItems) {
+          items.push({
+            arquivoId,
+            registroANS,
+            numeroDemonstrativo,
+            nomeOperadora,
+            cnpjOperadora,
+            dataEmissao,
+            cnes,
+            codigoPrestadorOperadora,
+            nomeContratado,
+            numeroLotePrestador,
+            numeroProtocolo,
+            dataProtocolo,
+            valorProtocolo,
+            valorGlosaProtocolo,
+            glosaProtocoloCodigo,
+            glosaProtocoloDescricao,
+            situacaoProtocolo,
+            valorInformadoProtocolo,
+            valorProcessadoProtocolo,
+            valorLiberadoProtocolo,
+            valorGlosaProtocoloTotal,
+            numeroGuiaPrestador,
+            numeroGuiaOperadora,
+            senha,
+            numeroCarteira,
+            nomeBeneficiario,
+            dataInicioFat,
+            dataFimFat,
+            situacaoGuia,
+            motivoGlosaGuiaCodigo,
+            motivoGlosaGuiaDescricao,
+            valorInformadoGuia,
+            valorProcessadoGuia,
+            valorLiberadoGuia,
+            valorGlosaGuia,
+            // Usar valores da guia como valores do item (resumo)
+            valorInformado: valorInformadoGuia,
+            valorProcessado: valorProcessadoGuia,
+            valorLiberado: valorLiberadoGuia,
+            codigoGlosa: motivoGlosaGuiaCodigo,
+            descricaoGlosa: motivoGlosaGuiaDescricao,
+            dataPagamento: dataPagamentoXml,
+            formaPagamento,
+            banco,
+            agencia,
+            valorInformadoGeral,
+            valorProcessadoGeral,
+            valorLiberadoGeral,
+            valorGlosaGeral,
+            valorFinalReceber,
             origemDado: 'xml',
             convenioId,
             dataReferencia,

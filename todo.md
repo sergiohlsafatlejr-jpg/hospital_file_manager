@@ -4223,3 +4223,9 @@
 - [x] Exportação Excel formato Unimed FORM 3061
 - [x] Integração no menu lateral (módulo Faturamento Digitação)
 - [x] Integrar busca nas tabelas de preço do convênio na digitação de guias (preenchimento automático de código, descrição e valor)
+
+## Correções de Parser XML
+
+- [x] Corrigir parser XML de demonstrativo TISS para aceitar atributos xmlns nas tags relacaoGuias (bug afetava Sulamérica DC_000043)
+- [x] Adicionar criação de registro resumo para guias sem detalhesGuia (guias glosadas integralmente no nível da guia)
+- [x] Reprocessar arquivo DC_000043 da Sulamérica (21 itens extraídos, 3 com glosa: guias 227983746, 228433067, 230555845)
