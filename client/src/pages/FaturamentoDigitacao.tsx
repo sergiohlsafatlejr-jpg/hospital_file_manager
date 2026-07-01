@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,17 @@ import { toast } from "sonner";
 
 export default function FaturamentoDigitacao() {
   const [, navigate] = useLocation();
-  const [estabelecimentoId, setEstabelecimentoId] = useState<number | undefined>();
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const [estabelecimentoId, setEstabelecimentoId] = useState<number | undefined>(
+    estabelecimentoAtual && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined
+  );
+
+  // Sincronizar com o estabelecimento logado quando mudar
+  useEffect(() => {
+    if (estabelecimentoAtual && estabelecimentoAtual.id > 0 && !estabelecimentoId) {
+      setEstabelecimentoId(estabelecimentoAtual.id);
+    }
+  }, [estabelecimentoAtual]);
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [tipoGuia, setTipoGuia] = useState<string | undefined>();
   const [statusFiltro, setStatusFiltro] = useState<string | undefined>();

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,10 +20,13 @@ export default function FaturamentoGuiaEditor() {
   const params = useParams<{ id: string }>();
   const isEditing = !!params.id;
   const guiaId = params.id ? Number(params.id) : null;
+  const { estabelecimentoAtual } = useEstabelecimento();
 
   // Form state
   const [tipoGuia, setTipoGuia] = useState<"sadt" | "internacao">("sadt");
-  const [estabelecimentoId, setEstabelecimentoId] = useState<number | undefined>();
+  const [estabelecimentoId, setEstabelecimentoId] = useState<number | undefined>(
+    estabelecimentoAtual && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined
+  );
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [nomePaciente, setNomePaciente] = useState("");
   const [carteirinha, setCarteirinha] = useState("");

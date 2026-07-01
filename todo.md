@@ -4233,3 +4233,4 @@
 - [x] Corrigir busca na Tabela do Convênio (case-insensitive) - collation utf8mb4_bin impedia busca com letras minúsculas
 - [x] Corrigir busca na Tabela TUSS (case-insensitive) - mesmo problema
 - [x] Bug: Salvar rascunho da guia de faturamento reseta estabelecimentoId (fica null) e convenioId (muda para Unimed Cerrado)
+- [x] Filtro de Estabelecimento na Digitação de Guias deve iniciar com o estabelecimento logado (vinculado ao sistema) em vez de "Todos Estabelecimentos"
