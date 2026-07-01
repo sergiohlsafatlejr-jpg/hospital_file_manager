@@ -250,7 +250,8 @@ function Router() {
         <Route path={"/rpa-manager"} component={RpaManager} />
         <Route path={"/vinculacao-inteligente"} component={VinculacaoInteligente} />
         <Route path={"/aceite-automatico-glosa"} component={AceiteAutomaticoGlosa} />
-        <Route path={"/faturamento"} component={FaturamentoDigitacao} />
+        <Route path={"/faturamento"} component={FaturamentoRemessas} />
+        <Route path={"/faturamento/digitacao"} component={FaturamentoDigitacao} />
         <Route path={"/faturamento/lotes"} component={FaturamentoRemessas} />
         <Route path={"/faturamento/remessa/:id"} component={FaturamentoRemessaDetalhe} />
         <Route path={"/faturamento/nova-guia"} component={FaturamentoGuiaEditor} />
