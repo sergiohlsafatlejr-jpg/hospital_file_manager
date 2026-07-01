@@ -87,7 +87,7 @@ export default function FaturamentoDigitacao() {
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate("/faturamento/lotes")}>
               <Package className="w-4 h-4 mr-2" />
-              Lotes
+              Remessas
             </Button>
             <Button onClick={() => navigate("/faturamento/nova-guia")}>
               <Plus className="w-4 h-4 mr-2" />

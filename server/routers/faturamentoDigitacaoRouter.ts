@@ -71,6 +71,7 @@ export const faturamentoDigitacaoRouter = router({
       convenioId: z.number().optional(),
       tipoGuia: z.enum(["sadt", "internacao"]).optional(),
       status: z.enum(["rascunho", "finalizada", "em_lote", "enviada"]).optional(),
+      loteId: z.number().optional(),
       busca: z.string().optional(),
       page: z.number().default(1),
       limit: z.number().default(50),
@@ -85,6 +86,7 @@ export const faturamentoDigitacaoRouter = router({
       if (input.convenioId) conditions.push(eq(guiasFaturamento.convenioId, input.convenioId));
       if (input.tipoGuia) conditions.push(eq(guiasFaturamento.tipoGuia, input.tipoGuia));
       if (input.status) conditions.push(eq(guiasFaturamento.status, input.status));
+      if (input.loteId) conditions.push(eq(guiasFaturamento.loteId, input.loteId));
       if (input.busca && input.busca.trim()) {
         conditions.push(
           or(
@@ -161,6 +163,7 @@ export const faturamentoDigitacaoRouter = router({
       observacoes: z.string().optional(),
       tipoServico: z.string().optional(),
       status: z.enum(["rascunho", "finalizada"]).default("rascunho"),
+      loteId: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -218,7 +221,8 @@ export const faturamentoDigitacaoRouter = router({
         indicacaoClinica: input.indicacaoClinica || null,
         observacoes: input.observacoes || null,
         tipoServico: input.tipoServico || null,
-        status: input.status,
+        status: input.loteId ? "em_lote" : input.status,
+        loteId: input.loteId || null,
         criadoPor: ctx.user.id,
         criadoPorNome: ctx.user.name || "Sistema",
       });
@@ -429,7 +433,11 @@ export const faturamentoDigitacaoRouter = router({
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number(),
+      tipoAtendimento: z.enum(["consultas", "exames", "internacao"]),
+      dataFaturamento: z.string().optional(),
       competencia: z.string().optional(),
+      nf: z.string().optional(),
+      protocoloEntrega: z.string().optional(),
       formatoExportacao: z.enum(["xml_tiss", "excel_unimed"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -440,8 +448,12 @@ export const faturamentoDigitacaoRouter = router({
       const [result] = await db.insert(lotesFaturamento).values({
         estabelecimentoId: input.estabelecimentoId,
         convenioId: input.convenioId,
+        tipoAtendimento: input.tipoAtendimento,
+        dataFaturamento: input.dataFaturamento || null,
         numeroLote: numero,
         competencia: input.competencia || null,
+        nf: input.nf || null,
+        protocoloEntrega: input.protocoloEntrega || null,
         formatoExportacao: input.formatoExportacao || null,
         status: "aberto",
         criadoPor: ctx.user.id,
@@ -449,6 +461,29 @@ export const faturamentoDigitacaoRouter = router({
       });
 
       return { id: result.insertId, numero };
+    }),
+
+  atualizarLote: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      nf: z.string().optional(),
+      protocoloEntrega: z.string().optional(),
+      dataFaturamento: z.string().optional(),
+      competencia: z.string().optional(),
+      status: z.enum(["aberto", "fechado", "enviado"]).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const { id, ...data } = input;
+      const updateData: any = {};
+      if (data.nf !== undefined) updateData.nf = data.nf;
+      if (data.protocoloEntrega !== undefined) updateData.protocoloEntrega = data.protocoloEntrega;
+      if (data.dataFaturamento !== undefined) updateData.dataFaturamento = data.dataFaturamento;
+      if (data.competencia !== undefined) updateData.competencia = data.competencia;
+      if (data.status !== undefined) updateData.status = data.status;
+      await db.update(lotesFaturamento).set(updateData).where(eq(lotesFaturamento.id, id));
+      return { success: true };
     }),
 
   adicionarGuiasAoLote: protectedProcedure

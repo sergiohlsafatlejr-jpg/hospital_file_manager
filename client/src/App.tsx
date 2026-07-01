@@ -114,6 +114,8 @@ const RecursoGlosaDemonstrativo = lazy(() => import("./pages/RecursoGlosaDemonst
 const AceiteAutomaticoGlosa = lazy(() => import("./pages/AceiteAutomaticoGlosa"));
 const FaturamentoDigitacao = lazy(() => import("./pages/FaturamentoDigitacao"));
 const FaturamentoGuiaEditor = lazy(() => import("./pages/FaturamentoGuiaEditor"));
+const FaturamentoRemessas = lazy(() => import("./pages/FaturamentoRemessas"));
+const FaturamentoRemessaDetalhe = lazy(() => import("./pages/FaturamentoRemessaDetalhe"));
 
 function PageLoader() {
   return (
@@ -249,6 +251,8 @@ function Router() {
         <Route path={"/vinculacao-inteligente"} component={VinculacaoInteligente} />
         <Route path={"/aceite-automatico-glosa"} component={AceiteAutomaticoGlosa} />
         <Route path={"/faturamento"} component={FaturamentoDigitacao} />
+        <Route path={"/faturamento/lotes"} component={FaturamentoRemessas} />
+        <Route path={"/faturamento/remessa/:id"} component={FaturamentoRemessaDetalhe} />
         <Route path={"/faturamento/nova-guia"} component={FaturamentoGuiaEditor} />
         <Route path={"/faturamento/guia/:id"} component={FaturamentoGuiaEditor} />
         <Route path={"/404"} component={NotFound} />

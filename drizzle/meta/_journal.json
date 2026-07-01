@@ -162,6 +162,13 @@
       "when": 1782499279243,
       "tag": "0104_lyrical_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "5",
+      "when": 1782938712324,
+      "tag": "0105_perpetual_ultimates",
+      "breakpoints": true
     }
   ]
 }

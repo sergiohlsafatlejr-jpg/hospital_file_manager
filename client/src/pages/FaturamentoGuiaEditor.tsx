@@ -16,18 +16,23 @@ import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
 export default function FaturamentoGuiaEditor() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const isEditing = !!params.id;
   const guiaId = params.id ? Number(params.id) : null;
   const { estabelecimentoAtual } = useEstabelecimento();
+
+  // Pegar loteId e convenioId da URL (quando vem de uma remessa)
+  const urlParams = new URLSearchParams(window.location.search);
+  const loteIdFromUrl = urlParams.get("loteId") ? Number(urlParams.get("loteId")) : null;
+  const convenioIdFromUrl = urlParams.get("convenioId") ? Number(urlParams.get("convenioId")) : null;
 
   // Form state
   const [tipoGuia, setTipoGuia] = useState<"sadt" | "internacao">("sadt");
   const [estabelecimentoId, setEstabelecimentoId] = useState<number | undefined>(
     estabelecimentoAtual && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined
   );
-  const [convenioId, setConvenioId] = useState<number | undefined>();
+  const [convenioId, setConvenioId] = useState<number | undefined>(convenioIdFromUrl || undefined);
   const [nomePaciente, setNomePaciente] = useState("");
   const [carteirinha, setCarteirinha] = useState("");
   const [dataAtendimento, setDataAtendimento] = useState("");
@@ -234,7 +239,7 @@ export default function FaturamentoGuiaEditor() {
     if (isEditing && guiaId) {
       atualizarGuiaMutation.mutate({ id: guiaId, ...dados });
     } else {
-      criarGuiaMutation.mutate(dados);
+      criarGuiaMutation.mutate({ ...dados, loteId: loteIdFromUrl || undefined });
     }
   };
 

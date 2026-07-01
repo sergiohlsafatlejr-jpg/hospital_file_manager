@@ -4234,3 +4234,12 @@
 - [x] Corrigir busca na Tabela TUSS (case-insensitive) - mesmo problema
 - [x] Bug: Salvar rascunho da guia de faturamento reseta estabelecimentoId (fica null) e convenioId (muda para Unimed Cerrado)
 - [x] Filtro de Estabelecimento na Digitação de Guias deve iniciar com o estabelecimento logado (vinculado ao sistema) em vez de "Todos Estabelecimentos"
+
+## Módulo de Remessas (Lotes) - Faturamento
+
+- [x] Criar tabela de remessas no banco de dados (convenioId, estabelecimentoId, tipoAtendimento, dataFaturamento, nf, protocoloEntrega, status)
+- [x] Criar procedures no backend para CRUD de remessas
+- [x] Tela de listagem de Remessas com totais por mês e convênio
+- [x] Formulário de criação de remessa (convênio, tipo atendimento, data faturamento, NF, protocolo entrega)
+- [x] Ajustar Digitação de Guias para funcionar dentro de uma remessa (guia vinculada a remessa)
+- [x] Fluxo: primeiro selecionar/criar remessa, depois digitar guias dentro dela
