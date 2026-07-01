@@ -116,6 +116,7 @@ const FaturamentoDigitacao = lazy(() => import("./pages/FaturamentoDigitacao"));
 const FaturamentoGuiaEditor = lazy(() => import("./pages/FaturamentoGuiaEditor"));
 const FaturamentoRemessas = lazy(() => import("./pages/FaturamentoRemessas"));
 const FaturamentoRemessaDetalhe = lazy(() => import("./pages/FaturamentoRemessaDetalhe"));
+const FaturamentoRemessasFechadas = lazy(() => import("./pages/FaturamentoRemessasFechadas"));
 
 function PageLoader() {
   return (
@@ -254,6 +255,7 @@ function Router() {
         <Route path={"/faturamento/digitacao"} component={FaturamentoDigitacao} />
         <Route path={"/faturamento/lotes"} component={FaturamentoRemessas} />
         <Route path={"/faturamento/remessa/:id"} component={FaturamentoRemessaDetalhe} />
+        <Route path={"/faturamento/remessas-fechadas"} component={FaturamentoRemessasFechadas} />
         <Route path={"/faturamento/nova-guia"} component={FaturamentoGuiaEditor} />
         <Route path={"/faturamento/guia/:id"} component={FaturamentoGuiaEditor} />
         <Route path={"/404"} component={NotFound} />

@@ -538,6 +538,41 @@ export const faturamentoDigitacaoRouter = router({
       return { success: true };
     }),
 
+  // ========== FECHAR LOTE ==========
+  fecharLote: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      
+      // Verificar se lote existe e está aberto
+      const [lote] = await db.select().from(lotesFaturamento).where(eq(lotesFaturamento.id, input.id));
+      if (!lote) throw new Error("Remessa não encontrada");
+      if (lote.status === "fechado") throw new Error("Remessa já está fechada");
+      if (lote.status === "enviado") throw new Error("Remessa já foi enviada");
+      
+      // Verificar se tem pelo menos 1 guia
+      const [countResult] = await db.select({ count: sql<number>`COUNT(*)` })
+        .from(guiasFaturamento)
+        .where(eq(guiasFaturamento.loteId, input.id));
+      const totalGuias = Number(countResult?.count || 0);
+      if (totalGuias === 0) throw new Error("Não é possível fechar uma remessa sem guias");
+
+      // Atualizar totais e fechar
+      const [totais] = await db.select({
+        totalGuias: sql<number>`COUNT(*)`,
+        valorTotal: sql<string>`COALESCE(SUM(valor_total), 0)`,
+      }).from(guiasFaturamento).where(eq(guiasFaturamento.loteId, input.id));
+
+      await db.update(lotesFaturamento).set({
+        status: "fechado",
+        totalGuias: Number(totais?.totalGuias || 0),
+        valorTotal: totais?.valorTotal || "0",
+      }).where(eq(lotesFaturamento.id, input.id));
+
+      return { success: true, totalGuias: Number(totais?.totalGuias || 0) };
+    }),
+
   // ========== BUSCA TUSS ==========
   buscarProcedimentoTuss: protectedProcedure
     .input(z.object({ busca: z.string().min(2) }))

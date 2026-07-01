@@ -221,7 +221,11 @@ const menuItems: MenuItem[] = [
   { icon: Receipt, label: "NFS-e", path: "/nfse", modulo: "faturamento" },
 
   // Módulo 9 - Faturamento (Digitação de Guias)
-  { icon: FileText, label: "Faturamento", path: "/faturamento", modulo: "faturamento" },
+  { icon: FileText, label: "Faturamento", path: "/faturamento", modulo: "faturamento", children: [
+    { icon: Package, label: "Remessas (Lotes)", path: "/faturamento", modulo: "faturamento" },
+    { icon: Lock, label: "Remessas Fechadas", path: "/faturamento/remessas-fechadas", modulo: "faturamento" },
+    { icon: FileText, label: "Digitação Avulsa", path: "/faturamento/digitacao", modulo: "faturamento" },
+  ]},
 
   // ===== MÓDULOS SAFATLE (admin only, só quando Safatle está selecionado) =====
   { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Edit, Trash2, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Lock, AlertTriangle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
@@ -26,9 +26,12 @@ export default function FaturamentoRemessaDetalhe() {
   const [editDataFat, setEditDataFat] = useState("");
   const [editCompetencia, setEditCompetencia] = useState("");
 
+  // Modal confirmar fechamento
+  const [showConfirmarFechar, setShowConfirmarFechar] = useState(false);
+
   // Queries
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
-  const { data: lotes } = trpc.faturamentoDigitacao.listarLotes.useQuery({});
+  const { data: lotes, refetch: refetchLotes } = trpc.faturamentoDigitacao.listarLotes.useQuery({});
   const lote = lotes?.find((l: any) => l.id === loteId);
 
   const { data: guiasData, refetch: refetchGuias } = trpc.faturamentoDigitacao.listarGuias.useQuery({
@@ -41,6 +44,16 @@ export default function FaturamentoRemessaDetalhe() {
     onSuccess: () => {
       toast.success("Remessa atualizada!");
       setShowEditar(false);
+      refetchLotes();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const fecharLote = trpc.faturamentoDigitacao.fecharLote.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Remessa fechada com sucesso! ${data.totalGuias} guia(s) no lote.`);
+      setShowConfirmarFechar(false);
+      refetchLotes();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -52,6 +65,8 @@ export default function FaturamentoRemessaDetalhe() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const isFechada = lote?.status === "fechado" || lote?.status === "enviado";
 
   function openEditar() {
     setEditNf(lote?.nf || "");
@@ -115,12 +130,28 @@ export default function FaturamentoRemessaDetalhe() {
               {convenioNome} | {tipoLabel(lote.tipoAtendimento)} | {statusBadge(lote.status)}
             </p>
           </div>
-          <Button variant="outline" onClick={openEditar}>
-            <Edit className="w-4 h-4 mr-2" /> Editar
-          </Button>
-          <Button onClick={() => navigate(`/faturamento/guia/nova?loteId=${loteId}&convenioId=${lote.convenioId}`)}>
-            <Plus className="w-4 h-4 mr-2" /> Nova Guia
-          </Button>
+          {!isFechada && (
+            <>
+              <Button variant="outline" onClick={openEditar}>
+                <Edit className="w-4 h-4 mr-2" /> Editar
+              </Button>
+              <Button
+                variant="default"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => setShowConfirmarFechar(true)}
+              >
+                <Lock className="w-4 h-4 mr-2" /> Fechar Remessa
+              </Button>
+              <Button onClick={() => navigate(`/faturamento/guia/nova?loteId=${loteId}&convenioId=${lote.convenioId}`)}>
+                <Plus className="w-4 h-4 mr-2" /> Nova Guia
+              </Button>
+            </>
+          )}
+          {isFechada && (
+            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 px-4 py-2 text-sm">
+              <Lock className="w-4 h-4 mr-2 inline" /> Remessa Fechada - Somente Leitura
+            </Badge>
+          )}
         </div>
 
         {/* Info Cards */}
@@ -174,14 +205,14 @@ export default function FaturamentoRemessaDetalhe() {
                   <TableHead>Data</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Ações</TableHead>
+                  {!isFechada && <TableHead>Ações</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(guias.length === 0) ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      Nenhuma guia nesta remessa. Clique em "Nova Guia" para adicionar.
+                    <TableCell colSpan={isFechada ? 6 : 7} className="text-center py-8 text-muted-foreground">
+                      Nenhuma guia nesta remessa. {!isFechada && 'Clique em "Nova Guia" para adicionar.'}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -199,21 +230,23 @@ export default function FaturamentoRemessaDetalhe() {
                           {guia.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/faturamento/guia/${guia.id}`); }}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-red-500" onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm("Remover guia desta remessa?")) {
-                              removerGuia.mutate({ guiaId: guia.id, loteId });
-                            }
-                          }}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                      {!isFechada && (
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/faturamento/guia/${guia.id}`); }}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm("Remover guia desta remessa?")) {
+                                removerGuia.mutate({ guiaId: guia.id, loteId });
+                              }
+                            }}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}
@@ -250,6 +283,42 @@ export default function FaturamentoRemessaDetalhe() {
               <Button variant="outline" onClick={() => setShowEditar(false)}>Cancelar</Button>
               <Button onClick={handleAtualizar} disabled={atualizarLote.isPending}>
                 {atualizarLote.isPending ? "Salvando..." : "Salvar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal Confirmar Fechamento */}
+        <Dialog open={showConfirmarFechar} onOpenChange={setShowConfirmarFechar}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                Fechar Remessa
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Ao fechar esta remessa, não será mais possível adicionar, editar ou remover guias.
+              </p>
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                <p className="text-sm"><strong>Remessa:</strong> {lote.numeroLote}</p>
+                <p className="text-sm"><strong>Convênio:</strong> {convenioNome}</p>
+                <p className="text-sm"><strong>Guias:</strong> {guias.length}</p>
+                <p className="text-sm"><strong>Valor Total:</strong> R$ {Number(lote.valorTotal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
+              </div>
+              <p className="text-sm font-medium text-amber-600">
+                Deseja confirmar o fechamento?
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowConfirmarFechar(false)}>Cancelar</Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => fecharLote.mutate({ id: loteId })}
+                disabled={fecharLote.isPending}
+              >
+                {fecharLote.isPending ? "Fechando..." : "Confirmar Fechamento"}
               </Button>
             </DialogFooter>
           </DialogContent>

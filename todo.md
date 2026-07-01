@@ -4243,3 +4243,8 @@
 - [x] Formulário de criação de remessa (convênio, tipo atendimento, data faturamento, NF, protocolo entrega)
 - [x] Ajustar Digitação de Guias para funcionar dentro de uma remessa (guia vinculada a remessa)
 - [x] Fluxo: primeiro selecionar/criar remessa, depois digitar guias dentro dela
+- [x] Botão "Fechar Remessa" na tela de detalhe da remessa (muda status para fechado, impede edição)
+- [x] Tela de Remessas Fechadas com filtro por convênio e listagem de remessas com status fechado
+- [x] Botão Gerar XML TISS na tela de Remessas Fechadas
+- [x] Botão Gerar Excel na tela de Remessas Fechadas
+- [x] Registrar rota /faturamento/remessas-fechadas no App.tsx e link no menu lateral
