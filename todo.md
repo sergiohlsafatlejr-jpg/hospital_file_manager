@@ -4232,3 +4232,4 @@
 - [x] Fallback: quando guia glosada integralmente (sem itens no retorno), buscar itens do faturamento_tiss (envio) para exibir na tela de Recurso Glosa Demonstrativo
 - [x] Corrigir busca na Tabela do Convênio (case-insensitive) - collation utf8mb4_bin impedia busca com letras minúsculas
 - [x] Corrigir busca na Tabela TUSS (case-insensitive) - mesmo problema
+- [x] Bug: Salvar rascunho da guia de faturamento reseta estabelecimentoId (fica null) e convenioId (muda para Unimed Cerrado)

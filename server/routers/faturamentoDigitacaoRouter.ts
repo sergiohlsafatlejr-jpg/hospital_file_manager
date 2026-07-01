@@ -229,6 +229,9 @@ export const faturamentoDigitacaoRouter = router({
   atualizarGuia: protectedProcedure
     .input(z.object({
       id: z.number(),
+      estabelecimentoId: z.number().optional(),
+      convenioId: z.number().optional(),
+      tipoGuia: z.enum(["sadt", "internacao"]).optional(),
       nomePaciente: z.string().optional(),
       carteirinha: z.string().optional(),
       dataAtendimento: z.string().optional(),
