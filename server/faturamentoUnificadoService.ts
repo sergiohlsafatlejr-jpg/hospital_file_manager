@@ -4931,7 +4931,8 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
     ) unified
     ORDER BY guia, dataExecucao
   `));
-  return (rows as any[]).map((r: any) => ({
+
+  const results = (rows as any[]).map((r: any) => ({
     ...r,
     valorFaturado: Number(r.valorFaturado),
     valorPago: Number(r.valorPago),
@@ -4940,6 +4941,61 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
     glosaAceita: Boolean(r.glosaAceita),
     dataExecucao: r.dataExecucao || null,
   }));
+
+  // Fallback: se a guia só tem itens sem código (glosa total no nível da guia),
+  // buscar os itens detalhados do XML de envio (faturamento_tiss) para exibir
+  const hasOnlySummaryItems = results.length > 0 && results.every((r: any) => !r.codigo || r.codigo === '' || r.codigo === null);
+  if (hasOnlySummaryItems) {
+    // Buscar itens do envio para essa guia
+    const guiaEscaped = guia.replace(/'/g, "''");
+    const [envioRows] = await db.execute(sql.raw(`
+      SELECT 
+        ${results[0]?.id || 'ft.id'} as id, 'demo' as fonte,
+        ft.numero_guia_prestador as guia,
+        ft.codigo_item as codigo,
+        ft.descricao_item as descricao,
+        CASE ft.tipo_item
+          WHEN '10' THEN 'Procedimento'
+          WHEN '2' THEN 'Medicamento'
+          WHEN '3' THEN 'Material'
+          WHEN '5' THEN 'Diária'
+          WHEN '7' THEN 'Taxa'
+          WHEN '1' THEN 'Gás'
+          ELSE ft.tipo_item
+        END as tipo,
+        DATE_FORMAT(ft.data_execucao, '%Y-%m-%d') as dataExecucao,
+        ft.quantidade as qtde,
+        COALESCE(ft.valor_faturado, ft.valor_unitario * ft.quantidade, 0) as valorFaturado,
+        0 as valorPago,
+        COALESCE(ft.valor_faturado, ft.valor_unitario * ft.quantidade, 0) as valorGlosa,
+        '${results[0]?.codigoGlosa || ''}' as codigoGlosa,
+        '${(results[0]?.motivoGlosa || 'Glosa total da guia').replace(/'/g, "''")}' as motivoGlosa,
+        '${(results[0]?.justificativa || '').replace(/'/g, "''")}' as justificativa,
+        COALESCE(ft.valor_faturado, ft.valor_unitario * ft.quantidade, 0) as valorRecurso,
+        ${results[0]?.glosaAceita ? 1 : 0} as glosaAceita,
+        ${results[0]?.glosaAceitaPor ? `'${String(results[0].glosaAceitaPor).replace(/'/g, "''")}'` : 'NULL'} as glosaAceitaPor
+      FROM faturamento_tiss ft
+      WHERE ft.numero_guia_prestador = '${guiaEscaped}'
+        AND ft.estabelecimentoId = ${estabelecimentoId}
+      ORDER BY ft.sequencial_item, ft.data_execucao
+    `));
+
+    if ((envioRows as any[]).length > 0) {
+      // Retornar os itens do envio com o motivo de glosa da guia
+      return (envioRows as any[]).map((r: any) => ({
+        ...r,
+        id: Number(r.id),
+        valorFaturado: Number(r.valorFaturado),
+        valorPago: Number(r.valorPago),
+        valorGlosa: Number(r.valorGlosa),
+        valorRecurso: Number(r.valorRecurso),
+        glosaAceita: Boolean(r.glosaAceita),
+        dataExecucao: r.dataExecucao || null,
+      }));
+    }
+  }
+
+  return results;
 }
 /**
  * Detalhe dos itens glosados por código de item no demonstrativo (UNION)
