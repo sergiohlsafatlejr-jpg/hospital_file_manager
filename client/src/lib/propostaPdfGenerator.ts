@@ -42,6 +42,63 @@ function formatDateBR(date: string | Date | null | undefined): string {
   return d.toLocaleDateString("pt-BR");
 }
 
+interface TextSegment {
+  text: string;
+  bold: boolean;
+}
+
+function parseHtmlToSegments(html: string): TextSegment[] {
+  // Simple HTML parser for PDF rendering
+  // Handles: <strong>, <b>, <em>, <i>, <ul>/<li>, <p>, <br>
+  const segments: TextSegment[] = [];
+  
+  // Replace block elements with newlines
+  let processed = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<p[^>]*>/gi, "")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "\u2022 ") // bullet
+    .replace(/<\/?ul[^>]*>/gi, "")
+    .replace(/<\/?ol[^>]*>/gi, "")
+    .replace(/<\/?h[1-6][^>]*>/gi, "\n");
+
+  // Parse bold/strong segments
+  const boldRegex = /<(strong|b)>(.*?)<\/(strong|b)>/gi;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = boldRegex.exec(processed)) !== null) {
+    // Text before bold
+    if (match.index > lastIndex) {
+      const text = stripTags(processed.slice(lastIndex, match.index));
+      if (text) segments.push({ text, bold: false });
+    }
+    // Bold text
+    const boldText = stripTags(match[2]);
+    if (boldText) segments.push({ text: boldText, bold: true });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after last bold
+  if (lastIndex < processed.length) {
+    const text = stripTags(processed.slice(lastIndex));
+    if (text) segments.push({ text, bold: false });
+  }
+
+  // If no segments found, return plain text
+  if (segments.length === 0) {
+    const plain = stripTags(html).replace(/\s+/g, " ").trim();
+    if (plain) segments.push({ text: plain, bold: false });
+  }
+
+  return segments;
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+}
+
 function getClientTypeLabel(type: string): string {
   const map: Record<string, string> = {
     hospital: "Hospital",
@@ -336,8 +393,11 @@ export async function gerarPDFProposta(proposta: PropostaData): Promise<jsPDF> {
   for (const secao of secoes) {
     if (!secao.conteudo) continue;
 
-    const lines = doc.splitTextToSize(secao.conteudo, contentWidth - 10);
-    const boxHeight = Math.max(16, lines.length * 4.5 + 12);
+    // Parse HTML to structured text segments
+    const segments = parseHtmlToSegments(secao.conteudo);
+    const textContent = segments.map(s => s.text).join("");
+    const plainLines = doc.splitTextToSize(textContent, contentWidth - 10);
+    const boxHeight = Math.max(16, plainLines.length * 4.5 + 12);
 
     if (y + boxHeight + 12 > pageHeight - 25) {
       doc.addPage();
@@ -354,16 +414,30 @@ export async function gerarPDFProposta(proposta: PropostaData): Promise<jsPDF> {
     doc.text(secao.titulo, margin + 6, y + 5);
     y += 10;
 
-    // Conteúdo
+    // Conteúdo box
     doc.setFillColor(250, 250, 252);
     doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, "F");
     doc.setDrawColor(230, 230, 235);
     doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, "S");
 
+    // Render segments with formatting
     doc.setFontSize(8.5);
-    doc.setFont("helvetica", "normal");
     doc.setTextColor(50, 50, 50);
-    doc.text(lines, margin + 5, y + 6);
+    let textY = y + 6;
+    const maxWidth = contentWidth - 10;
+    for (const segment of segments) {
+      if (segment.bold) {
+        doc.setFont("helvetica", "bold");
+      } else {
+        doc.setFont("helvetica", "normal");
+      }
+      const segLines = doc.splitTextToSize(segment.text, maxWidth);
+      for (const line of segLines) {
+        if (textY > y + boxHeight - 3) break;
+        doc.text(line, margin + 5, textY);
+        textY += 4.5;
+      }
+    }
     y += boxHeight + 8;
   }
 

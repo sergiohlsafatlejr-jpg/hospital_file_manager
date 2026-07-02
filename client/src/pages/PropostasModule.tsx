@@ -14,6 +14,7 @@ import {
   Layers, ClipboardList, Edit3, AlertTriangle, X, Eye, Download
 } from "lucide-react";
 import { gerarPDFProposta } from "@/lib/propostaPdfGenerator";
+import RichTextEditor from "@/components/RichTextEditor";
 import { cn } from "@/lib/utils";
 import { formatDateBR } from "@/lib/dateUtils";
 
@@ -161,16 +162,16 @@ function ProposalDetail({ proposta, onClose, onDelete, onStatusChange }: {
       {(detail.data?.escopoTecnico || detail.data?.servicosOferecidos || detail.data?.vantagensCompetitivas || detail.data?.condicoesNegocio) && (
         <div className="px-5 py-3 border-b border-border space-y-3">
           {detail.data?.escopoTecnico && (
-            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-blue-500" /><span className="text-xs font-semibold text-blue-600">Escopo Técnico</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.escopoTecnico}</p></div>
+            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-blue-500" /><span className="text-xs font-semibold text-blue-600">Escopo Técnico</span></div><div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: detail.data.escopoTecnico }} /></div>
           )}
           {detail.data?.servicosOferecidos && (
-            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-green-500" /><span className="text-xs font-semibold text-green-600">Serviços Oferecidos</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.servicosOferecidos}</p></div>
+            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-green-500" /><span className="text-xs font-semibold text-green-600">Serviços Oferecidos</span></div><div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: detail.data.servicosOferecidos }} /></div>
           )}
           {detail.data?.vantagensCompetitivas && (
-            <div><div className="flex items-center gap-1.5 mb-1"><TrendingUp className="h-3.5 w-3.5 text-purple-500" /><span className="text-xs font-semibold text-purple-600">Vantagens Competitivas</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.vantagensCompetitivas}</p></div>
+            <div><div className="flex items-center gap-1.5 mb-1"><TrendingUp className="h-3.5 w-3.5 text-purple-500" /><span className="text-xs font-semibold text-purple-600">Vantagens Competitivas</span></div><div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: detail.data.vantagensCompetitivas }} /></div>
           )}
           {detail.data?.condicoesNegocio && (
-            <div><div className="flex items-center gap-1.5 mb-1"><CreditCard className="h-3.5 w-3.5 text-orange-500" /><span className="text-xs font-semibold text-orange-600">Condições do Negócio</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.condicoesNegocio}</p></div>
+            <div><div className="flex items-center gap-1.5 mb-1"><CreditCard className="h-3.5 w-3.5 text-orange-500" /><span className="text-xs font-semibold text-orange-600">Condições do Negócio</span></div><div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: detail.data.condicoesNegocio }} /></div>
           )}
         </div>
       )}
@@ -313,12 +314,40 @@ function NewProposalDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           </div>
           <div className="space-y-1.5"><Label>Observações</Label><Textarea placeholder="Notas adicionais…" value={observacoes} onChange={e => setObservacoes(e.target.value)} rows={2} /></div>
           <div className="border-t border-border pt-4 mt-2">
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-primary" /> Descrições da Proposta</h4>
-            <div className="space-y-3">
-              <div className="space-y-1.5"><Label>Escopo Técnico</Label><Textarea placeholder="Descreva o escopo técnico do serviço…" value={escopoTecnico} onChange={e => setEscopoTecnico(e.target.value)} rows={3} /></div>
-              <div className="space-y-1.5"><Label>Serviços Oferecidos</Label><Textarea placeholder="Detalhe os serviços que serão oferecidos…" value={servicosOferecidos} onChange={e => setServicosOferecidos(e.target.value)} rows={3} /></div>
-              <div className="space-y-1.5"><Label>Vantagens Competitivas</Label><Textarea placeholder="Diferenciais e vantagens da empresa…" value={vantagensCompetitivas} onChange={e => setVantagensCompetitivas(e.target.value)} rows={3} /></div>
-              <div className="space-y-1.5"><Label>Condições do Negócio</Label><Textarea placeholder="Termos, condições e cláusulas do negócio…" value={condicoesNegocio} onChange={e => setCondicoesNegocio(e.target.value)} rows={3} /></div>
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-primary" /> Descrições da Proposta <span className="text-xs font-normal text-muted-foreground ml-1">(com IA)</span></h4>
+            <div className="space-y-4">
+              <RichTextEditor
+                label="Escopo Técnico"
+                value={escopoTecnico}
+                onChange={setEscopoTecnico}
+                placeholder="Descreva o escopo técnico do serviço…"
+                sectionType="escopoTecnico"
+                context={{ titulo, cliente, tipoCliente }}
+              />
+              <RichTextEditor
+                label="Serviços Oferecidos"
+                value={servicosOferecidos}
+                onChange={setServicosOferecidos}
+                placeholder="Detalhe os serviços que serão oferecidos…"
+                sectionType="servicosOferecidos"
+                context={{ titulo, cliente, tipoCliente }}
+              />
+              <RichTextEditor
+                label="Vantagens Competitivas"
+                value={vantagensCompetitivas}
+                onChange={setVantagensCompetitivas}
+                placeholder="Diferenciais e vantagens da empresa…"
+                sectionType="vantagensCompetitivas"
+                context={{ titulo, cliente, tipoCliente }}
+              />
+              <RichTextEditor
+                label="Condições do Negócio"
+                value={condicoesNegocio}
+                onChange={setCondicoesNegocio}
+                placeholder="Termos, condições e cláusulas do negócio…"
+                sectionType="condicoesNegocio"
+                context={{ titulo, cliente, tipoCliente }}
+              />
             </div>
           </div>
           <div className="space-y-2">

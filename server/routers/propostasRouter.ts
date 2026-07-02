@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { propostas, propostaItens, contratos, contratosHistorico } from "../../drizzle/schema";
 import { eq, desc, and, sql, like } from "drizzle-orm";
+import { invokeLLM } from "../_core/llm";
 
 export const propostasRouter = router({
   listar: protectedProcedure
@@ -276,5 +277,59 @@ export const propostasRouter = router({
         valorTotalPipeline,
         taxaConversao,
       };
+    }),
+
+  gerarTextoIA: protectedProcedure
+    .input(z.object({
+      sectionType: z.enum(["escopoTecnico", "servicosOferecidos", "vantagensCompetitivas", "condicoesNegocio"]),
+      action: z.enum(["gerar", "melhorar", "resumir", "expandir"]),
+      currentContent: z.string().optional(),
+      context: z.object({
+        titulo: z.string().optional(),
+        cliente: z.string().optional(),
+        tipoCliente: z.string().optional(),
+      }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const sectionLabels: Record<string, string> = {
+        escopoTecnico: "Escopo Técnico",
+        servicosOferecidos: "Serviços Oferecidos",
+        vantagensCompetitivas: "Vantagens Competitivas da Empresa",
+        condicoesNegocio: "Condições do Negócio",
+      };
+      const sectionLabel = sectionLabels[input.sectionType];
+
+      const contextInfo = input.context?.titulo
+        ? `\nContexto da proposta: Título "${input.context.titulo}"${input.context.cliente ? `, Cliente: ${input.context.cliente}` : ""}${input.context.tipoCliente ? `, Tipo: ${input.context.tipoCliente}` : ""}`
+        : "";
+
+      let prompt = "";
+      switch (input.action) {
+        case "gerar":
+          prompt = `Você é um especialista em propostas comerciais para empresas de faturamento hospitalar e gestão de saúde. Gere um texto profissional e persuasivo para a seção "${sectionLabel}" de uma proposta comercial.${contextInfo}\n\nGere o conteúdo em HTML formatado (use <strong> para negrito, <ul>/<li> para listas, <p> para parágrafos). O texto deve ser profissional, objetivo e voltado para o setor hospitalar. Não inclua títulos/headers, apenas o conteúdo da seção.`;
+          break;
+        case "melhorar":
+          prompt = `Você é um especialista em propostas comerciais para o setor hospitalar. Melhore e profissionalize o seguinte texto da seção "${sectionLabel}":${contextInfo}\n\nTexto atual:\n${input.currentContent}\n\nReescreva em HTML formatado (use <strong>, <ul>/<li>, <p>). Mantenha a essência mas torne mais profissional, persuasivo e bem estruturado. Não inclua títulos/headers.`;
+          break;
+        case "resumir":
+          prompt = `Resuma o seguinte texto da seção "${sectionLabel}" de uma proposta comercial, mantendo os pontos principais de forma concisa:${contextInfo}\n\nTexto atual:\n${input.currentContent}\n\nRetorne em HTML formatado (<strong>, <ul>/<li>, <p>). Seja breve e direto. Não inclua títulos/headers.`;
+          break;
+        case "expandir":
+          prompt = `Expanda o seguinte texto da seção "${sectionLabel}" de uma proposta comercial, adicionando mais detalhes e argumentos:${contextInfo}\n\nTexto atual:\n${input.currentContent}\n\nRetorne em HTML formatado (<strong>, <ul>/<li>, <p>). Adicione mais detalhes, exemplos e argumentos persuasivos. Não inclua títulos/headers.`;
+          break;
+      }
+
+      try {
+        const response = await invokeLLM({
+          messages: [
+            { role: "system", content: "Você é um assistente especializado em propostas comerciais para o setor de saúde e faturamento hospitalar. Responda apenas com o HTML solicitado, sem explicações adicionais." },
+            { role: "user", content: prompt },
+          ],
+        });
+        const html = response.choices?.[0]?.message?.content || "";
+        return { html: html.trim() };
+      } catch (err: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao gerar texto com IA: " + (err.message || "erro desconhecido") });
+      }
     }),
 });

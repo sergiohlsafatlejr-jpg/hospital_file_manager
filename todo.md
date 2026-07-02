@@ -4254,3 +4254,10 @@
 - [x] Atualizar formulário de criação/edição de propostas com os 4 campos editáveis
 - [x] Exibir os 4 campos no detalhe da proposta
 - [x] Incluir os 4 campos no PDF gerado com layout Safatle
+- [x] Instalar TipTap (editor de texto rico) no projeto
+- [x] Criar componente RichTextEditor com toolbar (negrito, itálico, listas, headings)
+- [x] Adicionar botão de IA no editor para gerar/melhorar conteúdo das seções
+- [x] Criar endpoint tRPC para geração de texto com IA (invokeLLM)
+- [x] Integrar editor rico nos 4 campos descritivos do formulário de propostas
+- [x] Renderizar HTML rico no detalhe da proposta
+- [x] Atualizar gerador de PDF para interpretar HTML rico nas seções
