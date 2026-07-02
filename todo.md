@@ -4249,3 +4249,8 @@
 - [x] Botão Gerar Excel na tela de Remessas Fechadas
 - [x] Registrar rota /faturamento/remessas-fechadas no App.tsx e link no menu lateral
 - [x] Implementar geração de PDF de propostas com layout Safatle (header com logo, tabela de itens, totais, rodapé)
+- [x] Adicionar campos escopoTecnico, servicosOferecidos, vantagensCompetitivas, condicoesNegocio na tabela propostas
+- [x] Atualizar router de propostas para salvar/retornar os novos campos
+- [x] Atualizar formulário de criação/edição de propostas com os 4 campos editáveis
+- [x] Exibir os 4 campos no detalhe da proposta
+- [x] Incluir os 4 campos no PDF gerado com layout Safatle

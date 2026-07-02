@@ -4267,6 +4267,10 @@ export const propostas = mysqlTable("propostas", {
   validadeDias: int("validadeDias").default(30),
   dataExpiracao: date("dataExpiracao"),
   observacoes: text("observacoes"),
+  escopoTecnico: text("escopoTecnico"),
+  servicosOferecidos: text("servicosOferecidos"),
+  vantagensCompetitivas: text("vantagensCompetitivas"),
+  condicoesNegocio: text("condicoesNegocio"),
   contratoId: int("contratoId"), // FK para contratos (quando convertida)
   userId: int("userId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

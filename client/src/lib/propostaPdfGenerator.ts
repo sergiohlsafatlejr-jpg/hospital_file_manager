@@ -21,6 +21,10 @@ interface PropostaData {
   validadeDias?: number | null;
   dataExpiracao?: string | Date | null;
   observacoes?: string | null;
+  escopoTecnico?: string | null;
+  servicosOferecidos?: string | null;
+  vantagensCompetitivas?: string | null;
+  condicoesNegocio?: string | null;
   status: string;
   createdAt: string | Date;
   itens: PropostaItem[];
@@ -319,6 +323,48 @@ export async function gerarPDFProposta(proposta: PropostaData): Promise<jsPDF> {
     const splitObs = doc.splitTextToSize(proposta.observacoes, contentWidth - 10);
     doc.text(splitObs.slice(0, 4), margin + 5, y + 6);
     y += 24;
+  }
+
+  // ===== SEÇÕES DESCRITIVAS =====
+  const secoes = [
+    { titulo: "ESCOPO TÉCNICO", conteudo: proposta.escopoTecnico, cor: [37, 99, 235] as [number, number, number] },
+    { titulo: "SERVIÇOS OFERECIDOS", conteudo: proposta.servicosOferecidos, cor: [22, 163, 74] as [number, number, number] },
+    { titulo: "VANTAGENS COMPETITIVAS", conteudo: proposta.vantagensCompetitivas, cor: [147, 51, 234] as [number, number, number] },
+    { titulo: "CONDIÇÕES DO NEGÓCIO", conteudo: proposta.condicoesNegocio, cor: [234, 88, 12] as [number, number, number] },
+  ];
+
+  for (const secao of secoes) {
+    if (!secao.conteudo) continue;
+
+    const lines = doc.splitTextToSize(secao.conteudo, contentWidth - 10);
+    const boxHeight = Math.max(16, lines.length * 4.5 + 12);
+
+    if (y + boxHeight + 12 > pageHeight - 25) {
+      doc.addPage();
+      drawHeader();
+      y = 42;
+    }
+
+    // Título da seção com barra colorida lateral
+    doc.setFillColor(secao.cor[0], secao.cor[1], secao.cor[2]);
+    doc.rect(margin, y, 3, 6, "F");
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(secao.cor[0], secao.cor[1], secao.cor[2]);
+    doc.text(secao.titulo, margin + 6, y + 5);
+    y += 10;
+
+    // Conteúdo
+    doc.setFillColor(250, 250, 252);
+    doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, "F");
+    doc.setDrawColor(230, 230, 235);
+    doc.roundedRect(margin, y, contentWidth, boxHeight, 2, 2, "S");
+
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(50, 50, 50);
+    doc.text(lines, margin + 5, y + 6);
+    y += boxHeight + 8;
   }
 
   // ===== ASSINATURA =====

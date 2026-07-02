@@ -51,6 +51,10 @@ export const propostasRouter = router({
       validadeDias: z.number().optional(),
       dataExpiracao: z.string().optional(),
       observacoes: z.string().optional(),
+      escopoTecnico: z.string().optional(),
+      servicosOferecidos: z.string().optional(),
+      vantagensCompetitivas: z.string().optional(),
+      condicoesNegocio: z.string().optional(),
       itens: z.array(z.object({
         codigo: z.string().optional(),
         descricao: z.string().min(1),
@@ -87,6 +91,10 @@ export const propostasRouter = router({
         validadeDias: input.validadeDias || 30,
         dataExpiracao: input.dataExpiracao ? new Date(input.dataExpiracao) : null,
         observacoes: input.observacoes || null,
+        escopoTecnico: input.escopoTecnico || null,
+        servicosOferecidos: input.servicosOferecidos || null,
+        vantagensCompetitivas: input.vantagensCompetitivas || null,
+        condicoesNegocio: input.condicoesNegocio || null,
         userId: ctx.user.id,
       });
 
@@ -120,6 +128,10 @@ export const propostasRouter = router({
       validadeDias: z.number().optional(),
       dataExpiracao: z.string().optional(),
       observacoes: z.string().optional(),
+      escopoTecnico: z.string().optional(),
+      servicosOferecidos: z.string().optional(),
+      vantagensCompetitivas: z.string().optional(),
+      condicoesNegocio: z.string().optional(),
       itens: z.array(z.object({
         codigo: z.string().optional(),
         descricao: z.string().min(1),
@@ -150,6 +162,10 @@ export const propostasRouter = router({
         validadeDias: data.validadeDias || 30,
         dataExpiracao: data.dataExpiracao ? new Date(data.dataExpiracao) : null,
         observacoes: data.observacoes || null,
+        escopoTecnico: data.escopoTecnico || null,
+        servicosOferecidos: data.servicosOferecidos || null,
+        vantagensCompetitivas: data.vantagensCompetitivas || null,
+        condicoesNegocio: data.condicoesNegocio || null,
       }).where(eq(propostas.id, id));
 
       // Substituir itens

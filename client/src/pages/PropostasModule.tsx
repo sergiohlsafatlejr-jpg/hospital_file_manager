@@ -158,6 +158,22 @@ function ProposalDetail({ proposta, onClose, onDelete, onStatusChange }: {
           <p className="text-sm">{proposta.observacoes}</p>
         </div>
       )}
+      {(detail.data?.escopoTecnico || detail.data?.servicosOferecidos || detail.data?.vantagensCompetitivas || detail.data?.condicoesNegocio) && (
+        <div className="px-5 py-3 border-b border-border space-y-3">
+          {detail.data?.escopoTecnico && (
+            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-blue-500" /><span className="text-xs font-semibold text-blue-600">Escopo Técnico</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.escopoTecnico}</p></div>
+          )}
+          {detail.data?.servicosOferecidos && (
+            <div><div className="flex items-center gap-1.5 mb-1"><ClipboardList className="h-3.5 w-3.5 text-green-500" /><span className="text-xs font-semibold text-green-600">Serviços Oferecidos</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.servicosOferecidos}</p></div>
+          )}
+          {detail.data?.vantagensCompetitivas && (
+            <div><div className="flex items-center gap-1.5 mb-1"><TrendingUp className="h-3.5 w-3.5 text-purple-500" /><span className="text-xs font-semibold text-purple-600">Vantagens Competitivas</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.vantagensCompetitivas}</p></div>
+          )}
+          {detail.data?.condicoesNegocio && (
+            <div><div className="flex items-center gap-1.5 mb-1"><CreditCard className="h-3.5 w-3.5 text-orange-500" /><span className="text-xs font-semibold text-orange-600">Condições do Negócio</span></div><p className="text-sm text-muted-foreground whitespace-pre-wrap">{detail.data.condicoesNegocio}</p></div>
+          )}
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <div className="px-5 py-3">
           <div className="flex items-center gap-2 mb-3"><ClipboardList className="h-4 w-4 text-muted-foreground" /><h3 className="text-sm font-semibold">Serviços</h3><span className="ml-auto text-xs text-muted-foreground">{itens.length} itens</span></div>
@@ -219,7 +235,7 @@ function ProposalDetail({ proposta, onClose, onDelete, onStatusChange }: {
             try {
               const toast = (await import("sonner")).toast;
               toast.info("Gerando PDF...");
-              const doc = await gerarPDFProposta({ ...proposta, itens });
+              const doc = await gerarPDFProposta({ ...proposta, ...detail.data, itens });
               doc.save(`${proposta.numero}_${proposta.cliente.replace(/\s+/g, "_")}.pdf`);
               toast.success("PDF gerado com sucesso!");
             } catch (err) {
@@ -259,11 +275,16 @@ function NewProposalDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [condicoesPagamento, setCondicoesPagamento] = useState("30 dias");
   const [validadeDias, setValidadeDias] = useState(30);
   const [observacoes, setObservacoes] = useState("");
+  const [escopoTecnico, setEscopoTecnico] = useState("");
+  const [servicosOferecidos, setServicosOferecidos] = useState("");
+  const [vantagensCompetitivas, setVantagensCompetitivas] = useState("");
+  const [condicoesNegocio, setCondicoesNegocio] = useState("");
   const [itens, setItens] = useState([{ codigo: "", descricao: "", categoria: SERVICE_CATEGORIES[0], unidade: "Unidade", quantidade: 1, precoUnitario: "0", desconto: "0" }]);
 
   function resetForm() {
     setTitulo(""); setCliente(""); setTipoCliente("hospital"); setResponsavel("");
     setCondicoesPagamento("30 dias"); setValidadeDias(30); setObservacoes("");
+    setEscopoTecnico(""); setServicosOferecidos(""); setVantagensCompetitivas(""); setCondicoesNegocio("");
     setItens([{ codigo: "", descricao: "", categoria: SERVICE_CATEGORIES[0], unidade: "Unidade", quantidade: 1, precoUnitario: "0", desconto: "0" }]);
   }
   function updateItem(i: number, field: string, value: any) {
@@ -272,7 +293,7 @@ function NewProposalDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   function handleSave() {
     if (!titulo.trim() || !cliente.trim()) return;
     const exp = new Date(); exp.setDate(exp.getDate() + validadeDias);
-    criar.mutate({ titulo: titulo.trim(), cliente: cliente.trim(), tipoCliente: tipoCliente as any, responsavel: responsavel.trim() || undefined, condicoesPagamento, validadeDias, dataExpiracao: exp.toISOString().slice(0, 10), observacoes: observacoes.trim() || undefined, itens });
+    criar.mutate({ titulo: titulo.trim(), cliente: cliente.trim(), tipoCliente: tipoCliente as any, responsavel: responsavel.trim() || undefined, condicoesPagamento, validadeDias, dataExpiracao: exp.toISOString().slice(0, 10), observacoes: observacoes.trim() || undefined, escopoTecnico: escopoTecnico.trim() || undefined, servicosOferecidos: servicosOferecidos.trim() || undefined, vantagensCompetitivas: vantagensCompetitivas.trim() || undefined, condicoesNegocio: condicoesNegocio.trim() || undefined, itens });
   }
 
   return (
@@ -291,6 +312,15 @@ function NewProposalDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             <div className="space-y-1.5"><Label>Validade (dias)</Label><Input type="number" min={1} value={validadeDias} onChange={e => setValidadeDias(Number(e.target.value))} /></div>
           </div>
           <div className="space-y-1.5"><Label>Observações</Label><Textarea placeholder="Notas adicionais…" value={observacoes} onChange={e => setObservacoes(e.target.value)} rows={2} /></div>
+          <div className="border-t border-border pt-4 mt-2">
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-primary" /> Descrições da Proposta</h4>
+            <div className="space-y-3">
+              <div className="space-y-1.5"><Label>Escopo Técnico</Label><Textarea placeholder="Descreva o escopo técnico do serviço…" value={escopoTecnico} onChange={e => setEscopoTecnico(e.target.value)} rows={3} /></div>
+              <div className="space-y-1.5"><Label>Serviços Oferecidos</Label><Textarea placeholder="Detalhe os serviços que serão oferecidos…" value={servicosOferecidos} onChange={e => setServicosOferecidos(e.target.value)} rows={3} /></div>
+              <div className="space-y-1.5"><Label>Vantagens Competitivas</Label><Textarea placeholder="Diferenciais e vantagens da empresa…" value={vantagensCompetitivas} onChange={e => setVantagensCompetitivas(e.target.value)} rows={3} /></div>
+              <div className="space-y-1.5"><Label>Condições do Negócio</Label><Textarea placeholder="Termos, condições e cláusulas do negócio…" value={condicoesNegocio} onChange={e => setCondicoesNegocio(e.target.value)} rows={3} /></div>
+            </div>
+          </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between"><Label className="text-sm font-semibold">Serviços</Label><Button type="button" variant="outline" size="sm" onClick={() => setItens(prev => [...prev, { codigo: "", descricao: "", categoria: SERVICE_CATEGORIES[0], unidade: "Unidade", quantidade: 1, precoUnitario: "0", desconto: "0" }])}><Plus className="h-3.5 w-3.5 mr-1" /> Adicionar</Button></div>
             <div className="space-y-2 max-h-48 overflow-y-auto rounded-lg border border-border p-2">

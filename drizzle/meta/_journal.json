@@ -169,6 +169,13 @@
       "when": 1782938712324,
       "tag": "0105_perpetual_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "5",
+      "when": 1783019566255,
+      "tag": "0106_narrow_warhawk",
+      "breakpoints": true
     }
   ]
 }
