@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import {
   FileText, Plus, Search, Trash2, Clock, CheckCircle, XCircle, MessageSquare,
   TrendingUp, DollarSign, ArrowUpDown, Building2, User, Calendar, CreditCard,
-  Layers, ClipboardList, Edit3, AlertTriangle, X, Eye
+  Layers, ClipboardList, Edit3, AlertTriangle, X, Eye, Download
 } from "lucide-react";
+import { gerarPDFProposta } from "@/lib/propostaPdfGenerator";
 import { cn } from "@/lib/utils";
 import { formatDateBR } from "@/lib/dateUtils";
 
@@ -213,6 +214,25 @@ function ProposalDetail({ proposta, onClose, onDelete, onStatusChange }: {
       )}
       <div className="flex gap-2 border-t border-border px-5 py-4">
         <button onClick={() => setConfirmDelete(true)} className="flex items-center justify-center gap-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-500 px-3 py-2.5 text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"><Trash2 className="h-4 w-4" /></button>
+        <button
+          onClick={async () => {
+            try {
+              const toast = (await import("sonner")).toast;
+              toast.info("Gerando PDF...");
+              const doc = await gerarPDFProposta({ ...proposta, itens });
+              doc.save(`${proposta.numero}_${proposta.cliente.replace(/\s+/g, "_")}.pdf`);
+              toast.success("PDF gerado com sucesso!");
+            } catch (err) {
+              console.error(err);
+              const toast = (await import("sonner")).toast;
+              toast.error("Erro ao gerar PDF");
+            }
+          }}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-3 py-2.5 text-sm font-medium hover:bg-blue-600 hover:text-white transition-colors"
+          title="Baixar PDF da proposta"
+        >
+          <Download className="h-4 w-4" /> PDF
+        </button>
         {(proposta.status === "aguardando" || proposta.status === "negociando") && (<>
           <button onClick={() => onStatusChange(proposta.id, "recusada")} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 border border-red-200 dark:border-red-800 py-2.5 text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"><XCircle className="h-4 w-4" /> Recusar</button>
           <button onClick={() => onStatusChange(proposta.id, "aprovada")} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity"><CheckCircle className="h-4 w-4" /> Aprovar</button>

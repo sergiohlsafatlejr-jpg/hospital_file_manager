@@ -4248,3 +4248,4 @@
 - [x] Botão Gerar XML TISS na tela de Remessas Fechadas
 - [x] Botão Gerar Excel na tela de Remessas Fechadas
 - [x] Registrar rota /faturamento/remessas-fechadas no App.tsx e link no menu lateral
+- [x] Implementar geração de PDF de propostas com layout Safatle (header com logo, tabela de itens, totais, rodapé)
