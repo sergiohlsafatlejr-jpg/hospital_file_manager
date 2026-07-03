@@ -570,7 +570,7 @@ export default function RecursosGlosa() {
         {/* Header */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Recursos de Glosa</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Recursos de Glosa</h1>
             <p className="text-muted-foreground">
               Gerencie contestações com sugestões inteligentes de argumentos
             </p>
@@ -980,7 +980,7 @@ export default function RecursosGlosa() {
           
           <TabsContent value="recursos" className="space-y-6">
         {/* Cards de Estatísticas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -1178,7 +1178,7 @@ export default function RecursosGlosa() {
 
                 {/* Paginação */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                     <p className="text-sm text-muted-foreground">
                       Mostrando {((page - 1) * 15) + 1} a {Math.min(page * 15, recursosData?.total || 0)} de {recursosData?.total || 0} recursos
                     </p>
@@ -1214,7 +1214,7 @@ export default function RecursosGlosa() {
             {/* Filtros para Itens Glosados */}
             <Card>
               <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-5 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Data Pagamento</label>
                     <Select 
@@ -1309,7 +1309,7 @@ export default function RecursosGlosa() {
             </Card>
             
             {/* Resumo de Itens Glosados */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
@@ -1437,7 +1437,7 @@ export default function RecursosGlosa() {
                     
                     {/* Paginação */}
                     {totalPagesItensGlosados > 1 && (
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                         <p className="text-sm text-muted-foreground">
                           Mostrando {((pageItensGlosados - 1) * 20) + 1} a {Math.min(pageItensGlosados * 20, itensGlosadosData?.total || 0)} de {itensGlosadosData?.total || 0} itens
                         </p>

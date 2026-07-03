@@ -328,7 +328,7 @@ export default function RelatorioUltrassom() {
                   </Table>
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                     <p className="text-sm text-muted-foreground">Mostrando {(page - 1) * pageSize + 1} a {Math.min(page * pageSize, pacientesPagos.length)} de {pacientesPagos.length}</p>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="h-4 w-4" /></Button>
@@ -455,7 +455,7 @@ export default function RelatorioUltrassom() {
                   </Table>
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                     <p className="text-sm text-muted-foreground">Mostrando {(page - 1) * pageSize + 1} a {Math.min(page * pageSize, itensFiltrados.length)} de {itensFiltrados.length}</p>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft className="h-4 w-4" /></Button>

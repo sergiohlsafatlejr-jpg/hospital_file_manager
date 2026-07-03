@@ -114,7 +114,7 @@ export function DashboardMotorRegras() {
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold">Dashboard - Motor de Regras</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Dashboard - Motor de Regras</h1>
             <p className="text-gray-600 mt-2">
               Monitoramento em tempo real de conformidade e risco de glosa
             </p>

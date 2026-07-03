@@ -45,7 +45,7 @@ export default function LogAuditoriaSistema() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Logs do Sistema</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-slate-900">Logs do Sistema</h1>
             <p className="text-slate-500">
               Rastreamento de todas as alterações críticas e acessos realizados pelos administradores
             </p>

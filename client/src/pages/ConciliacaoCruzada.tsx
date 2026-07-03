@@ -703,13 +703,13 @@ export default function ConciliacaoCruzada() {
         {/* Seção fixa: cabeçalho + filtros */}
         <div className="flex-shrink-0 space-y-4">
         {/* Cabeçalho */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Link2 className="w-7 h-7 text-primary" />
+            <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+              <Link2 className="w-5 h-5 sm:w-7 sm:h-7 text-primary" />
               Conciliação Cruzada
             </h1>
-            <p className="text-muted-foreground">Cruzamento do faturamento (Warleine + XML TISS) com recebimentos (Excel + XML retorno)</p>
+            <p className="text-muted-foreground text-sm sm:text-base">Cruzamento do faturamento com recebimentos</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button 
@@ -757,7 +757,7 @@ export default function ConciliacaoCruzada() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 sm:gap-4">
               <div>
                 <Label className="font-semibold text-primary">Competência</Label>
                 <Select value={competenciaFiltro} onValueChange={(v) => { setCompetenciaFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
@@ -1529,7 +1529,7 @@ export default function ConciliacaoCruzada() {
 
                         {/* Paginação */}
                         {totalPaginasConciliados > 1 && (
-                          <div className="flex items-center justify-between mt-4">
+                          <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                             <p className="text-sm text-muted-foreground">
                               Página {paginaConciliados + 1} de {totalPaginasConciliados} ({dadosGuiasConciliadas?.total} guias)
                             </p>
@@ -1711,7 +1711,7 @@ export default function ConciliacaoCruzada() {
 
                     {/* Paginação */}
                     {totalPaginas > 1 && (
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                         <p className="text-sm text-muted-foreground">
                           Página {paginaAtual + 1} de {totalPaginas} ({dadosGuias?.total} guias)
                         </p>

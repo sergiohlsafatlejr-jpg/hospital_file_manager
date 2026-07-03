@@ -178,7 +178,7 @@ export default function Faturamento() {
         {/* Header */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Painel de Faturamento</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Painel de Faturamento</h1>
             <p className="text-muted-foreground">
               Acompanhe os totais de faturamento e glosa por convênio
             </p>
@@ -256,7 +256,7 @@ export default function Faturamento() {
         </Card>
 
         {/* Cards de Resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">

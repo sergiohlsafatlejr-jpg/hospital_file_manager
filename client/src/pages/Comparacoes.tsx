@@ -317,7 +317,7 @@ export default function Comparacoes() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Comparações</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-slate-900">Comparações</h1>
           <p className="text-slate-500">
             Valide arquivos XML contra tabelas de preços e regras de negócio
           </p>
@@ -417,7 +417,7 @@ export default function Comparacoes() {
             {resultadoValidacao && (
               <>
                 {/* Cards de Resumo */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <Card className="border-0 shadow-sm">
                     <CardContent className="pt-6">
                       <div className="flex items-center justify-between">

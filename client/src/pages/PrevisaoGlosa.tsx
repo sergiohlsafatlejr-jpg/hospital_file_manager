@@ -222,7 +222,7 @@ export function PrevisaoGlosa() {
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold">Motor de Regras</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Motor de Regras</h1>
             <p className="text-gray-600 mt-2">
               Análise inteligente de risco de glosa baseada em padrões históricos
             </p>

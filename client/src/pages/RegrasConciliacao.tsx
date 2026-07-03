@@ -140,7 +140,7 @@ export default function RegrasConciliacao() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Regras de Conciliação</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Regras de Conciliação</h1>
             <p className="text-muted-foreground">
               Configure regras específicas de conciliação para cada convênio
             </p>

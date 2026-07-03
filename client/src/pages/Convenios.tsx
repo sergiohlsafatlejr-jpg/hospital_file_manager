@@ -201,7 +201,7 @@ export default function Convenios() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Convênios</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Convênios</h1>
             <p className="text-muted-foreground">
               Gerencie os convênios, planos de saúde e códigos de prestador
             </p>

@@ -501,7 +501,7 @@ export default function TabelasPreco() {
                     </Table>
 
                     {/* Paginação */}
-                    <div className="flex items-center justify-between mt-4">
+                    <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                       <p className="text-sm text-muted-foreground">
                         Mostrando {tabelasData.items.length} de {tabelasData.total} itens
                       </p>

@@ -277,14 +277,14 @@ export default function Contas() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Contas</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Contas</h1>
+            <p className="text-muted-foreground text-sm">
               Visualize todas as contas (guias) importadas dos arquivos
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Atualizar
@@ -310,7 +310,7 @@ export default function Contas() {
             <CardDescription>Filtre as contas por convênio, arquivo, prestador executante ou busca</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 sm:gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Mês Referência</label>
                 <Select value={mesReferencia} onValueChange={(value) => {
@@ -452,7 +452,7 @@ export default function Contas() {
         </Card>
 
         {/* Resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2">
@@ -592,7 +592,7 @@ export default function Contas() {
 
                 {/* Paginação */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                     <p className="text-sm text-muted-foreground">
                       Mostrando {((page - 1) * pageSize) + 1} a {Math.min(page * pageSize, totalContas)} de {totalContas} contas
                     </p>

@@ -44,7 +44,7 @@ export function PopularHistoricoXml() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Popular Histórico de Validações</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Popular Histórico de Validações</h1>
           <p className="text-muted-foreground">Importar dados dos XMLs já processados para o Motor de Regras</p>
         </div>
       </div>

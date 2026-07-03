@@ -58,7 +58,7 @@ export default function DigitacaoGuiaSadt() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Digitação de Guias - SP/SADT</h1>
@@ -277,7 +277,7 @@ function FormularioGuiaSadt({ guiaId, estabelecimentoId, convenioIdInicial, onVo
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={onVoltar}><ArrowLeft className="h-5 w-5" /></Button>

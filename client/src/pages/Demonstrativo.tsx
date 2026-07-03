@@ -260,14 +260,14 @@ export default function Demonstrativo() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Demonstrativo de Retorno</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Demonstrativo de Retorno</h1>
+            <p className="text-muted-foreground text-sm sm:text-base">
               Análise detalhada dos itens do demonstrativo com status de pagamento, glosas e totais
             </p>
           </div>
-          <Button variant="outline" onClick={() => refetch()}>
+          <Button variant="outline" size="sm" className="self-start sm:self-auto" onClick={() => refetch()}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Atualizar
           </Button>
@@ -282,8 +282,8 @@ export default function Demonstrativo() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-              <div className="md:col-span-2 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+              <div className="sm:col-span-2 space-y-2">
                 <label className="text-sm font-medium">Convênio</label>
                 <Select value={convenioId} onValueChange={setConvenioId}>
                   <SelectTrigger>
@@ -365,7 +365,7 @@ export default function Demonstrativo() {
               </div>
             </div>
 
-            <div className="flex gap-2 mt-4">
+            <div className="flex flex-col sm:flex-row gap-2 mt-4">
               <Button onClick={handleExportExcel} disabled={!items.length}>
                 <Download className="h-4 w-4 mr-2" />
                 Exportar Excel
@@ -400,7 +400,7 @@ export default function Demonstrativo() {
 
         {/* Cards de resumo */}
         {resumo && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
             <Card 
               className={`cursor-pointer transition-all hover:shadow-md ${filtroStatus === "todos" ? "ring-2 ring-blue-500" : ""}`}
               onClick={() => setFiltroStatus("todos")}
@@ -580,8 +580,8 @@ export default function Demonstrativo() {
                 </div>
 
                 {/* Paginação */}
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-muted-foreground">
+                <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
+                  <p className="text-xs sm:text-sm text-muted-foreground">
                     Mostrando {((page - 1) * pageSize) + 1} a {Math.min(page * pageSize, contasData?.total || 0)} de {contasData?.total || 0} contas
                   </p>
                   <div className="flex items-center gap-2">

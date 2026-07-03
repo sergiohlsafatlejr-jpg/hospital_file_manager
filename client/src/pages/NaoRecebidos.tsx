@@ -338,7 +338,7 @@ export default function NaoRecebidos() {
 
               {/* Paginação */}
               {totalPaginas > 1 && (
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                   <p className="text-sm text-muted-foreground">
                     Página {pagina} de {totalPaginas}
                   </p>

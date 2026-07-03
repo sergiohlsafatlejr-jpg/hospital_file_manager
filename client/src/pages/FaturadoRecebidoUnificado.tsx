@@ -214,13 +214,13 @@ export default function FaturadoRecebidoUnificado() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 p-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">Faturado x Recebido</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Relatório unificado - Fonte: Contas Convênio (XML, Banco Cliente)
+            <h1 className="text-xl sm:text-2xl font-bold">Faturado x Recebido</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Relatório unificado - Contas Convênio (XML, Banco Cliente)
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -238,7 +238,7 @@ export default function FaturadoRecebidoUnificado() {
         {/* Filtros */}
         <Card className={showFilters ? "" : "hidden"}>
           <CardContent className="pt-4 pb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Competência</label>
                 <MultiSelect
@@ -370,7 +370,7 @@ export default function FaturadoRecebidoUnificado() {
         {data && (
           <>
             {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
               <Card className="bg-blue-500/10 border-blue-500/20">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2 mb-1">
@@ -456,7 +456,7 @@ export default function FaturadoRecebidoUnificado() {
 
             {/* Abas de visualização */}
             <Tabs defaultValue="procedimentos" className="space-y-4">
-              <TabsList className="bg-muted/60 flex-wrap h-auto gap-1 p-1">
+              <TabsList className="bg-muted/60 flex-wrap h-auto gap-1 p-1 overflow-x-auto">
                 <TabsTrigger value="procedimentos" className="gap-1.5 text-xs">
                   <TableIcon className="h-3.5 w-3.5" />
                   Por Procedimento
@@ -491,8 +491,8 @@ export default function FaturadoRecebidoUnificado() {
               <TabsContent value="procedimentos" className="space-y-4">
                 <Card>
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">Faturado x Recebido por Procedimento</CardTitle>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <CardTitle className="text-sm sm:text-base">Faturado x Recebido por Procedimento</CardTitle>
                       <div className="flex items-center gap-2">
                         <div className="relative">
                           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

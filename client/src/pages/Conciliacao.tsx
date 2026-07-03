@@ -342,7 +342,7 @@ export default function Conciliacao() {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Conciliação Automática</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Conciliação Automática</h1>
           <p className="text-muted-foreground">
             Compare automaticamente os arquivos XML enviados com os retornos dos convênios
           </p>

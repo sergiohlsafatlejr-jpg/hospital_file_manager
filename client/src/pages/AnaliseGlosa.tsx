@@ -468,7 +468,7 @@ export default function AnaliseGlosa() {
         {/* Header */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Análise de Glosa</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Análise de Glosa</h1>
             <p className="text-muted-foreground">
               Identifique padrões e principais motivos de glosa por convênio
             </p>
@@ -486,7 +486,7 @@ export default function AnaliseGlosa() {
         </div>
 
         {/* Cards de Resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Glosado</CardTitle>
@@ -671,7 +671,7 @@ export default function AnaliseGlosa() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-7 gap-4">
                   <div>
                     <label className="text-sm font-medium mb-2 block">Convênio</label>
                     <Select value={convenioItens} onValueChange={(v) => { setConvenioItens(v); setPaginaAtual(1); }}>
@@ -878,7 +878,7 @@ export default function AnaliseGlosa() {
 
             {/* Card de Classificação com Aprendizado Automático */}
             {codigoGlosaFiltro !== "todos" && (historicoDecisoes || sugestaoClassificacao) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                 {/* Card de Histórico de Decisões */}
                 <Card className="border-blue-200 bg-blue-50/50">
                   <CardContent className="pt-4 pb-4">
@@ -1280,7 +1280,7 @@ export default function AnaliseGlosa() {
 
                     {/* Paginação */}
                     {totalPaginas > 1 && (
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                         <div className="text-sm text-muted-foreground">
                           Página {paginaAtual} de {totalPaginas} ({itensGlosados.total} itens)
                         </div>
@@ -1442,7 +1442,7 @@ export default function AnaliseGlosa() {
 
                     {/* Paginação */}
                     {(itensAceitos?.total || 0) > 50 && (
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                         <p className="text-sm text-muted-foreground">
                           Mostrando {((paginaAceitos - 1) * 50) + 1} a {Math.min(paginaAceitos * 50, itensAceitos?.total || 0)} de {itensAceitos?.total || 0} itens
                         </p>
@@ -1484,7 +1484,7 @@ export default function AnaliseGlosa() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-3 gap-4">
                     {Object.entries(
                       (itensAceitos?.items || [])
                         .reduce((acc: Record<string, { count: number; valor: number }>, item) => {

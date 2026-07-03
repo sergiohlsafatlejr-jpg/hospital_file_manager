@@ -387,8 +387,8 @@ export default function RecebimentosExcel() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-              <FileSpreadsheet className="h-8 w-8 text-emerald-600" />
+             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2 sm:gap-3">
+              <FileSpreadsheet className="h-6 w-6 sm:h-8 sm:w-8 text-emerald-600" />
               Recebimentos Excel
             </h1>
             <p className="text-slate-500 mt-1">
@@ -628,7 +628,7 @@ export default function RecebimentosExcel() {
 
           {/* Tab: Upload */}
           <TabsContent value="upload" className="space-y-4">
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
               <Card className="border-0 shadow-sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">

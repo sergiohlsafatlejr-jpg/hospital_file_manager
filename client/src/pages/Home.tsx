@@ -59,14 +59,14 @@ export default function Home() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
           <p className="text-muted-foreground">
             Visão geral do sistema de gerenciamento de arquivos de convênios
           </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card className="border-0 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total de Arquivos</CardTitle>
@@ -137,7 +137,7 @@ export default function Home() {
         </div>
 
         {/* Comparison Stats */}
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
           <Card className="border-0 shadow-sm bg-gradient-to-br from-primary/5 to-primary/15">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-primary">Comparações Realizadas</CardTitle>
@@ -188,7 +188,7 @@ export default function Home() {
         </div>
 
         {/* Recent Activity */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 lg:grid-cols-2">
           {/* Recent Files */}
           <Card className="border-0 shadow-sm">
             <CardHeader>

@@ -289,7 +289,7 @@ export default function ContaConvenio() {
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Conta Convênio</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Conta Convênio</h1>
             <p className="text-muted-foreground">
               Contas importadas do banco do hospital e XML para análise e comparação com padrões
             </p>
@@ -339,7 +339,7 @@ export default function ContaConvenio() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 lg:grid-cols-7 gap-4">
               {/* Ano */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Ano</label>

@@ -4270,3 +4270,9 @@
 - [x] Corrigir códigos em notação científica (1.900407054E9) na Conciliação Cruzada - dados na tabela conciliados_automatico estão com formato errado
 - [x] Reorganizar filtros do Relatório Ox UTI: Competência=data faturamento (XML), Convênio, Pagamento=data pagamento (demonstrativo)
 - [x] Simplificar aba "Por Paciente" em /faturado-recebido-unificado: Paciente, Carteira, Guia, Lote, Total Faturado, Total Recebido, Data Pagamento
+- [x] Melhorar responsividade mobile: padding do main reduzido em telas pequenas (p-6 → p-3 em mobile)
+- [x] Melhorar responsividade mobile: header mobile com badge de estabelecimento mais compacto
+- [x] Melhorar responsividade mobile: tabelas com scroll horizontal e font-size reduzido em mobile
+- [x] Melhorar responsividade mobile: cards de KPI em grid responsivo (1 coluna em mobile, 2 em tablet)
+- [x] Melhorar responsividade mobile: formulários e modais com largura full em telas pequenas
+- [x] Melhorar responsividade mobile: botões de ação empilhados verticalmente em mobile

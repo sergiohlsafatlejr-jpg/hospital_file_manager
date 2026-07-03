@@ -288,7 +288,7 @@ export default function DicionarioGlosas() {
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dicionário de Glosas</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Dicionário de Glosas</h1>
             <p className="text-muted-foreground">
               Consulte códigos de glosa, descrições e sugestões de contestação
             </p>

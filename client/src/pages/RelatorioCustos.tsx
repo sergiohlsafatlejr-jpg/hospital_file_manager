@@ -624,7 +624,7 @@ export default function RelatorioCustos() {
 
                     {/* Paginação */}
                     {comparacaoData.data.totalPaginas > 1 && (
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
                         <p className="text-xs text-muted-foreground">
                           Pagina {comparacaoData.data.pagina} de {comparacaoData.data.totalPaginas}
                         </p>

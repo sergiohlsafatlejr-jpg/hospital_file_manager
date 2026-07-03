@@ -98,7 +98,7 @@ export default function CacheDashboard() {
     <div className="space-y-6 p-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard de Cache</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Dashboard de Cache</h1>
           <p className="text-gray-600 mt-2">Monitorar performance e estatísticas do Redis</p>
         </div>
         <Button onClick={handleClearCache} variant="destructive" className="gap-2">

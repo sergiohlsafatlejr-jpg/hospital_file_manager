@@ -388,7 +388,7 @@ export default function RelatorioOxUti() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -396,8 +396,8 @@ export default function RelatorioOxUti() {
               <Bed className="h-6 w-6 text-blue-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Relatório Ox UTI</h1>
-              <p className="text-sm text-muted-foreground">Análise de diárias, taxas e mat/med por paciente e item</p>
+              <h1 className="text-lg sm:text-2xl font-bold text-foreground">Relatório Ox UTI</h1>
+              <p className="text-xs sm:text-sm text-muted-foreground">Análise de diárias, taxas e mat/med por paciente e item</p>
             </div>
           </div>
           <Button onClick={exportarExcel} disabled={!data} variant="outline" className="gap-2">
@@ -409,7 +409,7 @@ export default function RelatorioOxUti() {
         {/* ── Filtros ── */}
         <Card>
           <CardContent className="pt-4 pb-4">
-            <div className="flex flex-wrap gap-3 items-center">
+            <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <div className="flex flex-col">

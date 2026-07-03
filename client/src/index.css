@@ -262,7 +262,49 @@ html:is(.dark) {
   }
 
   .dashboard-header {
-    @apply pb-6;
+    @apply pb-4 sm:pb-6;
     background: linear-gradient(180deg, hsl(var(--primary) / 0.03) 0%, transparent 100%);
+  }
+
+  /* Mobile-first responsive table wrapper */
+  .table-responsive {
+    @apply overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-responsive table {
+    @apply min-w-[600px] sm:min-w-0;
+  }
+
+  /* Mobile-friendly grid for KPI cards */
+  .kpi-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4;
+  }
+
+  /* Mobile action buttons - stack vertically on small screens */
+  .action-buttons {
+    @apply flex flex-col sm:flex-row gap-2 sm:gap-3;
+  }
+
+  .action-buttons > * {
+    @apply w-full sm:w-auto;
+  }
+
+  /* Mobile page header */
+  .page-header {
+    @apply flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6;
+  }
+
+  .page-header h1, .page-header h2 {
+    @apply text-lg sm:text-xl lg:text-2xl;
+  }
+
+  /* Mobile filter row */
+  .filter-row {
+    @apply flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-end;
+  }
+
+  .filter-row > * {
+    @apply w-full sm:w-auto;
   }
 }

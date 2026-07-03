@@ -401,7 +401,7 @@ export function IntegradorDados() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Integrador de Dados</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Integrador de Dados</h1>
           <p className="text-muted-foreground mt-2">
             Gerencie integrações de dados de múltiplos sistemas
           </p>

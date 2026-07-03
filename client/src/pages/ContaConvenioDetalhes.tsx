@@ -756,7 +756,7 @@ export default function ContaConvenioDetalhes() {
               Voltar
             </Button>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Conta {numeroConta}{numeroLote && <span className="text-lg text-muted-foreground ml-2">| Lote {numeroLote}</span>}</h1>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Conta {numeroConta}{numeroLote && <span className="text-lg text-muted-foreground ml-2">| Lote {numeroLote}</span>}</h1>
               <p className="text-muted-foreground">
                 {primeiroItem?.convenio || "Convênio não identificado"} | 
                 Paciente: {primeiroItem?.pacienteNome || "-"}

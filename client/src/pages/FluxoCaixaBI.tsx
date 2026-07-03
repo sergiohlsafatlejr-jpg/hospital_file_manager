@@ -110,7 +110,7 @@ export default function FluxoCaixaBI() {
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-white uppercase">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight text-white uppercase">
                 FLUXO DE CAIXA
               </h1>
               <p className="text-blue-300/80 text-sm mt-1 uppercase font-semibold tracking-wider">

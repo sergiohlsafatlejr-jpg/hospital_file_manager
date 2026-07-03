@@ -220,7 +220,7 @@ export default function ContasDemonstrativo() {
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Contas Demonstrativo</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Contas Demonstrativo</h1>
             <p className="text-muted-foreground">
               Visualize as contas retornadas pelas operadoras (XML e Excel)
             </p>
@@ -251,7 +251,7 @@ export default function ContasDemonstrativo() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Convênio */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Convênio *</label>
@@ -322,7 +322,7 @@ export default function ContasDemonstrativo() {
 
         {/* Resumo */}
         {convenioId && resumo && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 lg:grid-cols-5 gap-4">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
@@ -446,7 +446,7 @@ export default function ContasDemonstrativo() {
                       </div>
 
                       {/* Informações principais */}
-                      <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Guia e Paciente */}
                         <div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">

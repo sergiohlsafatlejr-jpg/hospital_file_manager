@@ -214,7 +214,7 @@ export default function Arquivos() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Arquivos</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-slate-900">Arquivos</h1>
           <p className="text-slate-500">
             Visualize e gerencie todos os arquivos processados
           </p>

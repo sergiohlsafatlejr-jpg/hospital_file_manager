@@ -89,7 +89,7 @@ export default function AuditDashboard() {
         <div className="space-y-6">
           {/* Header */}
           <div>
-            <h1 className="text-3xl font-bold">Dashboard de Auditoria</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Dashboard de Auditoria</h1>
             <p className="text-gray-600 mt-2">
               Visualize e analise todas as mudanças no sistema
             </p>
@@ -266,7 +266,7 @@ export default function AuditDashboard() {
                 <CardTitle className="text-sm">Total de Operações</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{filteredLogs.length}</div>
+                <div className="text-xl sm:text-2xl lg:text-3xl font-bold">{filteredLogs.length}</div>
               </CardContent>
             </Card>
 

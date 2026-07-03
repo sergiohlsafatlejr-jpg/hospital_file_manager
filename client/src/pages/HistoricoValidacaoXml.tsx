@@ -95,7 +95,7 @@ export function HistoricoValidacaoXml() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">Histórico de Validações XML</h1>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Histórico de Validações XML</h1>
             <p className="text-muted-foreground">Acompanhe todas as validações de arquivos XML importados</p>
           </div>
         </div>
