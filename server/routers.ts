@@ -9580,6 +9580,128 @@ export const appRouter = router({
           if (conn) await conn.end();
         }
       }),
+
+    // Cruzamento Faturado x Pago por guia (competência)
+    faturadoXPago: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesRef: z.string(),
+        convenio: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          // Buscar guias faturadas (XML enviado) no mês
+          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          let convenioFilter = '';
+          if (input.convenio) {
+            convenioFilter = ' AND cci.convenio = ?';
+            baseParams.push(input.convenio);
+          }
+
+          // Dados do XML enviado (faturado) - agrupado por guia
+          const [faturadoRows] = await conn.execute(
+            `SELECT
+               cci.numeroConta as numero_guia,
+               cci.pacienteNome as paciente,
+               cci.convenio,
+               MIN(cci.dataExecucao) as data_faturado,
+               COALESCE(SUM(cci.valorTotal), 0) as valor_faturado,
+               COUNT(*) as qtd_itens
+             FROM contas_convenio_itens cci
+             WHERE cci.estabelecimentoId = ?
+               AND DATE_FORMAT(cci.dataExecucao, '%Y-%m') = ?
+               ${convenioFilter}
+             GROUP BY cci.numeroConta, cci.pacienteNome, cci.convenio
+             ORDER BY cci.numeroConta`,
+            baseParams
+          );
+
+          // Buscar pagamentos recebidos para essas guias
+          // Usar recebimentos_excel que tem os dados dos demonstrativos de pagamento
+          const guias = (faturadoRows as any[]).map((r: any) => r.numero_guia).filter(Boolean);
+          
+          let pagamentoMap: Record<string, { dataPagamento: string | null; valorRecebido: number; valorGlosa: number }> = {};
+          
+          if (guias.length > 0) {
+            // Buscar em lotes de 500 para evitar query muito grande
+            const batchSize = 500;
+            for (let i = 0; i < guias.length; i += batchSize) {
+              const batch = guias.slice(i, i + batchSize);
+              const placeholders = batch.map(() => '?').join(',');
+              const [recRows] = await conn.execute(
+                `SELECT
+                   re.numeroGuia as numero_guia,
+                   MAX(re.dataPagto) as data_pagamento,
+                   COALESCE(SUM(CAST(re.valorPagamento AS DECIMAL(12,2))), 0) as valor_recebido,
+                   COALESCE(SUM(CAST(re.valorGlosa AS DECIMAL(12,2))), 0) as valor_glosa
+                 FROM recebimentos_excel re
+                 WHERE re.numeroGuia IN (${placeholders})
+                   AND re.estabelecimentoId = ?
+                 GROUP BY re.numeroGuia`,
+                [...batch, input.estabelecimentoId]
+              );
+              for (const r of recRows as any[]) {
+                pagamentoMap[r.numero_guia] = {
+                  dataPagamento: r.data_pagamento ? new Date(r.data_pagamento).toISOString().split('T')[0] : null,
+                  valorRecebido: Number(r.valor_recebido),
+                  valorGlosa: Number(r.valor_glosa),
+                };
+              }
+            }
+          }
+
+          // Montar resultado cruzado
+          const resultado = (faturadoRows as any[]).map((r: any) => {
+            const pag = pagamentoMap[r.numero_guia];
+            const valorFaturado = Number(r.valor_faturado);
+            const valorRecebido = pag?.valorRecebido ?? 0;
+            const valorGlosa = pag?.valorGlosa ?? 0;
+            return {
+              numeroGuia: r.numero_guia as string,
+              paciente: r.paciente as string,
+              convenio: r.convenio as string,
+              dataFaturado: r.data_faturado ? new Date(r.data_faturado).toISOString().split('T')[0] : null,
+              dataPagamento: pag?.dataPagamento ?? null,
+              valorFaturado,
+              valorRecebido,
+              valorGlosa,
+              diferenca: valorFaturado - valorRecebido,
+              status: valorRecebido > 0 ? (valorRecebido >= valorFaturado ? 'pago' : 'parcial') : 'pendente',
+              qtdItens: Number(r.qtd_itens),
+            };
+          });
+
+          // Totais
+          const totalFaturado = resultado.reduce((s, r) => s + r.valorFaturado, 0);
+          const totalRecebido = resultado.reduce((s, r) => s + r.valorRecebido, 0);
+          const totalGlosa = resultado.reduce((s, r) => s + r.valorGlosa, 0);
+          const totalPendente = totalFaturado - totalRecebido;
+          const guiasPagas = resultado.filter(r => r.status === 'pago').length;
+          const guiasParciais = resultado.filter(r => r.status === 'parcial').length;
+          const guiasPendentes = resultado.filter(r => r.status === 'pendente').length;
+
+          return {
+            resumo: {
+              totalGuias: resultado.length,
+              totalFaturado,
+              totalRecebido,
+              totalGlosa,
+              totalPendente,
+              guiasPagas,
+              guiasParciais,
+              guiasPendentes,
+              percentualRecebido: totalFaturado > 0 ? (totalRecebido / totalFaturado) * 100 : 0,
+            },
+            guias: resultado,
+          };
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
   }),
 });
 

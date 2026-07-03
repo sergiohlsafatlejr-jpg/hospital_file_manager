@@ -13,7 +13,7 @@ import * as XLSX from "xlsx";
 import {
   Bed, Download, Loader2, Search, DollarSign,
   Calendar, Users, Package, BarChart3, Activity,
-  FileText, ChevronRight
+  FileText, ChevronRight, CheckCircle, AlertCircle, Clock
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -307,6 +307,10 @@ export default function RelatorioOxUtiFaturado() {
                 <Package className="h-4 w-4" />
                 Por Item
               </TabsTrigger>
+              <TabsTrigger value="faturadoXPago" className="gap-2">
+                <DollarSign className="h-4 w-4" />
+                Faturado x Pago
+              </TabsTrigger>
             </TabsList>
 
             {/* ── Aba Por Tipo ── */}
@@ -516,9 +520,216 @@ export default function RelatorioOxUtiFaturado() {
                 </CardContent>
               </Card>
             </TabsContent>
+            {/* ── Aba Faturado x Pago ── */}
+            <TabsContent value="faturadoXPago">
+              <FaturadoXPagoTab estabId={estabId} mesRef={mesEfetivo} convenio={convenio !== "todos" ? convenio : undefined} />
+            </TabsContent>
           </Tabs>
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+// ─── Componente da aba Faturado x Pago ───
+function FaturadoXPagoTab({ estabId, mesRef, convenio }: { estabId: number; mesRef: string; convenio?: string }) {
+  const [buscaGuia, setBuscaGuia] = useState("");
+  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+
+  const { data, isLoading } = trpc.relatorioOxUtiFaturado.faturadoXPago.useQuery(
+    { estabelecimentoId: estabId, mesRef, convenio },
+    { enabled: estabId > 0 && !!mesRef }
+  );
+
+  const guiasFiltradas = useMemo(() => {
+    if (!data?.guias) return [];
+    return data.guias.filter(g => {
+      const matchBusca = !buscaGuia ||
+        g.numeroGuia?.toLowerCase().includes(buscaGuia.toLowerCase()) ||
+        g.paciente?.toLowerCase().includes(buscaGuia.toLowerCase());
+      const matchStatus = statusFiltro === "todos" || g.status === statusFiltro;
+      return matchBusca && matchStatus;
+    });
+  }, [data?.guias, buscaGuia, statusFiltro]);
+
+  const exportarExcel = () => {
+    if (!guiasFiltradas.length) return;
+    // XLSX já importado no topo do arquivo
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ["Nº Guia", "Paciente", "Convênio", "Data Faturado", "Data Pagamento", "Vl. Faturado", "Vl. Recebido", "Vl. Glosa", "Diferença", "Status"],
+      ...guiasFiltradas.map(g => [
+        g.numeroGuia, g.paciente, g.convenio,
+        g.dataFaturado ? new Date(g.dataFaturado + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
+        g.dataPagamento ? new Date(g.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
+        g.valorFaturado, g.valorRecebido, g.valorGlosa, g.diferenca,
+        g.status === 'pago' ? 'Pago' : g.status === 'parcial' ? 'Parcial' : 'Pendente'
+      ])
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsData), "Faturado x Pago");
+    XLSX.writeFile(wb, `faturado-x-pago-${mesRef}.xlsx`);
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-12 flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const { resumo } = data;
+
+  return (
+    <div className="space-y-4">
+      {/* KPIs do cruzamento */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="pt-3 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs text-muted-foreground">Total Faturado</span>
+            </div>
+            <p className="text-lg font-bold text-emerald-400">{fmt(resumo.totalFaturado)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="pt-3 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle className="h-4 w-4 text-blue-400" />
+              <span className="text-xs text-muted-foreground">Total Recebido</span>
+            </div>
+            <p className="text-lg font-bold text-blue-400">{fmt(resumo.totalRecebido)}</p>
+            <p className="text-[10px] text-muted-foreground">{resumo.percentualRecebido.toFixed(1)}% do faturado</p>
+          </CardContent>
+        </Card>
+        <Card className="border-orange-500/30 bg-orange-500/5">
+          <CardContent className="pt-3 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="h-4 w-4 text-orange-400" />
+              <span className="text-xs text-muted-foreground">Pendente</span>
+            </div>
+            <p className="text-lg font-bold text-orange-400">{fmt(resumo.totalPendente)}</p>
+            <p className="text-[10px] text-muted-foreground">{resumo.guiasPendentes} guia(s)</p>
+          </CardContent>
+        </Card>
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-3 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertCircle className="h-4 w-4 text-red-400" />
+              <span className="text-xs text-muted-foreground">Glosa</span>
+            </div>
+            <p className="text-lg font-bold text-red-400">{fmt(resumo.totalGlosa)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filtros e tabela */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <CardTitle className="text-base">Guias: Faturado x Pago ({resumo.totalGuias} guias)</CardTitle>
+            <Button onClick={exportarExcel} variant="outline" size="sm" className="gap-2">
+              <Download className="h-4 w-4" />
+              Excel
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-3 mt-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por guia ou paciente..."
+                value={buscaGuia}
+                onChange={e => setBuscaGuia(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="pago">Pagos</SelectItem>
+                <SelectItem value="parcial">Parciais</SelectItem>
+                <SelectItem value="pendente">Pendentes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nº Guia</TableHead>
+                  <TableHead>Paciente</TableHead>
+                  <TableHead>Data Faturado</TableHead>
+                  <TableHead>Data Pagamento</TableHead>
+                  <TableHead className="text-right">Vl. Faturado</TableHead>
+                  <TableHead className="text-right">Vl. Recebido</TableHead>
+                  <TableHead className="text-right">Diferença</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {guiasFiltradas.map((g, idx) => (
+                  <TableRow key={`${g.numeroGuia}-${idx}`}>
+                    <TableCell className="font-mono text-xs">{g.numeroGuia || '-'}</TableCell>
+                    <TableCell className="max-w-[200px] truncate">{g.paciente || '-'}</TableCell>
+                    <TableCell className="text-xs">
+                      {g.dataFaturado ? new Date(g.dataFaturado + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {g.dataPagamento ? new Date(g.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{fmt(g.valorFaturado)}</TableCell>
+                    <TableCell className="text-right">
+                      {g.valorRecebido > 0 ? (
+                        <span className="text-blue-400 font-medium">{fmt(g.valorRecebido)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">R$ 0,00</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {g.diferenca !== 0 ? (
+                        <span className={g.diferenca > 0 ? "text-orange-400" : "text-emerald-400"}>
+                          {fmt(g.diferenca)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">R$ 0,00</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {g.status === 'pago' && (
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Pago</Badge>
+                      )}
+                      {g.status === 'parcial' && (
+                        <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[10px]">Parcial</Badge>
+                      )}
+                      {g.status === 'pendente' && (
+                        <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30 text-[10px]">Pendente</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {guiasFiltradas.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      Nenhuma guia encontrada
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">{guiasFiltradas.length} guia(s) exibida(s)</p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

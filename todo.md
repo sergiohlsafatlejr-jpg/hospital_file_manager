@@ -4266,3 +4266,4 @@
 - [x] Adicionar barra de progresso detalhada com número de linhas processadas
 - [x] Tratamento de erros robusto para arquivos grandes (retry, timeout handling)
 - [x] Corrigir erro de importação CSV IPASGO grande (23.9MB) - implementar upload multipart para arquivos >10MB
+- [x] Adicionar aba "Faturado x Pago" no Relatório Ox UTI Faturado com cruzamento de dados XML vs pagamentos por competência
