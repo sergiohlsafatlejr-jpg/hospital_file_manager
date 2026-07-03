@@ -883,25 +883,22 @@ export default function FaturadoRecebidoUnificado() {
               <TabsContent value="paciente" className="space-y-4">
                 <Card>
                   <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                    <CardTitle className="text-base">Faturado por Paciente (com breakdown por tipo)</CardTitle>
+                    <CardTitle className="text-base">Faturado x Recebido por Paciente</CardTitle>
                     {data.porPaciente && data.porPaciente.length > 0 && (
                       <Button
                         variant="outline"
                         size="sm"
                         className="gap-1.5"
                         onClick={() => {
-                          const headers = ["Paciente", "Carteira", "Guia", "Lote", "Total Faturado", "Proc/Taxa", "Mat/Med", "Di\u00e1ria", "Outros", "Itens"];
+                          const headers = ["Paciente", "Carteira", "Guia", "Lote", "Total Faturado", "Total Recebido", "Data Pagamento"];
                           const rows = data.porPaciente.map(p => [
                             p.pacienteNome,
                             p.carteiraBeneficiario,
                             p.numeroGuia,
                             p.numeroLote,
                             p.totalFaturado.toFixed(2).replace(".", ","),
-                            p.vlProcTaxa.toFixed(2).replace(".", ","),
-                            p.vlMatMed.toFixed(2).replace(".", ","),
-                            p.vlDiaria.toFixed(2).replace(".", ","),
-                            p.vlOutros.toFixed(2).replace(".", ","),
-                            p.qtdItens.toString(),
+                            (p.totalRecebido || 0).toFixed(2).replace(".", ","),
+                            p.dataPagamento ? new Date(p.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
                           ]);
                           const totalRow = [
                             "TOTAL",
@@ -909,18 +906,15 @@ export default function FaturadoRecebidoUnificado() {
                             "",
                             "",
                             data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + p.vlProcTaxa, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + p.vlMatMed, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + p.vlDiaria, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + p.vlOutros, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + p.qtdItens, 0).toString(),
+                            data.porPaciente.reduce((s, p) => s + (p.totalRecebido || 0), 0).toFixed(2).replace(".", ","),
+                            "",
                           ];
                           const csvContent = "\uFEFF" + [headers, ...rows, totalRow].map(r => r.map(c => `"${c}"`).join(";")).join("\n");
                           const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
                           a.href = url;
-                          a.download = `pacientes_faturado_${new Date().toISOString().slice(0,10)}.csv`;
+                          a.download = `pacientes_faturado_recebido_${new Date().toISOString().slice(0,10)}.csv`;
                           a.click();
                           URL.revokeObjectURL(url);
                         }}
@@ -941,11 +935,8 @@ export default function FaturadoRecebidoUnificado() {
                               <th className="text-left py-2 px-2 font-medium text-muted-foreground">Guia</th>
                               <th className="text-left py-2 px-2 font-medium text-muted-foreground">Lote</th>
                               <th className="text-right py-2 px-2 font-medium text-blue-400">Total Faturado</th>
-                              <th className="text-right py-2 px-2 font-medium text-purple-400">Proc/Taxa</th>
-                              <th className="text-right py-2 px-2 font-medium text-cyan-400">Mat/Med</th>
-                              <th className="text-right py-2 px-2 font-medium text-amber-400">Diária</th>
-                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Outros</th>
-                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Itens</th>
+                              <th className="text-right py-2 px-2 font-medium text-emerald-400">Total Recebido</th>
+                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Data Pagamento</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -956,21 +947,15 @@ export default function FaturadoRecebidoUnificado() {
                                 <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroGuia}</td>
                                 <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroLote}</td>
                                 <td className="text-right py-2 px-2 text-blue-400 font-medium">{fmtCurrency(p.totalFaturado)}</td>
-                                <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(p.vlProcTaxa)}</td>
-                                <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(p.vlMatMed)}</td>
-                                <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(p.vlDiaria)}</td>
-                                <td className="text-right py-2 px-2 text-muted-foreground">{fmtCurrency(p.vlOutros)}</td>
-                                <td className="text-right py-2 px-2">{p.qtdItens.toLocaleString("pt-BR")}</td>
+                                <td className="text-right py-2 px-2 text-emerald-400 font-medium">{fmtCurrency(p.totalRecebido || 0)}</td>
+                                <td className="text-right py-2 px-2 text-muted-foreground text-xs">{p.dataPagamento ? new Date(p.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
                               </tr>
                             ))}
                             <tr className="border-t-2 border-border font-bold">
                               <td className="py-2 px-2" colSpan={4}>TOTAL ({data.porPaciente.length} registros)</td>
                               <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0))}</td>
-                              <td className="text-right py-2 px-2 text-purple-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlProcTaxa, 0))}</td>
-                              <td className="text-right py-2 px-2 text-cyan-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlMatMed, 0))}</td>
-                              <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlDiaria, 0))}</td>
-                              <td className="text-right py-2 px-2 text-muted-foreground">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.vlOutros, 0))}</td>
-                              <td className="text-right py-2 px-2">{data.porPaciente.reduce((s, p) => s + p.qtdItens, 0).toLocaleString("pt-BR")}</td>
+                              <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + (p.totalRecebido || 0), 0))}</td>
+                              <td></td>
                             </tr>
                           </tbody>
                         </table>

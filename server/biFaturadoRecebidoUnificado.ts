@@ -90,11 +90,8 @@ export interface PacienteResumo {
   numeroLote: string;
   numeroConta: string;
   totalFaturado: number;
-  vlProcTaxa: number;
-  vlMatMed: number;
-  vlDiaria: number;
-  vlOutros: number;
-  qtdItens: number;
+  totalRecebido: number;
+  dataPagamento: string | null;
 }
 
 export interface ResultadoUnificado {
@@ -594,8 +591,8 @@ export async function getDadosFaturadoRecebidoUnificado(
   }
 
   // ============================================================
-  // 11. AGRUPAMENTO POR PACIENTE (com breakdown por tipo)
-  // Usa pacienteNome quando disponível, senão agrupa por carteira+guia+lote
+  // 11. AGRUPAMENTO POR PACIENTE (simplificado: faturado x recebido)
+  // Cruza contas_convenio_itens com recebimentos_excel por guia
   // ============================================================
   let porPaciente: PacienteResumo[] = [];
   const [pacienteRows] = await db.execute(sql.raw(`
@@ -605,11 +602,7 @@ export async function getDadosFaturadoRecebidoUnificado(
       COALESCE(NULLIF(ci.numeroGuia, ''), '-') as numeroGuia,
       COALESCE(NULLIF(ci.numeroLote, ''), '-') as numeroLote,
       ci.numeroConta,
-      SUM(COALESCE(ci.valorTotal, 0)) as totalFaturado,
-      SUM(CASE WHEN ci.tipoItem IN ('PROC/TAXA','PROCEDIMENTO','Procedimento','TAXA','Taxa','TAXA/ALUGU\u00c9IS') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlProcTaxa,
-      SUM(CASE WHEN ci.tipoItem IN ('MAT/MED','MATERIAL','Material','MEDICAMENTO','Medicamento','Mat/Med') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlMatMed,
-      SUM(CASE WHEN ci.tipoItem IN ('DI\u00c1RIA','Di\u00e1ria','Diaria','DIARIA') THEN COALESCE(ci.valorTotal, 0) ELSE 0 END) as vlDiaria,
-      COUNT(*) as qtdItens
+      SUM(COALESCE(ci.valorTotal, 0)) as totalFaturado
     FROM ${baseFrom}
     WHERE ${whereClause}
     GROUP BY ci.pacienteNome, ci.carteiraBeneficiario, ci.numeroGuia, ci.numeroLote, ci.numeroConta
@@ -617,12 +610,31 @@ export async function getDadosFaturadoRecebidoUnificado(
     LIMIT 200
   `));
 
+  // Buscar recebidos agrupados por guia para cruzar
+  const [recPacienteRows] = await db.execute(sql.raw(`
+    SELECT 
+      COALESCE(NULLIF(re.numero_guia, ''), '-') as numeroGuia,
+      SUM(COALESCE(re.valor_pagamento, 0)) as totalRecebido,
+      MAX(re.data_pagamento) as dataPagamento
+    FROM recebimentos_excel re
+    LEFT JOIN convenios c ON re.convenioId = c.id
+    WHERE ${whereRecClause}
+    GROUP BY re.numero_guia
+  `));
+
+  const recPacienteMap = new Map<string, { totalRecebido: number; dataPagamento: string | null }>();
+  for (const row of (recPacienteRows as unknown as any[])) {
+    const guia = String(row.numeroGuia || '-');
+    recPacienteMap.set(guia, {
+      totalRecebido: parseFloat(row.totalRecebido || '0'),
+      dataPagamento: row.dataPagamento ? String(row.dataPagamento).substring(0, 10) : null,
+    });
+  }
+
   porPaciente = (pacienteRows as unknown as any[]).map((row: any) => {
     const tf = parseFloat(row.totalFaturado || '0');
-    const vlProcTaxa = parseFloat(row.vlProcTaxa || '0');
-    const vlMatMed = parseFloat(row.vlMatMed || '0');
-    const vlDiaria = parseFloat(row.vlDiaria || '0');
-    const vlOutros = Math.max(0, tf - vlProcTaxa - vlMatMed - vlDiaria);
+    const guia = String(row.numeroGuia || '-');
+    const recInfo = recPacienteMap.get(guia);
     return {
       pacienteNome: row.pacienteNome,
       carteiraBeneficiario: row.carteiraBeneficiario,
@@ -630,11 +642,8 @@ export async function getDadosFaturadoRecebidoUnificado(
       numeroLote: row.numeroLote,
       numeroConta: row.numeroConta,
       totalFaturado: tf,
-      vlProcTaxa,
-      vlMatMed,
-      vlDiaria,
-      vlOutros,
-      qtdItens: parseInt(row.qtdItens || '0'),
+      totalRecebido: recInfo?.totalRecebido || 0,
+      dataPagamento: recInfo?.dataPagamento || null,
     };
   });
 

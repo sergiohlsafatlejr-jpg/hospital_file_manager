@@ -4269,3 +4269,4 @@
 - [x] Adicionar aba "Faturado x Pago" no Relatório Ox UTI Faturado com cruzamento de dados XML vs pagamentos por competência
 - [x] Corrigir códigos em notação científica (1.900407054E9) na Conciliação Cruzada - dados na tabela conciliados_automatico estão com formato errado
 - [x] Reorganizar filtros do Relatório Ox UTI: Competência=data faturamento (XML), Convênio, Pagamento=data pagamento (demonstrativo)
+- [x] Simplificar aba "Por Paciente" em /faturado-recebido-unificado: Paciente, Carteira, Guia, Lote, Total Faturado, Total Recebido, Data Pagamento
