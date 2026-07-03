@@ -9123,7 +9123,7 @@ export const appRouter = router({
   // Relatório analítico de diárias de UTI por paciente, item e tipo
   // ============================================================
   relatorioOxUti: router({
-    // Meses disponíveis no demonstrativo para o estabelecimento
+    // Meses de competência (faturamento XML) disponíveis
     mesesDisponiveis: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
@@ -9144,12 +9144,34 @@ export const appRouter = router({
         }
       }),
 
+    // Meses de pagamento (demonstrativo) disponíveis para filtro
+    mesesPagamentoDisponiveis: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as mes_pag
+             FROM demonstrativo
+             WHERE estabelecimentoId = ? AND data_pagamento IS NOT NULL
+             ORDER BY mes_pag DESC`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.mes_pag);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
     // Dados principais do relatório Ox UTI
     dados: protectedProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenioId: z.number().optional(),
+        mesPagamento: z.string().optional(), // filtro por mês de pagamento do demonstrativo
       }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9158,7 +9180,7 @@ export const appRouter = router({
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           const baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`;
-          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          const baseParams: any[] = [input.estabelecimentoId, input.mesPagamento || input.mesRef];
           const convenioFilter = input.convenioId ? ` AND d.convenio_id = ?` : '';
           if (input.convenioId) baseParams.push(input.convenioId);
 

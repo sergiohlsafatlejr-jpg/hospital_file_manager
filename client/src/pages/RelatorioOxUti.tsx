@@ -273,6 +273,7 @@ export default function RelatorioOxUti() {
   const estabId = estabelecimentoAtual?.id ?? 0;
 
   const [mesRef, setMesRef] = useState<string>("");
+  const [mesPagamento, setMesPagamento] = useState<string>("todos");
   const [convenioId, setConvenioId] = useState<string>("todos");
   const [buscaPaciente, setBuscaPaciente] = useState("");
   const [buscaItem, setBuscaItem] = useState("");
@@ -295,6 +296,11 @@ export default function RelatorioOxUti() {
     { enabled: estabId > 0 }
   );
 
+  const { data: mesesPag = [] } = trpc.relatorioOxUti.mesesPagamentoDisponiveis.useQuery(
+    { estabelecimentoId: estabId },
+    { enabled: estabId > 0 }
+  );
+
   const mesEfetivo = mesRef || (meses.length > 0 ? meses[0] : "");
 
   const { data, isLoading, isFetching } = trpc.relatorioOxUti.dados.useQuery(
@@ -302,6 +308,7 @@ export default function RelatorioOxUti() {
       estabelecimentoId: estabId,
       mesRef: mesEfetivo,
       convenioId: convenioId !== "todos" ? parseInt(convenioId) : undefined,
+      mesPagamento: mesPagamento !== "todos" ? mesPagamento : undefined,
     },
     { enabled: estabId > 0 && !!mesEfetivo }
   );
@@ -405,29 +412,53 @@ export default function RelatorioOxUti() {
             <div className="flex flex-wrap gap-3 items-center">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <Select value={mesEfetivo} onValueChange={setMesRef} disabled={loadingMeses}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Mês de referência" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Competência</span>
+                  <Select value={mesEfetivo} onValueChange={setMesRef} disabled={loadingMeses}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Mês faturamento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {meses.map(m => (
+                        <SelectItem key={m} value={m}>{fmtMes(m)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Convênio</span>
+                <Select value={convenioId} onValueChange={setConvenioId}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Todos os convênios" />
                   </SelectTrigger>
                   <SelectContent>
-                    {meses.map(m => (
-                      <SelectItem key={m} value={m}>{fmtMes(m)}</SelectItem>
+                    <SelectItem value="todos">Todos os convênios</SelectItem>
+                    {convenios.map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <Select value={convenioId} onValueChange={setConvenioId}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Todos os convênios" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos os convênios</SelectItem>
-                  {convenios.map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Pagamento</span>
+                  <Select value={mesPagamento} onValueChange={setMesPagamento}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Todos" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todas as datas</SelectItem>
+                      {mesesPag.map(m => (
+                        <SelectItem key={m} value={m}>{fmtMes(m)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
               {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
