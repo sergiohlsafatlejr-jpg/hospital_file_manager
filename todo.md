@@ -4276,3 +4276,4 @@
 - [x] Melhorar responsividade mobile: cards de KPI em grid responsivo (1 coluna em mobile, 2 em tablet)
 - [x] Melhorar responsividade mobile: formulários e modais com largura full em telas pequenas
 - [x] Melhorar responsividade mobile: botões de ação empilhados verticalmente em mobile
+- [x] Implementar menu hambúrguer retrátil para navegação mobile (economizar espaço no cabeçalho, melhorar usabilidade)

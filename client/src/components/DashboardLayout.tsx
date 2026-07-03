@@ -448,7 +448,7 @@ function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, setOpenMobile, isMobile: isMobileSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -668,7 +668,7 @@ function DashboardLayoutContent({
                                                 return (
                                                   <SidebarMenuSubItem key={grandchild.path}>
                                                     <SidebarMenuSubButton
-                                                      onClick={() => setLocation(grandchild.path)}
+                                                      onClick={() => { setLocation(grandchild.path); if (isMobileSidebar) setOpenMobile(false); }}
                                                       data-active={isGrandchildActive}
                                                       className={`cursor-pointer text-xs ${isGrandchildActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}`}
                                                     >
@@ -690,9 +690,9 @@ function DashboardLayoutContent({
                                 return (
                                   <SidebarMenuSubItem key={child.path}>
                                     <SidebarMenuSubButton
-                                      onClick={() => setLocation(child.path)}
-                                      data-active={isSubActive}
-                                      className={`cursor-pointer ${isSubActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}`}
+                      onClick={() => { setLocation(child.path); if (isMobileSidebar) setOpenMobile(false); }}
+                      data-active={isSubActive}
+                      className={`cursor-pointer ${isSubActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}`}
                                     >
                                       <child.icon className={`h-3.5 w-3.5 ${isSubActive ? "text-primary-foreground" : ""}`} />
                                       <span>{child.label}</span>
@@ -712,7 +712,7 @@ function DashboardLayoutContent({
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => setLocation(item.path)}
+                      onClick={() => { setLocation(item.path); if (isMobileSidebar) setOpenMobile(false); }}
                       tooltip={item.label}
                       className={`h-10 transition-all font-normal text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent ${isActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}`}
                     >
@@ -802,10 +802,10 @@ function DashboardLayoutContent({
 
       <SidebarInset className="bg-background">
         {isMobile && (
-          <div className="flex border-b h-12 items-center justify-between bg-background px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <SidebarTrigger className="h-8 w-8 rounded-lg bg-card shrink-0" />
-              <span className="tracking-tight text-foreground font-medium text-sm truncate">
+          <div className="flex border-b h-12 items-center justify-between bg-background/95 px-3 backdrop-blur-md supports-[backdrop-filter]:backdrop-blur-md sticky top-0 z-40 shadow-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <SidebarTrigger className="h-9 w-9 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors shrink-0" />
+              <span className="tracking-tight text-foreground font-semibold text-sm truncate">
                 {activeMenuItem?.label ?? "Menu"}
               </span>
             </div>

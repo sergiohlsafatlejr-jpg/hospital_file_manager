@@ -24,6 +24,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -155,6 +156,7 @@ export function SettingsMenu() {
   const [location, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const { isGestor, temAcessoModulo } = useEstabelecimento();
+  const { isMobile: isMobileSidebar, setOpenMobile } = useSidebar();
 
   // Filtrar itens por permissão
   const filteredItems = settingsMenuItems.filter(item => {
@@ -224,7 +226,7 @@ export function SettingsMenu() {
                     <SidebarMenuSubItem key={item.path}>
                       <SidebarMenuSubButton
                         isActive={isActive}
-                        onClick={() => setLocation(item.path)}
+                        onClick={() => { setLocation(item.path); if (isMobileSidebar) setOpenMobile(false); }}
                         className={`transition-all font-normal text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent ${
                           isActive
                             ? "bg-primary/10 text-primary font-semibold"
