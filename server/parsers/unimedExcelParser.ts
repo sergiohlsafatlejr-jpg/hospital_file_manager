@@ -267,6 +267,12 @@ function processSheet1Stream(
         if (cellType === 's' && sharedStrings.length > 0) {
           const idx = parseInt(cellValue);
           value = sharedStrings[idx] || '';
+        } else if (cellType !== 's' && value && /^[\d.]+[eE][+]?\d+$/.test(value)) {
+          // Converter notação científica para inteiro (ex: 1.900407054E9 -> 1900407054)
+          const num = Number(value);
+          if (Number.isFinite(num) && num === Math.floor(num)) {
+            value = num.toFixed(0);
+          }
         }
         // Usar a referência da célula para posicionar corretamente
         if (cellRef) {

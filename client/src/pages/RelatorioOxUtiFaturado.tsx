@@ -535,9 +535,16 @@ export default function RelatorioOxUtiFaturado() {
 function FaturadoXPagoTab({ estabId, mesRef, convenio }: { estabId: number; mesRef: string; convenio?: string }) {
   const [buscaGuia, setBuscaGuia] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+  const [mesPagamento, setMesPagamento] = useState<string>("todos");
+
+  // Buscar meses de pagamento disponíveis
+  const { data: mesesPag = [] } = trpc.relatorioOxUtiFaturado.mesesPagamento.useQuery(
+    { estabelecimentoId: estabId },
+    { enabled: estabId > 0 }
+  );
 
   const { data, isLoading } = trpc.relatorioOxUtiFaturado.faturadoXPago.useQuery(
-    { estabelecimentoId: estabId, mesRef, convenio },
+    { estabelecimentoId: estabId, mesRef, convenio, mesPagamento: mesPagamento !== "todos" ? mesPagamento : undefined },
     { enabled: estabId > 0 && !!mesRef }
   );
 
@@ -648,6 +655,17 @@ function FaturadoXPagoTab({ estabId, mesRef, convenio }: { estabId: number; mesR
                 className="pl-9"
               />
             </div>
+            <Select value={mesPagamento} onValueChange={setMesPagamento}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Pagamento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos pagamentos</SelectItem>
+                {mesesPag.map(m => (
+                  <SelectItem key={m} value={m}>{fmtMes(m)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={statusFiltro} onValueChange={setStatusFiltro}>
               <SelectTrigger className="w-40">
                 <SelectValue />

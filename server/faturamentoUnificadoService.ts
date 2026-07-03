@@ -1194,7 +1194,8 @@ export async function executarConciliacaoAutomatica(params: {
 
   for (const rec of itensRecebimento) {
     const guia = String(rec.numeroGuia || '').trim();
-    const codigo = String(rec.codigoItem || '').trim();
+    const codigo = normalizarCodigo(String(rec.codigoItem || ''));
+    rec.codigoItem = codigo; // Normalizar in-place para uso posterior
     const paciente = normalizarNome(String(rec.nomeBeneficiario || ''));
 
     if (guia && codigo) {
@@ -1246,7 +1247,7 @@ export async function executarConciliacaoAutomatica(params: {
   
   for (const rec of itensRecebimento) {
     const guia = String(rec.numeroGuia || '').trim();
-    const codigo = String(rec.codigoItem || '').trim();
+    const codigo = normalizarCodigo(String(rec.codigoItem || ''));
     const situacao = String(rec.situacao || '').toUpperCase().trim();
     
     // Regra: item do demonstrativo SEM codigo_item = pagamento/glosa por guia inteira
@@ -3156,6 +3157,22 @@ function normalizarNome(nome: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Normaliza código de item: converte notação científica (ex: 1.900407054E9) para inteiro (1900407054)
+ */
+function normalizarCodigo(codigo: string): string {
+  if (!codigo) return '';
+  const trimmed = codigo.trim();
+  // Detectar notação científica: números como 1.900407054E9, 6.0033533E7
+  if (/^[\d.]+[eE][+]?\d+$/.test(trimmed)) {
+    const num = Number(trimmed);
+    if (Number.isFinite(num) && num === Math.floor(num)) {
+      return num.toFixed(0);
+    }
+  }
+  return trimmed;
 }
 
 /**

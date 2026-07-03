@@ -9581,12 +9581,34 @@ export const appRouter = router({
         }
       }),
 
+    // Meses de pagamento disponíveis (para filtro de data pagamento)
+    mesesPagamento: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT DATE_FORMAT(re.dataPagto, '%Y-%m') as mes_pag
+             FROM recebimentos_excel re
+             WHERE re.estabelecimentoId = ? AND re.dataPagto IS NOT NULL
+             ORDER BY mes_pag DESC`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.mes_pag as string);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
     // Cruzamento Faturado x Pago por guia (competência)
     faturadoXPago: protectedProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenio: z.string().optional(),
+        mesPagamento: z.string().optional(), // YYYY-MM para filtrar por mês de pagamento do demonstrativo
       }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9640,9 +9662,9 @@ export const appRouter = router({
                    COALESCE(SUM(CAST(re.valorGlosa AS DECIMAL(12,2))), 0) as valor_glosa
                  FROM recebimentos_excel re
                  WHERE re.numeroGuia IN (${placeholders})
-                   AND re.estabelecimentoId = ?
+                   AND re.estabelecimentoId = ?${input.mesPagamento ? ` AND DATE_FORMAT(re.dataPagto, '%Y-%m') = ?` : ''}
                  GROUP BY re.numeroGuia`,
-                [...batch, input.estabelecimentoId]
+                [...batch, input.estabelecimentoId, ...(input.mesPagamento ? [input.mesPagamento] : [])]
               );
               for (const r of recRows as any[]) {
                 pagamentoMap[r.numero_guia] = {

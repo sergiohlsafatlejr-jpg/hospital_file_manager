@@ -4267,3 +4267,5 @@
 - [x] Tratamento de erros robusto para arquivos grandes (retry, timeout handling)
 - [x] Corrigir erro de importação CSV IPASGO grande (23.9MB) - implementar upload multipart para arquivos >10MB
 - [x] Adicionar aba "Faturado x Pago" no Relatório Ox UTI Faturado com cruzamento de dados XML vs pagamentos por competência
+- [x] Corrigir códigos em notação científica (1.900407054E9) na Conciliação Cruzada - dados na tabela conciliados_automatico estão com formato errado
+- [x] Reorganizar filtros do Relatório Ox UTI: Competência=data faturamento (XML), Convênio, Pagamento=data pagamento (demonstrativo)
