@@ -187,16 +187,6 @@ export default function RecebimentosExcel() {
       setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "uploading" as const } : f));
 
       try {
-        const buffer = await fileItem.file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        const CHUNK_SIZE = 32768;
-        let base64 = '';
-        for (let j = 0; j < bytes.length; j += CHUNK_SIZE) {
-          const chunk = bytes.subarray(j, Math.min(j + CHUNK_SIZE, bytes.length));
-          base64 += String.fromCharCode.apply(null, Array.from(chunk));
-        }
-        base64 = btoa(base64);
-
         const estabId = estabelecimentoSelecionado
           ? parseInt(estabelecimentoSelecionado)
           : (estabelecimentoAtual?.id || 0);
@@ -204,22 +194,62 @@ export default function RecebimentosExcel() {
         const ext = fileItem.file.name.split('.').pop()?.toLowerCase();
         const tipoArquivo = ext === 'csv' ? 'csv' : 'excel';
 
-        await uploadMutation.mutateAsync({
-          nome: fileItem.file.name,
-          tipoArquivo,
-          direcao: "retornado",
-          convenioId: parseInt(convenioId),
-          estabelecimentoId: estabId,
-          conteudo: base64,
-          dataReferencia: dataReferencia || undefined,
-          dataPagamento: dataPagamento || undefined,
-        });
+        // Arquivos grandes (>10MB): usar upload multipart direto
+        // Arquivos pequenos: usar tRPC com base64 (mais simples)
+        const FILE_SIZE_THRESHOLD = 10 * 1024 * 1024; // 10MB
+
+        if (fileItem.file.size > FILE_SIZE_THRESHOLD) {
+          // UPLOAD MULTIPART para arquivos grandes
+          const formData = new FormData();
+          formData.append('file', fileItem.file);
+          formData.append('nome', fileItem.file.name);
+          formData.append('tipoArquivo', tipoArquivo);
+          formData.append('direcao', 'retornado');
+          formData.append('convenioId', convenioId);
+          formData.append('estabelecimentoId', String(estabId));
+          if (dataReferencia) formData.append('dataReferencia', dataReferencia);
+          if (dataPagamento) formData.append('dataPagamento', dataPagamento);
+
+          const response = await fetch('/api/upload-file', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include',
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({ error: 'Erro no upload' }));
+            throw new Error(errData.error || `HTTP ${response.status}`);
+          }
+        } else {
+          // UPLOAD BASE64 via tRPC para arquivos pequenos
+          const buffer = await fileItem.file.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const CHUNK_SIZE = 32768;
+          let base64 = '';
+          for (let j = 0; j < bytes.length; j += CHUNK_SIZE) {
+            const chunk = bytes.subarray(j, Math.min(j + CHUNK_SIZE, bytes.length));
+            base64 += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+          base64 = btoa(base64);
+
+          await uploadMutation.mutateAsync({
+            nome: fileItem.file.name,
+            tipoArquivo,
+            direcao: "retornado",
+            convenioId: parseInt(convenioId),
+            estabelecimentoId: estabId,
+            conteudo: base64,
+            dataReferencia: dataReferencia || undefined,
+            dataPagamento: dataPagamento || undefined,
+          });
+        }
 
         setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "success" as const } : f));
         successCount++;
-      } catch (error) {
+      } catch (error: any) {
         console.error("Upload error:", error);
-        setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "error" as const, error: "Erro ao enviar" } : f));
+        const errorMsg = error?.message || "Erro ao enviar";
+        setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "error" as const, error: errorMsg } : f));
         errorCount++;
       }
       setUploadProgress(Math.round(((i + 1) / pendingFiles.length) * 100));

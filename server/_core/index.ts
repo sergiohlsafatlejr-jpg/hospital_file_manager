@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { initializeJobScheduler } from "./jobScheduler";
 import { fileProcessorRouter } from "../fileProcessor";
+import { uploadMultipartRouter } from "../uploadMultipart";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +40,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Internal file processor route (called by tRPC reprocessar endpoint)
   app.use(fileProcessorRouter);
+  // Multipart upload route for large files (>16MB)
+  app.use(uploadMultipartRouter);
   // tRPC API
   app.use(
     "/api/trpc",
