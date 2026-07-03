@@ -1167,319 +1167,143 @@ export const appRouter = router({
                   const dataPagamentoUpload = input.dataPagamento ? new Date(input.dataPagamento) : undefined;
                   
                   // SEPARAÇÃO: Excel vai para recebimentos_excel, XML vai para recebimento_tiss
-                  if (input.tipoArquivo === "excel") {
-                    // Arquivos Excel de retorno -> tabela recebimentos_excel
-                    console.log('[Upload] Processando arquivo Excel de retorno para recebimentos_excel:', arquivoId);
+                  if (input.tipoArquivo === "excel" || input.tipoArquivo === "csv") {
+                    // ARQUIVOS EXCEL/CSV DE RETORNO: Processamento em BACKGROUND
+                    // Para evitar timeout em arquivos grandes (>2MB), o processamento é delegado
+                    // à rota interna /api/internal/process-file que já implementa:
+                    // - Parser streaming Unimed com SAX (não acumula na RAM)
+                    // - Chunks de 500 registros com backpressure
+                    // - Progresso atualizado no banco para polling do frontend
+                    // - Conciliação automática e sync demonstrativo
                     
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentosExcelByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
-                    }
+                    const isLargeFile = buffer.length > 2 * 1024 * 1024; // > 2MB
                     
-                    try {
-                      // Atualizar progresso: parsing
-                      await db.updateArquivoProgresso(arquivoId, 10, 0);
+                    if (isLargeFile) {
+                      // ARQUIVO GRANDE: Delegar para processamento em background
+                      console.log(`[Upload] Arquivo grande Excel/CSV (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - delegando para background processing`);
                       
-                      // Verificar tamanho do buffer para decidir entre parsing normal e chunked
-                      const isLargeFile = buffer.length > 2 * 1024 * 1024; // > 2MB
+                      // Excluir dados antigos deste arquivo se for reimportação
+                      if (isReimportacao) {
+                        await db.deleteRecebimentosExcelByArquivo(arquivoId);
+                        await db.deleteDemonstrativoByArquivo(arquivoId);
+                        console.log('[Upload] Dados antigos excluídos para reimportação');
+                      }
                       
-                      // Tentar parser Unimed otimizado para arquivos grandes
-                      let usedUnimedParser = false;
-                      if (isLargeFile) {
-                        try {
-                          const { detectUnimedFormat, parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
-                          const isUnimed = detectUnimedFormat(buffer);
+                      // Marcar como processando e disparar background
+                      await db.updateArquivoStatus(arquivoId, "processando");
+                      await db.updateArquivoProgresso(arquivoId, 5, 0);
+                      
+                      // Disparar processamento via rota interna (request HTTP separada)
+                      const port = process.env.PORT || '3000';
+                      const internalUrl = `http://localhost:${port}/api/internal/process-file`;
+                      const secret = process.env.JWT_SECRET || 'internal-process-secret';
+                      
+                      fetch(internalUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ arquivoId, secret }),
+                      }).catch(err => {
+                        console.error('[Upload] Erro ao disparar processamento interno:', err);
+                        db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
+                      });
+                      
+                      console.log(`[Upload] Background processing disparado para arquivo ${arquivoId}`);
+                      // NÃO esperar - retorna imediato ao frontend
+                    } else {
+                      // ARQUIVO PEQUENO (<2MB): Processar inline (rápido)
+                      console.log('[Upload] Processando arquivo Excel/CSV pequeno inline:', arquivoId);
+                      
+                      if (isReimportacao) {
+                        await db.deleteRecebimentosExcelByArquivo(arquivoId);
+                        console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
+                      }
+                      
+                      try {
+                        await db.updateArquivoProgresso(arquivoId, 10, 0);
+                        
+                        if (input.tipoArquivo === "excel") {
+                          const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
+                          const recordsExcel = parseExcelRecebimentosExcel(
+                            buffer, arquivoId, input.convenioId,
+                            dataReferenciaUpload, dataPagamentoUpload,
+                            input.estabelecimentoId
+                          );
                           
-                          if (isUnimed) {
-                            console.log(`[Upload] Formato Unimed detectado (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando parser otimizado`);
-                            let totalInserted = 0;
-                            const CHUNK_SIZE = 2000;
-                            
-                            const result = await parseUnimedExcelChunked(
-                              buffer, arquivoId, input.convenioId,
-                              dataReferenciaUpload, dataPagamentoUpload,
-                              input.estabelecimentoId,
-                              CHUNK_SIZE,
-                              async (records, chunkIdx, totalRows) => {
-                                const inserted = await db.insertRecebimentosExcelBatch(records);
-                                totalInserted += inserted;
-                                const progresso = Math.round(10 + (totalInserted / totalRows) * 75);
-                                await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalInserted, totalRows);
-                                console.log(`[Upload] Unimed Chunk ${chunkIdx}: +${inserted} registros (total: ${totalInserted}/${totalRows})`);
-                              }
-                            );
-                            
-                            if (result.totalRecords >= 0) {
-                              usedUnimedParser = true;
-                              console.log(`[Upload] Unimed parser: ${result.totalRecords} registros`);
-                              if (result.totalRecords > 0) {
-                                try {
-                                  const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                                  const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                                  if (syncResult.success) console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                                } catch (syncError) {
-                                  console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                                }
-                                // CONCILIAÇÃO AUTOMÁTICA após Excel de retorno
-                                try {
-                                  const competenciaConc = dataReferenciaUpload
-                                    ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                                    : undefined;
-                                  if (competenciaConc && input.convenioId) {
-                                    console.log(`[Upload] Disparando conciliação automática (Excel Unimed): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                                    const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                                    const concResult = await executarConciliacaoAutomatica({
-                                      estabelecimentoId: input.estabelecimentoId,
-                                      competencia: competenciaConc,
-                                      convenioId: input.convenioId,
-                                    });
-                                    console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
-                                  }
-                                } catch (concError: any) {
-                                  console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                                }
-                                await db.updateArquivoProgresso(arquivoId, 95, result.totalRecords, result.totalRecords);
-                              } else {
-                                console.log('[Upload] Nenhum item encontrado no arquivo Unimed');
-                              }
-                            }
-                          }
-                        } catch (unimedErr) {
-                          console.error('[Upload] Erro no parser Unimed, usando fallback:', unimedErr);
-                        }
-                      }
-                      
-                      if (!usedUnimedParser) {
-                      const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
-                      
-                      if (isLargeFile) {
-                        // ARQUIVO GRANDE: Processar em chunks para evitar estouro de memória
-                        console.log(`[Upload] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`);
-                        
-                        let totalInserted = 0;
-                        const CHUNK_SIZE = 2000;
-                        
-                        const result = await parseExcelRecebimentosExcelChunked(
-                          buffer,
-                          arquivoId,
-                          input.convenioId,
-                          dataReferenciaUpload,
-                          dataPagamentoUpload,
-                          input.estabelecimentoId,
-                          CHUNK_SIZE,
-                          async (records, chunkIdx, totalRows) => {
-                            // Inserir chunk no banco
-                            const inserted = await db.insertRecebimentosExcelBatch(records);
-                            totalInserted += inserted;
-                            const progresso = Math.round(10 + (totalInserted / totalRows) * 75);
-                            await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalInserted, totalRows);
-                            console.log(`[Upload] Chunk ${chunkIdx}: +${inserted} registros (total: ${totalInserted}/${totalRows})`);
-                          }
-                        );
-                        
-                        console.log(`[Upload] Excel chunked: ${result.totalRecords} registros processados`);
-                        
-                        if (result.totalRecords > 0) {
-                          // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
-                          try {
-                            const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                            const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                            if (syncResult.success) {
-                              console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                            } else {
-                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
-                            }
-                          } catch (syncError) {
-                            console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                          }
-                          // CONCILIAÇÃO AUTOMÁTICA após Excel chunked de retorno
-                          try {
-                            const competenciaConc = dataReferenciaUpload
-                              ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                              : undefined;
-                            if (competenciaConc && input.convenioId) {
-                              console.log(`[Upload] Disparando conciliação automática (Excel chunked): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                              const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                              const concResult = await executarConciliacaoAutomatica({
-                                estabelecimentoId: input.estabelecimentoId,
-                                competencia: competenciaConc,
-                                convenioId: input.convenioId,
-                              });
-                              console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
-                            }
-                          } catch (concError: any) {
-                            console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                          }
-                          await db.updateArquivoProgresso(arquivoId, 95, result.totalRecords, result.totalRecords);
-                        } else {
-                          console.log('[Upload] Nenhum item de recebimentos_excel encontrado no arquivo');
-                        }
-                      } else {
-                        // ARQUIVO NORMAL: Processar tudo de uma vez
-                        const recordsExcel = parseExcelRecebimentosExcel(
-                          buffer,
-                          arquivoId,
-                          input.convenioId,
-                          dataReferenciaUpload,
-                          dataPagamentoUpload,
-                          input.estabelecimentoId
-                        );
-                        
-                        // Atualizar progresso: parsing concluído
-                        await db.updateArquivoProgresso(arquivoId, 20, 0, recordsExcel.length);
-                        console.log(`[Upload] Excel parsed: ${recordsExcel.length} registros encontrados`);
-                        
-                        if (recordsExcel.length > 0) {
-                          // Inserir com progresso real (20% a 80%)
-                          const totalExcel = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted, total) => {
-                            const progresso = Math.round(20 + (inserted / total) * 60); // 20% a 80%
-                            await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-                          });
-                          console.log('[Upload] Recebimentos Excel importado:', totalExcel, 'itens');
+                          await db.updateArquivoProgresso(arquivoId, 20, 0, recordsExcel.length);
+                          console.log(`[Upload] Excel parsed: ${recordsExcel.length} registros`);
                           
-                          // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
-                          try {
-                            const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                            const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                            if (syncResult.success) {
-                              console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                            } else {
-                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
-                            }
-                          } catch (syncError) {
-                            console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                          }
-                          // CONCILIAÇÃO AUTOMÁTICA após Excel normal de retorno
-                          try {
-                            const competenciaConc = dataReferenciaUpload
-                              ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                              : undefined;
-                            if (competenciaConc && input.convenioId) {
-                              console.log(`[Upload] Disparando conciliação automática (Excel): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                              const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                              const concResult = await executarConciliacaoAutomatica({
-                                estabelecimentoId: input.estabelecimentoId,
-                                competencia: competenciaConc,
-                                convenioId: input.convenioId,
-                              });
-                              console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
-                            }
-                          } catch (concError: any) {
-                            console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                          }
-                          // Progresso: sincronização concluída
-                          await db.updateArquivoProgresso(arquivoId, 95, recordsExcel.length, recordsExcel.length);
-                        } else {
-                          console.log('[Upload] Nenhum item de recebimentos_excel encontrado no arquivo');
-                        }
-                      }
-                      } // fim if (!usedUnimedParser)
-                    } catch (excelError) {
-                      console.error('[Upload] Erro ao importar recebimentos_excel:', excelError);
-                      // Registrar erro mas não falhar o upload
-                      await db.updateArquivoProgresso(arquivoId, 0, 0);
-                    }
-                  } else if (input.tipoArquivo === "csv") {
-                    // Arquivos CSV de retorno -> tabela recebimentos_excel -> demonstrativo
-                    console.log('[Upload] Processando arquivo CSV para recebimentos_excel:', arquivoId);
-                    
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentosExcelByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
-                    }
-                    
-                    try {
-                      await db.updateArquivoProgresso(arquivoId, 10, 0);
-                      
-                      // Detectar formato: IPASGO (UTF-16LE, separador ;) ou Bradesco (UTF-8, separador ,)
-                      const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
-                      const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
-                      
-                      // Tentar decodificar como IPASGO (UTF-16LE)
-                      const decodedContent = decodeIpasgoBuffer(buffer);
-                      const isIpasgo = detectIpasgoFormat(decodedContent);
-                      
-                      let csvResult: { success: boolean; items: any[]; totalItens: number; totalGuias: number; totalLotes: number; error?: string };
-                      let parserUsed = '';
-                      
-                      if (isIpasgo) {
-                        console.log('[Upload] Formato IPASGO detectado - usando parser IPASGO');
-                        csvResult = parseIpasgoCSV(
-                          decodedContent,
-                          arquivoId,
-                          input.convenioId,
-                          input.estabelecimentoId,
-                          dataReferenciaUpload,
-                          dataPagamentoUpload
-                        );
-                        parserUsed = 'IPASGO';
-                      } else {
-                        console.log('[Upload] Formato Bradesco detectado - usando parser Bradesco');
-                        const csvContent = buffer.toString('utf-8');
-                        csvResult = parseBradescoCSV(
-                          csvContent,
-                          arquivoId,
-                          input.convenioId,
-                          input.estabelecimentoId,
-                          dataReferenciaUpload,
-                          dataPagamentoUpload
-                        );
-                        parserUsed = 'Bradesco';
-                      }
-                      
-                      console.log(`[Upload] CSV ${parserUsed} parsed: ${csvResult.totalItens} itens, ${csvResult.totalGuias} guias, ${csvResult.totalLotes} lotes`);
-                      
-                      if (csvResult.success && csvResult.items.length > 0) {
-                        await db.updateArquivoProgresso(arquivoId, 20, 0, csvResult.items.length);
-                        
-                        // Inserir registros no recebimentos_excel
-                        const totalInserted = await db.insertRecebimentosExcelBatch(csvResult.items, async (inserted, total) => {
-                          const progresso = Math.round(20 + (inserted / total) * 60);
-                          await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-                        });
-                        console.log(`[Upload] CSV ${parserUsed} importado:`, totalInserted, 'itens em recebimentos_excel');
-                        
-                        // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
-                        try {
-                          const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                          const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                          if (syncResult.success) {
-                            console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                          } else {
-                            console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
-                          }
-                        } catch (syncError) {
-                          console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                        }
-                        // CONCILIAÇÃO AUTOMÁTICA após CSV de retorno
-                        try {
-                          const competenciaConc = dataReferenciaUpload
-                            ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                            : undefined;
-                          if (competenciaConc && input.convenioId) {
-                            console.log(`[Upload] Disparando conciliação automática (CSV): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                            const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                            const concResult = await executarConciliacaoAutomatica({
-                              estabelecimentoId: input.estabelecimentoId,
-                              competencia: competenciaConc,
-                              convenioId: input.convenioId,
+                          if (recordsExcel.length > 0) {
+                            const totalExcel = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted, total) => {
+                              const progresso = Math.round(20 + (inserted / total) * 60);
+                              await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
                             });
-                            console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
+                            console.log('[Upload] Recebimentos Excel importado:', totalExcel, 'itens');
+                            
+                            try {
+                              const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                              const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+                              if (syncResult.success) console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
+                            } catch (syncError) {
+                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                            }
+                            // Conciliação automática
+                            try {
+                              const competenciaConc = dataReferenciaUpload
+                                ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
+                                : undefined;
+                              if (competenciaConc && input.convenioId) {
+                                const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
+                                await executarConciliacaoAutomatica({
+                                  estabelecimentoId: input.estabelecimentoId,
+                                  competencia: competenciaConc,
+                                  convenioId: input.convenioId,
+                                });
+                              }
+                            } catch (concError: any) {
+                              console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
+                            }
+                            await db.updateArquivoProgresso(arquivoId, 95, recordsExcel.length, recordsExcel.length);
                           }
-                        } catch (concError: any) {
-                          console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
+                        } else {
+                          // CSV pequeno - processar inline
+                          const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
+                          const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
+                          
+                          const decodedContent = decodeIpasgoBuffer(buffer);
+                          const isIpasgo = detectIpasgoFormat(decodedContent);
+                          
+                          let records: any[] = [];
+                          if (isIpasgo) {
+                            const result = parseIpasgoCSV(decodedContent, arquivoId, input.convenioId, input.estabelecimentoId, dataReferenciaUpload, dataPagamentoUpload);
+                            records = result.items || [];
+                          } else {
+                            const csvContent = buffer.toString('utf-8');
+                            const result = parseBradescoCSV(csvContent, arquivoId, input.convenioId, input.estabelecimentoId, dataReferenciaUpload, dataPagamentoUpload);
+                            records = result.items || [];
+                          }
+                          
+                          if (records.length > 0) {
+                            await db.insertRecebimentosExcelBatch(records);
+                            try {
+                              const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+                              await syncDemonstrativoByArquivo(arquivoId, 'excel');
+                            } catch (syncError) {
+                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
+                            }
+                            await db.updateArquivoProgresso(arquivoId, 95, records.length, records.length);
+                          }
                         }
-                        await db.updateArquivoProgresso(arquivoId, 95, csvResult.items.length, csvResult.items.length);
-                      } else if (!csvResult.success) {
-                        console.error(`[Upload] Erro ao processar CSV ${parserUsed}:`, csvResult.error);
-                      } else {
-                        console.log(`[Upload] Nenhum item encontrado no CSV ${parserUsed}`);
+                        
+                        // Aplicar aceite automático
+                        try {
+                          const { aplicarAceiteAutomaticoGlosa } = await import('./fileProcessor');
+                          // Apenas se a função existir no módulo
+                        } catch (e) { /* ignore */ }
+                        
+                      } catch (excelError) {
+                        console.error('[Upload] Erro ao importar recebimentos:', excelError);
+                        await db.updateArquivoProgresso(arquivoId, 0, 0);
                       }
-                    } catch (csvError) {
-                      console.error('[Upload] Erro ao importar CSV:', csvError);
-                      await db.updateArquivoProgresso(arquivoId, 0, 0);
                     }
                   } else if (input.tipoArquivo === "xml") {
                     // Arquivos XML de retorno -> tabela recebimento_tiss

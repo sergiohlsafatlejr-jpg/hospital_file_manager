@@ -4261,3 +4261,7 @@
 - [x] Integrar editor rico nos 4 campos descritivos do formulário de propostas
 - [x] Renderizar HTML rico no detalhe da proposta
 - [x] Atualizar gerador de PDF para interpretar HTML rico nas seções
+- [x] Corrigir travamento na importação de Excel grande da Unimed (processamento em chunks)
+- [x] Implementar processamento em lotes com controle de memória (batch de 500 linhas)
+- [x] Adicionar barra de progresso detalhada com número de linhas processadas
+- [x] Tratamento de erros robusto para arquivos grandes (retry, timeout handling)

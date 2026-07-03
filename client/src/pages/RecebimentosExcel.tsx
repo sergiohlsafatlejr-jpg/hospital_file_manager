@@ -71,6 +71,10 @@ export default function RecebimentosExcel() {
   const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Background processing state
+  const [processingFileIds, setProcessingFileIds] = useState<number[]>([]);
+  const [processingProgress, setProcessingProgress] = useState<Record<number, { progresso: number; itensProcessados: number; totalItens: number; nome: string }>>({});
+
   // Listagem state
   const [busca, setBusca] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
@@ -221,9 +225,13 @@ export default function RecebimentosExcel() {
       setUploadProgress(Math.round(((i + 1) / pendingFiles.length) * 100));
     }
 
-    if (successCount > 0 && errorCount === 0) toast.success(`${successCount} arquivo(s) Excel importado(s) com sucesso! Demonstrativo atualizado.`);
-    else if (successCount > 0) toast.warning(`${successCount} importado(s), ${errorCount} com erro`);
-    else toast.error(`Erro ao importar ${errorCount} arquivo(s)`);
+    if (successCount > 0 && errorCount === 0) {
+      toast.success(`${successCount} arquivo(s) enviado(s)! Processamento em andamento...`);
+    } else if (successCount > 0) {
+      toast.warning(`${successCount} enviado(s), ${errorCount} com erro`);
+    } else {
+      toast.error(`Erro ao enviar ${errorCount} arquivo(s)`);
+    }
 
     // Invalidar queries
     utils.recebimentosExcel.list.invalidate();
@@ -235,7 +243,59 @@ export default function RecebimentosExcel() {
 
     setIsUploading(false);
     if (successCount > 0) setActiveTab("listagem");
+    
+    // Verificar se há arquivos em processamento em background
+    checkProcessingFiles();
   };
+
+  // Função para verificar arquivos em processamento
+  const checkProcessingFiles = useCallback(async () => {
+    try {
+      const processando = await utils.arquivos.processando.fetch({ estabelecimentoId: estabelecimentoAtual?.id });
+      if (processando && processando.length > 0) {
+        const ids = processando.map((a: any) => a.id);
+        setProcessingFileIds(ids);
+        // Buscar progresso de cada arquivo
+        const progressMap: Record<number, any> = {};
+        for (const arq of processando) {
+          progressMap[arq.id] = {
+            progresso: arq.progresso || 0,
+            itensProcessados: arq.itensProcessados || 0,
+            totalItens: arq.totalItens || 0,
+            nome: arq.nome || 'Arquivo',
+          };
+        }
+        setProcessingProgress(progressMap);
+      } else {
+        if (processingFileIds.length > 0) {
+          // Processamento concluído!
+          toast.success('Processamento de arquivo(s) concluído!');
+          utils.recebimentosExcel.list.invalidate();
+          utils.recebimentosExcel.resumo.invalidate();
+          utils.demonstrativo.contas.invalidate();
+          utils.demonstrativo.resumo.invalidate();
+          utils.demonstrativo.competencias.invalidate();
+          utils.arquivos.list.invalidate();
+        }
+        setProcessingFileIds([]);
+        setProcessingProgress({});
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [estabelecimentoAtual?.id, processingFileIds.length]);
+
+  // Polling de progresso a cada 3 segundos quando há arquivos em processamento
+  useEffect(() => {
+    if (processingFileIds.length === 0) return;
+    const interval = setInterval(checkProcessingFiles, 3000);
+    return () => clearInterval(interval);
+  }, [processingFileIds.length, checkProcessingFiles]);
+
+  // Verificar se há arquivos em processamento ao montar o componente
+  useEffect(() => {
+    checkProcessingFiles();
+  }, [estabelecimentoAtual?.id]);
 
   const formatCurrency = (value: number | string | null | undefined) => {
     const num = typeof value === "string" ? parseFloat(value) : (value || 0);
@@ -508,6 +568,33 @@ export default function RecebimentosExcel() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Banner de processamento em background */}
+          {processingFileIds.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50 shadow-sm mb-4">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  <span className="font-medium text-blue-800">
+                    Processando {processingFileIds.length} arquivo(s) em segundo plano...
+                  </span>
+                </div>
+                {Object.entries(processingProgress).map(([id, info]) => (
+                  <div key={id} className="mb-2 last:mb-0">
+                    <div className="flex items-center justify-between text-sm text-blue-700 mb-1">
+                      <span className="truncate max-w-[300px]">{info.nome}</span>
+                      <span className="font-mono">
+                        {info.itensProcessados.toLocaleString('pt-BR')}
+                        {info.totalItens > 0 ? ` / ${info.totalItens.toLocaleString('pt-BR')} linhas` : ' linhas'}
+                        {' '}({info.progresso}%)
+                      </span>
+                    </div>
+                    <Progress value={info.progresso} className="h-2" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Tab: Upload */}
           <TabsContent value="upload" className="space-y-4">
