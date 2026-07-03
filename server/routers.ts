@@ -9123,7 +9123,7 @@ export const appRouter = router({
   // Relatório analítico de diárias de UTI por paciente, item e tipo
   // ============================================================
   relatorioOxUti: router({
-    // Meses de competência (faturamento XML) disponíveis
+    // Meses de competência (data_referencia = mês do faturamento/XML) disponíveis
     mesesDisponiveis: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
@@ -9132,9 +9132,9 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
-            `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as mes_ref
+            `SELECT DISTINCT DATE_FORMAT(data_referencia, '%Y-%m') as mes_ref
              FROM demonstrativo
-             WHERE estabelecimentoId = ? AND data_pagamento IS NOT NULL
+             WHERE estabelecimentoId = ? AND data_referencia IS NOT NULL
              ORDER BY mes_ref DESC`,
             [input.estabelecimentoId]
           );
@@ -9179,8 +9179,14 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          const baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`;
-          const baseParams: any[] = [input.estabelecimentoId, input.mesPagamento || input.mesRef];
+          // Filtro principal por competência (data_referencia)
+          let baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y-%m') = ?`;
+          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          // Filtro adicional por mês de pagamento (se selecionado)
+          if (input.mesPagamento) {
+            baseWhere += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`;
+            baseParams.push(input.mesPagamento);
+          }
           const convenioFilter = input.convenioId ? ` AND d.convenio_id = ?` : '';
           if (input.convenioId) baseParams.push(input.convenioId);
 
@@ -9383,7 +9389,7 @@ export const appRouter = router({
                COALESCE(d.valor_glosa, 0) as valor_glosa
              FROM demonstrativo d
              WHERE d.estabelecimentoId = ?
-               AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?
+               AND DATE_FORMAT(d.data_referencia, '%Y-%m') = ?
                AND d.carteira_beneficiario = ?${convenioFilter}
              ORDER BY categoria, d.descricao_item`,
             params
