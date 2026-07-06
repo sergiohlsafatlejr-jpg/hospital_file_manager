@@ -4277,3 +4277,4 @@
 - [x] Melhorar responsividade mobile: formulários e modais com largura full em telas pequenas
 - [x] Melhorar responsividade mobile: botões de ação empilhados verticalmente em mobile
 - [x] Implementar menu hambúrguer retrátil para navegação mobile (economizar espaço no cabeçalho, melhorar usabilidade)
+- [x] Bug: Total Recebido na aba "Por Paciente" do Faturado x Recebido Unificado está repetindo o mesmo valor para diferentes guias/lotes da mesma carteira - separar valores recebidos por lote E guia

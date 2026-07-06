@@ -610,22 +610,25 @@ export async function getDadosFaturadoRecebidoUnificado(
     LIMIT 200
   `));
 
-  // Buscar recebidos agrupados por guia para cruzar
+  // Buscar recebidos agrupados por guia E lote para cruzar corretamente
   const [recPacienteRows] = await db.execute(sql.raw(`
     SELECT 
       COALESCE(NULLIF(re.numero_guia, ''), '-') as numeroGuia,
+      COALESCE(NULLIF(re.lote_prestador, ''), '-') as lotePrestador,
       SUM(COALESCE(re.valor_pagamento, 0)) as totalRecebido,
       MAX(re.data_pagamento) as dataPagamento
     FROM recebimentos_excel re
     LEFT JOIN convenios c ON re.convenioId = c.id
     WHERE ${whereRecClause}
-    GROUP BY re.numero_guia
+    GROUP BY re.numero_guia, re.lote_prestador
   `));
 
   const recPacienteMap = new Map<string, { totalRecebido: number; dataPagamento: string | null }>();
   for (const row of (recPacienteRows as unknown as any[])) {
     const guia = String(row.numeroGuia || '-');
-    recPacienteMap.set(guia, {
+    const lote = String(row.lotePrestador || '-');
+    const key = `${guia}|${lote}`;
+    recPacienteMap.set(key, {
       totalRecebido: parseFloat(row.totalRecebido || '0'),
       dataPagamento: row.dataPagamento ? String(row.dataPagamento).substring(0, 10) : null,
     });
@@ -634,7 +637,26 @@ export async function getDadosFaturadoRecebidoUnificado(
   porPaciente = (pacienteRows as unknown as any[]).map((row: any) => {
     const tf = parseFloat(row.totalFaturado || '0');
     const guia = String(row.numeroGuia || '-');
-    const recInfo = recPacienteMap.get(guia);
+    const lote = String(row.numeroLote || '-');
+    // Tentar match por guia+lote primeiro, depois fallback por só guia
+    const key = `${guia}|${lote}`;
+    let recInfo = recPacienteMap.get(key);
+    // Fallback: se não encontrou por guia+lote, buscar apenas por guia (somar todos os lotes)
+    if (!recInfo) {
+      let totalRec = 0;
+      let lastDate: string | null = null;
+      for (const [k, v] of recPacienteMap.entries()) {
+        if (k.startsWith(`${guia}|`)) {
+          totalRec += v.totalRecebido;
+          if (v.dataPagamento && (!lastDate || v.dataPagamento > lastDate)) {
+            lastDate = v.dataPagamento;
+          }
+        }
+      }
+      if (totalRec > 0) {
+        recInfo = { totalRecebido: totalRec, dataPagamento: lastDate };
+      }
+    }
     return {
       pacienteNome: row.pacienteNome,
       carteiraBeneficiario: row.carteiraBeneficiario,
