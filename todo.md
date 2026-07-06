@@ -4279,3 +4279,5 @@
 - [x] Implementar menu hambúrguer retrátil para navegação mobile (economizar espaço no cabeçalho, melhorar usabilidade)
 - [x] Bug: Total Recebido na aba "Por Paciente" do Faturado x Recebido Unificado está repetindo o mesmo valor para diferentes guias/lotes da mesma carteira - separar valores recebidos por lote E guia
 - [x] Adicionar campos Lote e Protocolo TISS na aba "Por Paciente" do Relatório Ox UTI para separar melhor os valores
+- [x] Adicionar campos Número de Guia e Lote de Envio na aba "Por Paciente" do Relatório Ox UTI Faturado
+- [x] Adicionar botão de exportação Excel no Relatório Ox UTI Faturado (já existia, atualizado com novos campos)

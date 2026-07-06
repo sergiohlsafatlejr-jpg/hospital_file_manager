@@ -138,10 +138,10 @@ export default function RelatorioOxUtiFaturado() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tipoData), "Por Tipo");
 
     const pacData = [
-      ["Paciente", "Carteira", "Convênios", "Guias", "Itens", "Qtd Diárias", "Vl. Faturado", "Ticket Médio"],
+      ["Paciente", "Carteira", "Guia", "Lote", "Convênios", "Qtd Diárias", "Vl. Faturado", "Ticket Médio"],
       ...data.porPaciente.map(p => [
-        p.paciente, p.carteira, p.convenios, p.totalGuias, p.totalItens, p.qtdDiarias,
-        p.totalFaturado, p.ticketMedioPaciente ?? "N/A"
+        p.paciente, p.carteira, (p as any).numeroGuia ?? "-", (p as any).numeroLote ?? "-",
+        p.convenios, p.qtdDiarias, p.totalFaturado, p.ticketMedioPaciente ?? "N/A"
       ])
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pacData), "Por Paciente");
@@ -402,8 +402,9 @@ export default function RelatorioOxUtiFaturado() {
                         <TableRow>
                           <TableHead>Paciente</TableHead>
                           <TableHead>Carteira</TableHead>
+                          <TableHead>Guia</TableHead>
+                          <TableHead>Lote</TableHead>
                           <TableHead>Convênio(s)</TableHead>
-                          <TableHead className="text-right">Guias</TableHead>
                           <TableHead className="text-right">Qtd. Diárias</TableHead>
                           <TableHead className="text-right">Vl. Faturado</TableHead>
                           <TableHead className="text-right">Ticket Médio</TableHead>
@@ -415,8 +416,9 @@ export default function RelatorioOxUtiFaturado() {
                           <TableRow key={idx} className="hover:bg-muted/40 transition-colors">
                             <TableCell className="font-medium max-w-[200px] truncate">{p.paciente ?? "—"}</TableCell>
                             <TableCell className="text-muted-foreground text-sm font-mono">{p.carteira ?? "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm font-mono">{(p as any).numeroGuia && (p as any).numeroGuia !== '-' ? (p as any).numeroGuia : "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm font-mono">{(p as any).numeroLote && (p as any).numeroLote !== '-' ? (p as any).numeroLote : "—"}</TableCell>
                             <TableCell className="text-muted-foreground text-xs max-w-[160px] truncate">{p.convenios ?? "—"}</TableCell>
-                            <TableCell className="text-right">{p.totalGuias}</TableCell>
                             <TableCell className="text-right text-purple-400 font-medium">
                               {p.qtdDiarias.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
                             </TableCell>
@@ -431,7 +433,7 @@ export default function RelatorioOxUtiFaturado() {
                         ))}
                         {pacientesFiltrados.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                               Nenhum paciente encontrado
                             </TableCell>
                           </TableRow>

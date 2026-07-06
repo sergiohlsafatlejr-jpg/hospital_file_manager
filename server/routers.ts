@@ -9535,18 +9535,20 @@ export const appRouter = router({
             baseParams
           );
 
-          // Por paciente
+          // Por paciente - agrupado por paciente + guia + lote para separar valores
           const [pacienteRows] = await conn.execute(
             `SELECT
                cci.pacienteNome as paciente,
                cci.carteiraBeneficiario as carteira,
+               COALESCE(cci.numeroGuia, '-') as numero_guia,
+               COALESCE(cci.numeroLote, '-') as numero_lote,
                COUNT(DISTINCT cci.numeroGuia) as total_guias,
                COUNT(*) as total_itens,
                COALESCE(SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.quantidade ELSE 0 END), 0) as qtd_diarias,
                COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
                GROUP_CONCAT(DISTINCT cci.convenio ORDER BY cci.convenio SEPARATOR ', ') as convenios
              FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}
-             GROUP BY cci.pacienteNome, cci.carteiraBeneficiario
+             GROUP BY cci.pacienteNome, cci.carteiraBeneficiario, cci.numeroGuia, cci.numeroLote
              ORDER BY total_faturado DESC
              LIMIT 200`,
             baseParams
@@ -9591,6 +9593,8 @@ export const appRouter = router({
             porPaciente: (pacienteRows as any[]).map((r: any) => ({
               paciente: r.paciente as string,
               carteira: r.carteira as string,
+              numeroGuia: r.numero_guia as string,
+              numeroLote: r.numero_lote as string,
               totalGuias: Number(r.total_guias),
               totalItens: Number(r.total_itens),
               qtdDiarias: Number(r.qtd_diarias),
