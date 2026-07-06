@@ -610,53 +610,93 @@ export async function getDadosFaturadoRecebidoUnificado(
     LIMIT 200
   `));
 
-  // Buscar recebidos agrupados por guia E lote para cruzar corretamente
+  // Buscar recebidos agrupados por guia + protocolo_tiss para separar por lote
+  // O protocolo_tiss no recebimento corresponde a cada lote enviado no faturamento
   const [recPacienteRows] = await db.execute(sql.raw(`
     SELECT 
       COALESCE(NULLIF(re.numero_guia, ''), '-') as numeroGuia,
-      COALESCE(NULLIF(re.lote_prestador, ''), '-') as lotePrestador,
+      COALESCE(NULLIF(re.protocolo_tiss, ''), '-') as protocoloTiss,
       SUM(COALESCE(re.valor_pagamento, 0)) as totalRecebido,
       MAX(re.data_pagamento) as dataPagamento
     FROM recebimentos_excel re
     LEFT JOIN convenios c ON re.convenioId = c.id
     WHERE ${whereRecClause}
-    GROUP BY re.numero_guia, re.lote_prestador
+    GROUP BY re.numero_guia, re.protocolo_tiss
   `));
 
-  const recPacienteMap = new Map<string, { totalRecebido: number; dataPagamento: string | null }>();
+  // Mapa: guia -> array de {totalRecebido, dataPagamento} (um por protocolo/lote)
+  const recPorGuiaMap = new Map<string, { totalRecebido: number; dataPagamento: string | null }[]>();
   for (const row of (recPacienteRows as unknown as any[])) {
     const guia = String(row.numeroGuia || '-');
-    const lote = String(row.lotePrestador || '-');
-    const key = `${guia}|${lote}`;
-    recPacienteMap.set(key, {
+    const entry = {
       totalRecebido: parseFloat(row.totalRecebido || '0'),
       dataPagamento: row.dataPagamento ? String(row.dataPagamento).substring(0, 10) : null,
-    });
+    };
+    if (!recPorGuiaMap.has(guia)) {
+      recPorGuiaMap.set(guia, []);
+    }
+    recPorGuiaMap.get(guia)!.push(entry);
+  }
+
+  // Agrupar linhas de faturamento por guia para calcular total faturado por guia
+  const fatPorGuia = new Map<string, { totalFaturado: number; lotes: { lote: string; valor: number }[] }>();
+  for (const row of (pacienteRows as unknown as any[])) {
+    const guia = String(row.numeroGuia || '-');
+    const lote = String(row.numeroLote || '-');
+    const val = parseFloat(row.totalFaturado || '0');
+    if (!fatPorGuia.has(guia)) {
+      fatPorGuia.set(guia, { totalFaturado: 0, lotes: [] });
+    }
+    const g = fatPorGuia.get(guia)!;
+    g.totalFaturado += val;
+    g.lotes.push({ lote, valor: val });
   }
 
   porPaciente = (pacienteRows as unknown as any[]).map((row: any) => {
     const tf = parseFloat(row.totalFaturado || '0');
     const guia = String(row.numeroGuia || '-');
     const lote = String(row.numeroLote || '-');
-    // Tentar match por guia+lote primeiro, depois fallback por só guia
-    const key = `${guia}|${lote}`;
-    let recInfo = recPacienteMap.get(key);
-    // Fallback: se não encontrou por guia+lote, buscar apenas por guia (somar todos os lotes)
-    if (!recInfo) {
-      let totalRec = 0;
-      let lastDate: string | null = null;
-      for (const [k, v] of recPacienteMap.entries()) {
-        if (k.startsWith(`${guia}|`)) {
-          totalRec += v.totalRecebido;
-          if (v.dataPagamento && (!lastDate || v.dataPagamento > lastDate)) {
-            lastDate = v.dataPagamento;
-          }
+    
+    const recEntries = recPorGuiaMap.get(guia);
+    let totalRecebido = 0;
+    let dataPagamento: string | null = null;
+    
+    if (recEntries && recEntries.length > 0) {
+      const guiaInfo = fatPorGuia.get(guia);
+      const totalFatGuia = guiaInfo?.totalFaturado || tf;
+      const numLotesNaGuia = guiaInfo?.lotes.length || 1;
+      
+      if (numLotesNaGuia === 1) {
+        // Só tem um lote para essa guia: recebe todo o valor
+        totalRecebido = recEntries.reduce((sum, e) => sum + e.totalRecebido, 0);
+        dataPagamento = recEntries.reduce((latest: string | null, e) => {
+          if (e.dataPagamento && (!latest || e.dataPagamento > latest)) return e.dataPagamento;
+          return latest;
+        }, null);
+      } else if (recEntries.length === numLotesNaGuia) {
+        // Mesmo número de protocolos e lotes: ordenar por valor e vincular
+        // Ordenar lotes do faturamento por valor DESC
+        const lotesOrdenados = [...(guiaInfo?.lotes || [])].sort((a, b) => b.valor - a.valor);
+        // Ordenar recebimentos por valor DESC
+        const recOrdenados = [...recEntries].sort((a, b) => b.totalRecebido - a.totalRecebido);
+        // Encontrar o índice deste lote na lista ordenada
+        const idx = lotesOrdenados.findIndex(l => l.lote === lote);
+        if (idx >= 0 && idx < recOrdenados.length) {
+          totalRecebido = recOrdenados[idx].totalRecebido;
+          dataPagamento = recOrdenados[idx].dataPagamento;
         }
-      }
-      if (totalRec > 0) {
-        recInfo = { totalRecebido: totalRec, dataPagamento: lastDate };
+      } else {
+        // Número diferente: distribuir proporcionalmente pelo peso do faturado
+        const totalRecGuia = recEntries.reduce((sum, e) => sum + e.totalRecebido, 0);
+        const proporcao = totalFatGuia > 0 ? tf / totalFatGuia : 0;
+        totalRecebido = Math.round(totalRecGuia * proporcao * 100) / 100;
+        dataPagamento = recEntries.reduce((latest: string | null, e) => {
+          if (e.dataPagamento && (!latest || e.dataPagamento > latest)) return e.dataPagamento;
+          return latest;
+        }, null);
       }
     }
+    
     return {
       pacienteNome: row.pacienteNome,
       carteiraBeneficiario: row.carteiraBeneficiario,
@@ -664,8 +704,8 @@ export async function getDadosFaturadoRecebidoUnificado(
       numeroLote: row.numeroLote,
       numeroConta: row.numeroConta,
       totalFaturado: tf,
-      totalRecebido: recInfo?.totalRecebido || 0,
-      dataPagamento: recInfo?.dataPagamento || null,
+      totalRecebido,
+      dataPagamento,
     };
   });
 
