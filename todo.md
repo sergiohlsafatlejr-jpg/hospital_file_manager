@@ -4281,3 +4281,4 @@
 - [x] Adicionar campos Lote e Protocolo TISS na aba "Por Paciente" do Relatório Ox UTI para separar melhor os valores
 - [x] Adicionar campos Número de Guia e Lote de Envio na aba "Por Paciente" do Relatório Ox UTI Faturado
 - [x] Adicionar botão de exportação Excel no Relatório Ox UTI Faturado (já existia, atualizado com novos campos)
+- [x] Corrigir filtro do Relatório Ox UTI Faturado: usar campo competencia ao invés de dataExecucao para filtrar por mês

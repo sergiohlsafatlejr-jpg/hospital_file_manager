@@ -9458,9 +9458,9 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
-            `SELECT DISTINCT DATE_FORMAT(cci.dataExecucao, '%Y-%m') as mes_ref
+            `SELECT DISTINCT REPLACE(cci.competencia, '/', '-') as mes_ref
              FROM contas_convenio_itens cci
-             WHERE cci.estabelecimentoId = ? AND cci.dataExecucao IS NOT NULL
+             WHERE cci.estabelecimentoId = ? AND cci.competencia IS NOT NULL AND cci.competencia != ''
              ORDER BY mes_ref DESC`,
             [input.estabelecimentoId]
           );
@@ -9503,8 +9503,10 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          const baseWhere = `WHERE cci.estabelecimentoId = ? AND DATE_FORMAT(cci.dataExecucao, '%Y-%m') = ?`;
-          const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
+          // Usa competencia (formato '2026/05') para filtrar por mês de faturamento
+          const mesRefFormatado = input.mesRef.replace('-', '/');
+          const baseWhere = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
+          const baseParams: any[] = [input.estabelecimentoId, mesRefFormatado];
           const convenioFilter = input.convenio ? ` AND cci.convenio = ?` : '';
           if (input.convenio) baseParams.push(input.convenio);
 
@@ -9515,7 +9517,7 @@ export const appRouter = router({
                COUNT(*) as total_itens,
                COALESCE(SUM(cci.valorTotal), 0) as total_faturado,
                COALESCE(SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.quantidade ELSE 0 END), 0) as total_diarias,
-               COUNT(DISTINCT cci.pacienteNome) as total_pacientes
+               COUNT(DISTINCT cci.carteiraBeneficiario) as total_pacientes
              FROM contas_convenio_itens cci ${baseWhere}${convenioFilter}`,
             baseParams
           );
