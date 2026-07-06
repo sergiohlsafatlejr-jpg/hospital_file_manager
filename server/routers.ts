@@ -9228,11 +9228,13 @@ export const appRouter = router({
             baseParams
           );
 
-          // Por paciente
+          // Por paciente - agrupado por paciente + lote + protocolo para separar valores
           const [pacienteRows] = await conn.execute(
             `SELECT
                d.nome_beneficiario as paciente,
                d.carteira_beneficiario as carteira,
+               COALESCE(d.lote_prestador, '-') as lote_prestador,
+               COALESCE(d.protocolo, '-') as protocolo_tiss,
                COUNT(DISTINCT d.numero_guia) as total_guias,
                COUNT(*) as total_itens,
                COALESCE(SUM(CASE WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' OR (d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%') THEN d.quantidade ELSE 0 END), 0) as qtd_diarias,
@@ -9240,7 +9242,7 @@ export const appRouter = router({
                COALESCE(SUM(d.valor_pago), 0) as total_pago,
                COALESCE(SUM(d.valor_glosa), 0) as total_glosado
              FROM demonstrativo d ${baseWhere}${convenioFilter}
-             GROUP BY d.nome_beneficiario, d.carteira_beneficiario
+             GROUP BY d.nome_beneficiario, d.carteira_beneficiario, d.lote_prestador, d.protocolo
              ORDER BY total_pago DESC LIMIT 200`,
             baseParams
           );
@@ -9301,6 +9303,8 @@ export const appRouter = router({
             porPaciente: (pacienteRows as any[]).map((r: any) => ({
               paciente: r.paciente as string,
               carteira: r.carteira as string,
+              lotePrestador: r.lote_prestador as string,
+              protocoloTiss: r.protocolo_tiss as string,
               totalGuias: Number(r.total_guias),
               totalItens: Number(r.total_itens),
               qtdDiarias: Number(r.qtd_diarias),

@@ -644,6 +644,8 @@ export default function RelatorioOxUti() {
                         <TableRow>
                           <TableHead>Paciente</TableHead>
                           <TableHead>Carteira</TableHead>
+                          <TableHead>Lote</TableHead>
+                          <TableHead>Protocolo TISS</TableHead>
                           <TableHead className="text-right">Guias</TableHead>
                           <TableHead className="text-right">Qtd. Diárias</TableHead>
                           <TableHead className="text-right">Vl. Informado</TableHead>
@@ -662,6 +664,8 @@ export default function RelatorioOxUti() {
                           >
                             <TableCell className="font-medium max-w-[200px] truncate">{p.paciente ?? "—"}</TableCell>
                             <TableCell className="text-muted-foreground text-sm font-mono">{p.carteira ?? "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm font-mono">{(p as any).lotePrestador && (p as any).lotePrestador !== '-' ? (p as any).lotePrestador : "—"}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm font-mono">{(p as any).protocoloTiss && (p as any).protocoloTiss !== '-' ? (p as any).protocoloTiss : "—"}</TableCell>
                             <TableCell className="text-right">{p.totalGuias}</TableCell>
                             <TableCell className="text-right text-purple-400 font-medium">{p.qtdDiarias.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}</TableCell>
                             <TableCell className="text-right text-muted-foreground">{fmt(p.totalInformado)}</TableCell>
@@ -677,7 +681,7 @@ export default function RelatorioOxUti() {
                         ))}
                         {pacientesFiltrados.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                               Nenhum paciente encontrado
                             </TableCell>
                           </TableRow>
