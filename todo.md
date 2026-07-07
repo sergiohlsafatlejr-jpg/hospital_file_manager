@@ -4283,3 +4283,4 @@
 - [x] Adicionar botão de exportação Excel no Relatório Ox UTI Faturado (já existia, atualizado com novos campos)
 - [x] Corrigir filtro do Relatório Ox UTI Faturado: usar campo competencia ao invés de dataExecucao para filtrar por mês
 - [x] Criar relatório "Resumo Paciente Ox UTI" com faturado x recebido por paciente (diárias, mat/med, gás, taxas/aluguéis) com data entrada/saída e exportação Excel
+- [x] Reestruturar relatório "Resumo Paciente UTI" em 2 abas: Faturado (por Paciente/Guia/Lote) e Recebido (por Paciente/Guia/Protocolo TISS) com valores por categoria separados
