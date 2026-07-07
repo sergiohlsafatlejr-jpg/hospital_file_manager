@@ -9911,16 +9911,14 @@ export const appRouter = router({
             return { dados: [], totais: { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0, totalPacientes: 0, totalGuias: 0 } };
           }
 
-          // Buscar recebimentos dessas guias
-          const placeholders = guias.map(() => '?').join(',');
-          let whereClause = `WHERE re.estabelecimentoId = ? AND re.numero_guia IN (${placeholders})`;
-          const params: any[] = [input.estabelecimentoId, ...guias];
+          // Buscar recebimentos dessas guias (usar conn.query para evitar problema com IN e prepared statements)
+          const guiasEscaped = guias.map((g: string) => conn.escape(g)).join(',');
+          let whereClause = `WHERE re.estabelecimentoId = ${conn.escape(input.estabelecimentoId)} AND re.numero_guia IN (${guiasEscaped})`;
           if (input.convenio) {
-            whereClause += ` AND re.convenio = ?`;
-            params.push(input.convenio);
+            whereClause += ` AND re.convenio = ${conn.escape(input.convenio)}`;
           }
 
-          const [rows] = await conn.execute(
+          const [rows] = await conn.query(
             `SELECT 
                re.carteira_beneficiario,
                re.nome_beneficiario,
@@ -9937,8 +9935,7 @@ export const appRouter = router({
              FROM recebimentos_excel re
              ${whereClause}
              GROUP BY re.carteira_beneficiario, re.nome_beneficiario, re.numero_guia, re.protocolo_tiss, re.lote_prestador, re.convenio, DATE_FORMAT(re.dataPagto, '%Y-%m-%d')
-             ORDER BY re.carteira_beneficiario, re.numero_guia, re.protocolo_tiss`,
-            params
+             ORDER BY re.carteira_beneficiario, re.numero_guia, re.protocolo_tiss`
           );
 
           const resultado = (rows as any[]).map((r: any) => ({
