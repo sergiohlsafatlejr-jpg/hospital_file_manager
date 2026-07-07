@@ -9891,6 +9891,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
+          console.log('[ResumoPacienteOxUti.recebido] Input:', JSON.stringify(input));
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
@@ -9907,6 +9908,7 @@ export const appRouter = router({
             fatParams
           );
           const guias = (guiaRows as any[]).map((r: any) => r.numeroGuia);
+          console.log('[recebido] Guias:', guias.length, guias.slice(0,3));
           if (guias.length === 0) {
             return { dados: [], totais: { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0, totalPacientes: 0, totalGuias: 0 } };
           }
@@ -9914,19 +9916,15 @@ export const appRouter = router({
           // Buscar recebimentos dessas guias (usar conn.query para evitar problema com IN e prepared statements)
           const guiasEscaped = guias.map((g: string) => conn.escape(g)).join(',');
           let whereClause = `WHERE re.estabelecimentoId = ${conn.escape(input.estabelecimentoId)} AND re.numero_guia IN (${guiasEscaped})`;
-          if (input.convenio) {
-            whereClause += ` AND re.convenio = ${conn.escape(input.convenio)}`;
-          }
 
           const [rows] = await conn.query(
             `SELECT 
-               re.carteira_beneficiario,
+               re.beneficiario,
                re.nome_beneficiario,
                re.numero_guia,
                re.protocolo_tiss,
                re.lote_prestador,
-               re.convenio,
-               DATE_FORMAT(re.dataPagto, '%Y-%m-%d') as data_pagamento,
+               DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as data_pagamento,
                SUM(CASE WHEN re.tipo_lancamento = 'HOS' THEN re.valor_pagamento ELSE 0 END) as vl_diaria,
                SUM(CASE WHEN re.tipo_lancamento IN ('MED','MAT') THEN re.valor_pagamento ELSE 0 END) as vl_matmed,
                SUM(CASE WHEN re.tipo_lancamento NOT IN ('HOS','MED','MAT') THEN re.valor_pagamento ELSE 0 END) as vl_outros,
@@ -9934,17 +9932,18 @@ export const appRouter = router({
                SUM(re.valor_glosa) as vl_glosa
              FROM recebimentos_excel re
              ${whereClause}
-             GROUP BY re.carteira_beneficiario, re.nome_beneficiario, re.numero_guia, re.protocolo_tiss, re.lote_prestador, re.convenio, DATE_FORMAT(re.dataPagto, '%Y-%m-%d')
-             ORDER BY re.carteira_beneficiario, re.numero_guia, re.protocolo_tiss`
+             GROUP BY re.beneficiario, re.nome_beneficiario, re.numero_guia, re.protocolo_tiss, re.lote_prestador, DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+             ORDER BY re.beneficiario, re.numero_guia, re.protocolo_tiss`
           );
 
+          console.log('[recebido] Rows:', (rows as any[]).length);
           const resultado = (rows as any[]).map((r: any) => ({
-            paciente: (r.nome_beneficiario || r.carteira_beneficiario || '') as string,
-            carteira: (r.carteira_beneficiario || '') as string,
+            paciente: (r.nome_beneficiario || r.beneficiario || '') as string,
+            carteira: (r.beneficiario || '') as string,
             guia: (r.numero_guia || '') as string,
             protocolo: (r.protocolo_tiss || '') as string,
             lote: (r.lote_prestador || '') as string,
-            convenio: (r.convenio || '') as string,
+            convenio: '' as string,
             dataPagamento: r.data_pagamento,
             vlDiaria: Number(r.vl_diaria) || 0,
             vlMatmed: Number(r.vl_matmed) || 0,
