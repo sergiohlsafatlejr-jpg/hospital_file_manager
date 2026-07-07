@@ -184,6 +184,7 @@ const menuItems: MenuItem[] = [
       { icon: Stethoscope, label: "Visitas Faturadas (XML)", path: "/relatorio-visita-xml", modulo: "relFaturadoRecebido" },
       { icon: Bed, label: "Rel. Ox UTI", path: "/relatorio-ox-uti", modulo: "relFaturadoRecebido" },
       { icon: Bed, label: "Ox UTI - Faturado (XML)", path: "/relatorio-ox-uti-faturado", modulo: "relFaturadoRecebido" },
+      { icon: Bed, label: "Resumo Paciente UTI", path: "/resumo-paciente-ox-uti", modulo: "relFaturadoRecebido" },
       { icon: Activity, label: "Rel. Fisioterapia", path: "/relatorio-fisioterapia", modulo: "relFaturadoRecebido" },
       { icon: TrendingUp, label: "Comparativo Mês a Mês", path: "/comparativo-mes-a-mes", modulo: "relFaturadoRecebido" },
     ]},

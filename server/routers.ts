@@ -9763,6 +9763,201 @@ export const appRouter = router({
         }
       }),
   }),
+
+  // Relatório Resumo Paciente Ox UTI - Faturado x Recebido por paciente/guia com categorias
+  resumoPacienteOxUti: router({
+    mesesDisponiveis: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT REPLACE(cci.competencia, '/', '-') as mes_ref
+             FROM contas_convenio_itens cci
+             WHERE cci.estabelecimentoId = ? AND cci.competencia IS NOT NULL AND cci.competencia != ''
+             ORDER BY mes_ref DESC`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.mes_ref as string);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    convenios: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number() }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          const [rows] = await conn.execute(
+            `SELECT DISTINCT convenio FROM contas_convenio_itens
+             WHERE estabelecimentoId = ? AND convenio IS NOT NULL
+             ORDER BY convenio`,
+            [input.estabelecimentoId]
+          );
+          return (rows as any[]).map((r: any) => r.convenio as string);
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+
+    dados: protectedProcedure
+      .input(z.object({
+        estabelecimentoId: z.number(),
+        mesRef: z.string(),
+        convenio: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        let conn: any = null;
+        try {
+          const mysql2 = await import('mysql2/promise');
+          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+
+          const mesRefFormatado = input.mesRef.replace('-', '/');
+          let whereClause = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
+          const params: any[] = [input.estabelecimentoId, mesRefFormatado];
+          if (input.convenio) {
+            whereClause += ` AND cci.convenio = ?`;
+            params.push(input.convenio);
+          }
+
+          // Query faturado agrupado por carteira + guia
+          const [faturadoRows] = await conn.execute(
+            `SELECT 
+               cci.carteiraBeneficiario,
+               cci.pacienteNome,
+               cci.numeroGuia,
+               cci.convenio,
+               DATE_FORMAT(MIN(cci.dataExecucao), '%Y-%m-%d') as data_entrada,
+               DATE_FORMAT(MAX(cci.dataExecucao), '%Y-%m-%d') as data_saida,
+               SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.quantidade ELSE 0 END) as qtd_diarias,
+               SUM(CASE WHEN cci.tipoItem = 'DIÁRIA' THEN cci.valorTotal ELSE 0 END) as vl_diaria_fat,
+               SUM(CASE WHEN cci.tipoItem IN ('MEDICAMENTO','MATERIAL') THEN cci.valorTotal ELSE 0 END) as vl_matmed_fat,
+               SUM(CASE WHEN cci.tipoItem = 'GÁS MEDICINAL' THEN cci.valorTotal ELSE 0 END) as vl_gas_fat,
+               SUM(CASE WHEN cci.tipoItem IN ('TAXA/ALUGUÉIS','TAXA','ALUGUEL') THEN cci.valorTotal ELSE 0 END) as vl_taxa_fat,
+               SUM(cci.valorTotal) as vl_total_fat
+             FROM contas_convenio_itens cci
+             ${whereClause}
+             GROUP BY cci.carteiraBeneficiario, cci.pacienteNome, cci.numeroGuia, cci.convenio
+             ORDER BY SUM(cci.valorTotal) DESC`,
+            params
+          );
+
+          // Buscar recebidos por guia com tipo_lancamento
+          const guias = [...new Set((faturadoRows as any[]).map((r: any) => r.numeroGuia))];
+          const recebidoMap: Record<string, { rec_diaria: number; rec_matmed: number; rec_gas: number; rec_taxa: number; rec_total: number }> = {};
+
+          if (guias.length > 0) {
+            // Processar em batches de 200
+            for (let i = 0; i < guias.length; i += 200) {
+              const batch = guias.slice(i, i + 200);
+              const placeholders = batch.map(() => '?').join(',');
+              const [recRows] = await conn.execute(
+                `SELECT numero_guia,
+                   SUM(CASE WHEN tipo_lancamento = 'HOS' THEN valor_pagamento ELSE 0 END) as rec_diaria,
+                   SUM(CASE WHEN tipo_lancamento IN ('MED','MAT') THEN valor_pagamento ELSE 0 END) as rec_matmed,
+                   SUM(CASE WHEN tipo_lancamento = 'CRÉDITO' AND tipo_lancamento NOT IN ('HOS','MED','MAT') THEN valor_pagamento ELSE 0 END) as rec_credito,
+                   SUM(valor_pagamento) as rec_total
+                 FROM recebimentos_excel
+                 WHERE estabelecimentoId = ? AND numero_guia IN (${placeholders})
+                 GROUP BY numero_guia`,
+                [input.estabelecimentoId, ...batch]
+              );
+              for (const r of recRows as any[]) {
+                const total = Number(r.rec_total) || 0;
+                const diaria = Number(r.rec_diaria) || 0;
+                const matmed = Number(r.rec_matmed) || 0;
+                // Se só tem CRÉDITO (sem separação), distribuir proporcionalmente
+                if (diaria === 0 && matmed === 0 && total > 0) {
+                  recebidoMap[r.numero_guia] = { rec_diaria: 0, rec_matmed: 0, rec_gas: 0, rec_taxa: 0, rec_total: total };
+                } else {
+                  recebidoMap[r.numero_guia] = {
+                    rec_diaria: diaria,
+                    rec_matmed: matmed,
+                    rec_gas: 0,
+                    rec_taxa: 0,
+                    rec_total: total,
+                  };
+                }
+              }
+            }
+          }
+
+          // Montar resultado
+          const resultado = (faturadoRows as any[]).map((r: any) => {
+            const rec = recebidoMap[r.numeroGuia];
+            const vlTotalFat = Number(r.vl_total_fat) || 0;
+            const vlDiariaFat = Number(r.vl_diaria_fat) || 0;
+            const vlMatmedFat = Number(r.vl_matmed_fat) || 0;
+            const vlGasFat = Number(r.vl_gas_fat) || 0;
+            const vlTaxaFat = Number(r.vl_taxa_fat) || 0;
+
+            let recDiaria = rec?.rec_diaria ?? 0;
+            let recMatmed = rec?.rec_matmed ?? 0;
+            let recGas = rec?.rec_gas ?? 0;
+            let recTaxa = rec?.rec_taxa ?? 0;
+            const recTotal = rec?.rec_total ?? 0;
+
+            // Se recebido só tem total (CRÉDITO), distribuir proporcionalmente
+            if (recDiaria === 0 && recMatmed === 0 && recTotal > 0 && vlTotalFat > 0) {
+              const propDiaria = vlDiariaFat / vlTotalFat;
+              const propMatmed = vlMatmedFat / vlTotalFat;
+              const propGas = vlGasFat / vlTotalFat;
+              const propTaxa = vlTaxaFat / vlTotalFat;
+              recDiaria = recTotal * propDiaria;
+              recMatmed = recTotal * propMatmed;
+              recGas = recTotal * propGas;
+              recTaxa = recTotal * propTaxa;
+            }
+
+            return {
+              paciente: (r.pacienteNome || r.carteiraBeneficiario) as string,
+              carteira: r.carteiraBeneficiario as string,
+              guia: r.numeroGuia as string,
+              convenio: r.convenio as string,
+              dataEntrada: r.data_entrada,
+              dataSaida: r.data_saida,
+              qtdDiarias: Number(r.qtd_diarias) || 0,
+              vlDiariaFat,
+              vlMatmedFat,
+              vlGasFat,
+              vlTaxaFat,
+              vlTotalFat,
+              recDiaria: Math.round(recDiaria * 100) / 100,
+              recMatmed: Math.round(recMatmed * 100) / 100,
+              recGas: Math.round(recGas * 100) / 100,
+              recTaxa: Math.round(recTaxa * 100) / 100,
+              recTotal,
+            };
+          });
+
+          // Totais gerais
+          const totais = resultado.reduce((acc, r) => ({
+            vlDiariaFat: acc.vlDiariaFat + r.vlDiariaFat,
+            vlMatmedFat: acc.vlMatmedFat + r.vlMatmedFat,
+            vlGasFat: acc.vlGasFat + r.vlGasFat,
+            vlTaxaFat: acc.vlTaxaFat + r.vlTaxaFat,
+            vlTotalFat: acc.vlTotalFat + r.vlTotalFat,
+            recDiaria: acc.recDiaria + r.recDiaria,
+            recMatmed: acc.recMatmed + r.recMatmed,
+            recGas: acc.recGas + r.recGas,
+            recTaxa: acc.recTaxa + r.recTaxa,
+            recTotal: acc.recTotal + r.recTotal,
+            qtdDiarias: acc.qtdDiarias + r.qtdDiarias,
+            totalPacientes: 0,
+          }), { vlDiariaFat: 0, vlMatmedFat: 0, vlGasFat: 0, vlTaxaFat: 0, vlTotalFat: 0, recDiaria: 0, recMatmed: 0, recGas: 0, recTaxa: 0, recTotal: 0, qtdDiarias: 0, totalPacientes: 0 });
+          totais.totalPacientes = new Set(resultado.map(r => r.carteira)).size;
+
+          return { dados: resultado, totais };
+        } finally {
+          if (conn) await conn.end();
+        }
+      }),
+  }),
 });
 
 function calcularDiasParado(datasai: string | null): number {
