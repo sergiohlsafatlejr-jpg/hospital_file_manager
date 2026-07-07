@@ -28,33 +28,28 @@ export default function ResumoPacienteOxUti() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
 
-  const { data: mesesFat } = trpc.resumoPacienteOxUti.mesesDisponiveis.useQuery(
-    { estabelecimentoId }, { enabled: estabelecimentoId > 0 }
-  );
-  const { data: mesesRec } = trpc.resumoPacienteOxUti.mesesPagamento.useQuery(
+  const { data: meses } = trpc.resumoPacienteOxUti.mesesDisponiveis.useQuery(
     { estabelecimentoId }, { enabled: estabelecimentoId > 0 }
   );
   const { data: conveniosList } = trpc.resumoPacienteOxUti.convenios.useQuery(
     { estabelecimentoId }, { enabled: estabelecimentoId > 0 }
   );
 
-  const [mesRefFat, setMesRefFat] = useState('');
-  const [mesRefRec, setMesRefRec] = useState('');
+  const [mesRef, setMesRef] = useState('');
   const [convenio, setConvenio] = useState('');
   const [buscaFat, setBuscaFat] = useState('');
   const [buscaRec, setBuscaRec] = useState('');
 
-  const mesAtualFat = mesRefFat || (mesesFat && mesesFat.length > 0 ? mesesFat[0] : '');
-  const mesAtualRec = mesRefRec || (mesesRec && mesesRec.length > 0 ? mesesRec[0] : '');
+  const mesAtual = mesRef || (meses && meses.length > 0 ? meses[0] : '');
 
   const { data: dataFat, isLoading: loadingFat } = trpc.resumoPacienteOxUti.faturado.useQuery(
-    { estabelecimentoId, mesRef: mesAtualFat, convenio: convenio || undefined },
-    { enabled: estabelecimentoId > 0 && !!mesAtualFat }
+    { estabelecimentoId, mesRef: mesAtual, convenio: convenio || undefined },
+    { enabled: estabelecimentoId > 0 && !!mesAtual }
   );
 
   const { data: dataRec, isLoading: loadingRec } = trpc.resumoPacienteOxUti.recebido.useQuery(
-    { estabelecimentoId, mesRef: mesAtualRec, convenio: convenio || undefined },
-    { enabled: estabelecimentoId > 0 && !!mesAtualRec }
+    { estabelecimentoId, mesRef: mesAtual, convenio: convenio || undefined },
+    { enabled: estabelecimentoId > 0 && !!mesAtual }
   );
 
   const dadosFatFiltrados = useMemo(() => {
@@ -96,7 +91,7 @@ export default function ResumoPacienteOxUti() {
     const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `faturado_ox_uti_${mesAtualFat}.csv`; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `faturado_ox_uti_${mesAtual}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -115,7 +110,7 @@ export default function ResumoPacienteOxUti() {
     const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `recebido_ox_uti_${mesAtualRec}.csv`; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `recebido_ox_uti_${mesAtual}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -129,10 +124,21 @@ export default function ResumoPacienteOxUti() {
         </div>
       </div>
 
-      {/* Filtro de Convênio (compartilhado) */}
+      {/* Filtros compartilhados */}
       <Card>
         <CardContent className="pt-4 pb-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">Competência</label>
+              <Select value={mesAtual} onValueChange={setMesRef}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {meses?.map(m => <SelectItem key={m} value={m}>{mesLabel(m)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">Convênio</label>
               <Select value={convenio || 'todos'} onValueChange={v => setConvenio(v === 'todos' ? '' : v)}>
@@ -162,18 +168,8 @@ export default function ResumoPacienteOxUti() {
 
         {/* ABA FATURADO */}
         <TabsContent value="faturado" className="space-y-4 mt-4">
-          {/* Filtros Faturado */}
+          {/* Busca e Export Faturado */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="w-full sm:w-48">
-              <Select value={mesAtualFat} onValueChange={setMesRefFat}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Competência" />
-                </SelectTrigger>
-                <SelectContent>
-                  {mesesFat?.map(m => <SelectItem key={m} value={m}>{mesLabel(m)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="flex-1">
               <Input placeholder="Buscar paciente, carteira, guia ou lote..." value={buscaFat} onChange={e => setBuscaFat(e.target.value)} />
             </div>
@@ -286,18 +282,8 @@ export default function ResumoPacienteOxUti() {
 
         {/* ABA RECEBIDO */}
         <TabsContent value="recebido" className="space-y-4 mt-4">
-          {/* Filtros Recebido */}
+          {/* Busca e Export Recebido */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="w-full sm:w-48">
-              <Select value={mesAtualRec} onValueChange={setMesRefRec}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Mês Pagamento" />
-                </SelectTrigger>
-                <SelectContent>
-                  {mesesRec?.map(m => <SelectItem key={m} value={m}>{mesLabel(m)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="flex-1">
               <Input placeholder="Buscar paciente, carteira, guia ou protocolo..." value={buscaRec} onChange={e => setBuscaRec(e.target.value)} />
             </div>

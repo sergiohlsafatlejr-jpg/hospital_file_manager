@@ -9894,15 +9894,27 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          // Buscar recebimentos agrupados por carteira + guia + protocolo
-          let whereClause = `WHERE re.estabelecimentoId = ?`;
-          const params: any[] = [input.estabelecimentoId];
-          // Filtrar por mês de pagamento baseado no mesRef
-          if (input.mesRef) {
-            const [y, m] = input.mesRef.split('-');
-            whereClause += ` AND DATE_FORMAT(re.dataPagto, '%Y-%m') = ?`;
-            params.push(`${y}-${m}`);
+          // Primeiro buscar as guias da competência selecionada no faturamento
+          const mesRefFormatado = input.mesRef.replace('-', '/');
+          let fatWhere = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
+          const fatParams: any[] = [input.estabelecimentoId, mesRefFormatado];
+          if (input.convenio) {
+            fatWhere += ` AND cci.convenio = ?`;
+            fatParams.push(input.convenio);
           }
+          const [guiaRows] = await conn.execute(
+            `SELECT DISTINCT cci.numeroGuia FROM contas_convenio_itens cci ${fatWhere} AND cci.numeroGuia IS NOT NULL`,
+            fatParams
+          );
+          const guias = (guiaRows as any[]).map((r: any) => r.numeroGuia);
+          if (guias.length === 0) {
+            return { dados: [], totais: { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0, totalPacientes: 0, totalGuias: 0 } };
+          }
+
+          // Buscar recebimentos dessas guias
+          const placeholders = guias.map(() => '?').join(',');
+          let whereClause = `WHERE re.estabelecimentoId = ? AND re.numero_guia IN (${placeholders})`;
+          const params: any[] = [input.estabelecimentoId, ...guias];
           if (input.convenio) {
             whereClause += ` AND re.convenio = ?`;
             params.push(input.convenio);
