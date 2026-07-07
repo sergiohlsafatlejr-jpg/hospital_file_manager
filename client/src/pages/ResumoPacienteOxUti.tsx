@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Download, Search, FileSpreadsheet, Users, Calendar, DollarSign } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useEstabelecimento } from '@/contexts/EstabelecimentoContext';
 
 function formatCurrency(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -18,8 +18,8 @@ function formatDate(dateStr: string | null) {
 }
 
 export default function ResumoPacienteOxUti() {
-  const { user } = useAuth();
-  const estabelecimentoId = (user as any)?.estabelecimentoId ?? 3;
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
 
   const { data: meses } = trpc.resumoPacienteOxUti.mesesDisponiveis.useQuery({ estabelecimentoId });
   const { data: conveniosList } = trpc.resumoPacienteOxUti.convenios.useQuery({ estabelecimentoId });
