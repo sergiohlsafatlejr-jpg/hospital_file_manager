@@ -103,8 +103,9 @@ ${xmlGuias}
   </ans:epilogo>
 </ans:mensagemTISS>`;
 
-  // Salvar no S3
-  const fileName = `faturamento/xml/${lote.numeroLote}.xml`;
+  // Salvar no S3 (com timestamp para evitar cache)
+  const timestamp = Date.now();
+  const fileName = `faturamento/xml/${lote.numeroLote}-${timestamp}.xml`;
   const { url } = await storagePut(fileName, Buffer.from(xml, "utf-8"), "application/xml");
 
   // Atualizar lote com URL do XML
