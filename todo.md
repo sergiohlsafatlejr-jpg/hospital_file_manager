@@ -4307,3 +4307,4 @@
 - [x] Atualizar exportação XML para incluir horaInicioFaturamento e horaFinalFaturamento da guia e horaInicio/horaFim dos itens
 - [x] Mudar campo Tabela automaticamente ao trocar o Tipo do item (procedimento=22, material/medicamento/opme/gases=07, diária/taxa=22)
 - [x] Após salvar item, limpar campos e colocar foco automático no campo Tipo para próximo lançamento
+- [x] Corrigir erros de validação XML TISS: ordem dos elementos, códigos de despesa com 2 dígitos, quantidadeExecutada como decimal, CNES posição, valorTotalGeral
