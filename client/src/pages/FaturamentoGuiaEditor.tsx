@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
@@ -192,6 +192,8 @@ export default function FaturamentoGuiaEditor() {
       // Preenche data automática novamente
       if (dataAtendimento) setItemDataExecucao(dataAtendimento);
       refetchGuia();
+      // Foco no campo Tipo para próximo lançamento
+      setTimeout(() => tipoSelectRef.current?.focus(), 100);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -215,6 +217,7 @@ export default function FaturamentoGuiaEditor() {
   });
 
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const tipoSelectRef = useRef<HTMLButtonElement>(null);
 
   const resetItemForm = () => {
     setEditingItemId(null);
@@ -953,7 +956,7 @@ export default function FaturamentoGuiaEditor() {
                     else if (v === "taxa") setItemCodigoDespesa("7");
                     else if (v === "opme") setItemCodigoDespesa("8");
                   }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger ref={tipoSelectRef}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="procedimento">Procedimento</SelectItem>
                       <SelectItem value="material">Material</SelectItem>

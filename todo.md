@@ -4306,3 +4306,4 @@
 - [x] Implementar função de editar item existente na tela de Procedimentos/Itens
 - [x] Atualizar exportação XML para incluir horaInicioFaturamento e horaFinalFaturamento da guia e horaInicio/horaFim dos itens
 - [x] Mudar campo Tabela automaticamente ao trocar o Tipo do item (procedimento=22, material/medicamento/opme/gases=07, diária/taxa=22)
+- [x] Após salvar item, limpar campos e colocar foco automático no campo Tipo para próximo lançamento
