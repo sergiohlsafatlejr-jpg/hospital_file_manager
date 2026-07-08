@@ -142,16 +142,16 @@ export default function FaturamentoRemessaDetalhe() {
               >
                 <Lock className="w-4 h-4 mr-2" /> Fechar Remessa
               </Button>
-              <Button onClick={() => navigate(`/faturamento/guia/nova?loteId=${loteId}&convenioId=${lote.convenioId}`)}>
-                <Plus className="w-4 h-4 mr-2" /> Nova Guia
-              </Button>
             </>
           )}
           {isFechada && (
             <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 px-4 py-2 text-sm">
-              <Lock className="w-4 h-4 mr-2 inline" /> Remessa Fechada - Somente Leitura
+              <Lock className="w-4 h-4 mr-2 inline" /> Remessa Fechada
             </Badge>
           )}
+          <Button onClick={() => navigate(`/faturamento/guia/nova?loteId=${loteId}&convenioId=${lote.convenioId}`)}>
+            <Plus className="w-4 h-4 mr-2" /> Nova Guia
+          </Button>
         </div>
 
         {/* Info Cards */}
@@ -205,13 +205,13 @@ export default function FaturamentoRemessaDetalhe() {
                   <TableHead>Data</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead>Status</TableHead>
-                  {!isFechada && <TableHead>Ações</TableHead>}
+                  <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(guias.length === 0) ? (
                   <TableRow>
-                    <TableCell colSpan={isFechada ? 6 : 7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Nenhuma guia nesta remessa. {!isFechada && 'Clique em "Nova Guia" para adicionar.'}
                     </TableCell>
                   </TableRow>
@@ -230,12 +230,12 @@ export default function FaturamentoRemessaDetalhe() {
                           {guia.status}
                         </Badge>
                       </TableCell>
-                      {!isFechada && (
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/faturamento/guia/${guia.id}`); }}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/faturamento/guia/${guia.id}`); }}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          {!isFechada && (
                             <Button variant="ghost" size="sm" className="text-red-500" onClick={(e) => {
                               e.stopPropagation();
                               if (confirm("Remover guia desta remessa?")) {
@@ -244,9 +244,9 @@ export default function FaturamentoRemessaDetalhe() {
                             }}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
-                          </div>
-                        </TableCell>
-                      )}
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

@@ -78,6 +78,8 @@ export default function FaturamentoGuiaEditor() {
   const [itemValorUnit, setItemValorUnit] = useState("0");
   const [itemValorTotal, setItemValorTotal] = useState("0");
   const [itemCodigoTabela, setItemCodigoTabela] = useState("22");
+  const [itemHoraInicio, setItemHoraInicio] = useState("");
+  const [itemHoraFim, setItemHoraFim] = useState("");
   const [itemViaAcesso, setItemViaAcesso] = useState("");
   const [itemTecnica, setItemTecnica] = useState("");
   const [itemGrauParticipacao, setItemGrauParticipacao] = useState("");
@@ -184,9 +186,11 @@ export default function FaturamentoGuiaEditor() {
 
   const adicionarItemMutation = trpc.faturamentoDigitacao.adicionarItem.useMutation({
     onSuccess: () => {
-      toast.success("Item adicionado!");
-      setShowItemDialog(false);
+      toast.success("Item adicionado! Pode lançar o próximo.");
+      // Não fecha o dialog - mantém aberto para lançar próximo item
       resetItemForm();
+      // Preenche data automática novamente
+      if (dataAtendimento) setItemDataExecucao(dataAtendimento);
       refetchGuia();
     },
     onError: (err) => toast.error(err.message),
@@ -204,7 +208,9 @@ export default function FaturamentoGuiaEditor() {
     setItemTipo("procedimento");
     setItemCodigo("");
     setItemDescricao("");
-    setItemDataExecucao("");
+    setItemDataExecucao(dataAtendimento || "");
+    setItemHoraInicio("");
+    setItemHoraFim("");
     setItemQtd("1");
     setItemValorUnit("0");
     setItemValorTotal("0");
@@ -215,6 +221,7 @@ export default function FaturamentoGuiaEditor() {
     setItemUnidadeMedida("");
     setItemCodigoDespesa("");
     setBuscaTuss("");
+    setBuscaTabPreco("");
   };
 
   const handleSalvar = (status: "rascunho" | "finalizada" = "rascunho") => {
@@ -290,6 +297,8 @@ export default function FaturamentoGuiaEditor() {
       codigoProcedimento: itemCodigo,
       descricao: itemDescricao,
       dataExecucao: itemDataExecucao || undefined,
+      horaInicio: itemHoraInicio || undefined,
+      horaFim: itemHoraFim || undefined,
       quantidade: itemQtd,
       valorUnitario: itemValorUnit,
       valorTotal: itemValorTotal,
@@ -900,6 +909,17 @@ export default function FaturamentoGuiaEditor() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Hora Início</Label>
+                  <Input type="time" step="1" value={itemHoraInicio} onChange={(e) => setItemHoraInicio(e.target.value)} placeholder="HH:MM:SS" />
+                </div>
+                <div>
+                  <Label>Hora Fim</Label>
+                  <Input type="time" step="1" value={itemHoraFim} onChange={(e) => setItemHoraFim(e.target.value)} placeholder="HH:MM:SS" />
+                </div>
+              </div>
+
               <div className="grid grid-cols-4 gap-3">
                 <div>
                   <Label>Código *</Label>
@@ -1006,11 +1026,11 @@ export default function FaturamentoGuiaEditor() {
                 </div>
               )}
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowItemDialog(false)}>Cancelar</Button>
-              <Button onClick={handleAdicionarItem}>
+            <DialogFooter className="flex justify-between">
+              <Button variant="outline" onClick={() => setShowItemDialog(false)}>Fechar</Button>
+              <Button onClick={handleAdicionarItem} disabled={adicionarItemMutation.isPending}>
                 <Plus className="w-4 h-4 mr-2" />
-                Adicionar
+                {adicionarItemMutation.isPending ? "Adicionando..." : "Adicionar e Continuar"}
               </Button>
             </DialogFooter>
           </DialogContent>

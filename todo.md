@@ -4296,3 +4296,8 @@
 - [x] Atualizar router de digitação para aceitar os novos campos
 - [x] Atualizar interface de digitação de guias com os novos campos
 - [x] Atualizar faturamentoExportService para gerar XML com os novos campos
+- [x] Preencher data do item automaticamente com a data de atendimento da guia ao abrir dialog de novo item
+- [x] Adicionar campos de hora início e hora fim visíveis no dialog de lançamento de itens
+- [x] Manter dialog de lançamento de itens aberto após adicionar, para lançar o próximo item sem reabrir
+- [x] Permitir abrir remessa já fechada para visualização e edição
+- [x] Permitir abrir guia de remessa fechada para lançar mais itens
