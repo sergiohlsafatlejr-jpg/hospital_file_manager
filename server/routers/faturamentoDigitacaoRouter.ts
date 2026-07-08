@@ -650,6 +650,24 @@ export const faturamentoDigitacaoRouter = router({
       return { success: true, totalGuias: Number(totais?.totalGuias || 0) };
     }),
 
+  // ========== REABRIR LOTE ==========
+  reabrirLote: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      
+      const [lote] = await db.select().from(lotesFaturamento).where(eq(lotesFaturamento.id, input.id));
+      if (!lote) throw new Error("Remessa não encontrada");
+      if (lote.status === "aberto") throw new Error("Remessa já está aberta");
+
+      await db.update(lotesFaturamento).set({
+        status: "aberto",
+      }).where(eq(lotesFaturamento.id, input.id));
+
+      return { success: true };
+    }),
+
   // ========== BUSCA TUSS ==========
   buscarProcedimentoTuss: protectedProcedure
     .input(z.object({ busca: z.string().min(2) }))

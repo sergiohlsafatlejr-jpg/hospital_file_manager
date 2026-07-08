@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileText, FileSpreadsheet, Eye, Lock, Download } from "lucide-react";
+import { FileText, FileSpreadsheet, Eye, Lock, Download, RefreshCw, Unlock } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -43,6 +43,14 @@ export default function FaturamentoRemessasFechadas() {
       window.open(data.url, "_blank");
     },
     onError: (err) => toast.error(`Erro ao gerar Excel: ${err.message}`),
+  });
+
+  const reabrirLote = trpc.faturamentoDigitacao.reabrirLote.useMutation({
+    onSuccess: () => {
+      toast.success("Remessa reaberta com sucesso!");
+      navigate(`/faturamento/remessa/${reabrirLote.variables?.id}`);
+    },
+    onError: (err) => toast.error(`Erro ao reabrir: ${err.message}`),
   });
 
   // Filtrar por tipo de atendimento no frontend
@@ -198,6 +206,17 @@ export default function FaturamentoRemessasFechadas() {
                             <FileSpreadsheet className="w-4 h-4 mr-1" />
                             Excel
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                            onClick={() => gerarXml.mutate({ loteId: lote.id })}
+                            disabled={gerarXml.isPending}
+                            title="Regenerar XML TISS"
+                          >
+                            <RefreshCw className="w-4 h-4 mr-1" />
+                            Regenerar
+                          </Button>
                           {lote.xmlUrl && (
                             <Button
                               variant="ghost"
@@ -212,9 +231,21 @@ export default function FaturamentoRemessasFechadas() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/faturamento/remessa/${lote.id}`)}>
-                          <Eye className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => navigate(`/faturamento/remessa/${lote.id}`)} title="Visualizar">
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-amber-600"
+                            onClick={() => { if (confirm("Reabrir esta remessa?")) reabrirLote.mutate({ id: lote.id }); }}
+                            disabled={reabrirLote.isPending}
+                            title="Reabrir Remessa"
+                          >
+                            <Unlock className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

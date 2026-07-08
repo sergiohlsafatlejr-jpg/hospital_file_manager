@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Edit, Trash2, Lock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Lock, AlertTriangle, RefreshCw, Unlock, FileText } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
@@ -64,6 +64,22 @@ export default function FaturamentoRemessaDetalhe() {
       refetchGuias();
     },
     onError: (err) => toast.error(err.message),
+  });
+
+  const gerarXml = trpc.faturamentoDigitacao.gerarXmlTiss.useMutation({
+    onSuccess: (data) => {
+      toast.success("XML regenerado com sucesso!");
+      window.open(data.url, "_blank");
+    },
+    onError: (err) => toast.error(`Erro ao gerar XML: ${err.message}`),
+  });
+
+  const reabrirLote = trpc.faturamentoDigitacao.reabrirLote.useMutation({
+    onSuccess: () => {
+      toast.success("Remessa reaberta com sucesso!");
+      refetchLotes();
+    },
+    onError: (err) => toast.error(`Erro ao reabrir: ${err.message}`),
   });
 
   const isFechada = lote?.status === "fechado" || lote?.status === "enviado";
@@ -145,9 +161,29 @@ export default function FaturamentoRemessaDetalhe() {
             </>
           )}
           {isFechada && (
-            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 px-4 py-2 text-sm">
-              <Lock className="w-4 h-4 mr-2 inline" /> Remessa Fechada
-            </Badge>
+            <>
+              <Button
+                variant="outline"
+                className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                onClick={() => gerarXml.mutate({ loteId })}
+                disabled={gerarXml.isPending}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                {gerarXml.isPending ? "Gerando..." : "Regenerar XML"}
+              </Button>
+              <Button
+                variant="outline"
+                className="text-amber-600 border-amber-200 hover:bg-amber-50"
+                onClick={() => { if (confirm("Reabrir esta remessa para edição?")) reabrirLote.mutate({ id: loteId }); }}
+                disabled={reabrirLote.isPending}
+              >
+                <Unlock className="w-4 h-4 mr-2" />
+                Reabrir Remessa
+              </Button>
+              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 px-4 py-2 text-sm">
+                <Lock className="w-4 h-4 mr-2 inline" /> Remessa Fechada
+              </Badge>
+            </>
           )}
           <Button onClick={() => navigate(`/faturamento/guia/nova?loteId=${loteId}&convenioId=${lote.convenioId}`)}>
             <Plus className="w-4 h-4 mr-2" /> Nova Guia

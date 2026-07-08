@@ -4308,3 +4308,5 @@
 - [x] Mudar campo Tabela automaticamente ao trocar o Tipo do item (procedimento=22, material/medicamento/opme/gases=07, diária/taxa=22)
 - [x] Após salvar item, limpar campos e colocar foco automático no campo Tipo para próximo lançamento
 - [x] Corrigir erros de validação XML TISS: ordem dos elementos, códigos de despesa com 2 dígitos, quantidadeExecutada como decimal, CNES posição, valorTotalGeral
+- [x] Adicionar botão "Regenerar XML" na remessa fechada para gerar XML com os campos novos
+- [x] Corrigir botão de abrir remessa fechada que não está aparecendo (adicionado botão "Reabrir Remessa")
