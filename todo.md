@@ -4301,3 +4301,6 @@
 - [x] Manter dialog de lançamento de itens aberto após adicionar, para lançar o próximo item sem reabrir
 - [x] Permitir abrir remessa já fechada para visualização e edição
 - [x] Permitir abrir guia de remessa fechada para lançar mais itens
+- [x] Adicionar campos Horário Início e Horário Fim na aba "Dados da Guia" (ao lado das datas)
+- [x] Preencher hora dos itens automaticamente com o horário da guia ao lançar procedimento
+- [x] Implementar função de editar item existente na tela de Procedimentos/Itens

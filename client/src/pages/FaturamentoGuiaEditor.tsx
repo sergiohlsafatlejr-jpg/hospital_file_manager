@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, Trash2, Save, CheckCircle, Search } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, CheckCircle, Search, Edit } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
@@ -196,6 +196,16 @@ export default function FaturamentoGuiaEditor() {
     onError: (err) => toast.error(err.message),
   });
 
+  const atualizarItemMutation = trpc.faturamentoDigitacao.atualizarItem.useMutation({
+    onSuccess: () => {
+      toast.success("Item atualizado!");
+      setShowItemDialog(false);
+      resetItemForm();
+      refetchGuia();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const removerItemMutation = trpc.faturamentoDigitacao.removerItem.useMutation({
     onSuccess: () => {
       toast.success("Item removido!");
@@ -204,13 +214,16 @@ export default function FaturamentoGuiaEditor() {
     onError: (err) => toast.error(err.message),
   });
 
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+
   const resetItemForm = () => {
+    setEditingItemId(null);
     setItemTipo("procedimento");
     setItemCodigo("");
     setItemDescricao("");
-    setItemDataExecucao(dataAtendimento || "");
-    setItemHoraInicio("");
-    setItemHoraFim("");
+    setItemDataExecucao(dataAtendimento || dataInicio || "");
+    setItemHoraInicio(horaInicioFaturamento || "");
+    setItemHoraFim(horaFinalFaturamento || "");
     setItemQtd("1");
     setItemValorUnit("0");
     setItemValorTotal("0");
@@ -222,6 +235,28 @@ export default function FaturamentoGuiaEditor() {
     setItemCodigoDespesa("");
     setBuscaTuss("");
     setBuscaTabPreco("");
+  };
+
+  const handleEditarItem = (item: any) => {
+    setEditingItemId(item.id);
+    setItemTipo(item.tipoItem || "procedimento");
+    setItemCodigo(item.codigoProcedimento || "");
+    setItemDescricao(item.descricao || "");
+    setItemDataExecucao(item.dataExecucao || dataAtendimento || dataInicio || "");
+    setItemHoraInicio(item.horaInicio || horaInicioFaturamento || "");
+    setItemHoraFim(item.horaFim || horaFinalFaturamento || "");
+    setItemQtd(String(item.quantidade || "1"));
+    setItemValorUnit(String(item.valorUnitario || "0"));
+    setItemValorTotal(String(item.valorTotal || "0"));
+    setItemCodigoTabela(item.codigoTabela || "22");
+    setItemViaAcesso(item.viaAcesso || "");
+    setItemTecnica(item.tecnica || "");
+    setItemGrauParticipacao(item.grauParticipacao || "");
+    setItemUnidadeMedida(item.unidadeMedida || "");
+    setItemCodigoDespesa(item.codigoDespesa || "");
+    setBuscaTuss("");
+    setBuscaTabPreco("");
+    setShowItemDialog(true);
   };
 
   const handleSalvar = (status: "rascunho" | "finalizada" = "rascunho") => {
@@ -278,7 +313,7 @@ export default function FaturamentoGuiaEditor() {
     }
   };
 
-  const handleAdicionarItem = () => {
+  const handleSalvarItem = () => {
     if (!guiaId) {
       toast.error("Salve a guia primeiro antes de adicionar itens");
       return;
@@ -287,10 +322,10 @@ export default function FaturamentoGuiaEditor() {
       toast.error("Preencha código e descrição do item");
       return;
     }
-    adicionarItemMutation.mutate({
-      guiaId,
-      tipoItem: itemTipo as any,
-      tipoLancamento: itemTipo === "procedimento" ? "procedimento" : "despesa",
+
+    const itemData = {
+      tipoItem: itemTipo as "procedimento" | "taxa" | "material" | "medicamento" | "diaria" | "opme" | "gases",
+      tipoLancamento: (itemTipo === "procedimento" ? "procedimento" : "despesa") as "procedimento" | "despesa",
       codigoDespesa: itemCodigoDespesa || undefined,
       unidadeMedida: itemUnidadeMedida || undefined,
       codigoTabela: itemCodigoTabela || undefined,
@@ -305,7 +340,13 @@ export default function FaturamentoGuiaEditor() {
       viaAcesso: itemViaAcesso || undefined,
       tecnica: itemTecnica || undefined,
       grauParticipacao: itemGrauParticipacao || undefined,
-    });
+    };
+
+    if (editingItemId) {
+      atualizarItemMutation.mutate({ id: editingItemId, guiaId, ...itemData });
+    } else {
+      adicionarItemMutation.mutate({ guiaId, ...itemData });
+    }
   };
 
   const handleSelecionarTuss = (proc: any) => {
@@ -461,6 +502,17 @@ export default function FaturamentoGuiaEditor() {
                       </div>
                     </div>
                   )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Horário Início</Label>
+                      <Input type="time" step="1" value={horaInicioFaturamento} onChange={(e) => setHoraInicioFaturamento(e.target.value)} placeholder="HH:MM:SS" />
+                    </div>
+                    <div>
+                      <Label>Horário Fim</Label>
+                      <Input type="time" step="1" value={horaFinalFaturamento} onChange={(e) => setHoraFinalFaturamento(e.target.value)} placeholder="HH:MM:SS" />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -676,10 +728,16 @@ export default function FaturamentoGuiaEditor() {
                             <td className="p-2 text-right">R$ {Number(item.valorUnitario).toFixed(2)}</td>
                             <td className="p-2 text-right font-medium">R$ {Number(item.valorTotal).toFixed(2)}</td>
                             <td className="p-2 text-center">
-                              <Button size="sm" variant="ghost" className="text-red-500"
-                                onClick={() => removerItemMutation.mutate({ id: item.id, guiaId: guiaId! })}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              <div className="flex gap-1 justify-center">
+                                <Button size="sm" variant="ghost" className="text-blue-500"
+                                  onClick={() => handleEditarItem(item)} title="Editar item">
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button size="sm" variant="ghost" className="text-red-500"
+                                  onClick={() => removerItemMutation.mutate({ id: item.id, guiaId: guiaId! })} title="Remover item">
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -788,7 +846,7 @@ export default function FaturamentoGuiaEditor() {
         <Dialog open={showItemDialog} onOpenChange={setShowItemDialog}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Adicionar Item/Procedimento</DialogTitle>
+              <DialogTitle>{editingItemId ? "Editar Item/Procedimento" : "Adicionar Item/Procedimento"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               {/* Fonte de busca */}
@@ -1027,10 +1085,13 @@ export default function FaturamentoGuiaEditor() {
               )}
             </div>
             <DialogFooter className="flex justify-between">
-              <Button variant="outline" onClick={() => setShowItemDialog(false)}>Fechar</Button>
-              <Button onClick={handleAdicionarItem} disabled={adicionarItemMutation.isPending}>
-                <Plus className="w-4 h-4 mr-2" />
-                {adicionarItemMutation.isPending ? "Adicionando..." : "Adicionar e Continuar"}
+              <Button variant="outline" onClick={() => { setShowItemDialog(false); resetItemForm(); }}>Fechar</Button>
+              <Button onClick={handleSalvarItem} disabled={adicionarItemMutation.isPending || atualizarItemMutation.isPending}>
+                {editingItemId ? (
+                  <><Save className="w-4 h-4 mr-2" />{atualizarItemMutation.isPending ? "Salvando..." : "Salvar Alterações"}</>
+                ) : (
+                  <><Plus className="w-4 h-4 mr-2" />{adicionarItemMutation.isPending ? "Adicionando..." : "Adicionar e Continuar"}</>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
