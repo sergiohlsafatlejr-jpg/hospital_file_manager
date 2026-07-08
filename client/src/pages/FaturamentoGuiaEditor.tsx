@@ -936,7 +936,23 @@ export default function FaturamentoGuiaEditor() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label>Tipo</Label>
-                  <Select value={itemTipo} onValueChange={setItemTipo}>
+                  <Select value={itemTipo} onValueChange={(v) => {
+                    setItemTipo(v);
+                    // Auto-selecionar tabela correta por tipo
+                    if (v === "procedimento" || v === "diaria" || v === "taxa") {
+                      setItemCodigoTabela("22");
+                    } else if (v === "material" || v === "medicamento" || v === "opme" || v === "gases") {
+                      setItemCodigoTabela("07");
+                    }
+                    // Auto-selecionar código de despesa por tipo
+                    if (v === "procedimento") setItemCodigoDespesa("");
+                    else if (v === "gases") setItemCodigoDespesa("1");
+                    else if (v === "medicamento") setItemCodigoDespesa("2");
+                    else if (v === "material") setItemCodigoDespesa("3");
+                    else if (v === "diaria") setItemCodigoDespesa("5");
+                    else if (v === "taxa") setItemCodigoDespesa("7");
+                    else if (v === "opme") setItemCodigoDespesa("8");
+                  }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="procedimento">Procedimento</SelectItem>
