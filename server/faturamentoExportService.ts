@@ -126,8 +126,8 @@ function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): st
             <ans:procedimentoExecutado>
               <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
               <ans:dataExecucao>${item.dataExecucao || guia.dataAtendimento || ""}</ans:dataExecucao>
-              <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
-              <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+              <ans:horaInicial>${item.horaInicio || guia.horaInicioFaturamento || "00:00:00"}</ans:horaInicial>
+              <ans:horaFinal>${item.horaFim || guia.horaFinalFaturamento || "00:00:00"}</ans:horaFinal>
               <ans:procedimento>
                 <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
                 <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
@@ -159,8 +159,8 @@ function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): st
               <ans:codigoDespesa>${codigoDespesa}</ans:codigoDespesa>
               <ans:servicosExecutados>
                 <ans:dataExecucao>${item.dataExecucao || guia.dataAtendimento || ""}</ans:dataExecucao>
-                <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
-                <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+                <ans:horaInicial>${item.horaInicio || guia.horaInicioFaturamento || "00:00:00"}</ans:horaInicial>
+                <ans:horaFinal>${item.horaFim || guia.horaFinalFaturamento || "00:00:00"}</ans:horaFinal>
                 <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
                 <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
                 <ans:descricaoProcedimento>${escapeXml(item.descricao)}</ans:descricaoProcedimento>
@@ -230,7 +230,9 @@ function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): st
           </ans:dadosExecutante>
           <ans:dadosAtendimento>
             <ans:tipoAtendimento>${guia.caraterAtendimento === "urgencia" ? "2" : "1"}</ans:tipoAtendimento>
-            ${guia.indicacaoClinica ? `<ans:indicacaoClinica>${escapeXml(guia.indicacaoClinica)}</ans:indicacaoClinica>` : ""}
+            ${guia.indicacaoClinica ? `<ans:indicacaoClinica>${escapeXml(guia.indicacaoClinica)}</ans:indicacaoClinica>` : ""}${guia.horaInicioFaturamento ? `
+            <ans:horaInicioAtendimento>${guia.horaInicioFaturamento}</ans:horaInicioAtendimento>` : ""}${guia.horaFinalFaturamento ? `
+            <ans:horaFinalAtendimento>${guia.horaFinalFaturamento}</ans:horaFinalAtendimento>` : ""}
           </ans:dadosAtendimento>${procedimentos.length > 0 ? `
           <ans:procedimentosExecutados>
 ${itensXml}
@@ -262,8 +264,8 @@ function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: numbe
             <ans:procedimentoExecutado>
               <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
               <ans:dataExecucao>${item.dataExecucao || guia.dataInicio || ""}</ans:dataExecucao>
-              <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
-              <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+              <ans:horaInicial>${item.horaInicio || guia.horaInicioFaturamento || "00:00:00"}</ans:horaInicial>
+              <ans:horaFinal>${item.horaFim || guia.horaFinalFaturamento || "00:00:00"}</ans:horaFinal>
               <ans:procedimento>
                 <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
                 <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
@@ -295,8 +297,8 @@ function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: numbe
               <ans:codigoDespesa>${codigoDespesa}</ans:codigoDespesa>
               <ans:servicosExecutados>
                 <ans:dataExecucao>${item.dataExecucao || guia.dataInicio || ""}</ans:dataExecucao>
-                <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
-                <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+                <ans:horaInicial>${item.horaInicio || guia.horaInicioFaturamento || "00:00:00"}</ans:horaInicial>
+                <ans:horaFinal>${item.horaFim || guia.horaFinalFaturamento || "00:00:00"}</ans:horaFinal>
                 <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
                 <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
                 <ans:descricaoProcedimento>${escapeXml(item.descricao)}</ans:descricaoProcedimento>
