@@ -22,16 +22,32 @@ export async function gerarXmlTissLote(loteId: number): Promise<{ url: string; x
   const todosItens = await db.select().from(itensGuiaFaturamento)
     .where(inArray(itensGuiaFaturamento.guiaId, guiaIds));
 
-  // Buscar dados do prestador (convenio/estabelecimento)
+  // Buscar dados do prestador (convenio + estabelecimento + código prestador)
+  const estabelecimentoId = guias[0].estabelecimentoId;
+  const convenioId = guias[0].convenioId;
+  
   const [convenioData] = await db.execute(sql`
-    SELECT c.nome, c.codigo_operadora, c.registro_ans,
-           e.nome as nome_estabelecimento, e.cnpj, e.cnes, e.codigo_prestador
+    SELECT c.nome as nome_convenio, c.codigo as codigo_convenio,
+           e.nome as nome_estabelecimento, e.cnpj,
+           cep.codigoPrestador as codigo_prestador
     FROM convenios c
-    LEFT JOIN estabelecimentos e ON e.id = ${guias[0].estabelecimentoId}
-    WHERE c.id = ${guias[0].convenioId}
+    LEFT JOIN estabelecimentos e ON e.id = ${estabelecimentoId}
+    LEFT JOIN convenioEstabelecimentoPrestador cep 
+      ON cep.convenioId = ${convenioId} AND cep.estabelecimentoId = ${estabelecimentoId}
+    WHERE c.id = ${convenioId}
     LIMIT 1
   `);
-  const prestador = (convenioData as any)?.[0] || {};
+  const prestadorRow = (convenioData as any)?.[0] || {};
+  // Montar objeto prestador com campos esperados pelo template XML
+  const prestador = {
+    nome: prestadorRow.nome_convenio || "",
+    codigo_operadora: prestadorRow.codigo_convenio || "",
+    registro_ans: prestadorRow.codigo_convenio || "", // O código do convênio é usado como registro ANS
+    nome_estabelecimento: prestadorRow.nome_estabelecimento || "",
+    cnpj: prestadorRow.cnpj || "",
+    cnes: "", // Campo CNES não existe na tabela estabelecimentos ainda
+    codigo_prestador: prestadorRow.codigo_prestador || "",
+  };
 
   const now = new Date();
   const dataGeracao = now.toISOString().split("T")[0];
@@ -263,7 +279,7 @@ export async function gerarExcelUnimedForm3061(loteId: number): Promise<{ url: s
 
   // Buscar dados do prestador
   const [prestadorData] = await db.execute(sql`
-    SELECT e.nome, e.cnpj, e.cnes
+    SELECT e.nome, e.cnpj
     FROM estabelecimentos e
     WHERE e.id = ${guias[0].estabelecimentoId}
     LIMIT 1

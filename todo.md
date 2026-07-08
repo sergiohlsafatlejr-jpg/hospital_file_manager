@@ -38,6 +38,7 @@
 - [x] Tela de login não aparece para usuários não autenticados (resolvido - requer publicação)
 - [x] Parser XML não extrai campos com namespace ans: (descricaoProcedimento vem em branco)
 - [x] Criar tela de visualização de itens importados por convênio
+- [x] Corrigir bug na query SQL do faturamentoExportService.ts - geração XML TISS falhava (colunas inexistentes: codigo_operadora, registro_ans, cnes, codigo_prestador nas tabelas convenios/estabelecimentos)
 
 ## Novas Funcionalidades
 
@@ -4285,3 +4286,4 @@
 - [x] Criar relatório "Resumo Paciente Ox UTI" com faturado x recebido por paciente (diárias, mat/med, gás, taxas/aluguéis) com data entrada/saída e exportação Excel
 - [x] Reestruturar relatório "Resumo Paciente UTI" em 2 abas: Faturado (por Paciente/Guia/Lote) e Recebido (por Paciente/Guia/Protocolo TISS) com valores por categoria separados
 - [x] Sincronizar competência da tabela contas_convenio_itens com contas_convenio_resumo (por numeroConta + numeroLote + estabelecimentoId)
+- [ ] Bug: Erro ao gerar XML de faturamento - query de convênio/estabelecimento com parâmetros na ordem errada (e.id recebe codigo_prestador ao invés do estabelecimentoId)
