@@ -27,6 +27,7 @@ export const estabelecimentos = mysqlTable("estabelecimentos", {
   id: int("id").autoincrement().primaryKey(),
   nome: varchar("nome", { length: 255 }).notNull(),
   cnpj: varchar("cnpj", { length: 20 }),
+  cnes: varchar("cnes", { length: 7 }), // Código CNES do estabelecimento
   endereco: text("endereco"),
   ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -43,6 +44,7 @@ export const convenios = mysqlTable("convenios", {
   id: int("id").autoincrement().primaryKey(),
   nome: varchar("nome", { length: 255 }).notNull(),
   codigo: varchar("codigo", { length: 50 }),
+  registroAns: varchar("registro_ans", { length: 10 }), // Registro ANS da operadora
   estabelecimentoId: int("estabelecimentoId"), // Null = convênio disponível para todos os estabelecimentos
   prazoRecursoGlosa: int("prazoRecursoGlosa").default(30), // Prazo em dias para recurso de glosa
   ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
@@ -4890,10 +4892,27 @@ export const guiasFaturamento = mysqlTable("guias_faturamento", {
   caraterAtendimento: mysqlEnum("carater_atendimento", ["eletivo", "urgencia"]).default("eletivo"),
   tipoInternacao: varchar("tipo_internacao", { length: 2 }),
   regimeInternacao: varchar("regime_internacao", { length: 2 }),
+  // Campos TISS de Internação
+  numeroGuiaSolicitacaoInternacao: varchar("numero_guia_solicitacao_internacao", { length: 50 }),
+  atendimentoRN: mysqlEnum("atendimento_rn", ["S", "N"]).default("N"),
+  tipoFaturamento: varchar("tipo_faturamento", { length: 2 }), // 1=Total, 2=Parcial, 3=Complementar, 4=Conta Final
+  horaInicioFaturamento: varchar("hora_inicio_faturamento", { length: 8 }), // HH:MM:SS
+  horaFinalFaturamento: varchar("hora_final_faturamento", { length: 8 }), // HH:MM:SS
+  // Dados de Saída da Internação
+  indicadorAcidente: varchar("indicador_acidente", { length: 2 }), // 0=Trabalho, 1=Trânsito, 2=Outros, 9=Não informado
+  motivoEncerramento: varchar("motivo_encerramento", { length: 2 }), // 11=Curado, 12=Melhorado, 14=A pedido, etc.
   cid10Principal: varchar("cid10_principal", { length: 10 }),
   cid10Secundario: varchar("cid10_secundario", { length: 10 }),
   indicacaoClinica: text("indicacao_clinica"),
+  // Valores por categoria TISS
   valorTotal: decimal("valor_total", { precision: 12, scale: 2 }).default("0"),
+  valorProcedimentos: decimal("valor_procedimentos", { precision: 12, scale: 2 }).default("0"),
+  valorDiarias: decimal("valor_diarias", { precision: 12, scale: 2 }).default("0"),
+  valorTaxasAlugueis: decimal("valor_taxas_alugueis", { precision: 12, scale: 2 }).default("0"),
+  valorMateriais: decimal("valor_materiais", { precision: 12, scale: 2 }).default("0"),
+  valorMedicamentos: decimal("valor_medicamentos", { precision: 12, scale: 2 }).default("0"),
+  valorOpme: decimal("valor_opme", { precision: 12, scale: 2 }).default("0"),
+  valorGasesMedicinais: decimal("valor_gases_medicinais", { precision: 12, scale: 2 }).default("0"),
   status: mysqlEnum("status", ["rascunho", "finalizada", "em_lote", "enviada"]).default("rascunho").notNull(),
   loteId: int("lote_id"),
   observacoes: text("observacoes"),
@@ -4918,19 +4937,30 @@ export const itensGuiaFaturamento = mysqlTable("itens_guia_faturamento", {
   guiaId: int("guia_id").notNull(),
   sequencial: int("sequencial").notNull().default(1),
   tipoItem: mysqlEnum("tipo_item", ["procedimento", "material", "medicamento", "taxa", "diaria", "opme", "gases"]).notNull(),
+  tipoLancamento: mysqlEnum("tipo_lancamento", ["procedimento", "despesa"]).default("despesa"), // procedimento = procedimentoExecutado, despesa = outrasDespesas
+  codigoDespesa: varchar("codigo_despesa", { length: 2 }), // 01=Gases, 02=Med, 03=Mat, 05=Diária, 07=Taxa, 08=OPME
+  unidadeMedida: varchar("unidade_medida", { length: 3 }), // Código TISS de unidade de medida
   codigoTabela: varchar("codigo_tabela", { length: 5 }),
   codigoProcedimento: varchar("codigo_procedimento", { length: 20 }).notNull(),
   descricao: varchar("descricao", { length: 500 }).notNull(),
   dataExecucao: varchar("data_execucao", { length: 10 }),
-  horaInicio: varchar("hora_inicio", { length: 5 }),
-  horaFim: varchar("hora_fim", { length: 5 }),
-  quantidade: decimal("quantidade", { precision: 10, scale: 2 }).default("1").notNull(),
+  horaInicio: varchar("hora_inicio", { length: 8 }), // HH:MM:SS
+  horaFim: varchar("hora_fim", { length: 8 }), // HH:MM:SS
+  quantidade: decimal("quantidade", { precision: 10, scale: 4 }).default("1").notNull(),
   valorUnitario: decimal("valor_unitario", { precision: 12, scale: 4 }).default("0").notNull(),
   valorTotal: decimal("valor_total", { precision: 12, scale: 2 }).default("0").notNull(),
   fatorReducao: decimal("fator_reducao", { precision: 5, scale: 2 }).default("1"),
   viaAcesso: varchar("via_acesso", { length: 5 }),
   tecnica: varchar("tecnica", { length: 5 }),
   grauParticipacao: varchar("grau_participacao", { length: 5 }),
+  // Dados do profissional por item (equipe)
+  codigoProfissionalOperadora: varchar("codigo_profissional_operadora", { length: 50 }),
+  nomeProfissional: varchar("nome_profissional", { length: 255 }),
+  conselhoProfissional: varchar("conselho_profissional", { length: 5 }), // 6=CRM
+  numeroConselhoProfissional: varchar("numero_conselho_profissional", { length: 20 }),
+  ufProfissional: varchar("uf_profissional", { length: 2 }),
+  cbosProfissional: varchar("cbos_profissional", { length: 10 }),
+  // OPME
   registroAnvisa: varchar("registro_anvisa", { length: 30 }),
   codigoRefFabricante: varchar("codigo_ref_fabricante", { length: 50 }),
   autorizacaoFuncionamento: varchar("autorizacao_funcionamento", { length: 50 }),

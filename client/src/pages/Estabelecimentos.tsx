@@ -15,7 +15,7 @@ import { toast } from "sonner";
 export default function Estabelecimentos() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState({ nome: "", cnpj: "", endereco: "" });
+  const [formData, setFormData] = useState({ nome: "", cnpj: "", cnes: "", endereco: "" });
   const [busca, setBusca] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -55,14 +55,15 @@ export default function Estabelecimentos() {
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingId(null);
-    setFormData({ nome: "", cnpj: "", endereco: "" });
+    setFormData({ nome: "", cnpj: "", cnes: "", endereco: "" });
   };
 
-  const openEdit = (est: { id: number; nome: string; cnpj?: string | null; endereco?: string | null }) => {
+  const openEdit = (est: { id: number; nome: string; cnpj?: string | null; cnes?: string | null; endereco?: string | null }) => {
     setEditingId(est.id);
     setFormData({
       nome: est.nome,
       cnpj: est.cnpj || "",
+      cnes: (est as any).cnes || "",
       endereco: est.endereco || "",
     });
     setIsDialogOpen(true);
@@ -214,6 +215,16 @@ export default function Estabelecimentos() {
                 value={formData.cnpj}
                 onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
                 placeholder="00.000.000/0001-00"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cnes">CNES</Label>
+              <Input
+                id="cnes"
+                value={formData.cnes}
+                onChange={(e) => setFormData({ ...formData, cnes: e.target.value })}
+                placeholder="Ex: 2337819"
+                maxLength={7}
               />
             </div>
             <div className="space-y-2">

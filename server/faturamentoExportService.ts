@@ -27,8 +27,8 @@ export async function gerarXmlTissLote(loteId: number): Promise<{ url: string; x
   const convenioId = guias[0].convenioId;
   
   const [convenioData] = await db.execute(sql`
-    SELECT c.nome as nome_convenio, c.codigo as codigo_convenio,
-           e.nome as nome_estabelecimento, e.cnpj,
+    SELECT c.nome as nome_convenio, c.codigo as codigo_convenio, c.registro_ans,
+           e.nome as nome_estabelecimento, e.cnpj, e.cnes,
            cep.codigoPrestador as codigo_prestador
     FROM convenios c
     LEFT JOIN estabelecimentos e ON e.id = ${estabelecimentoId}
@@ -42,10 +42,10 @@ export async function gerarXmlTissLote(loteId: number): Promise<{ url: string; x
   const prestador = {
     nome: prestadorRow.nome_convenio || "",
     codigo_operadora: prestadorRow.codigo_convenio || "",
-    registro_ans: prestadorRow.codigo_convenio || "", // O código do convênio é usado como registro ANS
+    registro_ans: prestadorRow.registro_ans || prestadorRow.codigo_convenio || "",
     nome_estabelecimento: prestadorRow.nome_estabelecimento || "",
     cnpj: prestadorRow.cnpj || "",
-    cnes: "", // Campo CNES não existe na tabela estabelecimentos ainda
+    cnes: prestadorRow.cnes || "",
     codigo_prestador: prestadorRow.codigo_prestador || "",
   };
 
@@ -117,7 +117,12 @@ ${xmlGuias}
 }
 
 function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): string {
-  const itensXml = itens.map((item, idx) => `
+  // Separar itens em procedimentos e despesas
+  const procedimentos = itens.filter(i => i.tipoLancamento === "procedimento" || i.tipoItem === "procedimento");
+  const despesas = itens.filter(i => i.tipoLancamento === "despesa" || (i.tipoItem !== "procedimento" && !i.tipoLancamento));
+
+  // Gerar XML de procedimentos executados
+  const itensXml = procedimentos.map((item, idx) => `
             <ans:procedimentoExecutado>
               <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
               <ans:dataExecucao>${item.dataExecucao || guia.dataAtendimento || ""}</ans:dataExecucao>
@@ -132,10 +137,54 @@ function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): st
               <ans:viaAcesso>${item.viaAcesso || "U"}</ans:viaAcesso>
               <ans:tecnicaUtilizada>${item.tecnica || "C"}</ans:tecnicaUtilizada>
               <ans:reducaoAcrescimo>${item.fatorReducao || "1.00"}</ans:reducaoAcrescimo>
-              <ans:valorUnitario>${item.valorUnitario || "0.00"}</ans:valorUnitario>
-              <ans:valorTotal>${item.valorTotal || "0.00"}</ans:valorTotal>
+              <ans:valorUnitario>${Number(item.valorUnitario || 0).toFixed(2)}</ans:valorUnitario>
+              <ans:valorTotal>${Number(item.valorTotal || 0).toFixed(2)}</ans:valorTotal>${item.grauParticipacao ? `
+              <ans:equipeSadt>
+                <ans:grauPart>${item.grauParticipacao}</ans:grauPart>
+                <ans:codigoProfissional>${item.codigoProfissionalOperadora || prestador.codigo_prestador || ""}</ans:codigoProfissional>
+                <ans:nomeProf>${escapeXml(item.nomeProfissional || guia.nomeExecutante || "")}</ans:nomeProf>
+                <ans:conselho>${item.conselhoProfissional || guia.conselhoProfExecutante || "6"}</ans:conselho>
+                <ans:numeroConselhoProfissional>${item.numeroConselhoProfissional || guia.numeroConselhoProfExecutante || ""}</ans:numeroConselhoProfissional>
+                <ans:UF>${item.ufProfissional || guia.ufConselhoProfExecutante || "GO"}</ans:UF>
+                <ans:CBOS>${item.cbosProfissional || guia.cbosConselhoProfExecutante || ""}</ans:CBOS>
+              </ans:equipeSadt>` : ""}
             </ans:procedimentoExecutado>`).join("\n");
 
+  // Gerar XML de outras despesas (materiais, medicamentos, diárias, taxas, gases)
+  const despesasXml = despesas.map((item, idx) => {
+    const codigoDespesa = item.codigoDespesa || mapTipoItemToCodigoDespesa(item.tipoItem);
+    return `
+            <ans:despesa>
+              <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
+              <ans:codigoDespesa>${codigoDespesa}</ans:codigoDespesa>
+              <ans:servicosExecutados>
+                <ans:dataExecucao>${item.dataExecucao || guia.dataAtendimento || ""}</ans:dataExecucao>
+                <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
+                <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+                <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
+                <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
+                <ans:descricaoProcedimento>${escapeXml(item.descricao)}</ans:descricaoProcedimento>
+                <ans:quantidadeExecutada>${item.quantidade || "1"}</ans:quantidadeExecutada>
+                <ans:unidadeMedida>${item.unidadeMedida || "001"}</ans:unidadeMedida>
+                <ans:reducaoAcrescimo>${item.fatorReducao || "1.00"}</ans:reducaoAcrescimo>
+                <ans:valorUnitario>${Number(item.valorUnitario || 0).toFixed(2)}</ans:valorUnitario>
+                <ans:valorTotal>${Number(item.valorTotal || 0).toFixed(2)}</ans:valorTotal>${item.registroAnvisa ? `
+                <ans:registroANVISA>${item.registroAnvisa}</ans:registroANVISA>` : ""}${item.codigoRefFabricante ? `
+                <ans:codigoRefFabricante>${item.codigoRefFabricante}</ans:codigoRefFabricante>` : ""}${item.autorizacaoFuncionamento ? `
+                <ans:autorizacaoFuncionamento>${item.autorizacaoFuncionamento}</ans:autorizacaoFuncionamento>` : ""}
+              </ans:servicosExecutados>
+            </ans:despesa>`;
+  }).join("\n");
+
+  // Calcular valores por categoria
+  const valorProcedimentos = procedimentos.reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorDespesas = despesas.reduce((acc, i) => acc + Number(i.valorTotal || 0), 0);
+  const valorDiarias = despesas.filter(i => (i.codigoDespesa === "5" || i.tipoItem === "diaria")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorTaxas = despesas.filter(i => (i.codigoDespesa === "7" || i.tipoItem === "taxa")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorMateriais = despesas.filter(i => (i.codigoDespesa === "3" || i.tipoItem === "material")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorMedicamentos = despesas.filter(i => (i.codigoDespesa === "2" || i.tipoItem === "medicamento")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorOpme = despesas.filter(i => (i.codigoDespesa === "8" || i.tipoItem === "opme")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorGases = despesas.filter(i => (i.codigoDespesa === "1" || i.tipoItem === "gases")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
   const valorTotal = itens.reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
 
   return `        <ans:guiaSP-SADT>
@@ -182,12 +231,21 @@ function gerarGuiaSadt(guia: any, itens: any[], prestador: any, seq: number): st
           <ans:dadosAtendimento>
             <ans:tipoAtendimento>${guia.caraterAtendimento === "urgencia" ? "2" : "1"}</ans:tipoAtendimento>
             ${guia.indicacaoClinica ? `<ans:indicacaoClinica>${escapeXml(guia.indicacaoClinica)}</ans:indicacaoClinica>` : ""}
-          </ans:dadosAtendimento>
+          </ans:dadosAtendimento>${procedimentos.length > 0 ? `
           <ans:procedimentosExecutados>
 ${itensXml}
-          </ans:procedimentosExecutados>
+          </ans:procedimentosExecutados>` : ""}${despesas.length > 0 ? `
+          <ans:outrasDespesas>
+${despesasXml}
+          </ans:outrasDespesas>` : ""}
           <ans:valorTotal>
-            <ans:valorProcedimentos>${valorTotal}</ans:valorProcedimentos>
+            <ans:valorProcedimentos>${valorProcedimentos}</ans:valorProcedimentos>${Number(valorDiarias) > 0 ? `
+            <ans:valorDiarias>${valorDiarias}</ans:valorDiarias>` : ""}${Number(valorTaxas) > 0 ? `
+            <ans:valorTaxasAlugueis>${valorTaxas}</ans:valorTaxasAlugueis>` : ""}${Number(valorMateriais) > 0 ? `
+            <ans:valorMateriais>${valorMateriais}</ans:valorMateriais>` : ""}${Number(valorMedicamentos) > 0 ? `
+            <ans:valorMedicamentos>${valorMedicamentos}</ans:valorMedicamentos>` : ""}${Number(valorOpme) > 0 ? `
+            <ans:valorOPME>${valorOpme}</ans:valorOPME>` : ""}${Number(valorGases) > 0 ? `
+            <ans:valorGasesMedicinais>${valorGases}</ans:valorGasesMedicinais>` : ""}
             <ans:valorTotal>${valorTotal}</ans:valorTotal>
           </ans:valorTotal>
         </ans:guiaSP-SADT>
@@ -195,7 +253,12 @@ ${itensXml}
 }
 
 function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: number): string {
-  const itensXml = itens.map((item, idx) => `
+  // Separar itens em procedimentos e despesas
+  const procedimentos = itens.filter(i => i.tipoLancamento === "procedimento" || i.tipoItem === "procedimento");
+  const despesas = itens.filter(i => i.tipoLancamento === "despesa" || (i.tipoItem !== "procedimento" && !i.tipoLancamento));
+
+  // Gerar XML de procedimentos executados
+  const itensXml = procedimentos.map((item, idx) => `
             <ans:procedimentoExecutado>
               <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
               <ans:dataExecucao>${item.dataExecucao || guia.dataInicio || ""}</ans:dataExecucao>
@@ -210,17 +273,61 @@ function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: numbe
               <ans:viaAcesso>${item.viaAcesso || "U"}</ans:viaAcesso>
               <ans:tecnicaUtilizada>${item.tecnica || "C"}</ans:tecnicaUtilizada>
               <ans:reducaoAcrescimo>${item.fatorReducao || "1.00"}</ans:reducaoAcrescimo>
-              <ans:valorUnitario>${item.valorUnitario || "0.00"}</ans:valorUnitario>
-              <ans:valorTotal>${item.valorTotal || "0.00"}</ans:valorTotal>
+              <ans:valorUnitario>${Number(item.valorUnitario || 0).toFixed(2)}</ans:valorUnitario>
+              <ans:valorTotal>${Number(item.valorTotal || 0).toFixed(2)}</ans:valorTotal>${item.grauParticipacao ? `
+              <ans:equipeSadt>
+                <ans:grauPart>${item.grauParticipacao}</ans:grauPart>
+                <ans:codigoProfissional>${item.codigoProfissionalOperadora || prestador.codigo_prestador || ""}</ans:codigoProfissional>
+                <ans:nomeProf>${escapeXml(item.nomeProfissional || guia.nomeExecutante || "")}</ans:nomeProf>
+                <ans:conselho>${item.conselhoProfissional || guia.conselhoProfExecutante || "6"}</ans:conselho>
+                <ans:numeroConselhoProfissional>${item.numeroConselhoProfissional || guia.numeroConselhoProfExecutante || ""}</ans:numeroConselhoProfissional>
+                <ans:UF>${item.ufProfissional || guia.ufConselhoProfExecutante || "GO"}</ans:UF>
+                <ans:CBOS>${item.cbosProfissional || guia.cbosConselhoProfExecutante || ""}</ans:CBOS>
+              </ans:equipeSadt>` : ""}
             </ans:procedimentoExecutado>`).join("\n");
 
+  // Gerar XML de outras despesas
+  const despesasXml = despesas.map((item, idx) => {
+    const codigoDespesa = item.codigoDespesa || mapTipoItemToCodigoDespesa(item.tipoItem);
+    return `
+            <ans:despesa>
+              <ans:sequencialItem>${idx + 1}</ans:sequencialItem>
+              <ans:codigoDespesa>${codigoDespesa}</ans:codigoDespesa>
+              <ans:servicosExecutados>
+                <ans:dataExecucao>${item.dataExecucao || guia.dataInicio || ""}</ans:dataExecucao>
+                <ans:horaInicial>${item.horaInicio || "00:00:00"}</ans:horaInicial>
+                <ans:horaFinal>${item.horaFim || "00:00:00"}</ans:horaFinal>
+                <ans:codigoTabela>${item.codigoTabela || "22"}</ans:codigoTabela>
+                <ans:codigoProcedimento>${item.codigoProcedimento}</ans:codigoProcedimento>
+                <ans:descricaoProcedimento>${escapeXml(item.descricao)}</ans:descricaoProcedimento>
+                <ans:quantidadeExecutada>${item.quantidade || "1"}</ans:quantidadeExecutada>
+                <ans:unidadeMedida>${item.unidadeMedida || "001"}</ans:unidadeMedida>
+                <ans:reducaoAcrescimo>${item.fatorReducao || "1.00"}</ans:reducaoAcrescimo>
+                <ans:valorUnitario>${Number(item.valorUnitario || 0).toFixed(2)}</ans:valorUnitario>
+                <ans:valorTotal>${Number(item.valorTotal || 0).toFixed(2)}</ans:valorTotal>${item.registroAnvisa ? `
+                <ans:registroANVISA>${item.registroAnvisa}</ans:registroANVISA>` : ""}${item.codigoRefFabricante ? `
+                <ans:codigoRefFabricante>${item.codigoRefFabricante}</ans:codigoRefFabricante>` : ""}${item.autorizacaoFuncionamento ? `
+                <ans:autorizacaoFuncionamento>${item.autorizacaoFuncionamento}</ans:autorizacaoFuncionamento>` : ""}
+              </ans:servicosExecutados>
+            </ans:despesa>`;
+  }).join("\n");
+
+  // Calcular valores por categoria
+  const valorProcedimentos = procedimentos.reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorDiarias = despesas.filter(i => (i.codigoDespesa === "5" || i.tipoItem === "diaria")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorTaxas = despesas.filter(i => (i.codigoDespesa === "7" || i.tipoItem === "taxa")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorMateriais = despesas.filter(i => (i.codigoDespesa === "3" || i.tipoItem === "material")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorMedicamentos = despesas.filter(i => (i.codigoDespesa === "2" || i.tipoItem === "medicamento")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorOpme = despesas.filter(i => (i.codigoDespesa === "8" || i.tipoItem === "opme")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
+  const valorGases = despesas.filter(i => (i.codigoDespesa === "1" || i.tipoItem === "gases")).reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
   const valorTotal = itens.reduce((acc, i) => acc + Number(i.valorTotal || 0), 0).toFixed(2);
 
   return `        <ans:guiaResumoInternacao>
           <ans:cabecalhoGuia>
             <ans:registroANS>${prestador.registro_ans || ""}</ans:registroANS>
             <ans:numeroGuiaPrestador>${guia.numeroGuiaPrestador || guia.id}</ans:numeroGuiaPrestador>
-            ${guia.numeroGuiaOperadora ? `<ans:guiaPrincipal>${guia.numeroGuiaOperadora}</ans:guiaPrincipal>` : ""}
+            ${guia.numeroGuiaOperadora ? `<ans:guiaPrincipal>${guia.numeroGuiaOperadora}</ans:guiaPrincipal>` : ""}${guia.numeroGuiaSolicitacaoInternacao ? `
+            <ans:numeroGuiaSolicitacaoInternacao>${guia.numeroGuiaSolicitacaoInternacao}</ans:numeroGuiaSolicitacaoInternacao>` : ""}
           </ans:cabecalhoGuia>
           <ans:dadosAutorizacao>
             ${guia.senha ? `<ans:senha>${guia.senha}</ans:senha>` : ""}
@@ -228,16 +335,25 @@ function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: numbe
           </ans:dadosAutorizacao>
           <ans:dadosBeneficiario>
             <ans:numeroCarteira>${guia.carteirinha || ""}</ans:numeroCarteira>
+            <ans:atendimentoRN>${guia.atendimentoRN || "N"}</ans:atendimentoRN>
             <ans:nomeBeneficiario>${escapeXml(guia.nomePaciente)}</ans:nomeBeneficiario>
           </ans:dadosBeneficiario>
           <ans:dadosInternacao>
             <ans:caraterAtendimento>${guia.caraterAtendimento === "urgencia" ? "2" : "1"}</ans:caraterAtendimento>
+            ${guia.tipoFaturamento ? `<ans:tipoFaturamento>${guia.tipoFaturamento}</ans:tipoFaturamento>` : ""}
             ${guia.tipoInternacao ? `<ans:tipoInternacao>${guia.tipoInternacao}</ans:tipoInternacao>` : ""}
             ${guia.regimeInternacao ? `<ans:regimeInternacao>${guia.regimeInternacao}</ans:regimeInternacao>` : ""}
+            <ans:dataInicioFaturamento>${guia.dataInicio || ""}</ans:dataInicioFaturamento>${guia.horaInicioFaturamento ? `
+            <ans:horaInicioFaturamento>${guia.horaInicioFaturamento}</ans:horaInicioFaturamento>` : ""}
+            <ans:dataFinalFaturamento>${guia.dataFim || ""}</ans:dataFinalFaturamento>${guia.horaFinalFaturamento ? `
+            <ans:horaFinalFaturamento>${guia.horaFinalFaturamento}</ans:horaFinalFaturamento>` : ""}
             ${guia.cid10Principal ? `<ans:CID>${guia.cid10Principal}</ans:CID>` : ""}
             ${guia.indicacaoClinica ? `<ans:indicacaoClinica>${escapeXml(guia.indicacaoClinica)}</ans:indicacaoClinica>` : ""}
+            ${guia.indicadorAcidente ? `<ans:indicadorAcidente>${guia.indicadorAcidente}</ans:indicadorAcidente>` : ""}
+            ${guia.motivoEncerramento ? `<ans:motivoEncerramento>${guia.motivoEncerramento}</ans:motivoEncerramento>` : ""}
           </ans:dadosInternacao>
           <ans:dadosSaida>
+            ${guia.motivoEncerramento ? `<ans:motivoEncerramento>${guia.motivoEncerramento}</ans:motivoEncerramento>` : ""}
             ${guia.dataFim ? `<ans:dataSaida>${guia.dataFim}</ans:dataSaida>` : ""}
           </ans:dadosSaida>
           <ans:dadosExecutante>
@@ -246,12 +362,21 @@ function gerarGuiaInternacao(guia: any, itens: any[], prestador: any, seq: numbe
               <ans:nomeContratado>${escapeXml(prestador.nome_estabelecimento || "")}</ans:nomeContratado>
               <ans:CNES>${prestador.cnes || ""}</ans:CNES>
             </ans:contratadoExecutante>
-          </ans:dadosExecutante>
+          </ans:dadosExecutante>${procedimentos.length > 0 ? `
           <ans:procedimentosExecutados>
 ${itensXml}
-          </ans:procedimentosExecutados>
+          </ans:procedimentosExecutados>` : ""}${despesas.length > 0 ? `
+          <ans:outrasDespesas>
+${despesasXml}
+          </ans:outrasDespesas>` : ""}
           <ans:valorTotal>
-            <ans:valorProcedimentos>${valorTotal}</ans:valorProcedimentos>
+            <ans:valorProcedimentos>${valorProcedimentos}</ans:valorProcedimentos>${Number(valorDiarias) > 0 ? `
+            <ans:valorDiarias>${valorDiarias}</ans:valorDiarias>` : ""}${Number(valorTaxas) > 0 ? `
+            <ans:valorTaxasAlugueis>${valorTaxas}</ans:valorTaxasAlugueis>` : ""}${Number(valorMateriais) > 0 ? `
+            <ans:valorMateriais>${valorMateriais}</ans:valorMateriais>` : ""}${Number(valorMedicamentos) > 0 ? `
+            <ans:valorMedicamentos>${valorMedicamentos}</ans:valorMedicamentos>` : ""}${Number(valorOpme) > 0 ? `
+            <ans:valorOPME>${valorOpme}</ans:valorOPME>` : ""}${Number(valorGases) > 0 ? `
+            <ans:valorGasesMedicinais>${valorGases}</ans:valorGasesMedicinais>` : ""}
             <ans:valorTotal>${valorTotal}</ans:valorTotal>
           </ans:valorTotal>
         </ans:guiaResumoInternacao>
@@ -404,6 +529,18 @@ export async function gerarExcelUnimedForm3061(loteId: number): Promise<{ url: s
   }).where(eq(lotesFaturamento.id, loteId));
 
   return { url };
+}
+
+function mapTipoItemToCodigoDespesa(tipoItem: string): string {
+  switch (tipoItem) {
+    case "gases": return "1";
+    case "medicamento": return "2";
+    case "material": return "3";
+    case "diaria": return "5";
+    case "taxa": return "7";
+    case "opme": return "8";
+    default: return "3"; // material como fallback
+  }
 }
 
 function formatCurrency(value: number): string {

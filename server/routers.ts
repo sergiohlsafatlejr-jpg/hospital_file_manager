@@ -239,6 +239,7 @@ export const appRouter = router({
         z.object({
           nome: z.string().min(1),
           codigo: z.string().optional(),
+          registroAns: z.string().optional(),
           prazoRecursoGlosa: z.number().optional(),
         })
       )
@@ -246,6 +247,7 @@ export const appRouter = router({
         return db.createConvenio({
           nome: input.nome,
           codigo: input.codigo || null,
+          registroAns: input.registroAns || null,
           prazoRecursoGlosa: input.prazoRecursoGlosa || 30,
         });
       }),
@@ -256,6 +258,7 @@ export const appRouter = router({
           id: z.number(),
           nome: z.string().optional(),
           codigo: z.string().optional(),
+          registroAns: z.string().optional(),
           prazoRecursoGlosa: z.number().optional(),
           ativo: z.enum(["sim", "nao"]).optional(),
         })
@@ -333,6 +336,7 @@ export const appRouter = router({
         z.object({
           nome: z.string().min(1),
           cnpj: z.string().optional(),
+          cnes: z.string().optional(),
           endereco: z.string().optional(),
         })
       )
@@ -340,6 +344,7 @@ export const appRouter = router({
         return db.createEstabelecimento({
           nome: input.nome,
           cnpj: input.cnpj || null,
+          cnes: input.cnes || null,
           endereco: input.endereco || null,
         });
       }),
@@ -350,6 +355,7 @@ export const appRouter = router({
           id: z.number(),
           nome: z.string().optional(),
           cnpj: z.string().optional(),
+          cnes: z.string().optional(),
           endereco: z.string().optional(),
           ativo: z.enum(["sim", "nao"]).optional(),
         })

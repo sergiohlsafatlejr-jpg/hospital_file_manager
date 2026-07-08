@@ -59,6 +59,14 @@ export default function FaturamentoGuiaEditor() {
   const [indicacaoClinica, setIndicacaoClinica] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [tipoServico, setTipoServico] = useState("");
+  // Campos TISS Internação
+  const [numeroGuiaSolicitacaoInternacao, setNumeroGuiaSolicitacaoInternacao] = useState("");
+  const [atendimentoRN, setAtendimentoRN] = useState<"S" | "N">("N");
+  const [tipoFaturamento, setTipoFaturamento] = useState("");
+  const [horaInicioFaturamento, setHoraInicioFaturamento] = useState("");
+  const [horaFinalFaturamento, setHoraFinalFaturamento] = useState("");
+  const [indicadorAcidente, setIndicadorAcidente] = useState("");
+  const [motivoEncerramento, setMotivoEncerramento] = useState("");
 
   // Item dialog
   const [showItemDialog, setShowItemDialog] = useState(false);
@@ -73,6 +81,8 @@ export default function FaturamentoGuiaEditor() {
   const [itemViaAcesso, setItemViaAcesso] = useState("");
   const [itemTecnica, setItemTecnica] = useState("");
   const [itemGrauParticipacao, setItemGrauParticipacao] = useState("");
+  const [itemUnidadeMedida, setItemUnidadeMedida] = useState("");
+  const [itemCodigoDespesa, setItemCodigoDespesa] = useState("");
   const [buscaTuss, setBuscaTuss] = useState("");
   const [buscaTabPreco, setBuscaTabPreco] = useState("");
   const [fonteBusca, setFonteBusca] = useState<"tuss" | "tabela_preco">("tabela_preco");
@@ -144,6 +154,14 @@ export default function FaturamentoGuiaEditor() {
       setIndicacaoClinica(guiaData.indicacaoClinica || "");
       setObservacoes(guiaData.observacoes || "");
       setTipoServico(guiaData.tipoServico || "");
+      // Campos TISS Internação
+      setNumeroGuiaSolicitacaoInternacao((guiaData as any).numeroGuiaSolicitacaoInternacao || "");
+      setAtendimentoRN((guiaData as any).atendimentoRN || "N");
+      setTipoFaturamento((guiaData as any).tipoFaturamento || "");
+      setHoraInicioFaturamento((guiaData as any).horaInicioFaturamento || "");
+      setHoraFinalFaturamento((guiaData as any).horaFinalFaturamento || "");
+      setIndicadorAcidente((guiaData as any).indicadorAcidente || "");
+      setMotivoEncerramento((guiaData as any).motivoEncerramento || "");
     }
   }, [guiaData]);
 
@@ -194,6 +212,8 @@ export default function FaturamentoGuiaEditor() {
     setItemViaAcesso("");
     setItemTecnica("");
     setItemGrauParticipacao("");
+    setItemUnidadeMedida("");
+    setItemCodigoDespesa("");
     setBuscaTuss("");
   };
 
@@ -228,6 +248,14 @@ export default function FaturamentoGuiaEditor() {
       caraterAtendimento,
       tipoInternacao: tipoInternacao || undefined,
       regimeInternacao: regimeInternacao || undefined,
+      // Campos TISS Internação
+      numeroGuiaSolicitacaoInternacao: numeroGuiaSolicitacaoInternacao || undefined,
+      atendimentoRN: atendimentoRN || undefined,
+      tipoFaturamento: tipoFaturamento || undefined,
+      horaInicioFaturamento: horaInicioFaturamento || undefined,
+      horaFinalFaturamento: horaFinalFaturamento || undefined,
+      indicadorAcidente: indicadorAcidente || undefined,
+      motivoEncerramento: motivoEncerramento || undefined,
       cid10Principal: cid10Principal || undefined,
       cid10Secundario: cid10Secundario || undefined,
       indicacaoClinica: indicacaoClinica || undefined,
@@ -255,6 +283,9 @@ export default function FaturamentoGuiaEditor() {
     adicionarItemMutation.mutate({
       guiaId,
       tipoItem: itemTipo as any,
+      tipoLancamento: itemTipo === "procedimento" ? "procedimento" : "despesa",
+      codigoDespesa: itemCodigoDespesa || undefined,
+      unidadeMedida: itemUnidadeMedida || undefined,
       codigoTabela: itemCodigoTabela || undefined,
       codigoProcedimento: itemCodigo,
       descricao: itemDescricao,
@@ -327,6 +358,7 @@ export default function FaturamentoGuiaEditor() {
         <Tabs defaultValue="dados" className="space-y-4">
           <TabsList>
             <TabsTrigger value="dados">Dados da Guia</TabsTrigger>
+            {tipoGuia === "internacao" && <TabsTrigger value="internacao_tiss">Internação TISS</TabsTrigger>}
             <TabsTrigger value="itens">Procedimentos/Itens ({itens.length})</TabsTrigger>
             <TabsTrigger value="profissionais">Profissionais</TabsTrigger>
           </TabsList>
@@ -491,6 +523,99 @@ export default function FaturamentoGuiaEditor() {
               </Card>
             </div>
           </TabsContent>
+
+          {/* Aba Internação TISS */}
+          {tipoGuia === "internacao" && (
+            <TabsContent value="internacao_tiss">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader><CardTitle>Dados de Faturamento</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label>Nº Guia Solicitação Internação</Label>
+                      <Input value={numeroGuiaSolicitacaoInternacao} onChange={(e) => setNumeroGuiaSolicitacaoInternacao(e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Tipo Faturamento</Label>
+                        <Select value={tipoFaturamento} onValueChange={setTipoFaturamento}>
+                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">1 - Total</SelectItem>
+                            <SelectItem value="2">2 - Parcial</SelectItem>
+                            <SelectItem value="3">3 - Complementar</SelectItem>
+                            <SelectItem value="4">4 - Conta Final</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Atendimento RN</Label>
+                        <Select value={atendimentoRN} onValueChange={(v) => setAtendimentoRN(v as "S" | "N")}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="N">Não</SelectItem>
+                            <SelectItem value="S">Sim</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Hora Início Faturamento</Label>
+                        <Input type="time" step="1" value={horaInicioFaturamento} onChange={(e) => setHoraInicioFaturamento(e.target.value)} placeholder="HH:MM:SS" />
+                      </div>
+                      <div>
+                        <Label>Hora Final Faturamento</Label>
+                        <Input type="time" step="1" value={horaFinalFaturamento} onChange={(e) => setHoraFinalFaturamento(e.target.value)} placeholder="HH:MM:SS" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>Saída da Internação</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label>Indicador Acidente</Label>
+                      <Select value={indicadorAcidente} onValueChange={setIndicadorAcidente}>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">0 - Trabalho</SelectItem>
+                          <SelectItem value="1">1 - Trânsito</SelectItem>
+                          <SelectItem value="2">2 - Outros/Não acidente</SelectItem>
+                          <SelectItem value="9">9 - Não informado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Motivo Encerramento</Label>
+                      <Select value={motivoEncerramento} onValueChange={setMotivoEncerramento}>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="11">11 - Alta curado</SelectItem>
+                          <SelectItem value="12">12 - Alta melhorado</SelectItem>
+                          <SelectItem value="14">14 - Alta a pedido</SelectItem>
+                          <SelectItem value="15">15 - Alta com previsão de retorno</SelectItem>
+                          <SelectItem value="16">16 - Alta por evasão</SelectItem>
+                          <SelectItem value="18">18 - Alta por outros motivos</SelectItem>
+                          <SelectItem value="21">21 - Permanência por doença</SelectItem>
+                          <SelectItem value="22">22 - Permanência por intercorrência</SelectItem>
+                          <SelectItem value="28">28 - Transferência</SelectItem>
+                          <SelectItem value="31">31 - Óbito (médico assistente)</SelectItem>
+                          <SelectItem value="32">32 - Óbito (IML)</SelectItem>
+                          <SelectItem value="41">41 - Alta mãe e RN</SelectItem>
+                          <SelectItem value="42">42 - Alta mãe, RN permanece</SelectItem>
+                          <SelectItem value="43">43 - Alta mãe, óbito RN</SelectItem>
+                          <SelectItem value="61">61 - Alta RN, mãe permanece</SelectItem>
+                          <SelectItem value="62">62 - Alta RN, óbito mãe</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
 
           {/* Aba Itens */}
           <TabsContent value="itens">
@@ -800,6 +925,43 @@ export default function FaturamentoGuiaEditor() {
                   <Input value={itemValorTotal} readOnly className="bg-muted" />
                 </div>
               </div>
+
+              {itemTipo !== "procedimento" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Código Despesa</Label>
+                    <Select value={itemCodigoDespesa} onValueChange={setItemCodigoDespesa}>
+                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">01 - Gases Medicinais</SelectItem>
+                        <SelectItem value="2">02 - Medicamentos</SelectItem>
+                        <SelectItem value="3">03 - Materiais</SelectItem>
+                        <SelectItem value="5">05 - Diárias</SelectItem>
+                        <SelectItem value="7">07 - Taxas/Aluguéis</SelectItem>
+                        <SelectItem value="8">08 - OPME</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Unidade Medida</Label>
+                    <Select value={itemUnidadeMedida} onValueChange={setItemUnidadeMedida}>
+                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="001">001 - Unidade</SelectItem>
+                        <SelectItem value="002">002 - Ampola</SelectItem>
+                        <SelectItem value="003">003 - Frasco</SelectItem>
+                        <SelectItem value="004">004 - Comprimido</SelectItem>
+                        <SelectItem value="005">005 - Cápsula</SelectItem>
+                        <SelectItem value="006">006 - Pacote</SelectItem>
+                        <SelectItem value="007">007 - Litro</SelectItem>
+                        <SelectItem value="008">008 - mL</SelectItem>
+                        <SelectItem value="009">009 - cm</SelectItem>
+                        <SelectItem value="010">010 - Metro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
 
               {itemTipo === "procedimento" && (
                 <div className="grid grid-cols-3 gap-3">

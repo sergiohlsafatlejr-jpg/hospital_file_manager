@@ -4286,4 +4286,13 @@
 - [x] Criar relatório "Resumo Paciente Ox UTI" com faturado x recebido por paciente (diárias, mat/med, gás, taxas/aluguéis) com data entrada/saída e exportação Excel
 - [x] Reestruturar relatório "Resumo Paciente UTI" em 2 abas: Faturado (por Paciente/Guia/Lote) e Recebido (por Paciente/Guia/Protocolo TISS) com valores por categoria separados
 - [x] Sincronizar competência da tabela contas_convenio_itens com contas_convenio_resumo (por numeroConta + numeroLote + estabelecimentoId)
-- [ ] Bug: Erro ao gerar XML de faturamento - query de convênio/estabelecimento com parâmetros na ordem errada (e.id recebe codigo_prestador ao invés do estabelecimentoId)
+- [x] Bug: Erro ao gerar XML de faturamento - query de convênio/estabelecimento com parâmetros na ordem errada (e.id recebe codigo_prestador ao invés do estabelecimentoId)
+
+- [x] Adicionar campo registro_ans na tabela convenios
+- [x] Adicionar campo cnes na tabela estabelecimentos
+- [x] Adicionar campos TISS faltantes na tabela guias_faturamento (tipoFaturamento, horaInicioFaturamento, horaFinalFaturamento, indicadorAcidente, motivoEncerramento, atendimentoRN, numeroGuiaSolicitacaoInternacao, valores por categoria)
+- [x] Adicionar campos TISS faltantes na tabela itens_guia_faturamento (codigoDespesa, unidadeMedida, tipoLancamento, dados profissional por item)
+- [x] Ampliar hora_inicio e hora_fim de varchar(5) para varchar(8) para suportar HH:MM:SS
+- [x] Atualizar router de digitação para aceitar os novos campos
+- [x] Atualizar interface de digitação de guias com os novos campos
+- [x] Atualizar faturamentoExportService para gerar XML com os novos campos

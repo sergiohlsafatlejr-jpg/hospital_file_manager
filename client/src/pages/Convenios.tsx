@@ -43,6 +43,7 @@ export default function Convenios() {
   const [editando, setEditando] = useState<any>(null);
   const [nome, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
+  const [registroAns, setRegistroAns] = useState("");
   const [prazoRecurso, setPrazoRecurso] = useState(30);
   const [expandedConvenio, setExpandedConvenio] = useState<number | null>(null);
 
@@ -101,6 +102,7 @@ export default function Convenios() {
     setEditando(null);
     setNome("");
     setCodigo("");
+    setRegistroAns("");
     setPrazoRecurso(30);
   };
 
@@ -116,6 +118,7 @@ export default function Convenios() {
     setEditando(conv);
     setNome(conv.nome);
     setCodigo(conv.codigo || "");
+    setRegistroAns(conv.registroAns || "");
     setPrazoRecurso(conv.prazoRecursoGlosa || 30);
     setDialogOpen(true);
   };
@@ -124,6 +127,7 @@ export default function Convenios() {
     setEditando(null);
     setNome("");
     setCodigo("");
+    setRegistroAns("");
     setPrazoRecurso(30);
     setDialogOpen(true);
   };
@@ -147,12 +151,14 @@ export default function Convenios() {
         id: editando.id,
         nome: nome.trim(),
         codigo: codigo.trim() || undefined,
+        registroAns: registroAns.trim() || undefined,
         prazoRecursoGlosa: prazoRecurso,
       });
     } else {
       createMutation.mutate({
         nome: nome.trim(),
         codigo: codigo.trim() || undefined,
+        registroAns: registroAns.trim() || undefined,
         prazoRecursoGlosa: prazoRecurso,
       });
     }
@@ -341,6 +347,16 @@ export default function Convenios() {
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value)}
                   placeholder="Ex: 001"
+                />
+              </div>
+              <div>
+                <Label htmlFor="registroAns">Registro ANS</Label>
+                <Input
+                  id="registroAns"
+                  value={registroAns}
+                  onChange={(e) => setRegistroAns(e.target.value)}
+                  placeholder="Ex: 999999"
+                  maxLength={6}
                 />
               </div>
               <div>

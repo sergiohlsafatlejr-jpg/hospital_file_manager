@@ -176,6 +176,13 @@
       "when": 1783019566255,
       "tag": "0106_narrow_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "5",
+      "when": 1783532487380,
+      "tag": "0107_demonic_tyrannus",
+      "breakpoints": true
     }
   ]
 }
