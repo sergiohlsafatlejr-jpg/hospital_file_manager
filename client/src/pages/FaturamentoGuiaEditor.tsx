@@ -88,8 +88,14 @@ export default function FaturamentoGuiaEditor() {
   const [buscaTuss, setBuscaTuss] = useState("");
   const [buscaTabPreco, setBuscaTabPreco] = useState("");
   const [fonteBusca, setFonteBusca] = useState<"tuss" | "tabela_preco">("tabela_preco");
+  const [showPacienteSuggestions, setShowPacienteSuggestions] = useState(false);
+  const [buscaPaciente, setBuscaPaciente] = useState("");
 
   // Queries
+  const { data: pacientesSugeridos } = trpc.faturamentoDigitacao.buscarPacientes.useQuery(
+    { busca: buscaPaciente, estabelecimentoId },
+    { enabled: buscaPaciente.length >= 2 && showPacienteSuggestions }
+  );
   const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery();
   const { data: convenios } = trpc.convenios.list.useQuery(
     { ativo: "sim" }
@@ -525,9 +531,40 @@ export default function FaturamentoGuiaEditor() {
               <Card>
                 <CardHeader><CardTitle>Paciente</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
+                  <div className="relative">
                     <Label>Nome do Paciente *</Label>
-                    <Input value={nomePaciente} onChange={(e) => setNomePaciente(e.target.value)} placeholder="Nome completo" />
+                    <Input
+                      value={nomePaciente}
+                      onChange={(e) => {
+                        setNomePaciente(e.target.value);
+                        setBuscaPaciente(e.target.value);
+                        setShowPacienteSuggestions(true);
+                      }}
+                      onFocus={() => { if (nomePaciente.length >= 2) setShowPacienteSuggestions(true); }}
+                      onBlur={() => setTimeout(() => setShowPacienteSuggestions(false), 200)}
+                      placeholder="Digite para buscar paciente..."
+                    />
+                    {showPacienteSuggestions && pacientesSugeridos && (pacientesSugeridos as any[]).length > 0 && buscaPaciente.length >= 2 && (
+                      <div className="absolute z-50 w-full mt-1 border rounded-md bg-background shadow-lg max-h-48 overflow-y-auto">
+                        {(pacientesSugeridos as any[]).map((pac: any) => (
+                          <div
+                            key={pac.id}
+                            className="p-2 hover:bg-muted cursor-pointer border-b last:border-b-0 text-sm"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setNomePaciente(pac.nome);
+                              if (pac.carteirinha) setCarteirinha(pac.carteirinha);
+                              setShowPacienteSuggestions(false);
+                              setBuscaPaciente("");
+                              toast.success(`Paciente selecionado: ${pac.nome}`);
+                            }}
+                          >
+                            <span className="font-medium">{pac.nome}</span>
+                            {pac.carteirinha && <span className="ml-2 text-xs text-muted-foreground">Cart: {pac.carteirinha}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label>Carteirinha</Label>

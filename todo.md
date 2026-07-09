@@ -4321,3 +4321,8 @@
 - [x] Adicionar opção "Tabela Própria / Convênio" como fonte de busca no editor de guias (renomeado de "Tabela do Convênio")
 - [x] Ao selecionar item da Tabela Própria/Convênio, preencher automaticamente o campo Tabela como "00 - Própria"
 - [x] Mensagem orientativa quando item não encontrado: sugerir cadastrar em Tabelas de Preço
+## Autocomplete de Pacientes na Digitação de Guias
+
+- [x] Criar procedure backend para buscar pacientes por nome ou carteirinha (a partir das guias já digitadas)
+- [x] Implementar autocomplete no campo Nome Paciente do editor de guias (sugerir pacientes existentes)
+- [x] Ao selecionar paciente do autocomplete, preencher automaticamente nome e carteirinha
