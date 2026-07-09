@@ -175,17 +175,33 @@ export default function FaturamentoGuiaEditor() {
 
   // Mutations
   const criarGuiaMutation = trpc.faturamentoDigitacao.criarGuia.useMutation({
-    onSuccess: (data) => {
-      toast.success("Guia criada com sucesso!");
-      navigate(`/faturamento/guia/${data.id}`);
+    onSuccess: (data, variables) => {
+      if (variables.status === "finalizada" && variables.loteId) {
+        toast.success("Guia criada e finalizada!");
+        navigate(`/faturamento/remessa/${variables.loteId}`);
+      } else {
+        toast.success("Guia criada com sucesso!");
+        navigate(`/faturamento/guia/${data.id}`);
+      }
     },
     onError: (err) => toast.error(err.message),
   });
 
   const atualizarGuiaMutation = trpc.faturamentoDigitacao.atualizarGuia.useMutation({
-    onSuccess: () => {
-      toast.success("Guia atualizada!");
-      refetchGuia();
+    onSuccess: (_data, variables) => {
+      if (variables.status === "finalizada") {
+        toast.success("Guia finalizada!");
+        // Redirecionar para a página da remessa (lote)
+        const loteId = guiaData?.loteId || loteIdFromUrl;
+        if (loteId) {
+          navigate(`/faturamento/remessa/${loteId}`);
+        } else {
+          refetchGuia();
+        }
+      } else {
+        toast.success("Guia atualizada!");
+        refetchGuia();
+      }
     },
     onError: (err) => toast.error(err.message),
   });

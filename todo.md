@@ -4331,3 +4331,6 @@
 - [x] Corrigir erro "ExcelJS2.Workbook is not a constructor" (usar ExcelJS.default.Workbook no import dinâmico)
 - [x] Criar parser Excel de faturamento dedicado (separado dos outros parsers)
 - [x] Gerar Excel no formato FORM 3061 da Unimed baseado no modelo fornecido
+## Navegação após finalizar guia
+
+- [x] Ao finalizar/salvar guia, redirecionar para a página da remessa (lote) em vez da listagem de remessas
