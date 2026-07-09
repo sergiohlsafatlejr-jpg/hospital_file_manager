@@ -828,7 +828,7 @@ const recebiveisRouter = router({
         lotePrestador: item.lote || null,
         nomeBeneficiario: item.pacienteNome || null,
         carteiraBeneficiario: item.carteirinha || null,
-        codigoItem: item.codigo,
+        codigoItem: String(item.codigo).includes('E') || String(item.codigo).includes('e') ? String(Math.round(Number(item.codigo))) : String(item.codigo),
         descricaoItem: item.descricao,
         quantidade: String(item.quantidade),
         valorInformado: String(item.valorApresentado),

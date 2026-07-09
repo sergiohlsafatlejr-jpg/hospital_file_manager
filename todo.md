@@ -4310,3 +4310,4 @@
 - [x] Corrigir erros de validação XML TISS: ordem dos elementos, códigos de despesa com 2 dígitos, quantidadeExecutada como decimal, CNES posição, valorTotalGeral
 - [x] Adicionar botão "Regenerar XML" na remessa fechada para gerar XML com os campos novos
 - [x] Corrigir botão de abrir remessa fechada que não está aparecendo (adicionado botão "Reabrir Remessa")
+- [x] Corrigir valor de glosa duplicado na tela Recurso Glosa Demonstrativo (R$ 37.494,60 vs R$ 18.747,30) - causa: codigo_item em notação científica no demonstrativo impedia o NOT EXISTS de funcionar
