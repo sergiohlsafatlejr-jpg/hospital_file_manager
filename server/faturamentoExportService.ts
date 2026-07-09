@@ -427,8 +427,9 @@ export async function gerarExcelUnimedForm3061(loteId: number): Promise<{ url: s
   `);
   const prestador = (prestadorData as any)?.[0] || {};
 
-  // Importar ExcelJS dinamicamente
-  const ExcelJS = await import("exceljs");
+  // Importar ExcelJS dinamicamente (ESM: .default contém o módulo real)
+  const ExcelJSModule = await import("exceljs");
+  const ExcelJS = (ExcelJSModule as any).default || ExcelJSModule;
   const workbook = new ExcelJS.Workbook();
   
   // Aba "Tipo de Serviço"

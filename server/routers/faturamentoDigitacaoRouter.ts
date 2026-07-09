@@ -695,8 +695,8 @@ export const faturamentoDigitacaoRouter = router({
   gerarExcelUnimed: protectedProcedure
     .input(z.object({ loteId: z.number() }))
     .mutation(async ({ input }) => {
-      const { gerarExcelUnimedForm3061 } = await import("../faturamentoExportService");
-      return gerarExcelUnimedForm3061(input.loteId);
+      const { gerarExcelFaturamentoForm3061 } = await import("../parsers/faturamentoExcelParser");
+      return gerarExcelFaturamentoForm3061(input.loteId);
     }),
 
   // ========== BUSCA TABELAS DE PREÇO ==========

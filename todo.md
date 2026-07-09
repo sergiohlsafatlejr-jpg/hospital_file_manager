@@ -4326,3 +4326,8 @@
 - [x] Criar procedure backend para buscar pacientes por nome ou carteirinha (a partir das guias já digitadas)
 - [x] Implementar autocomplete no campo Nome Paciente do editor de guias (sugerir pacientes existentes)
 - [x] Ao selecionar paciente do autocomplete, preencher automaticamente nome e carteirinha
+## Correção ExcelJS e Parser Excel Faturamento
+
+- [x] Corrigir erro "ExcelJS2.Workbook is not a constructor" (usar ExcelJS.default.Workbook no import dinâmico)
+- [x] Criar parser Excel de faturamento dedicado (separado dos outros parsers)
+- [x] Gerar Excel no formato FORM 3061 da Unimed baseado no modelo fornecido

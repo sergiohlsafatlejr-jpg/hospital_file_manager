@@ -13,7 +13,8 @@
 
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
-import * as ExcelJS from "exceljs";
+import ExcelJSImport from "exceljs";
+const ExcelJS = ExcelJSImport as any;
 import { storagePut } from "./storage";
 
 export interface FiltroExportacao {
@@ -147,7 +148,7 @@ function calcularResumo(itens: any[]): ResumoExportacao {
   };
 }
 
-function criarAbaResumo(workbook: ExcelJS.Workbook, resumo: ResumoExportacao, filtro: FiltroExportacao): void {
+function criarAbaResumo(workbook: any, resumo: ResumoExportacao, filtro: FiltroExportacao): void {
   const ws = workbook.addWorksheet("Resumo", { properties: { tabColor: { argb: "FF4472C4" } } });
   
   // Título
@@ -211,7 +212,7 @@ function criarAbaResumo(workbook: ExcelJS.Workbook, resumo: ResumoExportacao, fi
   ws.getColumn(2).width = 20;
 }
 
-function criarAbaDetalhes(workbook: ExcelJS.Workbook, nome: string, itens: any[]): void {
+function criarAbaDetalhes(workbook: any, nome: string, itens: any[]): void {
   const ws = workbook.addWorksheet(nome);
   
   // Cabeçalho
@@ -256,10 +257,10 @@ function criarAbaDetalhes(workbook: ExcelJS.Workbook, nome: string, itens: any[]
   ws.getColumn(11).numFmt = '0.00"%"';
   
   // Auto-ajustar largura
-  ws.columns.forEach(col => { col.width = 18; });
+  ws.columns.forEach((col: any) => { col.width = 18; });
 }
 
-function criarAbaGlosados(workbook: ExcelJS.Workbook, itens: any[]): void {
+function criarAbaGlosados(workbook: any, itens: any[]): void {
   const ws = workbook.addWorksheet("Glosados", { properties: { tabColor: { argb: "FFED7D31" } } });
   
   const headers = [
@@ -286,10 +287,10 @@ function criarAbaGlosados(workbook: ExcelJS.Workbook, itens: any[]): void {
   
   ws.getColumn(4).numFmt = '#,##0.00';
   ws.getColumn(5).numFmt = '#,##0.00';
-  ws.columns.forEach(col => { col.width = 20; });
+  ws.columns.forEach((col: any) => { col.width = 20; });
 }
 
-function criarAbaPendentes(workbook: ExcelJS.Workbook, itens: any[]): void {
+function criarAbaPendentes(workbook: any, itens: any[]): void {
   const ws = workbook.addWorksheet("Pendentes", { properties: { tabColor: { argb: "FFA5A5A5" } } });
   
   const headers = [
@@ -314,7 +315,7 @@ function criarAbaPendentes(workbook: ExcelJS.Workbook, itens: any[]): void {
   }
   
   ws.getColumn(6).numFmt = '#,##0.00';
-  ws.columns.forEach(col => { col.width = 20; });
+  ws.columns.forEach((col: any) => { col.width = 20; });
 }
 
 /**
