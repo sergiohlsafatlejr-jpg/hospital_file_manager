@@ -4316,3 +4316,8 @@
 - [x] Unificação de tabelas: Alterar importação de Excel para inserir apenas na tabela demonstrativo (syncDemonstrativo atualizado com campos extras + prevenção notação científica)
 - [x] Unificação de tabelas: Alterar queries/telas para usar apenas tabela demonstrativo (remover UNION com recebimentos_excel)
 - [x] Unificação de tabelas: Manter recebimentos_excel como histórico (não deletar dados, usado apenas pela conciliação)
+## Tabela Própria - Faturamento
+
+- [x] Adicionar opção "Tabela Própria / Convênio" como fonte de busca no editor de guias (renomeado de "Tabela do Convênio")
+- [x] Ao selecionar item da Tabela Própria/Convênio, preencher automaticamente o campo Tabela como "00 - Própria"
+- [x] Mensagem orientativa quando item não encontrado: sugerir cadastrar em Tabelas de Preço

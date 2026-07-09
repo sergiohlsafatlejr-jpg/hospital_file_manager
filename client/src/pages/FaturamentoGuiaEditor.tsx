@@ -364,7 +364,9 @@ export default function FaturamentoGuiaEditor() {
     setItemDescricao(item.nome);
     setItemValorUnit(String(item.valor));
     setBuscaTabPreco("");
-    toast.success(`Valor preenchido da tabela do convênio: R$ ${Number(item.valor).toFixed(2)}`);
+    // Marcar como tabela própria (00) para itens cadastrados manualmente
+    setItemCodigoTabela("00");
+    toast.success(`Valor preenchido da tabela própria: R$ ${Number(item.valor).toFixed(2)}`);
   };
 
   // Calcular valor total do item
@@ -863,7 +865,7 @@ export default function FaturamentoGuiaEditor() {
                     onClick={() => setFonteBusca("tabela_preco")}
                     className="text-xs"
                   >
-                    Tabela do Convênio
+                    Tabela Própria / Convênio
                   </Button>
                   <Button
                     type="button"
@@ -880,7 +882,7 @@ export default function FaturamentoGuiaEditor() {
               {/* Busca Tabela de Preço do Convênio */}
               {fonteBusca === "tabela_preco" && (
                 <div>
-                  <Label>Buscar na Tabela do Convênio {!convenioId && <span className="text-red-500 text-xs">(selecione um convênio primeiro)</span>}</Label>
+                  <Label>Buscar na Tabela Própria / Convênio {!convenioId && <span className="text-red-500 text-xs">(selecione um convênio primeiro)</span>}</Label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
@@ -904,7 +906,7 @@ export default function FaturamentoGuiaEditor() {
                     </div>
                   )}
                   {resultadosTabPreco && (resultadosTabPreco as any[]).length === 0 && buscaTabPreco.length >= 2 && convenioId && (
-                    <p className="text-xs text-muted-foreground mt-1">Nenhum item encontrado na tabela do convênio. Tente buscar na Tabela TUSS.</p>
+                    <p className="text-xs text-muted-foreground mt-1">Nenhum item encontrado na tabela do convênio. Cadastre o item em <strong>Tabelas de Preço</strong> ou busque na Tabela TUSS.</p>
                   )}
                 </div>
               )}
