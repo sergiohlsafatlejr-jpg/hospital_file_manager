@@ -156,11 +156,11 @@ export async function gerarExcelFaturamentoForm3061(loteId: number): Promise<{ u
       const valorUnit = Number(item.valorUnitario || 0);
       const qtd = Number(item.quantidade || 1);
 
-      // Determinar tipo de serviço
-      let tipoServico = guia.tipoServico || "TERAPIA";
-      if (item.tipoItem === "procedimento" && !guia.tipoServico) {
-        tipoServico = "CONSULTA";
-      }
+      // Determinar tipo de serviço (usar tipoServico da guia ou descrição do item)
+      let tipoServico = guia.tipoServico || "CONSULTA";
+
+      // Número da guia: priorizar numeroGuiaPrestador (que é o número real da guia)
+      const numeroGuia = guia.numeroGuiaPrestador || guia.senha || guia.numeroGuiaOperadora || "";
 
       // Formatar período de atendimento
       let periodoAtend = "";
@@ -180,7 +180,7 @@ export async function gerarExcelFaturamentoForm3061(loteId: number): Promise<{ u
         guia.carteirinha || "",
         guia.nomePaciente || "",
         null,
-        guia.senha || guia.numeroGuiaOperadora || "",
+        numeroGuia,
         item.codigoProcedimento || "",
         tipoServico,
         item.descricao || "",
