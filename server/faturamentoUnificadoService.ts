@@ -4517,64 +4517,31 @@ export async function competenciasDemonstrativo(estabelecimentoId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   const [rows] = await db.execute(sql.raw(
-    `SELECT competencia, SUM(total) as total FROM (
-      SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m') as competencia, COUNT(*) as total
-      FROM demonstrativo d
-      WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL
-      GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m')
-      UNION ALL
-      SELECT DATE_FORMAT(re.data_pagto, '%Y-%m') as competencia, COUNT(*) as total
-      FROM recebimentos_excel re
-      WHERE re.estabelecimentoId = ${estabelecimentoId}
-        AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))
-        AND re.data_pagto IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM demonstrativo d2
-          WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-          AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-          AND d2.valor_glosa > 0
-        )
-      GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m')
-    ) unified
-    GROUP BY competencia
+    `SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m') as competencia, COUNT(*) as total
+    FROM demonstrativo d
+    WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL
+    GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m')
     ORDER BY competencia DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.competencia);
 }
 
 /**
- * Convênios disponíveis no recebimentos_excel para o filtro
+ * Convênios disponíveis no demonstrativo para o filtro
  */
 export async function conveniosDemonstrativo(estabelecimentoId: number, competencia?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0`;
-  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
   if (competencia) {
     whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
   }
   const [rows] = await db.execute(sql.raw(
-    `SELECT convenioId, convenio, SUM(total) as total FROM (
-      SELECT d.convenio_id as convenioId, c.nome as convenio, COUNT(*) as total
-      FROM demonstrativo d
-      LEFT JOIN convenios c ON c.id = d.convenio_id
-      ${whereDemo}
-      GROUP BY d.convenio_id, c.nome
-      UNION ALL
-      SELECT re.convenioId, c.nome as convenio, COUNT(*) as total
-      FROM recebimentos_excel re
-      LEFT JOIN convenios c ON c.id = re.convenioId
-      ${whereExcel}
-      AND NOT EXISTS (
-        SELECT 1 FROM demonstrativo d2
-        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-        AND d2.valor_glosa > 0
-      )
-      GROUP BY re.convenioId, c.nome
-    ) unified
-    GROUP BY convenioId, convenio
+    `SELECT d.convenio_id as convenioId, c.nome as convenio, COUNT(*) as total
+    FROM demonstrativo d
+    LEFT JOIN convenios c ON c.id = d.convenio_id
+    ${whereDemo}
+    GROUP BY d.convenio_id, c.nome
     ORDER BY total DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.convenioId);
@@ -4591,34 +4558,17 @@ export async function datasPagamentoDemonstrativo(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   let whereDemo = `WHERE d.estabelecimentoId = ${params.estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL`;
-  let whereExcel = `WHERE re.estabelecimentoId = ${params.estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0)) AND re.data_pagto IS NOT NULL`;
   if (params.competencia) {
     whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
-    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
   }
   if (params.convenioId) {
     whereDemo += ` AND d.convenio_id = ${params.convenioId}`;
-    whereExcel += ` AND re.convenioId = ${params.convenioId}`;
   }
   const [rows] = await db.execute(sql.raw(`
-    SELECT dataPagto, SUM(total) as total FROM (
-      SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') as dataPagto, COUNT(*) as total
-      FROM demonstrativo d
-      ${whereDemo}
-      GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m-%d')
-      UNION ALL
-      SELECT DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto, COUNT(*) as total
-      FROM recebimentos_excel re
-      ${whereExcel}
-      AND NOT EXISTS (
-        SELECT 1 FROM demonstrativo d2
-        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-        AND d2.valor_glosa > 0
-      )
-      GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
-    ) unified
-    GROUP BY dataPagto
+    SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') as dataPagto, COUNT(*) as total
+    FROM demonstrativo d
+    ${whereDemo}
+    GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m-%d')
     ORDER BY dataPagto DESC
   `));
   return (rows as unknown as any[]).map((r: any) => ({
@@ -4662,31 +4612,7 @@ export async function itensGlosadosDemonstrativo(params: {
     whereDemo += ` AND (d.numero_guia LIKE '%${b}%' OR d.nome_beneficiario LIKE '%${b}%' OR d.codigo_item LIKE '%${b}%' OR d.descricao_item LIKE '%${b}%')`;
   }
 
-  // Build WHERE for recebimentos_excel table
-  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
-  if (competencia) {
-    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    whereExcel += ` AND re.convenioId = ${convenioId}`;
-  }
-  if (dataPagto) {
-    whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
-  }
-  if (busca) {
-    const b = busca.replace(/'/g, "''");
-    whereExcel += ` AND (re.numero_guia LIKE '%${b}%' OR re.nome_beneficiario LIKE '%${b}%' OR re.item LIKE '%${b}%' OR re.item_desc LIKE '%${b}%')`;
-  }
-
-  const notExistsClause = `AND NOT EXISTS (
-    SELECT 1 FROM demonstrativo d2
-    WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-    AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-    AND d2.valor_glosa > 0
-  )`;
-
-  // UNION subquery for unified data
-  // Cruza com recursosGlosa para detectar itens que já têm recurso criado no /acompanhamento-recursos
+  // Subquery unificada - agora usa apenas tabela demonstrativo
   const unionSubquery = `(
     SELECT 
       d.id as id, 'demo' as fonte,
@@ -4718,38 +4644,6 @@ export async function itensGlosadosDemonstrativo(params: {
     LEFT JOIN convenios c ON c.id = d.convenio_id
     LEFT JOIN recursosGlosa rg_d ON rg_d.guiaNumero = d.numero_guia AND rg_d.codigoProcedimento = d.codigo_item AND rg_d.estabelecimentoId = d.estabelecimentoId
     ${whereDemo}
-    UNION ALL
-    SELECT 
-      re.id as id, 'excel' as fonte,
-      re.numero_guia as guia, re.nome_beneficiario as paciente,
-      re.protocolo_tiss as protocolo, re.lote_prestador as lote, re.beneficiario as carteirinha,
-      re.item as codigo, re.item_desc as descricao,
-      re.data_execucao as dataExecucao,
-      re.quantidade as qtde,
-      re.convenioId, c.nome as convenio,
-      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
-      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-      CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
-      COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
-      NULL as classificacaoGlosa,
-      CASE 
-        WHEN re.glosa_aceita = 1 THEN 'aceita'
-        WHEN re.justificativa_recurso IS NOT NULL AND re.justificativa_recurso != '' AND (re.glosa_aceita IS NULL OR re.glosa_aceita = 0) THEN 'recursado'
-        WHEN rg_e.id IS NOT NULL THEN 'recurso_criado'
-        WHEN re.status_recurso_item IS NOT NULL AND re.status_recurso_item != 'pendente' THEN re.status_recurso_item
-        ELSE NULL
-      END as recursoStatus,
-      re.justificativa_recurso as justificativa,
-      CASE WHEN re.glosa_aceita = 1 THEN 0 WHEN re.valor_recurso IS NOT NULL AND re.valor_recurso > 0 THEN re.valor_recurso ELSE COALESCE(re.valor_glosa, re.valor_pagamento, 0) END as valorRecurso,
-      re.glosa_aceita as glosaAceita,
-      re.glosa_aceita_por as glosaAceitaPor,
-      re.erro_tiss as erroTiss,
-      re.tipo_lancamento as tipo
-    FROM recebimentos_excel re
-    LEFT JOIN convenios c ON c.id = re.convenioId
-    LEFT JOIN recursosGlosa rg_e ON rg_e.guiaNumero = re.numero_guia AND rg_e.codigoProcedimento = re.item AND rg_e.estabelecimentoId = re.estabelecimentoId
-    ${whereExcel}
-    ${notExistsClause}
   )`;
 
   let query = '';
@@ -4867,7 +4761,7 @@ export async function itensGlosadosDemonstrativo(params: {
 }
 
 /**
- * Detalhe dos itens glosados de uma guia no demonstrativo (UNION)
+ * Detalhe dos itens glosados de uma guia no demonstrativo (tabela unificada)
  */
 export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
   estabelecimentoId: number;
@@ -4880,17 +4774,11 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
   if (!db) throw new Error("Database não disponível");
   const { estabelecimentoId, guia, competencia, convenioId, dataPagto } = params;
 
-  // Query from demonstrativo table
+  // Query from demonstrativo table only
   let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.numero_guia = '${guia.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
   if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
   if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
   if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
-
-  // Query from recebimentos_excel table
-  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.numero_guia = '${guia.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
-  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
-  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
 
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
@@ -4916,35 +4804,6 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
       ${whereDemo}
-      UNION ALL
-      SELECT 
-        re.id, 'excel' as fonte,
-        re.numero_guia as guia,
-        re.item as codigo,
-        re.item_desc as descricao,
-        re.tipo_lancamento as tipo,
-        re.nome_beneficiario as paciente,
-        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-        re.quantidade as qtde,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
-        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
-        re.justificativa_recurso as justificativa,
-        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-        re.glosa_aceita as glosaAceita,
-        re.glosa_aceita_por as glosaAceitaPor
-      FROM recebimentos_excel re
-      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
-      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
-      ${whereExcel}
-      AND NOT EXISTS (
-        SELECT 1 FROM demonstrativo d2
-        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-        AND d2.valor_glosa > 0
-      )
     ) unified
     ORDER BY guia, dataExecucao
   `));
@@ -5033,11 +4892,6 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
   if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
   if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
 
-  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} AND re.item = '${codigo.replace(/'/g, "''")}' AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
-  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
-  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
-
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
       SELECT 
@@ -5062,37 +4916,6 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
       ${whereDemo}
-      ${whereDemo}
-      UNION ALL
-      SELECT 
-        re.id, 'excel' as fonte,
-        re.numero_guia as guia,
-        re.item as codigo,
-        re.item_desc as descricao,
-        re.tipo_lancamento as tipo,
-        re.nome_beneficiario as paciente,
-        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-        re.quantidade as qtde,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
-        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
-        re.justificativa_recurso as justificativa,
-        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-        re.glosa_aceita as glosaAceita,
-        re.glosa_aceita_por as glosaAceitaPor
-      FROM recebimentos_excel re
-      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
-      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
-      ${whereExcel}
-      ${whereExcel}
-      AND NOT EXISTS (
-        SELECT 1 FROM demonstrativo d2
-        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-        AND d2.valor_glosa > 0
-      )
     ) unified
     ORDER BY guia, dataExecucao
   `));
@@ -5121,17 +4944,10 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
   const { estabelecimentoId, codigoGlosa, competencia, convenioId, dataPagto } = params;
 
   const codigoFilterDemo = codigoGlosa === 'SEM_CODIGO' ? `AND d.codigo_glosa IS NULL` : `AND d.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-  const codigoFilterExcel = codigoGlosa === 'SEM_CODIGO' ? `AND re.codigo_glosa IS NULL` : `AND re.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-
   let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} ${codigoFilterDemo} AND d.valor_glosa > 0`;
   if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
   if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
   if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
-
-  let whereExcel = `WHERE re.estabelecimentoId = ${estabelecimentoId} ${codigoFilterExcel} AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))`;
-  if (competencia) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereExcel += ` AND re.convenioId = ${convenioId}`;
-  if (dataPagto) whereExcel += ` AND DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
 
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
@@ -5157,37 +4973,6 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
       LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
       LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN d.codigo_glosa IS NULL AND d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
       ${whereDemo}
-      ${whereDemo}
-      UNION ALL
-      SELECT 
-        re.id, 'excel' as fonte,
-        re.numero_guia as guia,
-        re.item as codigo,
-        re.item_desc as descricao,
-        re.tipo_lancamento as tipo,
-        re.nome_beneficiario as paciente,
-        DATE_FORMAT(re.data_execucao, '%Y-%m-%d') as dataExecucao,
-        re.quantidade as qtde,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) + re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE COALESCE(re.valor_informado, re.valor_pagamento, 0) END as valorFaturado,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN COALESCE(re.valor_pagamento,0) WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN 0 ELSE COALESCE(re.valor_pagamento, 0) END as valorPago,
-        CASE WHEN re.valor_glosa IS NOT NULL AND re.valor_glosa > 0 THEN re.valor_glosa WHEN re.situacao_item = 'GLOSADO' AND (re.valor_glosa IS NULL OR re.valor_glosa = 0) THEN COALESCE(re.valor_pagamento,0) ELSE 0 END as valorGlosa,
-        COALESCE(re.codigo_glosa, CASE WHEN re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END) as codigoGlosa,
-        COALESCE(mg.descricao, mg2.descricao, CASE WHEN re.erro_tiss IS NOT NULL AND re.erro_tiss != '' THEN SUBSTRING_INDEX(re.erro_tiss, '-', -1) ELSE 'Não informado' END) as motivoGlosa,
-        re.justificativa_recurso as justificativa,
-        COALESCE(re.valor_recurso, re.valor_glosa, re.valor_pagamento, 0) as valorRecurso,
-        re.glosa_aceita as glosaAceita,
-        re.glosa_aceita_por as glosaAceitaPor
-      FROM recebimentos_excel re
-      LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
-      LEFT JOIN motivosGlosa mg2 ON mg2.codigo = CASE WHEN re.codigo_glosa IS NULL AND re.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(re.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END
-      ${whereExcel}
-      ${whereExcel}
-      AND NOT EXISTS (
-        SELECT 1 FROM demonstrativo d2
-        WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-        AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-        AND d2.valor_glosa > 0
-      )
     ) unified
     ORDER BY guia, dataExecucao
   `));
@@ -5207,9 +4992,9 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
 export async function salvarJustificativaDemonstrativo(recebimentoId: number, justificativa: string, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
+  // Unificado: sempre usa tabela demonstrativo
   await db.execute(sql.raw(
-    `UPDATE ${tabela} SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${recebimentoId}`
+    `UPDATE demonstrativo SET justificativa_recurso = '${justificativa.replace(/'/g, "''")}', recurso_status = 'recurso_criado' WHERE id = ${recebimentoId}`
   ));
   return { success: true };
 }
@@ -5220,9 +5005,9 @@ export async function salvarJustificativaDemonstrativo(recebimentoId: number, ju
 export async function salvarValorRecursoDemonstrativo(recebimentoId: number, valor: number, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
+  // Unificado: sempre usa tabela demonstrativo
   await db.execute(sql.raw(
-    `UPDATE ${tabela} SET valor_recurso = ${valor} WHERE id = ${recebimentoId}`
+    `UPDATE demonstrativo SET valor_recurso = ${valor} WHERE id = ${recebimentoId}`
   ));
   return { success: true };
 }
@@ -5233,14 +5018,14 @@ export async function salvarValorRecursoDemonstrativo(recebimentoId: number, val
 export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, aceita: boolean, usuario: string, fonte?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const tabela = fonte === 'demo' ? 'demonstrativo' : 'recebimentos_excel';
+  // Unificado: sempre usa tabela demonstrativo
   if (aceita) {
     await db.execute(sql.raw(
-      `UPDATE ${tabela} SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id = ${recebimentoId}`
+      `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE id = ${recebimentoId}`
     ));
   } else {
     await db.execute(sql.raw(
-      `UPDATE ${tabela} SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id = ${recebimentoId}`
+      `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE id = ${recebimentoId}`
     ));
   }
   return { success: true };
@@ -5254,31 +5039,17 @@ export async function marcarGlosaAceitaEmLoteDemonstrativo(items: Array<{id: num
   if (!db) throw new Error("Database não disponível");
   if (items.length === 0) return { success: true, affected: 0 };
   
-  const demoIds = items.filter(i => i.fonte === 'demo').map(i => i.id);
-  const excelIds = items.filter(i => i.fonte !== 'demo').map(i => i.id);
+  // Unificado: todos os IDs são da tabela demonstrativo
+  const allIds = items.map(i => i.id);
   
   if (aceita) {
-    if (demoIds.length > 0) {
-      await db.execute(sql.raw(
-        `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE id IN (${demoIds.join(',')})`
-      ));
-    }
-    if (excelIds.length > 0) {
-      await db.execute(sql.raw(
-        `UPDATE recebimentos_excel SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, status_recurso_item = 'aceita' WHERE id IN (${excelIds.join(',')})`
-      ));
-    }
+    await db.execute(sql.raw(
+      `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE id IN (${allIds.join(',')})`
+    ));
   } else {
-    if (demoIds.length > 0) {
-      await db.execute(sql.raw(
-        `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE id IN (${demoIds.join(',')})`
-      ));
-    }
-    if (excelIds.length > 0) {
-      await db.execute(sql.raw(
-        `UPDATE recebimentos_excel SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, status_recurso_item = 'pendente' WHERE id IN (${excelIds.join(',')})`
-      ));
-    }
+    await db.execute(sql.raw(
+      `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE id IN (${allIds.join(',')})`
+    ));
   }
   return { success: true, affected: items.length };
 }
@@ -5315,19 +5086,7 @@ export async function replicarJustificativasDemonstrativo(params: {
   ));
   totalAffected += (resultDemo as any).affectedRows || 0;
 
-  // Update recebimentos_excel
-  let whereExcel = `WHERE estabelecimentoId = ${estabelecimentoId} AND (valor_glosa > 0 OR situacao_item = 'GLOSADO')`;
-  if (competencia) whereExcel += ` AND DATE_FORMAT(data_referencia, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereExcel += ` AND convenioId = ${convenioId}`;
-  if (item) whereExcel += ` AND item = '${item.replace(/'/g, "''")}'`;
-  if (codigoGlosa) {
-    if (codigoGlosa === 'SEM_CODIGO') whereExcel += ` AND codigo_glosa IS NULL`;
-    else whereExcel += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-  }
-  const [resultExcel] = await db.execute(sql.raw(
-    `UPDATE recebimentos_excel SET justificativa_recurso = '${escapedJust}', status_recurso_item = 'recursado' ${whereExcel}`
-  ));
-  totalAffected += (resultExcel as any).affectedRows || 0;
+  // Unificado: não precisa mais atualizar recebimentos_excel
 
   return { success: true, affected: totalAffected };
 }
@@ -5346,11 +5105,12 @@ export async function gerarJustificativasIADemonstrativo(params: {
   if (recebimentoIds.length === 0) return { justificativas: [] };
   
   const ids = recebimentoIds.join(',');
+  // Unificado: usa tabela demonstrativo
   const [rows] = await db.execute(sql.raw(`
-    SELECT re.id, re.item, re.item_desc, re.codigo_glosa, mg.descricao as motivoGlosa, re.valor_glosa
-    FROM recebimentos_excel re
-    LEFT JOIN motivosGlosa mg ON mg.codigo = re.codigo_glosa
-    WHERE re.id IN (${ids})
+    SELECT d.id, d.codigo_item as item, d.descricao_item as item_desc, d.codigo_glosa, mg.descricao as motivoGlosa, d.valor_glosa
+    FROM demonstrativo d
+    LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
+    WHERE d.id IN (${ids})
   `));
   
   const items = rows as any[];
@@ -5400,10 +5160,10 @@ export async function gerarJustificativasIADemonstrativo(params: {
   
   const parsed = JSON.parse(content);
   
-  // Salvar as justificativas no banco
+  // Salvar as justificativas no banco (unificado: tabela demonstrativo)
   for (const j of parsed.justificativas) {
     await db.execute(sql.raw(
-      `UPDATE recebimentos_excel SET justificativa_recurso = '${String(j.justificativa).replace(/'/g, "''")}', status_recurso_item = 'recursado' WHERE id = ${j.id}`
+      `UPDATE demonstrativo SET justificativa_recurso = '${String(j.justificativa).replace(/'/g, "''")}', recurso_status = 'recurso_criado' WHERE id = ${j.id}`
     ));
   }
   
@@ -5448,30 +5208,6 @@ export async function verificarGuiaFinalizadaECriarRecursos(params: {
       WHERE d.estabelecimentoId = ${estabelecimentoId} 
         AND d.numero_guia = '${guiaEsc}' 
         AND d.valor_glosa > 0
-      UNION ALL
-      SELECT 
-        re.id, 'excel' as fonte,
-        re.numero_guia as guia,
-        re.item as codigoItem,
-        re.item_desc as descricaoItem,
-        re.nome_beneficiario as paciente,
-        re.convenioId as convenioId,
-        COALESCE(re.valor_glosa, 0) as valorGlosa,
-        COALESCE(re.valor_recurso, 0) as valorRecurso,
-        re.justificativa_recurso as justificativa,
-        COALESCE(re.glosa_aceita, 0) as glosaAceita,
-        re.codigo_glosa as codigoGlosa,
-        re.erro_tiss as erroTiss
-      FROM recebimentos_excel re
-      WHERE re.estabelecimentoId = ${estabelecimentoId} 
-        AND re.numero_guia = '${guiaEsc}' 
-        AND (re.valor_glosa > 0 OR (re.situacao_item = 'GLOSADO' AND COALESCE(re.valor_pagamento, 0) > 0))
-        AND NOT EXISTS (
-          SELECT 1 FROM demonstrativo d2
-          WHERE d2.numero_guia = re.numero_guia AND d2.codigo_item = re.item
-          AND d2.estabelecimentoId = re.estabelecimentoId AND d2.convenio_id = re.convenioId
-          AND d2.valor_glosa > 0
-        )
     ) unified
   `));
 

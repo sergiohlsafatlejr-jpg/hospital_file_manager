@@ -104,6 +104,13 @@ export async function syncDemonstrativoByArquivo(
           valorPago = String(valorOriginalNum.toFixed(2));
         }
         
+        // Normalizar codigo_item para evitar notação científica
+        let codigoItemNorm = item.item;
+        if (codigoItemNorm && /[eE]/.test(String(codigoItemNorm))) {
+          const num = Number(codigoItemNorm);
+          if (!isNaN(num)) codigoItemNorm = num.toFixed(0);
+        }
+
         return {
           arquivoId: item.arquivoId,
           origemTipo: 'excel' as const,
@@ -122,7 +129,7 @@ export async function syncDemonstrativoByArquivo(
           
           // Detalhes do Item
           sequencialItem: item.seq,
-          codigoItem: item.item,
+          codigoItem: codigoItemNorm,
           descricaoItem: item.itemDesc || null,
           dataExecucao: item.dataExecucao,
           quantidade: item.quantidade ? String(item.quantidade) : null,
@@ -136,7 +143,23 @@ export async function syncDemonstrativoByArquivo(
           tipoLancamento: item.tipoLancamento,
           erroTiss: item.erroTiss,
           situacaoItem: item.situacaoItem,
-          codigoGlosa: item.codigoGlosa || null, // Usar codigoGlosa direto de recebimentos_excel
+          codigoGlosa: item.codigoGlosa || null,
+          
+          // Campos extras do Excel (novos)
+          tipoItem: item.tipoItem || null,
+          horaExecucao: item.horaExecucao || null,
+          processado: item.processado ? String(item.processado) : null,
+          codigoPrestadorPagamento: item.codigoPrestadorPagamento || null,
+          nomePrestadorPagamento: item.nomePrestadorPagamento || null,
+          codigoPrestador: item.codigoPrestador || null,
+          nomePrestador: item.nomePrestador || null,
+          prestadorExecutante: item.prestadorExecutante || null,
+          nomePrestadorExecutante: item.nomePrestadorExecutante || null,
+          codigoSolicitante: item.codigoSolicitante || null,
+          nomeSolicitante: item.nomeSolicitante || null,
+          acomodacaoInternacao: item.acomodacaoInternacao || null,
+          dataInicioFaturamentoInternacao: item.dataInicioFaturamentoInternacao || null,
+          dataFimFaturamentoInternacao: item.dataFimFaturamentoInternacao || null,
           
           // Data de referência - normalizar para evitar problemas de fuso horário
           dataReferencia: normalizeDateForDB(item.dataReferencia),

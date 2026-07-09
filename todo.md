@@ -4311,3 +4311,8 @@
 - [x] Adicionar botão "Regenerar XML" na remessa fechada para gerar XML com os campos novos
 - [x] Corrigir botão de abrir remessa fechada que não está aparecendo (adicionado botão "Reabrir Remessa")
 - [x] Corrigir valor de glosa duplicado na tela Recurso Glosa Demonstrativo (R$ 37.494,60 vs R$ 18.747,30) - causa: codigo_item em notação científica no demonstrativo impedia o NOT EXISTS de funcionar
+- [x] Unificação de tabelas: Adicionar campos extras na tabela demonstrativo (nomePrestador, tipoLancamento, acomodacaoInternacao, etc.)
+- [x] Unificação de tabelas: Migrar dados da recebimentos_excel que não existem no demonstrativo (33.541 registros migrados)
+- [x] Unificação de tabelas: Alterar importação de Excel para inserir apenas na tabela demonstrativo (syncDemonstrativo atualizado com campos extras + prevenção notação científica)
+- [x] Unificação de tabelas: Alterar queries/telas para usar apenas tabela demonstrativo (remover UNION com recebimentos_excel)
+- [x] Unificação de tabelas: Manter recebimentos_excel como histórico (não deletar dados, usado apenas pela conciliação)

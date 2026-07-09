@@ -2574,7 +2574,25 @@ export const demonstrativo = mysqlTable("demonstrativo", {
   
   // Campos extras do Excel
   tipoLancamento: varchar("tipo_lancamento", { length: 100 }),
-  erroTiss: varchar("erro_tiss", { length: 255 }),
+  erroTiss: varchar("erro_tiss", { length: 500 }),
+  tipoItem: varchar("tipo_item", { length: 30 }),
+  horaExecucao: varchar("hora_execucao", { length: 20 }),
+  processado: decimal("processado", { precision: 12, scale: 2 }),
+  
+  // Prestador
+  codigoPrestadorPagamento: varchar("codigo_prestador_pagamento", { length: 50 }),
+  nomePrestadorPagamento: varchar("nome_prestador_pagamento", { length: 255 }),
+  codigoPrestador: varchar("codigo_prestador", { length: 50 }),
+  nomePrestador: varchar("nome_prestador", { length: 255 }),
+  prestadorExecutante: varchar("prestador_executante", { length: 50 }),
+  nomePrestadorExecutante: varchar("nome_prestador_executante", { length: 255 }),
+  codigoSolicitante: varchar("codigo_solicitante", { length: 50 }),
+  nomeSolicitante: varchar("nome_solicitante", { length: 255 }),
+  
+  // Internação
+  acomodacaoInternacao: varchar("acomodacao_internacao", { length: 100 }),
+  dataInicioFaturamentoInternacao: date("data_inicio_faturamento_internacao"),
+  dataFimFaturamentoInternacao: date("data_fim_faturamento_internacao"),
   
   // Data de referência do arquivo
   dataReferencia: date("data_referencia"),
