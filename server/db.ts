@@ -1997,6 +1997,7 @@ export async function getRecursosGlosa(
   userId: number,
   filters?: {
     convenioId?: number;
+    estabelecimentoId?: number;
     status?: string;
     prioridade?: string;
     dataInicio?: Date;
@@ -2011,6 +2012,9 @@ export async function getRecursosGlosa(
 
   const conditions: any[] = [eq(recursosGlosa.userId, userId)];
 
+  if (filters?.estabelecimentoId) {
+    conditions.push(eq(recursosGlosa.estabelecimentoId, filters.estabelecimentoId));
+  }
   if (filters?.convenioId) {
     conditions.push(eq(recursosGlosa.convenioId, filters.convenioId));
   }
@@ -2192,14 +2196,19 @@ export async function addHistoricoRecurso(historico: InsertHistoricoRecurso) {
   await db.insert(historicoRecursos).values(historico);
 }
 
-export async function getEstatisticasRecursos(userId: number) {
+export async function getEstatisticasRecursos(userId: number, estabelecimentoId?: number) {
   const db = await getDb();
   if (!db) return null;
+
+  const conditions: any[] = [eq(recursosGlosa.userId, userId)];
+  if (estabelecimentoId) {
+    conditions.push(eq(recursosGlosa.estabelecimentoId, estabelecimentoId));
+  }
 
   const recursos = await db
     .select()
     .from(recursosGlosa)
-    .where(eq(recursosGlosa.userId, userId));
+    .where(and(...conditions));
 
   const stats = {
     total: recursos.length,

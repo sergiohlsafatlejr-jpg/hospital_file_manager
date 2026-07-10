@@ -130,6 +130,7 @@ export default function RecursosGlosa() {
   // Queries
   const { data: recursosData, isLoading, refetch } = trpc.recursos.list.useQuery({
     convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+    estabelecimentoId: estabelecimentoAtual?.id,
     status: statusFiltro !== "todos" ? statusFiltro : undefined,
     prioridade: prioridadeFiltro !== "todos" ? prioridadeFiltro : undefined,
     busca: busca || undefined,
@@ -137,7 +138,7 @@ export default function RecursosGlosa() {
     limit: 15,
   });
 
-  const { data: estatisticas } = trpc.recursos.estatisticas.useQuery();
+  const { data: estatisticas } = trpc.recursos.estatisticas.useQuery({ estabelecimentoId: estabelecimentoAtual?.id });
   
   // Query para datas de pagamento disponíveis (para filtro na aba itens glosados)
   const { data: datasDisponiveis } = trpc.demonstrativo.datasPagamento.useQuery();

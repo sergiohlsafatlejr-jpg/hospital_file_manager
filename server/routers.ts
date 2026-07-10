@@ -2367,6 +2367,7 @@ export const appRouter = router({
       .input(
         z.object({
           convenioId: z.number().optional(),
+          estabelecimentoId: z.number().optional(),
           status: z.string().optional(),
           prioridade: z.string().optional(),
           dataInicio: z.date().optional(),
@@ -2381,6 +2382,7 @@ export const appRouter = router({
           ctx.user.id,
           {
             convenioId: input?.convenioId,
+            estabelecimentoId: input?.estabelecimentoId,
             status: input?.status,
             prioridade: input?.prioridade,
             dataInicio: input?.dataInicio,
@@ -2504,9 +2506,11 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    estatisticas: protectedProcedure.query(async ({ ctx }) => {
-      return db.getEstatisticasRecursos(ctx.user.id);
-    }),
+    estatisticas: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input, ctx }) => {
+        return db.getEstatisticasRecursos(ctx.user.id, input?.estabelecimentoId);
+      }),
 
     enviar: protectedProcedure
       .input(
