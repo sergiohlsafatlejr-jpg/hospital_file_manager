@@ -10407,11 +10407,22 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
       }
 
       // Buscar código de tabela real do faturamento_tiss
+      // TISS dm_tabela: valores válidos são 00, 18, 19, 20, 22, 90, 98
+      const TABELAS_VALIDAS_TISS = ["00", "18", "19", "20", "22", "90", "98"];
       let codigoTabela = "22"; // default: procedimentos
       if (complementar) {
         const fatItem = complementar.itensFat.find(f => f.codigoItem === recurso.codigoProcedimento);
         if (fatItem?.codigoTabela) {
           codigoTabela = fatItem.codigoTabela;
+        }
+      }
+      // Validar que codigoTabela é um valor aceito pelo schema TISS
+      if (!TABELAS_VALIDAS_TISS.includes(codigoTabela)) {
+        // Mapear valores inválidos para tabela mais próxima
+        if (codigoTabela === "03" || codigoTabela === "04") {
+          codigoTabela = "00"; // Tabela própria da operadora
+        } else {
+          codigoTabela = "22"; // Default: procedimentos
         }
       }
 
