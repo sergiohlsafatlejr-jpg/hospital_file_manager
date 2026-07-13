@@ -10145,7 +10145,7 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
     SELECT id, numeroGuia as guiaNumero, codigoItem as codigoProcedimento,
            descricaoItem as descricaoProcedimento, COALESCE(valorGlosa, 0) as valorGlosado,
            COALESCE(valorRecurso, valorGlosa, 0) as valorRecursado,
-           motivoGlosa as motivoGlosaConvenio, justificativaRecurso as justificativaRecurso,
+           motivoGlosa as motivoGlosaConvenio, '' as justificativaRecurso,
            dataExecucao as dataGlosa, codigoGlosa as codigoGlosa
     FROM conciliados_automatico
     WHERE xmlRecursoLoteId = ${loteId}
