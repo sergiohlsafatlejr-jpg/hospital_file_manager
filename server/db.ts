@@ -9773,12 +9773,12 @@ export async function criarLoteRecurso(params: {
     `));
   }
 
-  // Atualizar itens da CONCILIAÇÃO: marcar como incluído em lote
+  // Atualizar itens da CONCILIAÇÃO: marcar como incluído em lote e gravar xmlRecursoLoteId
   if (concIds.length > 0) {
     const concIdsStr = concIds.join(',');
     await db.execute(sql.raw(`
       UPDATE conciliados_automatico 
-      SET statusRecursoItem = 'recurso_enviado'
+      SET statusRecursoItem = 'recurso_enviado', xmlRecursoLoteId = ${loteId}
       WHERE id IN (${concIdsStr})
     `));
   }
@@ -10127,12 +10127,48 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
 
   if (!lote) return null;
 
-  // Buscar recursos do lote
-  const recursosDoLote = await db
-    .select()
-    .from(recursosGlosa)
-    .where(eq(recursosGlosa.loteId, loteId))
-    .orderBy(recursosGlosa.guiaNumero, recursosGlosa.codigoProcedimento);
+  // Buscar recursos do lote - SISTEMA NOVO: demonstrativo + conciliados_automatico
+  // Primeiro tentar buscar do demonstrativo (recurso_id = loteId)
+  const [demoRows] = await db.execute(sql.raw(`
+    SELECT id, numero_guia as guiaNumero, codigo_item as codigoProcedimento, 
+           descricao_item as descricaoProcedimento, COALESCE(valor_glosa, 0) as valorGlosado,
+           COALESCE(valor_recurso, valor_glosa, 0) as valorRecursado,
+           motivo_glosa as motivoGlosaConvenio, justificativa_recurso as justificativaRecurso,
+           data_execucao as dataGlosa, codigo_glosa as codigoGlosa
+    FROM demonstrativo
+    WHERE recurso_id = ${loteId}
+    ORDER BY numero_guia, codigo_item
+  `));
+  
+  // Também buscar da conciliados_automatico (xmlRecursoLoteId = loteId)
+  const [concRows] = await db.execute(sql.raw(`
+    SELECT id, numeroGuia as guiaNumero, codigoItem as codigoProcedimento,
+           descricaoItem as descricaoProcedimento, COALESCE(valorGlosa, 0) as valorGlosado,
+           COALESCE(valorRecurso, valorGlosa, 0) as valorRecursado,
+           motivoGlosa as motivoGlosaConvenio, justificativaRecurso as justificativaRecurso,
+           dataExecucao as dataGlosa, codigoGlosa as codigoGlosa
+    FROM conciliados_automatico
+    WHERE xmlRecursoLoteId = ${loteId}
+    ORDER BY numeroGuia, codigoItem
+  `));
+
+  // Fallback: tentar buscar do sistema antigo (recursosGlosa)
+  let recursosDoLote: any[] = [];
+  const demoArray = (demoRows as any[]) || [];
+  const concArray = (concRows as any[]) || [];
+  
+  if (demoArray.length > 0 || concArray.length > 0) {
+    // Unificar ambas as fontes no mesmo formato
+    recursosDoLote = [...demoArray, ...concArray];
+  } else {
+    // Fallback: sistema antigo
+    const recursosAntigos = await db
+      .select()
+      .from(recursosGlosa)
+      .where(eq(recursosGlosa.loteId, loteId))
+      .orderBy(recursosGlosa.guiaNumero, recursosGlosa.codigoProcedimento);
+    recursosDoLote = recursosAntigos;
+  }
 
   if (recursosDoLote.length === 0) return null;
 
@@ -10380,7 +10416,8 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
       }
 
       // TISS 3.02: codGlosaItem deve ser código numérico (Tabela 38 ANS)
-      let codGlosaItem = recurso.motivoGlosaConvenio || "";
+      // Priorizar codigoGlosa direto (sistema novo) sobre motivoGlosaConvenio
+      let codGlosaItem = recurso.codigoGlosa || recurso.motivoGlosaConvenio || "";
       // Primeiro tentar extrair código numérico direto
       const matchCodigo = codGlosaItem.match(/^(\d{4})/);
       if (matchCodigo) {
@@ -10415,7 +10452,7 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
         justificativa = justificativa.substring(0, 147) + "...";
       }
 
-      const valorRecursado = parseFloat(recurso.valorGlosado || "0");
+      const valorRecursado = parseFloat(recurso.valorRecursado || recurso.valorGlosado || "0");
       valorTotalRecursado += valorRecursado;
 
       return `

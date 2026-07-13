@@ -4342,3 +4342,6 @@
 - [x] Incluir itens da tabela conciliados_automatico (Recurso Glosa Conciliação) na tela de Criação de Lotes
 - [x] Separar IDs por fonte (demonstrativo vs conciliacao) ao criar lote
 - [x] Adicionar coluna "Fonte" na tabela expandida com badge colorido (Conciliação azul / Demonstrativo roxo)
+## Bug: Exportação XML no Acompanhamento de Recursos
+
+- [x] Corrigir erro "Lote não encontrado ou sem recursos" na exportação XML - query busca na tabela antiga em vez do demonstrativo/conciliação
