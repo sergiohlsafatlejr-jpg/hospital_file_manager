@@ -9862,7 +9862,7 @@ export async function getRecursosDoConvenio(params: {
       'demonstrativo' as fonte
     FROM demonstrativo d
     WHERE d.convenio_id = ${params.convenioId}
-      AND d.recurso_status = 'recurso_criado'
+      AND (d.recurso_status = 'recurso_criado' OR d.classificacao_glosa IN ('recursar', 'auto_recursar'))
       AND d.valor_glosa > 0
       ${whereExtraDemo}
     ORDER BY d.numero_guia, d.codigo_item
@@ -10348,14 +10348,30 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
   }
 
   // Agrupar guias por protocolo
+  // CORREÇÃO: Sempre gerar um ÚNICO XML por lote com todas as guias juntas
+  // O protocolo usado é: 1) protocoloEnvio do lote (se numérico), 2) protocolo do demonstrativo (automático)
   const guiasPorProtocolo: Record<string, string[]> = {};
+  
+  // Determinar o protocolo a usar para o XML unificado
+  const protocoloEnvioLote = lote.protocoloEnvio || "";
+  const protocoloEnvioNumerico = /^\d+$/.test(protocoloEnvioLote) ? protocoloEnvioLote : "";
+  
+  // Buscar protocolo automático do demonstrativo (primeiro encontrado)
+  let protocoloAutomatico = "";
   for (const guiaNumero of guiasDoLote) {
     if (!guiaNumero) continue;
     const complementar = dadosComplementares[guiaNumero];
-    const protocolo = complementar?.protocolo || lote.protocoloEnvio || "SEM_PROTOCOLO";
-    if (!guiasPorProtocolo[protocolo]) guiasPorProtocolo[protocolo] = [];
-    guiasPorProtocolo[protocolo].push(guiaNumero);
+    if (complementar?.protocolo && /^\d+$/.test(complementar.protocolo)) {
+      protocoloAutomatico = complementar.protocolo;
+      break;
+    }
   }
+  
+  // Protocolo final: manual (se numérico) > automático do demonstrativo > protocoloEnvio original
+  const protocoloFinal = protocoloEnvioNumerico || protocoloAutomatico || protocoloEnvioLote || "SEM_PROTOCOLO";
+  
+  // Todas as guias vão para um único XML
+  guiasPorProtocolo[protocoloFinal] = guiasDoLote.filter(g => !!g);
 
   // Agrupar recursos por guia
   const recursosPorGuia = recursosDoLote.reduce((acc, recurso) => {

@@ -4350,3 +4350,6 @@
 - [x] Corrigir ordem dos elementos no XML de recurso: dataInicio deve vir antes de sequencialItem dentro de itensGuia (validador TISS rejeita)
 - [x] Corrigir XML de recurso de glosa: remover sequencialItem (não existe no schema TISS recurso) - ordem correta: dataInicio → procRecurso → codGlosaItem → valorRecursado → justificativaItem
 - [x] Corrigir codigoTabela inválido '03' no XML de recurso de glosa - validar contra dm_tabela TISS (00, 18, 19, 20, 22, 90, 98)
+- [x] Corrigir XML recurso de glosa: gerar um único XML por lote (sem separar por protocolo)
+- [x] Adicionar item faltante (id 2645689) ao lote 300001 - valor corrigido para R$ 829,14
+- [x] Ajustar filtro getRecursosDoConvenio para incluir itens com classificacao_glosa recursar/auto_recursar
