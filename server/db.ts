@@ -10348,30 +10348,28 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
   }
 
   // Agrupar guias por protocolo
-  // CORREÇÃO: Sempre gerar um ÚNICO XML por lote com todas as guias juntas
-  // O protocolo usado é: 1) protocoloEnvio do lote (se numérico), 2) protocolo do demonstrativo (automático)
+  // Cada guia vai para o XML do seu protocolo correto (validado pelo Factiss/operadora)
+  // Se o lote tem protocoloEnvio numérico E todas as guias pertencem ao mesmo protocolo, gera um único XML
+  // Caso contrário, separa por protocolo do demonstrativo
   const guiasPorProtocolo: Record<string, string[]> = {};
   
-  // Determinar o protocolo a usar para o XML unificado
+  // Verificar se o lote tem um protocolo numérico manual
   const protocoloEnvioLote = lote.protocoloEnvio || "";
-  const protocoloEnvioNumerico = /^\d+$/.test(protocoloEnvioLote) ? protocoloEnvioLote : "";
+  const protocoloManualNumerico = /^\d+$/.test(protocoloEnvioLote) ? protocoloEnvioLote : "";
   
-  // Buscar protocolo automático do demonstrativo (primeiro encontrado)
-  let protocoloAutomatico = "";
-  for (const guiaNumero of guiasDoLote) {
-    if (!guiaNumero) continue;
-    const complementar = dadosComplementares[guiaNumero];
-    if (complementar?.protocolo && /^\d+$/.test(complementar.protocolo)) {
-      protocoloAutomatico = complementar.protocolo;
-      break;
+  if (protocoloManualNumerico) {
+    // Protocolo numérico informado manualmente: todas as guias vão para um único XML
+    guiasPorProtocolo[protocoloManualNumerico] = guiasDoLote.filter(g => !!g);
+  } else {
+    // Agrupar pelo protocolo real de cada guia no demonstrativo
+    for (const guiaNumero of guiasDoLote) {
+      if (!guiaNumero) continue;
+      const complementar = dadosComplementares[guiaNumero];
+      const protocolo = complementar?.protocolo || "SEM_PROTOCOLO";
+      if (!guiasPorProtocolo[protocolo]) guiasPorProtocolo[protocolo] = [];
+      guiasPorProtocolo[protocolo].push(guiaNumero);
     }
   }
-  
-  // Protocolo final: manual (se numérico) > automático do demonstrativo > protocoloEnvio original
-  const protocoloFinal = protocoloEnvioNumerico || protocoloAutomatico || protocoloEnvioLote || "SEM_PROTOCOLO";
-  
-  // Todas as guias vão para um único XML
-  guiasPorProtocolo[protocoloFinal] = guiasDoLote.filter(g => !!g);
 
   // Agrupar recursos por guia
   const recursosPorGuia = recursosDoLote.reduce((acc, recurso) => {
