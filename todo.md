@@ -4348,3 +4348,4 @@
 ## Bug: XML Recurso - Ordem dos elementos incorreta
 
 - [x] Corrigir ordem dos elementos no XML de recurso: dataInicio deve vir antes de sequencialItem dentro de itensGuia (validador TISS rejeita)
+- [x] Corrigir XML de recurso de glosa: remover sequencialItem (não existe no schema TISS recurso) - ordem correta: dataInicio → procRecurso → codGlosaItem → valorRecursado → justificativaItem
