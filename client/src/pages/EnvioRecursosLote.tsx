@@ -129,6 +129,21 @@ export default function EnvioRecursosLote() {
   const handleCriarLote = () => {
     if (!convenioParaLote || !estabelecimentoAtual) return;
 
+    // Separar IDs por fonte (demonstrativo vs conciliacao)
+    const separarPorFonte = (ids: number[]) => {
+      const demoIds: number[] = [];
+      const concIds: number[] = [];
+      for (const id of ids) {
+        const recurso = recursosConvenio?.find((r: any) => r.id === id);
+        if (recurso?.fonte === 'conciliacao') {
+          concIds.push(id);
+        } else {
+          demoIds.push(id);
+        }
+      }
+      return { demoIds, concIds };
+    };
+
     if (modoGuiaUnica) {
       // Criar um lote para cada guia selecionada
       const recursosArray = Array.from(recursosSelecionados);
@@ -147,11 +162,13 @@ export default function EnvioRecursosLote() {
 
       // Criar lote para cada guia
       for (const [guia, ids] of guiasMap) {
+        const { demoIds, concIds } = separarPorFonte(ids);
         criarLoteMutation.mutate({
           convenioId: convenioParaLote.id,
           estabelecimentoId: estabelecimentoAtual.id,
-          recursosIds: [], // mantido por compatibilidade
-          demonstrativoIds: ids,
+          recursosIds: [],
+          demonstrativoIds: demoIds.length > 0 ? demoIds : undefined,
+          conciliacaoIds: concIds.length > 0 ? concIds : undefined,
           descricao: `Lote - Guia ${guia} - ${convenioParaLote.nome}`,
           protocoloEnvio: protocoloLote || undefined,
           dataInicioConta: dataInicioConta || undefined,
@@ -160,11 +177,13 @@ export default function EnvioRecursosLote() {
       }
     } else {
       // Criar um único lote com todos os recursos selecionados
+      const { demoIds, concIds } = separarPorFonte(Array.from(recursosSelecionados));
       criarLoteMutation.mutate({
         convenioId: convenioParaLote.id,
         estabelecimentoId: estabelecimentoAtual.id,
-        recursosIds: [], // mantido por compatibilidade
-        demonstrativoIds: Array.from(recursosSelecionados),
+        recursosIds: [],
+        demonstrativoIds: demoIds.length > 0 ? demoIds : undefined,
+        conciliacaoIds: concIds.length > 0 ? concIds : undefined,
         descricao: `Lote de recursos - ${convenioParaLote.nome}`,
         protocoloEnvio: protocoloLote || undefined,
         dataInicioConta: dataInicioConta || undefined,
@@ -381,6 +400,7 @@ export default function EnvioRecursosLote() {
                                   <TableHead>Paciente</TableHead>
                                   <TableHead>Data Item</TableHead>
                                   <TableHead className="text-right">Valor Glosado</TableHead>
+                                  <TableHead>Fonte</TableHead>
                                   <TableHead>Status</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -406,6 +426,11 @@ export default function EnvioRecursosLote() {
                                     </TableCell>
                                     <TableCell className="text-right text-red-600 font-medium">
                                       {formatCurrency(recurso.valorGlosado)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline" className={recurso.fonte === 'conciliacao' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}>
+                                        {recurso.fonte === 'conciliacao' ? 'Conciliação' : 'Demonstrativo'}
+                                      </Badge>
                                     </TableCell>
                                     <TableCell>
                                       <Badge variant="outline" className="bg-green-50 text-green-700">

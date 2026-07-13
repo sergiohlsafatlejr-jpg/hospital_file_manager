@@ -9567,7 +9567,7 @@ export async function getRecursosAgrupadosPorConvenio(params: {
 
   if (!params.estabelecimentoId) return [];
 
-  // Buscar itens do demonstrativo com recurso_status = 'recurso_criado' e sem lote
+  // FONTE 1: Buscar itens do demonstrativo com recurso_status = 'recurso_criado' e sem lote
   const [demoRows] = await db.execute(sql.raw(`
     SELECT 
       d.id,
@@ -9589,7 +9589,34 @@ export async function getRecursosAgrupadosPorConvenio(params: {
       AND d.valor_glosa > 0
     ORDER BY d.convenio_id, d.numero_guia
   `));
-  const demonstrativoRecursos = demoRows as any[];
+
+  // FONTE 2: Buscar itens da conciliação com statusRecursoItem = 'iniciado' e sem lote
+  const [concRows] = await db.execute(sql.raw(`
+    SELECT 
+      ca.id,
+      ca.convenioId,
+      ca.numeroGuia as guiaNumero,
+      ca.pacienteNome,
+      ca.codigoItem as codigoProcedimento,
+      ca.descricaoItem as descricaoProcedimento,
+      ca.valorGlosa as valorGlosado,
+      COALESCE(ca.valorRecurso, ca.valorGlosa) as valorCobrado,
+      '' as justificativa,
+      ca.statusRecursoItem as status,
+      ca.codigoGlosa as classificacaoGlosa,
+      'conciliacao' as fonte
+    FROM conciliados_automatico ca
+    WHERE ca.estabelecimentoId = ${params.estabelecimentoId}
+      AND ca.statusRecursoItem = 'iniciado'
+      AND ca.valorGlosa > 0
+      AND ca.id NOT IN (
+        SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL
+      )
+    ORDER BY ca.convenioId, ca.numeroGuia
+  `));
+
+  // Combinar ambas as fontes
+  const demonstrativoRecursos = [...(demoRows as any[]), ...(concRows as any[])];
 
   // Agrupar por convênio
   const convenioMap = new Map<number, {
@@ -9638,14 +9665,17 @@ export async function getRecursosAgrupadosPorConvenio(params: {
 }
 
 /**
- * Cria um lote de recursos usando SOMENTE o sistema novo (demonstrativo)
+ * Cria um lote de recursos usando DUAS fontes:
+ * 1. Tabela demonstrativo (recurso_status = 'recurso_criado')
+ * 2. Tabela conciliados_automatico (statusRecursoItem = 'iniciado')
  */
 export async function criarLoteRecurso(params: {
   convenioId: number;
   estabelecimentoId: number;
   userId: number;
-  recursosIds: number[]; // mantido por compatibilidade, mas agora são IDs do demonstrativo
+  recursosIds: number[]; // mantido por compatibilidade
   demonstrativoIds?: number[];
+  conciliacaoIds?: number[];
   descricao?: string;
   protocoloEnvio?: string;
   dataInicioConta?: string;
@@ -9654,12 +9684,13 @@ export async function criarLoteRecurso(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Unificar IDs: demonstrativoIds tem prioridade, senão usa recursosIds (que agora são IDs do demonstrativo)
-  const idsParaLote = (params.demonstrativoIds && params.demonstrativoIds.length > 0)
+  // Separar IDs por fonte
+  const demoIds = (params.demonstrativoIds && params.demonstrativoIds.length > 0)
     ? params.demonstrativoIds
     : params.recursosIds;
+  const concIds = params.conciliacaoIds || [];
 
-  if (idsParaLote.length === 0) {
+  if (demoIds.length === 0 && concIds.length === 0) {
     throw new Error("Nenhum item selecionado para o lote");
   }
 
@@ -9675,20 +9706,39 @@ export async function criarLoteRecurso(params: {
 
   let valorTotalGlosado = 0;
   let valorTotalRecursado = 0;
+  let totalItens = 0;
 
-  // Buscar itens do demonstrativo para calcular totais
-  const demoIdsStr = idsParaLote.join(',');
-  const [demoRows] = await db.execute(sql.raw(`
-    SELECT id, COALESCE(valor_glosa, 0) as valor_glosa, COALESCE(valor_recurso, valor_glosa, 0) as valor_recurso
-    FROM demonstrativo
-    WHERE id IN (${demoIdsStr})
-  `));
-  const demoArray = demoRows as any[];
-  for (const item of demoArray) {
-    valorTotalGlosado += parseFloat(item.valor_glosa || "0");
-    valorTotalRecursado += parseFloat(item.valor_recurso || item.valor_glosa || "0");
+  // Buscar itens do DEMONSTRATIVO para calcular totais
+  if (demoIds.length > 0) {
+    const demoIdsStr = demoIds.join(',');
+    const [demoRows2] = await db.execute(sql.raw(`
+      SELECT id, COALESCE(valor_glosa, 0) as valor_glosa, COALESCE(valor_recurso, valor_glosa, 0) as valor_recurso
+      FROM demonstrativo
+      WHERE id IN (${demoIdsStr})
+    `));
+    const demoArray = demoRows2 as any[];
+    for (const item of demoArray) {
+      valorTotalGlosado += parseFloat(item.valor_glosa || "0");
+      valorTotalRecursado += parseFloat(item.valor_recurso || item.valor_glosa || "0");
+    }
+    totalItens += demoArray.length;
   }
-  const totalItens = demoArray.length;
+
+  // Buscar itens da CONCILIAÇÃO para calcular totais
+  if (concIds.length > 0) {
+    const concIdsStr = concIds.join(',');
+    const [concRows2] = await db.execute(sql.raw(`
+      SELECT id, COALESCE(valorGlosa, 0) as valorGlosa, COALESCE(valorRecurso, valorGlosa, 0) as valorRecurso
+      FROM conciliados_automatico
+      WHERE id IN (${concIdsStr})
+    `));
+    const concArray = concRows2 as any[];
+    for (const item of concArray) {
+      valorTotalGlosado += parseFloat(item.valorGlosa || "0");
+      valorTotalRecursado += parseFloat(item.valorRecurso || item.valorGlosa || "0");
+    }
+    totalItens += concArray.length;
+  }
 
   // Calcular prazo de resposta (30 dias úteis após criação - padrão ANS)
   const dataPrazoResposta = new Date(dataAtual);
@@ -9713,12 +9763,25 @@ export async function criarLoteRecurso(params: {
 
   const loteId = result.insertId;
 
-  // Atualizar itens do demonstrativo: marcar como incluído em lote
-  await db.execute(sql.raw(`
-    UPDATE demonstrativo 
-    SET recurso_id = ${loteId}, recurso_status = 'recurso_enviado'
-    WHERE id IN (${demoIdsStr})
-  `));
+  // Atualizar itens do DEMONSTRATIVO: marcar como incluído em lote
+  if (demoIds.length > 0) {
+    const demoIdsStr = demoIds.join(',');
+    await db.execute(sql.raw(`
+      UPDATE demonstrativo 
+      SET recurso_id = ${loteId}, recurso_status = 'recurso_enviado'
+      WHERE id IN (${demoIdsStr})
+    `));
+  }
+
+  // Atualizar itens da CONCILIAÇÃO: marcar como incluído em lote
+  if (concIds.length > 0) {
+    const concIdsStr = concIds.join(',');
+    await db.execute(sql.raw(`
+      UPDATE conciliados_automatico 
+      SET statusRecursoItem = 'recurso_enviado'
+      WHERE id IN (${concIdsStr})
+    `));
+  }
 
   return { loteId, numeroLote };
 }
@@ -9760,7 +9823,9 @@ export async function enviarLoteRecurso(params: {
 
 /**
  * Busca recursos de um convênio específico para exibição detalhada
- * Usa SOMENTE o sistema novo (tabela demonstrativo)
+ * Busca de DUAS fontes:
+ * 1. Tabela demonstrativo (recurso_status = 'recurso_criado')
+ * 2. Tabela conciliados_automatico (statusRecursoItem = 'iniciado')
  */
 export async function getRecursosDoConvenio(params: {
   convenioId: number;
@@ -9771,15 +9836,16 @@ export async function getRecursosDoConvenio(params: {
   const db = await getDb();
   if (!db) return [];
 
-  let whereExtra = '';
+  // FONTE 1: Demonstrativo
+  let whereExtraDemo = '';
   if (params.estabelecimentoId) {
-    whereExtra += ` AND d.estabelecimentoId = ${params.estabelecimentoId}`;
+    whereExtraDemo += ` AND d.estabelecimentoId = ${params.estabelecimentoId}`;
   }
   if (params.apenasNaoEnviados) {
-    whereExtra += ` AND d.recurso_id IS NULL`;
+    whereExtraDemo += ` AND d.recurso_id IS NULL`;
   }
 
-  const [rows] = await db.execute(sql.raw(`
+  const [demoRows] = await db.execute(sql.raw(`
     SELECT 
       d.id,
       d.convenio_id as convenioId,
@@ -9798,11 +9864,43 @@ export async function getRecursosDoConvenio(params: {
     WHERE d.convenio_id = ${params.convenioId}
       AND d.recurso_status = 'recurso_criado'
       AND d.valor_glosa > 0
-      ${whereExtra}
+      ${whereExtraDemo}
     ORDER BY d.numero_guia, d.codigo_item
   `));
 
-  return rows as any[];
+  // FONTE 2: Conciliação
+  let whereExtraConc = '';
+  if (params.estabelecimentoId) {
+    whereExtraConc += ` AND ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  }
+
+  const [concRows] = await db.execute(sql.raw(`
+    SELECT 
+      ca.id,
+      ca.convenioId,
+      ca.numeroGuia as guiaNumero,
+      ca.pacienteNome,
+      ca.codigoItem as codigoProcedimento,
+      ca.descricaoItem as descricaoProcedimento,
+      ca.valorGlosa as valorGlosado,
+      COALESCE(ca.valorRecurso, ca.valorGlosa) as valorCobrado,
+      '' as justificativa,
+      ca.statusRecursoItem as status,
+      ca.codigoGlosa as classificacaoGlosa,
+      ca.dataExecucao as dataGlosa,
+      'conciliacao' as fonte
+    FROM conciliados_automatico ca
+    WHERE ca.convenioId = ${params.convenioId}
+      AND ca.statusRecursoItem = 'iniciado'
+      AND ca.valorGlosa > 0
+      AND ca.id NOT IN (
+        SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL
+      )
+      ${whereExtraConc}
+    ORDER BY ca.numeroGuia, ca.codigoItem
+  `));
+
+  return [...(demoRows as any[]), ...(concRows as any[])];
 }
 
 

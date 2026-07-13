@@ -4337,3 +4337,8 @@
 ## Bug: Criação de Lotes não mostra recursos finalizados do Recurso Glosa Demonstrativo
 
 - [x] Corrigir: tela Criação de Lotes agora usa SOMENTE o sistema novo (demonstrativo com recurso_status = 'recurso_criado') em vez do sistema antigo (recursosGlosa)
+## Incluir Recurso Glosa Conciliação na Criação de Lotes
+
+- [x] Incluir itens da tabela conciliados_automatico (Recurso Glosa Conciliação) na tela de Criação de Lotes
+- [x] Separar IDs por fonte (demonstrativo vs conciliacao) ao criar lote
+- [x] Adicionar coluna "Fonte" na tabela expandida com badge colorido (Conciliação azul / Demonstrativo roxo)
