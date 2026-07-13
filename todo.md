@@ -4345,3 +4345,6 @@
 ## Bug: Exportação XML no Acompanhamento de Recursos
 
 - [x] Corrigir erro "Lote não encontrado ou sem recursos" na exportação XML - query busca na tabela antiga em vez do demonstrativo/conciliação
+## Bug: XML Recurso - Ordem dos elementos incorreta
+
+- [x] Corrigir ordem dos elementos no XML de recurso: dataInicio deve vir antes de sequencialItem dentro de itensGuia (validador TISS rejeita)
