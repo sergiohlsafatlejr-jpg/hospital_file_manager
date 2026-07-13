@@ -9556,6 +9556,7 @@ export async function processarInsightsAutomaticos(params: {
 
 /**
  * Busca recursos agrupados por convênio para envio em lote
+ * Usa SOMENTE o sistema novo (tabela demonstrativo com recurso_status = 'recurso_criado')
  */
 export async function getRecursosAgrupadosPorConvenio(params: {
   estabelecimentoId?: number;
@@ -9564,63 +9565,61 @@ export async function getRecursosAgrupadosPorConvenio(params: {
   const db = await getDb();
   if (!db) return [];
 
-  const conditions: SQL[] = [];
+  if (!params.estabelecimentoId) return [];
 
-  // Filtrar apenas recursos não enviados (rascunho ou pendente_envio)
-  if (params.status) {
-    conditions.push(eq(recursosGlosa.status, params.status as any));
-  } else {
-    conditions.push(
-      or(
-        eq(recursosGlosa.status, "rascunho"),
-        eq(recursosGlosa.status, "pendente_envio")
-      )!
-    );
-  }
-
-  // Filtrar por estabelecimento (ou recursos sem estabelecimento definido)
-  if (params.estabelecimentoId) {
-    conditions.push(
-      or(
-        eq(recursosGlosa.estabelecimentoId, params.estabelecimentoId),
-        isNull(recursosGlosa.estabelecimentoId)
-      )!
-    );
-  }
-
-  // Filtrar recursos sem lote (ainda não enviados em lote)
-  conditions.push(isNull(recursosGlosa.loteId));
-
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const recursos = await db
-    .select()
-    .from(recursosGlosa)
-    .where(whereClause)
-    .orderBy(recursosGlosa.convenioId, recursosGlosa.createdAt);
+  // Buscar itens do demonstrativo com recurso_status = 'recurso_criado' e sem lote
+  const [demoRows] = await db.execute(sql.raw(`
+    SELECT 
+      d.id,
+      d.convenio_id as convenioId,
+      d.numero_guia as guiaNumero,
+      d.nome_beneficiario as pacienteNome,
+      d.codigo_item as codigoProcedimento,
+      d.descricao_item as descricaoProcedimento,
+      d.valor_glosa as valorGlosado,
+      COALESCE(d.valor_recurso, d.valor_glosa) as valorCobrado,
+      d.justificativa_recurso as justificativa,
+      d.recurso_status as status,
+      d.classificacao_glosa as classificacaoGlosa,
+      'demonstrativo' as fonte
+    FROM demonstrativo d
+    WHERE d.estabelecimentoId = ${params.estabelecimentoId}
+      AND d.recurso_status = 'recurso_criado'
+      AND d.recurso_id IS NULL
+      AND d.valor_glosa > 0
+    ORDER BY d.convenio_id, d.numero_guia
+  `));
+  const demonstrativoRecursos = demoRows as any[];
 
   // Agrupar por convênio
   const convenioMap = new Map<number, {
     convenioId: number;
     convenioNome: string;
-    recursos: typeof recursos;
+    recursos: any[];
     totalRecursos: number;
     valorTotalGlosado: number;
     valorTotalCobrado: number;
   }>();
 
   // Buscar nomes dos convênios
-  const convenioIds = Array.from(new Set(recursos.map(r => r.convenioId)));
+  const convenioIdsSet = new Set<number>();
+  for (const dr of demonstrativoRecursos) {
+    if (dr.convenioId) convenioIdsSet.add(dr.convenioId);
+  }
+  const convenioIds = Array.from(convenioIdsSet);
   const conveniosData = convenioIds.length > 0
     ? await db.select().from(convenios).where(inArray(convenios.id, convenioIds))
     : [];
   const convenioNomeMap = new Map(conveniosData.map(c => [c.id, c.nome]));
 
-  for (const recurso of recursos) {
-    if (!convenioMap.has(recurso.convenioId)) {
-      convenioMap.set(recurso.convenioId, {
-        convenioId: recurso.convenioId,
-        convenioNome: convenioNomeMap.get(recurso.convenioId) || "Convênio Desconhecido",
+  // Agrupar recursos do demonstrativo por convênio
+  for (const dr of demonstrativoRecursos) {
+    const cId = dr.convenioId;
+    if (!cId) continue;
+    if (!convenioMap.has(cId)) {
+      convenioMap.set(cId, {
+        convenioId: cId,
+        convenioNome: convenioNomeMap.get(cId) || "Convênio Desconhecido",
         recursos: [],
         totalRecursos: 0,
         valorTotalGlosado: 0,
@@ -9628,24 +9627,25 @@ export async function getRecursosAgrupadosPorConvenio(params: {
       });
     }
 
-    const grupo = convenioMap.get(recurso.convenioId)!;
-    grupo.recursos.push(recurso);
+    const grupo = convenioMap.get(cId)!;
+    grupo.recursos.push(dr);
     grupo.totalRecursos++;
-    grupo.valorTotalGlosado += parseFloat(recurso.valorGlosado || "0");
-    grupo.valorTotalCobrado += parseFloat(recurso.valorCobrado || "0");
+    grupo.valorTotalGlosado += parseFloat(dr.valorGlosado || "0");
+    grupo.valorTotalCobrado += parseFloat(dr.valorCobrado || "0");
   }
 
   return Array.from(convenioMap.values()).sort((a, b) => b.totalRecursos - a.totalRecursos);
 }
 
 /**
- * Cria um lote de recursos e associa os recursos selecionados
+ * Cria um lote de recursos usando SOMENTE o sistema novo (demonstrativo)
  */
 export async function criarLoteRecurso(params: {
   convenioId: number;
   estabelecimentoId: number;
   userId: number;
-  recursosIds: number[];
+  recursosIds: number[]; // mantido por compatibilidade, mas agora são IDs do demonstrativo
+  demonstrativoIds?: number[];
   descricao?: string;
   protocoloEnvio?: string;
   dataInicioConta?: string;
@@ -9653,6 +9653,15 @@ export async function criarLoteRecurso(params: {
 }): Promise<{ loteId: number; numeroLote: string }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // Unificar IDs: demonstrativoIds tem prioridade, senão usa recursosIds (que agora são IDs do demonstrativo)
+  const idsParaLote = (params.demonstrativoIds && params.demonstrativoIds.length > 0)
+    ? params.demonstrativoIds
+    : params.recursosIds;
+
+  if (idsParaLote.length === 0) {
+    throw new Error("Nenhum item selecionado para o lote");
+  }
 
   // Gerar número do lote
   const dataAtual = new Date();
@@ -9664,19 +9673,22 @@ export async function criarLoteRecurso(params: {
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
   const numeroLote = `L${ano}${mes}${dia}${hora}${minuto}${random}`;
 
-  // Buscar recursos para calcular totais
-  const recursosParaLote = await db
-    .select()
-    .from(recursosGlosa)
-    .where(inArray(recursosGlosa.id, params.recursosIds));
-
   let valorTotalGlosado = 0;
   let valorTotalRecursado = 0;
 
-  for (const recurso of recursosParaLote) {
-    valorTotalGlosado += parseFloat(recurso.valorGlosado || "0");
-    valorTotalRecursado += parseFloat(recurso.valorGlosado || "0"); // Valor recursado = valor glosado inicialmente
+  // Buscar itens do demonstrativo para calcular totais
+  const demoIdsStr = idsParaLote.join(',');
+  const [demoRows] = await db.execute(sql.raw(`
+    SELECT id, COALESCE(valor_glosa, 0) as valor_glosa, COALESCE(valor_recurso, valor_glosa, 0) as valor_recurso
+    FROM demonstrativo
+    WHERE id IN (${demoIdsStr})
+  `));
+  const demoArray = demoRows as any[];
+  for (const item of demoArray) {
+    valorTotalGlosado += parseFloat(item.valor_glosa || "0");
+    valorTotalRecursado += parseFloat(item.valor_recurso || item.valor_glosa || "0");
   }
+  const totalItens = demoArray.length;
 
   // Calcular prazo de resposta (30 dias úteis após criação - padrão ANS)
   const dataPrazoResposta = new Date(dataAtual);
@@ -9688,11 +9700,11 @@ export async function criarLoteRecurso(params: {
     estabelecimentoId: params.estabelecimentoId,
     userId: params.userId,
     numeroLote,
-    descricao: params.descricao || `Lote de recursos - ${params.recursosIds.length} itens`,
+    descricao: params.descricao || `Lote de recursos - ${totalItens} itens`,
     valorTotalGlosado: valorTotalGlosado.toFixed(2),
     valorTotalRecursado: valorTotalRecursado.toFixed(2),
     valorTotalRecuperado: "0",
-    quantidadeItens: params.recursosIds.length,
+    quantidadeItens: totalItens,
     status: "pendente_envio",
     protocoloEnvio: params.protocoloEnvio || null,
     dataPrazoResposta,
@@ -9701,14 +9713,12 @@ export async function criarLoteRecurso(params: {
 
   const loteId = result.insertId;
 
-  // Atualizar recursos com o loteId e status
-  await db
-    .update(recursosGlosa)
-    .set({
-      loteId,
-      status: "pendente_envio",
-    })
-    .where(inArray(recursosGlosa.id, params.recursosIds));
+  // Atualizar itens do demonstrativo: marcar como incluído em lote
+  await db.execute(sql.raw(`
+    UPDATE demonstrativo 
+    SET recurso_id = ${loteId}, recurso_status = 'recurso_enviado'
+    WHERE id IN (${demoIdsStr})
+  `));
 
   return { loteId, numeroLote };
 }
@@ -9750,6 +9760,7 @@ export async function enviarLoteRecurso(params: {
 
 /**
  * Busca recursos de um convênio específico para exibição detalhada
+ * Usa SOMENTE o sistema novo (tabela demonstrativo)
  */
 export async function getRecursosDoConvenio(params: {
   convenioId: number;
@@ -9760,35 +9771,38 @@ export async function getRecursosDoConvenio(params: {
   const db = await getDb();
   if (!db) return [];
 
-  const conditions: SQL[] = [eq(recursosGlosa.convenioId, params.convenioId)];
-
+  let whereExtra = '';
   if (params.estabelecimentoId) {
-    conditions.push(eq(recursosGlosa.estabelecimentoId, params.estabelecimentoId));
+    whereExtra += ` AND d.estabelecimentoId = ${params.estabelecimentoId}`;
   }
-
-  if (params.status) {
-    conditions.push(eq(recursosGlosa.status, params.status as any));
-  }
-
   if (params.apenasNaoEnviados) {
-    conditions.push(isNull(recursosGlosa.loteId));
-    conditions.push(
-      or(
-        eq(recursosGlosa.status, "rascunho"),
-        eq(recursosGlosa.status, "pendente_envio")
-      )!
-    );
+    whereExtra += ` AND d.recurso_id IS NULL`;
   }
 
-  const whereClause = and(...conditions);
+  const [rows] = await db.execute(sql.raw(`
+    SELECT 
+      d.id,
+      d.convenio_id as convenioId,
+      d.numero_guia as guiaNumero,
+      d.nome_beneficiario as pacienteNome,
+      d.codigo_item as codigoProcedimento,
+      d.descricao_item as descricaoProcedimento,
+      d.valor_glosa as valorGlosado,
+      COALESCE(d.valor_recurso, d.valor_glosa) as valorCobrado,
+      d.justificativa_recurso as justificativa,
+      d.recurso_status as status,
+      d.classificacao_glosa as classificacaoGlosa,
+      d.data_realizacao as dataGlosa,
+      'demonstrativo' as fonte
+    FROM demonstrativo d
+    WHERE d.convenio_id = ${params.convenioId}
+      AND d.recurso_status = 'recurso_criado'
+      AND d.valor_glosa > 0
+      ${whereExtra}
+    ORDER BY d.numero_guia, d.codigo_item
+  `));
 
-  const recursos = await db
-    .select()
-    .from(recursosGlosa)
-    .where(whereClause)
-    .orderBy(desc(recursosGlosa.createdAt));
-
-  return recursos;
+  return rows as any[];
 }
 
 

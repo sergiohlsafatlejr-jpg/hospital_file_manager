@@ -135,7 +135,7 @@ export default function EnvioRecursosLote() {
       const guiasMap = new Map<string, number[]>();
       
       for (const recursoId of recursosArray) {
-        const recurso = recursosConvenio?.find(r => r.id === recursoId);
+        const recurso = recursosConvenio?.find((r: any) => r.id === recursoId);
         if (recurso) {
           const guia = recurso.guiaNumero || "sem_guia";
           if (!guiasMap.has(guia)) {
@@ -146,13 +146,12 @@ export default function EnvioRecursosLote() {
       }
 
       // Criar lote para cada guia
-      let count = 0;
       for (const [guia, ids] of guiasMap) {
-        count++;
         criarLoteMutation.mutate({
           convenioId: convenioParaLote.id,
           estabelecimentoId: estabelecimentoAtual.id,
-          recursosIds: ids,
+          recursosIds: [], // mantido por compatibilidade
+          demonstrativoIds: ids,
           descricao: `Lote - Guia ${guia} - ${convenioParaLote.nome}`,
           protocoloEnvio: protocoloLote || undefined,
           dataInicioConta: dataInicioConta || undefined,
@@ -164,7 +163,8 @@ export default function EnvioRecursosLote() {
       criarLoteMutation.mutate({
         convenioId: convenioParaLote.id,
         estabelecimentoId: estabelecimentoAtual.id,
-        recursosIds: Array.from(recursosSelecionados),
+        recursosIds: [], // mantido por compatibilidade
+        demonstrativoIds: Array.from(recursosSelecionados),
         descricao: `Lote de recursos - ${convenioParaLote.nome}`,
         protocoloEnvio: protocoloLote || undefined,
         dataInicioConta: dataInicioConta || undefined,
@@ -408,8 +408,8 @@ export default function EnvioRecursosLote() {
                                       {formatCurrency(recurso.valorGlosado)}
                                     </TableCell>
                                     <TableCell>
-                                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                        {recurso.status === "rascunho" ? "Rascunho" : "Pendente"}
+                                      <Badge variant="outline" className="bg-green-50 text-green-700">
+                                        Pronto
                                       </Badge>
                                     </TableCell>
                                   </TableRow>

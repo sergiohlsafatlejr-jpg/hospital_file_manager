@@ -4334,3 +4334,6 @@
 ## Navegação após finalizar guia
 
 - [x] Ao finalizar/salvar guia, redirecionar para a página da remessa (lote) em vez da listagem de remessas
+## Bug: Criação de Lotes não mostra recursos finalizados do Recurso Glosa Demonstrativo
+
+- [x] Corrigir: tela Criação de Lotes agora usa SOMENTE o sistema novo (demonstrativo com recurso_status = 'recurso_criado') em vez do sistema antigo (recursosGlosa)
