@@ -163,6 +163,8 @@ async function buscarDadosGuiasCompletas(
   const guiasStr = guias.map(g => esc(g)).join(',');
 
   // Buscar TODOS os itens da guia (não apenas glosados)
+  // IMPORTANTE: Excluir itens vinculados (itemVinculadoId IS NOT NULL)
+  // porque eles não devem aparecer no XML - apenas o item original aparece
   const [itensResult] = await db.execute(sql.raw(`
     SELECT 
       ca.id,
@@ -186,6 +188,7 @@ async function buscarDadosGuiasCompletas(
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${estabelecimentoId}
       AND ca.numeroGuia IN (${guiasStr})
+      AND ca.itemVinculadoId IS NULL
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
   `));
 

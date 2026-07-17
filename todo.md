@@ -4353,3 +4353,4 @@
 - [x] Corrigir XML recurso de glosa: gerar um único XML por lote (sem separar por protocolo)
 - [x] Adicionar item faltante (id 2645689) ao lote 300001 - valor corrigido para R$ 829,14
 - [x] Ajustar filtro getRecursosDoConvenio para incluir itens com classificacao_glosa recursar/auto_recursar
+- [x] Excluir itens vinculados do XML de conciliação (itemVinculadoId IS NULL)
