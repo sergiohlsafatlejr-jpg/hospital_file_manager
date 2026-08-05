@@ -488,7 +488,7 @@ function convertRowAlternativeFormat(
   dataPagamentoUpload?: Date,
   estabelecimentoId?: number
 ): InsertRecebimentoExcel | null {
-  if (row.length < 15) return null;
+  if (row.length < 1) return null; // Aceitar linhas com poucos dados - guia pode estar vazia
   
   // Helper para buscar valor por nome de coluna (case-insensitive)
   const getByName = (names: string[]): string => {
