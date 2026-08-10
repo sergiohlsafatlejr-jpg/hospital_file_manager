@@ -1110,7 +1110,7 @@ export default function ConciliacaoCruzada() {
                         {/* Botão vincular manualmente (conciliação manual) */}
                         {itensConciliadosGuia && (
                           itensConciliadosGuia.some((i: any) => i.statusConciliacao === 'acrescimo') &&
-                          itensConciliadosGuia.some((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(i.statusConciliacao))
+                          itensConciliadosGuia.some((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido', 'desassociado'].includes(i.statusConciliacao))
                         ) && (
                           <Button
                             size="sm"
@@ -2554,7 +2554,7 @@ export default function ConciliacaoCruzada() {
               {/* Lista de itens não recebidos/glosados */}
               {itensAcrescimoSelecionados.length > 0 && (
                 <div>
-                  <Label className="text-sm font-semibold text-red-700">Itens Não Recebidos / Glosados (faturados sem pagamento)</Label>
+                  <Label className="text-sm font-semibold text-red-700">Itens Não Recebidos / Glosados / Desassociados (faturados sem pagamento)</Label>
                   <div className="mt-2 border rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead>
@@ -2567,7 +2567,7 @@ export default function ConciliacaoCruzada() {
                         </tr>
                       </thead>
                       <tbody>
-                        {itensConciliadosGuia?.filter((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido'].includes(i.statusConciliacao)).map((item: any) => (
+                        {itensConciliadosGuia?.filter((i: any) => ['glosa_total', 'sem_pagamento', 'nao_recebido', 'desassociado'].includes(i.statusConciliacao)).map((item: any) => (
                           <tr 
                             key={item.id} 
                             className={`border-b cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 ${
@@ -2584,7 +2584,8 @@ export default function ConciliacaoCruzada() {
                             <td className="p-2 text-center">
                               <Badge variant="outline" className="text-xs">
                                 {item.statusConciliacao === 'glosa_total' ? 'Glosa Total' : 
-                                 item.statusConciliacao === 'sem_pagamento' ? 'Sem Pagamento' : 'Não Recebido'}
+                                 item.statusConciliacao === 'sem_pagamento' ? 'Sem Pagamento' : 
+                                 item.statusConciliacao === 'desassociado' ? 'Desassociado' : 'Não Recebido'}
                               </Badge>
                             </td>
                           </tr>
