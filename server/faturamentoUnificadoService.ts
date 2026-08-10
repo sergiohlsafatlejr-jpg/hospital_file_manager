@@ -2572,18 +2572,18 @@ export async function conveniosConciliados(estabelecimentoId: number, competenci
     where += ` AND competencia LIKE '${competencia.replace(/'/g, "''")}%'`;
   }
   const [rows] = await db.execute(sql.raw(
-    `SELECT convenioId, convenio, SUM(total) as total FROM (
-       SELECT convenioId, convenio, COUNT(*) as total
+    `SELECT convenioId, TRIM(convenio) as convenio, SUM(total) as total FROM (
+       SELECT convenioId, TRIM(convenio) as convenio, COUNT(*) as total
        FROM conciliados_automatico
        ${where}
-       GROUP BY convenioId, convenio
+       GROUP BY convenioId, TRIM(convenio)
        UNION ALL
-       SELECT convenioId, convenio, COUNT(*) as total
+       SELECT convenioId, TRIM(convenio) as convenio, COUNT(*) as total
        FROM faturamento_unificado
        ${where}
-       GROUP BY convenioId, convenio
+       GROUP BY convenioId, TRIM(convenio)
      ) combined
-     GROUP BY convenioId, convenio
+     GROUP BY convenioId, TRIM(convenio)
      ORDER BY total DESC`
   ));
   return (rows as unknown as any[]).filter((r: any) => r.convenioId);
