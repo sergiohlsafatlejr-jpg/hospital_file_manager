@@ -2465,8 +2465,9 @@ export async function resumoConciliadosAutomatico(params: {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
   }
   if (params.dataPagto) {
+    // Filtro por competência de pagamento (formato YYYY-MM)
     const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND ca.competenciaPagamento LIKE '${dp}%'`;
   }
 
   const query = `
