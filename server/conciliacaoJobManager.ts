@@ -6,6 +6,7 @@
  */
 
 import { executarConciliacaoAutomatica, type ConciliacaoResultado } from "./faturamentoUnificadoService";
+import { aplicarVinculacoesAutomaticasPosProcessamento } from "./vinculacaoAutomaticaService";
 
 export interface ConciliacaoJob {
   id: string;
@@ -168,6 +169,9 @@ async function executarJobBackground(jobId: string): Promise<void> {
               resultadoTotal.detalhes.conciliadosPorPacienteCodigo += parcial.detalhes.conciliadosPorPacienteCodigo;
               resultadoTotal.detalhes.conciliadosPorCarteiraCodigo += parcial.detalhes.conciliadosPorCarteiraCodigo;
               if (parcial.divergencias) resultadoTotal.divergencias.push(...parcial.divergencias.slice(0, 5));
+              
+              // Aplicar vinculações automáticas após conciliação
+              await aplicarVinculacoesAutomaticasPosProcessamento(job.params.estabelecimentoId, job.params.competencia);
               
               job.progresso.itensProcessados = resultadoTotal.totalProcessados;
               job.progresso.tempoDecorrido = Math.round((Date.now() - job.iniciadoEm) / 1000);
