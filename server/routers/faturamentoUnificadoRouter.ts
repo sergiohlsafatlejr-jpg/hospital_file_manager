@@ -12,6 +12,7 @@ import { convenioEstabelecimentoPrestador } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { exportarConciliacaoExcel } from "../exportacaoConciliacaoService";
+import * as marcarGlosadoService from "../marcarGlosadoService";
 
 export const faturamentoUnificadoRouter = router({
   /**
@@ -984,5 +985,30 @@ export const faturamentoUnificadoRouter = router({
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.gerarJustificativasIADemonstrativo(input);
+    }),
+
+  /**
+   * Marcar item desassociado (código 9999) como glosado
+   */
+  marcarItemComoGlosado: protectedProcedure
+    .input(z.object({
+      itemId: z.number(),
+      estabelecimentoId: z.number(),
+      motivo: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await marcarGlosadoService.marcarItemComoGlosado(input);
+    }),
+
+  /**
+   * Desfazer marcação de glosado
+   */
+  desfazerMarcarGlosado: protectedProcedure
+    .input(z.object({
+      itemId: z.number(),
+      estabelecimentoId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      return await marcarGlosadoService.desfazerMarcarGlosado(input.itemId, input.estabelecimentoId);
     }),
 });
