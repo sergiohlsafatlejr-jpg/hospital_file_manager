@@ -121,6 +121,7 @@ interface EstabelecimentoContextType {
   // Novas propriedades para permissões
   permissoesModulo: PermissoesModulo | null;
   temAcessoModulo: (modulo: ModuloPermissao) => boolean;
+  temAcessoModuloNoEstabelecimento: (modulo: ModuloPermissao, estabelecimentoId: number) => boolean;
   grupoServico: string | null;
 }
 
@@ -367,29 +368,52 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
     "acessoRelPrevisaoGlosa",
   ];
 
-  // Função para verificar acesso a um módulo
-  const temAcessoModulo = (modulo: ModuloPermissao): boolean => {
-    // Admin sempre tem acesso
-    if (user?.role === "admin") return true;
-    
-    // Gestor tem acesso a tudo
-    if (isGestor) return true;
+  // Verificar a permissão de um módulo em um estabelecimento físico.
+  // Esta função não altera o estabelecimento selecionado e é usada para montar
+  // com segurança as telas agregadas de seleção.
+  const temAcessoModuloNoEstabelecimento = (
+    modulo: ModuloPermissao,
+    estabelecimentoId: number
+  ): boolean => {
+    if (user?.role === "admin" || isGestor) return true;
 
-    // Verificar permissão específica
-    if (!permissoesModulo) return false;
-    
-    // Administrador do estabelecimento tem acesso total
-    if (permissoesModulo.grupoServico === "administrador") return true;
+    const permissao = minhasPermissoes.find(
+      (item: any) => item.estabelecimentoId === estabelecimentoId
+    ) as any;
+    if (!permissao) return false;
+    if (permissao.grupoServico === "administrador") return true;
 
-    // Para o módulo relatoriosBi, verificar se o campo pai OU qualquer relatório individual está habilitado
     if (modulo === "relatoriosBi") {
-      if (permissoesModulo.acessoRelatoriosBi === "sim") return true;
-      // Se qualquer relatório individual estiver habilitado, o módulo pai deve aparecer
-      return camposRelatoriosBiIndividuais.some(campo => permissoesModulo[campo] === "sim");
+      if (permissao.acessoRelatoriosBi === "sim") return true;
+      return camposRelatoriosBiIndividuais.some(
+        campo => permissao[campo] === "sim"
+      );
     }
 
     const campo = moduloParaCampo[modulo];
-    return permissoesModulo[campo] === "sim";
+    // Compatibilidade com o default histórico deste módulo.
+    if (modulo === "faturamentoExterno") {
+      return permissao[campo] !== "nao";
+    }
+    return permissao[campo] === "sim";
+  };
+
+  // No modo "Todos", liberar especificamente a entrada da Conciliação Cruzada
+  // quando houver acesso em ao menos um estabelecimento. Os demais módulos
+  // mantêm o comportamento anterior até que suas telas sejam auditadas para não
+  // consultar o backend com estabelecimentoId = 0.
+  const temAcessoModulo = (modulo: ModuloPermissao): boolean => {
+    if (user?.role === "admin" || isGestor) return true;
+    if (!estabelecimentoAtual) return false;
+
+    if (estabelecimentoAtual.id === 0) {
+      if (modulo !== "conciliacaoContasPagas") return false;
+      return estabelecimentos.some((estabelecimento: Estabelecimento) =>
+        temAcessoModuloNoEstabelecimento(modulo, estabelecimento.id)
+      );
+    }
+
+    return temAcessoModuloNoEstabelecimento(modulo, estabelecimentoAtual.id);
   };
 
   // Carregar estabelecimento salvo do localStorage
@@ -438,6 +462,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
         isGestor,
         permissoesModulo,
         temAcessoModulo,
+        temAcessoModuloNoEstabelecimento,
         grupoServico,
       }}
     >

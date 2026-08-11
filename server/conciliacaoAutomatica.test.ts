@@ -2,9 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock getDb
 const mockExecute = vi.fn();
+const mockPoolQuery = vi.fn();
 vi.mock("./db", () => ({
   getDb: vi.fn(() => Promise.resolve({
     execute: mockExecute,
+  })),
+  getRawPool: vi.fn(() => ({
+    query: mockPoolQuery,
   })),
 }));
 
@@ -30,6 +34,7 @@ describe("conciliacaoAutomatica", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue([[]]);
+    mockPoolQuery.mockResolvedValue([{ affectedRows: 0 }]);
   });
 
   describe("executarConciliacaoAutomatica", () => {
@@ -269,6 +274,8 @@ describe("conciliacaoAutomatica", () => {
           quantidade: 1,
         },
       ]]);
+      // Demonstrativo - vazio
+      mockExecute.mockResolvedValueOnce([[]]);
       // Vinculacao - HOSP001 -> CONV001
       mockExecute.mockResolvedValueOnce([[
         {
@@ -456,6 +463,94 @@ describe("conciliacaoAutomatica", () => {
       });
 
       expect(result.totalProcessados).toBe(0);
+    });
+
+    it("deve conciliar CASSI pela guia do prestador quando a guia da operadora difere", async () => {
+      mockExecute.mockResolvedValueOnce([{ affectedRows: 0 }]);
+      mockExecute.mockResolvedValueOnce([[
+        {
+          id: 501,
+          codigoItem: "10101012",
+          codigoItemTuss: null,
+          numeroGuia: "GUIA-PRESTADOR-CASSI",
+          numeroGuiaOperadora: "GUIA-OPERADORA-CASSI",
+          contaNumero: "CONTA-CASSI",
+          pacienteNome: "PACIENTE CASSI",
+          carteiraBeneficiario: "CARTEIRA-CASSI",
+          convenioId: 22,
+          competencia: "2025-12",
+          valorFaturado: 150,
+          quantidade: 1,
+        },
+      ]]);
+      mockExecute.mockResolvedValueOnce([[]]);
+      mockExecute.mockResolvedValueOnce([[
+        {
+          id: 601,
+          numeroGuia: "GUIA-PRESTADOR-CASSI",
+          codigoItem: "10101012",
+          nomeBeneficiario: "PACIENTE CASSI",
+          carteira: "CARTEIRA-CASSI",
+          valorPago: 150,
+          valorGlosa: 0,
+          situacao: "PAGO",
+          quantidade: 1,
+        },
+      ]]);
+      mockExecute.mockResolvedValueOnce([[]]);
+
+      const result = await executarConciliacaoAutomatica({
+        estabelecimentoId: 1,
+        competencia: "2025-12",
+      });
+
+      expect(result.totalProcessados).toBe(1);
+      expect(result.totalConciliados).toBe(1);
+      expect(result.totalNaoRecebidos).toBe(0);
+      expect(result.detalhes.conciliadosPorGuiaCodigo).toBe(1);
+    });
+
+    it("deve preservar pagamento e glosa quando Vivacom antiga vem como GLOSADO parcial", async () => {
+      mockExecute.mockResolvedValueOnce([{ affectedRows: 0 }]);
+      mockExecute.mockResolvedValueOnce([[
+        {
+          id: 502,
+          codigoItem: "40304396",
+          codigoItemTuss: null,
+          numeroGuia: "VIVACOM-PARCIAL-001",
+          contaNumero: "CONTA-VIVACOM",
+          pacienteNome: "PACIENTE VIVACOM",
+          carteiraBeneficiario: "CARTEIRA-VIVACOM",
+          convenioId: 23,
+          competencia: "2025-12",
+          valorFaturado: 100,
+          quantidade: 1,
+        },
+      ]]);
+      mockExecute.mockResolvedValueOnce([[]]);
+      mockExecute.mockResolvedValueOnce([[
+        {
+          id: 602,
+          numeroGuia: "VIVACOM-PARCIAL-001",
+          codigoItem: "40304396",
+          nomeBeneficiario: "PACIENTE VIVACOM",
+          carteira: "CARTEIRA-VIVACOM",
+          valorPago: 75,
+          valorGlosa: 25,
+          situacao: "GLOSADO",
+          quantidade: 1,
+        },
+      ]]);
+      mockExecute.mockResolvedValueOnce([[]]);
+
+      const result = await executarConciliacaoAutomatica({
+        estabelecimentoId: 1,
+        competencia: "2025-12",
+      });
+
+      expect(result.totalProcessados).toBe(1);
+      expect(result.totalGlosaParcial).toBe(1);
+      expect(result.totalGlosaTotal).toBe(0);
     });
   });
 

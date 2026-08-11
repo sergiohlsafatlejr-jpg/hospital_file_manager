@@ -31,8 +31,20 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 
 export default function ConciliacaoCruzada() {
   const { user } = useAuth();
-  const { estabelecimentoAtual } = useEstabelecimento();
+  const {
+    estabelecimentos,
+    estabelecimentoAtual,
+    setEstabelecimentoAtual,
+    visualizandoTodos,
+    temAcessoModuloNoEstabelecimento,
+  } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const estabelecimentosComAcesso = useMemo(
+    () => estabelecimentos.filter(estabelecimento =>
+      temAcessoModuloNoEstabelecimento('conciliacaoContasPagas', estabelecimento.id)
+    ),
+    [estabelecimentos, temAcessoModuloNoEstabelecimento]
+  );
 
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("conciliados");
@@ -51,9 +63,38 @@ export default function ConciliacaoCruzada() {
   const [loteXmlFiltro, setLoteXmlFiltro] = useState(savedFilters?.loteXml || "todos");
   const [loteRetornoFiltro, setLoteRetornoFiltro] = useState(savedFilters?.loteRetorno || "todos");
   const [dataPagtoFiltro, setDataPagtoFiltro] = useState(savedFilters?.dataPagto || "todos");
+  const [filtrosCarregadosPara, setFiltrosCarregadosPara] = useState(estabelecimentoId);
 
-  // Salvar filtros no localStorage quando mudarem
+  // Recarregar os filtros próprios ao trocar de estabelecimento. Sem esta
+  // hidratação, filtros de um hospital eram copiados para o seguinte e podiam
+  // ocultar CASSI/Vivacom até o usuário limpar tudo manualmente.
   useEffect(() => {
+    let filtros: any = null;
+    try {
+      const salvo = localStorage.getItem(storageKey);
+      filtros = salvo ? JSON.parse(salvo) : null;
+    } catch {
+      filtros = null;
+    }
+
+    setCompetenciaFiltro(filtros?.competencia || "todos");
+    setConvenioFiltro(filtros?.convenio || "todos");
+    setStatusFiltro(filtros?.status || "todos");
+    setLoteXmlFiltro(filtros?.loteXml || "todos");
+    setLoteRetornoFiltro(filtros?.loteRetorno || "todos");
+    setDataPagtoFiltro(filtros?.dataPagto || "todos");
+    setPaginaAtual(0);
+    setPaginaConciliados(0);
+    setPaginaXmlRetorno(0);
+    setBusca("");
+    setGuiaConciliadaSelecionada(null);
+    setFiltrosCarregadosPara(estabelecimentoId);
+  }, [estabelecimentoId, storageKey]);
+
+  // Salvar somente após carregar a chave do estabelecimento atual, evitando
+  // sobrescrever o novo hospital com o estado do hospital anterior.
+  useEffect(() => {
+    if (filtrosCarregadosPara !== estabelecimentoId) return;
     localStorage.setItem(storageKey, JSON.stringify({
       competencia: competenciaFiltro,
       convenio: convenioFiltro,
@@ -62,7 +103,7 @@ export default function ConciliacaoCruzada() {
       loteRetorno: loteRetornoFiltro,
       dataPagto: dataPagtoFiltro,
     }));
-  }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey]);
+  }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey, estabelecimentoId, filtrosCarregadosPara]);
   const [loteXmlOpen, setLoteXmlOpen] = useState(false);
   const [loteRetornoOpen, setLoteRetornoOpen] = useState(false);
   const [busca, setBusca] = useState("");
@@ -662,21 +703,6 @@ export default function ConciliacaoCruzada() {
     XLSX.writeFile(wb, `faturamento_unificado_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  if (!estabelecimentoId) {
-    return (
-      <DashboardLayout>
-        <div className="p-6">
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Building2 className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">Selecione um estabelecimento para visualizar a conciliação cruzada.</p>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
   const resumo = dadosGuias?.resumo;
   const contas = dadosGuias?.contas || [];
   const totalPaginas = Math.ceil((dadosGuias?.total || 0) / ITENS_POR_PAGINA);
@@ -696,6 +722,72 @@ export default function ConciliacaoCruzada() {
   // Competências e convênios dependem da aba ativa
   const competenciasAtivas = abaAtiva === "conciliados" ? competenciasConciliados : competencias;
   const conveniosAtivos = abaAtiva === "conciliados" ? conveniosConciliados : convenios;
+
+  if (!estabelecimentoId) {
+    return (
+      <DashboardLayout>
+        <div className="p-6 space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Link2 className="w-7 h-7 text-primary" />
+              Conciliação Cruzada
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {visualizandoTodos
+                ? "Selecione um estabelecimento autorizado para visualizar e processar a conciliação."
+                : "Selecione um estabelecimento para visualizar a conciliação."}
+            </p>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-primary" />
+                Estabelecimentos com acesso à conciliação
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {estabelecimentosComAcesso.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {estabelecimentosComAcesso.map(estabelecimento => (
+                    <button
+                      key={estabelecimento.id}
+                      type="button"
+                      onClick={() => setEstabelecimentoAtual(estabelecimento)}
+                      className="group rounded-xl border bg-card p-5 text-left transition-all hover:border-primary hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="rounded-lg bg-primary/10 p-2.5 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                            <Building2 className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{estabelecimento.nome}</p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Abrir conciliação deste estabelecimento
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary shrink-0" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-10 text-center">
+                  <Building2 className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="font-medium">Nenhum estabelecimento autorizado</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Solicite ao gestor a permissão de Conciliação de Contas Pagas.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

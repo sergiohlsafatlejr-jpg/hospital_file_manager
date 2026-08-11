@@ -142,3 +142,14 @@ debug_*.ts
 # Manus logs
 .manus-logs/
 .project-config.json
+
+# Dumps e utilitários locais de diagnóstico com dados de conexão
+config_dump.json
+config_manus.json
+db_dump.py
+test_db_*.py
+check_db_*.py
+find_*db*.py
+find_*cred*.py
+inspect_db_*.py
+analyze_db_results.py

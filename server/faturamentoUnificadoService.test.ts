@@ -25,6 +25,9 @@ import {
   buscarRecebimentosCandidatos,
   lotesXmlTissDisponiveis,
   lotesRetornoDisponiveis,
+  datasPagamentoConciliados,
+  montarCondicaoDataPagamentoConciliado,
+  resumoConciliadosAutomatico,
   resumoConciliadosPorGuia,
 } from "./faturamentoUnificadoService";
 
@@ -574,6 +577,67 @@ describe("faturamentoUnificadoService", () => {
         try { return JSON.stringify(c[0]); } catch { return String(c[0]); }
       }).join(' ');
       expect(allSql).toContain("88914");
+    });
+  });
+
+  describe("filtro Data de Pagamento - múltiplas origens", () => {
+    it("deve consultar recebimentos Excel e demonstrativos XML pela data exata", () => {
+      const filtro = montarCondicaoDataPagamentoConciliado('ca', '2026-08-01');
+
+      expect(filtro).toContain("ca.recebimentoOrigem = 'excel'");
+      expect(filtro).toContain("FROM recebimentos_excel");
+      expect(filtro).toContain("DATE(re_data_pagto.data_pagto) = '2026-08-01'");
+      expect(filtro).toContain("ca.recebimentoOrigem IN ('demonstrativo', 'xml')");
+      expect(filtro).toContain("FROM demonstrativo");
+      expect(filtro).toContain("DATE(d_data_pagto.data_pagamento) = '2026-08-01'");
+    });
+
+    it("deve rejeitar mês sem dia para impedir comparação incompatível", () => {
+      expect(() => montarCondicaoDataPagamentoConciliado('ca', '2026-08')).toThrow(
+        'Data de pagamento deve estar no formato YYYY-MM-DD',
+      );
+    });
+
+    it("deve aplicar as duas origens ao resumo por guia", async () => {
+      mockExecute
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[{ total: 0 }]]);
+
+      await resumoConciliadosPorGuia({
+        estabelecimentoId: 1,
+        dataPagto: '2026-08-01',
+      });
+
+      const allSql = mockExecute.mock.calls.map(c => JSON.stringify(c[0])).join(' ');
+      expect(allSql).toContain('recebimentos_excel');
+      expect(allSql).toContain('demonstrativo');
+      expect(allSql).toContain('2026-08-01');
+    });
+
+    it("deve usar a data real do recebimento no resumo, não competenciaPagamento mensal", async () => {
+      mockExecute.mockResolvedValueOnce([[]]);
+
+      await resumoConciliadosAutomatico({
+        estabelecimentoId: 1,
+        dataPagto: '2026-08-01',
+      });
+
+      const allSql = mockExecute.mock.calls.map(c => JSON.stringify(c[0])).join(' ');
+      expect(allSql).toContain('recebimentos_excel');
+      expect(allSql).toContain('demonstrativo');
+      expect(allSql).not.toContain("competenciaPagamento LIKE '2026-08-01%'");
+    });
+
+    it("deve listar datas de pagamento combinando Excel e demonstrativo", async () => {
+      mockExecute.mockResolvedValueOnce([[]]);
+
+      await datasPagamentoConciliados({ estabelecimentoId: 1 });
+
+      const allSql = mockExecute.mock.calls.map(c => JSON.stringify(c[0])).join(' ');
+      expect(allSql).toContain('UNION ALL');
+      expect(allSql).toContain('recebimentos_excel');
+      expect(allSql).toContain('demonstrativo');
+      expect(allSql).toContain('data_pagamento');
     });
   });
 });

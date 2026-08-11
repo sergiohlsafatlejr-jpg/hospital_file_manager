@@ -11,6 +11,20 @@ import { eq, sql } from 'drizzle-orm';
 import type { InsertDemonstrativo } from '../drizzle/schema';
 
 /**
+ * Seleciona a guia usada no demonstrativo de retorno. A guia da operadora é a
+ * referência principal da conciliação; a guia do prestador é mantida como
+ * fallback para XMLs que não enviam o identificador da operadora.
+ */
+export function selecionarNumeroGuiaRetorno(item: {
+  numeroGuiaOperadora?: unknown;
+  numeroGuiaPrestador?: unknown;
+}): string | null {
+  const guiaOperadora = String(item.numeroGuiaOperadora || '').trim();
+  const guiaPrestador = String(item.numeroGuiaPrestador || '').trim();
+  return guiaOperadora || guiaPrestador || null;
+}
+
+/**
  * Normaliza uma data para evitar problemas de fuso horário.
  * Quando o Drizzle converte Date para o banco, usa o fuso local do servidor,
  * o que pode transformar 2025-12-01T05:00:00Z em 2025-11-30.
@@ -70,11 +84,18 @@ export async function syncDemonstrativoByArquivo(
       // Mapear para formato demonstrativo
       records = excelData.map((item: any) => {
         const situacao = (item.situacaoItem || '').toString().toUpperCase();
-        const isGlosado = situacao === 'GLOSADO' || situacao.includes('GLOS');
-        const hasErroTiss = item.erroTiss && item.erroTiss.trim() !== '';
         
         // Converter valores para números decimais
         const valorOriginalNum = parseFloat(String(item.valorPagamento || 0));
+        const valorGlosaInformadaNum = parseFloat(String(item.valorGlosa || 0));
+
+        // Compatibilidade com importações antigas: a Vivacom era gravada como
+        // GLOSADO mesmo quando a mesma linha tinha pagamento e glosa. Nesse caso
+        // preservar o pagamento e tratar como parcial durante a sincronização.
+        const isParcial = situacao.includes('PARCIAL') ||
+          (valorOriginalNum > 0 && valorGlosaInformadaNum > 0);
+        const isGlosado = !isParcial &&
+          (situacao === 'GLOSADO' || situacao.includes('GLOS'));
         
         // Lógica de valores:
         // - Quando GLOSADO (qualquer formato): valorPagamento é o valor da GLOSA, valor_pago = 0
@@ -217,7 +238,12 @@ export async function syncDemonstrativoByArquivo(
           estabelecimentoId: item.estabelecimentoId,
           
           // Identificação
-          numeroGuia: item.numeroGuiaPrestador,
+          // A conciliação do faturamento prioriza a guia da operadora. Alguns
+          // convênios (especialmente a CASSI) devolvem números diferentes para
+          // a guia do prestador e a guia da operadora; descartar esta última
+          // impede o match exato. Manter fallback para XMLs que só informam a
+          // guia do prestador.
+          numeroGuia: selecionarNumeroGuiaRetorno(item),
           protocolo: item.numeroProtocolo,
           lotePrestador: item.numeroLotePrestador,
           dataPagamento: normalizeDateForDB(itemDataPagamento),

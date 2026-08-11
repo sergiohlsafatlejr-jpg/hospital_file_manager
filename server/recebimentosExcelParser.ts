@@ -318,9 +318,12 @@ export function extractRecebimentoExcelFromRow(
     const valorGlosaNum = parseNumber(record.valorGlosa);
     const valorPagamentoNum = parseNumber(record.valorPagamento);
     
-    // Se tem valor de glosa > 0, marcar como GLOSADO
+    // Se há glosa e também pagamento, trata-se de glosa parcial.
+    // A Vivacom informa os dois valores na mesma linha.
     if (valorGlosaNum && valorGlosaNum > 0) {
-      record.situacaoItem = 'GLOSADO';
+      record.situacaoItem = valorPagamentoNum && valorPagamentoNum > 0
+        ? 'PARCIAL'
+        : 'GLOSADO';
     }
     // Se valor pago é 0 e não tem glosa, pode ser não pago
     else if (valorPagamentoNum === 0) {
@@ -362,7 +365,7 @@ export function extractRecebimentoExcelFromRow(
       record.situacaoItem = 'GLOSADO';
     } else {
       // Glosa parcial: convênio pagou algo, mas houve glosa
-      record.situacaoItem = 'GLOSADO';
+      record.situacaoItem = 'PARCIAL';
     }
   }
   
@@ -414,7 +417,7 @@ export function extractRecebimentoExcelFromRow(
         record.situacaoItem = 'GLOSADO';
       } else {
         // Glosa parcial: valor pago > 0 e valor glosa > 0
-        record.situacaoItem = 'GLOSADO';
+        record.situacaoItem = 'PARCIAL';
       }
     }
   }

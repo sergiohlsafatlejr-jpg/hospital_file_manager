@@ -8,6 +8,63 @@
 import { getDb, getRawPool } from "./db";
 import { sql } from "drizzle-orm";
 
+/**
+ * Retorna as variantes únicas de guia na ordem de preferência da conciliação.
+ * A operadora é priorizada, mas a guia do prestador e a conta permanecem como
+ * alternativas para retornos TISS que utilizam identificadores diferentes.
+ */
+export function obterGuiasCandidatas(item: {
+  numeroGuiaOperadora?: unknown;
+  numeroGuia?: unknown;
+  contaNumero?: unknown;
+}): string[] {
+  return [...new Set(
+    [item.numeroGuiaOperadora, item.numeroGuia, item.contaNumero]
+      .map(valor => String(valor || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+/**
+ * Monta a condição SQL que relaciona um item conciliado à data exata do
+ * pagamento, respeitando a origem do recebimento. Registros antigos sem origem
+ * explícita tentam as duas fontes para preservar compatibilidade histórica.
+ */
+export function montarCondicaoDataPagamentoConciliado(
+  aliasConciliado: string,
+  dataPagto: string,
+): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(aliasConciliado)) {
+    throw new Error('Alias SQL inválido para o filtro de data de pagamento');
+  }
+
+  const dataNormalizada = dataPagto.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNormalizada)) {
+    throw new Error('Data de pagamento deve estar no formato YYYY-MM-DD');
+  }
+
+  const origemLegada = `(${aliasConciliado}.recebimentoOrigem IS NULL OR ${aliasConciliado}.recebimentoOrigem = '')`;
+  return `(
+    (
+      (${aliasConciliado}.recebimentoOrigem = 'excel' OR ${origemLegada})
+      AND EXISTS (
+        SELECT 1 FROM recebimentos_excel re_data_pagto
+        WHERE re_data_pagto.id = ${aliasConciliado}.recebimentoId
+          AND DATE(re_data_pagto.data_pagto) = '${dataNormalizada}'
+      )
+    )
+    OR
+    (
+      (${aliasConciliado}.recebimentoOrigem IN ('demonstrativo', 'xml') OR ${origemLegada})
+      AND EXISTS (
+        SELECT 1 FROM demonstrativo d_data_pagto
+        WHERE d_data_pagto.id = ${aliasConciliado}.recebimentoId
+          AND DATE(d_data_pagto.data_pagamento) = '${dataNormalizada}'
+      )
+    )
+  )`;
+}
+
 // ============================================================
 // POPULAÇÃO A PARTIR DO WARLEINE (integ_faturado)
 // ============================================================
@@ -1019,12 +1076,9 @@ export async function executarConciliacaoAutomatica(params: {
   // Incluir AMBAS as guias (prestador + operadora) para garantir match com demonstrativo
   const guiasSet = new Set<string>();
   for (const f of itensFaturamento) {
-    const gp = String(f.numeroGuia || '').trim();
-    const go = String(f.numeroGuiaOperadora || '').trim();
-    const cn = String(f.contaNumero || '').trim();
-    if (gp) guiasSet.add(gp);
-    if (go) guiasSet.add(go);
-    if (cn) guiasSet.add(cn);
+    for (const guia of obterGuiasCandidatas(f)) {
+      guiasSet.add(guia);
+    }
   }
   const guiasUnicas = [...guiasSet];
   const carteirasUnicas = [...new Set(itensFaturamento.map((f: any) => String(f.carteiraBeneficiario || '').trim()).filter(Boolean))];
@@ -1313,18 +1367,25 @@ export async function executarConciliacaoAutomatica(params: {
   }> = [];
 
   for (const fat of itensFaturamento) {
-    // Preferir numeroGuiaOperadora para match (demonstrativo usa guia operadora)
-    const guia = String(fat.numeroGuiaOperadora || fat.numeroGuia || fat.contaNumero || '').trim();
-    const codigoItem = String(fat.codigoItem || '').trim();
-    const codigoTuss = String(fat.codigoItemTuss || '').trim();
+    // Preferir a guia da operadora, mas tentar também a guia do prestador e a
+    // conta. CASSI e outras operadoras podem devolver identificadores distintos
+    // no XML; limitar o match à primeira opção gera falsos "sem pagamento".
+    const guiasCandidatas = obterGuiasCandidatas(fat);
+    const guia = guiasCandidatas[0] || '';
+    const codigoItem = normalizarCodigo(String(fat.codigoItem || ''));
+    const codigoTuss = normalizarCodigo(String(fat.codigoItemTuss || ''));
     const paciente = normalizarNome(String(fat.pacienteNome || ''));
     const valorFaturado = Number(fat.valorFaturado) || 0;
 
     // REGRA BRADESCO: Guia paga/glosada por inteiro (demonstrativo sem codigo_item)
     // Se a guia está no mapa de guias pagas inteiras, marcar como conciliado
     // Se está no mapa de guias glosadas inteiras, marcar como glosa_total
-    const guiaPagaInteira = guiasPagasInteiras.get(guia);
-    const guiaGlosadaInteira = guiasGlosadasInteiras.get(guia);
+    const guiaPagaInteira = guiasCandidatas
+      .map(guiaCandidata => guiasPagasInteiras.get(guiaCandidata))
+      .find(registro => registro !== undefined);
+    const guiaGlosadaInteira = guiasCandidatas
+      .map(guiaCandidata => guiasGlosadasInteiras.get(guiaCandidata))
+      .find(registro => registro !== undefined);
     
     if (guiaPagaInteira && !guiaGlosadaInteira) {
       // Guia paga por inteiro: todos os itens são conciliados
@@ -1485,20 +1546,30 @@ export async function executarConciliacaoAutomatica(params: {
     let recMatch: any = null;
     let metodo = '';
 
-    // Estratégia 1: Match exato por guia + código
-    if (guia && codigoItem) {
-      const chave = `${guia}|${codigoItem}`;
-      recMatch = encontrarMelhorMatch(indexGuiaCodigo.get(chave), recebimentosUsados, valorFaturado);
-      if (recMatch) {
-        matchEncontrado = true;
-        metodo = 'guia_codigo';
+    const encontrarPorGuiasECodigo = (codigo: string): any | null => {
+      if (!codigo) return null;
+      for (const guiaCandidata of guiasCandidatas) {
+        const chave = `${guiaCandidata}|${codigo}`;
+        const candidato = encontrarMelhorMatch(
+          indexGuiaCodigo.get(chave),
+          recebimentosUsados,
+          valorFaturado
+        );
+        if (candidato) return candidato;
       }
+      return null;
+    };
+
+    // Estratégia 1: Match exato por qualquer guia conhecida + código
+    recMatch = encontrarPorGuiasECodigo(codigoItem);
+    if (recMatch) {
+      matchEncontrado = true;
+      metodo = 'guia_codigo';
     }
 
-    // Estratégia 2: Match por guia + código TUSS
-    if (!matchEncontrado && guia && codigoTuss && codigoTuss !== codigoItem) {
-      const chave = `${guia}|${codigoTuss}`;
-      recMatch = encontrarMelhorMatch(indexGuiaCodigo.get(chave), recebimentosUsados, valorFaturado);
+    // Estratégia 2: Match por qualquer guia conhecida + código TUSS
+    if (!matchEncontrado && codigoTuss && codigoTuss !== codigoItem) {
+      recMatch = encontrarPorGuiasECodigo(codigoTuss);
       if (recMatch) {
         matchEncontrado = true;
         metodo = 'guia_codigo_tuss';
@@ -1506,10 +1577,9 @@ export async function executarConciliacaoAutomatica(params: {
     }
 
     // Estratégia 3: Match com vinculação de códigos (de-para)
-    if (!matchEncontrado && guia && codigoItem && mapaVinculacao.has(codigoItem)) {
-      const codigoTraduzido = mapaVinculacao.get(codigoItem)!;
-      const chave = `${guia}|${codigoTraduzido}`;
-      recMatch = encontrarMelhorMatch(indexGuiaCodigo.get(chave), recebimentosUsados, valorFaturado);
+    if (!matchEncontrado && codigoItem && mapaVinculacao.has(codigoItem)) {
+      const codigoTraduzido = normalizarCodigo(mapaVinculacao.get(codigoItem)!);
+      recMatch = encontrarPorGuiasECodigo(codigoTraduzido);
       if (recMatch) {
         matchEncontrado = true;
         metodo = 'vinculacao';
@@ -1566,19 +1636,22 @@ export async function executarConciliacaoAutomatica(params: {
     if (matchEncontrado && recMatch) {
       recebimentosUsados.add(recMatch.id);
       
-      // REGRA CRÍTICA: Se situacao_item do demonstrativo/excel é 'GLOSADO',
-      // o valor_pagamento NÃO é o valor pago real - é o valor de tabela.
-      // Nesse caso, o pagamento real é R$0 (glosa total).
+      // Registros antigos da Vivacom podem estar marcados como GLOSADO mesmo
+      // trazendo simultaneamente valor pago e valor de glosa. Essa combinação
+      // representa glosa parcial e não pode zerar o pagamento real.
       const situacaoItem = String(recMatch.situacao || '').toUpperCase().trim();
-      const isGlosadoTotal = situacaoItem === 'GLOSADO';
+      const valorPagoInformado = Number(recMatch.valorPago) || 0;
+      const valorGlosaInformado = Number(recMatch.valorGlosa) || 0;
+      const temPagamentoEGlosa = valorPagoInformado > 0 && valorGlosaInformado > 0;
+      const isGlosadoTotal = situacaoItem === 'GLOSADO' && !temPagamentoEGlosa;
       
-      const valorRecebido = isGlosadoTotal ? 0 : (Number(recMatch.valorPago) || 0);
+      const valorRecebido = isGlosadoTotal ? 0 : valorPagoInformado;
       const diferenca = valorFaturado - valorRecebido;
       const _pctRaw = valorFaturado > 0 ? (Math.abs(diferenca) / valorFaturado) * 100 : (valorRecebido > 0 ? 100 : 0);
       const percentualDiferenca = isFinite(_pctRaw) ? Math.min(_pctRaw, 9999999.9999) : 9999999.9999;
 
-      const valorPagoRec = isGlosadoTotal ? 0 : (Number(recMatch.valorPago) || 0);
-      const valorGlosaRec = isGlosadoTotal ? valorFaturado : (Number(recMatch.valorGlosa) || 0);
+      const valorPagoRec = isGlosadoTotal ? 0 : valorPagoInformado;
+      const valorGlosaRec = isGlosadoTotal ? valorFaturado : valorGlosaInformado;
 
       // Enriquecer com dados do recebimento (demonstrativo)
       // Paciente: preferir do recebimento pois vem do demonstrativo
@@ -2465,9 +2538,14 @@ export async function resumoConciliadosAutomatico(params: {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
   }
   if (params.dataPagto) {
-    // Filtro por competência de pagamento (formato YYYY-MM)
-    const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.competenciaPagamento LIKE '${dp}%'`;
+    // A UI seleciona uma data exata. Filtrar pela origem real do recebimento
+    // e incluir todos os itens da guia, inclusive glosas sem ID próprio.
+    whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
+      SELECT DISTINCT COALESCE(ca2.numeroGuia, ca2.contaNumero)
+      FROM conciliados_automatico ca2
+      WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
+        AND ${montarCondicaoDataPagamentoConciliado('ca2', params.dataPagto)}
+    )`;
   }
 
   const query = `
@@ -2680,15 +2758,13 @@ export async function resumoConciliadosPorGuia(params: {
     whereClause += ` AND ca.numeroGuia IN (SELECT DISTINCT d.numero_guia FROM demonstrativo d WHERE d.estabelecimentoId = ${params.estabelecimentoId} AND d.lote_prestador = '${lr}')`;
   }
   if (params.dataPagto) {
-    // Filtrar pela data de pagamento do demonstrativo (recebimentos_excel.data_pagto)
-    // Usa subquery para identificar as GUIAS que têm pagamento naquela data,
-    // e depois inclui TODOS os itens dessas guias (incluindo glosa_total sem recebimento e acréscimos)
-    const dp = params.dataPagto.replace(/'/g, "''");
+    // Identifica guias pagas na data em recebimentos Excel ou demonstrativos
+    // XML e inclui todos os itens dessas guias.
     whereClause += ` AND COALESCE(ca.numeroGuia, ca.contaNumero) IN (
       SELECT DISTINCT COALESCE(ca2.numeroGuia, ca2.contaNumero)
       FROM conciliados_automatico ca2
       WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
-        AND ca2.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')
+        AND ${montarCondicaoDataPagamentoConciliado('ca2', params.dataPagto)}
     )`;
   }
 
@@ -3295,15 +3371,30 @@ export async function datasPagamentoConciliados(params: {
   }
 
   const query = `
-    SELECT 
-      DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto,
-      COUNT(DISTINCT ca.id) as total
-    FROM conciliados_automatico ca
-    INNER JOIN recebimentos_excel re ON ca.recebimentoId = re.id
-    ${whereClause}
-    AND re.data_pagto IS NOT NULL
-    GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
-    ORDER BY dataPagto DESC
+    SELECT datas.dataPagto, SUM(datas.total) as total
+    FROM (
+      SELECT DATE_FORMAT(re.data_pagto, '%Y-%m-%d') as dataPagto,
+             COUNT(DISTINCT ca.id) as total
+      FROM conciliados_automatico ca
+      INNER JOIN recebimentos_excel re ON re.id = ca.recebimentoId
+      ${whereClause}
+        AND re.data_pagto IS NOT NULL
+        AND (ca.recebimentoOrigem = 'excel' OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
+      GROUP BY DATE_FORMAT(re.data_pagto, '%Y-%m-%d')
+
+      UNION ALL
+
+      SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') as dataPagto,
+             COUNT(DISTINCT ca.id) as total
+      FROM conciliados_automatico ca
+      INNER JOIN demonstrativo d ON d.id = ca.recebimentoId
+      ${whereClause}
+        AND d.data_pagamento IS NOT NULL
+        AND (ca.recebimentoOrigem IN ('demonstrativo', 'xml') OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
+      GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m-%d')
+    ) datas
+    GROUP BY datas.dataPagto
+    ORDER BY datas.dataPagto DESC
   `;
 
   const [rows] = await db.execute(sql.raw(query));
@@ -3349,7 +3440,7 @@ export async function itensGlosadosParaRecurso(params: {
     whereClause += ` AND ca.convenioId = ${params.convenioId}`;
   }
   if (params.dataPagto) {
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${params.dataPagto.replace(/'/g, "''")}')`;
+    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
   }
   if (params.loteXml) {
     whereClause += ` AND ca.faturamentoUnificadoId IN (SELECT fu2.id FROM faturamento_unificado fu2 WHERE fu2.lotePrestador = '${params.loteXml.replace(/'/g, "''")}' AND fu2.estabelecimentoId = ${params.estabelecimentoId})`;
@@ -3616,8 +3707,7 @@ export async function itensGlosadosDetalheGuia(params: {
     whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
   }
   if (params.dataPagto) {
-    const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re2.id FROM recebimentos_excel re2 WHERE DATE_FORMAT(re2.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
   }
 
   const query = `
@@ -4274,8 +4364,7 @@ export async function itensGlosadosDetalhePorItem(params: {
     whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
   }
   if (params.dataPagto) {
-    const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
   }
 
   const query = `
@@ -4362,8 +4451,7 @@ export async function itensGlosadosDetalhePorMotivo(params: {
     whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
   }
   if (params.dataPagto) {
-    const dp = params.dataPagto.replace(/'/g, "''");
-    whereClause += ` AND ca.recebimentoId IN (SELECT re.id FROM recebimentos_excel re WHERE DATE_FORMAT(re.data_pagto, '%Y-%m-%d') = '${dp}')`;
+    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
   }
 
   const query = `

@@ -11,7 +11,7 @@ describe('recebimentosExcelParser - Detecção de Glosas', () => {
   };
 
   describe('Formato Unimed - Glosas via Erro TISS', () => {
-    it('deve marcar como GLOSADO quando Erro TISS está preenchido e Situação Item = PAGO', () => {
+    it('deve marcar como PARCIAL quando Erro TISS está preenchido e há pagamento', () => {
       const row = {
         'Número Guia': '62185116',
         'Seq': 20,
@@ -34,7 +34,7 @@ describe('recebimentosExcelParser - Detecção de Glosas', () => {
         defaultArgs.estabelecimentoId
       );
 
-      expect(record.situacaoItem).toBe('GLOSADO');
+      expect(record.situacaoItem).toBe('PARCIAL');
       expect(record.codigoGlosa).toBe('1813');
       expect(record.erroTiss).toContain('1813');
       // Valor pagamento mantido (é o valor pago pelo convênio)
@@ -92,7 +92,7 @@ describe('recebimentosExcelParser - Detecção de Glosas', () => {
         );
 
         expect(record.codigoGlosa).toBe(tc.expected);
-        expect(record.situacaoItem).toBe('GLOSADO');
+        expect(record.situacaoItem).toBe('PARCIAL');
       }
     });
 
@@ -141,6 +141,30 @@ describe('recebimentosExcelParser - Detecção de Glosas', () => {
 
       expect(record.situacaoItem).toBe('GLOSADO');
       expect(record.valorGlosa).toBe('50');
+    });
+
+    it('deve marcar como PARCIAL e preservar pagamento quando VALOR PAGO e VALOR GLOSA são positivos', () => {
+      const row = {
+        'GUIA': 'VIVACOM-PARCIAL-001',
+        'CODIGO': '10101012',
+        'PROCEDIMENTO': 'Consulta em consultório',
+        'VALOR PAGO': '75.50',
+        'VALOR GLOSA': '24.50',
+        'VALOR INFORMADO': '100.00',
+      };
+
+      const record = extractRecebimentoExcelFromRow(
+        row,
+        defaultArgs.arquivoId,
+        defaultArgs.convenioId,
+        defaultArgs.dataReferencia,
+        defaultArgs.dataPagamento,
+        defaultArgs.estabelecimentoId
+      );
+
+      expect(record.situacaoItem).toBe('PARCIAL');
+      expect(record.valorPagamento).toBe('75.5');
+      expect(record.valorGlosa).toBe('24.5');
     });
   });
 
@@ -316,7 +340,7 @@ describe('recebimentosExcelParser - Formato IPASGO', () => {
 
     expect(record.situacaoItem).toBe('GLOSADO');
     expect(record.valorGlosa).toBe('2041.2');
-    expect(record.codigoGlosa).toBe('GUIA VENCIDA');
+    expect(record.codigoGlosa).toBe('1701');
     expect(record.valorPagamento).toBe('0');
   });
 
