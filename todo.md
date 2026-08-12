@@ -4366,3 +4366,5 @@
 - [x] Conciliação Cruzada: adicionar ícone de ação para confirmar manualmente como glosado um item código 9999 em glosa_total
 - [x] XML de conciliação: usar vinculadoAoId, coluna real do banco, para excluir itens vinculados sem quebrar a consulta
 - [x] Testes de regressão do XML Retorno atualizados para paginação, pagamento e glosa
+
+- [x] Conciliação Cruzada: após confirmar glosa manual, exibir Status como ASSOCIADO; limitar o Status visual a DESASSOCIADO ou ASSOCIADO

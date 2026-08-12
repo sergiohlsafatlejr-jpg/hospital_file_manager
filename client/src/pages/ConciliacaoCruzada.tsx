@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
+import { getConciliacaoStatusLabel } from "@/lib/conciliacaoStatus";
 
 export default function ConciliacaoCruzada() {
   const { user } = useAuth();
@@ -562,42 +563,15 @@ export default function ConciliacaoCruzada() {
   };
 
   const getStatusBadge = (status: string, item?: any) => {
-    // Uma confirmação manual deve continuar visível como Glosado,
-    // mesmo que o código original seja 9999.
-    if (item?.statusConciliacao === 'glosado' && item?.metodoConciliacao === 'manual_confirmacao') {
-      return <Badge className="bg-purple-500 hover:bg-purple-600"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
-    }
-    // Se o item tem motivo de glosa informado pelo convênio (codigoGlosa preenchido e diferente de 9999),
-    // significa que foi encontrado no retorno do convênio E o convênio justificou a glosa = Associado
-    if (item && item.codigoGlosa && item.codigoGlosa !== '9999') {
-      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
-    }
-    // Se o item tem código 9999, mas já tem vinculação (metodoConciliacao != null), mostrar como Associado
-    if (item && item.codigoGlosa === '9999' && item.metodoConciliacao) {
-      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
-    }
-    // Se o item tem código 9999 sem associação, mostrar como Desassociado
-    if (item && item.codigoGlosa === '9999') {
-      return <Badge className="bg-orange-500 hover:bg-orange-600"><AlertTriangle className="w-3 h-3 mr-1" /> Desassociado</Badge>;
-    }
-    switch (status) {
-      case 'conciliado':
+    const statusVisual = getConciliacaoStatusLabel(status, item);
+    switch (statusVisual) {
+      case 'Associado':
         return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
-      case 'glosa_total':
-      case 'glosa_parcial':
-        return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
-      case 'divergente':
-      case 'acrescimo':
+      case 'Acréscimo':
         return <Badge className="bg-teal-500 hover:bg-teal-600"><TrendingUp className="w-3 h-3 mr-1" /> Acréscimo</Badge>;
-      case 'terceiro':
+      case 'Terceiro':
         return <Badge className="bg-purple-500 hover:bg-purple-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Terceiro</Badge>;
-      case 'conciliado_manual':
-        return <Badge className="bg-blue-500 hover:bg-blue-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Associado</Badge>;
-      case 'glosado':
-        return <Badge className="bg-purple-500 hover:bg-purple-600"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
-      case 'sem_pagamento':
-      case 'nao_recebido':
-      case 'pendente':
+      case 'Desassociado':
       default:
         return <Badge className="bg-gray-500 hover:bg-gray-600"><Clock className="w-3 h-3 mr-1" /> Desassociado</Badge>;
     }
