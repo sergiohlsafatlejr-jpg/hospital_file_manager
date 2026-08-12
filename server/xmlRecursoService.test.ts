@@ -249,69 +249,66 @@ describe('xmlRecursoService', () => {
   });
 
   describe('guiasGlosadasDisponiveis', () => {
-    it('deve retornar guias com itens glosados incluindo totais de todos os itens', async () => {
-      mockExecute.mockResolvedValueOnce([[
-        {
-          numeroGuia: '18414424',
-          convenio: 'IPASGO',
-          convenioId: 1,
-          competencia: '2025-12',
-          pacienteNome: 'MARIA',
-          totalItens: 10,
-          totalItensGlosados: 3,
-          valorFaturado: 1000,
-          valorPago: 700,
-          valorGlosa: 300,
-          xmlGerado: 0,
-          xmlGeradoEm: null,
-          xmlLoteId: null,
-          loteXml: 'LOTE001',
-          protocoloXml: 'PROT001',
-          loteRetorno: null,
-          protocoloRetorno: null,
-          codigoPrestadorExecutante: null,
-        },
-      ]]);
+    it('deve retornar guias pagas com itens glosados incluindo totais de todos os itens', async () => {
+      mockExecute
+        .mockResolvedValueOnce([[{ total: 1 }]])
+        .mockResolvedValueOnce([[
+          {
+            numeroGuia: '18414424',
+            convenio: 'IPASGO',
+            convenioId: 1,
+            competencia: '2025-12',
+            pacienteNome: 'MARIA',
+            totalItens: 10,
+            totalItensGlosados: 3,
+            valorFaturado: 1000,
+            valorPago: 700,
+            valorGlosa: 300,
+            xmlGerado: 0,
+            xmlGeradoEm: null,
+            xmlLoteId: null,
+            loteXml: 'LOTE001',
+            protocoloXml: 'PROT001',
+            loteRetorno: null,
+            protocoloRetorno: null,
+            codigoPrestadorExecutante: null,
+          },
+        ]]);
 
       const result = await guiasGlosadasDisponiveis({
         estabelecimentoId: 6,
       });
 
-      expect(result).toHaveLength(1);
-      expect(result[0].numeroGuia).toBe('18414424');
-      expect(result[0].totalItens).toBe(10);
-      expect(result[0].totalItensGlosados).toBe(3);
-      expect(result[0].valorGlosa).toBe(300);
+      expect(result.total).toBe(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].numeroGuia).toBe('18414424');
+      expect(result.items[0].totalItens).toBe(10);
+      expect(result.items[0].totalItensGlosados).toBe(3);
+      expect(result.items[0].valorGlosa).toBe(300);
     });
 
     it('deve filtrar apenas não geradas quando solicitado', async () => {
-      mockExecute.mockResolvedValueOnce([[
-        {
-          numeroGuia: '18414424', convenio: 'IPASGO', convenioId: 1,
-          competencia: '2025-12', pacienteNome: 'MARIA', totalItens: 5,
-          totalItensGlosados: 2, valorFaturado: 500, valorPago: 300,
-          valorGlosa: 200, xmlGerado: 0, xmlGeradoEm: null, xmlLoteId: null,
-          loteXml: null, protocoloXml: null, loteRetorno: null, protocoloRetorno: null,
-          codigoPrestadorExecutante: null,
-        },
-        {
-          numeroGuia: '18560945', convenio: 'IPASGO', convenioId: 1,
-          competencia: '2025-12', pacienteNome: 'JOAO', totalItens: 3,
-          totalItensGlosados: 1, valorFaturado: 300, valorPago: 220,
-          valorGlosa: 80, xmlGerado: 1, xmlGeradoEm: '2026-03-19', xmlLoteId: 1,
-          loteXml: null, protocoloXml: null, loteRetorno: null, protocoloRetorno: null,
-          codigoPrestadorExecutante: null,
-        },
-      ]]);
+      mockExecute
+        .mockResolvedValueOnce([[{ total: 1 }]])
+        .mockResolvedValueOnce([[
+          {
+            numeroGuia: '18414424', convenio: 'IPASGO', convenioId: 1,
+            competencia: '2025-12', pacienteNome: 'MARIA', totalItens: 5,
+            totalItensGlosados: 2, valorFaturado: 500, valorPago: 300,
+            valorGlosa: 200, xmlGerado: 0, xmlGeradoEm: null, xmlLoteId: null,
+            loteXml: null, protocoloXml: null, loteRetorno: null, protocoloRetorno: null,
+            codigoPrestadorExecutante: null,
+          },
+        ]]);
 
       const result = await guiasGlosadasDisponiveis({
         estabelecimentoId: 6,
         apenasNaoGeradas: true,
       });
 
-      // Apenas a guia não gerada deve ser retornada
-      expect(result).toHaveLength(1);
-      expect(result[0].numeroGuia).toBe('18414424');
+      expect(result.total).toBe(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].numeroGuia).toBe('18414424');
     });
   });
 

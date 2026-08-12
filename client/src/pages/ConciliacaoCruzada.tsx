@@ -517,6 +517,21 @@ export default function ConciliacaoCruzada() {
     onError: (err) => toast.error(`Erro ao desvincular: ${err.message}`),
   });
 
+  // Confirmação manual de glosa sem motivo informado (código 9999)
+  const marcarGlosadoMut = trpc.faturamentoUnificado.marcarItemComoGlosado.useMutation({
+    onSuccess: (data) => {
+      if (data.sucesso) {
+        toast.success(data.mensagem);
+        refetchItensConciliados();
+        refetchGuiasConciliadas();
+        refetchResumo();
+      } else {
+        toast.error(data.mensagem);
+      }
+    },
+    onError: (err) => toast.error(`Erro ao marcar como glosado: ${err.message}`),
+  });
+
   // Mutation de geração de XML
   const gerarXmlMut = trpc.faturamentoUnificado.gerarXmlRecurso.useMutation({
     onSuccess: (data) => {
@@ -547,6 +562,11 @@ export default function ConciliacaoCruzada() {
   };
 
   const getStatusBadge = (status: string, item?: any) => {
+    // Uma confirmação manual deve continuar visível como Glosado,
+    // mesmo que o código original seja 9999.
+    if (item?.statusConciliacao === 'glosado' && item?.metodoConciliacao === 'manual_confirmacao') {
+      return <Badge className="bg-purple-500 hover:bg-purple-600"><Ban className="w-3 h-3 mr-1" /> Glosado</Badge>;
+    }
     // Se o item tem motivo de glosa informado pelo convênio (codigoGlosa preenchido e diferente de 9999),
     // significa que foi encontrado no retorno do convênio E o convênio justificou a glosa = Associado
     if (item && item.codigoGlosa && item.codigoGlosa !== '9999') {
@@ -1277,6 +1297,7 @@ export default function ConciliacaoCruzada() {
                               <th className="text-right p-3 font-medium">Acréscimo</th>
                               <th className="text-center p-3 font-medium">Status</th>
                               <th className="text-center p-3 font-medium">Método</th>
+                              <th className="text-center p-3 font-medium">Ação</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1353,6 +1374,33 @@ export default function ConciliacaoCruzada() {
                                   )}
                                 </td>
                                 <td className="p-3 text-center">{getMetodoBadge(item.metodoConciliacao, item)}</td>
+                                <td className="p-3 text-center">
+                                  {item.codigoGlosa === '9999' &&
+                                   item.statusConciliacao === 'glosa_total' &&
+                                   !item.metodoConciliacao && item.id ? (
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-7 w-7 text-purple-600 border-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950"
+                                      title="Marcar manualmente como glosado"
+                                      aria-label={`Marcar item ${item.codigoItem || ''} como glosado`}
+                                      disabled={marcarGlosadoMut.isPending}
+                                      onClick={() => {
+                                        if (window.confirm('Confirmar este item como glosado? A glosa será mantida e apenas o status será alterado.')) {
+                                          marcarGlosadoMut.mutate({
+                                            itemId: Number(item.id),
+                                            estabelecimentoId,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <CheckCircle2 className="h-4 w-4" />
+                                    </Button>
+                                  ) : item.statusConciliacao === 'glosado' && item.metodoConciliacao === 'manual_confirmacao' ? (
+                                    <Badge variant="outline" className="text-[10px] text-purple-700 border-purple-300">Confirmado</Badge>
+                                  ) : null}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1367,7 +1415,7 @@ export default function ConciliacaoCruzada() {
                               <td className="p-3 text-right text-red-600">{formatarMoeda(itensConciliadosGuia.reduce((s: number, i: any) => s + Number(i.valorGlosa || 0), 0))}</td>
                               <td></td>
                               <td className="p-3 text-right text-teal-600">{formatarMoeda(Math.abs(itensConciliadosGuia.reduce((s: number, i: any) => s + (Number(i.diferenca || 0) < 0 ? Number(i.diferenca) : 0), 0)))}</td>
-                              <td colSpan={2}></td>
+                              <td colSpan={3}></td>
                             </tr>
                           </tfoot>
                         </table>

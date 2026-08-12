@@ -188,7 +188,7 @@ async function buscarDadosGuiasCompletas(
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${estabelecimentoId}
       AND ca.numeroGuia IN (${guiasStr})
-      AND ca.itemVinculadoId IS NULL
+      AND ca.vinculadoAoId IS NULL
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
   `));
 
@@ -788,12 +788,28 @@ export async function guiasGlosadasDisponiveis(params: {
   const limit = params.limit || 50;
   const offset = params.offset || 0;
 
+  // A aba XML Retorno só deve listar guias que já foram conciliadas,
+  // receberam algum pagamento e possuem pelo menos uma glosa para recurso.
+  // Assim, guias sem pagamento não ficam disponíveis para geração de XML.
+  const havingGuiaElegivel = `
+    HAVING COALESCE(SUM(ca.valorPago), 0) > 0
+       AND SUM(CASE
+         WHEN COALESCE(ca.valorGlosa, 0) > 0
+           OR ca.statusConciliacao IN ('glosado', 'glosa_total', 'glosa_parcial')
+         THEN 1 ELSE 0 END) > 0
+  `;
+
   // Executar count e query principal em paralelo
   const [[countResult], [result]] = await Promise.all([
     db.execute(sql.raw(`
-      SELECT COUNT(DISTINCT CONCAT(ca.numeroGuia, '-', ca.convenioId, '-', ca.competencia)) as total
-      FROM conciliados_automatico ca
-      ${whereGlosadas}
+      SELECT COUNT(*) as total
+      FROM (
+        SELECT ca.numeroGuia, ca.convenioId, ca.competencia, ca.estabelecimentoId
+        FROM conciliados_automatico ca
+        ${whereGlosadas}
+        GROUP BY ca.numeroGuia, ca.convenioId, ca.competencia, ca.estabelecimentoId
+        ${havingGuiaElegivel}
+      ) elegiveis
     `)),
     db.execute(sql.raw(`
       SELECT 
@@ -803,10 +819,17 @@ export async function guiasGlosadasDisponiveis(params: {
         ca.competencia,
         MAX(ca.pacienteNome) as pacienteNome,
         COUNT(*) as totalItens,
-        SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN 1 ELSE 0 END) as totalItensGlosados,
+        SUM(CASE
+          WHEN COALESCE(ca.valorGlosa, 0) > 0
+            OR ca.statusConciliacao IN ('glosado', 'glosa_total', 'glosa_parcial')
+          THEN 1 ELSE 0 END) as totalItensGlosados,
         SUM(ca.valorFaturado) as valorFaturado,
         SUM(ca.valorPago) as valorPago,
-        SUM(CASE WHEN ca.statusConciliacao = 'glosado' THEN ca.valorGlosa ELSE 0 END) as valorGlosa,
+        SUM(CASE
+          WHEN COALESCE(ca.valorGlosa, 0) > 0
+            OR ca.statusConciliacao IN ('glosado', 'glosa_total', 'glosa_parcial')
+          THEN COALESCE(ca.valorGlosa, GREATEST(ca.valorFaturado - ca.valorPago, 0))
+          ELSE 0 END) as valorGlosa,
         MAX(ca.xmlRecursoGerado) as xmlGerado,
         MAX(ca.xmlRecursoData) as xmlGeradoEm,
         MAX(ca.xmlRecursoLoteId) as xmlLoteId,
@@ -819,6 +842,7 @@ export async function guiasGlosadasDisponiveis(params: {
       LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
       ${whereGlosadas}
       GROUP BY ca.numeroGuia, ca.convenio, ca.convenioId, ca.competencia, ca.estabelecimentoId
+      ${havingGuiaElegivel}
       ORDER BY ca.competencia DESC, ca.numeroGuia
       LIMIT ${limit} OFFSET ${offset}
     `)),

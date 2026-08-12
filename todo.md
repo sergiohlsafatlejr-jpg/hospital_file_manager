@@ -4354,3 +4354,15 @@
 - [x] Adicionar item faltante (id 2645689) ao lote 300001 - valor corrigido para R$ 829,14
 - [x] Ajustar filtro getRecursosDoConvenio para incluir itens com classificacao_glosa recursar/auto_recursar
 - [x] Excluir itens vinculados do XML de conciliação (itemVinculadoId IS NULL)
+
+- [ ] Filtrar a aba XML Retorno para exibir somente guias conciliadas com pagamento
+- [ ] Adicionar ação manual para marcar como glosado item desassociado com código 9999 na Conciliação Cruzada
+- [ ] Validar a guia 73458604 após as correções
+
+✦ Histórico: solicitações registradas em 12/08/2026.
+
+- [x] XML Retorno: listar somente guias já conciliadas, com pagamento e com pelo menos uma glosa
+- [x] XML Retorno: corrigir totais de itens e valores glosados para status glosa_total/glosa_parcial e código 9999
+- [x] Conciliação Cruzada: adicionar ícone de ação para confirmar manualmente como glosado um item código 9999 em glosa_total
+- [x] XML de conciliação: usar vinculadoAoId, coluna real do banco, para excluir itens vinculados sem quebrar a consulta
+- [x] Testes de regressão do XML Retorno atualizados para paginação, pagamento e glosa
