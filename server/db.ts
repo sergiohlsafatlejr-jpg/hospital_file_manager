@@ -9561,11 +9561,20 @@ export async function processarInsightsAutomaticos(params: {
 export async function getRecursosAgrupadosPorConvenio(params: {
   estabelecimentoId?: number;
   status?: string;
+  dataPagamento?: string;
 }) {
   const db = await getDb();
   if (!db) return [];
 
   if (!params.estabelecimentoId) return [];
+
+  // Filtro de data de pagamento
+  const dataPagamentoFilter = params.dataPagamento
+    ? `AND d.data_pagamento = '${params.dataPagamento}'`
+    : '';
+  const dataPagamentoFilterConc = params.dataPagamento
+    ? `AND ca.competenciaPagamento = '${params.dataPagamento}'`
+    : '';
 
   // FONTE 1: Buscar itens do demonstrativo com recurso_status = 'recurso_criado' e sem lote
   const [demoRows] = await db.execute(sql.raw(`
@@ -9581,12 +9590,14 @@ export async function getRecursosAgrupadosPorConvenio(params: {
       d.justificativa_recurso as justificativa,
       d.recurso_status as status,
       d.classificacao_glosa as classificacaoGlosa,
-      'demonstrativo' as fonte
+      'demonstrativo' as fonte,
+      d.data_pagamento as dataPagamento
     FROM demonstrativo d
     WHERE d.estabelecimentoId = ${params.estabelecimentoId}
       AND d.recurso_status = 'recurso_criado'
       AND d.recurso_id IS NULL
       AND d.valor_glosa > 0
+      ${dataPagamentoFilter}
     ORDER BY d.convenio_id, d.numero_guia
   `));
 
@@ -9604,11 +9615,13 @@ export async function getRecursosAgrupadosPorConvenio(params: {
       '' as justificativa,
       ca.statusRecursoItem as status,
       ca.codigoGlosa as classificacaoGlosa,
-      'conciliacao' as fonte
+      'conciliacao' as fonte,
+      ca.competenciaPagamento as dataPagamento
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${params.estabelecimentoId}
       AND ca.statusRecursoItem = 'iniciado'
       AND ca.valorGlosa > 0
+      ${dataPagamentoFilterConc}
       AND ca.id NOT IN (
         SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL
       )
@@ -9832,6 +9845,7 @@ export async function getRecursosDoConvenio(params: {
   estabelecimentoId?: number;
   status?: string;
   apenasNaoEnviados?: boolean;
+  dataPagamento?: string;
 }) {
   const db = await getDb();
   if (!db) return [];
@@ -9843,6 +9857,9 @@ export async function getRecursosDoConvenio(params: {
   }
   if (params.apenasNaoEnviados) {
     whereExtraDemo += ` AND d.recurso_id IS NULL`;
+  }
+  if (params.dataPagamento) {
+    whereExtraDemo += ` AND d.data_pagamento = '${params.dataPagamento}'`;
   }
 
   const [demoRows] = await db.execute(sql.raw(`
@@ -9872,6 +9889,9 @@ export async function getRecursosDoConvenio(params: {
   let whereExtraConc = '';
   if (params.estabelecimentoId) {
     whereExtraConc += ` AND ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  }
+  if (params.dataPagamento) {
+    whereExtraConc += ` AND ca.competenciaPagamento = '${params.dataPagamento}'`;
   }
 
   const [concRows] = await db.execute(sql.raw(`

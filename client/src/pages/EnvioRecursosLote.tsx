@@ -54,10 +54,17 @@ export default function EnvioRecursosLote() {
   const [dataInicioConta, setDataInicioConta] = useState("");
   const [dataFimConta, setDataFimConta] = useState("");
   const [modoGuiaUnica, setModoGuiaUnica] = useState(false);
+  const [filtroDataPagamento, setFiltroDataPagamento] = useState<string>("");
+
+  // Buscar datas de pagamento disponíveis para o filtro
+  const { data: datasPagamento } = trpc.recursos.datasPagamentoDisponiveis.useQuery({
+    estabelecimentoId: estabelecimentoAtual?.id,
+  });
 
   // Buscar recursos agrupados por convênio (guias finalizadas com valor a recursar)
-  const { data: recursosAgrupados, isLoading, refetch } = trpc.recursos.agrupadosPorConvenio.useQuery({
+  const { data: recursosAgrupados, isLoading, refetch } = trpc.recursos.agrupadosPorConvenio.useQuery({  
     estabelecimentoId: estabelecimentoAtual?.id,
+    dataPagamento: filtroDataPagamento || undefined,
   });
 
   // Buscar recursos de um convênio específico
@@ -66,6 +73,7 @@ export default function EnvioRecursosLote() {
       convenioId: convenioExpandido!,
       estabelecimentoId: estabelecimentoAtual?.id,
       apenasNaoEnviados: true,
+      dataPagamento: filtroDataPagamento || undefined,
     },
     { enabled: !!convenioExpandido }
   );
@@ -229,6 +237,22 @@ export default function EnvioRecursosLote() {
           <p className="text-muted-foreground">
             Selecione as guias finalizadas por convênio e crie lotes para envio de recursos
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <Select value={filtroDataPagamento || "todas"} onValueChange={(v) => { setFiltroDataPagamento(v === "todas" ? "" : v); setConvenioExpandido(null); }}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Data Pagamento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as datas</SelectItem>
+              {datasPagamento?.map((dp: any) => (
+                <SelectItem key={dp.dataPagamento} value={dp.dataPagamento}>
+                  {new Date(dp.dataPagamento + 'T12:00:00').toLocaleDateString('pt-BR')} ({dp.qtd})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

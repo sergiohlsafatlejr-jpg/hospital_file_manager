@@ -2924,13 +2924,38 @@ export const appRouter = router({
         z.object({
           estabelecimentoId: z.number().optional(),
           status: z.string().optional(),
+          dataPagamento: z.string().optional(),
         }).optional()
       )
       .query(async ({ input }) => {
         return db.getRecursosAgrupadosPorConvenio({
           estabelecimentoId: input?.estabelecimentoId,
           status: input?.status,
+          dataPagamento: input?.dataPagamento,
         });
+      }),
+
+    datasPagamentoDisponiveis: protectedProcedure
+      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        const { sql } = await import('drizzle-orm');
+        const database = await db.getDb();
+        if (!database || !input?.estabelecimentoId) return [];
+        const [rows] = await database.execute(sql.raw(`
+          SELECT DISTINCT data_pagamento as dataPagamento, COUNT(*) as qtd
+          FROM demonstrativo
+          WHERE estabelecimentoId = ${input.estabelecimentoId}
+            AND recurso_status = 'recurso_criado'
+            AND recurso_id IS NULL
+            AND valor_glosa > 0
+            AND data_pagamento IS NOT NULL
+          GROUP BY data_pagamento
+          ORDER BY data_pagamento DESC
+        `));
+        return (rows as any[]).map(r => ({
+          dataPagamento: r.dataPagamento,
+          qtd: Number(r.qtd),
+        }));
       }),
 
     recursosDoConvenio: protectedProcedure
@@ -2940,6 +2965,7 @@ export const appRouter = router({
           estabelecimentoId: z.number().optional(),
           status: z.string().optional(),
           apenasNaoEnviados: z.boolean().optional(),
+          dataPagamento: z.string().optional(),
         })
       )
       .query(async ({ input }) => {
@@ -2948,6 +2974,7 @@ export const appRouter = router({
           estabelecimentoId: input.estabelecimentoId,
           status: input.status,
           apenasNaoEnviados: input.apenasNaoEnviados,
+          dataPagamento: input.dataPagamento,
         });
       }),
 
