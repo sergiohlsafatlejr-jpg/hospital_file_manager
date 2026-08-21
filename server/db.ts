@@ -9858,7 +9858,7 @@ export async function getRecursosDoConvenio(params: {
       d.justificativa_recurso as justificativa,
       d.recurso_status as status,
       d.classificacao_glosa as classificacaoGlosa,
-      d.data_execucao as dataGlosa,
+      COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento) as dataGlosa,
       'demonstrativo' as fonte
     FROM demonstrativo d
     WHERE d.convenio_id = ${params.convenioId}
