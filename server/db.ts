@@ -9940,12 +9940,50 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
 
   if (!lote) return null;
 
-  // Buscar recursos do lote
-  const recursosDoLote = await db
+  // Buscar recursos do lote - SISTEMA NOVO (demonstrativo + conciliados_automatico) + ANTIGO (recursosGlosa)
+  const [demoItems] = await db.execute(sql.raw(`
+    SELECT 
+      d.id, d.numero_guia as guiaNumero, d.nome_beneficiario as pacienteNome,
+      d.carteira_beneficiario as pacienteCarteirinha,
+      COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento) as dataGlosa,
+      d.valor_glosa as valorGlosado, COALESCE(d.valor_recurso, d.valor_glosa) as valorRecursado,
+      d.codigo_glosa as motivoGlosaConvenio, d.justificativa_recurso as justificativaRecurso,
+      d.codigo_item as codigoProcedimento, d.descricao_item as descricaoProcedimento,
+      d.recurso_status as status, d.valor_recurso as valorRecuperado,
+      'demonstrativo' as fonte
+    FROM demonstrativo d
+    WHERE d.recurso_id = ${loteId}
+    ORDER BY d.nome_beneficiario, d.numero_guia
+  `));
+
+  const [concItems] = await db.execute(sql.raw(`
+    SELECT 
+      ca.id, ca.numeroGuia as guiaNumero, ca.pacienteNome,
+      ca.carteirinhaBeneficiario as pacienteCarteirinha,
+      COALESCE(ca.dataExecucao, ca.competenciaPagamento) as dataGlosa,
+      ca.valorGlosa as valorGlosado, COALESCE(ca.valorRecurso, ca.valorGlosa) as valorRecursado,
+      ca.codigoGlosa as motivoGlosaConvenio, '' as justificativaRecurso,
+      ca.codigoItem as codigoProcedimento, ca.descricaoItem as descricaoProcedimento,
+      ca.statusRecursoItem as status, ca.valorRecurso as valorRecuperado,
+      'conciliacao' as fonte
+    FROM conciliados_automatico ca
+    WHERE ca.xmlRecursoLoteId = ${loteId}
+    ORDER BY ca.pacienteNome, ca.numeroGuia
+  `));
+
+  // Fallback: buscar da tabela antiga recursosGlosa
+  const recursosAntigos = await db
     .select()
     .from(recursosGlosa)
     .where(eq(recursosGlosa.loteId, loteId))
     .orderBy(recursosGlosa.pacienteNome, recursosGlosa.guiaNumero);
+
+  // Combinar todas as fontes
+  const recursosDoLote = [
+    ...(demoItems as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
+    ...(concItems as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
+    ...recursosAntigos.map(r => ({ ...r, fonte: 'antigo' })),
+  ];
 
   // Buscar convênio
   const [convenio] = lote.convenioId
@@ -9960,14 +9998,14 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
     guia: recurso.guiaNumero || "N/A",
     carteirinha: recurso.pacienteCarteirinha || "N/A",
     dataItem: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "N/A",
-    valorGlosado: recurso.valorGlosado ? parseFloat(recurso.valorGlosado) : 0,
-    valorRecursado: recurso.valorGlosado ? parseFloat(recurso.valorGlosado) : 0,
+    valorGlosado: recurso.valorGlosado ? parseFloat(String(recurso.valorGlosado)) : 0,
+    valorRecursado: recurso.valorRecursado ? parseFloat(String(recurso.valorRecursado)) : (recurso.valorGlosado ? parseFloat(String(recurso.valorGlosado)) : 0),
     motivoGlosa: recurso.motivoGlosaConvenio || "N/A",
-    descricaoRecurso: recurso.justificativaRecurso || "N/A",
+    descricaoRecurso: recurso.justificativaRecurso || recurso.justificativa || "N/A",
     codigoProcedimento: recurso.codigoProcedimento || "N/A",
     descricaoProcedimento: recurso.descricaoProcedimento || "N/A",
     status: recurso.status,
-    valorRecuperado: recurso.valorRecuperado ? parseFloat(recurso.valorRecuperado) : 0,
+    valorRecuperado: recurso.valorRecuperado ? parseFloat(String(recurso.valorRecuperado)) : 0,
     // Campos de pagamento
     valorRecebido: (recurso as any).valorRecebido ? parseFloat((recurso as any).valorRecebido) : 0,
     dataPagamento: (recurso as any).dataPagamento ? new Date((recurso as any).dataPagamento).toLocaleDateString("pt-BR") : "",
