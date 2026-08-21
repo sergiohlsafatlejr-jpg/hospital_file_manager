@@ -5360,8 +5360,43 @@ export async function verificarGuiaFinalizadaECriarRecursos(params: {
         'pendente_envio', 'media', NOW(), NOW()
       )
     `));
-    recursosCriados++;
+  recursosCriados++;
     recursosExistentes.add(item.codigoItem);
+  }
+
+  // 5. Atualizar recurso_status no demonstrativo para itens recursados
+  if (recursosCriados > 0) {
+    const idsRecursados = itensRecursados
+      .filter((item: any) => item.fonte === 'demo')
+      .map((item: any) => item.id);
+    
+    if (idsRecursados.length > 0) {
+      await db.execute(sql.raw(`
+        UPDATE demonstrativo 
+        SET recurso_status = 'recurso_criado',
+            classificacao_glosa = 'recursar'
+        WHERE id IN (${idsRecursados.join(',')})
+          AND estabelecimentoId = ${estabelecimentoId}
+      `));
+    }
+  }
+
+  // 6. Atualizar itens aceitos com recurso_status = 'sem_recurso' e classificacao = 'aceitar'
+  const itensAceitos = itens.filter((item: any) => item.glosaAceita);
+  if (itensAceitos.length > 0) {
+    const idsAceitos = itensAceitos
+      .filter((item: any) => item.fonte === 'demo')
+      .map((item: any) => item.id);
+    
+    if (idsAceitos.length > 0) {
+      await db.execute(sql.raw(`
+        UPDATE demonstrativo 
+        SET classificacao_glosa = 'aceitar'
+        WHERE id IN (${idsAceitos.join(',')})
+          AND estabelecimentoId = ${estabelecimentoId}
+          AND classificacao_glosa = 'pendente'
+      `));
+    }
   }
 
   return { finalizada: true, recursosCriados };
