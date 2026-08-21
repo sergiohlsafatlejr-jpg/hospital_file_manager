@@ -514,6 +514,7 @@ function convertRowAlternativeFormat(
   const dataFinalSerial = getNumberByName(['data fim faturamento internação', 'data fim faturamento internacao']);
   
   const dataPagtoDate = dataPagamentoUpload || excelSerialToDate(dataPagtoSerial);
+  const dataExecDate = excelSerialToDate(dataExecSerial);
   const dataInicialDate = excelSerialToDate(dataInicialSerial);
   const dataFinalDate = excelSerialToDate(dataFinalSerial);
   const dataRef = dataReferenciaUpload || dataPagtoDate;
@@ -562,6 +563,7 @@ function convertRowAlternativeFormat(
     numeroGuia: getByName(['número guia', 'numero guia', 'número guia prestador', 'numero guia prestador']) || undefined,
     codigoSolicitante: getByName(['código solicitante', 'codigo solicitante']) || undefined,
     horaExecucao: getByName(['hora execução', 'hora execucao']) || undefined,
+    dataExecucao: dataExecDate || undefined,
     
     item: getByName(['item']) || undefined,
     itemDesc: getByName(['item desc', 'descrição procedimento', 'descricao procedimento']) || undefined,
