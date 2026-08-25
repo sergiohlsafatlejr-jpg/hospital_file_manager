@@ -4368,3 +4368,5 @@
 - [x] Testes de regressão do XML Retorno atualizados para paginação, pagamento e glosa
 
 - [x] Conciliação Cruzada: após confirmar glosa manual, exibir Status como ASSOCIADO; limitar o Status visual a DESASSOCIADO ou ASSOCIADO
+
+- [x] Corrigir falha de login Google do usuário sergiohlsafatlejr@gmail.com com APP_DATABASE_URL válida no ambiente publicado

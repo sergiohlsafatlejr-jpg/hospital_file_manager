@@ -125,10 +125,15 @@ export function enriquecerCodigoGlosa(codigoGlosaStr: string): string {
   return codigoGlosaStr;
 }
 
+export function getApplicationDatabaseUrl() {
+  return process.env.APP_DATABASE_URL || process.env.DATABASE_URL;
+}
+
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  const databaseUrl = getApplicationDatabaseUrl();
+  if (!_db && databaseUrl) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _db = drizzle(databaseUrl);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -142,9 +147,10 @@ export async function getDb() {
  * O Drizzle db.execute() tem limitações com queries muito grandes.
  */
 export async function getRawPool(): Promise<Pool | null> {
-  if (!_rawPool && process.env.DATABASE_URL) {
+  const databaseUrl = getApplicationDatabaseUrl();
+  if (!_rawPool && databaseUrl) {
     try {
-      _rawPool = await createPool(process.env.DATABASE_URL);
+      _rawPool = await createPool(databaseUrl);
     } catch (error) {
       console.warn("[Database] Failed to create raw pool:", error);
       _rawPool = null;
