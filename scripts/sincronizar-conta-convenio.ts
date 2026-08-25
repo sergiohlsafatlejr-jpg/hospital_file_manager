@@ -12,3 +12,4 @@ console.log(JSON.stringify(resultado));
 
 const pool = await getRawPool();
 await pool?.end();
+process.exit(0);

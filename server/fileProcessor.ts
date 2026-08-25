@@ -42,7 +42,7 @@ async function plog(arquivoId: number, level: string, message: string) {
 }
 
 router.post('/api/internal/process-file', async (req, res) => {
-  const { arquivoId, secret } = req.body;
+  const { arquivoId, secret, skipContaConvenioSync = false } = req.body;
   
   // Validar segredo interno
   if (secret !== INTERNAL_SECRET) {
@@ -90,7 +90,7 @@ router.post('/api/internal/process-file', async (req, res) => {
         await plog(arquivoId, 'info', `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`);
       }
     } else {
-      await processEnvio(arquivoId, arquivo, buffer);
+      await processEnvio(arquivoId, arquivo, buffer, Boolean(skipContaConvenioSync));
     }
     
     await plog(arquivoId, 'info', 'Processamento concluído com sucesso');
@@ -336,7 +336,12 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
   console.log(`[FileProcessor] Concluído: ${totalProcessados} itens extraídos de arquivo retornado.`);
 }
 
-async function processEnvio(arquivoId: number, arquivo: any, buffer: Buffer) {
+async function processEnvio(
+  arquivoId: number,
+  arquivo: any,
+  buffer: Buffer,
+  skipContaConvenioSync = false,
+) {
   const { parseFile } = await import('./parsers');
   const { getDb } = await import('./db');
   
@@ -412,6 +417,9 @@ async function processEnvio(arquivoId: number, arquivo: any, buffer: Buffer) {
     // análise por conta. Mantê-las sincronizadas automaticamente após o XML
     // ser normalizado evita arquivos "processados" com a tela vazia.
     try {
+      if (skipContaConvenioSync) {
+        await plog(arquivoId, 'info', 'Sincronização imediata de Conta Convênio adiada para reconstrução em lote');
+      } else {
       const { syncContaConvenioFromFaturamentoTiss } = await import('./syncContaConvenio');
       const syncResult = await syncContaConvenioFromFaturamentoTiss({
         estabelecimentoId: arquivo.estabelecimentoId,
@@ -422,6 +430,7 @@ async function processEnvio(arquivoId: number, arquivo: any, buffer: Buffer) {
         'info',
         `Conta Convênio sincronizada: ${syncResult.totalItens} itens / ${syncResult.totalContas} contas no estabelecimento`,
       );
+      }
     } catch (syncError: any) {
       await plog(arquivoId, 'error', `Erro ao sincronizar Conta Convênio: ${syncError?.message || syncError}`);
       throw syncError;

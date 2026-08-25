@@ -55,7 +55,7 @@ for (let index = 0; index < arquivos.length; index++) {
     const response = await fetch("http://127.0.0.1:3000/api/internal/process-file", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ arquivoId: arquivo.id, secret }),
+      body: JSON.stringify({ arquivoId: arquivo.id, secret, skipContaConvenioSync: true }),
     });
 
     const body = await response.text();

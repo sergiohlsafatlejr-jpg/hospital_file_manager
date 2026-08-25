@@ -4374,3 +4374,9 @@
 - [x] Corrigir tela Conta Convênio vazia apesar de existirem XMLs enviados processados
 - [x] Corrigir tela Demonstrativo vazia apesar de existirem arquivos de retorno processados
 - [x] Validar filtros de estabelecimento e consultas das telas Conta Convênio e Demonstrativo com dados reais
+
+- [x] Inventariar arquivos históricos sem itens persistidos em todos os estabelecimentos restantes
+- [x] Reconstruir Demonstrativo histórico nos estabelecimentos restantes
+- [x] Reconstruir Conta Convênio histórica nos estabelecimentos restantes
+- [x] Validar totais e isolamento de dados após a reconstrução global
+- [x] Registrar arquivos históricos indisponíveis no armazenamento S3 que não puderam ser recuperados

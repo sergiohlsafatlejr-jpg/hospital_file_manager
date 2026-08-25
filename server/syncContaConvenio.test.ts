@@ -20,4 +20,16 @@ describe("sincronização da Conta Convênio", () => {
     expect(insertPosition).toBeGreaterThan(-1);
     expect(syncPosition).toBeGreaterThan(insertPosition);
   });
+
+  it("permite adiar a sincronização por arquivo durante reconstruções em lote", () => {
+    const processor = readFileSync(new URL("./fileProcessor.ts", import.meta.url), "utf8");
+    const recoveryScript = readFileSync(
+      new URL("../scripts/reprocessar-arquivos-sem-itens.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(processor).toContain("skipContaConvenioSync = false");
+    expect(processor).toContain("if (skipContaConvenioSync)");
+    expect(recoveryScript).toContain("skipContaConvenioSync: true");
+  });
 });
