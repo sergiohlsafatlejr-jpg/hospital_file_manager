@@ -407,6 +407,26 @@ async function processEnvio(arquivoId: number, arquivo: any, buffer: Buffer) {
     }));
     
     await db.insertFaturamentoTissBatch(faturamentoRecords);
+
+    // A tela Conta Convênio usa tabelas próprias para permitir auditoria e
+    // análise por conta. Mantê-las sincronizadas automaticamente após o XML
+    // ser normalizado evita arquivos "processados" com a tela vazia.
+    try {
+      const { syncContaConvenioFromFaturamentoTiss } = await import('./syncContaConvenio');
+      const syncResult = await syncContaConvenioFromFaturamentoTiss({
+        estabelecimentoId: arquivo.estabelecimentoId,
+        arquivoId,
+      });
+      await plog(
+        arquivoId,
+        'info',
+        `Conta Convênio sincronizada: ${syncResult.totalItens} itens / ${syncResult.totalContas} contas no estabelecimento`,
+      );
+    } catch (syncError: any) {
+      await plog(arquivoId, 'error', `Erro ao sincronizar Conta Convênio: ${syncError?.message || syncError}`);
+      throw syncError;
+    }
+
     await db.updateArquivoStatus(arquivoId, "processado");
     await db.updateArquivoProgresso(arquivoId, 100, faturamentoRecords.length, faturamentoRecords.length);
     console.log(`[FileProcessor] Concluído: ${faturamentoRecords.length} itens extraídos de arquivo envio.`);

@@ -4370,3 +4370,7 @@
 - [x] Conciliação Cruzada: após confirmar glosa manual, exibir Status como ASSOCIADO; limitar o Status visual a DESASSOCIADO ou ASSOCIADO
 
 - [x] Corrigir falha de login Google do usuário sergiohlsafatlejr@gmail.com com APP_DATABASE_URL válida no ambiente publicado
+
+- [x] Corrigir tela Conta Convênio vazia apesar de existirem XMLs enviados processados
+- [x] Corrigir tela Demonstrativo vazia apesar de existirem arquivos de retorno processados
+- [x] Validar filtros de estabelecimento e consultas das telas Conta Convênio e Demonstrativo com dados reais
