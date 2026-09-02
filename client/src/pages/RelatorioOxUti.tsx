@@ -59,13 +59,14 @@ interface PacienteDetalheModalProps {
   estabelecimentoId: number;
   mesRef: string;
   convenioId?: number;
+  mesPagamento?: string;
 }
 
 function PacienteDetalheModal({
-  open, onClose, paciente, carteira, estabelecimentoId, mesRef, convenioId
+  open, onClose, paciente, carteira, estabelecimentoId, mesRef, convenioId, mesPagamento
 }: PacienteDetalheModalProps) {
   const { data: categorias, isLoading } = trpc.relatorioOxUti.itensPorPaciente.useQuery(
-    { estabelecimentoId, mesRef, carteiraBeneficiario: carteira, convenioId },
+    { estabelecimentoId, mesRef, carteiraBeneficiario: carteira, convenioId, mesPagamento },
     { enabled: open && !!carteira && !!mesRef && estabelecimentoId > 0 }
   );
 
@@ -789,6 +790,7 @@ export default function RelatorioOxUti() {
           estabelecimentoId={estabId}
           mesRef={mesEfetivo}
           convenioId={convenioId !== "todos" ? parseInt(convenioId) : undefined}
+          mesPagamento={mesPagamento !== "todos" ? mesPagamento : undefined}
         />
       )}
     </DashboardLayout>

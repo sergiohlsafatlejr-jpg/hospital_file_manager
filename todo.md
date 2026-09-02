@@ -4380,3 +4380,7 @@
 - [x] Reconstruir Conta Convênio histórica nos estabelecimentos restantes
 - [x] Validar totais e isolamento de dados após a reconstrução global
 - [x] Registrar arquivos históricos indisponíveis no armazenamento S3 que não puderam ser recuperados
+
+- [x] Corrigir Relatório Ox UTI que classifica itens glosados como valor pago
+- [x] Validar totais de pago e glosado do Relatório Ox UTI contra o Demonstrativo de julho/2026
+- [x] Garantir que os agrupamentos Por Tipo, Por Paciente, Por Item e a exportação Excel usem os mesmos cálculos corrigidos

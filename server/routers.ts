@@ -52,6 +52,7 @@ import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
 import { aceiteAutomaticoRouter } from "./routers/aceiteAutomaticoRouter";
 import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter";
+import { sqlValoresRelatorioOxUti } from "./relatorioOxUtiValores";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -9221,6 +9222,7 @@ export const appRouter = router({
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Filtro principal por competência (data_referencia)
+          const valores = sqlValoresRelatorioOxUti('d');
           let baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y-%m') = ?`;
           const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
           // Filtro adicional por mês de pagamento (se selecionado)
@@ -9236,9 +9238,9 @@ export const appRouter = router({
             `SELECT
                COUNT(DISTINCT d.numero_guia) as total_guias,
                COUNT(*) as total_itens,
-               COALESCE(SUM(d.valor_informado), 0) as total_informado,
-               COALESCE(SUM(d.valor_pago), 0) as total_pago,
-               COALESCE(SUM(d.valor_glosa), 0) as total_glosado,
+               COALESCE(SUM(${valores.valorInformado}), 0) as total_informado,
+               COALESCE(SUM(${valores.valorPago}), 0) as total_pago,
+               COALESCE(SUM(${valores.valorGlosa}), 0) as total_glosado,
                COALESCE(SUM(CASE WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' OR (d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%') THEN d.quantidade ELSE 0 END), 0) as total_diarias
              FROM demonstrativo d ${baseWhere}${convenioFilter}`,
             baseParams
@@ -9260,9 +9262,9 @@ export const appRouter = router({
                  ELSE 'OUTROS'
                END as categoria,
                COUNT(*) as qtd_itens,
-               COALESCE(SUM(d.valor_informado), 0) as total_informado,
-               COALESCE(SUM(d.valor_pago), 0) as total_pago,
-               COALESCE(SUM(d.valor_glosa), 0) as total_glosado,
+               COALESCE(SUM(${valores.valorInformado}), 0) as total_informado,
+               COALESCE(SUM(${valores.valorPago}), 0) as total_pago,
+               COALESCE(SUM(${valores.valorGlosa}), 0) as total_glosado,
                COALESCE(SUM(d.quantidade), 0) as total_quantidade
              FROM demonstrativo d ${baseWhere}${convenioFilter}
              GROUP BY categoria ORDER BY total_pago DESC`,
@@ -9279,9 +9281,9 @@ export const appRouter = router({
                COUNT(DISTINCT d.numero_guia) as total_guias,
                COUNT(*) as total_itens,
                COALESCE(SUM(CASE WHEN d.descricao_item REGEXP '^[Dd][[:space:]]*-' OR (d.tipo_lancamento = 'HOS' AND d.descricao_item LIKE '%Di%ria%') THEN d.quantidade ELSE 0 END), 0) as qtd_diarias,
-               COALESCE(SUM(d.valor_informado), 0) as total_informado,
-               COALESCE(SUM(d.valor_pago), 0) as total_pago,
-               COALESCE(SUM(d.valor_glosa), 0) as total_glosado
+               COALESCE(SUM(${valores.valorInformado}), 0) as total_informado,
+               COALESCE(SUM(${valores.valorPago}), 0) as total_pago,
+               COALESCE(SUM(${valores.valorGlosa}), 0) as total_glosado
              FROM demonstrativo d ${baseWhere}${convenioFilter}
              GROUP BY d.nome_beneficiario, d.carteira_beneficiario, d.lote_prestador, d.protocolo
              ORDER BY total_pago DESC LIMIT 200`,
@@ -9307,9 +9309,9 @@ export const appRouter = router({
                END as categoria,
                COUNT(*) as qtd_ocorrencias,
                COALESCE(SUM(d.quantidade), 0) as total_quantidade,
-               COALESCE(SUM(d.valor_informado), 0) as total_informado,
-               COALESCE(SUM(d.valor_pago), 0) as total_pago,
-               COALESCE(SUM(d.valor_glosa), 0) as total_glosado
+               COALESCE(SUM(${valores.valorInformado}), 0) as total_informado,
+               COALESCE(SUM(${valores.valorPago}), 0) as total_pago,
+               COALESCE(SUM(${valores.valorGlosa}), 0) as total_glosado
              FROM demonstrativo d ${baseWhere}${convenioFilter}
              GROUP BY d.codigo_item, d.descricao_item, d.tipo_lancamento
              ORDER BY total_pago DESC LIMIT 300`,
@@ -9400,6 +9402,7 @@ export const appRouter = router({
         mesRef: z.string(),
         carteiraBeneficiario: z.string(),
         convenioId: z.number().optional(),
+        mesPagamento: z.string().optional(),
       }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9407,9 +9410,12 @@ export const appRouter = router({
           const mysql2 = await import('mysql2/promise');
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
+          const valores = sqlValoresRelatorioOxUti('d');
           const params: any[] = [input.estabelecimentoId, input.mesRef, input.carteiraBeneficiario];
           const convenioFilter = input.convenioId ? ' AND d.convenio_id = ?' : '';
           if (input.convenioId) params.push(input.convenioId);
+          const pagamentoFilter = input.mesPagamento ? ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?` : '';
+          if (input.mesPagamento) params.push(input.mesPagamento);
 
           const [rows] = await conn.execute(
             `SELECT
@@ -9429,13 +9435,13 @@ export const appRouter = router({
                  ELSE 'OUTROS'
                END as categoria,
                COALESCE(d.quantidade, 0) as quantidade,
-               COALESCE(d.valor_informado, 0) as valor_informado,
-               COALESCE(d.valor_pago, 0) as valor_pago,
-               COALESCE(d.valor_glosa, 0) as valor_glosa
+               ${valores.valorInformado} as valor_informado,
+               ${valores.valorPago} as valor_pago,
+               ${valores.valorGlosa} as valor_glosa
              FROM demonstrativo d
              WHERE d.estabelecimentoId = ?
                AND DATE_FORMAT(d.data_referencia, '%Y-%m') = ?
-               AND d.carteira_beneficiario = ?${convenioFilter}
+               AND d.carteira_beneficiario = ?${convenioFilter}${pagamentoFilter}
              ORDER BY categoria, d.descricao_item`,
             params
           );
