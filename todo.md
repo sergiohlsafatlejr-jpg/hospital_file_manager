@@ -4387,3 +4387,6 @@
 
 - [x] Restaurar o botão de geração da planilha Excel de recurso da Unimed no Acompanhamento de Lotes
 - [x] Validar a planilha Unimed com os itens reais do lote e impedir exportação vazia
+
+- [x] Restaurar os vínculos dos 133 itens do lote histórico Unimed 330001
+- [x] Validar a planilha do lote 330001 com total recursado de R$ 2.207,29
