@@ -3103,6 +3103,12 @@ export const appRouter = router({
         if (!dados) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado" });
         }
+        if (dados.recursos.length === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Os itens deste lote histórico não estão mais vinculados ao lote. A planilha não foi gerada para evitar um arquivo vazio.",
+          });
+        }
         return dados;
       }),
 

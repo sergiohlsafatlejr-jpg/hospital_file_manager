@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDateBR, toInputDateValue } from "@/lib/dateUtils";
+import { deveMarcarLoteComoEnviado, isLoteUnimed } from "@/lib/recursoLoteExport";
 
 const formatCurrency = (value: number | string | null | undefined) => {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -208,6 +209,7 @@ export default function AcompanhamentoRecursos() {
   const exportarLoteMutation = trpc.recursos.exportarLote.useMutation({
     onSuccess: (data) => {
       setExportandoLote(null);
+      const loteAtual = todosLotes?.lotes?.find((lote: any) => lote.id === data.lote.id);
       const dadosFormatados = data.recursos.map((r: any) => ({
         "Seq.": r.sequencial,
         "Protocolo (DP)": r.protocoloDP,
@@ -248,10 +250,13 @@ export default function AcompanhamentoRecursos() {
       XLSX.utils.book_append_sheet(wb, totaisSheet, "Totais");
       
       XLSX.writeFile(wb, `lote_${data.lote.numeroLote}_recursos.xlsx`);
-      toast.success(`Relatório do lote ${data.lote.numeroLote} exportado com sucesso! Lote marcado como enviado.`);
+      toast.success(`Planilha do lote ${data.lote.numeroLote} exportada com sucesso!`);
       
-      // Auto-marcar como enviado
-      marcarComoEnviado(data.lote.id);
+      // Somente a primeira exportação muda o lote para enviado. Downloads posteriores
+      // na aba Acompanhamento não podem sobrescrever status como respondido/finalizado.
+      if (deveMarcarLoteComoEnviado(loteAtual)) {
+        marcarComoEnviado(data.lote.id);
+      }
     },
     onError: (error) => {
       setExportandoLote(null);
@@ -424,6 +429,7 @@ export default function AcompanhamentoRecursos() {
   const renderLoteCard = (lote: any, isEnvio: boolean) => {
     const statusConfig = STATUS_CONFIG[lote.status] || STATUS_CONFIG.rascunho;
     const diasRestantes = calcularDiasRestantes(lote.dataPrazoPagamento);
+    const loteUnimed = isLoteUnimed(lote);
     
     return (
       <div
@@ -542,7 +548,13 @@ export default function AcompanhamentoRecursos() {
               </>
             ) : (
               <>
-                {/* Aba Acompanhamento: anexar PDF, ver detalhes, prazos */}
+                {/* Aba Acompanhamento: baixar novamente a planilha Unimed sem alterar o status */}
+                {loteUnimed && (
+                  <Button size="sm" variant="outline" onClick={(e) => handleExportarLote(lote.id, e)} disabled={exportandoLote === lote.id} title="Baixar planilha de recurso da Unimed" className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950">
+                    {exportandoLote === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
+                    Excel Unimed
+                  </Button>
+                )}
                 {lote.xmlUrl && (
                   <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); window.open(lote.xmlUrl, '_blank'); }} title="Baixar XML gerado" className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950">
                     <Download className="h-4 w-4 mr-1" />

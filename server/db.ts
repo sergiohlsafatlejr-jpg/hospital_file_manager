@@ -103,6 +103,8 @@ import {
   InsertNotificacaoAtendimentoItem,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { storageGet } from "./storage";
+import { extrairChaveXmlDaUrl, extrairRecursosDoXml } from "./recursoExcelFallback";
 
 import { GLOSAS_TISS } from '../shared/glossaryGlosas';
 
@@ -9956,6 +9958,7 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
       d.codigo_glosa as motivoGlosaConvenio, d.justificativa_recurso as justificativaRecurso,
       d.codigo_item as codigoProcedimento, d.descricao_item as descricaoProcedimento,
       d.recurso_status as status, d.valor_recurso as valorRecuperado,
+      d.quantidade as quantidade, d.valor_pago as valorRecebido, d.data_pagamento as dataPagamento,
       'demonstrativo' as fonte
     FROM demonstrativo d
     WHERE d.recurso_id = ${loteId}
@@ -9965,12 +9968,13 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
   const [concItems] = await db.execute(sql.raw(`
     SELECT 
       ca.id, ca.numeroGuia as guiaNumero, ca.pacienteNome,
-      ca.carteirinhaBeneficiario as pacienteCarteirinha,
-      COALESCE(ca.dataExecucao, ca.competenciaPagamento) as dataGlosa,
+      '' as pacienteCarteirinha,
+      ca.dataExecucao as dataGlosa,
       ca.valorGlosa as valorGlosado, COALESCE(ca.valorRecurso, ca.valorGlosa) as valorRecursado,
       ca.codigoGlosa as motivoGlosaConvenio, '' as justificativaRecurso,
       ca.codigoItem as codigoProcedimento, ca.descricaoItem as descricaoProcedimento,
       ca.statusRecursoItem as status, ca.valorRecurso as valorRecuperado,
+      ca.quantidade as quantidade, ca.valorPago as valorRecebido, NULL as dataPagamento,
       'conciliacao' as fonte
     FROM conciliados_automatico ca
     WHERE ca.xmlRecursoLoteId = ${loteId}
@@ -9984,12 +9988,75 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
     .where(eq(recursosGlosa.loteId, loteId))
     .orderBy(recursosGlosa.pacienteNome, recursosGlosa.guiaNumero);
 
-  // Combinar todas as fontes
-  const recursosDoLote = [
-    ...(demoItems as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
-    ...(concItems as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
+  // Combinar todas as fontes persistidas
+  let recursosDoLote: any[] = [
+    ...(demoItems as unknown as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
+    ...(concItems as unknown as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
     ...recursosAntigos.map(r => ({ ...r, fonte: 'antigo' })),
   ];
+
+  // Lotes históricos podem ter perdido o vínculo com os itens após uma
+  // reimportação do demonstrativo. Nesses casos, reconstruir a planilha pelos
+  // XMLs do próprio lote, obtendo URLs assinadas novas pelo storage.
+  if (recursosDoLote.length === 0 && lote.xmlUrl) {
+    const urlsXml = lote.xmlUrl.split(',').map(url => url.trim()).filter(Boolean);
+    const itensXml: any[] = [];
+
+    for (const urlAntiga of urlsXml) {
+      const chave = extrairChaveXmlDaUrl(urlAntiga);
+      if (!chave) continue;
+
+      try {
+        const { url } = await storageGet(chave);
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(`[Recurso Excel] XML indisponível no storage (${response.status}): ${chave}`);
+          continue;
+        }
+        const xml = await response.text();
+        const itens = extrairRecursosDoXml(xml);
+
+        for (const item of itens) {
+          const [complemento] = await db
+            .select({
+              pacienteNome: demonstrativo.nomeBeneficiario,
+              pacienteCarteirinha: demonstrativo.carteiraBeneficiario,
+              quantidade: demonstrativo.quantidade,
+            })
+            .from(demonstrativo)
+            .where(and(
+              eq(demonstrativo.estabelecimentoId, lote.estabelecimentoId),
+              eq(demonstrativo.numeroGuia, item.guiaNumero),
+              eq(demonstrativo.codigoItem, item.codigoProcedimento),
+            ))
+            .limit(1);
+
+          itensXml.push({
+            id: `xml-${itensXml.length + 1}`,
+            guiaNumero: item.guiaNumero,
+            pacienteNome: complemento?.pacienteNome || 'N/A',
+            pacienteCarteirinha: complemento?.pacienteCarteirinha || '',
+            dataGlosa: item.dataAtendimento,
+            valorGlosado: String(item.valorRecursado),
+            valorRecursado: String(item.valorRecursado),
+            motivoGlosaConvenio: item.codigoGlosa,
+            justificativaRecurso: item.justificativa,
+            codigoProcedimento: item.codigoProcedimento,
+            descricaoProcedimento: item.descricaoProcedimento,
+            status: 'recurso_enviado',
+            valorRecuperado: '0',
+            fonte: 'xml_lote',
+            quantidade: complemento?.quantidade || '1',
+            protocoloDP: item.protocoloDP,
+          });
+        }
+      } catch (error) {
+        console.warn(`[Recurso Excel] Não foi possível recuperar o XML ${chave}:`, error);
+      }
+    }
+
+    recursosDoLote = itensXml;
+  }
 
   // Buscar convênio
   const [convenio] = lote.convenioId
@@ -10017,7 +10084,7 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
     dataPagamento: (recurso as any).dataPagamento ? new Date((recurso as any).dataPagamento).toLocaleDateString("pt-BR") : "",
     // Campos adicionais para padrão Unimed
     sequencial: index + 1,
-    protocoloDP: lote.protocoloEnvio || "",
+    protocoloDP: recurso.protocoloDP || lote.protocoloEnvio || "",
     seqDP: recurso.guiaNumero || "",
     codigoBeneficiario: recurso.pacienteCarteirinha || "",
     dataAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
@@ -10025,7 +10092,7 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
     codigoServico: recurso.codigoProcedimento || "",
     descricao: recurso.descricaoProcedimento || "",
     participacao: "",
-    quantidade: 1, // Quantidade padrão
+    quantidade: recurso.quantidade ? parseFloat(String(recurso.quantidade)) : 1,
     localAtendimento: "",
     justificativaPagamento: recurso.justificativaRecurso || "",
     anexo: "",

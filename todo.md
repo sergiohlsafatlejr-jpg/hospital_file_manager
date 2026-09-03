@@ -4384,3 +4384,6 @@
 - [x] Corrigir Relatório Ox UTI que classifica itens glosados como valor pago
 - [x] Validar totais de pago e glosado do Relatório Ox UTI contra o Demonstrativo de julho/2026
 - [x] Garantir que os agrupamentos Por Tipo, Por Paciente, Por Item e a exportação Excel usem os mesmos cálculos corrigidos
+
+- [x] Restaurar o botão de geração da planilha Excel de recurso da Unimed no Acompanhamento de Lotes
+- [x] Validar a planilha Unimed com os itens reais do lote e impedir exportação vazia
