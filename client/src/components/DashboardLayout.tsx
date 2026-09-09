@@ -177,6 +177,7 @@ const menuItems: MenuItem[] = [
       { icon: BarChart3, label: "BI Financeiro (TASY)", path: "/bi-financeiro-tasy", modulo: "relFaturadoRecebido" },
       { icon: Receipt, label: "Protocolos TASY", path: "/relatorio-protocolos", modulo: "relFaturadoRecebido" },
       { icon: CalendarClock, label: "Previsão Recebimentos", path: "/previsao-recebimentos", modulo: "relFaturadoRecebido" },
+      { icon: CalendarClock, label: "Previsão Pagamentos Imec", path: "/previsao-pagamentos-imec", modulo: "relFaturadoRecebido", estabelecimentoIds: [2550001] },
       { icon: BarChart3, label: "Fluxo de Caixa (BI)", path: "/fluxo-caixa-bi", modulo: "relFaturadoRecebido" },
       { icon: FlaskConical, label: "Rel. Laboratório", path: "/relatorio-laboratorio", modulo: "relFaturadoRecebido" },
       { icon: Activity, label: "Rel. Ultrassom", path: "/relatorio-ultrassom", modulo: "relFaturadoRecebido" },
@@ -271,9 +272,18 @@ function AccessGuard({
   userRole?: string;
   estabelecimentoId?: number;
 }) {
-  // Encontrar o item de menu correspondente à rota atual (incluindo children)
-  const currentMenuItem = menuItems.find(item => item.path === location) 
-    || menuItems.flatMap(item => item.children || []).find(child => child.path === location);
+  // Encontrar o item de menu correspondente à rota atual em qualquer nível.
+  const findMenuItemByPath = (items: MenuItem[]): MenuItem | undefined => {
+    for (const item of items) {
+      if (item.path === location) return item;
+      if (item.children) {
+        const nestedItem = findMenuItemByPath(item.children);
+        if (nestedItem) return nestedItem;
+      }
+    }
+    return undefined;
+  };
+  const currentMenuItem = findMenuItemByPath(menuItems);
   
   // Verificar restrição por estabelecimento
   if (currentMenuItem?.estabelecimentoIds && estabelecimentoId) {
@@ -635,6 +645,7 @@ function DashboardLayoutContent({
                           <SidebarMenuSub>
                             {item.children
                               .filter(child => {
+                                if (child.estabelecimentoIds && estabelecimentoAtual && !child.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
                                 if (!child.modulo && !child.adminOnly) return true;
                                 if (child.adminOnly) return isGestor;
                                 return temAcessoModulo(child.modulo!);
@@ -660,6 +671,7 @@ function DashboardLayoutContent({
                                           <SidebarMenuSub className="ml-2 border-l border-sidebar-border/50">
                                             {child.children
                                               .filter(grandchild => {
+                                                if (grandchild.estabelecimentoIds && estabelecimentoAtual && !grandchild.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
                                                 if (!grandchild.modulo && !grandchild.adminOnly) return true;
                                                 if (grandchild.adminOnly) return isGestor;
                                                 return temAcessoModulo(grandchild.modulo!);

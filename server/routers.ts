@@ -52,6 +52,7 @@ import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
 import { aceiteAutomaticoRouter } from "./routers/aceiteAutomaticoRouter";
 import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter";
+import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRouter";
 import { sqlValoresRelatorioOxUti } from "./relatorioOxUtiValores";
 
 /**
@@ -133,6 +134,7 @@ export const appRouter = router({
   fonteRelatorios: fonteRelatoriosRouter,
   aceiteAutomatico: aceiteAutomaticoRouter,
   faturamentoDigitacao: faturamentoDigitacaoRouter,
+  previsaoPagamentosImec: previsaoPagamentosImecRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

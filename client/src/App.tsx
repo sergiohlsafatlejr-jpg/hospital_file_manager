@@ -104,6 +104,7 @@ const RelatorioUltrassom = lazy(() => import("./pages/RelatorioUltrassom"));
 const RelatoriosGlosasBi = lazy(() => import("./pages/RelatoriosGlosasBi"));
 const RelatorioOxUti = lazy(() => import("./pages/RelatorioOxUti"));
 const RelatorioOxUtiFaturado = lazy(() => import("./pages/RelatorioOxUtiFaturado"));
+const PrevisaoPagamentosImec = lazy(() => import("./pages/PrevisaoPagamentosImec"));
 const ResumoPacienteOxUti = lazy(() => import("./pages/ResumoPacienteOxUti"));
 const FaturadoRecebidoUnificado = lazy(() => import("./pages/FaturadoRecebidoUnificado"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
@@ -231,6 +232,7 @@ function Router() {
         <Route path={"/bi-financeiro-tasy"} component={BiFinanceiroTasy} />
         <Route path={"/relatorio-protocolos"} component={RelatorioProtocolos} />
         <Route path={"/previsao-recebimentos"} component={PrevisaoRecebimentos} />
+        <Route path={"/previsao-pagamentos-imec"} component={PrevisaoPagamentosImec} />
         <Route path={"/analise-faturamento-itens"} component={AnaliseFaturamentosBi} />
         <Route path={"/fluxo-caixa-bi"} component={FluxoCaixaBI} />
         <Route path={"/relatorio-laboratorio"} component={RelatorioLaboratorio} />

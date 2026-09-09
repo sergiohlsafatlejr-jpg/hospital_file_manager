@@ -4390,3 +4390,9 @@
 
 - [x] Restaurar os vínculos dos 133 itens do lote histórico Unimed 330001
 - [x] Validar a planilha do lote 330001 com total recursado de R$ 2.207,29
+
+- [x] Identificar o Imec Senador Canedo (ID 2550001) e a cobertura histórica de faturamento e pagamentos
+- [x] Definir metodologia de previsão de pagamento por convênio com faixa de confiança para o Imec
+- [x] Implementar relatório de previsão de pagamentos do Imec com filtros por mês, ano e convênio
+- [x] Exibir valores previstos, pagos, atrasados, glosados e datas esperadas para o Imec
+- [x] Validar acesso exclusivo do Imec, totais e exportação do relatório
