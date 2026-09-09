@@ -4396,3 +4396,7 @@
 - [x] Implementar relatório de previsão de pagamentos do Imec com filtros por mês, ano e convênio
 - [x] Exibir valores previstos, pagos, atrasados, glosados e datas esperadas para o Imec
 - [x] Validar acesso exclusivo do Imec, totais e exportação do relatório
+
+- [x] Corrigir erro tRPC sem procedimento `tasy.getPrevisaoRecebimentos` na página `/previsao-recebimentos`
+- [x] Corrigir erro tRPC sem procedimento `tasy.getPagamentosBi` na página `/previsao-recebimentos`
+- [x] Validar os contratos, dados reais e estados da página `/previsao-recebimentos`

@@ -1,14 +1,129 @@
 import { router, publicProcedure, protectedProcedure, trackedProtectedProcedure } from "../_core/trpc";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { sql } from "drizzle-orm";
 import { invokeLLM } from "../_core/llm";
+import { TRPCError } from "@trpc/server";
+import {
+  montarPagamentosBiTasy,
+  montarPrevisaoRecebimentosTasy,
+  type LinhaPagamentoBiTasy,
+  type LinhaPrevisaoRecebimentoTasy,
+} from "../tasyPrevisaoRecebimentosService";
+
+async function validarAcessoEstabelecimento(ctx: any, estabelecimentoId: number) {
+  if (ctx.user?.role === "admin") return;
+  const permitido = await verificarPermissaoEstabelecimento(ctx.user.id, estabelecimentoId, "visualizar");
+  if (!permitido) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário sem acesso ao estabelecimento selecionado" });
+}
 
 /**
  * Router de Integração com Tasy
  * Implementa relatórios de glosas e análise IA
  */
 export const tasyRouter = router({
+  getPrevisaoRecebimentos: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      await validarAcessoEstabelecimento(ctx, input.estabelecimentoId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não disponível" });
+
+      const atendimentosResult = await db.execute(sql`
+        SELECT
+          COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio') AS convenio,
+          COALESCE(NULLIF(TRIM(competencia), ''), NULLIF(TRIM(referencia), '')) AS mesReferencia,
+          DATE_FORMAT(dataVencimento, '%Y-%m') AS mesVencimento,
+          COALESCE(NULLIF(TRIM(protConv), ''), NULLIF(TRIM(protTasy), ''), origemId) AS protocolo,
+          COALESCE(NULLIF(TRIM(conta), ''), origemId) AS chave,
+          COALESCE(valorConta, 0) AS valor
+        FROM atendimentos_unificados
+        WHERE estabelecimentoId = ${input.estabelecimentoId} AND UPPER(origemSistema) = 'TASY'
+      `);
+
+      let rows = (atendimentosResult as any)[0] || [];
+      if (rows.length === 0) {
+        const faturadoResult = await db.execute(sql`
+          SELECT
+            COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio') AS convenio,
+            competencia AS mesReferencia,
+            NULL AS mesVencimento,
+            NULLIF(TRIM(protocolo), '') AS protocolo,
+            COALESCE(NULLIF(TRIM(conta), ''), NULLIF(TRIM(sequencia), ''), CAST(id AS CHAR)) AS chave,
+            SUM(COALESCE(vlFaturado, 0)) AS valor
+          FROM faturadoTasy
+          WHERE estabelecimentoId = ${input.estabelecimentoId}
+          GROUP BY
+            COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio'),
+            competencia,
+            NULLIF(TRIM(protocolo), ''),
+            COALESCE(NULLIF(TRIM(conta), ''), NULLIF(TRIM(sequencia), ''), CAST(id AS CHAR))
+        `);
+        rows = (faturadoResult as any)[0] || [];
+      }
+
+      if (rows.length === 0) {
+        const recebimentoGeralResult = await db.execute(sql`
+          SELECT
+            COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio') AS convenio,
+            rg.mes_producao AS mesReferencia,
+            NULL AS mesVencimento,
+            NULLIF(TRIM(rg.protocolo), '') AS protocolo,
+            COALESCE(NULLIF(TRIM(rg.numero_conta), ''), NULLIF(TRIM(rg.guia_cobranca), ''), CONCAT('item-', rg.id)) AS chave,
+            SUM(COALESCE(rg.vl_faturado, 0)) AS valor
+          FROM recebimento_geral rg
+          WHERE rg.estabelecimentoId = ${input.estabelecimentoId}
+          GROUP BY
+            COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio'),
+            rg.mes_producao,
+            NULLIF(TRIM(rg.protocolo), ''),
+            COALESCE(NULLIF(TRIM(rg.numero_conta), ''), NULLIF(TRIM(rg.guia_cobranca), ''), CONCAT('item-', rg.id))
+        `);
+        rows = (recebimentoGeralResult as any)[0] || [];
+      }
+
+      return montarPrevisaoRecebimentosTasy(rows.map((row: any): LinhaPrevisaoRecebimentoTasy => ({
+        convenio: String(row.convenio || "Sem Convênio"),
+        mesReferencia: row.mesReferencia ? String(row.mesReferencia) : null,
+        mesVencimento: row.mesVencimento ? String(row.mesVencimento) : null,
+        protocolo: row.protocolo ? String(row.protocolo) : null,
+        chave: String(row.chave),
+        valor: Number(row.valor || 0),
+      })));
+    }),
+
+  getPagamentosBi: protectedProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      await validarAcessoEstabelecimento(ctx, input.estabelecimentoId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não disponível" });
+
+      const result = await db.execute(sql`
+        SELECT
+          COALESCE(NULLIF(TRIM(e.nome), ''), CONCAT('Estabelecimento ', rg.estabelecimentoId)) AS estabelecimento,
+          COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio') AS convenio,
+          rg.mes_producao AS mes,
+          SUM(GREATEST(COALESCE(rg.vl_total_recebido, 0), COALESCE(rg.vl_recebido, 0))) AS recebido,
+          SUM(COALESCE(rg.vl_recebido, 0)) AS vinculado
+        FROM recebimento_geral rg
+        LEFT JOIN estabelecimentos e ON e.id = rg.estabelecimentoId
+        WHERE rg.estabelecimentoId = ${input.estabelecimentoId}
+        GROUP BY
+          COALESCE(NULLIF(TRIM(e.nome), ''), CONCAT('Estabelecimento ', rg.estabelecimentoId)),
+          COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio'),
+          rg.mes_producao
+      `);
+
+      return montarPagamentosBiTasy(((result as any)[0] || []).map((row: any): LinhaPagamentoBiTasy => ({
+        estabelecimento: String(row.estabelecimento),
+        convenio: String(row.convenio),
+        mes: row.mes ? String(row.mes) : null,
+        recebido: Number(row.recebido || 0),
+        vinculado: Number(row.vinculado || 0),
+      })));
+    }),
+
   gerarRelatorioGlosas: protectedProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
