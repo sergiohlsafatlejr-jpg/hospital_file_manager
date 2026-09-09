@@ -4400,3 +4400,7 @@
 - [x] Corrigir erro tRPC sem procedimento `tasy.getPrevisaoRecebimentos` na página `/previsao-recebimentos`
 - [x] Corrigir erro tRPC sem procedimento `tasy.getPagamentosBi` na página `/previsao-recebimentos`
 - [x] Validar os contratos, dados reais e estados da página `/previsao-recebimentos`
+
+- [x] Restringir `/previsao-recebimentos` exclusivamente ao Imec Senador Canedo (ID 2550001)
+- [x] Remover qualquer fallback ou validação que use dados de outro estabelecimento na previsão e nos pagamentos
+- [x] Testar que as rotas TASY rejeitam IDs diferentes de 2550001 e retornam somente dados do Imec

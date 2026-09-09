@@ -10,6 +10,7 @@ import {
   type LinhaPagamentoBiTasy,
   type LinhaPrevisaoRecebimentoTasy,
 } from "../tasyPrevisaoRecebimentosService";
+import { IMEC_ESTABELECIMENTO_ID } from "../previsaoPagamentosImecService";
 
 async function validarAcessoEstabelecimento(ctx: any, estabelecimentoId: number) {
   if (ctx.user?.role === "admin") return;
@@ -23,64 +24,29 @@ async function validarAcessoEstabelecimento(ctx: any, estabelecimentoId: number)
  */
 export const tasyRouter = router({
   getPrevisaoRecebimentos: protectedProcedure
-    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .input(z.object({ estabelecimentoId: z.literal(IMEC_ESTABELECIMENTO_ID) }))
     .query(async ({ input, ctx }) => {
       await validarAcessoEstabelecimento(ctx, input.estabelecimentoId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não disponível" });
 
-      const atendimentosResult = await db.execute(sql`
+      const demonstrativoResult = await db.execute(sql`
         SELECT
-          COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio') AS convenio,
-          COALESCE(NULLIF(TRIM(competencia), ''), NULLIF(TRIM(referencia), '')) AS mesReferencia,
-          DATE_FORMAT(dataVencimento, '%Y-%m') AS mesVencimento,
-          COALESCE(NULLIF(TRIM(protConv), ''), NULLIF(TRIM(protTasy), ''), origemId) AS protocolo,
-          COALESCE(NULLIF(TRIM(conta), ''), origemId) AS chave,
-          COALESCE(valorConta, 0) AS valor
-        FROM atendimentos_unificados
-        WHERE estabelecimentoId = ${input.estabelecimentoId} AND UPPER(origemSistema) = 'TASY'
+          COALESCE(NULLIF(TRIM(c.nome), ''), CONCAT('Convênio ', d.convenio_id)) AS convenio,
+          DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y-%m') AS mesReferencia,
+          CASE
+            WHEN d.data_pagamento >= CURRENT_DATE() THEN DATE_FORMAT(d.data_pagamento, '%Y-%m')
+            ELSE NULL
+          END AS mesVencimento,
+          NULLIF(TRIM(d.protocolo), '') AS protocolo,
+          CONCAT('demonstrativo-', d.id) AS chave,
+          COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) AS valor
+        FROM demonstrativo d
+        LEFT JOIN convenios c ON c.id = d.convenio_id
+        WHERE d.estabelecimentoId = ${IMEC_ESTABELECIMENTO_ID}
       `);
 
-      let rows = (atendimentosResult as any)[0] || [];
-      if (rows.length === 0) {
-        const faturadoResult = await db.execute(sql`
-          SELECT
-            COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio') AS convenio,
-            competencia AS mesReferencia,
-            NULL AS mesVencimento,
-            NULLIF(TRIM(protocolo), '') AS protocolo,
-            COALESCE(NULLIF(TRIM(conta), ''), NULLIF(TRIM(sequencia), ''), CAST(id AS CHAR)) AS chave,
-            SUM(COALESCE(vlFaturado, 0)) AS valor
-          FROM faturadoTasy
-          WHERE estabelecimentoId = ${input.estabelecimentoId}
-          GROUP BY
-            COALESCE(NULLIF(TRIM(convenio), ''), 'Sem Convênio'),
-            competencia,
-            NULLIF(TRIM(protocolo), ''),
-            COALESCE(NULLIF(TRIM(conta), ''), NULLIF(TRIM(sequencia), ''), CAST(id AS CHAR))
-        `);
-        rows = (faturadoResult as any)[0] || [];
-      }
-
-      if (rows.length === 0) {
-        const recebimentoGeralResult = await db.execute(sql`
-          SELECT
-            COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio') AS convenio,
-            rg.mes_producao AS mesReferencia,
-            NULL AS mesVencimento,
-            NULLIF(TRIM(rg.protocolo), '') AS protocolo,
-            COALESCE(NULLIF(TRIM(rg.numero_conta), ''), NULLIF(TRIM(rg.guia_cobranca), ''), CONCAT('item-', rg.id)) AS chave,
-            SUM(COALESCE(rg.vl_faturado, 0)) AS valor
-          FROM recebimento_geral rg
-          WHERE rg.estabelecimentoId = ${input.estabelecimentoId}
-          GROUP BY
-            COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio'),
-            rg.mes_producao,
-            NULLIF(TRIM(rg.protocolo), ''),
-            COALESCE(NULLIF(TRIM(rg.numero_conta), ''), NULLIF(TRIM(rg.guia_cobranca), ''), CONCAT('item-', rg.id))
-        `);
-        rows = (recebimentoGeralResult as any)[0] || [];
-      }
+      const rows = (demonstrativoResult as any)[0] || [];
 
       return montarPrevisaoRecebimentosTasy(rows.map((row: any): LinhaPrevisaoRecebimentoTasy => ({
         convenio: String(row.convenio || "Sem Convênio"),
@@ -93,7 +59,7 @@ export const tasyRouter = router({
     }),
 
   getPagamentosBi: protectedProcedure
-    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .input(z.object({ estabelecimentoId: z.literal(IMEC_ESTABELECIMENTO_ID) }))
     .query(async ({ input, ctx }) => {
       await validarAcessoEstabelecimento(ctx, input.estabelecimentoId);
       const db = await getDb();
@@ -101,18 +67,18 @@ export const tasyRouter = router({
 
       const result = await db.execute(sql`
         SELECT
-          COALESCE(NULLIF(TRIM(e.nome), ''), CONCAT('Estabelecimento ', rg.estabelecimentoId)) AS estabelecimento,
-          COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio') AS convenio,
-          rg.mes_producao AS mes,
-          SUM(GREATEST(COALESCE(rg.vl_total_recebido, 0), COALESCE(rg.vl_recebido, 0))) AS recebido,
-          SUM(COALESCE(rg.vl_recebido, 0)) AS vinculado
-        FROM recebimento_geral rg
-        LEFT JOIN estabelecimentos e ON e.id = rg.estabelecimentoId
-        WHERE rg.estabelecimentoId = ${input.estabelecimentoId}
+          'Imec Senador Canedo' AS estabelecimento,
+          COALESCE(NULLIF(TRIM(c.nome), ''), CONCAT('Convênio ', d.convenio_id)) AS convenio,
+          DATE_FORMAT(d.data_pagamento, '%Y-%m') AS mes,
+          SUM(COALESCE(d.valor_pago, 0)) AS recebido,
+          0 AS vinculado
+        FROM demonstrativo d
+        LEFT JOIN convenios c ON c.id = d.convenio_id
+        WHERE d.estabelecimentoId = ${IMEC_ESTABELECIMENTO_ID}
+          AND d.data_pagamento IS NOT NULL
         GROUP BY
-          COALESCE(NULLIF(TRIM(e.nome), ''), CONCAT('Estabelecimento ', rg.estabelecimentoId)),
-          COALESCE(NULLIF(TRIM(rg.convenio), ''), 'Sem Convênio'),
-          rg.mes_producao
+          COALESCE(NULLIF(TRIM(c.nome), ''), CONCAT('Convênio ', d.convenio_id)),
+          DATE_FORMAT(d.data_pagamento, '%Y-%m')
       `);
 
       return montarPagamentosBiTasy(((result as any)[0] || []).map((row: any): LinhaPagamentoBiTasy => ({

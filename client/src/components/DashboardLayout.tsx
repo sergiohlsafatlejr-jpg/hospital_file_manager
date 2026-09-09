@@ -176,7 +176,7 @@ const menuItems: MenuItem[] = [
       { icon: FileSpreadsheet, label: "Faturamento Externo", path: "/faturamento-externo", modulo: "faturamentoExterno" },
       { icon: BarChart3, label: "BI Financeiro (TASY)", path: "/bi-financeiro-tasy", modulo: "relFaturadoRecebido" },
       { icon: Receipt, label: "Protocolos TASY", path: "/relatorio-protocolos", modulo: "relFaturadoRecebido" },
-      { icon: CalendarClock, label: "Previsão Recebimentos", path: "/previsao-recebimentos", modulo: "relFaturadoRecebido" },
+      { icon: CalendarClock, label: "Previsão Recebimentos", path: "/previsao-recebimentos", modulo: "relFaturadoRecebido", estabelecimentoIds: [2550001] },
       { icon: CalendarClock, label: "Previsão Pagamentos Imec", path: "/previsao-pagamentos-imec", modulo: "relFaturadoRecebido", estabelecimentoIds: [2550001] },
       { icon: BarChart3, label: "Fluxo de Caixa (BI)", path: "/fluxo-caixa-bi", modulo: "relFaturadoRecebido" },
       { icon: FlaskConical, label: "Rel. Laboratório", path: "/relatorio-laboratorio", modulo: "relFaturadoRecebido" },

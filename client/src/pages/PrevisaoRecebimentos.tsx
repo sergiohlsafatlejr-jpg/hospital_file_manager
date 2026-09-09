@@ -47,16 +47,19 @@ const CHART_COLORS = [
   "#0d9488", "#be123c"
 ];
 
+const IMEC_ESTABELECIMENTO_ID = 2550001 as const;
+
 export default function PrevisaoRecebimentos() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const isImec = estabelecimentoId === IMEC_ESTABELECIMENTO_ID;
   const [selectedConvenios, setSelectedConvenios] = useState<string[]>([]);
   const [searchConvenio, setSearchConvenio] = useState("");
   const [selectedMes, setSelectedMes] = useState<string | null>(null);
 
   const { data, isLoading, error, refetch, isRefetching } = trpc.tasy.getPrevisaoRecebimentos.useQuery(
-    { estabelecimentoId },
-    { enabled: estabelecimentoId > 0, staleTime: 60_000 }
+    { estabelecimentoId: IMEC_ESTABELECIMENTO_ID },
+    { enabled: isImec, staleTime: 60_000 }
   );
 
   // Lista de convênios disponíveis
@@ -148,11 +151,12 @@ export default function PrevisaoRecebimentos() {
   const selectAll = () => setSelectedConvenios([...conveniosList]);
   const clearAll = () => setSelectedConvenios([]);
 
-  if (estabelecimentoId <= 0) {
+  if (!isImec) {
     return (
       <DashboardLayout>
         <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>
-          <h2>Selecione um estabelecimento para visualizar a Previsão de Recebimentos</h2>
+          <h2>Relatório exclusivo do Imec Senador Canedo</h2>
+          <p>Selecione o estabelecimento Imec Senador Canedo para visualizar os recebimentos.</p>
         </div>
       </DashboardLayout>
     );
@@ -168,7 +172,7 @@ export default function PrevisaoRecebimentos() {
             📊 Previsão de Recebimentos
           </h1>
           <p style={{ color: "#64748b", marginTop: 4, fontSize: 14 }}>
-            Projeção financeira baseada nos protocolos de {estabelecimentoAtual?.nome || "—"}
+            Projeção financeira exclusiva do Imec Senador Canedo
           </p>
         </div>
         <button
@@ -209,13 +213,13 @@ export default function PrevisaoRecebimentos() {
           <>
             {/* Cards Resumo */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-              <SummaryCard title="Total Faturado" value={formatCurrency(resumoFiltrado.totalFaturado || 0)} subtitle={`${resumoFiltrado.qtdProtocolos || 0} protocolos`} color="#2563eb" />
-              <SummaryCard title="Projeção c/ Vencimento" value={formatCurrency(resumoFiltrado.totalProjetado || 0)} subtitle="Com título vinculado" color="#059669" />
-              <SummaryCard title="Sem Vencimento" value={formatCurrency(resumoFiltrado.totalSemVencimento || 0)} subtitle="Sem título atrelado" color="#d97706" />
+              <SummaryCard title="Total no Demonstrativo" value={formatCurrency(resumoFiltrado.totalFaturado || 0)} subtitle={`${resumoFiltrado.qtdProtocolos || 0} protocolos do Imec`} color="#2563eb" />
+              <SummaryCard title="Pagamento Programado" value={formatCurrency(resumoFiltrado.totalProjetado || 0)} subtitle="Com data futura importada" color="#059669" />
+              <SummaryCard title="Histórico sem Programação" value={formatCurrency(resumoFiltrado.totalSemVencimento || 0)} subtitle="Sem data futura" color="#d97706" />
               <SummaryCard
                 title="% Cobertura"
                 value={resumoFiltrado.totalFaturado > 0 ? `${((resumoFiltrado.totalProjetado / resumoFiltrado.totalFaturado) * 100).toFixed(1)}%` : "0%"}
-                subtitle="Protocolos com projeção"
+                subtitle="Cobertura da programação"
                 color="#7c3aed"
               />
             </div>
@@ -444,10 +448,10 @@ export default function PrevisaoRecebimentos() {
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                       <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Convênio</th>
-                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Valor Faturado</th>
-                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Projeção Recebimento</th>
+                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Valor no Demonstrativo</th>
+                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Pagamento Programado</th>
                       <th style={{ textAlign: "center", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Protocolos</th>
-                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Sem Vencimento</th>
+                      <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Sem Programação</th>
                       <th style={{ textAlign: "center", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Cobertura</th>
                     </tr>
                   </thead>
@@ -493,10 +497,11 @@ export default function PrevisaoRecebimentos() {
 function PagamentosTab() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const isImec = estabelecimentoId === IMEC_ESTABELECIMENTO_ID;
   
   const { data, isLoading, error, refetch, isRefetching } = trpc.tasy.getPagamentosBi.useQuery(
-    { estabelecimentoId },
-    { enabled: estabelecimentoId > 0, staleTime: 60_000 }
+    { estabelecimentoId: IMEC_ESTABELECIMENTO_ID },
+    { enabled: isImec, staleTime: 60_000 }
   );
 
   const [selectedMes, setSelectedMes] = useState<string>("TUDO");
@@ -566,9 +571,9 @@ function PagamentosTab() {
        </div>
        
        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-          <SummaryCard title="Recebido Banco (Depósito)" value={formatCurrency(resumoFiltrado.recebido || 0)} subtitle="Valor mapeado na importação" color="#2563eb" />
-          <SummaryCard title="Vinculado TASY (Baixado)" value={formatCurrency(resumoFiltrado.vinculado || 0)} subtitle="Sincronizado na fatura" color="#059669" />
-          <SummaryCard title="A Vincular (Pendente)" value={formatCurrency(resumoFiltrado.a_vincular || 0)} subtitle="Diferença pendente de ajuste" color="#dc2626" />
+           <SummaryCard title="Recebido no Demonstrativo" value={formatCurrency(resumoFiltrado.recebido || 0)} subtitle="Pagamento importado do Imec" color="#2563eb" />
+           <SummaryCard title="Conciliado no Portal" value={formatCurrency(resumoFiltrado.vinculado || 0)} subtitle="Vinculação confirmada para o Imec" color="#059669" />
+           <SummaryCard title="A Conciliar" value={formatCurrency(resumoFiltrado.a_vincular || 0)} subtitle="Pagamento do Imec ainda sem vínculo" color="#dc2626" />
        </div>
 
        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: 24 }}>
@@ -586,10 +591,10 @@ function PagamentosTab() {
                 <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                   <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Estabelecimento</th>
                   <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Convênio</th>
-                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Depósito Banco (R$)</th>
-                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Baixado Sistema (R$)</th>
-                  <th style={{ textAlign: "center", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>% Baixado</th>
-                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>A Vincular (R$)</th>
+                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Recebido Demonstrativo (R$)</th>
+                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>Conciliado Portal (R$)</th>
+                  <th style={{ textAlign: "center", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>% Conciliado</th>
+                  <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600, color: "#475569" }}>A Conciliar (R$)</th>
                 </tr>
               </thead>
               <tbody>
