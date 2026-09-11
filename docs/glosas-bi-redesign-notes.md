@@ -24,6 +24,15 @@ O usuário solicitou aproveitar a **estrutura dos gráficos**, sem copiar as cor
 - Filtros ativos aparecem como chips removíveis, e um segundo clique no mesmo elemento restaura a visão anterior.
 - Excel e PowerPoint recebem o mesmo recorte interativo exibido na tela.
 
+## Taxa real e tratamento da glosa
+
+- A base financeira do percentual inclui **todos os itens do demonstrativo** no mesmo estabelecimento, período e recorte: `valorProcessado = valorPago + valorGlosado`.
+- A taxa apresentada é `valorGlosado / valorProcessado`; as consultas não podem ser previamente limitadas a `valor_glosa > 0`, pois isso transforma artificialmente a taxa em 100% quando os registros glosados não têm pagamento parcial.
+- **Glosa aceita** corresponde a `classificacao_glosa IN ('aceitar', 'auto_aceitar')`.
+- **Glosa recursada** corresponde a `classificacao_glosa IN ('recursar', 'auto_recursar')` ou a um `recurso_status` criado, enviado, deferido ou indeferido, desde que o item não esteja classificado como aceito.
+- **Pendente de análise** é o saldo glosado que não foi classificado como aceito nem recursado.
+- A tabela `decisoesGlosa` não é usada como fonte financeira do painel porque parte do histórico está sem vínculo vigente com o demonstrativo reconstruído; o relatório usa o estado persistido no próprio `demonstrativo`, preservando estabelecimento, mês e filtros cruzados.
+
 ## Validação real
 
 O validador exercita dois estabelecimentos separadamente: Pronto Socorro Infantil (ID 1) e Imec Senador Canedo (ID 2550001). Ele confirma quatro agrupamentos, filtros por pagamento/convênio/categoria e totais diferentes entre as unidades, evidenciando isolamento.

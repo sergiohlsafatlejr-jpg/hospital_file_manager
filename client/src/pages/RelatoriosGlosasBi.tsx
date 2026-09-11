@@ -12,7 +12,7 @@ import {
   Cell,
   ComposedChart,
   Legend,
-  Line,
+  LabelList,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -29,6 +29,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  Gavel,
   ListChecks,
   Loader2,
   MousePointerClick,
@@ -41,6 +42,7 @@ import {
   Stethoscope,
   Tags,
   TrendingDown,
+  Undo2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -132,6 +134,7 @@ function Panel({ title, subtitle, icon: Icon, children, className = "" }: {
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
   return (
     <div className="max-w-xs rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
       <p className="mb-2 text-xs font-semibold text-slate-800">{label}</p>
@@ -146,6 +149,15 @@ function ChartTooltip({ active, payload, label }: any) {
           </span>
         </div>
       ))}
+      {point?.valorProcessado !== undefined && (
+        <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-xs">
+          <div className="flex justify-between gap-6 text-slate-500"><span>Valor processado</span><strong className="text-slate-800">{fmtCurrency(point.valorProcessado)}</strong></div>
+          <div className="flex justify-between gap-6 text-blue-700"><span>Percentual de glosa</span><strong>{fmtPercent(point.taxaGlosa)}</strong></div>
+          <div className="flex justify-between gap-6 text-rose-600"><span>Glosa aceita</span><strong>{fmtCurrency(point.glosaAceita)}</strong></div>
+          <div className="flex justify-between gap-6 text-teal-700"><span>Glosa recursada</span><strong>{fmtCurrency(point.glosaRecursada)}</strong></div>
+          <div className="flex justify-between gap-6 text-amber-700"><span>Pendente</span><strong>{fmtCurrency(point.glosaPendente)}</strong></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -341,28 +353,34 @@ export default function RelatoriosGlosasBi() {
       ["Procedimento selecionado no painel", procedimentoCodigo || "Todos"],
       ["Motivo selecionado no painel", motivoCodigo ? `${motivoCodigo} — ${motivoSelecionadoNome || motivoCodigo}` : "Todos"],
       ["Recorte interativo", recorteInterativoLabel],
-      ["Valor cobrado", data.resumo.valorCobrado],
+      ["Valor processado", data.resumo.valorProcessado],
       ["Valor pago", data.resumo.valorPago],
       ["Valor glosado", data.resumo.valorGlosado],
-      ["Taxa de glosa (%)", data.resumo.taxaGlosa],
+      ["Percentual de glosa (%)", data.resumo.taxaGlosa],
       ["Ticket médio da glosa", data.resumo.ticketMedio],
-      ["Glosa sem recurso", data.resumo.glosaSemRecurso],
+      ["Glosa aceita", data.resumo.glosaAceita],
       ["Glosa recursada", data.resumo.glosaRecursada],
+      ["Glosa pendente de análise", data.resumo.glosaPendente],
+      ["Percentual analisado (%)", data.resumo.percentualAnalisado],
     ];
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Indicador", "Valor"], ...resumoRows]), "Resumo");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porMesPagamento.map((item: any) => ({
       "Mês do pagamento": fmtMonth(item.mesPagamento),
+      "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
-      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa aceita": item.glosaAceita,
       "Glosa recursada": item.glosaRecursada,
-      "Taxa de glosa (%)": item.taxaGlosa,
+      "Glosa pendente": item.glosaPendente,
+      "Percentual de glosa (%)": item.taxaGlosa,
       "Quantidade de itens": item.qtdItens,
     }))), "Glosa por Mês");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porConvenio.map((item: any) => ({
       "Convênio": item.nome,
+      "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
-      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa aceita": item.glosaAceita,
       "Glosa recursada": item.glosaRecursada,
+      "Glosa pendente": item.glosaPendente,
       "% da glosa": item.percentualTotal,
       "Taxa de glosa (%)": item.taxaGlosa,
       "Quantidade de itens": item.qtdItens,
@@ -371,9 +389,11 @@ export default function RelatoriosGlosasBi() {
       "Código do item": item.codigoItem || "",
       "Descrição do item": item.nome,
       "Tipo": item.tipoLancamento,
+      "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
-      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa aceita": item.glosaAceita,
       "Glosa recursada": item.glosaRecursada,
+      "Glosa pendente": item.glosaPendente,
       "% da glosa": item.percentualTotal,
       "Taxa de glosa (%)": item.taxaGlosa,
       "Quantidade": item.qtdItens,
@@ -382,9 +402,11 @@ export default function RelatoriosGlosasBi() {
       "Código do procedimento": item.codigoItem,
       "Descrição do procedimento": item.nome,
       "Tipo": item.tipoLancamento,
+      "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
-      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa aceita": item.glosaAceita,
       "Glosa recursada": item.glosaRecursada,
+      "Glosa pendente": item.glosaPendente,
       "% da glosa": item.percentualTotal,
       "Quantidade": item.qtdItens,
     }))), "Glosa por Procedimento");
@@ -393,8 +415,9 @@ export default function RelatoriosGlosasBi() {
       "Motivo descritivo": item.nome,
       "Categoria": item.categoria,
       "Valor glosado": item.valorGlosado,
-      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa aceita": item.glosaAceita,
       "Glosa recursada": item.glosaRecursada,
+      "Glosa pendente": item.glosaPendente,
       "% da glosa": item.percentualTotal,
       "Quantidade": item.qtdItens,
     }))), "Motivos de Glosa");
@@ -429,11 +452,12 @@ export default function RelatoriosGlosasBi() {
     const resumoSlide = pptx.addSlide();
     addHeader(resumoSlide, "Indicadores principais", "Visão consolidada do período selecionado");
     const cards = [
-      ["VALOR COBRADO", fmtCurrency(data.resumo.valorCobrado), "3157A4"],
+      ["VALOR PROCESSADO", fmtCurrency(data.resumo.valorProcessado), "3157A4"],
       ["VALOR GLOSADO", fmtCurrency(data.resumo.valorGlosado), "C24162"],
-      ["TAXA DE GLOSA", fmtPercent(data.resumo.taxaGlosa), "D18B20"],
-      ["TICKET MÉDIO", fmtCurrency(data.resumo.ticketMedio), "7656A8"],
+      ["PERCENTUAL DE GLOSA", fmtPercent(data.resumo.taxaGlosa), "3157A4"],
+      ["GLOSA ACEITA", fmtCurrency(data.resumo.glosaAceita), "C24162"],
       ["GLOSA RECURSADA", fmtCurrency(data.resumo.glosaRecursada), "168A83"],
+      ["PENDENTE DE ANÁLISE", fmtCurrency(data.resumo.glosaPendente), "D18B20"],
     ];
     cards.forEach(([label, value, color], index) => {
       const x = 0.55 + (index % 3) * 4.15;
@@ -574,22 +598,48 @@ export default function RelatoriosGlosasBi() {
             </div>
           ) : data ? (
             <>
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-                <KpiCard label="Valor cobrado" value={fmtCurrency(data.resumo.valorCobrado)} helper={`${data.resumo.totalGuiasGlosadas.toLocaleString("pt-BR")} guias com glosa`} icon={CircleDollarSign} tone="blue" />
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiCard label="Valor processado" value={fmtCurrency(data.resumo.valorProcessado)} helper={`${data.resumo.totalGuiasGlosadas.toLocaleString("pt-BR")} guias com alguma glosa`} icon={CircleDollarSign} tone="blue" />
                 <KpiCard label="Valor glosado" value={fmtCurrency(data.resumo.valorGlosado)} helper={`${data.resumo.totalItensGlosados.toLocaleString("pt-BR")} itens glosados`} icon={AlertTriangle} tone="rose" />
-                <KpiCard label="Taxa de glosa" value={fmtPercent(data.resumo.taxaGlosa)} helper="Glosado sobre pago + glosado" icon={TrendingDown} tone="amber" />
+                <KpiCard label="Percentual de glosa" value={fmtPercent(data.resumo.taxaGlosa)} helper="Valor glosado ÷ valor processado" icon={TrendingDown} tone="amber" />
                 <KpiCard label="Ticket médio" value={fmtCurrency(data.resumo.ticketMedio)} helper="Valor médio por item glosado" icon={ReceiptText} tone="purple" />
-                <KpiCard label="Glosa recursada" value={fmtCurrency(data.resumo.glosaRecursada)} helper={`${fmtPercent(data.resumo.percentualRecursado)} do valor glosado`} icon={ShieldCheck} tone="teal" />
               </section>
+
+              <Panel title="Tratamento das glosas" subtitle="Decisões registradas na análise: aceite da glosa, recurso e saldo ainda pendente" icon={Gavel}>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                    <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Glosa aceita</p><Undo2 className="h-4 w-4 text-rose-600" /></div>
+                    <p className="mt-2 text-xl font-bold text-rose-800">{fmtCurrency(data.resumo.glosaAceita)}</p>
+                    <p className="mt-1 text-xs text-rose-700">{fmtPercent(data.resumo.percentualAceito)} do valor glosado</p>
+                  </div>
+                  <div className="rounded-xl border border-teal-200 bg-teal-50 p-4">
+                    <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Glosa recursada</p><ShieldCheck className="h-4 w-4 text-teal-600" /></div>
+                    <p className="mt-2 text-xl font-bold text-teal-800">{fmtCurrency(data.resumo.glosaRecursada)}</p>
+                    <p className="mt-1 text-xs text-teal-700">{fmtPercent(data.resumo.percentualRecursado)} do valor glosado</p>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Pendente de análise</p><Loader2 className="h-4 w-4 text-amber-600" /></div>
+                    <p className="mt-2 text-xl font-bold text-amber-800">{fmtCurrency(data.resumo.glosaPendente)}</p>
+                    <p className="mt-1 text-xs text-amber-700">{fmtPercent(100 - data.resumo.percentualAnalisado)} do valor glosado</p>
+                  </div>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" aria-label={`${fmtPercent(data.resumo.percentualAnalisado)} das glosas analisadas`}>
+                  <div className="flex h-full">
+                    <div className="bg-rose-500" style={{ width: `${Math.min(100, data.resumo.percentualAceito)}%` }} />
+                    <div className="bg-teal-500" style={{ width: `${Math.min(100, data.resumo.percentualRecursado)}%` }} />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">{fmtPercent(data.resumo.percentualAnalisado)} das glosas do recorte já possuem decisão registrada.</p>
+              </Panel>
 
               <Panel title="Glosa por mês de pagamento" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
                 {data.porMesPagamento.length ? (
-                  <ResponsiveContainer width="100%" height={340}>
-                    <ComposedChart data={data.porMesPagamento.map((item: any) => ({ ...item, label: fmtMonth(item.mesPagamento) }))} margin={{ top: 12, right: 22, left: 8, bottom: 8 }}>
+                  <div className="h-[300px] sm:h-[340px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={data.porMesPagamento.map((item: any) => ({ ...item, label: fmtMonth(item.mesPagamento) }))} margin={{ top: 12, right: 4, left: 0, bottom: 8 }}>
                       <CartesianGrid stroke={COLORS.grid} vertical={false} />
                       <XAxis dataKey="label" tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="money" tickFormatter={fmtCompact} tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="rate" orientation="right" tickFormatter={(value) => `${value}%`} tick={{ fill: COLORS.amber, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="money" width={46} tickFormatter={fmtCompact} tick={{ fill: COLORS.muted, fontSize: 10 }} axisLine={false} tickLine={false} />
                       <RechartsTooltip content={<ChartTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
                       <Bar
@@ -611,10 +661,11 @@ export default function RelatoriosGlosasBi() {
                             strokeWidth={item.mesPagamento === mesPagamento ? 2 : 0}
                           />
                         ))}
+                        <LabelList dataKey="taxaGlosa" position="top" formatter={(value: any) => fmtPercent(Number(value))} fill={COLORS.blue} fontSize={11} fontWeight={700} />
                       </Bar>
-                      <Line yAxisId="rate" dataKey="taxaGlosa" name="Taxa de glosa" stroke={COLORS.amber} strokeWidth={3} dot={{ r: 4, fill: COLORS.amber, strokeWidth: 0 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </div>
                 ) : <EmptyChart message="Não há glosas com data de pagamento para o período selecionado." />}
               </Panel>
 
@@ -645,9 +696,9 @@ export default function RelatoriosGlosasBi() {
               <Panel title="Detalhamento da glosa por item" subtitle="Situação do recurso, participação no total e taxa por item" icon={ListChecks}>
                 {data.porItem.length ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1050px] text-sm">
+                    <table className="w-full min-w-[1160px] text-sm">
                       <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="px-4 py-3 font-semibold">Item</th><th className="px-3 py-3 font-semibold">Tipo</th><th className="px-3 py-3 text-right font-semibold">Qtd.</th><th className="px-3 py-3 text-right font-semibold">Glosado</th><th className="px-3 py-3 text-right font-semibold">Sem recurso</th><th className="px-3 py-3 text-right font-semibold">Recursada</th><th className="px-3 py-3 text-right font-semibold">% glosa</th><th className="px-3 py-3 text-right font-semibold">Taxa</th>
+                        <th className="px-4 py-3 font-semibold">Item</th><th className="px-3 py-3 font-semibold">Tipo</th><th className="px-3 py-3 text-right font-semibold">Qtd.</th><th className="px-3 py-3 text-right font-semibold">Glosado</th><th className="px-3 py-3 text-right font-semibold">Aceita</th><th className="px-3 py-3 text-right font-semibold">Recursada</th><th className="px-3 py-3 text-right font-semibold">Pendente</th><th className="px-3 py-3 text-right font-semibold">% glosa</th><th className="px-3 py-3 text-right font-semibold">Taxa</th>
                       </tr></thead>
                       <tbody>{data.porItem.map((item: any, index: number) => (
                         <tr
@@ -663,8 +714,9 @@ export default function RelatoriosGlosasBi() {
                           <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{item.tipoLancamento}</span></td>
                           <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>
                           <td className="px-3 py-3 text-right font-semibold text-rose-700">{fmtCurrency(item.valorGlosado)}</td>
-                          <td className="px-3 py-3 text-right text-slate-600">{fmtCurrency(item.glosaSemRecurso)}</td>
+                          <td className="px-3 py-3 text-right text-rose-600">{fmtCurrency(item.glosaAceita)}</td>
                           <td className="px-3 py-3 text-right font-medium text-teal-700">{fmtCurrency(item.glosaRecursada)}</td>
+                          <td className="px-3 py-3 text-right text-amber-700">{fmtCurrency(item.glosaPendente)}</td>
                           <td className="px-3 py-3 text-right text-slate-600">{fmtPercent(item.percentualTotal)}</td>
                           <td className="px-3 py-3 text-right"><span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{fmtPercent(item.taxaGlosa)}</span></td>
                         </tr>
@@ -677,9 +729,9 @@ export default function RelatoriosGlosasBi() {
               <Panel title="Motivos de glosa" subtitle="Descrição, código TISS e categoria para apoiar correção e recurso" icon={Activity}>
                 {data.porMotivo.length ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[900px] text-sm">
+                    <table className="w-full min-w-[1050px] text-sm">
                       <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="px-4 py-3 font-semibold">Motivo</th><th className="px-3 py-3 font-semibold">Categoria</th><th className="px-3 py-3 text-right font-semibold">Ocorrências</th><th className="px-3 py-3 text-right font-semibold">Valor glosado</th><th className="px-3 py-3 text-right font-semibold">% do total</th><th className="px-3 py-3 text-right font-semibold">Recursada</th>
+                        <th className="px-4 py-3 font-semibold">Motivo</th><th className="px-3 py-3 font-semibold">Categoria</th><th className="px-3 py-3 text-right font-semibold">Ocorrências</th><th className="px-3 py-3 text-right font-semibold">Valor glosado</th><th className="px-3 py-3 text-right font-semibold">% do total</th><th className="px-3 py-3 text-right font-semibold">Aceita</th><th className="px-3 py-3 text-right font-semibold">Recursada</th><th className="px-3 py-3 text-right font-semibold">Pendente</th>
                       </tr></thead>
                       <tbody>{data.porMotivo.map((item: any, index: number) => (
                         <tr
@@ -696,7 +748,9 @@ export default function RelatoriosGlosasBi() {
                           <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>
                           <td className="px-3 py-3 text-right font-semibold text-rose-700">{fmtCurrency(item.valorGlosado)}</td>
                           <td className="px-3 py-3 text-right text-slate-600">{fmtPercent(item.percentualTotal)}</td>
+                          <td className="px-3 py-3 text-right text-rose-600">{fmtCurrency(item.glosaAceita)}</td>
                           <td className="px-3 py-3 text-right font-medium text-teal-700">{fmtCurrency(item.glosaRecursada)}</td>
+                          <td className="px-3 py-3 text-right text-amber-700">{fmtCurrency(item.glosaPendente)}</td>
                         </tr>
                       ))}</tbody>
                     </table>

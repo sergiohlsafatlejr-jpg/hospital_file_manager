@@ -1,17 +1,22 @@
 export type RawGlosaResumo = {
+  total_processado?: unknown;
   total_pago?: unknown;
   total_glosa?: unknown;
   total_itens_glosados?: unknown;
   total_guias_glosadas?: unknown;
   glosa_sem_recurso?: unknown;
+  glosa_aceita?: unknown;
   glosa_recursada?: unknown;
+  glosa_pendente?: unknown;
 };
 
 export type RawRankingGlosa = Record<string, unknown> & {
   valor_glosado?: unknown;
   valor_pago?: unknown;
   glosa_sem_recurso?: unknown;
+  glosa_aceita?: unknown;
   glosa_recursada?: unknown;
+  glosa_pendente?: unknown;
   qtd_itens?: unknown;
 };
 
@@ -33,7 +38,7 @@ export function construirFiltroPainelGlosas(
   input: FiltrosPainelGlosas,
   excluirDimensao?: DimensaoFiltroCruzado,
 ) {
-  const clausulas = ["d.estabelecimentoId = ?", "d.valor_glosa > 0"];
+  const clausulas = ["d.estabelecimentoId = ?"];
   const params: Array<string | number> = [input.estabelecimentoId];
 
   if (input.convenioId && excluirDimensao !== "convenio") {
@@ -98,23 +103,33 @@ export const percentualGlosa = (parte: number, total: number): number =>
 export function montarResumoGlosas(row: RawGlosaResumo) {
   const totalPago = numeroGlosa(row.total_pago);
   const totalGlosa = numeroGlosa(row.total_glosa);
+  const totalProcessadoInformado = numeroGlosa(row.total_processado);
   const totalItensGlosados = numeroGlosa(row.total_itens_glosados);
   const totalGuiasGlosadas = numeroGlosa(row.total_guias_glosadas);
   const glosaSemRecurso = numeroGlosa(row.glosa_sem_recurso);
+  const glosaAceita = numeroGlosa(row.glosa_aceita);
   const glosaRecursada = numeroGlosa(row.glosa_recursada);
-  const valorCobrado = totalPago + totalGlosa;
+  const glosaPendente = numeroGlosa(row.glosa_pendente);
+  const valorProcessado = totalProcessadoInformado > 0 ? totalProcessadoInformado : totalPago + totalGlosa;
+  const valorAnalisado = glosaAceita + glosaRecursada;
 
   return {
-    valorCobrado,
+    valorCobrado: valorProcessado,
+    valorProcessado,
     valorPago: totalPago,
     valorGlosado: totalGlosa,
     totalItensGlosados,
     totalGuiasGlosadas,
     ticketMedio: totalItensGlosados > 0 ? Number((totalGlosa / totalItensGlosados).toFixed(2)) : 0,
-    taxaGlosa: percentualGlosa(totalGlosa, valorCobrado),
+    taxaGlosa: percentualGlosa(totalGlosa, valorProcessado),
     glosaSemRecurso,
+    glosaAceita,
     glosaRecursada,
+    glosaPendente,
+    valorAnalisado,
+    percentualAceito: percentualGlosa(glosaAceita, totalGlosa),
     percentualRecursado: percentualGlosa(glosaRecursada, totalGlosa),
+    percentualAnalisado: percentualGlosa(valorAnalisado, totalGlosa),
   };
 }
 
@@ -122,16 +137,20 @@ export function complementarRankingGlosa<T extends RawRankingGlosa>(rows: T[], t
   return rows.map((row) => {
     const valorGlosado = numeroGlosa(row.valor_glosado);
     const valorPago = numeroGlosa(row.valor_pago);
+    const valorProcessado = valorPago + valorGlosado;
     return {
       ...row,
       valorGlosado,
       valorPago,
-      valorCobrado: valorPago + valorGlosado,
+      valorCobrado: valorProcessado,
+      valorProcessado,
       glosaSemRecurso: numeroGlosa(row.glosa_sem_recurso),
+      glosaAceita: numeroGlosa(row.glosa_aceita),
       glosaRecursada: numeroGlosa(row.glosa_recursada),
+      glosaPendente: numeroGlosa(row.glosa_pendente),
       qtdItens: numeroGlosa(row.qtd_itens),
       percentualTotal: percentualGlosa(valorGlosado, totalGlosa),
-      taxaGlosa: percentualGlosa(valorGlosado, valorPago + valorGlosado),
+      taxaGlosa: percentualGlosa(valorGlosado, valorProcessado),
     };
   });
 }

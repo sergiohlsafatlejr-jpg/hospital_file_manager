@@ -4,14 +4,18 @@ import { complementarRankingGlosa, construirFiltroPainelGlosas, montarResumoGlos
 describe("relatoriosGlosasBiService", () => {
   it("calcula indicadores financeiros sem misturar bases", () => {
     expect(montarResumoGlosas({
+      total_processado: "1000",
       total_pago: "900",
       total_glosa: "100",
       total_itens_glosados: "4",
       total_guias_glosadas: "3",
       glosa_sem_recurso: "40",
+      glosa_aceita: "15",
       glosa_recursada: "60",
+      glosa_pendente: "25",
     })).toEqual({
       valorCobrado: 1000,
+      valorProcessado: 1000,
       valorPago: 900,
       valorGlosado: 100,
       totalItensGlosados: 4,
@@ -19,8 +23,13 @@ describe("relatoriosGlosasBiService", () => {
       ticketMedio: 25,
       taxaGlosa: 10,
       glosaSemRecurso: 40,
+      glosaAceita: 15,
       glosaRecursada: 60,
+      glosaPendente: 25,
+      valorAnalisado: 75,
+      percentualAceito: 15,
       percentualRecursado: 60,
+      percentualAnalisado: 75,
     });
   });
 
@@ -35,7 +44,9 @@ describe("relatoriosGlosasBiService", () => {
       valor_pago: "150",
       valor_glosado: "50",
       glosa_sem_recurso: "20",
+      glosa_aceita: "10",
       glosa_recursada: "30",
+      glosa_pendente: "10",
       qtd_itens: "2",
     }], 200);
 
@@ -43,7 +54,9 @@ describe("relatoriosGlosasBiService", () => {
     expect(item.percentualTotal).toBe(25);
     expect(item.taxaGlosa).toBe(25);
     expect(item.glosaSemRecurso).toBe(20);
+    expect(item.glosaAceita).toBe(10);
     expect(item.glosaRecursada).toBe(30);
+    expect(item.glosaPendente).toBe(10);
     expect(item.qtdItens).toBe(2);
   });
 
@@ -58,6 +71,7 @@ describe("relatoriosGlosasBiService", () => {
     });
 
     expect(filtro.where).toContain("d.estabelecimentoId = ?");
+    expect(filtro.where).not.toContain("d.valor_glosa > 0");
     expect(filtro.where).toContain("d.convenio_id = ?");
     expect(filtro.where).toContain("DATE_FORMAT(d.data_pagamento, '%Y/%m') = ?");
     expect(filtro.where).toContain("TRIM(d.descricao_item) = ?");

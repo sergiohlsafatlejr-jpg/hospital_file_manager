@@ -24,6 +24,30 @@ if (!filtrosProntoSocorro.competencias.length || !filtrosProntoSocorro.convenios
   throw new Error("Os filtros por pagamento, convênio e categoria não foram carregados");
 }
 
+for (const [nome, painel] of [["Pronto Socorro Infantil", prontoSocorro], ["Imec", imec]] as const) {
+  const somaTratamento = painel.resumo.glosaAceita + painel.resumo.glosaRecursada + painel.resumo.glosaPendente;
+  if (Math.abs(somaTratamento - painel.resumo.valorGlosado) > 0.02) {
+    throw new Error(`${nome}: aceita + recursada + pendente não fecha com o valor glosado`);
+  }
+  if (painel.resumo.valorProcessado <= painel.resumo.valorGlosado) {
+    throw new Error(`${nome}: a base processada não inclui os itens pagos do período`);
+  }
+  for (const mes of painel.porMesPagamento) {
+    const taxaEsperada = mes.valorProcessado > 0 ? Number(((mes.valorGlosado / mes.valorProcessado) * 100).toFixed(2)) : 0;
+    if (Math.abs(mes.taxaGlosa - taxaEsperada) > 0.01) {
+      throw new Error(`${nome}: percentual mensal divergente em ${mes.mesPagamento}`);
+    }
+    const somaMes = mes.glosaAceita + mes.glosaRecursada + mes.glosaPendente;
+    if (Math.abs(somaMes - mes.valorGlosado) > 0.02) {
+      throw new Error(`${nome}: tratamento mensal não fecha em ${mes.mesPagamento}`);
+    }
+  }
+}
+
+if (imec.porMesPagamento.every((mes) => mes.taxaGlosa === 100)) {
+  throw new Error("A regressão da linha mensal em 100% voltou a ocorrer no Imec");
+}
+
 const itemBase = prontoSocorro.porItem[0];
 const convenioBase = prontoSocorro.porConvenio[0];
 const procedimentoBase = prontoSocorro.porProcedimento[0];
@@ -77,7 +101,15 @@ console.log(JSON.stringify({
   },
   imec: {
     resumo: imec.resumo,
-    mesesPagamento: imec.porMesPagamento.length,
+    mesesPagamento: imec.porMesPagamento.map((mes) => ({
+      mes: mes.mesPagamento,
+      valorProcessado: mes.valorProcessado,
+      valorGlosado: mes.valorGlosado,
+      percentualGlosa: mes.taxaGlosa,
+      glosaAceita: mes.glosaAceita,
+      glosaRecursada: mes.glosaRecursada,
+      glosaPendente: mes.glosaPendente,
+    })),
     convenios: imec.porConvenio.length,
   },
   filtrosCruzados: {

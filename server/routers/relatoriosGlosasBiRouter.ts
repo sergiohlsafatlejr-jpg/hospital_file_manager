@@ -91,9 +91,18 @@ export const relatoriosGlosasBiRouter = router({
           LEFT JOIN convenios c ON c.id = d.convenio_id
           LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
         `;
+        const aceiteCondicao = `COALESCE(d.classificacao_glosa, 'pendente') IN ('aceitar','auto_aceitar')`;
         const recursoCondicao = `(
-          COALESCE(d.recurso_status, 'sem_recurso') IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido')
-          OR d.classificacao_glosa = 'recursar'
+          COALESCE(d.classificacao_glosa, 'pendente') NOT IN ('aceitar','auto_aceitar')
+          AND (
+            COALESCE(d.recurso_status, 'sem_recurso') IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido')
+            OR COALESCE(d.classificacao_glosa, 'pendente') IN ('recursar','auto_recursar')
+          )
+        )`;
+        const pendenteCondicao = `(
+          CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2)) > 0
+          AND NOT (${aceiteCondicao})
+          AND NOT (${recursoCondicao})
         )`;
         const resumoFiltro = construirFiltroPainelGlosas(input);
         const mesFiltro = construirFiltroPainelGlosas(input, "mesPagamento");
@@ -104,12 +113,15 @@ export const relatoriosGlosasBiRouter = router({
 
         const [resumoRows] = await conn.execute<any[]>(`
           SELECT
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS total_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS total_glosa,
-            COUNT(*) AS total_itens_glosados,
-            COUNT(DISTINCT d.numero_guia) AS total_guias_glosadas,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
-            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada
+            SUM(CAST(COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS total_processado,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS total_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS total_glosa,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS total_itens_glosados,
+            COUNT(DISTINCT CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN d.numero_guia END) AS total_guias_glosadas,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente
           ${joinBase}
           ${resumoFiltro.where}
         `, resumoFiltro.params);
@@ -118,14 +130,17 @@ export const relatoriosGlosasBiRouter = router({
         const [mesRows] = await conn.execute<any[]>(`
           SELECT
             DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
-            COUNT(*) AS qtd_itens
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
           ${mesFiltro.where} AND d.data_pagamento IS NOT NULL
           GROUP BY DATE_FORMAT(d.data_pagamento, '%Y/%m')
+          HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY mes_pagamento DESC
           LIMIT 18
         `, mesFiltro.params);
@@ -135,14 +150,17 @@ export const relatoriosGlosasBiRouter = router({
           SELECT
             d.convenio_id AS convenio_id,
             COALESCE(NULLIF(TRIM(c.nome), ''), CONCAT('Convênio ', d.convenio_id)) AS nome,
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
-            COUNT(*) AS qtd_itens
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
           ${convenioFiltro.where}
           GROUP BY d.convenio_id, c.nome
+          HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
         `, convenioFiltro.params);
@@ -152,14 +170,17 @@ export const relatoriosGlosasBiRouter = router({
             MIN(NULLIF(TRIM(d.codigo_item), '')) AS codigo_item,
             COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS nome,
             COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado') AS tipo_lancamento,
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
-            COUNT(*) AS qtd_itens
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
           ${itemFiltro.where}
           GROUP BY COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
+          HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
         `, itemFiltro.params);
@@ -169,14 +190,17 @@ export const relatoriosGlosasBiRouter = router({
             COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS codigo_item,
             MIN(COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Procedimento sem descrição')) AS nome,
             COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado') AS tipo_lancamento,
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
-            COUNT(*) AS qtd_itens
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
           ${procedimentoFiltro.where}
           GROUP BY COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
+          HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
         `, procedimentoFiltro.params);
@@ -186,14 +210,17 @@ export const relatoriosGlosasBiRouter = router({
             COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO') AS codigo_glosa,
             COALESCE(NULLIF(TRIM(mg.descricaoSimplificada), ''), NULLIF(TRIM(mg.descricao), ''), 'Motivo não cadastrado') AS nome,
             COALESCE(NULLIF(TRIM(mg.grupo), ''), 'Outros') AS categoria,
-            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
-            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
-            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${aceiteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_aceita,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
-            COUNT(*) AS qtd_itens
+            SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
+            SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
           ${motivoFiltro.where}
           GROUP BY d.codigo_glosa, mg.descricaoSimplificada, mg.descricao, mg.grupo
+          HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
         `, motivoFiltro.params);

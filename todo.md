@@ -4421,3 +4421,11 @@
 - [x] Destacar visualmente o item, convênio, procedimento, mês ou motivo selecionado
 - [x] Garantir que o Excel e PowerPoint exportem exatamente o recorte interativo atual
 - [x] Validar combinações de filtros, isolamento por estabelecimento, testes e build da interação cruzada
+
+- [x] Auditar a base correta do percentual mensal de glosa e eliminar a linha artificial de 100%
+- [x] Calcular o percentual de glosa sobre o valor total processado/faturado do mesmo mês e recorte
+- [x] Mapear recursos analisados como glosa aceita e glosa recursada sem usar dados legados indevidamente
+- [x] Incluir valores e percentuais de glosa aceita e recursada nos KPIs, gráfico mensal e detalhamentos
+- [x] Ajustar a leitura e a responsividade do gráfico mensal em dispositivos móveis
+- [x] Atualizar Excel e PowerPoint com a taxa real e os recursos analisados
+- [x] Validar fórmulas, filtros cruzados, isolamento por estabelecimento, testes e build
