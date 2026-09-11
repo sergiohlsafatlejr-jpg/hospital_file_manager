@@ -1,6 +1,9 @@
 import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
+import { TRPCError } from "@trpc/server";
+import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
+import { complementarRankingGlosa, montarResumoGlosas } from "../relatoriosGlosasBiService";
 
 // Nota: Os códigos TISS reais são resolvidos via LEFT JOIN motivosGlosa na query SQL.
 // Textos descritivos do IPASGO já foram convertidos para códigos TISS no banco (backfill)
@@ -48,8 +51,190 @@ const CATEGORIAS_GLOSA_FIXAS: string[] = [
   "Outros",
 ];
 
+const filtroPainelGlosasSchema = z.object({
+  estabelecimentoId: z.number().int().positive(),
+  convenioId: z.number().int().positive().optional(),
+  mesPagamentoInicio: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
+  mesPagamentoFim: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
+  categoriaGlosa: z.string().min(1).optional(),
+  limite: z.number().int().min(5).max(50).default(15),
+});
+
+async function validarAcessoPainelGlosas(ctx: any, estabelecimentoId: number) {
+  if (ctx.user?.role === "admin") return;
+  const permitido = await verificarPermissaoEstabelecimento(ctx.user.id, estabelecimentoId, "visualizar");
+  if (!permitido) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Usuário sem acesso ao estabelecimento selecionado" });
+  }
+}
+
 
 export const relatoriosGlosasBiRouter = router({
+  painelExecutivo: protectedProcedure
+    .input(filtroPainelGlosasSchema)
+    .query(async ({ input, ctx }) => {
+      await validarAcessoPainelGlosas(ctx, input.estabelecimentoId);
+
+      const mysql2 = await import("mysql2/promise");
+      const databaseUrl = getApplicationDatabaseUrl();
+      if (!databaseUrl) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não configurado" });
+      }
+      const conn = await mysql2.createConnection(databaseUrl);
+      try {
+        const params: any[] = [input.estabelecimentoId];
+        let where = "WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0";
+        if (input.convenioId) {
+          where += " AND d.convenio_id = ?";
+          params.push(input.convenioId);
+        }
+        if (input.mesPagamentoInicio) {
+          where += " AND DATE_FORMAT(d.data_pagamento, '%Y/%m') >= ?";
+          params.push(input.mesPagamentoInicio);
+        }
+        if (input.mesPagamentoFim) {
+          where += " AND DATE_FORMAT(d.data_pagamento, '%Y/%m') <= ?";
+          params.push(input.mesPagamentoFim);
+        }
+        if (input.categoriaGlosa) {
+          where += " AND COALESCE(mg.grupo, 'Outros') = ?";
+          params.push(input.categoriaGlosa);
+        }
+
+        const joinBase = `
+          FROM demonstrativo d
+          LEFT JOIN convenios c ON c.id = d.convenio_id
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
+        `;
+        const recursoCondicao = `(
+          COALESCE(d.recurso_status, 'sem_recurso') IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido')
+          OR d.classificacao_glosa = 'recursar'
+        )`;
+
+        const [resumoRows] = await conn.execute<any[]>(`
+          SELECT
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS total_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS total_glosa,
+            COUNT(*) AS total_itens_glosados,
+            COUNT(DISTINCT d.numero_guia) AS total_guias_glosadas,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada
+          ${joinBase}
+          ${where}
+        `, params);
+        const resumo = montarResumoGlosas(resumoRows[0] || {});
+
+        const [mesRows] = await conn.execute<any[]>(`
+          SELECT
+            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            COUNT(*) AS qtd_itens
+          ${joinBase}
+          ${where} AND d.data_pagamento IS NOT NULL
+          GROUP BY DATE_FORMAT(d.data_pagamento, '%Y/%m')
+          ORDER BY mes_pagamento DESC
+          LIMIT 18
+        `, params);
+
+        const limite = input.limite;
+        const [convenioRows] = await conn.execute<any[]>(`
+          SELECT
+            d.convenio_id AS convenio_id,
+            COALESCE(NULLIF(TRIM(c.nome), ''), CONCAT('Convênio ', d.convenio_id)) AS nome,
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            COUNT(*) AS qtd_itens
+          ${joinBase}
+          ${where}
+          GROUP BY d.convenio_id, c.nome
+          ORDER BY valor_glosado DESC
+          LIMIT ${limite}
+        `, params);
+
+        const [itemRows] = await conn.execute<any[]>(`
+          SELECT
+            MIN(NULLIF(TRIM(d.codigo_item), '')) AS codigo_item,
+            COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS nome,
+            COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado') AS tipo_lancamento,
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            COUNT(*) AS qtd_itens
+          ${joinBase}
+          ${where}
+          GROUP BY COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
+          ORDER BY valor_glosado DESC
+          LIMIT ${limite}
+        `, params);
+
+        const [procedimentoRows] = await conn.execute<any[]>(`
+          SELECT
+            COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS codigo_item,
+            MIN(COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Procedimento sem descrição')) AS nome,
+            COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado') AS tipo_lancamento,
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            COUNT(*) AS qtd_itens
+          ${joinBase}
+          ${where}
+          GROUP BY COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
+          ORDER BY valor_glosado DESC
+          LIMIT ${limite}
+        `, params);
+
+        const [motivoRows] = await conn.execute<any[]>(`
+          SELECT
+            COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO') AS codigo_glosa,
+            COALESCE(NULLIF(TRIM(mg.descricaoSimplificada), ''), NULLIF(TRIM(mg.descricao), ''), 'Motivo não cadastrado') AS nome,
+            COALESCE(NULLIF(TRIM(mg.grupo), ''), 'Outros') AS categoria,
+            SUM(CAST(d.valor_pago AS DECIMAL(14,2))) AS valor_pago,
+            SUM(CAST(d.valor_glosa AS DECIMAL(14,2))) AS valor_glosado,
+            SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
+            SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
+            COUNT(*) AS qtd_itens
+          ${joinBase}
+          ${where}
+          GROUP BY d.codigo_glosa, mg.descricaoSimplificada, mg.descricao, mg.grupo
+          ORDER BY valor_glosado DESC
+          LIMIT ${limite}
+        `, params);
+
+        return {
+          resumo,
+          porMesPagamento: complementarRankingGlosa(
+            [...mesRows].reverse().map((row: any) => ({ ...row, mesPagamento: row.mes_pagamento })),
+            resumo.valorGlosado,
+          ),
+          porConvenio: complementarRankingGlosa(
+            convenioRows.map((row: any) => ({ ...row, convenioId: Number(row.convenio_id), nome: String(row.nome) })),
+            resumo.valorGlosado,
+          ),
+          porItem: complementarRankingGlosa(
+            itemRows.map((row: any) => ({ ...row, codigoItem: row.codigo_item, nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) })),
+            resumo.valorGlosado,
+          ),
+          porProcedimento: complementarRankingGlosa(
+            procedimentoRows.map((row: any) => ({ ...row, codigoItem: String(row.codigo_item), nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) })),
+            resumo.valorGlosado,
+          ),
+          porMotivo: complementarRankingGlosa(
+            motivoRows.map((row: any) => ({ ...row, codigoGlosa: String(row.codigo_glosa), nome: String(row.nome), categoria: String(row.categoria) })),
+            resumo.valorGlosado,
+          ),
+        };
+      } finally {
+        await conn.end();
+      }
+    }),
+
   // KPIs gerais
   kpis: protectedProcedure
     .input(z.object({
@@ -812,41 +997,53 @@ export const relatoriosGlosasBiRouter = router({
 
   // Filtros disponíveis
   filtros: protectedProcedure
-    .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      await validarAcessoPainelGlosas(ctx, input.estabelecimentoId);
       const mysql2 = await import("mysql2/promise");
-      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      const databaseUrl = getApplicationDatabaseUrl();
+      if (!databaseUrl) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não configurado" });
+      }
+      const conn = await mysql2.createConnection(databaseUrl);
       try {
-        const estabFilter = input.estabelecimentoId > 0 ? "AND d.estabelecimentoId = ?" : "";
-        const estabParams = input.estabelecimentoId > 0 ? [input.estabelecimentoId] : [];
+        const estabParams = [input.estabelecimentoId];
 
         const [convenios] = await conn.execute<any[]>(`
           SELECT DISTINCT c.id, c.nome
           FROM demonstrativo d
           LEFT JOIN convenios c ON c.id = d.convenio_id
-          WHERE d.valor_glosa > 0 AND c.id IS NOT NULL ${estabFilter}
+          WHERE d.valor_glosa > 0 AND c.id IS NOT NULL AND d.estabelecimentoId = ?
           ORDER BY c.nome
         `, estabParams);
 
         const [competencias] = await conn.execute<any[]>(`
-          SELECT DISTINCT DATE_FORMAT(COALESCE(data_referencia, data_pagamento), '%Y/%m') as competencia
+          SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y/%m') as competencia
           FROM demonstrativo
-          WHERE valor_glosa > 0 AND COALESCE(data_referencia, data_pagamento) IS NOT NULL ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
+          WHERE valor_glosa > 0 AND data_pagamento IS NOT NULL AND estabelecimentoId = ?
           ORDER BY competencia DESC
         `, estabParams);
 
         const [tipos] = await conn.execute<any[]>(`
           SELECT DISTINCT tipo_lancamento
           FROM demonstrativo
-          WHERE valor_glosa > 0 AND tipo_lancamento IS NOT NULL AND tipo_lancamento != '' ${input.estabelecimentoId > 0 ? 'AND estabelecimentoId = ?' : ''}
+          WHERE valor_glosa > 0 AND tipo_lancamento IS NOT NULL AND tipo_lancamento != '' AND estabelecimentoId = ?
           ORDER BY tipo_lancamento
+        `, estabParams);
+
+        const [categorias] = await conn.execute<any[]>(`
+          SELECT DISTINCT COALESCE(NULLIF(TRIM(mg.grupo), ''), 'Outros') AS categoria
+          FROM demonstrativo d
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
+          WHERE d.valor_glosa > 0 AND d.estabelecimentoId = ?
+          ORDER BY categoria
         `, estabParams);
 
         return {
           convenios: convenios.map(c => ({ id: c.id, nome: c.nome })),
           competencias: competencias.map(c => c.competencia),
           tiposLancamento: tipos.map(t => t.tipo_lancamento),
-          categoriasGlosa: CATEGORIAS_GLOSA_FIXAS,
+          categoriasGlosa: categorias.map(c => c.categoria).filter(Boolean),
         };
       } finally {
         await conn.end();
@@ -1038,14 +1235,19 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
   // Comparativo entre dois meses com análise de IA
   comparativoMeses: protectedProcedure
     .input(z.object({
-      estabelecimentoId: z.number(),
+      estabelecimentoId: z.number().int().positive(),
       competencia1: z.string(), // YYYY/MM
       competencia2: z.string(), // YYYY/MM
       convenioId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await validarAcessoPainelGlosas(ctx, input.estabelecimentoId);
       const mysql2 = await import("mysql2/promise");
-      const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+      const databaseUrl = getApplicationDatabaseUrl();
+      if (!databaseUrl) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não configurado" });
+      }
+      const conn = await mysql2.createConnection(databaseUrl);
       try {
         const getKpiMes = async (competencia: string) => {
           const params: any[] = [input.estabelecimentoId, competencia];

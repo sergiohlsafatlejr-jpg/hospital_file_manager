@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -6,498 +6,409 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import PptxGenJS from "pptxgenjs";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, DollarSign, BarChart3,
-  Download, FileText, Presentation, ArrowLeftRight, Loader2, Sparkles, List,
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeftRight,
+  BarChart3,
+  CalendarDays,
+  CircleDollarSign,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  ListChecks,
+  Loader2,
+  Presentation,
+  ReceiptText,
+  RefreshCw,
+  RotateCcw,
+  SearchX,
+  ShieldCheck,
+  Stethoscope,
+  Tags,
+  TrendingDown,
 } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const fmtCurrency = (v: number) =>
-  `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
-
-const fmtK = (v: number) => {
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
-  return v.toFixed(0);
+const COLORS = {
+  ink: "#172033",
+  muted: "#667085",
+  grid: "#e4e7ec",
+  rose: "#c24162",
+  roseSoft: "#fce7ef",
+  teal: "#168a83",
+  blue: "#3157a4",
+  amber: "#d18b20",
+  purple: "#7656a8",
 };
 
-function KpiCard({ label, value, icon: Icon, color, sub }: {
-  label: string; value: string; icon: React.ElementType; color: string; sub?: string;
-}) {
+const fmtCurrency = (valor: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(valor || 0));
+
+const fmtCompact = (valor: number) =>
+  new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(Number(valor || 0));
+
+const fmtPercent = (valor: number) => `${Number(valor || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+
+const fmtMonth = (valor?: string | null) => {
+  if (!valor) return "Sem data";
+  const [ano, mes] = valor.split("/");
+  return mes && ano ? `${mes}/${ano}` : valor;
+};
+
+const shorten = (texto: string | null | undefined, limite: number) => {
+  const valor = texto?.trim() || "Não informado";
+  return valor.length > limite ? `${valor.slice(0, limite - 1)}…` : valor;
+};
+
+type KpiCardProps = {
+  label: string;
+  value: string;
+  helper: string;
+  icon: LucideIcon;
+  tone: "rose" | "teal" | "blue" | "amber" | "purple";
+};
+
+const toneClasses: Record<KpiCardProps["tone"], { surface: string; icon: string; text: string }> = {
+  rose: { surface: "bg-rose-50", icon: "bg-rose-100 text-rose-700", text: "text-rose-700" },
+  teal: { surface: "bg-teal-50", icon: "bg-teal-100 text-teal-700", text: "text-teal-700" },
+  blue: { surface: "bg-blue-50", icon: "bg-blue-100 text-blue-700", text: "text-blue-700" },
+  amber: { surface: "bg-amber-50", icon: "bg-amber-100 text-amber-700", text: "text-amber-700" },
+  purple: { surface: "bg-violet-50", icon: "bg-violet-100 text-violet-700", text: "text-violet-700" },
+};
+
+function KpiCard({ label, value, helper, icon: Icon, tone }: KpiCardProps) {
+  const styles = toneClasses[tone];
   return (
-    <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-xs font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-        <Icon size={14} />{label}
+    <div className={`rounded-2xl border border-slate-200/80 p-4 shadow-sm ${styles.surface}`}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+        <div className={`rounded-xl p-2 ${styles.icon}`}><Icon className="h-4 w-4" /></div>
       </div>
-      <div className="text-2xl font-bold" style={{ color }}>{value}</div>
-      {sub && <div className="text-xs" style={{ color: "#6b8cae" }}>{sub}</div>}
+      <p className={`text-2xl font-bold tracking-tight ${styles.text}`}>{value}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p>
     </div>
   );
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function Panel({ title, subtitle, icon: Icon, children, className = "" }: {
+  title: string;
+  subtitle: string;
+  icon: LucideIcon;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>
+      <div className="flex items-start gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="rounded-xl bg-slate-100 p-2 text-slate-700"><Icon className="h-4 w-4" /></div>
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
+  );
+}
+
+function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
-      <p style={{ color: "#6b8cae", marginBottom: 6, fontSize: 12 }}>{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.dataKey} style={{ color: p.color, fontSize: 12, margin: "2px 0" }}>
-          {p.name}: {fmtCurrency(p.value)}
-        </p>
+    <div className="max-w-xs rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+      <p className="mb-2 text-xs font-semibold text-slate-800">{label}</p>
+      {payload.map((entry: any) => (
+        <div key={`${entry.dataKey}-${entry.name}`} className="flex items-center justify-between gap-6 py-0.5 text-xs">
+          <span className="flex items-center gap-2 text-slate-500">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
+            {entry.name}
+          </span>
+          <span className="font-semibold text-slate-800">
+            {entry.dataKey === "taxaGlosa" ? fmtPercent(entry.value) : fmtCurrency(entry.value)}
+          </span>
+        </div>
       ))}
+    </div>
+  );
+}
+
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center">
+      <SearchX className="mb-3 h-7 w-7 text-slate-300" />
+      <p className="text-sm text-slate-500">{message}</p>
+    </div>
+  );
+}
+
+function HorizontalRankingChart({ data, labelKey = "nome", color = COLORS.rose }: {
+  data: any[];
+  labelKey?: string;
+  color?: string;
+}) {
+  const chartData = data.slice(0, 10).map((item) => ({
+    ...item,
+    chartLabel: shorten(String(item[labelKey] || "Não informado"), 28),
+  }));
+
+  if (!chartData.length) return <EmptyChart message="Nenhuma glosa encontrada para os filtros selecionados." />;
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(290, chartData.length * 40)}>
+      <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 18, left: 6, bottom: 4 }}>
+        <CartesianGrid stroke={COLORS.grid} horizontal={false} />
+        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey="chartLabel" width={170} tick={{ fill: COLORS.ink, fontSize: 11 }} axisLine={false} tickLine={false} />
+        <RechartsTooltip content={<ChartTooltip />} />
+        <Bar dataKey="valorGlosado" name="Valor glosado" fill={color} radius={[0, 7, 7, 0]} barSize={19}>
+          {chartData.map((_: any, index: number) => (
+            <Cell key={index} fillOpacity={Math.max(0.42, 1 - index * 0.055)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function LoadingDashboard() {
+  return (
+    <div className="space-y-5 animate-pulse">
+      <div className="h-28 rounded-2xl bg-slate-200" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-32 rounded-2xl bg-slate-200" />)}
+      </div>
+      <div className="h-96 rounded-2xl bg-slate-200" />
     </div>
   );
 }
 
 export default function RelatoriosGlosasBi() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabId = estabelecimentoAtual?.id ?? 0;
-  const estabNome = estabelecimentoAtual?.nome || "—";
-  // hasEstab = true quando há qualquer estabelecimento selecionado (inclusive id=0 = Todos)
-  const hasEstab = estabelecimentoAtual !== null;
+  const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
+  const estabelecimentoNome = estabelecimentoAtual?.nome?.trim() || "Estabelecimento";
+  const hasEstabelecimento = estabelecimentoId > 0;
 
-  const [competenciaInicio, setCompetenciaInicio] = useState<string | undefined>();
+  const [mesPagamentoInicio, setMesPagamentoInicio] = useState<string | undefined>();
+  const [mesPagamentoFim, setMesPagamentoFim] = useState<string | undefined>();
   const [convenioId, setConvenioId] = useState<number | undefined>();
+  const [categoriaGlosa, setCategoriaGlosa] = useState<string | undefined>();
   const [showComparar, setShowComparar] = useState(false);
-  const [comp1, setComp1] = useState<string>("");
-  const [comp2, setComp2] = useState<string>("");
-  const [comparativoResult, setComparativoResult] = useState<any>(null);
-  const [comparativoLoading, setComparativoLoading] = useState(false);
+  const [competencia1, setCompetencia1] = useState("");
+  const [competencia2, setCompetencia2] = useState("");
+  const [comparativo, setComparativo] = useState<any>(null);
 
-  const { data: filtros } = trpc.relatoriosGlosasBi.filtros.useQuery(
-    { estabelecimentoId: estabId }, { enabled: hasEstab }
+  const filtrosQuery = trpc.relatoriosGlosasBi.filtros.useQuery(
+    { estabelecimentoId },
+    { enabled: hasEstabelecimento, staleTime: 60_000 },
   );
 
-  const kpisInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio }), [estabId, convenioId, competenciaInicio]);
-  const { data: kpis, isLoading: kpisLoading } = trpc.relatoriosGlosasBi.kpis.useQuery(kpisInput, { enabled: hasEstab });
+  const painelInput = useMemo(() => ({
+    estabelecimentoId,
+    convenioId,
+    mesPagamentoInicio,
+    mesPagamentoFim,
+    categoriaGlosa,
+    limite: 20,
+  }), [estabelecimentoId, convenioId, mesPagamentoInicio, mesPagamentoFim, categoriaGlosa]);
 
-  const tendenciaInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, meses: 12 }), [estabId, convenioId]);
-  const { data: tendencia } = trpc.relatoriosGlosasBi.tendenciaMensal.useQuery(tendenciaInput, { enabled: hasEstab });
-
-  const codigoInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 20 }), [estabId, convenioId, competenciaInicio]);
-  const { data: porCodigo } = trpc.relatoriosGlosasBi.porCodigo.useQuery(codigoInput, { enabled: hasEstab });
-
-  const motivosPorItemInput = useMemo(() => ({ estabelecimentoId: estabId, convenioId, competenciaInicio, limite: 50 }), [estabId, convenioId, competenciaInicio]);
-  const { data: motivosPorItem } = trpc.relatoriosGlosasBi.motivosPorItem.useQuery(motivosPorItemInput, { enabled: hasEstab });
-
-  const porConvenioInput = useMemo(() => ({ estabelecimentoId: estabId, competenciaInicio }), [estabId, competenciaInicio]);
-  const { data: porConvenio } = trpc.relatoriosGlosasBi.porConvenio.useQuery(porConvenioInput, { enabled: hasEstab });
+  const painelQuery = trpc.relatoriosGlosasBi.painelExecutivo.useQuery(
+    painelInput,
+    { enabled: hasEstabelecimento, staleTime: 60_000 },
+  );
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
-    onSuccess: (data) => { setComparativoResult(data); setComparativoLoading(false); },
-    onError: (err) => {
-      setComparativoLoading(false);
-      const msg = err.message || "";
-      if (msg.includes("Rate") || msg.includes("rate") || msg.includes("Limite") || msg.includes("429") || msg.includes("exceeded")) {
-        toast.error("⚠️ Limite de requisições de IA atingido. Aguarde 30 segundos e tente novamente.", { duration: 8000 });
-      } else {
-        toast.error("Erro ao gerar análise: " + msg);
-      }
+    onSuccess: (data) => {
+      setComparativo(data);
+      setShowComparar(false);
     },
+    onError: (error) => toast.error(`Não foi possível comparar os meses: ${error.message}`),
   });
 
-  const handleComparar = () => {
-    if (!comp1 || !comp2) { toast.error("Selecione os dois períodos"); return; }
-    setComparativoLoading(true);
-    comparativoMutation.mutate({ estabelecimentoId: estabId, competencia1: comp1, competencia2: comp2, convenioId });
+  const data = painelQuery.data;
+  const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioId, categoriaGlosa].filter(Boolean).length;
+  const periodoLabel = mesPagamentoInicio || mesPagamentoFim
+    ? `${fmtMonth(mesPagamentoInicio || filtrosQuery.data?.competencias.at(-1))} a ${fmtMonth(mesPagamentoFim || filtrosQuery.data?.competencias[0])}`
+    : "Todo o histórico com data de pagamento";
+
+  const limparFiltros = () => {
+    setMesPagamentoInicio(undefined);
+    setMesPagamentoFim(undefined);
+    setConvenioId(undefined);
+    setCategoriaGlosa(undefined);
   };
 
-  const topMotivosComPareto = useMemo(() => {
-    if (!porCodigo?.length) return [];
-    const total = porCodigo.reduce((s, r) => s + r.totalGlosa, 0);
-    let acumulado = 0;
-    return porCodigo.map((r) => {
-      const pct = total > 0 ? (r.totalGlosa / total) * 100 : 0;
-      acumulado += pct;
-      return { ...r, pct, pareto: acumulado };
-    });
-  }, [porCodigo]);
-
-  const periodoLabel = useMemo(() => {
-    if (competenciaInicio) return `A partir de ${competenciaInicio}`;
-    if (tendencia?.length) {
-      const sorted = [...tendencia].sort((a, b) => a.competencia.localeCompare(b.competencia));
-      return `${sorted[0]?.competencia} a ${sorted[sorted.length - 1]?.competencia}`;
-    }
-    return "Todas as competências";
-  }, [competenciaInicio, tendencia]);
-
-  const chartData = useMemo(() => {
-    if (!tendencia) return [];
-    return tendencia.map((r) => ({ name: r.competencia, Cobrado: r.totalInformado, Pago: r.totalPago, Glosado: r.totalGlosa }));
-  }, [tendencia]);
-
-  const handleExportPptx = () => {
-    if (!topMotivosComPareto.length && !kpis) { toast.error("Sem dados para exportar"); return; }
-    const pptx = new PptxGenJS();
-    pptx.layout = "LAYOUT_WIDE";
-    pptx.author = "Safatle Sistemas";
-    pptx.subject = "Relatório de Análise de Glosas";
-    pptx.title = `Relatório Glosas - ${estabNome}`;
-
-    const LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663295218967/98MRdVE9Uf2ZRMz25bPSye/safatle-logo_81045648.png";
-    const COLORS = {
-      bg: "060f1a",
-      cardBg: "0d1b2a",
-      border: "1e3a5f",
-      headerBg: "0a1929",
-      accent: "4fc3f7",
-      text: "e8f4fd",
-      muted: "6b8cae",
-      green: "4caf50",
-      greenLight: "81c784",
-      red: "ef5350",
-      orange: "ffb74d",
-      cyan: "00bcd4",
-    };
-
-    // Helper: adicionar header com logo em cada slide
-    const addSlideHeader = (slide: any, title: string) => {
-      // Barra superior com gradiente
-      slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.08, fill: { color: COLORS.accent } });
-      // Logo
-      slide.addImage({ path: LOGO_URL, x: 0.3, y: 0.2, w: 0.5, h: 0.5 });
-      // Título do slide
-      slide.addText(title, { x: 0.9, y: 0.25, w: 8, h: 0.45, fontSize: 16, bold: true, color: COLORS.text, fontFace: "Segoe UI" });
-      // Linha separadora
-      slide.addShape(pptx.ShapeType.rect, { x: 0.3, y: 0.8, w: 12.7, h: 0.02, fill: { color: COLORS.border } });
-      // Rodapé
-      slide.addText(`Safatle Sistemas | ${estabNome} | ${periodoLabel}`, { x: 0.3, y: 7.2, w: 10, h: 0.3, fontSize: 8, color: COLORS.muted, fontFace: "Segoe UI" });
-      slide.addText(new Date().toLocaleDateString("pt-BR"), { x: 11, y: 7.2, w: 2, h: 0.3, fontSize: 8, color: COLORS.muted, align: "right", fontFace: "Segoe UI" });
-    };
-
-    // ========== SLIDE 1 - CAPA ==========
-    const slide1 = pptx.addSlide();
-    slide1.background = { color: COLORS.bg };
-    // Barra superior accent
-    slide1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: COLORS.accent } });
-    // Logo grande centralizado
-    slide1.addImage({ path: LOGO_URL, x: 5.4, y: 1.2, w: 2.5, h: 2.5 });
-    // Título
-    slide1.addText("RELATÓRIO DE ANÁLISE DE GLOSAS", { x: 0.5, y: 4.0, w: 12.3, h: 0.8, fontSize: 28, bold: true, color: COLORS.text, align: "center", fontFace: "Segoe UI" });
-    // Subtitulo
-    slide1.addText(estabNome, { x: 0.5, y: 4.8, w: 12.3, h: 0.5, fontSize: 18, color: COLORS.accent, align: "center", fontFace: "Segoe UI" });
-    // Período
-    slide1.addShape(pptx.ShapeType.roundRect, { x: 4.5, y: 5.5, w: 4.3, h: 0.5, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.05 });
-    slide1.addText(`Período: ${periodoLabel}`, { x: 4.5, y: 5.5, w: 4.3, h: 0.5, fontSize: 12, color: COLORS.muted, align: "center", fontFace: "Segoe UI" });
-    // Data geração
-    slide1.addText(`Gerado em ${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}`, { x: 0.5, y: 6.3, w: 12.3, h: 0.4, fontSize: 10, color: COLORS.muted, align: "center", fontFace: "Segoe UI" });
-    // Barra inferior
-    slide1.addShape(pptx.ShapeType.rect, { x: 0, y: 7.38, w: 13.33, h: 0.12, fill: { color: COLORS.accent } });
-
-    // ========== SLIDE 2 - KPIs EM CARDS ==========
-    if (kpis) {
-      const slide2 = pptx.addSlide();
-      slide2.background = { color: COLORS.bg };
-      addSlideHeader(slide2, "INDICADORES PRINCIPAIS");
-
-      const kpiCards = [
-        { label: "VALOR FATURADO", value: kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : "—", color: COLORS.accent, sub: kpis.valorFaturado > 0 ? "Fonte: XML" : "Sem XML" },
-        { label: "VALOR COBRADO", value: fmtCurrency(kpis.valorCobrado), color: COLORS.green, sub: "Pago + Glosado" },
-        { label: "VALOR RECEBIDO", value: fmtCurrency(kpis.totalPago), color: COLORS.greenLight, sub: `${kpis.totalGuias.toLocaleString("pt-BR")} guias` },
-        { label: "VALOR GLOSADO", value: fmtCurrency(kpis.totalGlosa), color: COLORS.red, sub: `${kpis.totalGlosados.toLocaleString("pt-BR")} itens` },
-        { label: "TAXA DE GLOSA", value: `${kpis.taxaGlosa}%`, color: COLORS.orange, sub: "Glosado / Cobrado" },
-      ];
-
-      kpiCards.forEach((card, i) => {
-        const col = i % 3;
-        const row = Math.floor(i / 3);
-        const x = 0.5 + col * 4.2;
-        const y = 1.1 + row * 2.8;
-        // Card background
-        slide2.addShape(pptx.ShapeType.roundRect, { x, y, w: 3.9, h: 2.4, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
-        // Accent bar top
-        slide2.addShape(pptx.ShapeType.rect, { x: x + 0.15, y: y + 0.1, w: 0.6, h: 0.06, fill: { color: card.color } });
-        // Label
-        slide2.addText(card.label, { x: x + 0.2, y: y + 0.3, w: 3.5, h: 0.4, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
-        // Value
-        slide2.addText(card.value, { x: x + 0.2, y: y + 0.8, w: 3.5, h: 0.7, fontSize: 20, bold: true, color: card.color, fontFace: "Segoe UI" });
-        // Sub
-        slide2.addText(card.sub, { x: x + 0.2, y: y + 1.6, w: 3.5, h: 0.3, fontSize: 9, color: COLORS.muted, fontFace: "Segoe UI" });
-      });
-
-      // Indicadores secundários
-      const secY = 4.2;
-      slide2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: secY, w: 12.3, h: 2.5, fill: { color: COLORS.cardBg }, line: { color: COLORS.border, width: 1 }, rectRadius: 0.08 });
-      slide2.addText("INDICADORES COMPLEMENTARES", { x: 0.8, y: secY + 0.15, w: 6, h: 0.35, fontSize: 9, bold: true, color: COLORS.muted, fontFace: "Segoe UI" });
-      const secData = [
-        ["Total de Itens", kpis.totalItens.toLocaleString("pt-BR")],
-        ["Itens Glosados", kpis.totalGlosados.toLocaleString("pt-BR")],
-        ["Total de Guias", kpis.totalGuias.toLocaleString("pt-BR")],
-        ["Guias com Glosa", kpis.guiasComGlosa.toLocaleString("pt-BR")],
-        ["Valor Recuperado", fmtCurrency(kpis.totalRecuperado)],
-        ["Em Recurso", fmtCurrency(kpis.totalEmRecurso)],
-      ];
-      secData.forEach(([label, value], i) => {
-        const col = i % 3;
-        const row = Math.floor(i / 3);
-        slide2.addText(label, { x: 0.8 + col * 4.1, y: secY + 0.6 + row * 0.9, w: 2, h: 0.3, fontSize: 9, color: COLORS.muted, fontFace: "Segoe UI" });
-        slide2.addText(value, { x: 0.8 + col * 4.1, y: secY + 0.9 + row * 0.9, w: 3, h: 0.4, fontSize: 13, bold: true, color: COLORS.text, fontFace: "Segoe UI" });
-      });
-    }
-
-    // ========== SLIDE 3 - GRÁFICO EVOLUÇÃO MENSAL ==========
-    if (tendencia?.length) {
-      const slide3 = pptx.addSlide();
-      slide3.background = { color: COLORS.bg };
-      addSlideHeader(slide3, "EVOLUÇÃO MENSAL: COBRADO × GLOSADO");
-
-      // Gráfico de barras nativo do pptxgenjs
-      const chartData = [
-        { name: "Cobrado", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalInformado) },
-        { name: "Glosado", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalGlosa) },
-        { name: "Pago", labels: tendencia.map(r => r.competencia), values: tendencia.map(r => r.totalPago) },
-      ];
-      slide3.addChart(pptx.ChartType.bar, chartData, {
-        x: 0.5, y: 1.0, w: 12.3, h: 5.8,
-        showTitle: false,
-        showLegend: true,
-        legendPos: "b",
-        legendColor: COLORS.muted,
-        legendFontSize: 9,
-        catAxisLabelColor: COLORS.muted,
-        catAxisLabelFontSize: 9,
-        valAxisLabelColor: COLORS.muted,
-        valAxisLabelFontSize: 9,
-        catGridLine: { style: "none" },
-        valGridLine: { color: COLORS.border, style: "dash" },
-        chartColors: [COLORS.accent, COLORS.red, COLORS.green],
-        barGrouping: "clustered",
-        catAxisOrientation: "minMax",
-        valAxisOrientation: "minMax",
-        plotArea: { fill: { color: COLORS.cardBg } },
-      });
-    }
-
-    // ========== SLIDE 4 - TOP MOTIVOS (GRÁFICO + TABELA) ==========
-    if (topMotivosComPareto.length) {
-      const slide4 = pptx.addSlide();
-      slide4.background = { color: COLORS.bg };
-      addSlideHeader(slide4, "TOP MOTIVOS DE GLOSA");
-
-      // Gráfico de barras horizontais - top 8
-      const top8 = topMotivosComPareto.slice(0, 8);
-      const chartMotivos = [
-        { name: "Valor Glosado", labels: top8.map(r => r.codigoGlosa === 'S/MOTIVO' ? 'Sem Motivo' : `${r.codigoGlosa}`), values: top8.map(r => r.totalGlosa) },
-      ];
-      slide4.addChart(pptx.ChartType.bar, chartMotivos, {
-        x: 0.3, y: 1.0, w: 6.0, h: 5.8,
-        showTitle: false,
-        showLegend: false,
-        barDir: "bar",
-        catAxisLabelColor: COLORS.text,
-        catAxisLabelFontSize: 9,
-        valAxisLabelColor: COLORS.muted,
-        valAxisLabelFontSize: 8,
-        catGridLine: { style: "none" },
-        valGridLine: { color: COLORS.border, style: "dash" },
-        chartColors: [COLORS.red],
-        plotArea: { fill: { color: COLORS.cardBg } },
-      });
-
-      // Tabela resumo ao lado
-      const tblHeader = [
-        { text: "Cód.", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-        { text: "Vl Glosa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "%", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Pareto", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-      ];
-      const tblRows = top8.map((r, i) => [
-        { text: r.codigoGlosa, options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 8, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.pct.toFixed(1)}%`, options: { fontSize: 8, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.pareto.toFixed(1)}%`, options: { fontSize: 8, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-      ]);
-      slide4.addTable([tblHeader, ...tblRows], {
-        x: 6.5, y: 1.2, w: 6.5,
-        border: { type: "solid", pt: 0.5, color: COLORS.border },
-        colW: [1.2, 2.3, 1.3, 1.3],
-      });
-    }
-
-    // ========== SLIDE 5 - DETALHAMENTO MOTIVOS ==========
-    if (topMotivosComPareto.length) {
-      const slide5 = pptx.addSlide();
-      slide5.background = { color: COLORS.bg };
-      addSlideHeader(slide5, "DETALHAMENTO DOS MOTIVOS DE GLOSA");
-
-      const header = [
-        { text: "Cód.", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-        { text: "Descrição do Motivo", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-        { text: "Valor Glosado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "%", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Pareto %", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-      ];
-      const dataRows = topMotivosComPareto.slice(0, 15).map((r, i) => [
-        { text: r.codigoGlosa, options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: (r.descricao || "—").substring(0, 50), options: { fontSize: 8, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 8, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.pct.toFixed(2)}%`, options: { fontSize: 8, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.pareto.toFixed(2)}%`, options: { fontSize: 8, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-      ]);
-      slide5.addTable([header, ...dataRows], {
-        x: 0.3, y: 1.0, w: 12.7,
-        border: { type: "solid", pt: 0.5, color: COLORS.border },
-        colW: [1.0, 5.5, 2.5, 1.5, 1.7],
-      });
-    }
-
-    // ========== SLIDE 6 - EVOLUÇÃO MENSAL TABELA ==========
-    if (tendencia?.length) {
-      const slide6 = pptx.addSlide();
-      slide6.background = { color: COLORS.bg };
-      addSlideHeader(slide6, "EVOLUÇÃO MENSAL - DETALHAMENTO");
-
-      const header = [
-        { text: "Competência", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-        { text: "Cobrado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Recebido", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Glosado", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Taxa %", options: { fontSize: 9, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-      ];
-      const dataRows = tendencia.map((r, i) => [
-        { text: r.competencia, options: { fontSize: 9, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalInformado), options: { fontSize: 9, color: COLORS.green, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalPago), options: { fontSize: 9, color: COLORS.greenLight, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 9, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 9, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-      ]);
-      slide6.addTable([header, ...dataRows], {
-        x: 0.5, y: 1.0, w: 12.3,
-        border: { type: "solid", pt: 0.5, color: COLORS.border },
-        colW: [2.5, 3.0, 3.0, 2.5, 1.3],
-      });
-    }
-
-    // ========== SLIDE 7 - MOTIVOS POR ITEM ==========
-    const motivosItems = motivosPorItem?.items || motivosPorItem;
-    if (motivosItems?.length) {
-      // Dividir em páginas de 12 itens por slide
-      const pageSize = 12;
-      const totalPages = Math.ceil(Math.min(motivosItems.length, 36) / pageSize);
-      for (let page = 0; page < totalPages; page++) {
-        const slideN = pptx.addSlide();
-        slideN.background = { color: COLORS.bg };
-        addSlideHeader(slideN, `MOTIVOS DE GLOSA POR ITEM${totalPages > 1 ? ` (${page + 1}/${totalPages})` : ""}`);
-
-        const header = [
-          { text: "Cód.", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-          { text: "Motivo", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-          { text: "Descrição do Item", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-          { text: "Qtd", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-          { text: "Vl Glosado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-          { text: "% Glosa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        ];
-        const pageItems = motivosItems.slice(page * pageSize, (page + 1) * pageSize);
-        const dataRows = pageItems.map((r: any, i: number) => [
-          { text: r.codigoGlosa || "—", options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: (r.descricaoGlosa || "—").substring(0, 35), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: (r.descricaoItem || "—").substring(0, 40), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: String(r.qtdItens || r.quantidade || 0), options: { fontSize: 7, color: COLORS.muted, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: fmtCurrency(r.totalGlosa || 0), options: { fontSize: 7, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-          { text: `${(r.percentualGlosa || r.pctGlosa || 0).toFixed(2)}%`, options: { fontSize: 7, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        ]);
-        slideN.addTable([header, ...dataRows], {
-          x: 0.2, y: 1.0, w: 12.9,
-          border: { type: "solid", pt: 0.5, color: COLORS.border },
-          colW: [0.9, 3.0, 4.5, 0.8, 2.0, 1.2],
-        });
-      }
-    }
-
-    // SLIDE: VALORES POR CONVÊNIO
-    if (porConvenio && porConvenio.length > 0) {
-      const slideConv = pptx.addSlide();
-      slideConv.background = { color: COLORS.bg };
-      slideConv.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.06, fill: { color: COLORS.accent } });
-      slideConv.addText("Valores por Conv\u00eanio: Cobrado \u00d7 Glosado", { x: 0.4, y: 0.2, w: 10, h: 0.5, fontSize: 18, bold: true, color: COLORS.text });
-
-      // Gráfico de barras
-      const convData = porConvenio.slice(0, 10);
-      const chartData = [
-        { name: "Valor Cobrado", labels: convData.map(r => r.convenio.substring(0, 25)), values: convData.map(r => r.totalPago + r.totalGlosa) },
-        { name: "Valor Glosado", labels: convData.map(r => r.convenio.substring(0, 25)), values: convData.map(r => r.totalGlosa) },
-      ];
-      slideConv.addChart(pptx.ChartType.bar, chartData, {
-        x: 0.3, y: 0.9, w: 8.0, h: 5.5,
-        barDir: "bar",
-        showValue: false,
-        catAxisLabelColor: COLORS.muted,
-        valAxisLabelColor: COLORS.muted,
-        chartColors: [COLORS.accent, COLORS.red],
-        plotArea: { fill: { color: COLORS.cardBg } },
-        showLegend: true,
-        legendPos: "b",
-        legendColor: COLORS.muted,
-      });
-
-      // Tabela resumo ao lado
-      const convHeader = [
-        { text: "Conv\u00eanio", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg } } },
-        { text: "Cobrado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Glosado", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-        { text: "Taxa", options: { fontSize: 8, bold: true, color: COLORS.accent, fill: { color: COLORS.headerBg }, align: "right" as const } },
-      ];
-      const convRows = convData.map((r, i) => [
-        { text: r.convenio.substring(0, 20), options: { fontSize: 7, color: COLORS.text, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalPago + r.totalGlosa), options: { fontSize: 7, color: COLORS.accent, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: fmtCurrency(r.totalGlosa), options: { fontSize: 7, color: COLORS.red, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-        { text: `${r.taxaGlosa.toFixed(2)}%`, options: { fontSize: 7, color: COLORS.orange, align: "right" as const, fill: { color: i % 2 === 0 ? COLORS.cardBg : COLORS.headerBg } } },
-      ]);
-      slideConv.addTable([convHeader, ...convRows], {
-        x: 8.5, y: 0.9, w: 4.5,
-        border: { type: "solid", pt: 0.5, color: COLORS.border },
-        colW: [1.5, 1.2, 1.0, 0.8],
-      });
-    }
-
-    pptx.writeFile({ fileName: `Relatorio-Glosas-${estabNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pptx` });
-    toast.success("PowerPoint exportado com sucesso!");
+  const handleRefresh = async () => {
+    await Promise.all([painelQuery.refetch(), filtrosQuery.refetch()]);
+    toast.success("Relatório atualizado com os dados mais recentes.");
   };
 
   const handleExportExcel = () => {
-    if (!topMotivosComPareto.length && !kpis) { toast.error("Sem dados para exportar"); return; }
-    const wb = XLSX.utils.book_new();
-    if (kpis) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ["Métrica", "Valor"],
-        ["Valor Cobrado", kpis.totalInformado], ["Valor Pago", kpis.totalPago],
-        ["Valor Glosado", kpis.totalGlosa], ["Taxa de Glosa (%)", kpis.taxaGlosa],
-        ["Total Itens", kpis.totalItens], ["Itens Glosados", kpis.totalGlosados],
-        ["Total Guias", kpis.totalGuias], ["Guias com Glosa", kpis.guiasComGlosa],
-        ["Total Recuperado", kpis.totalRecuperado], ["Em Recurso", kpis.totalEmRecurso],
-      ]), "KPIs");
-    }
-    if (topMotivosComPareto.length) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ["Código", "Motivo", "Vl Glosa", "%", "Pareto%"],
-        ...topMotivosComPareto.map((r) => [r.codigoGlosa, r.descricao, r.totalGlosa, r.pct.toFixed(2), r.pareto.toFixed(2)]),
-      ]), "Top Motivos");
-    }
-    if (tendencia?.length) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-        ["Competência", "Cobrado", "Pago", "Glosado", "Taxa Glosa%"],
-        ...tendencia.map((r) => [r.competencia, r.totalInformado, r.totalPago, r.totalGlosa, r.taxaGlosa]),
-      ]), "Evolução Mensal");
-    }
-    XLSX.writeFile(wb, `relatorio-glosas-${estabNome}-${Date.now()}.xlsx`);
-    toast.success("Excel exportado!");
+    if (!data) return toast.error("Não há dados para exportar.");
+    const workbook = XLSX.utils.book_new();
+    const resumoRows = [
+      ["Estabelecimento", estabelecimentoNome],
+      ["Período de pagamento", periodoLabel],
+      ["Convênio", convenioId ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || convenioId : "Todos"],
+      ["Categoria de glosa", categoriaGlosa || "Todas"],
+      ["Valor cobrado", data.resumo.valorCobrado],
+      ["Valor pago", data.resumo.valorPago],
+      ["Valor glosado", data.resumo.valorGlosado],
+      ["Taxa de glosa (%)", data.resumo.taxaGlosa],
+      ["Ticket médio da glosa", data.resumo.ticketMedio],
+      ["Glosa sem recurso", data.resumo.glosaSemRecurso],
+      ["Glosa recursada", data.resumo.glosaRecursada],
+    ];
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Indicador", "Valor"], ...resumoRows]), "Resumo");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porMesPagamento.map((item: any) => ({
+      "Mês do pagamento": fmtMonth(item.mesPagamento),
+      "Valor glosado": item.valorGlosado,
+      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa recursada": item.glosaRecursada,
+      "Taxa de glosa (%)": item.taxaGlosa,
+      "Quantidade de itens": item.qtdItens,
+    }))), "Glosa por Mês");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porConvenio.map((item: any) => ({
+      "Convênio": item.nome,
+      "Valor glosado": item.valorGlosado,
+      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa recursada": item.glosaRecursada,
+      "% da glosa": item.percentualTotal,
+      "Taxa de glosa (%)": item.taxaGlosa,
+      "Quantidade de itens": item.qtdItens,
+    }))), "Glosa por Convênio");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porItem.map((item: any) => ({
+      "Código do item": item.codigoItem || "",
+      "Descrição do item": item.nome,
+      "Tipo": item.tipoLancamento,
+      "Valor glosado": item.valorGlosado,
+      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa recursada": item.glosaRecursada,
+      "% da glosa": item.percentualTotal,
+      "Taxa de glosa (%)": item.taxaGlosa,
+      "Quantidade": item.qtdItens,
+    }))), "Glosa por Item");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porProcedimento.map((item: any) => ({
+      "Código do procedimento": item.codigoItem,
+      "Descrição do procedimento": item.nome,
+      "Tipo": item.tipoLancamento,
+      "Valor glosado": item.valorGlosado,
+      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa recursada": item.glosaRecursada,
+      "% da glosa": item.percentualTotal,
+      "Quantidade": item.qtdItens,
+    }))), "Glosa por Procedimento");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porMotivo.map((item: any) => ({
+      "Código TISS": item.codigoGlosa,
+      "Motivo descritivo": item.nome,
+      "Categoria": item.categoria,
+      "Valor glosado": item.valorGlosado,
+      "Glosa sem recurso": item.glosaSemRecurso,
+      "Glosa recursada": item.glosaRecursada,
+      "% da glosa": item.percentualTotal,
+      "Quantidade": item.qtdItens,
+    }))), "Motivos de Glosa");
+    XLSX.writeFile(workbook, `glosas-${estabelecimentoNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success("Excel exportado com os dados e descrições do relatório.");
   };
 
-  if (!hasEstab) {
+  const handleExportPptx = () => {
+    if (!data) return toast.error("Não há dados para exportar.");
+    const pptx = new PptxGenJS();
+    pptx.layout = "LAYOUT_WIDE";
+    pptx.author = "Safatle Sistemas";
+    pptx.subject = "Análise executiva de glosas";
+    pptx.title = `Glosas — ${estabelecimentoNome}`;
+
+    const addHeader = (slide: any, title: string, subtitle: string) => {
+      slide.background = { color: "F8FAFC" };
+      slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.1, fill: { color: "C24162" }, line: { color: "C24162" } });
+      slide.addText(title, { x: 0.55, y: 0.35, w: 8.5, h: 0.42, fontFace: "Aptos", fontSize: 21, bold: true, color: "172033" });
+      slide.addText(subtitle, { x: 0.55, y: 0.82, w: 11.8, h: 0.3, fontFace: "Aptos", fontSize: 9, color: "667085" });
+      slide.addText(`${estabelecimentoNome} • ${periodoLabel}`, { x: 0.55, y: 7.08, w: 9.5, h: 0.2, fontFace: "Aptos", fontSize: 8, color: "98A2B3" });
+    };
+
+    const capa = pptx.addSlide();
+    capa.background = { color: "172033" };
+    capa.addShape(pptx.ShapeType.rect, { x: 0.6, y: 0.8, w: 0.12, h: 5.8, fill: { color: "C24162" }, line: { color: "C24162" } });
+    capa.addText("RELATÓRIO EXECUTIVO\nDE GLOSAS", { x: 1.1, y: 1.4, w: 9.5, h: 1.5, fontFace: "Aptos Display", fontSize: 31, bold: true, color: "FFFFFF", breakLine: false });
+    capa.addText(estabelecimentoNome, { x: 1.1, y: 3.15, w: 8.5, h: 0.5, fontFace: "Aptos", fontSize: 19, color: "F8B4C5" });
+    capa.addText(periodoLabel, { x: 1.1, y: 3.8, w: 8.5, h: 0.35, fontFace: "Aptos", fontSize: 12, color: "CBD5E1" });
+    capa.addText(`Glosa total: ${fmtCurrency(data.resumo.valorGlosado)}  •  Taxa: ${fmtPercent(data.resumo.taxaGlosa)}`, { x: 1.1, y: 4.55, w: 9.5, h: 0.4, fontFace: "Aptos", fontSize: 15, bold: true, color: "FFFFFF" });
+
+    const resumoSlide = pptx.addSlide();
+    addHeader(resumoSlide, "Indicadores principais", "Visão consolidada do período selecionado");
+    const cards = [
+      ["VALOR COBRADO", fmtCurrency(data.resumo.valorCobrado), "3157A4"],
+      ["VALOR GLOSADO", fmtCurrency(data.resumo.valorGlosado), "C24162"],
+      ["TAXA DE GLOSA", fmtPercent(data.resumo.taxaGlosa), "D18B20"],
+      ["TICKET MÉDIO", fmtCurrency(data.resumo.ticketMedio), "7656A8"],
+      ["GLOSA RECURSADA", fmtCurrency(data.resumo.glosaRecursada), "168A83"],
+    ];
+    cards.forEach(([label, value, color], index) => {
+      const x = 0.55 + (index % 3) * 4.15;
+      const y = 1.45 + Math.floor(index / 3) * 2.25;
+      resumoSlide.addShape(pptx.ShapeType.roundRect, { x, y, w: 3.75, h: 1.8, fill: { color: "FFFFFF" }, line: { color: "E4E7EC" } });
+      resumoSlide.addText(label, { x: x + 0.2, y: y + 0.22, w: 3.3, h: 0.3, fontSize: 9, bold: true, color: "667085" });
+      resumoSlide.addText(value, { x: x + 0.2, y: y + 0.75, w: 3.3, h: 0.5, fontSize: 19, bold: true, color });
+    });
+
+    const addRankingSlide = (title: string, subtitle: string, rows: any[], label: (row: any) => string) => {
+      const slide = pptx.addSlide();
+      addHeader(slide, title, subtitle);
+      const top = rows.slice(0, 10);
+      slide.addChart(pptx.ChartType.bar, [{ name: "Valor glosado", labels: top.map(label), values: top.map((row) => row.valorGlosado) }], {
+        x: 0.45, y: 1.25, w: 7.4, h: 5.45, barDir: "bar", showLegend: false,
+        chartColors: ["C24162"], catAxisLabelFontSize: 8, catAxisLabelColor: "344054",
+        valAxisLabelFontSize: 8, valAxisLabelColor: "667085", valGridLine: { color: "E4E7EC" },
+      });
+      slide.addTable([
+        [{ text: "Descrição", options: { bold: true, color: "FFFFFF", fill: { color: "172033" } } }, { text: "Glosado", options: { bold: true, color: "FFFFFF", fill: { color: "172033" } } }, { text: "%", options: { bold: true, color: "FFFFFF", fill: { color: "172033" } } }],
+        ...top.map((row, index) => [
+          { text: label(row), options: { fill: { color: index % 2 ? "F8FAFC" : "FFFFFF" } } },
+          { text: fmtCurrency(row.valorGlosado), options: { align: "right" as const, fill: { color: index % 2 ? "F8FAFC" : "FFFFFF" } } },
+          { text: fmtPercent(row.percentualTotal), options: { align: "right" as const, fill: { color: index % 2 ? "F8FAFC" : "FFFFFF" } } },
+        ]),
+      ], { x: 8.0, y: 1.3, w: 4.85, border: { color: "E4E7EC", pt: 0.5 }, fontFace: "Aptos", fontSize: 8, colW: [2.9, 1.3, 0.65] });
+    };
+
+    addRankingSlide("Glosa por convênio", "Operadoras com maior impacto financeiro", data.porConvenio, (row) => shorten(row.nome, 28));
+    addRankingSlide("Glosa por item", "Itens com maior valor total glosado", data.porItem, (row) => shorten(row.nome, 28));
+    addRankingSlide("Glosa por procedimento", "Códigos de procedimento consolidados", data.porProcedimento, (row) => `${row.codigoItem} — ${shorten(row.nome, 20)}`);
+
+    pptx.writeFile({ fileName: `relatorio-glosas-${estabelecimentoNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pptx` });
+    toast.success("PowerPoint exportado.");
+  };
+
+  const compararMeses = () => {
+    if (!competencia1 || !competencia2) return toast.error("Selecione os dois meses para comparar.");
+    comparativoMutation.mutate({ estabelecimentoId, competencia1, competencia2, convenioId });
+  };
+
+  if (!hasEstabelecimento) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64" style={{ color: "#6b8cae" }}>
-          Selecione um estabelecimento para visualizar o relatório.
+        <div className="flex min-h-[65vh] items-center justify-center bg-slate-50 p-6">
+          <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <AlertCircle className="mx-auto mb-4 h-9 w-9 text-amber-500" />
+            <h1 className="text-lg font-semibold text-slate-900">Selecione um estabelecimento</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">O relatório de glosas exige uma unidade específica para impedir a mistura de dados entre estabelecimentos.</p>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -505,584 +416,205 @@ export default function RelatoriosGlosasBi() {
 
   return (
     <DashboardLayout>
-      <div style={{ background: "#060f1a", minHeight: "100vh", padding: "24px" }}>
-
-        {/* HEADER */}
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-          <div>
-            <div className="flex items-center gap-3 mb-1">
-              <BarChart3 size={22} style={{ color: "#4fc3f7" }} />
-              <h1 className="text-xl font-bold tracking-wide" style={{ color: "#e8f4fd" }}>
-                RELATÓRIO DE ANÁLISE DE GLOSAS
-              </h1>
-            </div>
-            <div className="flex items-center gap-3 text-xs" style={{ color: "#6b8cae" }}>
-              <span>Geração automática • {estabNome}</span>
-              <span style={{ background: "#1a3a5c", color: "#4fc3f7", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>
-                Fonte: Demonstrativo
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={competenciaInicio || "todas"} onValueChange={(v) => setCompetenciaInicio(v === "todas" ? undefined : v)}>
-              <SelectTrigger style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", color: "#e8f4fd", width: 160 }}>
-                <SelectValue placeholder="Todas Comp." />
-              </SelectTrigger>
-              <SelectContent style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }}>
-                <SelectItem value="todas" style={{ color: "#e8f4fd" }}>Todas Comp.</SelectItem>
-                {filtros?.competencias.map((c) => (
-                  <SelectItem key={c} value={c} style={{ color: "#e8f4fd" }}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={convenioId?.toString() || "todos"} onValueChange={(v) => setConvenioId(v === "todos" ? undefined : parseInt(v))}>
-              <SelectTrigger style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", color: "#e8f4fd", width: 180 }}>
-                <SelectValue placeholder="Todos Convênios" />
-              </SelectTrigger>
-              <SelectContent style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }}>
-                <SelectItem value="todos" style={{ color: "#e8f4fd" }}>Todos Convênios</SelectItem>
-                {filtros?.convenios.map((c) => (
-                  <SelectItem key={c.id} value={c.id.toString()} style={{ color: "#e8f4fd" }}>{c.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="outline"
-              style={{ background: "#0d2a1a", border: "1px solid #1a5c2a", color: "#4caf50" }}
-              onClick={handleExportExcel}>
-              <Download size={14} className="mr-1" /> Excel
-            </Button>
-            <Button size="sm" variant="outline"
-              style={{ background: "#1a0d2a", border: "1px solid #3a1a5c", color: "#ce93d8" }}
-              onClick={() => toast.info("Use Ctrl+P para salvar como PDF")}>
-              <FileText size={14} className="mr-1" /> PDF
-            </Button>
-            <Button size="sm" variant="outline"
-              style={{ background: "#2a1a0d", border: "1px solid #5c3a1a", color: "#ffb74d" }}
-              onClick={handleExportPptx}>
-              <Presentation size={14} className="mr-1" /> PowerPoint
-            </Button>
-            <Button size="sm" variant="outline"
-              style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", color: "#4fc3f7" }}
-              onClick={() => setShowComparar(true)}>
-              <ArrowLeftRight size={14} className="mr-1" /> Comparar Meses
-            </Button>
-          </div>
-        </div>
-
-        {/* KPI CARDS */}
-        {kpisLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 h-24 animate-pulse" />
-            ))}
-          </div>
-        ) : kpis ? (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-            <KpiCard label="Valor Faturado" value={kpis.valorFaturado > 0 ? fmtCurrency(kpis.valorFaturado) : '—'} icon={DollarSign} color="#4fc3f7" sub={kpis.valorFaturado > 0 ? `Fonte: XML enviado` : `Sem XML importado`} />
-            <KpiCard label="Valor Cobrado" value={fmtCurrency(kpis.valorCobrado)} icon={TrendingUp} color="#4caf50" sub={`Pago + Glosado`} />
-            <KpiCard label="Valor Recebido" value={fmtCurrency(kpis.totalPago)} icon={DollarSign} color="#81c784" sub={`${kpis.totalGuias.toLocaleString("pt-BR")} guias`} />
-            <KpiCard label="Valor Glosado" value={fmtCurrency(kpis.totalGlosa)} icon={AlertTriangle} color="#ef5350" sub={`${kpis.totalGlosados.toLocaleString("pt-BR")} itens glosados`} />
-            <KpiCard label="Taxa de Glosa" value={`${kpis.taxaGlosa}%`} icon={TrendingDown} color="#ffb74d" sub={`Recuperado: ${fmtCurrency(kpis.totalRecuperado)}`} />
-          </div>
-        ) : null}
-
-        {/* BARRA DE RESUMO */}
-        {kpis && (
-          <div className="flex flex-wrap gap-3 mb-6 text-xs" style={{ color: "#6b8cae" }}>
-            <span style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", padding: "4px 12px", borderRadius: 20 }}>
-              {kpis.totalItens.toLocaleString("pt-BR")} itens analisados
-            </span>
-            <span style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", padding: "4px 12px", borderRadius: 20 }}>
-              Período: {periodoLabel}
-            </span>
-            {kpis.totalEmRecurso > 0 && (
-              <span style={{ background: "#0d2a1a", border: "1px solid #1a5c2a", color: "#4caf50", padding: "4px 12px", borderRadius: 20 }}>
-                Em Recurso: {fmtCurrency(kpis.totalEmRecurso)}
-              </span>
-            )}
-            {kpis.totalRecuperado > 0 && (
-              <span style={{ background: "#1a2a0d", border: "1px solid #3a5c1a", color: "#8bc34a", padding: "4px 12px", borderRadius: 20 }}>
-                A Receber: {fmtCurrency(kpis.totalRecuperado)}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* GRÁFICO EVOLUÇÃO MENSAL */}
-        <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 size={16} style={{ color: "#4fc3f7" }} />
-            <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-              EVOLUÇÃO MENSAL: FATURADO × GLOSADO
-            </span>
-          </div>
-          {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData} barGap={2} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <RechartsTooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ color: "#6b8cae", fontSize: 12, paddingTop: 12 }} />
-                <Bar dataKey="Cobrado" fill="#4fc3f7" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Glosado" fill="#ef5350" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Pago" fill="#4caf50" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-40" style={{ color: "#6b8cae" }}>
-              Sem dados de evolução mensal
-            </div>
-          )}
-        </div>
-
-        {/* GRÁFICO TOP MOTIVOS DE GLOSA */}
-        {topMotivosComPareto.length > 0 && (
-          <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <BarChart3 size={16} style={{ color: "#ef5350" }} />
-              <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-                PRINCIPAIS MOTIVOS DE GLOSA
-              </span>
-            </div>
-            <ResponsiveContainer width="100%" height={Math.max(250, Math.min(topMotivosComPareto.length * 40, 500))}>
-              <BarChart
-                data={topMotivosComPareto.slice(0, 10).map(r => ({
-                  name: r.codigoGlosa === 'S/MOTIVO' ? 'Sem Motivo' : `${r.codigoGlosa} - ${r.descricao?.substring(0, 30) || ''}`,
-                  valor: r.totalGlosa,
-                  pct: r.pct,
-                }))}
-                layout="vertical"
-                margin={{ top: 5, right: 30, left: 180, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={false} />
-                <XAxis type="number" tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fill: "#e8f4fd", fontSize: 11 }} axisLine={false} tickLine={false} width={175} />
-                <RechartsTooltip
-                  content={({ active, payload }: any) => {
-                    if (!active || !payload?.length) return null;
-                    const d = payload[0].payload;
-                    return (
-                      <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ color: "#e8f4fd", fontSize: 12, marginBottom: 4 }}>{d.name}</p>
-                        <p style={{ color: "#ef5350", fontSize: 12 }}>Valor: {fmtCurrency(d.valor)}</p>
-                        <p style={{ color: "#ffb74d", fontSize: 12 }}>{d.pct.toFixed(2)}% do total</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Bar dataKey="valor" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* GRÁFICO POR CONVÊNIO */}
-        {porConvenio && porConvenio.length > 0 && (
-          <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <DollarSign size={16} style={{ color: "#4fc3f7" }} />
-                <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-                  VALORES POR CONVÊNIO: COBRADO × GLOSADO
-                </span>
+      <main className="min-h-screen bg-[#f5f7fa] px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1700px] space-y-5">
+          <header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="h-1.5 bg-gradient-to-r from-rose-700 via-rose-500 to-amber-400" />
+            <div className="flex flex-col gap-5 px-5 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+              <div className="flex items-start gap-4">
+                <div className="rounded-2xl bg-rose-50 p-3 text-rose-700"><ShieldCheck className="h-6 w-6" /></div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950">Análise de Glosas</h1>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Demonstrativo</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">{estabelecimentoNome} • visão financeira por pagamento, item, convênio e procedimento</p>
+                </div>
               </div>
-              {convenioId && (
-                <button
-                  onClick={() => setConvenioId(undefined)}
-                  className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors"
-                  style={{ background: "#1e3a5f", color: "#4fc3f7", border: "1px solid #2a5a8f" }}
-                >
-                  ✕ Limpar filtro: {porConvenio.find(c => c.convenioId === convenioId)?.convenio || `Conv. ${convenioId}`}
-                </button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={painelQuery.isRefetching} className="bg-white">
+                  <RefreshCw className={`mr-2 h-4 w-4 ${painelQuery.isRefetching ? "animate-spin" : ""}`} />Atualizar
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportExcel} className="bg-white text-emerald-700"><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</Button>
+                <Button variant="outline" size="sm" onClick={() => window.print()} className="bg-white"><FileText className="mr-2 h-4 w-4" />PDF</Button>
+                <Button variant="outline" size="sm" onClick={handleExportPptx} className="bg-white text-violet-700"><Presentation className="mr-2 h-4 w-4" />PowerPoint</Button>
+                <Button size="sm" onClick={() => setShowComparar(true)} className="bg-slate-900 text-white hover:bg-slate-800"><ArrowLeftRight className="mr-2 h-4 w-4" />Comparar meses</Button>
+              </div>
+            </div>
+          </header>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Filtros do relatório</h2>
+                <p className="mt-0.5 text-xs text-slate-500">O período considera a data de pagamento registrada no demonstrativo.</p>
+              </div>
+              {filtrosAtivos > 0 && (
+                <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-slate-600"><RotateCcw className="mr-2 h-4 w-4" />Limpar {filtrosAtivos}</Button>
               )}
             </div>
-            <p className="text-xs mb-3" style={{ color: "#6b8cae" }}>Clique em uma barra para filtrar por convênio</p>
-            <ResponsiveContainer width="100%" height={Math.max(250, Math.min(porConvenio.length * 50, 450))}>
-              <BarChart
-                data={porConvenio.slice(0, 10).map(r => ({
-                  name: r.convenio.length > 25 ? r.convenio.substring(0, 25) + '...' : r.convenio,
-                  cobrado: r.totalPago + r.totalGlosa,
-                  glosado: r.totalGlosa,
-                  convenioId: r.convenioId,
-                }))}
-                layout="vertical"
-                margin={{ top: 5, right: 30, left: 160, bottom: 5 }}
-                onClick={(data: any) => {
-                  if (data?.activePayload?.[0]?.payload?.convenioId) {
-                    const clickedId = data.activePayload[0].payload.convenioId;
-                    setConvenioId(convenioId === clickedId ? undefined : clickedId);
-                  }
-                }}
-                style={{ cursor: "pointer" }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" horizontal={false} />
-                <XAxis type="number" tickFormatter={fmtK} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fill: "#e8f4fd", fontSize: 11 }} axisLine={false} tickLine={false} width={155} />
-                <RechartsTooltip
-                  content={({ active, payload }: any) => {
-                    if (!active || !payload?.length) return null;
-                    const d = payload[0].payload;
-                    return (
-                      <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ color: "#e8f4fd", fontSize: 12, marginBottom: 4 }}>{d.name}</p>
-                        <p style={{ color: "#4fc3f7", fontSize: 12 }}>Cobrado: {fmtCurrency(d.cobrado)}</p>
-                        <p style={{ color: "#ef5350", fontSize: 12 }}>Glosado: {fmtCurrency(d.glosado)}</p>
-                        <p style={{ color: "#ffb74d", fontSize: 12 }}>Taxa: {d.cobrado > 0 ? ((d.glosado / d.cobrado) * 100).toFixed(2) : 0}%</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Legend wrapperStyle={{ color: "#6b8cae", fontSize: 11 }} />
-                <Bar dataKey="cobrado" name="Valor Cobrado" fill="#4fc3f7" radius={[0, 4, 4, 0]} barSize={18} />
-                <Bar dataKey="glosado" name="Valor Glosado" fill="#ef5350" radius={[0, 4, 4, 0]} barSize={18} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* ABAS: TOP MOTIVOS / MOTIVOS POR ITEM */}
-        <Tabs defaultValue="topMotivos" className="mb-6">
-          <TabsList style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", padding: 4 }} className="mb-4">
-            <TabsTrigger value="topMotivos" style={{ color: "#6b8cae" }} className="data-[state=active]:bg-[#1e3a5f] data-[state=active]:text-[#4fc3f7]">
-              <BarChart3 size={14} className="mr-1" /> Top Motivos
-            </TabsTrigger>
-            <TabsTrigger value="motivosPorItem" style={{ color: "#6b8cae" }} className="data-[state=active]:bg-[#1e3a5f] data-[state=active]:text-[#4fc3f7]">
-              <List size={14} className="mr-1" /> Motivos por Item
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="topMotivos">
-        <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <span style={{ color: "#ef5350" }}>🔴</span>
-            <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-              TOP MOTIVOS DE GLOSA
-            </span>
-          </div>
-          {topMotivosComPareto.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
-                    <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Código</th>
-                    <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Descrição</th>
-                    <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Vl Glosa</th>
-                    <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>%</th>
-                    <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Pareto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topMotivosComPareto.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }} className="hover:bg-[#0d2a3a] transition-colors">
-                      <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                        {r.codigoGlosa === 'S/MOTIVO' ? (
-                          <span style={{ color: "#ffb74d", fontSize: 11, fontWeight: 600, background: "#3e2723", padding: "2px 8px", borderRadius: 4 }}>S/MOTIVO</span>
-                        ) : (
-                          <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
-                        )}
-                      </td>
-                      <td style={{ color: "#e8f4fd", padding: "10px 12px" }}>
-                        <div className="flex flex-col gap-1">
-                          <span title={r.descricao} style={{ fontSize: 13 }}>
-                            {r.descricao.length > 80 ? r.descricao.substring(0, 80) + "…" : r.descricao}
-                          </span>
-                          {(r as any).grupo && (
-                            <span style={{
-                              display: "inline-block",
-                              fontSize: 10,
-                              padding: "1px 7px",
-                              borderRadius: 4,
-                              background: "#1e3a5f",
-                              color: "#4fc3f7",
-                              width: "fit-content",
-                            }}>{(r as any).grupo}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ color: "#ef5350", textAlign: "right", padding: "10px 12px", fontWeight: 600 }}>
-                        {fmtCurrency(r.totalGlosa)}
-                      </td>
-                      <td style={{ color: "#ffb74d", textAlign: "right", padding: "10px 12px" }}>
-                        {r.pct.toFixed(2)}%
-                      </td>
-                      <td style={{ color: "#6b8cae", textAlign: "right", padding: "10px 12px" }}>
-                        {r.pareto.toFixed(2)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <Select value={mesPagamentoInicio || "todos"} onValueChange={(value) => setMesPagamentoInicio(value === "todos" ? undefined : value)}>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Pagamento inicial" /></SelectTrigger>
+                <SelectContent><SelectItem value="todos">Desde o início</SelectItem>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={mesPagamentoFim || "todos"} onValueChange={(value) => setMesPagamentoFim(value === "todos" ? undefined : value)}>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Pagamento final" /></SelectTrigger>
+                <SelectContent><SelectItem value="todos">Até o último mês</SelectItem>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={convenioId?.toString() || "todos"} onValueChange={(value) => setConvenioId(value === "todos" ? undefined : Number(value))}>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Todos os convênios" /></SelectTrigger>
+                <SelectContent><SelectItem value="todos">Todos os convênios</SelectItem>{filtrosQuery.data?.convenios.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={categoriaGlosa || "todas"} onValueChange={(value) => setCategoriaGlosa(value === "todas" ? undefined : value)}>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Todas as categorias" /></SelectTrigger>
+                <SelectContent><SelectItem value="todas">Todas as categorias</SelectItem>{filtrosQuery.data?.categoriasGlosa.map((categoria) => <SelectItem key={categoria} value={categoria}>{categoria}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
-          ) : (
-            <div className="flex items-center justify-center h-20" style={{ color: "#6b8cae" }}>
-              Sem dados de motivos de glosa
-            </div>
-          )}
-        </div>
-          </TabsContent>
+          </section>
 
-          <TabsContent value="motivosPorItem">
-            <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <List size={16} style={{ color: "#ce93d8" }} />
-                <span className="text-sm font-semibold tracking-widest uppercase" style={{ color: "#6b8cae" }}>
-                  MOTIVOS DE GLOSA POR ITEM
-                </span>
-                {motivosPorItem?.totalGeral && (
-                  <span className="ml-auto text-xs" style={{ color: "#6b8cae" }}>
-                    Total geral: {fmtCurrency(motivosPorItem.totalGeral)}
-                  </span>
-                )}
+          {painelQuery.isLoading ? <LoadingDashboard /> : painelQuery.error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+              <AlertTriangle className="mx-auto mb-3 h-7 w-7 text-red-600" />
+              <h2 className="font-semibold text-red-900">Não foi possível carregar o relatório</h2>
+              <p className="mt-1 text-sm text-red-700">{painelQuery.error.message}</p>
+              <Button variant="outline" size="sm" className="mt-4 bg-white" onClick={() => painelQuery.refetch()}>Tentar novamente</Button>
+            </div>
+          ) : data ? (
+            <>
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <KpiCard label="Valor cobrado" value={fmtCurrency(data.resumo.valorCobrado)} helper={`${data.resumo.totalGuiasGlosadas.toLocaleString("pt-BR")} guias com glosa`} icon={CircleDollarSign} tone="blue" />
+                <KpiCard label="Valor glosado" value={fmtCurrency(data.resumo.valorGlosado)} helper={`${data.resumo.totalItensGlosados.toLocaleString("pt-BR")} itens glosados`} icon={AlertTriangle} tone="rose" />
+                <KpiCard label="Taxa de glosa" value={fmtPercent(data.resumo.taxaGlosa)} helper="Glosado sobre pago + glosado" icon={TrendingDown} tone="amber" />
+                <KpiCard label="Ticket médio" value={fmtCurrency(data.resumo.ticketMedio)} helper="Valor médio por item glosado" icon={ReceiptText} tone="purple" />
+                <KpiCard label="Glosa recursada" value={fmtCurrency(data.resumo.glosaRecursada)} helper={`${fmtPercent(data.resumo.percentualRecursado)} do valor glosado`} icon={ShieldCheck} tone="teal" />
+              </section>
+
+              <Panel title="Glosa por mês de pagamento" subtitle={`Evolução mensal do valor glosado e da taxa de glosa • ${periodoLabel}`} icon={CalendarDays}>
+                {data.porMesPagamento.length ? (
+                  <ResponsiveContainer width="100%" height={340}>
+                    <ComposedChart data={data.porMesPagamento.map((item: any) => ({ ...item, label: fmtMonth(item.mesPagamento) }))} margin={{ top: 12, right: 22, left: 8, bottom: 8 }}>
+                      <CartesianGrid stroke={COLORS.grid} vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="money" tickFormatter={fmtCompact} tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="rate" orientation="right" tickFormatter={(value) => `${value}%`} tick={{ fill: COLORS.amber, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip content={<ChartTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+                      <Bar yAxisId="money" dataKey="valorGlosado" name="Valor glosado" fill={COLORS.rose} radius={[7, 7, 0, 0]} maxBarSize={54} />
+                      <Line yAxisId="rate" dataKey="taxaGlosa" name="Taxa de glosa" stroke={COLORS.amber} strokeWidth={3} dot={{ r: 4, fill: COLORS.amber, strokeWidth: 0 }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                ) : <EmptyChart message="Não há glosas com data de pagamento para o período selecionado." />}
+              </Panel>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Panel title="Glosa por convênio" subtitle="Operadoras com maior valor total glosado" icon={Tags}>
+                  <HorizontalRankingChart data={data.porConvenio} color={COLORS.blue} />
+                </Panel>
+                <Panel title="Glosa por procedimento" subtitle="Códigos de procedimento consolidados, independentemente da descrição" icon={Stethoscope}>
+                  <HorizontalRankingChart data={data.porProcedimento.map((item: any) => ({ ...item, nome: `${item.codigoItem} — ${item.nome}` }))} color={COLORS.purple} />
+                </Panel>
               </div>
-              {motivosPorItem?.items?.length ? (
-                <div className="overflow-x-auto">
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
-                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Cód. Glosa</th>
-                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Motivo</th>
-                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Descrição do Item</th>
-                        <th style={{ color: "#6b8cae", textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Tipo</th>
-                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Qtd</th>
-                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Vl Glosado</th>
-                        <th style={{ color: "#6b8cae", textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>% Glosa</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {motivosPorItem.items.map((r: any, i: number) => (
-                        <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }} className="hover:bg-[#0d2a3a] transition-colors">
-                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                            {r.codigoGlosa === 'S/MOTIVO' ? (
-                              <span style={{ color: "#ffb74d", fontSize: 11, fontWeight: 600, background: "#3e2723", padding: "2px 8px", borderRadius: 4 }}>S/MOTIVO</span>
-                            ) : (
-                              <span style={{ color: "#4fc3f7", fontSize: 13, fontWeight: 600 }}>{r.codigoGlosa}</span>
-                            )}
-                          </td>
-                          <td style={{ color: "#e8f4fd", padding: "10px 12px", maxWidth: 200 }}>
-                            <span title={r.descricaoGlosa} style={{ fontSize: 12 }}>
-                              {r.descricaoGlosa?.length > 40 ? r.descricaoGlosa.substring(0, 40) + "…" : r.descricaoGlosa}
-                            </span>
-                          </td>
-                          <td style={{ color: "#e8f4fd", padding: "10px 12px", maxWidth: 250 }}>
-                            <span title={r.descricaoItem} style={{ fontSize: 12 }}>
-                              {r.descricaoItem?.length > 50 ? r.descricaoItem.substring(0, 50) + "…" : (r.descricaoItem || '—')}
-                            </span>
-                          </td>
-                          <td style={{ padding: "10px 12px" }}>
-                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#1e3a5f", color: "#4fc3f7" }}>
-                              {r.tipoLancamento || '—'}
-                            </span>
-                          </td>
-                          <td style={{ color: "#6b8cae", textAlign: "right", padding: "10px 12px" }}>
-                            {r.qtdItens}
-                          </td>
-                          <td style={{ color: "#ef5350", textAlign: "right", padding: "10px 12px", fontWeight: 600 }}>
-                            {fmtCurrency(r.totalGlosa)}
-                          </td>
-                          <td style={{ color: "#ffb74d", textAlign: "right", padding: "10px 12px" }}>
-                            {r.percentualGlosa.toFixed(2)}%
-                          </td>
+
+              <Panel title="Glosa por item" subtitle="Descrição detalhada dos itens que concentram maior impacto financeiro" icon={BarChart3}>
+                <HorizontalRankingChart data={data.porItem} color={COLORS.rose} />
+              </Panel>
+
+              <Panel title="Detalhamento da glosa por item" subtitle="Situação do recurso, participação no total e taxa por item" icon={ListChecks}>
+                {data.porItem.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1050px] text-sm">
+                      <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3 font-semibold">Item</th><th className="px-3 py-3 font-semibold">Tipo</th><th className="px-3 py-3 text-right font-semibold">Qtd.</th><th className="px-3 py-3 text-right font-semibold">Glosado</th><th className="px-3 py-3 text-right font-semibold">Sem recurso</th><th className="px-3 py-3 text-right font-semibold">Recursada</th><th className="px-3 py-3 text-right font-semibold">% glosa</th><th className="px-3 py-3 text-right font-semibold">Taxa</th>
+                      </tr></thead>
+                      <tbody>{data.porItem.map((item: any, index: number) => (
+                        <tr key={`${item.codigoItem}-${item.nome}-${index}`} className="border-b border-slate-100 transition-colors hover:bg-rose-50/40">
+                          <td className="px-4 py-3"><p className="font-medium text-slate-900" title={item.nome}>{shorten(item.nome, 72)}</p><p className="mt-0.5 text-xs text-slate-500">Código: {item.codigoItem || "não informado"}</p></td>
+                          <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{item.tipoLancamento}</span></td>
+                          <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-rose-700">{fmtCurrency(item.valorGlosado)}</td>
+                          <td className="px-3 py-3 text-right text-slate-600">{fmtCurrency(item.glosaSemRecurso)}</td>
+                          <td className="px-3 py-3 text-right font-medium text-teal-700">{fmtCurrency(item.glosaRecursada)}</td>
+                          <td className="px-3 py-3 text-right text-slate-600">{fmtPercent(item.percentualTotal)}</td>
+                          <td className="px-3 py-3 text-right"><span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{fmtPercent(item.taxaGlosa)}</span></td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-20" style={{ color: "#6b8cae" }}>
-                  Sem dados de motivos por item
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <EmptyChart message="Nenhum item glosado encontrado." />}
+              </Panel>
 
-        {/* COMPARATIVO IA (loading) */}
-        {comparativoLoading && (
-          <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-8 mb-6 flex items-center justify-center gap-3">
-            <Loader2 size={20} style={{ color: "#4fc3f7" }} className="animate-spin" />
-            <span style={{ color: "#6b8cae" }}>Analisando com Inteligência Artificial...</span>
-          </div>
-        )}
+              <Panel title="Motivos de glosa" subtitle="Descrição, código TISS e categoria para apoiar correção e recurso" icon={Activity}>
+                {data.porMotivo.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] text-sm">
+                      <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3 font-semibold">Motivo</th><th className="px-3 py-3 font-semibold">Categoria</th><th className="px-3 py-3 text-right font-semibold">Ocorrências</th><th className="px-3 py-3 text-right font-semibold">Valor glosado</th><th className="px-3 py-3 text-right font-semibold">% do total</th><th className="px-3 py-3 text-right font-semibold">Recursada</th>
+                      </tr></thead>
+                      <tbody>{data.porMotivo.map((item: any, index: number) => (
+                        <tr key={`${item.codigoGlosa}-${index}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
+                          <td className="px-4 py-3"><p className="font-medium text-slate-900" title={`Código TISS: ${item.codigoGlosa} — ${item.nome}`}>{shorten(item.nome, 78)}</p><p className="mt-0.5 text-xs text-slate-500">Código TISS: {item.codigoGlosa}</p></td>
+                          <td className="px-3 py-3"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">{item.categoria}</span></td>
+                          <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-rose-700">{fmtCurrency(item.valorGlosado)}</td>
+                          <td className="px-3 py-3 text-right text-slate-600">{fmtPercent(item.percentualTotal)}</td>
+                          <td className="px-3 py-3 text-right font-medium text-teal-700">{fmtCurrency(item.glosaRecursada)}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <EmptyChart message="Nenhum motivo de glosa encontrado para os filtros selecionados." />}
+              </Panel>
 
-        {/* COMPARATIVO IA (resultado) */}
-        {comparativoResult && !comparativoLoading && (
-          <ComparativoIASection result={comparativoResult} />
-        )}
+              {comparativo && <ComparativoSection result={comparativo} />}
+            </>
+          ) : null}
+        </div>
+      </main>
 
-      </div>
-
-      {/* MODAL COMPARAR MESES */}
       <Dialog open={showComparar} onOpenChange={setShowComparar}>
-        <DialogContent style={{ background: "#0d1b2a", border: "1px solid #1e3a5f", color: "#e8f4fd" }}>
+        <DialogContent className="border-slate-200 bg-white text-slate-900 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle style={{ color: "#4fc3f7" }}>Comparar Meses</DialogTitle>
-            <DialogDescription style={{ color: "#6b8cae" }}>
-              Selecione dois períodos para análise comparativa com Inteligência Artificial
-            </DialogDescription>
+            <DialogTitle>Comparar competências</DialogTitle>
+            <DialogDescription>Selecione dois períodos para obter uma leitura comparativa das glosas.</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4 mt-2">
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: "#6b8cae" }}>Período 1</label>
-              <Select value={comp1 || ""} onValueChange={setComp1}>
-                <SelectTrigger style={{ background: "#060f1a", border: "1px solid #1e3a5f", color: "#e8f4fd" }}>
-                  <SelectValue placeholder="Selecione o período 1" />
-                </SelectTrigger>
-                <SelectContent style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }}>
-                  {filtros?.competencias.map((c) => (
-                    <SelectItem key={c} value={c} style={{ color: "#e8f4fd" }}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: "#6b8cae" }}>Período 2</label>
-              <Select value={comp2 || ""} onValueChange={setComp2}>
-                <SelectTrigger style={{ background: "#060f1a", border: "1px solid #1e3a5f", color: "#e8f4fd" }}>
-                  <SelectValue placeholder="Selecione o período 2" />
-                </SelectTrigger>
-                <SelectContent style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }}>
-                  {filtros?.competencias.map((c) => (
-                    <SelectItem key={c} value={c} style={{ color: "#e8f4fd" }}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              style={{ background: "#1a3a5c", color: "#4fc3f7", border: "1px solid #1e3a5f" }}
-              onClick={() => { setShowComparar(false); handleComparar(); }}
-              disabled={!comp1 || !comp2}>
-              <Sparkles size={14} className="mr-2" /> Gerar Análise Comparativa
-            </Button>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div><p className="mb-2 text-xs font-medium text-slate-600">Competência inicial</p><Select value={competencia1} onValueChange={setCompetencia1}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent></Select></div>
+            <div><p className="mb-2 text-xs font-medium text-slate-600">Competência final</p><Select value={competencia2} onValueChange={setCompetencia2}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent></Select></div>
           </div>
+          <Button onClick={compararMeses} disabled={!competencia1 || !competencia2 || comparativoMutation.isPending} className="bg-slate-900 text-white hover:bg-slate-800">
+            {comparativoMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowLeftRight className="mr-2 h-4 w-4" />}Gerar comparativo
+          </Button>
         </DialogContent>
       </Dialog>
     </DashboardLayout>
   );
 }
 
-function ComparativoIASection({ result }: { result: any }) {
-  const { analise, periodo1, periodo2, variacoes } = result;
-  const fmtC = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
-  const fmtKLocal = (v: number) => {
-    if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `R$ ${(v / 1_000).toFixed(0)}k`;
-    return `R$ ${v.toFixed(0)}`;
-  };
-
-  const chartComparativo = [
-    {
-      name: periodo1.competencia,
-      Faturado: parseFloat(String(periodo1.totalCobrado ?? periodo1.totalInformado ?? 0)),
-      Recebido: parseFloat(String(periodo1.totalPago ?? 0)),
-      Glosado: parseFloat(String(periodo1.totalGlosa ?? 0)),
-    },
-    {
-      name: periodo2.competencia,
-      Faturado: parseFloat(String(periodo2.totalCobrado ?? periodo2.totalInformado ?? 0)),
-      Recebido: parseFloat(String(periodo2.totalPago ?? 0)),
-      Glosado: parseFloat(String(periodo2.totalGlosa ?? 0)),
-    },
-  ];
-
+function ComparativoSection({ result }: { result: any }) {
   const cards = [
-    { title: "Visão Geral", content: analise.visaoGeral },
-    { title: "Análise das Variações", content: analise.analiseVariacoes },
-    { title: "Comparativo de Motivos", content: analise.comparativoMotivos },
-    { title: "Comparativo de Convênios", content: analise.comparativoConvenios },
-    { title: "Diagnóstico", content: analise.diagnostico },
-    { title: "Recomendações", content: analise.recomendacoes },
-  ];
+    ["Visão geral", result.analise?.visaoGeral],
+    ["Diagnóstico", result.analise?.diagnostico],
+    ["Recomendações", result.analise?.recomendacoes],
+  ].filter(([, content]) => content);
 
   return (
-    <div style={{ background: "#0d1b2a", border: "1px solid #1e3a5f" }} className="rounded-xl p-5 mb-6">
-      <div className="flex items-center gap-2 mb-5">
-        <Sparkles size={16} style={{ color: "#4caf50" }} />
-        <span className="text-sm font-semibold" style={{ color: "#e8f4fd" }}>
-          Análise Comparativa por Inteligência Artificial
-        </span>
-        <span className="text-xs ml-2" style={{ color: "#6b8cae" }}>
-          {periodo1.competencia} × {periodo2.competencia}
-        </span>
-      </div>
-
-      {/* Gráfico Faturado × Recebido × Glosado */}
-      <div style={{ background: "#060f1a", border: "1px solid #1e3a5f", borderRadius: 10, padding: "16px 20px" }} className="mb-5">
-        <div className="text-xs font-semibold mb-3" style={{ color: "#6b8cae", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          FATURADO × RECEBIDO × GLOSADO — COMPARATIVO
-        </div>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={chartComparativo} barGap={4} barCategoryGap="35%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" vertical={false} />
-            <XAxis dataKey="name" tick={{ fill: "#6b8cae", fontSize: 12 }} axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={fmtKLocal} tick={{ fill: "#6b8cae", fontSize: 11 }} axisLine={false} tickLine={false} width={72} />
-            <RechartsTooltip
-              contentStyle={{ background: "#0d1b2a", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: "#e8f4fd", fontWeight: 600 }}
-              formatter={(value: number, name: string) => [fmtC(value), name]}
-            />
-            <Legend wrapperStyle={{ fontSize: 12, color: "#8aaccc", paddingTop: 8 }} />
-            <Bar dataKey="Faturado" fill="#2196f3" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Recebido" fill="#4caf50" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Glosado" fill="#ef5350" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3 mb-5">
+    <Panel title="Comparativo inteligente" subtitle={`${fmtMonth(result.periodo1?.competencia)} × ${fmtMonth(result.periodo2?.competencia)}`} icon={ArrowLeftRight}>
+      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
         {[
-          { label: "Variação Faturado", value: variacoes.faturado, isValue: true },
-          { label: "Variação Glosado", value: variacoes.glosa, isValue: true },
-          { label: "Variação Taxa", value: variacoes.taxa, isValue: false },
-        ].map((item) => (
-          <div key={item.label} style={{ background: "#060f1a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "12px 16px" }}>
-            <div className="text-xs mb-1" style={{ color: "#6b8cae" }}>{item.label}</div>
-            <div className="text-base font-bold" style={{ color: item.value >= 0 ? "#ef5350" : "#4caf50" }}>
-              {item.value >= 0 ? "+" : ""}
-              {item.isValue ? fmtC(Math.abs(item.value)) : `${Math.abs(item.value).toFixed(2)} p.p.`}
-            </div>
+          ["Variação glosada", fmtCurrency(Math.abs(result.variacoes?.glosa || 0)), result.variacoes?.glosa],
+          ["Variação da taxa", `${Math.abs(result.variacoes?.taxa || 0).toFixed(2)} p.p.`, result.variacoes?.taxa],
+          ["Variação faturada", fmtCurrency(Math.abs(result.variacoes?.faturado || 0)), result.variacoes?.faturado],
+        ].map(([label, value, direction]) => (
+          <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">{label}</p>
+            <p className={`mt-1 text-lg font-bold ${Number(direction) > 0 ? "text-rose-700" : "text-teal-700"}`}>{Number(direction) > 0 ? "+" : "−"}{value}</p>
           </div>
         ))}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-        {cards.map((card) => (
-          <div key={card.title} style={{ background: "#060f1a", border: "1px solid #1e3a5f", borderRadius: 8, padding: "16px" }}>
-            <div className="text-sm font-semibold mb-2" style={{ color: "#e8f4fd" }}>{card.title}</div>
-            <div className="text-sm leading-relaxed" style={{ color: "#8aaccc" }}>{card.content}</div>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {cards.map(([title, content]) => <div key={String(title)} className="rounded-xl border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-600">{content}</p></div>)}
       </div>
-
-      {analise.acoesPrioritarias?.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span style={{ color: "#ef5350" }}>🎯</span>
-            <span className="text-sm font-semibold" style={{ color: "#e8f4fd" }}>Ações Prioritárias</span>
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid #1e3a5f" }}>
-                {["Área", "Situação", "Ação", "Impacto Estimado"].map((h) => (
-                  <th key={h} style={{ color: "#6b8cae", textAlign: h === "Impacto Estimado" ? "right" : "left", padding: "8px 12px", fontWeight: 500 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {analise.acoesPrioritarias.map((a: any, i: number) => (
-                <tr key={i} style={{ borderBottom: "1px solid #0d2a3a" }}>
-                  <td style={{ padding: "10px 12px", color: "#4fc3f7", fontWeight: 600 }}>{a.area}</td>
-                  <td style={{ padding: "10px 12px", color: "#8aaccc" }}>{a.situacao}</td>
-                  <td style={{ padding: "10px 12px", color: "#e8f4fd" }}>{a.acao}</td>
-                  <td style={{ padding: "10px 12px", color: "#4caf50", textAlign: "right", fontWeight: 600 }}>
-                    {fmtC(a.impactoEstimado)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+    </Panel>
   );
 }

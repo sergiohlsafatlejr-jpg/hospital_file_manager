@@ -4404,3 +4404,12 @@
 - [x] Restringir `/previsao-recebimentos` exclusivamente ao Imec Senador Canedo (ID 2550001)
 - [x] Remover qualquer fallback ou validação que use dados de outro estabelecimento na previsão e nos pagamentos
 - [x] Testar que as rotas TASY rejeitam IDs diferentes de 2550001 e retornam somente dados do Imec
+
+- [x] Auditar os dados e a interface atual de `/relatorios-glosas-bi` por estabelecimento
+- [x] Redesenhar o painel de glosas com hierarquia visual moderna, sem copiar as cores da referência
+- [x] Implementar visualização de glosa por mês de pagamento
+- [x] Implementar visualização de glosa por item
+- [x] Implementar visualização de glosa por convênio
+- [x] Implementar visualização de glosa por procedimento
+- [x] Manter filtros, tooltips de códigos/motivos, ticket médio e exportação descritiva
+- [x] Validar dados reais, isolamento por estabelecimento, responsividade, testes e build do relatório de glosas
