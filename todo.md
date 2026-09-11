@@ -4413,3 +4413,11 @@
 - [x] Implementar visualização de glosa por procedimento
 - [x] Manter filtros, tooltips de códigos/motivos, ticket médio e exportação descritiva
 - [x] Validar dados reais, isolamento por estabelecimento, responsividade, testes e build do relatório de glosas
+
+- [x] Adicionar filtros cruzados ao backend de glosas por mês de pagamento, convênio, item, procedimento e motivo
+- [x] Tornar barras e linhas dos gráficos clicáveis para recalcular todos os KPIs e demais visualizações
+- [x] Tornar linhas das tabelas de itens e motivos clicáveis com o mesmo comportamento cruzado
+- [x] Exibir filtros interativos ativos com opção individual de remover e ação para limpar todos
+- [x] Destacar visualmente o item, convênio, procedimento, mês ou motivo selecionado
+- [x] Garantir que o Excel e PowerPoint exportem exatamente o recorte interativo atual
+- [x] Validar combinações de filtros, isolamento por estabelecimento, testes e build da interação cruzada

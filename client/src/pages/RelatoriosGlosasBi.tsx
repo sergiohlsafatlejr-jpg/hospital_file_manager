@@ -31,6 +31,7 @@ import {
   FileText,
   ListChecks,
   Loader2,
+  MousePointerClick,
   Presentation,
   ReceiptText,
   RefreshCw,
@@ -40,6 +41,7 @@ import {
   Stethoscope,
   Tags,
   TrendingDown,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -157,10 +159,13 @@ function EmptyChart({ message }: { message: string }) {
   );
 }
 
-function HorizontalRankingChart({ data, labelKey = "nome", color = COLORS.rose }: {
+function HorizontalRankingChart({ data, labelKey = "nome", color = COLORS.rose, selectedValue, getValue, onSelect }: {
   data: any[];
   labelKey?: string;
   color?: string;
+  selectedValue?: string | number;
+  getValue?: (item: any) => string | number;
+  onSelect?: (item: any) => void;
 }) {
   const chartData = data.slice(0, 10).map((item) => ({
     ...item,
@@ -176,13 +181,46 @@ function HorizontalRankingChart({ data, labelKey = "nome", color = COLORS.rose }
         <XAxis type="number" tickFormatter={fmtCompact} tick={{ fill: COLORS.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="chartLabel" width={170} tick={{ fill: COLORS.ink, fontSize: 11 }} axisLine={false} tickLine={false} />
         <RechartsTooltip content={<ChartTooltip />} />
-        <Bar dataKey="valorGlosado" name="Valor glosado" fill={color} radius={[0, 7, 7, 0]} barSize={19}>
-          {chartData.map((_: any, index: number) => (
-            <Cell key={index} fillOpacity={Math.max(0.42, 1 - index * 0.055)} />
-          ))}
+        <Bar
+          dataKey="valorGlosado"
+          name="Valor glosado"
+          fill={color}
+          radius={[0, 7, 7, 0]}
+          barSize={19}
+          cursor={onSelect ? "pointer" : "default"}
+          onClick={(entry: any) => onSelect?.(entry?.payload ?? entry)}
+        >
+          {chartData.map((item: any, index: number) => {
+            const isSelected = selectedValue !== undefined && getValue?.(item) === selectedValue;
+            const hasSelection = selectedValue !== undefined;
+            return (
+              <Cell
+                key={index}
+                fill={isSelected ? color : hasSelection ? "#cbd5e1" : color}
+                fillOpacity={isSelected ? 1 : hasSelection ? 0.48 : Math.max(0.42, 1 - index * 0.055)}
+                stroke={isSelected ? COLORS.ink : "transparent"}
+                strokeWidth={isSelected ? 2 : 0}
+              />
+            );
+          })}
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+function ActiveFilterChip({ label, value, onClear }: { label: string; value: string; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="group inline-flex max-w-full items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-800 transition-colors hover:border-rose-300 hover:bg-rose-100"
+      title={`Remover filtro ${label}: ${value}`}
+    >
+      <span className="text-rose-500">{label}</span>
+      <span className="max-w-[260px] truncate font-semibold">{value}</span>
+      <X className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:scale-110" />
+    </button>
   );
 }
 
@@ -208,6 +246,10 @@ export default function RelatoriosGlosasBi() {
   const [mesPagamentoFim, setMesPagamentoFim] = useState<string | undefined>();
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [categoriaGlosa, setCategoriaGlosa] = useState<string | undefined>();
+  const [mesPagamento, setMesPagamento] = useState<string | undefined>();
+  const [itemDescricao, setItemDescricao] = useState<string | undefined>();
+  const [procedimentoCodigo, setProcedimentoCodigo] = useState<string | undefined>();
+  const [motivoCodigo, setMotivoCodigo] = useState<string | undefined>();
   const [showComparar, setShowComparar] = useState(false);
   const [competencia1, setCompetencia1] = useState("");
   const [competencia2, setCompetencia2] = useState("");
@@ -224,12 +266,16 @@ export default function RelatoriosGlosasBi() {
     mesPagamentoInicio,
     mesPagamentoFim,
     categoriaGlosa,
+    mesPagamento,
+    itemDescricao,
+    procedimentoCodigo,
+    motivoCodigo,
     limite: 20,
-  }), [estabelecimentoId, convenioId, mesPagamentoInicio, mesPagamentoFim, categoriaGlosa]);
+  }), [estabelecimentoId, convenioId, mesPagamentoInicio, mesPagamentoFim, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo]);
 
   const painelQuery = trpc.relatoriosGlosasBi.painelExecutivo.useQuery(
     painelInput,
-    { enabled: hasEstabelecimento, staleTime: 60_000 },
+    { enabled: hasEstabelecimento, staleTime: 60_000, placeholderData: (previousData) => previousData },
   );
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
@@ -241,7 +287,7 @@ export default function RelatoriosGlosasBi() {
   });
 
   const data = painelQuery.data;
-  const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioId, categoriaGlosa].filter(Boolean).length;
+  const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioId, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo].filter(Boolean).length;
   const periodoLabel = mesPagamentoInicio || mesPagamentoFim
     ? `${fmtMonth(mesPagamentoInicio || filtrosQuery.data?.competencias.at(-1))} a ${fmtMonth(mesPagamentoFim || filtrosQuery.data?.competencias[0])}`
     : "Todo o histórico com data de pagamento";
@@ -251,7 +297,31 @@ export default function RelatoriosGlosasBi() {
     setMesPagamentoFim(undefined);
     setConvenioId(undefined);
     setCategoriaGlosa(undefined);
+    setMesPagamento(undefined);
+    setItemDescricao(undefined);
+    setProcedimentoCodigo(undefined);
+    setMotivoCodigo(undefined);
   };
+
+  const toggleMesPagamento = (valor: string) => setMesPagamento((atual) => atual === valor ? undefined : valor);
+  const toggleConvenio = (valor: number) => setConvenioId((atual) => atual === valor ? undefined : valor);
+  const toggleItem = (valor: string) => setItemDescricao((atual) => atual === valor ? undefined : valor);
+  const toggleProcedimento = (valor: string) => setProcedimentoCodigo((atual) => atual === valor ? undefined : valor);
+  const toggleMotivo = (valor: string) => setMotivoCodigo((atual) => atual === valor ? undefined : valor);
+
+  const convenioSelecionadoNome = convenioId
+    ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || String(convenioId)
+    : undefined;
+  const motivoSelecionadoNome = motivoCodigo
+    ? data?.porMotivo.find((item: any) => item.codigoGlosa === motivoCodigo)?.nome || motivoCodigo
+    : undefined;
+  const recorteInterativoLabel = [
+    mesPagamento ? `Mês ${fmtMonth(mesPagamento)}` : null,
+    convenioSelecionadoNome ? `Convênio ${convenioSelecionadoNome}` : null,
+    itemDescricao ? `Item ${itemDescricao}` : null,
+    procedimentoCodigo ? `Procedimento ${procedimentoCodigo}` : null,
+    motivoSelecionadoNome ? `Motivo ${motivoSelecionadoNome}` : null,
+  ].filter(Boolean).join(" • ") || "Visão geral";
 
   const handleRefresh = async () => {
     await Promise.all([painelQuery.refetch(), filtrosQuery.refetch()]);
@@ -266,6 +336,11 @@ export default function RelatoriosGlosasBi() {
       ["Período de pagamento", periodoLabel],
       ["Convênio", convenioId ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || convenioId : "Todos"],
       ["Categoria de glosa", categoriaGlosa || "Todas"],
+      ["Mês selecionado no painel", mesPagamento ? fmtMonth(mesPagamento) : "Todos"],
+      ["Item selecionado no painel", itemDescricao || "Todos"],
+      ["Procedimento selecionado no painel", procedimentoCodigo || "Todos"],
+      ["Motivo selecionado no painel", motivoCodigo ? `${motivoCodigo} — ${motivoSelecionadoNome || motivoCodigo}` : "Todos"],
+      ["Recorte interativo", recorteInterativoLabel],
       ["Valor cobrado", data.resumo.valorCobrado],
       ["Valor pago", data.resumo.valorPago],
       ["Valor glosado", data.resumo.valorGlosado],
@@ -340,7 +415,7 @@ export default function RelatoriosGlosasBi() {
       slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.1, fill: { color: "C24162" }, line: { color: "C24162" } });
       slide.addText(title, { x: 0.55, y: 0.35, w: 8.5, h: 0.42, fontFace: "Aptos", fontSize: 21, bold: true, color: "172033" });
       slide.addText(subtitle, { x: 0.55, y: 0.82, w: 11.8, h: 0.3, fontFace: "Aptos", fontSize: 9, color: "667085" });
-      slide.addText(`${estabelecimentoNome} • ${periodoLabel}`, { x: 0.55, y: 7.08, w: 9.5, h: 0.2, fontFace: "Aptos", fontSize: 8, color: "98A2B3" });
+      slide.addText(`${estabelecimentoNome} • ${periodoLabel} • ${shorten(recorteInterativoLabel, 90)}`, { x: 0.55, y: 7.08, w: 11.8, h: 0.2, fontFace: "Aptos", fontSize: 8, color: "98A2B3" });
     };
 
     const capa = pptx.addSlide();
@@ -348,7 +423,7 @@ export default function RelatoriosGlosasBi() {
     capa.addShape(pptx.ShapeType.rect, { x: 0.6, y: 0.8, w: 0.12, h: 5.8, fill: { color: "C24162" }, line: { color: "C24162" } });
     capa.addText("RELATÓRIO EXECUTIVO\nDE GLOSAS", { x: 1.1, y: 1.4, w: 9.5, h: 1.5, fontFace: "Aptos Display", fontSize: 31, bold: true, color: "FFFFFF", breakLine: false });
     capa.addText(estabelecimentoNome, { x: 1.1, y: 3.15, w: 8.5, h: 0.5, fontFace: "Aptos", fontSize: 19, color: "F8B4C5" });
-    capa.addText(periodoLabel, { x: 1.1, y: 3.8, w: 8.5, h: 0.35, fontFace: "Aptos", fontSize: 12, color: "CBD5E1" });
+    capa.addText(`${periodoLabel}\n${shorten(recorteInterativoLabel, 95)}`, { x: 1.1, y: 3.75, w: 10.8, h: 0.65, fontFace: "Aptos", fontSize: 11, color: "CBD5E1", breakLine: false });
     capa.addText(`Glosa total: ${fmtCurrency(data.resumo.valorGlosado)}  •  Taxa: ${fmtPercent(data.resumo.taxaGlosa)}`, { x: 1.1, y: 4.55, w: 9.5, h: 0.4, fontFace: "Aptos", fontSize: 15, bold: true, color: "FFFFFF" });
 
     const resumoSlide = pptx.addSlide();
@@ -471,6 +546,23 @@ export default function RelatoriosGlosasBi() {
                 <SelectContent><SelectItem value="todas">Todas as categorias</SelectItem>{filtrosQuery.data?.categoriasGlosa.map((categoria) => <SelectItem key={categoria} value={categoria}>{categoria}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2 text-xs leading-5 text-blue-800">
+                <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0" />
+                <p><span className="font-semibold">Exploração interativa:</span> clique em uma barra ou linha das tabelas para filtrar todos os indicadores. Clique novamente para remover a seleção.</p>
+              </div>
+              {painelQuery.isFetching && !painelQuery.isLoading && <span className="inline-flex shrink-0 items-center gap-2 text-xs font-medium text-blue-700"><Loader2 className="h-3.5 w-3.5 animate-spin" />Recalculando</span>}
+            </div>
+            {(mesPagamento || convenioId || itemDescricao || procedimentoCodigo || motivoCodigo) && (
+              <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Filtros interativos ativos">
+                <span className="mr-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Recorte ativo</span>
+                {mesPagamento && <ActiveFilterChip label="Mês" value={fmtMonth(mesPagamento)} onClear={() => setMesPagamento(undefined)} />}
+                {convenioId && <ActiveFilterChip label="Convênio" value={convenioSelecionadoNome || String(convenioId)} onClear={() => setConvenioId(undefined)} />}
+                {itemDescricao && <ActiveFilterChip label="Item" value={itemDescricao} onClear={() => setItemDescricao(undefined)} />}
+                {procedimentoCodigo && <ActiveFilterChip label="Procedimento" value={procedimentoCodigo} onClear={() => setProcedimentoCodigo(undefined)} />}
+                {motivoCodigo && <ActiveFilterChip label="Motivo" value={`${motivoCodigo} — ${motivoSelecionadoNome || motivoCodigo}`} onClear={() => setMotivoCodigo(undefined)} />}
+              </div>
+            )}
           </section>
 
           {painelQuery.isLoading ? <LoadingDashboard /> : painelQuery.error ? (
@@ -490,7 +582,7 @@ export default function RelatoriosGlosasBi() {
                 <KpiCard label="Glosa recursada" value={fmtCurrency(data.resumo.glosaRecursada)} helper={`${fmtPercent(data.resumo.percentualRecursado)} do valor glosado`} icon={ShieldCheck} tone="teal" />
               </section>
 
-              <Panel title="Glosa por mês de pagamento" subtitle={`Evolução mensal do valor glosado e da taxa de glosa • ${periodoLabel}`} icon={CalendarDays}>
+              <Panel title="Glosa por mês de pagamento" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
                 {data.porMesPagamento.length ? (
                   <ResponsiveContainer width="100%" height={340}>
                     <ComposedChart data={data.porMesPagamento.map((item: any) => ({ ...item, label: fmtMonth(item.mesPagamento) }))} margin={{ top: 12, right: 22, left: 8, bottom: 8 }}>
@@ -500,7 +592,26 @@ export default function RelatoriosGlosasBi() {
                       <YAxis yAxisId="rate" orientation="right" tickFormatter={(value) => `${value}%`} tick={{ fill: COLORS.amber, fontSize: 11 }} axisLine={false} tickLine={false} />
                       <RechartsTooltip content={<ChartTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
-                      <Bar yAxisId="money" dataKey="valorGlosado" name="Valor glosado" fill={COLORS.rose} radius={[7, 7, 0, 0]} maxBarSize={54} />
+                      <Bar
+                        yAxisId="money"
+                        dataKey="valorGlosado"
+                        name="Valor glosado"
+                        fill={COLORS.rose}
+                        radius={[7, 7, 0, 0]}
+                        maxBarSize={54}
+                        cursor="pointer"
+                        onClick={(entry: any) => toggleMesPagamento(entry?.payload?.mesPagamento ?? entry?.mesPagamento)}
+                      >
+                        {data.porMesPagamento.map((item: any) => (
+                          <Cell
+                            key={item.mesPagamento}
+                            fill={item.mesPagamento === mesPagamento ? COLORS.rose : mesPagamento ? "#cbd5e1" : COLORS.rose}
+                            fillOpacity={item.mesPagamento === mesPagamento ? 1 : mesPagamento ? 0.5 : 0.92}
+                            stroke={item.mesPagamento === mesPagamento ? COLORS.ink : "transparent"}
+                            strokeWidth={item.mesPagamento === mesPagamento ? 2 : 0}
+                          />
+                        ))}
+                      </Bar>
                       <Line yAxisId="rate" dataKey="taxaGlosa" name="Taxa de glosa" stroke={COLORS.amber} strokeWidth={3} dot={{ r: 4, fill: COLORS.amber, strokeWidth: 0 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -508,17 +619,28 @@ export default function RelatoriosGlosasBi() {
               </Panel>
 
               <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                <Panel title="Glosa por convênio" subtitle="Operadoras com maior valor total glosado" icon={Tags}>
-                  <HorizontalRankingChart data={data.porConvenio} color={COLORS.blue} />
+                <Panel title="Glosa por convênio" subtitle="Clique em uma operadora para cruzar todo o relatório" icon={Tags}>
+                  <HorizontalRankingChart data={data.porConvenio} color={COLORS.blue} selectedValue={convenioId} getValue={(item) => item.convenioId} onSelect={(item) => toggleConvenio(item.convenioId)} />
                 </Panel>
-                <Panel title="Glosa por procedimento" subtitle="Códigos de procedimento consolidados, independentemente da descrição" icon={Stethoscope}>
-                  <HorizontalRankingChart data={data.porProcedimento.map((item: any) => ({ ...item, nome: `${item.codigoItem} — ${item.nome}` }))} color={COLORS.purple} />
+                <Panel title="Glosa por procedimento" subtitle="Clique em um código para cruzar todo o relatório" icon={Stethoscope}>
+                  <HorizontalRankingChart data={data.porProcedimento.map((item: any) => ({ ...item, nome: `${item.codigoItem} — ${item.nome}` }))} color={COLORS.purple} selectedValue={procedimentoCodigo} getValue={(item) => item.codigoItem} onSelect={(item) => toggleProcedimento(item.codigoItem)} />
                 </Panel>
               </div>
 
-              <Panel title="Glosa por item" subtitle="Descrição detalhada dos itens que concentram maior impacto financeiro" icon={BarChart3}>
-                <HorizontalRankingChart data={data.porItem} color={COLORS.rose} />
-              </Panel>
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Panel title="Glosa por item" subtitle="Clique para recalcular mês, motivos, convênios, procedimentos e indicadores" icon={BarChart3}>
+                  <HorizontalRankingChart data={data.porItem} color={COLORS.rose} selectedValue={itemDescricao} getValue={(item) => item.nome} onSelect={(item) => toggleItem(item.nome)} />
+                </Panel>
+                <Panel title="Glosa por motivo" subtitle="Clique em um motivo para identificar os itens, meses e convênios relacionados" icon={Activity}>
+                  <HorizontalRankingChart
+                    data={data.porMotivo.map((item: any) => ({ ...item, nome: `${item.codigoGlosa} — ${item.nome}` }))}
+                    color={COLORS.amber}
+                    selectedValue={motivoCodigo}
+                    getValue={(item) => item.codigoGlosa}
+                    onSelect={(item) => toggleMotivo(item.codigoGlosa)}
+                  />
+                </Panel>
+              </div>
 
               <Panel title="Detalhamento da glosa por item" subtitle="Situação do recurso, participação no total e taxa por item" icon={ListChecks}>
                 {data.porItem.length ? (
@@ -528,7 +650,15 @@ export default function RelatoriosGlosasBi() {
                         <th className="px-4 py-3 font-semibold">Item</th><th className="px-3 py-3 font-semibold">Tipo</th><th className="px-3 py-3 text-right font-semibold">Qtd.</th><th className="px-3 py-3 text-right font-semibold">Glosado</th><th className="px-3 py-3 text-right font-semibold">Sem recurso</th><th className="px-3 py-3 text-right font-semibold">Recursada</th><th className="px-3 py-3 text-right font-semibold">% glosa</th><th className="px-3 py-3 text-right font-semibold">Taxa</th>
                       </tr></thead>
                       <tbody>{data.porItem.map((item: any, index: number) => (
-                        <tr key={`${item.codigoItem}-${item.nome}-${index}`} className="border-b border-slate-100 transition-colors hover:bg-rose-50/40">
+                        <tr
+                          key={`${item.codigoItem}-${item.nome}-${index}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={itemDescricao === item.nome}
+                          onClick={() => toggleItem(item.nome)}
+                          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleItem(item.nome); } }}
+                          className={`cursor-pointer border-b border-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400 ${itemDescricao === item.nome ? "bg-rose-50" : "hover:bg-rose-50/40"}`}
+                        >
                           <td className="px-4 py-3"><p className="font-medium text-slate-900" title={item.nome}>{shorten(item.nome, 72)}</p><p className="mt-0.5 text-xs text-slate-500">Código: {item.codigoItem || "não informado"}</p></td>
                           <td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{item.tipoLancamento}</span></td>
                           <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>
@@ -552,7 +682,15 @@ export default function RelatoriosGlosasBi() {
                         <th className="px-4 py-3 font-semibold">Motivo</th><th className="px-3 py-3 font-semibold">Categoria</th><th className="px-3 py-3 text-right font-semibold">Ocorrências</th><th className="px-3 py-3 text-right font-semibold">Valor glosado</th><th className="px-3 py-3 text-right font-semibold">% do total</th><th className="px-3 py-3 text-right font-semibold">Recursada</th>
                       </tr></thead>
                       <tbody>{data.porMotivo.map((item: any, index: number) => (
-                        <tr key={`${item.codigoGlosa}-${index}`} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
+                        <tr
+                          key={`${item.codigoGlosa}-${index}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={motivoCodigo === item.codigoGlosa}
+                          onClick={() => toggleMotivo(item.codigoGlosa)}
+                          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleMotivo(item.codigoGlosa); } }}
+                          className={`cursor-pointer border-b border-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 ${motivoCodigo === item.codigoGlosa ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                        >
                           <td className="px-4 py-3"><p className="font-medium text-slate-900" title={`Código TISS: ${item.codigoGlosa} — ${item.nome}`}>{shorten(item.nome, 78)}</p><p className="mt-0.5 text-xs text-slate-500">Código TISS: {item.codigoGlosa}</p></td>
                           <td className="px-3 py-3"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">{item.categoria}</span></td>
                           <td className="px-3 py-3 text-right text-slate-600">{item.qtdItens.toLocaleString("pt-BR")}</td>

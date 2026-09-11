@@ -17,6 +17,13 @@ O usuário solicitou aproveitar a **estrutura dos gráficos**, sem copiar as cor
 - O backend valida permissão de visualização para o estabelecimento solicitado.
 - O Excel exporta Resumo, Mês, Convênio, Item, Procedimento e Motivo com código e descrição.
 
+## Interação cruzada
+
+- Cliques em mês de pagamento, convênio, item, procedimento ou motivo aplicam um filtro cruzado no endpoint consolidado.
+- KPIs, demais gráficos e tabelas são recalculados no servidor; a dimensão clicada permanece aberta para permitir trocar ou remover a seleção.
+- Filtros ativos aparecem como chips removíveis, e um segundo clique no mesmo elemento restaura a visão anterior.
+- Excel e PowerPoint recebem o mesmo recorte interativo exibido na tela.
+
 ## Validação real
 
 O validador exercita dois estabelecimentos separadamente: Pronto Socorro Infantil (ID 1) e Imec Senador Canedo (ID 2550001). Ele confirma quatro agrupamentos, filtros por pagamento/convênio/categoria e totais diferentes entre as unidades, evidenciando isolamento.

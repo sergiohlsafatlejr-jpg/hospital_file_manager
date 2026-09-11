@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { complementarRankingGlosa, montarResumoGlosas, percentualGlosa } from "./relatoriosGlosasBiService";
+import { complementarRankingGlosa, construirFiltroPainelGlosas, montarResumoGlosas, percentualGlosa } from "./relatoriosGlosasBiService";
 
 describe("relatoriosGlosasBiService", () => {
   it("calcula indicadores financeiros sem misturar bases", () => {
@@ -45,5 +45,36 @@ describe("relatoriosGlosasBiService", () => {
     expect(item.glosaSemRecurso).toBe(20);
     expect(item.glosaRecursada).toBe(30);
     expect(item.qtdItens).toBe(2);
+  });
+
+  it("monta filtros cruzados combinados para recalcular todo o painel", () => {
+    const filtro = construirFiltroPainelGlosas({
+      estabelecimentoId: 1,
+      convenioId: 12,
+      mesPagamento: "2026/06",
+      itemDescricao: "SESSÃO DE PSICOLOGIA",
+      procedimentoCodigo: "50000470",
+      motivoCodigo: "1613",
+    });
+
+    expect(filtro.where).toContain("d.estabelecimentoId = ?");
+    expect(filtro.where).toContain("d.convenio_id = ?");
+    expect(filtro.where).toContain("DATE_FORMAT(d.data_pagamento, '%Y/%m') = ?");
+    expect(filtro.where).toContain("TRIM(d.descricao_item) = ?");
+    expect(filtro.where).toContain("TRIM(d.codigo_item) = ?");
+    expect(filtro.where).toContain("TRIM(d.codigo_glosa) = ?");
+    expect(filtro.params).toEqual([1, 12, "2026/06", "SESSÃO DE PSICOLOGIA", "50000470", "1613"]);
+  });
+
+  it("exclui a própria dimensão para manter o ranking navegável e trata códigos ausentes", () => {
+    const filtroItem = construirFiltroPainelGlosas({
+      estabelecimentoId: 1,
+      itemDescricao: "SESSÃO DE PSICOLOGIA",
+      motivoCodigo: "S/MOTIVO",
+    }, "item");
+
+    expect(filtroItem.where).not.toContain("TRIM(d.descricao_item) = ?");
+    expect(filtroItem.where).toContain("d.codigo_glosa IS NULL");
+    expect(filtroItem.params).toEqual([1]);
   });
 });

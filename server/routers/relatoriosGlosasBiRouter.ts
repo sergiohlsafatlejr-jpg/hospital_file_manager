@@ -3,7 +3,7 @@ import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
-import { complementarRankingGlosa, montarResumoGlosas } from "../relatoriosGlosasBiService";
+import { complementarRankingGlosa, construirFiltroPainelGlosas, montarResumoGlosas } from "../relatoriosGlosasBiService";
 
 // Nota: Os códigos TISS reais são resolvidos via LEFT JOIN motivosGlosa na query SQL.
 // Textos descritivos do IPASGO já foram convertidos para códigos TISS no banco (backfill)
@@ -57,6 +57,10 @@ const filtroPainelGlosasSchema = z.object({
   mesPagamentoInicio: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
   mesPagamentoFim: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
   categoriaGlosa: z.string().min(1).optional(),
+  mesPagamento: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
+  itemDescricao: z.string().min(1).max(500).optional(),
+  procedimentoCodigo: z.string().min(1).max(100).optional(),
+  motivoCodigo: z.string().min(1).max(100).optional(),
   limite: z.number().int().min(5).max(50).default(15),
 });
 
@@ -82,25 +86,6 @@ export const relatoriosGlosasBiRouter = router({
       }
       const conn = await mysql2.createConnection(databaseUrl);
       try {
-        const params: any[] = [input.estabelecimentoId];
-        let where = "WHERE d.estabelecimentoId = ? AND d.valor_glosa > 0";
-        if (input.convenioId) {
-          where += " AND d.convenio_id = ?";
-          params.push(input.convenioId);
-        }
-        if (input.mesPagamentoInicio) {
-          where += " AND DATE_FORMAT(d.data_pagamento, '%Y/%m') >= ?";
-          params.push(input.mesPagamentoInicio);
-        }
-        if (input.mesPagamentoFim) {
-          where += " AND DATE_FORMAT(d.data_pagamento, '%Y/%m') <= ?";
-          params.push(input.mesPagamentoFim);
-        }
-        if (input.categoriaGlosa) {
-          where += " AND COALESCE(mg.grupo, 'Outros') = ?";
-          params.push(input.categoriaGlosa);
-        }
-
         const joinBase = `
           FROM demonstrativo d
           LEFT JOIN convenios c ON c.id = d.convenio_id
@@ -110,6 +95,12 @@ export const relatoriosGlosasBiRouter = router({
           COALESCE(d.recurso_status, 'sem_recurso') IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido')
           OR d.classificacao_glosa = 'recursar'
         )`;
+        const resumoFiltro = construirFiltroPainelGlosas(input);
+        const mesFiltro = construirFiltroPainelGlosas(input, "mesPagamento");
+        const convenioFiltro = construirFiltroPainelGlosas(input, "convenio");
+        const itemFiltro = construirFiltroPainelGlosas(input, "item");
+        const procedimentoFiltro = construirFiltroPainelGlosas(input, "procedimento");
+        const motivoFiltro = construirFiltroPainelGlosas(input, "motivo");
 
         const [resumoRows] = await conn.execute<any[]>(`
           SELECT
@@ -120,8 +111,8 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN 0 ELSE CAST(d.valor_glosa AS DECIMAL(14,2)) END) AS glosa_sem_recurso,
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada
           ${joinBase}
-          ${where}
-        `, params);
+          ${resumoFiltro.where}
+        `, resumoFiltro.params);
         const resumo = montarResumoGlosas(resumoRows[0] || {});
 
         const [mesRows] = await conn.execute<any[]>(`
@@ -133,11 +124,11 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
             COUNT(*) AS qtd_itens
           ${joinBase}
-          ${where} AND d.data_pagamento IS NOT NULL
+          ${mesFiltro.where} AND d.data_pagamento IS NOT NULL
           GROUP BY DATE_FORMAT(d.data_pagamento, '%Y/%m')
           ORDER BY mes_pagamento DESC
           LIMIT 18
-        `, params);
+        `, mesFiltro.params);
 
         const limite = input.limite;
         const [convenioRows] = await conn.execute<any[]>(`
@@ -150,11 +141,11 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
             COUNT(*) AS qtd_itens
           ${joinBase}
-          ${where}
+          ${convenioFiltro.where}
           GROUP BY d.convenio_id, c.nome
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
-        `, params);
+        `, convenioFiltro.params);
 
         const [itemRows] = await conn.execute<any[]>(`
           SELECT
@@ -167,11 +158,11 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
             COUNT(*) AS qtd_itens
           ${joinBase}
-          ${where}
+          ${itemFiltro.where}
           GROUP BY COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
-        `, params);
+        `, itemFiltro.params);
 
         const [procedimentoRows] = await conn.execute<any[]>(`
           SELECT
@@ -184,11 +175,11 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
             COUNT(*) AS qtd_itens
           ${joinBase}
-          ${where}
+          ${procedimentoFiltro.where}
           GROUP BY COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO'), COALESCE(NULLIF(TRIM(d.tipo_lancamento), ''), 'Não informado')
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
-        `, params);
+        `, procedimentoFiltro.params);
 
         const [motivoRows] = await conn.execute<any[]>(`
           SELECT
@@ -201,11 +192,11 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${recursoCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_recursada,
             COUNT(*) AS qtd_itens
           ${joinBase}
-          ${where}
+          ${motivoFiltro.where}
           GROUP BY d.codigo_glosa, mg.descricaoSimplificada, mg.descricao, mg.grupo
           ORDER BY valor_glosado DESC
           LIMIT ${limite}
-        `, params);
+        `, motivoFiltro.params);
 
         return {
           resumo,
