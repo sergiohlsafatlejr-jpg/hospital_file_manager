@@ -4450,3 +4450,9 @@
 - [x] Remover nomes, IDs e mensagens exclusivas do PSI do backend, interface, menu, exportação e documentação
 - [x] Validar glosas aceitas do PSI e de outra unidade, além do isolamento cruzado do painel financeiro
 - [x] Executar testes de regressão, validação real, responsividade e build antes do checkpoint
+
+- [x] Auditar todos os gráficos atuais do `/faturado-recebido-unificado` e seus dados disponíveis
+- [x] Criar tooltip financeiro reutilizável com valores, percentuais e contexto do ponto selecionado
+- [x] Adicionar tooltips detalhados aos gráficos de evolução, convênios, motivos e itens
+- [x] Garantir interação por mouse, teclado e toque sem quebrar os filtros cruzados
+- [x] Validar os tooltips em desktop e celular, executar testes e build
