@@ -4437,9 +4437,9 @@
 - [x] Validar os totais corrigidos do PSI contra lotes e itens reais de recurso
 - [x] Executar testes de regressão, validação entre estabelecimentos e build antes do checkpoint
 
-- [ ] Restringir o novo painel `/faturado-recebido-unificado` ao Pronto Socorro Infantil (ID 1)
-- [ ] Redesenhar Faturado x Recebido com KPIs, tabela mensal por convênio e filtros cruzados interativos
-- [ ] Ao clicar em convênio, recalcular faturado, recebido, glosado, saldo, recursos, motivos e itens do PSI
-- [ ] Exibir por Mês/Ano os estados de glosa a recursar, em recurso, recuperada, aceita e pendente
-- [ ] Atualizar exportações para respeitar os filtros cruzados e incluir motivos e itens glosados
-- [ ] Validar valores reais, isolamento do PSI, responsividade móvel, testes e build do relatório unificado
+- [x] Restringir o novo painel `/faturado-recebido-unificado` ao Pronto Socorro Infantil (ID 1)
+- [x] Redesenhar Faturado x Recebido com KPIs, tabela mensal por convênio e filtros cruzados interativos
+- [x] Ao clicar em convênio, recalcular faturado, recebido, glosado, saldo, recursos, motivos e itens do PSI
+- [x] Exibir por Mês/Ano os estados de glosa a recursar, em recurso, recuperada, aceita e pendente
+- [x] Atualizar exportações para respeitar os filtros cruzados e incluir motivos e itens glosados
+- [x] Validar valores reais, isolamento do PSI, responsividade móvel, testes e build do relatório unificado

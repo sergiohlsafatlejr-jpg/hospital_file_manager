@@ -167,7 +167,7 @@ const menuItems: MenuItem[] = [
   { icon: PieChart, label: "Relatórios BI", path: "/relatorios-bi", modulo: "relatoriosBi", children: [
     // Subpasta: Faturamento
     { icon: Receipt, label: "Faturamento", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
-      { icon: BarChart3, label: "Faturado x Recebido (Unificado)", path: "/faturado-recebido-unificado", modulo: "relFaturadoRecebido" },
+      { icon: BarChart3, label: "Faturado x Recebido PSI", path: "/faturado-recebido-unificado", modulo: "relFaturadoRecebido", estabelecimentoIds: [1] },
       { icon: BarChart3, label: "Faturado x Recebido (Legado)", path: "/relatorios-bi", modulo: "relFaturadoRecebido" },
       { icon: Receipt, label: "Recebimento Geral", path: "/relatorio-recebimento-geral", modulo: "relRecebimentoGeral" },
       { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relFaturamento" },

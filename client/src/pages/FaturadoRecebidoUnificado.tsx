@@ -1,978 +1,133 @@
-import { useState, useMemo } from "react";
-import { trpc } from "@/lib/trpc";
-import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import {
-  DollarSign,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  BarChart3,
-  Table as TableIcon,
-  Search,
-  Download,
-  ArrowUpDown,
-  ChevronDown,
-  ChevronUp,
-  Building2,
-  FileText,
-  Package,
-  Users,
-  Database,
-  Filter,
-} from "lucide-react";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  AlertCircle,
+  BarChart3,
+  Building2,
+  CircleDollarSign,
+  Download,
+  FileSpreadsheet,
+  HandCoins,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+  TrendingDown,
+  WalletCards,
+  X,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-const fmtCurrency = (v: number) =>
-  `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+const PSI_ID = 1 as const;
+const COLORS = { navy: "#243653", blue: "#4777b7", teal: "#17847e", coral: "#d0576b", amber: "#d3952f", violet: "#7664a8", grid: "#e5e7eb" };
+const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
+const compact = (value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value || 0));
+const percent = (value: number) => `${Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+const monthLabel = (value: string) => value === "Sem competência" ? value : `${value.slice(5, 7)}/${value.slice(0, 4)}`;
+const short = (value: string, max = 30) => value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
-const fmtPercent = (v: number) => `${v.toFixed(1)}%`;
+function MetricCard({ label, value, helper, icon: Icon, tone }: { label: string; value: string; helper: string; icon: LucideIcon; tone: "navy" | "blue" | "teal" | "coral" | "amber" | "violet" }) {
+  const styles = {
+    navy: "bg-slate-900 text-white border-slate-800",
+    blue: "bg-blue-50 text-blue-900 border-blue-100",
+    teal: "bg-teal-50 text-teal-900 border-teal-100",
+    coral: "bg-rose-50 text-rose-900 border-rose-100",
+    amber: "bg-amber-50 text-amber-900 border-amber-100",
+    violet: "bg-violet-50 text-violet-900 border-violet-100",
+  }[tone];
+  return <div className={`rounded-2xl border p-4 shadow-sm ${styles}`}>
+    <div className="flex items-start justify-between gap-3"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">{label}</p><Icon className="h-4 w-4 opacity-75" /></div>
+    <p className="mt-4 text-xl font-bold tracking-tight sm:text-2xl">{value}</p><p className="mt-1 text-xs opacity-65">{helper}</p>
+  </div>;
+}
 
-const ORIGEM_LABELS: Record<string, string> = {
-  TASY_STAGING: "TASY",
-  XML_TISS: "XML TISS",
-  WARLEINE: "Warleine",
-  XML: "XML",
-  BANCO_CLIENTE: "Banco Cliente",
-};
+function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-semibold text-slate-900">{title}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</p></div>
+    <div className="p-4 sm:p-5">{children}</div>
+  </section>;
+}
 
-type SortField = "descricaoItem" | "totalFaturado" | "totalRecebido" | "totalGlosado" | "totalPendente" | "taxaRecebimento" | "taxaGlosa" | "quantidade";
-type SortDir = "asc" | "desc";
+function FinancialTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl"><p className="mb-2 text-xs font-semibold text-slate-900">{label}</p>{payload.map((entry: any) => <div key={entry.dataKey} className="flex min-w-48 items-center justify-between gap-5 py-0.5 text-xs"><span className="text-slate-500">{entry.name}</span><strong className="text-slate-800">{money(entry.value)}</strong></div>)}</div>;
+}
 
-// ─── componente principal ────────────────────────────────────────────────────
+function Ranking({ data, labelKey, color }: { data: any[]; labelKey: string; color: string }) {
+  const rows = data.slice(0, 8).map((row) => ({ ...row, label: short(String(row[labelKey] || "Não informado"), 27) }));
+  if (!rows.length) return <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">Nenhuma glosa encontrada no recorte.</div>;
+  return <ResponsiveContainer width="100%" height={Math.max(280, rows.length * 42)}><BarChart data={rows} layout="vertical" margin={{ left: 5, right: 18 }}><CartesianGrid stroke={COLORS.grid} horizontal={false} /><XAxis type="number" tickFormatter={compact} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="label" width={160} tick={{ fontSize: 10, fill: COLORS.navy }} axisLine={false} tickLine={false} /><RechartsTooltip content={<FinancialTooltip />} /><Bar dataKey="valorGlosado" name="Valor glosado" fill={color} radius={[0, 7, 7, 0]} barSize={19} /></BarChart></ResponsiveContainer>;
+}
+
 export default function FaturadoRecebidoUnificado() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const isPsi = estabelecimentoAtual?.id === PSI_ID;
+  const [competencia, setCompetencia] = useState<string | undefined>();
+  const [convenio, setConvenio] = useState<string | undefined>();
 
-  // Filtros
-  const [competenciasSel, setCompetenciasSel] = useState<string[]>([]);
-  const [conveniosSel, setConveniosSel] = useState<string[]>([]);
-  const [setorSel, setSetorSel] = useState<string>("todos");
-  const [tipoItemSel, setTipoItemSel] = useState<string>("todos");
-  const [origemSel, setOrigemSel] = useState<string>("todos");
-  const [prestadorSel, setPrestadorSel] = useState<string>("todos");
-  const [searchProc, setSearchProc] = useState("");
-  const [sortField, setSortField] = useState<SortField>("totalFaturado");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [showTop, setShowTop] = useState(50);
-  const [showFilters, setShowFilters] = useState(false);
+  const input = useMemo(() => ({ estabelecimentoId: PSI_ID, competencia, convenio, limite: 10 }), [competencia, convenio]);
+  const query = trpc.faturadoRecebidoPsi.dados.useQuery(input, { enabled: isPsi, staleTime: 60_000, placeholderData: (previous) => previous });
+  const data = query.data;
+  const mesesGrafico = (data?.porMes || []).filter((item: any) => item.competencia !== "Sem competência").slice(-12);
 
-  // Query
-  const { data, isLoading } = trpc.relatoriosBI.faturadoRecebidoUnificado.useQuery(
-    {
-      estabelecimentoId,
-      competencias: competenciasSel.length > 0 ? competenciasSel : undefined,
-      convenios: conveniosSel.length > 0 ? conveniosSel : undefined,
-      setor: setorSel !== "todos" ? setorSel : undefined,
-      tipoItem: tipoItemSel !== "todos" ? tipoItemSel : undefined,
-      origemSistema: origemSel !== "todos" ? origemSel : undefined,
-      prestador: prestadorSel !== "todos" ? prestadorSel : undefined,
-    },
-    { enabled: !!estabelecimentoId }
-  );
+  const toggleConvenio = (value: string) => setConvenio((current) => current === value ? undefined : value);
+  const toggleMes = (value: string) => setCompetencia((current) => current === value ? undefined : value);
+  const clear = () => { setCompetencia(undefined); setConvenio(undefined); };
 
-  // Opções de filtro
-  const competenciaOptions = useMemo(() => {
-    if (!data?.filtrosDisponiveis?.competencias) return [];
-    return data.filtrosDisponiveis.competencias.map((c: string) => ({
-      label: c,
-      value: c,
-    }));
-  }, [data?.filtrosDisponiveis?.competencias]);
-
-  const convenioOptions = useMemo(() => {
-    if (!data?.filtrosDisponiveis?.convenios) return [];
-    return data.filtrosDisponiveis.convenios.map((c: string) => ({
-      label: c,
-      value: c,
-    }));
-  }, [data?.filtrosDisponiveis?.convenios]);
-
-  // Dados filtrados e ordenados por procedimento
-  const procedimentosFiltrados = useMemo(() => {
-    if (!data?.porProcedimento) return [];
-    let items = [...data.porProcedimento];
-    if (searchProc) {
-      const term = searchProc.toLowerCase();
-      items = items.filter(
-        (p) =>
-          p.descricaoItem.toLowerCase().includes(term) ||
-          p.codigoItem.toLowerCase().includes(term)
-      );
-    }
-    items.sort((a, b) => {
-      const aVal = a[sortField] as unknown;
-      const bVal = b[sortField] as unknown;
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-      return sortDir === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-    });
-    return items;
-  }, [data?.porProcedimento, searchProc, sortField, sortDir]);
-
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDir("desc");
-    }
-  };
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
-    return sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />;
-  };
-
-  // Exportar Excel
-  const exportarExcel = () => {
-    if (!data) return;
+  const exportExcel = () => {
+    if (!data) return toast.error("Não há dados para exportar.");
     const wb = XLSX.utils.book_new();
-
-    // Aba Resumo
-    const resumoData = [
-      ["Métrica", "Valor"],
-      ["Total Faturado", data.resumo.totalFaturado],
-      ["Total Recebido", data.resumo.totalRecebido],
-      ["Total Glosado", data.resumo.totalGlosado],
-      ["Total Pendente", data.resumo.totalPendente],
-      ["Total Itens", data.resumo.totalItens],
-      ["Taxa Recebimento (%)", data.resumo.taxaRecebimento],
-      ["Taxa Glosa (%)", data.resumo.taxaGlosa],
-      ["Ticket Médio", data.resumo.ticketMedio],
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumoData), "Resumo");
-
-    // Aba Procedimentos
-    const procData = [
-      ["Código", "Descrição", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd", "% Receb.", "% Glosa"],
-      ...procedimentosFiltrados.map((p) => [
-        p.codigoItem, p.descricaoItem, p.totalFaturado, p.totalRecebido,
-        p.totalGlosado, p.totalPendente, p.quantidade, p.taxaRecebimento, p.taxaGlosa,
-      ]),
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(procData), "Procedimentos");
-
-    // Aba Por Mês
-    if (data.porMes?.length) {
-      const mesData = [
-        ["Competência", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd"],
-        ...data.porMes.map((m) => [m.competencia, m.totalFaturado, m.totalRecebido, m.totalGlosado, m.totalPendente, m.quantidade]),
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mesData), "Por Mês");
-    }
-
-    // Aba Por Convênio
-    if (data.porConvenio?.length) {
-      const convData = [
-        ["Convênio", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd"],
-        ...data.porConvenio.map((c) => [c.convenio, c.totalFaturado, c.totalRecebido, c.totalGlosado, c.totalPendente, c.quantidade]),
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(convData), "Por Convênio");
-    }
-
-    // Aba Por Setor
-    if (data.porSetor?.length) {
-      const setorData = [
-        ["Setor", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd"],
-        ...data.porSetor.map((s) => [s.setor, s.totalFaturado, s.totalRecebido, s.totalGlosado, s.totalPendente, s.quantidade]),
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(setorData), "Por Setor");
-    }
-
-    // Aba Por Tipo de Item
-    if (data.porTipoItem?.length) {
-      const tipoData = [
-        ["Tipo Item", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd", "% Receb.", "% Glosa"],
-        ...data.porTipoItem.map((t) => [t.tipoItem, t.totalFaturado, t.totalRecebido, t.totalGlosado, t.totalPendente, t.quantidade, t.taxaRecebimento, t.taxaGlosa]),
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tipoData), "Por Tipo Item");
-    }
-
-    // Aba Por Prestador
-    if (data.porPrestador?.length) {
-      const prestData = [
-        ["Prestador", "Faturado", "Recebido", "Glosado", "Pendente", "Qtd", "% Receb.", "% Glosa"],
-        ...data.porPrestador.map((p) => [p.prestador, p.totalFaturado, p.totalRecebido, p.totalGlosado, p.totalPendente, p.quantidade, p.taxaRecebimento, p.taxaGlosa]),
-      ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prestData), "Por Prestador");
-    }
-
-    XLSX.writeFile(wb, `Faturado_x_Recebido_Unificado_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    toast.success("Relatório exportado com sucesso!");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["Indicador", "Valor"], ["Estabelecimento", data.estabelecimento.nome], ["Mês/Ano", competencia || "Todos"], ["Convênio", convenio || "Todos"],
+      ["Faturado reconhecido", data.resumo.totalFaturado], ["Recebido", data.resumo.totalRecebido], ["Glosado", data.resumo.totalGlosado], ["Saldo a baixar", data.resumo.totalSaldo], ["Acréscimo", data.resumo.totalAcrescimo],
+      ["Glosa a recursar", data.resumo.glosaARecursar], ["Glosa em recurso", data.resumo.glosaEmRecurso], ["Glosa recuperada", data.resumo.glosaRecuperada], ["Glosa aceita", data.resumo.glosaAceita],
+      ["% Recebido", data.resumo.percentualRecebido], ["% Glosa", data.resumo.percentualGlosa], ["% Recurso", data.resumo.percentualRecurso],
+    ]), "Resumo");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.porConvenio.map((row: any) => ({ "Convênio": row.convenio, "Faturado": row.totalFaturado, "A baixar": row.totalSaldo, "Acréscimo": row.totalAcrescimo, "Glosa a recursar": row.glosaARecursar, "Glosa em recurso": row.glosaEmRecurso, "Glosa recuperada": row.glosaRecuperada, "Glosa aceita": row.glosaAceita, "Recebido": row.totalRecebido, "Glosado": row.totalGlosado, "% Recebido": row.percentualRecebido, "% Glosa": row.percentualGlosa, "% Recurso": row.percentualRecurso }))), "Por Convênio");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.porMes.map((row: any) => ({ "Mês/Ano": row.competencia, "Faturado": row.totalFaturado, "Recebido": row.totalRecebido, "Glosado": row.totalGlosado, "Saldo": row.totalSaldo, "Glosa em recurso": row.glosaEmRecurso, "Glosa recuperada": row.glosaRecuperada }))), "Por Mês");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.motivosGlosa.map((row) => ({ "Código": row.codigo, "Motivo": row.motivo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Motivos de Glosa");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.itensGlosados.map((row) => ({ "Código": row.codigo, "Item": row.item, "Tipo": row.tipo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Itens Glosados");
+    XLSX.writeFile(wb, `faturado-recebido-psi-${competencia?.replace("/", "-") || "historico"}.xlsx`);
+    toast.success("Excel exportado com o recorte atual.");
   };
 
-  return (
-    <DashboardLayout>
-      <div className="space-y-4 sm:space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold">Faturado x Recebido</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Relatório unificado - Contas Convênio (XML, Banco Cliente)
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} className="gap-1.5">
-              <Filter className="h-4 w-4" />
-              Filtros
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportarExcel} className="gap-1.5" disabled={!data}>
-              <Download className="h-4 w-4" />
-              Exportar Excel
-            </Button>
-          </div>
-        </div>
+  if (!isPsi) return <DashboardLayout><main className="flex min-h-[70vh] items-center justify-center bg-slate-50 p-6"><div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm"><AlertCircle className="mx-auto mb-4 h-9 w-9 text-amber-500" /><h1 className="text-lg font-semibold text-slate-900">Relatório exclusivo do Pronto Socorro Infantil</h1><p className="mt-2 text-sm leading-6 text-slate-500">Selecione o estabelecimento Pronto Socorro Infantil para acessar este painel. Nenhum dado de outra unidade é consultado.</p></div></main></DashboardLayout>;
 
-        {/* Filtros */}
-        <Card className={showFilters ? "" : "hidden"}>
-          <CardContent className="pt-4 pb-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Competência</label>
-                <MultiSelect
-                  options={competenciaOptions}
-                  selected={competenciasSel}
-                  onChange={setCompetenciasSel}
-                  placeholder="Todas"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Convênio</label>
-                <MultiSelect
-                  options={convenioOptions}
-                  selected={conveniosSel}
-                  onChange={setConveniosSel}
-                  placeholder="Todos"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Fonte</label>
-                <Select value={origemSel} onValueChange={setOrigemSel}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todas as Fontes</SelectItem>
-                    {data?.filtrosDisponiveis?.origens?.map((o) => (
-                      <SelectItem key={o} value={o}>{ORIGEM_LABELS[o] || o}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Setor</label>
-                <Select value={setorSel} onValueChange={setSetorSel}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos os Setores</SelectItem>
-                    {data?.filtrosDisponiveis?.setores?.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Tipo de Item</label>
-                <Select value={tipoItemSel} onValueChange={setTipoItemSel}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos os Tipos</SelectItem>
-                    {data?.filtrosDisponiveis?.tiposItem?.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Prestador</label>
-                <Select value={prestadorSel} onValueChange={setPrestadorSel}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos os Prestadores</SelectItem>
-                    {data?.filtrosDisponiveis?.prestadores?.slice(0, 100).map((p) => (
-                      <SelectItem key={p} value={p}>{p}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {/* Badges de filtros ativos */}
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {origemSel !== "todos" && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setOrigemSel("todos")}>
-                  Fonte: {ORIGEM_LABELS[origemSel] || origemSel} ×
-                </Badge>
-              )}
-              {setorSel !== "todos" && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setSetorSel("todos")}>
-                  Setor: {setorSel} ×
-                </Badge>
-              )}
-              {tipoItemSel !== "todos" && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setTipoItemSel("todos")}>
-                  Tipo: {tipoItemSel} ×
-                </Badge>
-              )}
-              {prestadorSel !== "todos" && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setPrestadorSel("todos")}>
-                  Prestador: {prestadorSel.slice(0, 20)}... ×
-                </Badge>
-              )}
-              {competenciasSel.length > 0 && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setCompetenciasSel([])}>
-                  {competenciasSel.length} competência(s) ×
-                </Badge>
-              )}
-              {conveniosSel.length > 0 && (
-                <Badge variant="secondary" className="text-xs cursor-pointer" onClick={() => setConveniosSel([])}>
-                  {conveniosSel.length} convênio(s) ×
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+  return <DashboardLayout><main className="min-h-screen bg-[#f4f7fb] px-4 py-5 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1800px] space-y-5">
+    <header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-1.5 bg-gradient-to-r from-slate-900 via-blue-600 to-teal-500" /><div className="flex flex-col gap-5 px-5 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7"><div className="flex items-start gap-4"><div className="rounded-2xl bg-blue-50 p-3 text-blue-700"><BarChart3 className="h-6 w-6" /></div><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight text-slate-950">Faturado x Recebido</h1><span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">Pronto Socorro Infantil</span></div><p className="mt-1 text-sm text-slate-500">Resultado mensal por convênio, retorno financeiro, glosas e recursos</p></div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className="bg-white" onClick={() => query.refetch()} disabled={query.isRefetching}><RefreshCw className={`mr-2 h-4 w-4 ${query.isRefetching ? "animate-spin" : ""}`} />Atualizar</Button><Button size="sm" className="bg-slate-900 text-white hover:bg-slate-800" onClick={exportExcel} disabled={!data}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button></div></div></header>
 
-        {/* Loading */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            <span className="ml-3 text-muted-foreground">Carregando dados...</span>
-          </div>
-        )}
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-[220px_260px_1fr] md:items-end"><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Mês/Ano</label><Select value={competencia || "todos"} onValueChange={(value) => setCompetencia(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todo o histórico</SelectItem>{data?.filtrosDisponiveis.competencias.map((item) => <SelectItem key={item} value={item}>{monthLabel(item)}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Convênio</label><Select value={convenio || "todos"} onValueChange={(value) => setConvenio(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos os convênios</SelectItem>{data?.filtrosDisponiveis.convenios.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-wrap items-center gap-2">{competencia && <button onClick={() => setCompetencia(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Mês {monthLabel(competencia)}<X className="h-3.5 w-3.5" /></button>}{convenio && <button onClick={() => setConvenio(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800">{convenio}<X className="h-3.5 w-3.5" /></button>}{(competencia || convenio) && <Button variant="ghost" size="sm" onClick={clear}><RotateCcw className="mr-2 h-4 w-4" />Limpar filtros</Button>}</div></div></section>
 
-        {/* Sem dados */}
-        {!isLoading && !data && (
-          <div className="text-center py-20 text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-4 opacity-40" />
-            <p>Nenhum dado encontrado para este estabelecimento.</p>
-          </div>
-        )}
+    {query.isLoading && <div className="flex min-h-96 items-center justify-center rounded-2xl bg-white"><Loader2 className="mr-3 h-6 w-6 animate-spin text-blue-600" /><span className="text-sm text-slate-500">Calculando o resultado do PSI...</span></div>}
+    {query.error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">Não foi possível carregar o relatório: {query.error.message}</div>}
 
-        {/* Conteúdo */}
-        {data && (
-          <>
-            {/* KPIs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
-              <Card className="bg-blue-500/10 border-blue-500/20">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <DollarSign className="h-4 w-4 text-blue-500" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Faturado</span>
-                  </div>
-                  <p className="text-sm font-bold text-blue-500">{fmtCurrency(data.resumo.totalFaturado)}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-emerald-500/10 border-emerald-500/20">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-emerald-500" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Recebido</span>
-                  </div>
-                  <p className="text-sm font-bold text-emerald-500">{fmtCurrency(data.resumo.totalRecebido)}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-red-500/10 border-red-500/20">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingDown className="h-4 w-4 text-red-500" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Glosado</span>
-                  </div>
-                  <p className="text-sm font-bold text-red-500">{fmtCurrency(data.resumo.totalGlosado)}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-amber-500/10 border-amber-500/20">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Pendente</span>
-                  </div>
-                  <p className="text-sm font-bold text-amber-500">{fmtCurrency(data.resumo.totalPendente)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Contas</span>
-                  </div>
-                  <p className="text-sm font-bold">{(data.resumo.totalContas || 0).toLocaleString("pt-BR")}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Itens</span>
-                  </div>
-                  <p className="text-sm font-bold">{data.resumo.totalItens.toLocaleString("pt-BR")}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-emerald-500/5 border-emerald-500/10">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-emerald-400" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">% Receb.</span>
-                  </div>
-                  <p className="text-sm font-bold text-emerald-400">{fmtPercent(data.resumo.taxaRecebimento)}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-red-500/5 border-red-500/10">
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingDown className="h-4 w-4 text-red-400" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">% Glosa</span>
-                  </div>
-                  <p className="text-sm font-bold text-red-400">{fmtPercent(data.resumo.taxaGlosa)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Ticket Médio</span>
-                  </div>
-                  <p className="text-sm font-bold">{fmtCurrency(data.resumo.ticketMedio)}</p>
-                </CardContent>
-              </Card>
-            </div>
+    {data && <>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-8"><MetricCard label="Faturado" value={money(data.resumo.totalFaturado)} helper="Base reconhecida no recorte" icon={CircleDollarSign} tone="navy" /><MetricCard label="Recebido" value={money(data.resumo.totalRecebido)} helper={percent(data.resumo.percentualRecebido)} icon={HandCoins} tone="teal" /><MetricCard label="Glosado" value={money(data.resumo.totalGlosado)} helper={`${percent(data.resumo.percentualGlosa)} do faturado`} icon={TrendingDown} tone="coral" /><MetricCard label="A baixar" value={money(data.resumo.totalSaldo)} helper="Saldo ainda sem baixa" icon={WalletCards} tone="amber" /><MetricCard label="Glosa a recursar" value={money(data.resumo.glosaARecursar)} helper="Sem decisão registrada" icon={AlertCircle} tone="amber" /><MetricCard label="Em recurso" value={money(data.resumo.glosaEmRecurso)} helper={`${percent(data.resumo.percentualRecurso)} já recursado`} icon={ShieldCheck} tone="blue" /><MetricCard label="Recuperada" value={money(data.resumo.glosaRecuperada)} helper="Retorno favorável registrado" icon={RefreshCw} tone="teal" /><MetricCard label="Glosa aceita" value={money(data.resumo.glosaAceita)} helper="Aceite registrado na análise" icon={FileSpreadsheet} tone="violet" /></section>
 
-            {/* Abas de visualização */}
-            <Tabs defaultValue="procedimentos" className="space-y-4">
-              <TabsList className="bg-muted/60 flex-wrap h-auto gap-1 p-1 overflow-x-auto">
-                <TabsTrigger value="procedimentos" className="gap-1.5 text-xs">
-                  <TableIcon className="h-3.5 w-3.5" />
-                  Por Procedimento
-                </TabsTrigger>
-                <TabsTrigger value="mensal" className="gap-1.5 text-xs">
-                  <BarChart3 className="h-3.5 w-3.5" />
-                  Por Mês
-                </TabsTrigger>
-                <TabsTrigger value="convenio" className="gap-1.5 text-xs">
-                  <Building2 className="h-3.5 w-3.5" />
-                  Por Convênio
-                </TabsTrigger>
-                <TabsTrigger value="setor" className="gap-1.5 text-xs">
-                  <Building2 className="h-3.5 w-3.5" />
-                  Por Setor
-                </TabsTrigger>
-                <TabsTrigger value="tipoItem" className="gap-1.5 text-xs">
-                  <Package className="h-3.5 w-3.5" />
-                  Por Tipo Item
-                </TabsTrigger>
-                <TabsTrigger value="prestador" className="gap-1.5 text-xs">
-                  <Users className="h-3.5 w-3.5" />
-                  Por Prestador
-                </TabsTrigger>
-                <TabsTrigger value="paciente" className="gap-1.5 text-xs">
-                  <Users className="h-3.5 w-3.5" />
-                  Por Paciente
-                </TabsTrigger>
-              </TabsList>
+      <Panel title={`Resultado ${competencia ? `do mês ${monthLabel(competencia)}` : "consolidado"}`} subtitle="Clique em um convênio para recalcular indicadores, motivos, itens e evolução mensal"><div className="overflow-x-auto"><table className="w-full min-w-[1400px] text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-left uppercase tracking-wide text-slate-500"><th className="px-3 py-3">Convênio</th><th className="px-3 py-3 text-right">Faturado</th><th className="px-3 py-3 text-right">A baixar</th><th className="px-3 py-3 text-right">Acréscimo</th><th className="px-3 py-3 text-right">Glosa a rec.</th><th className="px-3 py-3 text-right">Em recurso</th><th className="px-3 py-3 text-right">Recuperada</th><th className="px-3 py-3 text-right">Aceita</th><th className="px-3 py-3 text-right">Recebido</th><th className="px-3 py-3 text-right">Glosado</th><th className="px-3 py-3 text-right">% receb.</th><th className="px-3 py-3 text-right">% glosa</th><th className="px-3 py-3 text-right">% recurso</th></tr></thead><tbody>{data.porConvenio.map((row: any) => { const active = convenio === row.convenio; return <tr key={row.convenio} onClick={() => toggleConvenio(row.convenio)} className={`cursor-pointer border-b border-slate-100 transition-colors ${active ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50"}`}><td className="px-3 py-3 font-semibold text-slate-900"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-slate-400" />{row.convenio}</span></td><td className="px-3 py-3 text-right font-medium text-slate-900">{money(row.totalFaturado)}</td><td className="px-3 py-3 text-right text-amber-700">{money(row.totalSaldo)}</td><td className="px-3 py-3 text-right text-slate-600">{money(row.totalAcrescimo)}</td><td className="px-3 py-3 text-right text-amber-700">{money(row.glosaARecursar)}</td><td className="px-3 py-3 text-right text-blue-700">{money(row.glosaEmRecurso)}</td><td className="px-3 py-3 text-right text-teal-700">{money(row.glosaRecuperada)}</td><td className="px-3 py-3 text-right text-violet-700">{money(row.glosaAceita)}</td><td className="px-3 py-3 text-right font-medium text-teal-700">{money(row.totalRecebido)}</td><td className="px-3 py-3 text-right font-medium text-rose-700">{money(row.totalGlosado)}</td><td className="px-3 py-3 text-right">{percent(row.percentualRecebido)}</td><td className="px-3 py-3 text-right">{percent(row.percentualGlosa)}</td><td className="px-3 py-3 text-right">{percent(row.percentualRecurso)}</td></tr>; })}</tbody></table></div></Panel>
 
-              {/* === POR PROCEDIMENTO === */}
-              <TabsContent value="procedimentos" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <CardTitle className="text-sm sm:text-base">Faturado x Recebido por Procedimento</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Buscar procedimento..."
-                            value={searchProc}
-                            onChange={(e) => setSearchProc(e.target.value)}
-                            className="pl-9 h-9 w-[250px]"
-                          />
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {procedimentosFiltrados.length} itens
-                        </span>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("descricaoItem")} className="flex items-center gap-1 hover:text-foreground">
-                                Procedimento <SortIcon field="descricaoItem" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("totalFaturado")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                Faturado <SortIcon field="totalFaturado" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("totalRecebido")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                Recebido <SortIcon field="totalRecebido" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("totalGlosado")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                Glosado <SortIcon field="totalGlosado" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("totalPendente")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                Pendente <SortIcon field="totalPendente" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("quantidade")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                Qtd <SortIcon field="quantidade" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("taxaRecebimento")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                % Receb. <SortIcon field="taxaRecebimento" />
-                              </button>
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">
-                              <button onClick={() => toggleSort("taxaGlosa")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                                % Glosa <SortIcon field="taxaGlosa" />
-                              </button>
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {procedimentosFiltrados.slice(0, showTop).map((p, i) => (
-                            <tr key={p.codigoItem + i} className="border-b border-border/20 hover:bg-muted/30">
-                              <td className="py-2 px-2">
-                                <div className="flex flex-col">
-                                  <span className="font-medium text-xs">{p.descricaoItem}</span>
-                                  <span className="text-[10px] text-muted-foreground">{p.codigoItem}</span>
-                                </div>
-                              </td>
-                              <td className="text-right py-2 px-2 text-blue-400 font-medium">{fmtCurrency(p.totalFaturado)}</td>
-                              <td className="text-right py-2 px-2 text-emerald-400 font-medium">{fmtCurrency(p.totalRecebido)}</td>
-                              <td className="text-right py-2 px-2 text-red-400 font-medium">{fmtCurrency(p.totalGlosado)}</td>
-                              <td className="text-right py-2 px-2 text-amber-400 font-medium">{fmtCurrency(p.totalPendente)}</td>
-                              <td className="text-right py-2 px-2">{p.quantidade.toLocaleString("pt-BR")}</td>
-                              <td className="text-right py-2 px-2">
-                                <span className={p.taxaRecebimento >= 90 ? "text-emerald-400" : p.taxaRecebimento >= 70 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(p.taxaRecebimento)}
-                                </span>
-                              </td>
-                              <td className="text-right py-2 px-2">
-                                <span className={p.taxaGlosa <= 5 ? "text-emerald-400" : p.taxaGlosa <= 15 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(p.taxaGlosa)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {procedimentosFiltrados.length > showTop && (
-                      <div className="flex justify-center mt-4">
-                        <Button variant="outline" size="sm" onClick={() => setShowTop((prev) => prev + 50)}>
-                          Mostrar mais ({procedimentosFiltrados.length - showTop} restantes)
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
+      <section className="grid gap-5 xl:grid-cols-2"><Panel title="Evolução por Mês/Ano" subtitle="Clique em um mês para aplicar o filtro cruzado em todo o relatório">{mesesGrafico.length ? <ResponsiveContainer width="100%" height={330}><BarChart data={mesesGrafico} margin={{ top: 10, right: 8, left: 2, bottom: 6 }}><CartesianGrid stroke={COLORS.grid} vertical={false} /><XAxis dataKey="competencia" tickFormatter={monthLabel} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tickFormatter={compact} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><RechartsTooltip content={<FinancialTooltip />} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="totalFaturado" name="Faturado" fill={COLORS.blue} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)}>{mesesGrafico.map((item: any) => <Cell key={item.competencia} fill={competencia && competencia !== item.competencia ? "#cbd5e1" : COLORS.blue} />)}</Bar><Bar dataKey="totalRecebido" name="Recebido" fill={COLORS.teal} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)} /><Bar dataKey="totalGlosado" name="Glosado" fill={COLORS.coral} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)} /></BarChart></ResponsiveContainer> : <div className="flex h-64 items-center justify-center text-sm text-slate-500">Sem evolução mensal para o recorte.</div>}</Panel><Panel title="Convênios por faturamento" subtitle="Clique em uma barra para abrir motivos e itens daquela operadora"><ResponsiveContainer width="100%" height={330}><BarChart data={data.porConvenio.slice(0, 10)} layout="vertical" margin={{ left: 5, right: 18 }}><CartesianGrid stroke={COLORS.grid} horizontal={false} /><XAxis type="number" tickFormatter={compact} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="convenio" width={125} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><RechartsTooltip content={<FinancialTooltip />} /><Bar dataKey="totalFaturado" name="Faturado" fill={COLORS.navy} radius={[0, 7, 7, 0]} barSize={20} cursor="pointer" onClick={(entry: any) => toggleConvenio(entry?.convenio || entry?.payload?.convenio)}>{data.porConvenio.slice(0, 10).map((item: any) => <Cell key={item.convenio} fill={convenio === item.convenio ? COLORS.teal : convenio ? "#cbd5e1" : COLORS.navy} />)}</Bar></BarChart></ResponsiveContainer></Panel></section>
 
-              {/* === POR MÊS === */}
-              <TabsContent value="mensal" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Evolução Mensal - Faturado x Recebido</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {/* Gráfico de barras */}
-                    {data.porMes && data.porMes.length > 0 && (
-                      <div className="mb-6">
-                        <div className="flex items-end gap-1 h-[200px]">
-                          {data.porMes.slice(-12).map((m) => {
-                            const maxVal = Math.max(...data.porMes.slice(-12).map((x) => Math.max(x.totalFaturado, x.totalRecebido)));
-                            const hFat = maxVal > 0 ? (m.totalFaturado / maxVal) * 180 : 0;
-                            const hRec = maxVal > 0 ? (m.totalRecebido / maxVal) * 180 : 0;
-                            return (
-                              <div key={m.competencia} className="flex-1 flex flex-col items-center gap-1">
-                                <div className="flex items-end gap-0.5 h-[180px]">
-                                  <div className="w-3 bg-blue-500 rounded-t-sm transition-all" style={{ height: `${hFat}px` }} title={`Faturado: ${fmtCurrency(m.totalFaturado)}`} />
-                                  <div className="w-3 bg-emerald-500 rounded-t-sm transition-all" style={{ height: `${hRec}px` }} title={`Recebido: ${fmtCurrency(m.totalRecebido)}`} />
-                                </div>
-                                <span className="text-[9px] text-muted-foreground">{m.competencia.slice(5)}/{m.competencia.slice(2, 4)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="flex items-center justify-center gap-4 mt-3">
-                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-blue-500" /><span className="text-xs text-muted-foreground">Faturado</span></div>
-                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /><span className="text-xs text-muted-foreground">Recebido</span></div>
-                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-500" /><span className="text-xs text-muted-foreground">Glosado</span></div>
-                        </div>
-                      </div>
-                    )}
+      <section className="grid gap-5 xl:grid-cols-2"><Panel title={`Principais motivos de glosa${convenio ? ` — ${convenio}` : ""}`} subtitle="Código TISS, descrição e impacto financeiro do recorte"><Ranking data={data.motivosGlosa} labelKey="motivo" color={COLORS.amber} /></Panel><Panel title={`Itens mais glosados${convenio ? ` — ${convenio}` : ""}`} subtitle="Itens e procedimentos que concentram o valor glosado"><Ranking data={data.itensGlosados} labelKey="item" color={COLORS.coral} /></Panel></section>
 
-                    {/* Tabela mensal */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">Competência</th>
-                            <th className="text-right py-2 px-2 font-medium text-blue-400">Faturado</th>
-                            <th className="text-right py-2 px-2 font-medium text-emerald-400">Recebido</th>
-                            <th className="text-right py-2 px-2 font-medium text-red-400">Glosado</th>
-                            <th className="text-right py-2 px-2 font-medium text-amber-400">Pendente</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Receb.</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.porMes?.map((m) => {
-                            const txReceb = m.totalFaturado > 0 ? (m.totalRecebido / m.totalFaturado) * 100 : 0;
-                            return (
-                              <tr key={m.competencia} className="border-b border-border/20 hover:bg-muted/30">
-                                <td className="py-2 px-2 font-medium">{m.competencia}</td>
-                                <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(m.totalFaturado)}</td>
-                                <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(m.totalRecebido)}</td>
-                                <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(m.totalGlosado)}</td>
-                                <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(m.totalPendente)}</td>
-                                <td className="text-right py-2 px-2">{m.quantidade.toLocaleString("pt-BR")}</td>
-                                <td className="text-right py-2 px-2">
-                                  <span className={txReceb >= 90 ? "text-emerald-400" : txReceb >= 70 ? "text-amber-400" : "text-red-400"}>
-                                    {fmtPercent(txReceb)}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {data.porMes && data.porMes.length > 0 && (
-                            <tr className="border-t-2 border-border font-bold">
-                              <td className="py-2 px-2">TOTAL</td>
-                              <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(data.porMes.reduce((s, m) => s + m.totalFaturado, 0))}</td>
-                              <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(data.porMes.reduce((s, m) => s + m.totalRecebido, 0))}</td>
-                              <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(data.porMes.reduce((s, m) => s + m.totalGlosado, 0))}</td>
-                              <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(data.porMes.reduce((s, m) => s + m.totalPendente, 0))}</td>
-                              <td className="text-right py-2 px-2">{data.porMes.reduce((s, m) => s + m.quantidade, 0).toLocaleString("pt-BR")}</td>
-                              <td className="text-right py-2 px-2">{fmtPercent(data.resumo.taxaRecebimento)}</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* === POR CONVÊNIO === */}
-              <TabsContent value="convenio" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Faturado x Recebido por Convênio</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">Convênio</th>
-                            <th className="text-right py-2 px-2 font-medium text-blue-400">Faturado</th>
-                            <th className="text-right py-2 px-2 font-medium text-emerald-400">Recebido</th>
-                            <th className="text-right py-2 px-2 font-medium text-red-400">Glosado</th>
-                            <th className="text-right py-2 px-2 font-medium text-amber-400">Pendente</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Receb.</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Glosa</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.porConvenio?.map((c) => {
-                            const txReceb = c.totalFaturado > 0 ? (c.totalRecebido / c.totalFaturado) * 100 : 0;
-                            const txGlosa = c.totalFaturado > 0 ? (c.totalGlosado / c.totalFaturado) * 100 : 0;
-                            return (
-                              <tr key={c.convenio} className="border-b border-border/20 hover:bg-muted/30">
-                                <td className="py-2 px-2 font-medium">{c.convenio}</td>
-                                <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(c.totalFaturado)}</td>
-                                <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(c.totalRecebido)}</td>
-                                <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(c.totalGlosado)}</td>
-                                <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(c.totalPendente)}</td>
-                                <td className="text-right py-2 px-2">{c.quantidade.toLocaleString("pt-BR")}</td>
-                                <td className="text-right py-2 px-2">
-                                  <span className={txReceb >= 90 ? "text-emerald-400" : txReceb >= 70 ? "text-amber-400" : "text-red-400"}>
-                                    {fmtPercent(txReceb)}
-                                  </span>
-                                </td>
-                                <td className="text-right py-2 px-2">
-                                  <span className={txGlosa <= 5 ? "text-emerald-400" : txGlosa <= 15 ? "text-amber-400" : "text-red-400"}>
-                                    {fmtPercent(txGlosa)}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* === POR SETOR === */}
-              <TabsContent value="setor" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Faturado x Recebido por Setor</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">Setor</th>
-                            <th className="text-right py-2 px-2 font-medium text-blue-400">Faturado</th>
-                            <th className="text-right py-2 px-2 font-medium text-emerald-400">Recebido</th>
-                            <th className="text-right py-2 px-2 font-medium text-red-400">Glosado</th>
-                            <th className="text-right py-2 px-2 font-medium text-amber-400">Pendente</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Receb.</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.porSetor?.map((s) => {
-                            const txReceb = s.totalFaturado > 0 ? (s.totalRecebido / s.totalFaturado) * 100 : 0;
-                            return (
-                              <tr key={s.setor} className="border-b border-border/20 hover:bg-muted/30">
-                                <td className="py-2 px-2 font-medium">{s.setor}</td>
-                                <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(s.totalFaturado)}</td>
-                                <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(s.totalRecebido)}</td>
-                                <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(s.totalGlosado)}</td>
-                                <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(s.totalPendente)}</td>
-                                <td className="text-right py-2 px-2">{s.quantidade.toLocaleString("pt-BR")}</td>
-                                <td className="text-right py-2 px-2">
-                                  <span className={txReceb >= 90 ? "text-emerald-400" : txReceb >= 70 ? "text-amber-400" : "text-red-400"}>
-                                    {fmtPercent(txReceb)}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* === POR TIPO DE ITEM === */}
-              <TabsContent value="tipoItem" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Faturado x Recebido por Tipo de Item</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">Tipo de Item</th>
-                            <th className="text-right py-2 px-2 font-medium text-blue-400">Faturado</th>
-                            <th className="text-right py-2 px-2 font-medium text-emerald-400">Recebido</th>
-                            <th className="text-right py-2 px-2 font-medium text-red-400">Glosado</th>
-                            <th className="text-right py-2 px-2 font-medium text-amber-400">Pendente</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Receb.</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Glosa</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.porTipoItem?.map((t) => (
-                            <tr key={t.tipoItem} className="border-b border-border/20 hover:bg-muted/30">
-                              <td className="py-2 px-2 font-medium">
-                                <Badge variant="outline" className="text-xs">{t.tipoItem}</Badge>
-                              </td>
-                              <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(t.totalFaturado)}</td>
-                              <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(t.totalRecebido)}</td>
-                              <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(t.totalGlosado)}</td>
-                              <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(t.totalPendente)}</td>
-                              <td className="text-right py-2 px-2">{t.quantidade.toLocaleString("pt-BR")}</td>
-                              <td className="text-right py-2 px-2">
-                                <span className={t.taxaRecebimento >= 90 ? "text-emerald-400" : t.taxaRecebimento >= 70 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(t.taxaRecebimento)}
-                                </span>
-                              </td>
-                              <td className="text-right py-2 px-2">
-                                <span className={t.taxaGlosa <= 5 ? "text-emerald-400" : t.taxaGlosa <= 15 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(t.taxaGlosa)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* === POR PRESTADOR === */}
-              <TabsContent value="prestador" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Faturado x Recebido por Prestador</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border/50">
-                            <th className="text-left py-2 px-2 font-medium text-muted-foreground">Prestador</th>
-                            <th className="text-right py-2 px-2 font-medium text-blue-400">Faturado</th>
-                            <th className="text-right py-2 px-2 font-medium text-emerald-400">Recebido</th>
-                            <th className="text-right py-2 px-2 font-medium text-red-400">Glosado</th>
-                            <th className="text-right py-2 px-2 font-medium text-amber-400">Pendente</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Receb.</th>
-                            <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Glosa</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.porPrestador?.slice(0, 50).map((p) => (
-                            <tr key={p.prestador} className="border-b border-border/20 hover:bg-muted/30">
-                              <td className="py-2 px-2 font-medium text-xs">{p.prestador}</td>
-                              <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(p.totalFaturado)}</td>
-                              <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(p.totalRecebido)}</td>
-                              <td className="text-right py-2 px-2 text-red-400">{fmtCurrency(p.totalGlosado)}</td>
-                              <td className="text-right py-2 px-2 text-amber-400">{fmtCurrency(p.totalPendente)}</td>
-                              <td className="text-right py-2 px-2">{p.quantidade.toLocaleString("pt-BR")}</td>
-                              <td className="text-right py-2 px-2">
-                                <span className={p.taxaRecebimento >= 90 ? "text-emerald-400" : p.taxaRecebimento >= 70 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(p.taxaRecebimento)}
-                                </span>
-                              </td>
-                              <td className="text-right py-2 px-2">
-                                <span className={p.taxaGlosa <= 5 ? "text-emerald-400" : p.taxaGlosa <= 15 ? "text-amber-400" : "text-red-400"}>
-                                  {fmtPercent(p.taxaGlosa)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              {/* === POR PACIENTE === */}
-              <TabsContent value="paciente" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                    <CardTitle className="text-base">Faturado x Recebido por Paciente</CardTitle>
-                    {data.porPaciente && data.porPaciente.length > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={() => {
-                          const headers = ["Paciente", "Carteira", "Guia", "Lote", "Total Faturado", "Total Recebido", "Data Pagamento"];
-                          const rows = data.porPaciente.map(p => [
-                            p.pacienteNome,
-                            p.carteiraBeneficiario,
-                            p.numeroGuia,
-                            p.numeroLote,
-                            p.totalFaturado.toFixed(2).replace(".", ","),
-                            (p.totalRecebido || 0).toFixed(2).replace(".", ","),
-                            p.dataPagamento ? new Date(p.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
-                          ]);
-                          const totalRow = [
-                            "TOTAL",
-                            "",
-                            "",
-                            "",
-                            data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0).toFixed(2).replace(".", ","),
-                            data.porPaciente.reduce((s, p) => s + (p.totalRecebido || 0), 0).toFixed(2).replace(".", ","),
-                            "",
-                          ];
-                          const csvContent = "\uFEFF" + [headers, ...rows, totalRow].map(r => r.map(c => `"${c}"`).join(";")).join("\n");
-                          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = `pacientes_faturado_recebido_${new Date().toISOString().slice(0,10)}.csv`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Exportar CSV
-                      </Button>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    {data.porPaciente && data.porPaciente.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-border/50">
-                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Paciente</th>
-                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Carteira</th>
-                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Guia</th>
-                              <th className="text-left py-2 px-2 font-medium text-muted-foreground">Lote</th>
-                              <th className="text-right py-2 px-2 font-medium text-blue-400">Total Faturado</th>
-                              <th className="text-right py-2 px-2 font-medium text-emerald-400">Total Recebido</th>
-                              <th className="text-right py-2 px-2 font-medium text-muted-foreground">Data Pagamento</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.porPaciente.map((p, i) => (
-                              <tr key={`${p.numeroConta}-${i}`} className="border-b border-border/20 hover:bg-muted/30">
-                                <td className="py-2 px-2 font-medium text-xs max-w-[180px] truncate" title={p.pacienteNome}>{p.pacienteNome}</td>
-                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.carteiraBeneficiario}</td>
-                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroGuia}</td>
-                                <td className="py-2 px-2 text-xs text-muted-foreground">{p.numeroLote}</td>
-                                <td className="text-right py-2 px-2 text-blue-400 font-medium">{fmtCurrency(p.totalFaturado)}</td>
-                                <td className="text-right py-2 px-2 text-emerald-400 font-medium">{fmtCurrency(p.totalRecebido || 0)}</td>
-                                <td className="text-right py-2 px-2 text-muted-foreground text-xs">{p.dataPagamento ? new Date(p.dataPagamento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}</td>
-                              </tr>
-                            ))}
-                            <tr className="border-t-2 border-border font-bold">
-                              <td className="py-2 px-2" colSpan={4}>TOTAL ({data.porPaciente.length} registros)</td>
-                              <td className="text-right py-2 px-2 text-blue-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + p.totalFaturado, 0))}</td>
-                              <td className="text-right py-2 px-2 text-emerald-400">{fmtCurrency(data.porPaciente.reduce((s, p) => s + (p.totalRecebido || 0), 0))}</td>
-                              <td></td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Nenhum dado disponível para os filtros selecionados.</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </>
-        )}
-      </div>
-    </DashboardLayout>
-  );
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs leading-5 text-slate-500"><strong className="text-slate-700">Metodologia auditável:</strong> faturado por competência no XML de Conta Convênio, com piso no valor processado confirmado pelo demonstrativo; recebido e glosado pelo mês de referência do demonstrativo; recursos vinculados por estabelecimento, guia, código e valor. O painel não consulta outros estabelecimentos.</div>
+    </>}
+  </div></main></DashboardLayout>;
 }
