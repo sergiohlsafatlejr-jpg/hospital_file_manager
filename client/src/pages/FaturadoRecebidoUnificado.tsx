@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
@@ -35,7 +35,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const PSI_ID = 1 as const;
 const COLORS = { navy: "#243653", blue: "#4777b7", teal: "#17847e", coral: "#d0576b", amber: "#d3952f", violet: "#7664a8", grid: "#e5e7eb" };
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 const compact = (value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value || 0));
@@ -78,12 +77,16 @@ function Ranking({ data, labelKey, color }: { data: any[]; labelKey: string; col
 
 export default function FaturadoRecebidoUnificado() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const isPsi = estabelecimentoAtual?.id === PSI_ID;
   const [competencia, setCompetencia] = useState<string | undefined>();
   const [convenio, setConvenio] = useState<string | undefined>();
 
-  const input = useMemo(() => ({ estabelecimentoId: PSI_ID, competencia, convenio, limite: 10 }), [competencia, convenio]);
-  const query = trpc.faturadoRecebidoPsi.dados.useQuery(input, { enabled: isPsi, staleTime: 60_000, placeholderData: (previous) => previous });
+  const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
+  useEffect(() => {
+    setCompetencia(undefined);
+    setConvenio(undefined);
+  }, [estabelecimentoId]);
+  const input = useMemo(() => ({ estabelecimentoId, competencia, convenio, limite: 10 }), [estabelecimentoId, competencia, convenio]);
+  const query = trpc.faturadoRecebidoUnificado.dados.useQuery(input, { enabled: estabelecimentoId > 0, staleTime: 60_000, placeholderData: (previous) => previous });
   const data = query.data;
   const mesesGrafico = (data?.porMes || []).filter((item: any) => item.competencia !== "Sem competência").slice(-12);
 
@@ -104,18 +107,19 @@ export default function FaturadoRecebidoUnificado() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.porMes.map((row: any) => ({ "Mês/Ano": row.competencia, "Faturado": row.totalFaturado, "Recebido": row.totalRecebido, "Glosado": row.totalGlosado, "Saldo": row.totalSaldo, "Glosa em recurso": row.glosaEmRecurso, "Glosa recuperada": row.glosaRecuperada }))), "Por Mês");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.motivosGlosa.map((row) => ({ "Código": row.codigo, "Motivo": row.motivo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Motivos de Glosa");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.itensGlosados.map((row) => ({ "Código": row.codigo, "Item": row.item, "Tipo": row.tipo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Itens Glosados");
-    XLSX.writeFile(wb, `faturado-recebido-psi-${competencia?.replace("/", "-") || "historico"}.xlsx`);
+    const unidade = data.estabelecimento.nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    XLSX.writeFile(wb, `faturado-recebido-${unidade}-${competencia?.replace("/", "-") || "historico"}.xlsx`);
     toast.success("Excel exportado com o recorte atual.");
   };
 
-  if (!isPsi) return <DashboardLayout><main className="flex min-h-[70vh] items-center justify-center bg-slate-50 p-6"><div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm"><AlertCircle className="mx-auto mb-4 h-9 w-9 text-amber-500" /><h1 className="text-lg font-semibold text-slate-900">Relatório exclusivo do Pronto Socorro Infantil</h1><p className="mt-2 text-sm leading-6 text-slate-500">Selecione o estabelecimento Pronto Socorro Infantil para acessar este painel. Nenhum dado de outra unidade é consultado.</p></div></main></DashboardLayout>;
+  if (!estabelecimentoAtual) return <DashboardLayout><main className="flex min-h-[70vh] items-center justify-center bg-slate-50 p-6"><div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm"><AlertCircle className="mx-auto mb-4 h-9 w-9 text-amber-500" /><h1 className="text-lg font-semibold text-slate-900">Selecione um estabelecimento</h1><p className="mt-2 text-sm leading-6 text-slate-500">Escolha a unidade no cabeçalho para carregar somente os dados autorizados daquele estabelecimento.</p></div></main></DashboardLayout>;
 
   return <DashboardLayout><main className="min-h-screen bg-[#f4f7fb] px-4 py-5 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1800px] space-y-5">
-    <header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-1.5 bg-gradient-to-r from-slate-900 via-blue-600 to-teal-500" /><div className="flex flex-col gap-5 px-5 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7"><div className="flex items-start gap-4"><div className="rounded-2xl bg-blue-50 p-3 text-blue-700"><BarChart3 className="h-6 w-6" /></div><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight text-slate-950">Faturado x Recebido</h1><span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">Pronto Socorro Infantil</span></div><p className="mt-1 text-sm text-slate-500">Resultado mensal por convênio, retorno financeiro, glosas e recursos</p></div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className="bg-white" onClick={() => query.refetch()} disabled={query.isRefetching}><RefreshCw className={`mr-2 h-4 w-4 ${query.isRefetching ? "animate-spin" : ""}`} />Atualizar</Button><Button size="sm" className="bg-slate-900 text-white hover:bg-slate-800" onClick={exportExcel} disabled={!data}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button></div></div></header>
+    <header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-1.5 bg-gradient-to-r from-slate-900 via-blue-600 to-teal-500" /><div className="flex flex-col gap-5 px-5 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7"><div className="flex items-start gap-4"><div className="rounded-2xl bg-blue-50 p-3 text-blue-700"><BarChart3 className="h-6 w-6" /></div><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight text-slate-950">Faturado x Recebido</h1><span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">{estabelecimentoAtual.nome}</span></div><p className="mt-1 text-sm text-slate-500">Resultado mensal por convênio, retorno financeiro, glosas e recursos</p></div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className="bg-white" onClick={() => query.refetch()} disabled={query.isRefetching}><RefreshCw className={`mr-2 h-4 w-4 ${query.isRefetching ? "animate-spin" : ""}`} />Atualizar</Button><Button size="sm" className="bg-slate-900 text-white hover:bg-slate-800" onClick={exportExcel} disabled={!data}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button></div></div></header>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="grid gap-3 md:grid-cols-[220px_260px_1fr] md:items-end"><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Mês/Ano</label><Select value={competencia || "todos"} onValueChange={(value) => setCompetencia(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todo o histórico</SelectItem>{data?.filtrosDisponiveis.competencias.map((item) => <SelectItem key={item} value={item}>{monthLabel(item)}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Convênio</label><Select value={convenio || "todos"} onValueChange={(value) => setConvenio(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos os convênios</SelectItem>{data?.filtrosDisponiveis.convenios.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-wrap items-center gap-2">{competencia && <button onClick={() => setCompetencia(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Mês {monthLabel(competencia)}<X className="h-3.5 w-3.5" /></button>}{convenio && <button onClick={() => setConvenio(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800">{convenio}<X className="h-3.5 w-3.5" /></button>}{(competencia || convenio) && <Button variant="ghost" size="sm" onClick={clear}><RotateCcw className="mr-2 h-4 w-4" />Limpar filtros</Button>}</div></div></section>
 
-    {query.isLoading && <div className="flex min-h-96 items-center justify-center rounded-2xl bg-white"><Loader2 className="mr-3 h-6 w-6 animate-spin text-blue-600" /><span className="text-sm text-slate-500">Calculando o resultado do PSI...</span></div>}
+    {query.isLoading && <div className="flex min-h-96 items-center justify-center rounded-2xl bg-white"><Loader2 className="mr-3 h-6 w-6 animate-spin text-blue-600" /><span className="text-sm text-slate-500">Calculando o resultado de {estabelecimentoAtual.nome}...</span></div>}
     {query.error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">Não foi possível carregar o relatório: {query.error.message}</div>}
 
     {data && <>
@@ -127,7 +131,7 @@ export default function FaturadoRecebidoUnificado() {
 
       <section className="grid gap-5 xl:grid-cols-2"><Panel title={`Principais motivos de glosa${convenio ? ` — ${convenio}` : ""}`} subtitle="Código TISS, descrição e impacto financeiro do recorte"><Ranking data={data.motivosGlosa} labelKey="motivo" color={COLORS.amber} /></Panel><Panel title={`Itens mais glosados${convenio ? ` — ${convenio}` : ""}`} subtitle="Itens e procedimentos que concentram o valor glosado"><Ranking data={data.itensGlosados} labelKey="item" color={COLORS.coral} /></Panel></section>
 
-      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs leading-5 text-slate-500"><strong className="text-slate-700">Metodologia auditável:</strong> faturado por competência no XML de Conta Convênio, com piso no valor processado confirmado pelo demonstrativo; recebido e glosado pelo mês de referência do demonstrativo; recursos vinculados por estabelecimento, guia, código e valor. O painel não consulta outros estabelecimentos.</div>
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs leading-5 text-slate-500"><strong className="text-slate-700">Metodologia auditável:</strong> faturado por competência no XML de Conta Convênio, com piso no valor processado confirmado pelo demonstrativo; recebido e glosado pelo mês de referência do demonstrativo; recursos vinculados por estabelecimento, guia, código e valor. Todas as consultas são restritas à unidade selecionada.</div>
     </>}
   </div></main></DashboardLayout>;
 }

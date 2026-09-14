@@ -47,6 +47,12 @@ for (const [nome, painel] of [["Pronto Socorro Infantil", prontoSocorro], ["Imec
 if (prontoSocorro.recursosAnalisados.quantidadeRecursada < 628) {
   throw new Error(`PSI: somente ${prontoSocorro.recursosAnalisados.quantidadeRecursada} recursos foram consolidados; esperado mínimo de 628`);
 }
+if (prontoSocorro.resumo.glosaAceita < 32001.35 || prontoSocorro.recursosAnalisados.quantidadeAceitaHistorica < 3066) {
+  throw new Error(`PSI: glosas aceitas históricas incompletas; valor ${prontoSocorro.resumo.glosaAceita} e ${prontoSocorro.recursosAnalisados.quantidadeAceitaHistorica} decisões`);
+}
+if (prontoSocorro.recursosAnalisados.quantidadeAceitaHistoricaSemPeriodo !== prontoSocorro.recursosAnalisados.quantidadeAceitaHistorica) {
+  throw new Error("PSI: aceites históricos sem data foram indevidamente atribuídos a Mês/Ano");
+}
 if (prontoSocorro.recursosAnalisados.lotes.length < 6) {
   throw new Error("PSI: os seis lotes históricos enviados não foram preservados no relatório");
 }

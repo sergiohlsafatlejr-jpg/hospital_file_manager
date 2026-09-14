@@ -642,6 +642,7 @@ export default function RelatoriosGlosasBi() {
                     <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Glosa aceita</p><Undo2 className="h-4 w-4 text-rose-600" /></div>
                     <p className="mt-2 text-xl font-bold text-rose-800">{fmtCurrency(data.resumo.glosaAceita)}</p>
                     <p className="mt-1 text-xs text-rose-700">{fmtPercent(data.resumo.percentualAceito)} do valor glosado</p>
+                    {(data.recursosAnalisados?.quantidadeAceitaHistorica || 0) > 0 && <p className="mt-2 text-[11px] leading-4 text-rose-700">{data.recursosAnalisados.quantidadeAceitaHistorica.toLocaleString("pt-BR")} decisões históricas recuperadas com vínculo seguro. Sem Mês/Ano quando a origem não preservou a data.</p>}
                   </div>
                   <div className="rounded-xl border border-teal-200 bg-teal-50 p-4">
                     <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Glosa recursada</p><ShieldCheck className="h-4 w-4 text-teal-600" /></div>

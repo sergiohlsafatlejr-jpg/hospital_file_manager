@@ -1,6 +1,4 @@
-export const PSI_ESTABELECIMENTO_ID = 1 as const;
-
-export type RegistroFinanceiroPsi = {
+export type RegistroFinanceiroUnificado = {
   competencia: string | null;
   convenio: string;
   fonte?: "faturado" | "retorno" | "recurso";
@@ -15,7 +13,7 @@ export type RegistroFinanceiroPsi = {
   quantidade?: number;
 };
 
-export type IndicadoresFinanceirosPsi = {
+export type IndicadoresFinanceirosUnificado = {
   totalFaturado: number;
   totalRecebido: number;
   totalGlosado: number;
@@ -32,10 +30,10 @@ export type IndicadoresFinanceirosPsi = {
   percentualRecurso: number;
 };
 
-const arredondar = (valor: number) => Number((Number(valor || 0)).toFixed(2));
+const arredondar = (valor: number) => Number(Number(valor || 0).toFixed(2));
 const percentual = (valor: number, base: number) => base > 0 ? arredondar((valor / base) * 100) : 0;
 
-export function normalizarConvenioPsi(valor: string | null | undefined) {
+export function normalizarConvenio(valor: string | null | undefined) {
   return String(valor || "Sem convênio")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -44,7 +42,7 @@ export function normalizarConvenioPsi(valor: string | null | undefined) {
     .toUpperCase();
 }
 
-export function consolidarRegistrosPsi(registros: RegistroFinanceiroPsi[]) {
+export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnificado[]) {
   const grupos = new Map<string, {
     competencia: string | null;
     convenio: string;
@@ -60,7 +58,7 @@ export function consolidarRegistrosPsi(registros: RegistroFinanceiroPsi[]) {
   }>();
 
   for (const item of registros) {
-    const chave = `${item.competencia || "SEM_COMPETENCIA"}|${normalizarConvenioPsi(item.convenio)}`;
+    const chave = `${item.competencia || "SEM_COMPETENCIA"}|${normalizarConvenio(item.convenio)}`;
     const atual = grupos.get(chave) || {
       competencia: item.competencia,
       convenio: item.convenio,
@@ -86,7 +84,7 @@ export function consolidarRegistrosPsi(registros: RegistroFinanceiroPsi[]) {
     grupos.set(chave, atual);
   }
 
-  return [...grupos.values()].map((item): RegistroFinanceiroPsi => {
+  return [...grupos.values()].map((item): RegistroFinanceiroUnificado => {
     const processadoNoRetorno = item.recebido + item.glosado;
     return {
       competencia: item.competencia,
@@ -103,7 +101,7 @@ export function consolidarRegistrosPsi(registros: RegistroFinanceiroPsi[]) {
   });
 }
 
-export function calcularIndicadoresPsi(registros: RegistroFinanceiroPsi[]): IndicadoresFinanceirosPsi {
+export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnificado[]): IndicadoresFinanceirosUnificado {
   const bruto = registros.reduce((total, item) => ({
     totalFaturado: total.totalFaturado + Number(item.faturado || 0),
     totalRecebido: total.totalRecebido + Number(item.recebido || 0),
@@ -112,7 +110,6 @@ export function calcularIndicadoresPsi(registros: RegistroFinanceiroPsi[]): Indi
     glosaRecursada: total.glosaRecursada + Number(item.glosaRecursada || 0),
     glosaEmRecurso: total.glosaEmRecurso + Number(item.glosaEmRecurso || 0),
     glosaRecuperada: total.glosaRecuperada + Number(item.glosaRecuperada || 0),
-    totalAcrescimoInformado: total.totalAcrescimoInformado + Number(item.acrescimo || 0),
     quantidade: total.quantidade + Number(item.quantidade || 0),
   }), {
     totalFaturado: 0,
@@ -122,7 +119,6 @@ export function calcularIndicadoresPsi(registros: RegistroFinanceiroPsi[]): Indi
     glosaRecursada: 0,
     glosaEmRecurso: 0,
     glosaRecuperada: 0,
-    totalAcrescimoInformado: 0,
     quantidade: 0,
   });
 
@@ -155,8 +151,8 @@ export function calcularIndicadoresPsi(registros: RegistroFinanceiroPsi[]): Indi
   };
 }
 
-export function agruparFinanceiroPsi(registros: RegistroFinanceiroPsi[], dimensao: "competencia" | "convenio") {
-  const grupos = new Map<string, RegistroFinanceiroPsi[]>();
+export function agruparFinanceiro(registros: RegistroFinanceiroUnificado[], dimensao: "competencia" | "convenio") {
+  const grupos = new Map<string, RegistroFinanceiroUnificado[]>();
   for (const registro of registros) {
     const chave = dimensao === "competencia" ? (registro.competencia || "Sem competência") : registro.convenio;
     const atual = grupos.get(chave) || [];
@@ -165,6 +161,6 @@ export function agruparFinanceiroPsi(registros: RegistroFinanceiroPsi[], dimensa
   }
   return [...grupos.entries()].map(([chave, itens]) => ({
     [dimensao]: chave,
-    ...calcularIndicadoresPsi(itens),
+    ...calcularIndicadoresFinanceiros(itens),
   }));
 }

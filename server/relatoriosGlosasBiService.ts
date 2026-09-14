@@ -44,7 +44,7 @@ export type EventoAnaliseGlosa = {
   motivoCodigo?: string | null;
   categoriaGlosa?: string | null;
   vinculadoAoDemonstrativo?: boolean;
-  fonte?: "demonstrativo" | "recursosGlosa";
+  fonte?: "demonstrativo" | "recursosGlosa" | "decisoesGlosa";
   statusRecurso?: string | null;
   loteId?: number | null;
   numeroLote?: string | null;

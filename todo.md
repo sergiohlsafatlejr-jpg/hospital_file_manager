@@ -4443,3 +4443,10 @@
 - [x] Exibir por Mês/Ano os estados de glosa a recursar, em recurso, recuperada, aceita e pendente
 - [x] Atualizar exportações para respeitar os filtros cruzados e incluir motivos e itens glosados
 - [x] Validar valores reais, isolamento do PSI, responsividade móvel, testes e build do relatório unificado
+
+- [x] Auditar e consolidar todas as fontes atuais e históricas de glosas aceitas no `/relatorios-glosas-bi`
+- [x] Vincular glosas aceitas ao estabelecimento, período, convênio, item, procedimento e motivo sem duplicidade
+- [x] Generalizar `/faturado-recebido-unificado` para o estabelecimento selecionado com autorização obrigatória
+- [x] Remover nomes, IDs e mensagens exclusivas do PSI do backend, interface, menu, exportação e documentação
+- [x] Validar glosas aceitas do PSI e de outra unidade, além do isolamento cruzado do painel financeiro
+- [x] Executar testes de regressão, validação real, responsividade e build antes do checkpoint

@@ -239,6 +239,58 @@ export const relatoriosGlosasBiRouter = router({
         `, motivoFiltro.params);
 
         const [analiseRows] = await conn.execute<any[]>(`
+          WITH candidatos_base AS (
+            SELECT d.estabelecimentoId, d.convenio_id,
+              TRIM(COALESCE(d.codigo_item,'')) AS codigo_item,
+              ROUND(COALESCE(d.valor_glosa,0),2) AS valor_glosa,
+              DATE_FORMAT(d.data_pagamento,'%Y/%m') AS mes_pagamento,
+              COALESCE(NULLIF(TRIM(d.descricao_item),''),'Item sem descrição') AS item_descricao,
+              COALESCE(NULLIF(TRIM(d.codigo_glosa),''),'S/MOTIVO') AS motivo_codigo,
+              COALESCE(NULLIF(TRIM(mgd.grupo),''),'Outros') AS categoria_glosa
+            FROM demonstrativo d
+            LEFT JOIN motivosGlosa mgd ON mgd.codigo=d.codigo_glosa AND mgd.ativo='sim'
+            WHERE COALESCE(d.valor_glosa,0)>0
+
+            UNION ALL
+
+            SELECT re.estabelecimentoId, re.convenioId,
+              TRIM(COALESCE(re.item,'')), ROUND(COALESCE(re.valor_glosa,0),2),
+              DATE_FORMAT(COALESCE(re.data_pagamento,re.data_pagamento_upload,re.data_pagto),'%Y/%m'),
+              COALESCE(NULLIF(TRIM(re.item_desc),''),'Item sem descrição'),
+              COALESCE(NULLIF(TRIM(re.codigo_glosa),''),'S/MOTIVO'),
+              COALESCE(NULLIF(TRIM(mgre.grupo),''),'Outros')
+            FROM recebimentos_excel re
+            LEFT JOIN motivosGlosa mgre ON mgre.codigo=re.codigo_glosa AND mgre.ativo='sim'
+            WHERE COALESCE(re.valor_glosa,0)>0
+
+            UNION ALL
+
+            SELECT ca.estabelecimentoId, ca.convenioId,
+              TRIM(COALESCE(ca.codigoItem,'')), ROUND(COALESCE(ca.valorGlosa,0),2),
+              NULLIF(TRIM(ca.competenciaPagamento),''),
+              COALESCE(NULLIF(TRIM(ca.descricaoItem),''),'Item sem descrição'),
+              COALESCE(NULLIF(TRIM(ca.codigoGlosa),''),'S/MOTIVO'),
+              COALESCE(NULLIF(TRIM(mgca.grupo),''),'Outros')
+            FROM conciliados_automatico ca
+            LEFT JOIN motivosGlosa mgca ON mgca.codigo=ca.codigoGlosa AND mgca.ativo='sim'
+            WHERE COALESCE(ca.valorGlosa,0)>0
+          ),
+          candidatos AS (
+            SELECT estabelecimentoId, convenio_id, codigo_item, valor_glosa,
+              MIN(mes_pagamento) AS mes_pagamento,
+              MIN(item_descricao) AS item_descricao,
+              MIN(motivo_codigo) AS motivo_codigo,
+              MIN(categoria_glosa) AS categoria_glosa
+            FROM candidatos_base
+            GROUP BY estabelecimentoId, convenio_id, codigo_item, valor_glosa
+          ),
+          mapa_candidatos AS (
+            SELECT convenio_id, codigo_item, valor_glosa,
+              COUNT(DISTINCT estabelecimentoId) AS qtd_estabelecimentos,
+              MIN(estabelecimentoId) AS estabelecimento_id
+            FROM candidatos
+            GROUP BY convenio_id, codigo_item, valor_glosa
+          )
           SELECT
             'aceita' AS tipo,
             CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2)) AS valor,
@@ -263,6 +315,50 @@ export const relatoriosGlosasBiRouter = router({
           WHERE d.estabelecimentoId = ?
             AND COALESCE(d.valor_glosa, 0) > 0
             AND ${aceiteCondicao}
+
+          UNION ALL
+
+          SELECT
+            'aceita' AS tipo,
+            CAST(COALESCE(dg.valorGlosado,0) AS DECIMAL(14,2)) AS valor,
+            NULL AS mes_pagamento,
+            dg.convenioId AS convenio_id,
+            COALESCE(ck.item_descricao,NULLIF(TRIM(dg.codigoProcedimento),''),'Item sem descrição') AS item_descricao,
+            COALESCE(NULLIF(TRIM(dg.codigoProcedimento),''),'S/CÓDIGO') AS procedimento_codigo,
+            COALESCE(NULLIF(TRIM(ck.motivo_codigo),''),NULLIF(TRIM(dg.codigoGlosa),''),'S/MOTIVO') AS motivo_codigo,
+            COALESCE(NULLIF(TRIM(ck.categoria_glosa),''),'Outros') AS categoria_glosa,
+            0 AS vinculado_demonstrativo,
+            'decisoesGlosa' AS fonte,
+            'aceita_historica' AS status_recurso,
+            NULL AS lote_id,
+            NULL AS numero_lote,
+            COALESCE(cdg.nome,CONCAT('Convênio ',dg.convenioId)) AS convenio_nome,
+            DATE_FORMAT(dg.createdAt,'%Y-%m-%d') AS data_criacao,
+            NULL AS data_envio
+          FROM decisoesGlosa dg
+          INNER JOIN mapa_candidatos mc
+            ON mc.convenio_id=dg.convenioId
+            AND mc.codigo_item=TRIM(COALESCE(dg.codigoProcedimento,''))
+            AND mc.valor_glosa=ROUND(COALESCE(dg.valorGlosado,0),2)
+          INNER JOIN candidatos ck
+            ON ck.estabelecimentoId=?
+            AND ck.convenio_id=dg.convenioId
+            AND ck.codigo_item=TRIM(COALESCE(dg.codigoProcedimento,''))
+            AND ck.valor_glosa=ROUND(COALESCE(dg.valorGlosado,0),2)
+          LEFT JOIN convenios cdg ON cdg.id=dg.convenioId
+          WHERE dg.decisao='aceitar'
+            AND mc.qtd_estabelecimentos=1
+            AND mc.estabelecimento_id=?
+            AND NOT EXISTS (
+              SELECT 1 FROM demonstrativo datual
+              WHERE datual.id=dg.procedimentoId
+                AND datual.estabelecimentoId=?
+                AND COALESCE(datual.valor_glosa,0)>0
+                AND (
+                  COALESCE(datual.glosa_aceita,0)=1
+                  OR COALESCE(datual.classificacao_glosa,'pendente') IN ('aceitar','auto_aceitar')
+                )
+            )
 
           UNION ALL
 
@@ -352,7 +448,15 @@ export const relatoriosGlosasBiRouter = router({
                 AND TRIM(COALESCE(rg.codigoProcedimento, '')) = TRIM(COALESCE(d.codigo_item, ''))
                 AND ROUND(COALESCE(rg.valorGlosado, 0), 2) = ROUND(COALESCE(d.valor_glosa, 0), 2)
             )
-        `, [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]);
+        `, [
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+        ]);
 
         const eventosAnalise: EventoAnaliseGlosa[] = analiseRows.map((row: any) => ({
           tipo: row.tipo === "aceita" ? "aceita" : "recursada",
@@ -364,7 +468,7 @@ export const relatoriosGlosasBiRouter = router({
           motivoCodigo: row.motivo_codigo ? String(row.motivo_codigo) : "S/MOTIVO",
           categoriaGlosa: row.categoria_glosa ? String(row.categoria_glosa) : "Outros",
           vinculadoAoDemonstrativo: Number(row.vinculado_demonstrativo) === 1,
-          fonte: row.fonte === "recursosGlosa" ? "recursosGlosa" : "demonstrativo",
+          fonte: row.fonte === "recursosGlosa" ? "recursosGlosa" : row.fonte === "decisoesGlosa" ? "decisoesGlosa" : "demonstrativo",
           statusRecurso: row.status_recurso ? String(row.status_recurso) : null,
           loteId: row.lote_id == null ? null : Number(row.lote_id),
           numeroLote: row.numero_lote ? String(row.numero_lote) : null,
@@ -398,11 +502,14 @@ export const relatoriosGlosasBiRouter = router({
           const agrupados = agruparEventosAnaliseGlosa(eventos, dimensao);
           return rows.map((row) => {
             const analise = agrupados.get(String(chave(row))) ?? { glosaAceita: 0, glosaRecursada: 0 };
-            const glosaPendente = Math.max(0, Number((row.valorGlosado - analise.glosaAceita - analise.glosaRecursada).toFixed(2)));
+            const valorGlosado = Number(row.valorGlosado || 0);
+            const glosaRecursada = Math.min(valorGlosado, analise.glosaRecursada);
+            const glosaAceita = Math.min(Math.max(0, valorGlosado - glosaRecursada), analise.glosaAceita);
+            const glosaPendente = Math.max(0, Number((valorGlosado - glosaAceita - glosaRecursada).toFixed(2)));
             return {
               ...row,
-              glosaAceita: analise.glosaAceita,
-              glosaRecursada: analise.glosaRecursada,
+              glosaAceita: Number(glosaAceita.toFixed(2)),
+              glosaRecursada: Number(glosaRecursada.toFixed(2)),
               glosaPendente,
               glosaSemRecurso: glosaPendente,
             };
@@ -472,6 +579,9 @@ export const relatoriosGlosasBiRouter = router({
           porMotivo,
           recursosAnalisados: {
             quantidadeAceita: eventosResumo.filter((item) => item.tipo === "aceita").length,
+            quantidadeAceitaHistorica: eventosResumo.filter((item) => item.tipo === "aceita" && item.fonte === "decisoesGlosa").length,
+            valorAceitaHistorica: Number(eventosResumo.filter((item) => item.tipo === "aceita" && item.fonte === "decisoesGlosa").reduce((total, item) => total + item.valor, 0).toFixed(2)),
+            quantidadeAceitaHistoricaSemPeriodo: eventosResumo.filter((item) => item.tipo === "aceita" && item.fonte === "decisoesGlosa" && !item.mesPagamento).length,
             quantidadeRecursada: eventosResumo.filter((item) => item.tipo === "recursada").length,
             quantidadeHistoricaSemVinculo: eventosResumo.filter((item) => item.tipo === "recursada" && item.vinculadoAoDemonstrativo === false).length,
             valorHistoricoSemVinculo: resumoConsolidado.glosaRecursadaHistoricaSemVinculo,
