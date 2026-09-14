@@ -3,7 +3,17 @@ import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
-import { complementarRankingGlosa, construirFiltroPainelGlosas, montarResumoGlosas } from "../relatoriosGlosasBiService";
+import {
+  agruparEventosAnaliseGlosa,
+  complementarRankingGlosa,
+  construirFiltroPainelGlosas,
+  filtrarEventosAnaliseGlosa,
+  montarResumoGlosas,
+  percentualGlosa,
+  resumirEventosAnaliseGlosa,
+  type DimensaoFiltroCruzado,
+  type EventoAnaliseGlosa,
+} from "../relatoriosGlosasBiService";
 
 // Nota: Os códigos TISS reais são resolvidos via LEFT JOIN motivosGlosa na query SQL.
 // Textos descritivos do IPASGO já foram convertidos para códigos TISS no banco (backfill)
@@ -91,7 +101,10 @@ export const relatoriosGlosasBiRouter = router({
           LEFT JOIN convenios c ON c.id = d.convenio_id
           LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
         `;
-        const aceiteCondicao = `COALESCE(d.classificacao_glosa, 'pendente') IN ('aceitar','auto_aceitar')`;
+        const aceiteCondicao = `(
+          COALESCE(d.glosa_aceita, 0) = 1
+          OR COALESCE(d.classificacao_glosa, 'pendente') IN ('aceitar','auto_aceitar')
+        )`;
         const recursoCondicao = `(
           COALESCE(d.classificacao_glosa, 'pendente') NOT IN ('aceitar','auto_aceitar')
           AND (
@@ -225,28 +238,245 @@ export const relatoriosGlosasBiRouter = router({
           LIMIT ${limite}
         `, motivoFiltro.params);
 
+        const [analiseRows] = await conn.execute<any[]>(`
+          SELECT
+            'aceita' AS tipo,
+            CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2)) AS valor,
+            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            d.convenio_id,
+            COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS item_descricao,
+            COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS procedimento_codigo,
+            COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO') AS motivo_codigo,
+            COALESCE(NULLIF(TRIM(mg.grupo), ''), 'Outros') AS categoria_glosa,
+            1 AS vinculado_demonstrativo,
+            'demonstrativo' AS fonte,
+            'aceita' AS status_recurso,
+            d.recurso_id AS lote_id,
+            lr.numeroLote AS numero_lote,
+            COALESCE(c.nome, CONCAT('Convênio ', d.convenio_id)) AS convenio_nome,
+            DATE_FORMAT(d.glosa_aceita_em, '%Y-%m-%d') AS data_criacao,
+            DATE_FORMAT(lr.dataEnvio, '%Y-%m-%d') AS data_envio
+          FROM demonstrativo d
+          LEFT JOIN convenios c ON c.id = d.convenio_id
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
+          LEFT JOIN lotesRecurso lr ON lr.id = d.recurso_id AND lr.estabelecimentoId = d.estabelecimentoId
+          WHERE d.estabelecimentoId = ?
+            AND COALESCE(d.valor_glosa, 0) > 0
+            AND ${aceiteCondicao}
+
+          UNION ALL
+
+          SELECT
+            'recursada' AS tipo,
+            CAST(COALESCE(NULLIF(rg.valorGlosado, 0), rg.valorCobrado, 0) AS DECIMAL(14,2)) AS valor,
+            DATE_FORMAT(dm.data_pagamento, '%Y/%m') AS mes_pagamento,
+            rg.convenioId AS convenio_id,
+            COALESCE(dm.item_descricao, NULLIF(TRIM(rg.descricaoProcedimento), ''), 'Item sem descrição') AS item_descricao,
+            COALESCE(dm.procedimento_codigo, NULLIF(TRIM(rg.codigoProcedimento), ''), 'S/CÓDIGO') AS procedimento_codigo,
+            COALESCE(dm.motivo_codigo, CASE
+              WHEN TRIM(SUBSTRING_INDEX(COALESCE(rg.motivoGlosaConvenio, ''), '-', 1)) REGEXP '^[0-9]+$'
+                THEN TRIM(SUBSTRING_INDEX(rg.motivoGlosaConvenio, '-', 1))
+              ELSE 'S/MOTIVO'
+            END) AS motivo_codigo,
+            COALESCE(dm.categoria_glosa, NULLIF(TRIM(rgmg.grupo), ''), 'Outros') AS categoria_glosa,
+            CASE WHEN dm.numero_guia IS NULL THEN 0 ELSE 1 END AS vinculado_demonstrativo,
+            'recursosGlosa' AS fonte,
+            rg.status AS status_recurso,
+            rg.loteId AS lote_id,
+            lr.numeroLote AS numero_lote,
+            COALESCE(c.nome, CONCAT('Convênio ', rg.convenioId)) AS convenio_nome,
+            DATE_FORMAT(rg.createdAt, '%Y-%m-%d') AS data_criacao,
+            DATE_FORMAT(lr.dataEnvio, '%Y-%m-%d') AS data_envio
+          FROM recursosGlosa rg
+          LEFT JOIN (
+            SELECT
+              d.estabelecimentoId,
+              d.numero_guia,
+              TRIM(COALESCE(d.codigo_item, '')) AS codigo_item_match,
+              ROUND(COALESCE(d.valor_glosa, 0), 2) AS valor_glosa_match,
+              MIN(d.data_pagamento) AS data_pagamento,
+              MIN(COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição')) AS item_descricao,
+              MIN(COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO')) AS procedimento_codigo,
+              MIN(COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO')) AS motivo_codigo,
+              MIN(COALESCE(NULLIF(TRIM(mg2.grupo), ''), 'Outros')) AS categoria_glosa
+            FROM demonstrativo d
+            LEFT JOIN motivosGlosa mg2 ON mg2.codigo = d.codigo_glosa AND mg2.ativo = 'sim'
+            WHERE d.estabelecimentoId = ? AND COALESCE(d.valor_glosa, 0) > 0
+            GROUP BY d.estabelecimentoId, d.numero_guia, TRIM(COALESCE(d.codigo_item, '')), ROUND(COALESCE(d.valor_glosa, 0), 2)
+          ) dm
+            ON dm.estabelecimentoId = rg.estabelecimentoId
+            AND dm.numero_guia = rg.guiaNumero
+            AND dm.codigo_item_match = TRIM(COALESCE(rg.codigoProcedimento, ''))
+            AND dm.valor_glosa_match = ROUND(COALESCE(rg.valorGlosado, 0), 2)
+          LEFT JOIN convenios c ON c.id = rg.convenioId
+          LEFT JOIN motivosGlosa rgmg
+            ON rgmg.codigo = TRIM(SUBSTRING_INDEX(COALESCE(rg.motivoGlosaConvenio, ''), '-', 1))
+            AND rgmg.ativo = 'sim'
+          LEFT JOIN lotesRecurso lr ON lr.id = rg.loteId AND lr.estabelecimentoId = rg.estabelecimentoId
+          WHERE rg.estabelecimentoId = ?
+            AND rg.status <> 'cancelado'
+            AND COALESCE(NULLIF(rg.valorGlosado, 0), rg.valorCobrado, 0) > 0
+
+          UNION ALL
+
+          SELECT
+            'recursada' AS tipo,
+            CAST(COALESCE(NULLIF(d.valor_recurso, 0), d.valor_glosa, 0) AS DECIMAL(14,2)) AS valor,
+            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            d.convenio_id,
+            COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS item_descricao,
+            COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS procedimento_codigo,
+            COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO') AS motivo_codigo,
+            COALESCE(NULLIF(TRIM(mg.grupo), ''), 'Outros') AS categoria_glosa,
+            1 AS vinculado_demonstrativo,
+            'demonstrativo' AS fonte,
+            d.recurso_status AS status_recurso,
+            d.recurso_id AS lote_id,
+            lr.numeroLote AS numero_lote,
+            COALESCE(c.nome, CONCAT('Convênio ', d.convenio_id)) AS convenio_nome,
+            DATE_FORMAT(d.data_importacao_sistema, '%Y-%m-%d') AS data_criacao,
+            DATE_FORMAT(lr.dataEnvio, '%Y-%m-%d') AS data_envio
+          FROM demonstrativo d
+          LEFT JOIN convenios c ON c.id = d.convenio_id
+          LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa AND mg.ativo = 'sim'
+          LEFT JOIN lotesRecurso lr ON lr.id = d.recurso_id AND lr.estabelecimentoId = d.estabelecimentoId
+          WHERE d.estabelecimentoId = ?
+            AND COALESCE(d.valor_glosa, 0) > 0
+            AND ${recursoCondicao}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM recursosGlosa rg
+              WHERE rg.estabelecimentoId = d.estabelecimentoId
+                AND rg.status <> 'cancelado'
+                AND rg.guiaNumero = d.numero_guia
+                AND TRIM(COALESCE(rg.codigoProcedimento, '')) = TRIM(COALESCE(d.codigo_item, ''))
+                AND ROUND(COALESCE(rg.valorGlosado, 0), 2) = ROUND(COALESCE(d.valor_glosa, 0), 2)
+            )
+        `, [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]);
+
+        const eventosAnalise: EventoAnaliseGlosa[] = analiseRows.map((row: any) => ({
+          tipo: row.tipo === "aceita" ? "aceita" : "recursada",
+          valor: Number(row.valor || 0),
+          mesPagamento: row.mes_pagamento ? String(row.mes_pagamento) : null,
+          convenioId: row.convenio_id == null ? null : Number(row.convenio_id),
+          itemDescricao: row.item_descricao ? String(row.item_descricao) : "Item sem descrição",
+          procedimentoCodigo: row.procedimento_codigo ? String(row.procedimento_codigo) : "S/CÓDIGO",
+          motivoCodigo: row.motivo_codigo ? String(row.motivo_codigo) : "S/MOTIVO",
+          categoriaGlosa: row.categoria_glosa ? String(row.categoria_glosa) : "Outros",
+          vinculadoAoDemonstrativo: Number(row.vinculado_demonstrativo) === 1,
+          fonte: row.fonte === "recursosGlosa" ? "recursosGlosa" : "demonstrativo",
+          statusRecurso: row.status_recurso ? String(row.status_recurso) : null,
+          loteId: row.lote_id == null ? null : Number(row.lote_id),
+          numeroLote: row.numero_lote ? String(row.numero_lote) : null,
+          convenioNome: row.convenio_nome ? String(row.convenio_nome) : null,
+          dataCriacao: row.data_criacao ? String(row.data_criacao) : null,
+          dataEnvio: row.data_envio ? String(row.data_envio) : null,
+        }));
+
+        const aplicarAnaliseResumo = () => {
+          const eventos = filtrarEventosAnaliseGlosa(eventosAnalise, input);
+          const totais = resumirEventosAnaliseGlosa(eventos, resumo.valorGlosado);
+          return {
+            eventos,
+            resumoConsolidado: {
+              ...resumo,
+              ...totais,
+            valorAnalisado: totais.glosaAceita + totais.glosaRecursada,
+            percentualAceito: percentualGlosa(totais.glosaAceita, resumo.valorGlosado),
+            percentualRecursado: percentualGlosa(totais.glosaRecursada, resumo.valorGlosado),
+            percentualAnalisado: percentualGlosa(totais.glosaAceita + totais.glosaRecursada, resumo.valorGlosado),
+            },
+          };
+        };
+
+        const aplicarAnaliseRanking = (
+          rows: any[],
+          dimensao: DimensaoFiltroCruzado,
+          chave: (row: any) => string | number,
+        ) => {
+          const eventos = filtrarEventosAnaliseGlosa(eventosAnalise, input, dimensao);
+          const agrupados = agruparEventosAnaliseGlosa(eventos, dimensao);
+          return rows.map((row) => {
+            const analise = agrupados.get(String(chave(row))) ?? { glosaAceita: 0, glosaRecursada: 0 };
+            const glosaPendente = Math.max(0, Number((row.valorGlosado - analise.glosaAceita - analise.glosaRecursada).toFixed(2)));
+            return {
+              ...row,
+              glosaAceita: analise.glosaAceita,
+              glosaRecursada: analise.glosaRecursada,
+              glosaPendente,
+              glosaSemRecurso: glosaPendente,
+            };
+          });
+        };
+
+        const { eventos: eventosResumo, resumoConsolidado } = aplicarAnaliseResumo();
+        const montarRankingBase = (rows: any[]) => complementarRankingGlosa(rows, resumo.valorGlosado);
+        const porMesPagamento = aplicarAnaliseRanking(
+          montarRankingBase([...mesRows].reverse().map((row: any) => ({ ...row, mesPagamento: row.mes_pagamento }))),
+          "mesPagamento",
+          (row) => row.mesPagamento,
+        );
+        const porConvenio = aplicarAnaliseRanking(
+          montarRankingBase(convenioRows.map((row: any) => ({ ...row, convenioId: Number(row.convenio_id), nome: String(row.nome) }))),
+          "convenio",
+          (row) => row.convenioId,
+        );
+        const porItem = aplicarAnaliseRanking(
+          montarRankingBase(itemRows.map((row: any) => ({ ...row, codigoItem: row.codigo_item, nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) }))),
+          "item",
+          (row) => row.nome,
+        );
+        const porProcedimento = aplicarAnaliseRanking(
+          montarRankingBase(procedimentoRows.map((row: any) => ({ ...row, codigoItem: String(row.codigo_item), nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) }))),
+          "procedimento",
+          (row) => row.codigoItem,
+        );
+        const porMotivo = aplicarAnaliseRanking(
+          montarRankingBase(motivoRows.map((row: any) => ({ ...row, codigoGlosa: String(row.codigo_glosa), nome: String(row.nome), categoria: String(row.categoria) }))),
+          "motivo",
+          (row) => row.codigoGlosa,
+        );
+
+        const lotesMap = new Map<string, any>();
+        for (const evento of eventosResumo.filter((item) => item.tipo === "recursada")) {
+          const chave = evento.loteId ? `lote:${evento.loteId}` : `pendente:${evento.convenioId ?? "sem-convenio"}`;
+          const atual = lotesMap.get(chave) ?? {
+            loteId: evento.loteId ?? null,
+            numeroLote: evento.numeroLote ?? null,
+            convenioId: evento.convenioId ?? null,
+            convenioNome: evento.convenioNome ?? "Convênio não identificado",
+            status: evento.loteId ? (evento.statusRecurso ?? "enviado") : "aguardando_lote",
+            dataCriacao: evento.dataCriacao ?? null,
+            dataEnvio: evento.dataEnvio ?? null,
+            quantidadeItens: 0,
+            valorRecursado: 0,
+            itensSemVinculoAtual: 0,
+          };
+          atual.quantidadeItens += 1;
+          atual.valorRecursado += evento.valor;
+          if (evento.vinculadoAoDemonstrativo === false) atual.itensSemVinculoAtual += 1;
+          if (evento.dataCriacao && (!atual.dataCriacao || evento.dataCriacao < atual.dataCriacao)) atual.dataCriacao = evento.dataCriacao;
+          if (evento.dataEnvio && (!atual.dataEnvio || evento.dataEnvio < atual.dataEnvio)) atual.dataEnvio = evento.dataEnvio;
+          lotesMap.set(chave, atual);
+        }
+        const lotesRecursos = [...lotesMap.values()]
+          .map((lote) => ({ ...lote, valorRecursado: Number(lote.valorRecursado.toFixed(2)) }))
+          .sort((a, b) => String(b.dataEnvio || b.dataCriacao || "").localeCompare(String(a.dataEnvio || a.dataCriacao || "")));
+
         return {
-          resumo,
-          porMesPagamento: complementarRankingGlosa(
-            [...mesRows].reverse().map((row: any) => ({ ...row, mesPagamento: row.mes_pagamento })),
-            resumo.valorGlosado,
-          ),
-          porConvenio: complementarRankingGlosa(
-            convenioRows.map((row: any) => ({ ...row, convenioId: Number(row.convenio_id), nome: String(row.nome) })),
-            resumo.valorGlosado,
-          ),
-          porItem: complementarRankingGlosa(
-            itemRows.map((row: any) => ({ ...row, codigoItem: row.codigo_item, nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) })),
-            resumo.valorGlosado,
-          ),
-          porProcedimento: complementarRankingGlosa(
-            procedimentoRows.map((row: any) => ({ ...row, codigoItem: String(row.codigo_item), nome: String(row.nome), tipoLancamento: String(row.tipo_lancamento) })),
-            resumo.valorGlosado,
-          ),
-          porMotivo: complementarRankingGlosa(
-            motivoRows.map((row: any) => ({ ...row, codigoGlosa: String(row.codigo_glosa), nome: String(row.nome), categoria: String(row.categoria) })),
-            resumo.valorGlosado,
-          ),
+          resumo: resumoConsolidado,
+          porMesPagamento,
+          porConvenio,
+          porItem,
+          porProcedimento,
+          porMotivo,
+          recursosAnalisados: {
+            quantidadeAceita: eventosResumo.filter((item) => item.tipo === "aceita").length,
+            quantidadeRecursada: eventosResumo.filter((item) => item.tipo === "recursada").length,
+            quantidadeHistoricaSemVinculo: eventosResumo.filter((item) => item.tipo === "recursada" && item.vinculadoAoDemonstrativo === false).length,
+            valorHistoricoSemVinculo: resumoConsolidado.glosaRecursadaHistoricaSemVinculo,
+            lotes: lotesRecursos,
+          },
         };
       } finally {
         await conn.end();

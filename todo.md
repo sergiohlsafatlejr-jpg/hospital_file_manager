@@ -4429,3 +4429,17 @@
 - [x] Ajustar a leitura e a responsividade do gráfico mensal em dispositivos móveis
 - [x] Atualizar Excel e PowerPoint com a taxa real e os recursos analisados
 - [x] Validar fórmulas, filtros cruzados, isolamento por estabelecimento, testes e build
+
+- [x] Auditar todas as fontes de recursos analisados do Pronto Socorro Infantil e explicar o valor parcial de R$ 125,14
+- [x] Identificar os vínculos confiáveis entre demonstrativo, conciliação, itens de recurso e lotes do PSI
+- [x] Consolidar glosa aceita e glosa recursada do PSI sem omitir recursos históricos nem duplicar itens
+- [x] Preservar filtros por pagamento, convênio, item, procedimento, motivo e estabelecimento na consolidação
+- [x] Validar os totais corrigidos do PSI contra lotes e itens reais de recurso
+- [x] Executar testes de regressão, validação entre estabelecimentos e build antes do checkpoint
+
+- [ ] Restringir o novo painel `/faturado-recebido-unificado` ao Pronto Socorro Infantil (ID 1)
+- [ ] Redesenhar Faturado x Recebido com KPIs, tabela mensal por convênio e filtros cruzados interativos
+- [ ] Ao clicar em convênio, recalcular faturado, recebido, glosado, saldo, recursos, motivos e itens do PSI
+- [ ] Exibir por Mês/Ano os estados de glosa a recursar, em recurso, recuperada, aceita e pendente
+- [ ] Atualizar exportações para respeitar os filtros cruzados e incluir motivos e itens glosados
+- [ ] Validar valores reais, isolamento do PSI, responsividade móvel, testes e build do relatório unificado

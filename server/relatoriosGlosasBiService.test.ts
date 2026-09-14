@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { complementarRankingGlosa, construirFiltroPainelGlosas, montarResumoGlosas, percentualGlosa } from "./relatoriosGlosasBiService";
+import {
+  agruparEventosAnaliseGlosa,
+  complementarRankingGlosa,
+  construirFiltroPainelGlosas,
+  filtrarEventosAnaliseGlosa,
+  montarResumoGlosas,
+  percentualGlosa,
+  resumirEventosAnaliseGlosa,
+  type EventoAnaliseGlosa,
+} from "./relatoriosGlosasBiService";
 
 describe("relatoriosGlosasBiService", () => {
   it("calcula indicadores financeiros sem misturar bases", () => {
@@ -90,5 +99,34 @@ describe("relatoriosGlosasBiService", () => {
     expect(filtroItem.where).not.toContain("TRIM(d.descricao_item) = ?");
     expect(filtroItem.where).toContain("d.codigo_glosa IS NULL");
     expect(filtroItem.params).toEqual([1]);
+  });
+
+  it("consolida recursos históricos e mantém separado o valor sem vínculo no demonstrativo atual", () => {
+    const eventos: EventoAnaliseGlosa[] = [
+      { tipo: "aceita", valor: 20, mesPagamento: "2026/08", convenioId: 1, vinculadoAoDemonstrativo: true },
+      { tipo: "recursada", valor: 100, mesPagamento: "2026/08", convenioId: 1, vinculadoAoDemonstrativo: true },
+      { tipo: "recursada", valor: 50, mesPagamento: null, convenioId: 1, vinculadoAoDemonstrativo: false },
+    ];
+
+    expect(resumirEventosAnaliseGlosa(eventos, 300)).toEqual({
+      glosaAceita: 20,
+      glosaRecursada: 150,
+      glosaRecursadaVinculada: 100,
+      glosaRecursadaHistoricaSemVinculo: 50,
+      glosaPendente: 130,
+      glosaSemRecurso: 130,
+    });
+  });
+
+  it("aplica filtros cruzados aos recursos e mantém a própria dimensão navegável", () => {
+    const eventos: EventoAnaliseGlosa[] = [
+      { tipo: "recursada", valor: 100, mesPagamento: "2026/08", convenioId: 1, itemDescricao: "Consulta", procedimentoCodigo: "10101039", motivoCodigo: "1613", categoriaGlosa: "Autorização", vinculadoAoDemonstrativo: true },
+      { tipo: "recursada", valor: 50, mesPagamento: null, convenioId: 1, itemDescricao: "Diária", procedimentoCodigo: "60000651", motivoCodigo: "9999", categoriaGlosa: "Outros", vinculadoAoDemonstrativo: false },
+    ];
+    const input = { estabelecimentoId: 1, mesPagamento: "2026/08", itemDescricao: "Consulta" };
+
+    expect(filtrarEventosAnaliseGlosa(eventos, input)).toHaveLength(1);
+    expect(filtrarEventosAnaliseGlosa(eventos, input, "item")).toHaveLength(1);
+    expect(agruparEventosAnaliseGlosa(eventos, "procedimento").get("10101039")?.glosaRecursada).toBe(100);
   });
 });

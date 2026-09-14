@@ -44,6 +44,20 @@ for (const [nome, painel] of [["Pronto Socorro Infantil", prontoSocorro], ["Imec
   }
 }
 
+if (prontoSocorro.recursosAnalisados.quantidadeRecursada < 628) {
+  throw new Error(`PSI: somente ${prontoSocorro.recursosAnalisados.quantidadeRecursada} recursos foram consolidados; esperado mínimo de 628`);
+}
+if (prontoSocorro.recursosAnalisados.lotes.length < 6) {
+  throw new Error("PSI: os seis lotes históricos enviados não foram preservados no relatório");
+}
+const somaLotesPsi = prontoSocorro.recursosAnalisados.lotes.reduce((total, lote) => total + lote.valorRecursado, 0);
+if (Math.abs(somaLotesPsi - prontoSocorro.resumo.glosaRecursada) > 0.02) {
+  throw new Error("PSI: o valor recursado do resumo não fecha com a consolidação dos lotes e itens pendentes de envio");
+}
+if (Math.abs(prontoSocorro.resumo.glosaRecursadaVinculada + prontoSocorro.resumo.glosaRecursadaHistoricaSemVinculo - prontoSocorro.resumo.glosaRecursada) > 0.02) {
+  throw new Error("PSI: a decomposição entre recursos vinculados e históricos sem vínculo não fecha com o total recursado");
+}
+
 if (imec.porMesPagamento.every((mes) => mes.taxaGlosa === 100)) {
   throw new Error("A regressão da linha mensal em 100% voltou a ocorrer no Imec");
 }
@@ -93,6 +107,7 @@ console.log(JSON.stringify({
     convenios: prontoSocorro.porConvenio.length,
     itens: prontoSocorro.porItem.length,
     procedimentos: prontoSocorro.porProcedimento.length,
+    recursos: prontoSocorro.recursosAnalisados,
     filtros: {
       mesesPagamento: filtrosProntoSocorro.competencias.length,
       convenios: filtrosProntoSocorro.convenios.length,

@@ -76,6 +76,25 @@ const fmtMonth = (valor?: string | null) => {
   return mes && ano ? `${mes}/${ano}` : valor;
 };
 
+const fmtDate = (valor?: string | null) => {
+  if (!valor) return "Não informada";
+  const [ano, mes, dia] = valor.slice(0, 10).split("-");
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : valor;
+};
+
+const fmtResourceStatus = (valor?: string | null) => ({
+  rascunho: "Rascunho",
+  pendente_envio: "Aguardando envio",
+  aguardando_lote: "Aguardando lote",
+  enviado: "Enviado",
+  em_analise: "Em análise",
+  respondido: "Respondido",
+  deferido: "Deferido",
+  deferido_parcial: "Deferido parcial",
+  indeferido: "Indeferido",
+  finalizado: "Finalizado",
+}[String(valor || "")] || String(valor || "Não informado"));
+
 const shorten = (texto: string | null | undefined, limite: number) => {
   const valor = texto?.trim() || "Não informado";
   return valor.length > limite ? `${valor.slice(0, limite - 1)}…` : valor;
@@ -360,6 +379,8 @@ export default function RelatoriosGlosasBi() {
       ["Ticket médio da glosa", data.resumo.ticketMedio],
       ["Glosa aceita", data.resumo.glosaAceita],
       ["Glosa recursada", data.resumo.glosaRecursada],
+      ["Glosa recursada vinculada ao demonstrativo atual", data.resumo.glosaRecursadaVinculada || 0],
+      ["Glosa recursada histórica sem item no demonstrativo atual", data.resumo.glosaRecursadaHistoricaSemVinculo || 0],
       ["Glosa pendente de análise", data.resumo.glosaPendente],
       ["Percentual analisado (%)", data.resumo.percentualAnalisado],
     ];
@@ -421,6 +442,16 @@ export default function RelatoriosGlosasBi() {
       "% da glosa": item.percentualTotal,
       "Quantidade": item.qtdItens,
     }))), "Motivos de Glosa");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet((data.recursosAnalisados?.lotes || []).map((lote: any) => ({
+      "Lote": lote.numeroLote || (lote.loteId ? `Lote ${lote.loteId}` : "Ainda sem lote"),
+      "Convênio": lote.convenioNome,
+      "Status": fmtResourceStatus(lote.status),
+      "Data de criação": fmtDate(lote.dataCriacao),
+      "Data de envio": fmtDate(lote.dataEnvio),
+      "Quantidade de itens": lote.quantidadeItens,
+      "Valor recursado": lote.valorRecursado,
+      "Itens históricos sem vínculo atual": lote.itensSemVinculoAtual,
+    }))), "Recursos por Lote");
     XLSX.writeFile(workbook, `glosas-${estabelecimentoNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast.success("Excel exportado com os dados e descrições do relatório.");
   };
@@ -616,6 +647,7 @@ export default function RelatoriosGlosasBi() {
                     <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Glosa recursada</p><ShieldCheck className="h-4 w-4 text-teal-600" /></div>
                     <p className="mt-2 text-xl font-bold text-teal-800">{fmtCurrency(data.resumo.glosaRecursada)}</p>
                     <p className="mt-1 text-xs text-teal-700">{fmtPercent(data.resumo.percentualRecursado)} do valor glosado</p>
+                    <p className="mt-2 text-[11px] leading-4 text-teal-700">{data.recursosAnalisados?.quantidadeRecursada?.toLocaleString("pt-BR") || 0} itens registrados em recurso</p>
                   </div>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Pendente de análise</p><Loader2 className="h-4 w-4 text-amber-600" /></div>
@@ -630,6 +662,34 @@ export default function RelatoriosGlosasBi() {
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">{fmtPercent(data.resumo.percentualAnalisado)} das glosas do recorte já possuem decisão registrada.</p>
+                {data.recursosAnalisados?.valorHistoricoSemVinculo > 0 && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">
+                    <strong>{fmtCurrency(data.recursosAnalisados.valorHistoricoSemVinculo)}</strong> correspondem a {data.recursosAnalisados.quantidadeHistoricaSemVinculo.toLocaleString("pt-BR")} recursos históricos preservados cujos itens de origem não estão mais no demonstrativo atual. Eles entram no total recursado, sem atribuição artificial a mês, item ou motivo.
+                  </div>
+                )}
+              </Panel>
+
+              <Panel title="Recursos por lote" subtitle="Lotes e itens de recurso preservados no sistema, respeitando o estabelecimento e o recorte selecionado" icon={ListChecks}>
+                {data.recursosAnalisados?.lotes?.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[940px] text-sm">
+                      <thead><tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3 font-semibold">Lote</th><th className="px-3 py-3 font-semibold">Convênio</th><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Envio</th><th className="px-3 py-3 text-right font-semibold">Itens</th><th className="px-3 py-3 text-right font-semibold">Recursado</th><th className="px-3 py-3 text-right font-semibold">Histórico sem vínculo</th>
+                      </tr></thead>
+                      <tbody>{data.recursosAnalisados.lotes.map((lote: any, index: number) => (
+                        <tr key={`${lote.loteId ?? "sem-lote"}-${lote.convenioId ?? "sem-convenio"}-${index}`} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="px-4 py-3"><p className="font-medium text-slate-900">{lote.numeroLote || (lote.loteId ? `Lote ${lote.loteId}` : "Ainda sem lote")}</p><p className="mt-0.5 text-xs text-slate-500">Criado em {fmtDate(lote.dataCriacao)}</p></td>
+                          <td className="px-3 py-3 text-slate-700">{lote.convenioNome}</td>
+                          <td className="px-3 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${lote.status === "enviado" ? "bg-teal-50 text-teal-700" : "bg-amber-50 text-amber-700"}`}>{fmtResourceStatus(lote.status)}</span></td>
+                          <td className="px-3 py-3 text-slate-600">{fmtDate(lote.dataEnvio)}</td>
+                          <td className="px-3 py-3 text-right text-slate-600">{lote.quantidadeItens.toLocaleString("pt-BR")}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-teal-700">{fmtCurrency(lote.valorRecursado)}</td>
+                          <td className="px-3 py-3 text-right text-blue-700">{lote.itensSemVinculoAtual.toLocaleString("pt-BR")}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <EmptyChart message="Nenhum recurso analisado foi encontrado para os filtros selecionados." />}
               </Panel>
 
               <Panel title="Glosa por mês de pagamento" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>

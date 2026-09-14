@@ -34,6 +34,34 @@ export type FiltrosPainelGlosas = {
   motivoCodigo?: string;
 };
 
+export type EventoAnaliseGlosa = {
+  tipo: "aceita" | "recursada";
+  valor: number;
+  mesPagamento?: string | null;
+  convenioId?: number | null;
+  itemDescricao?: string | null;
+  procedimentoCodigo?: string | null;
+  motivoCodigo?: string | null;
+  categoriaGlosa?: string | null;
+  vinculadoAoDemonstrativo?: boolean;
+  fonte?: "demonstrativo" | "recursosGlosa";
+  statusRecurso?: string | null;
+  loteId?: number | null;
+  numeroLote?: string | null;
+  convenioNome?: string | null;
+  dataCriacao?: string | null;
+  dataEnvio?: string | null;
+};
+
+export type TotaisAnaliseGlosa = {
+  glosaAceita: number;
+  glosaRecursada: number;
+  glosaRecursadaVinculada: number;
+  glosaRecursadaHistoricaSemVinculo: number;
+  glosaPendente: number;
+  glosaSemRecurso: number;
+};
+
 export function construirFiltroPainelGlosas(
   input: FiltrosPainelGlosas,
   excluirDimensao?: DimensaoFiltroCruzado,
@@ -90,6 +118,85 @@ export function construirFiltroPainelGlosas(
     where: `WHERE ${clausulas.join(" AND ")}`,
     params,
   };
+}
+
+const textoNormalizado = (valor: unknown, fallback: string) => {
+  const texto = String(valor ?? "").trim();
+  return texto || fallback;
+};
+
+export function filtrarEventosAnaliseGlosa(
+  eventos: EventoAnaliseGlosa[],
+  input: FiltrosPainelGlosas,
+  excluirDimensao?: DimensaoFiltroCruzado,
+) {
+  return eventos.filter((evento) => {
+    if (input.convenioId && excluirDimensao !== "convenio" && Number(evento.convenioId) !== input.convenioId) return false;
+    if (input.mesPagamentoInicio && (!evento.mesPagamento || evento.mesPagamento < input.mesPagamentoInicio)) return false;
+    if (input.mesPagamentoFim && (!evento.mesPagamento || evento.mesPagamento > input.mesPagamentoFim)) return false;
+    if (input.categoriaGlosa && textoNormalizado(evento.categoriaGlosa, "Outros") !== input.categoriaGlosa) return false;
+    if (input.mesPagamento && excluirDimensao !== "mesPagamento" && evento.mesPagamento !== input.mesPagamento) return false;
+    if (input.itemDescricao && excluirDimensao !== "item" && textoNormalizado(evento.itemDescricao, "Item sem descrição") !== input.itemDescricao) return false;
+    if (input.procedimentoCodigo && excluirDimensao !== "procedimento" && textoNormalizado(evento.procedimentoCodigo, "S/CÓDIGO") !== input.procedimentoCodigo) return false;
+    if (input.motivoCodigo && excluirDimensao !== "motivo" && textoNormalizado(evento.motivoCodigo, "S/MOTIVO") !== input.motivoCodigo) return false;
+    return true;
+  });
+}
+
+export function resumirEventosAnaliseGlosa(eventos: EventoAnaliseGlosa[], totalGlosa: number): TotaisAnaliseGlosa {
+  const glosaAceita = eventos
+    .filter((evento) => evento.tipo === "aceita")
+    .reduce((total, evento) => total + numeroGlosa(evento.valor), 0);
+  const eventosRecursados = eventos.filter((evento) => evento.tipo === "recursada");
+  const glosaRecursada = eventosRecursados.reduce((total, evento) => total + numeroGlosa(evento.valor), 0);
+  const glosaRecursadaVinculada = eventosRecursados
+    .filter((evento) => evento.vinculadoAoDemonstrativo !== false)
+    .reduce((total, evento) => total + numeroGlosa(evento.valor), 0);
+  const glosaRecursadaHistoricaSemVinculo = Math.max(0, glosaRecursada - glosaRecursadaVinculada);
+  const glosaPendente = Math.max(0, totalGlosa - glosaAceita - glosaRecursada);
+
+  return {
+    glosaAceita: Number(glosaAceita.toFixed(2)),
+    glosaRecursada: Number(glosaRecursada.toFixed(2)),
+    glosaRecursadaVinculada: Number(glosaRecursadaVinculada.toFixed(2)),
+    glosaRecursadaHistoricaSemVinculo: Number(glosaRecursadaHistoricaSemVinculo.toFixed(2)),
+    glosaPendente: Number(glosaPendente.toFixed(2)),
+    glosaSemRecurso: Number(glosaPendente.toFixed(2)),
+  };
+}
+
+export function agruparEventosAnaliseGlosa(eventos: EventoAnaliseGlosa[], dimensao: DimensaoFiltroCruzado) {
+  const valores = new Map<string, { glosaAceita: number; glosaRecursada: number }>();
+  const campoPorDimensao: Record<DimensaoFiltroCruzado, keyof EventoAnaliseGlosa> = {
+    mesPagamento: "mesPagamento",
+    convenio: "convenioId",
+    item: "itemDescricao",
+    procedimento: "procedimentoCodigo",
+    motivo: "motivoCodigo",
+  };
+  const fallbacks: Record<DimensaoFiltroCruzado, string> = {
+    mesPagamento: "SEM_MES",
+    convenio: "SEM_CONVENIO",
+    item: "Item sem descrição",
+    procedimento: "S/CÓDIGO",
+    motivo: "S/MOTIVO",
+  };
+
+  for (const evento of eventos) {
+    const chave = textoNormalizado(evento[campoPorDimensao[dimensao]], fallbacks[dimensao]);
+    const atual = valores.get(chave) ?? { glosaAceita: 0, glosaRecursada: 0 };
+    if (evento.tipo === "aceita") atual.glosaAceita += numeroGlosa(evento.valor);
+    if (evento.tipo === "recursada") atual.glosaRecursada += numeroGlosa(evento.valor);
+    valores.set(chave, atual);
+  }
+
+  for (const [chave, valor] of valores) {
+    valores.set(chave, {
+      glosaAceita: Number(valor.glosaAceita.toFixed(2)),
+      glosaRecursada: Number(valor.glosaRecursada.toFixed(2)),
+    });
+  }
+  return valores;
 }
 
 export const numeroGlosa = (valor: unknown): number => {
