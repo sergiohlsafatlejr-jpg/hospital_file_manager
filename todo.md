@@ -4456,3 +4456,10 @@
 - [x] Adicionar tooltips detalhados aos gráficos de evolução, convênios, motivos e itens
 - [x] Garantir interação por mouse, teclado e toque sem quebrar os filtros cruzados
 - [x] Validar os tooltips em desktop e celular, executar testes e build
+
+- [x] Auditar `/relatorio-visita`, o parser XML e a persistência de nome e CRM do médico
+- [x] Definir a associação confiável entre visita, guia, item e profissional informado no XML
+- [x] Incluir nome do médico e CRM no endpoint e na tabela do relatório de visitas
+- [x] Adicionar filtros e exportação por médico/CRM mantendo os filtros existentes
+- [x] Tratar XMLs sem profissional informado sem criar dados fictícios
+- [x] Validar com XMLs reais, isolamento por estabelecimento, testes e build

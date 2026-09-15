@@ -10,9 +10,10 @@ import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { criarChaveProfissionalVisita, formatarCrmVisita, lerChaveProfissionalVisita } from "@shared/relatorioVisita";
 import {
   Stethoscope, Download, Loader2, Search, CheckCircle2, XCircle, AlertCircle,
-  DollarSign, TrendingDown, Calendar, ChevronLeft, ChevronRight, FileText, Banknote, RefreshCw, Building2, Users
+  DollarSign, TrendingDown, Calendar, ChevronLeft, ChevronRight, FileText, Banknote, RefreshCw, Building2, Users, UserRound
 } from "lucide-react";
 
 const fmt = (v: number | string | null | undefined) => {
@@ -30,9 +31,10 @@ export default function RelatorioVisita() {
   const [competencia, setCompetencia] = useState<string>("");
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [convenioId, setConvenioId] = useState<string>("todos");
+  const [medicoFiltro, setMedicoFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
-  const [viewMode, setViewMode] = useState<"agrupado" | "detalhado" | "convenio" | "pacientes">("agrupado");
+  const [viewMode, setViewMode] = useState<"agrupado" | "detalhado" | "convenio" | "pacientes" | "medico">("agrupado");
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
@@ -41,6 +43,15 @@ export default function RelatorioVisita() {
     return () => clearTimeout(t);
   }, [busca]);
 
+  useEffect(() => {
+    setCompetencia("");
+    setStatusFiltro("todos");
+    setConvenioId("todos");
+    setMedicoFiltro("todos");
+    setBusca("");
+    setPage(1);
+  }, [estabelecimentoAtual?.id]);
+
   const { mesRef, anoRef } = useMemo(() => {
     if (!competencia || competencia === "all") return { mesRef: undefined, anoRef: undefined };
     const [m, a] = competencia.split("-").map(Number);
@@ -48,8 +59,17 @@ export default function RelatorioVisita() {
   }, [competencia]);
 
   const convId = convenioId !== "todos" ? Number(convenioId) : undefined;
+  const profissionalSelecionado = useMemo<{ medico?: string; crm?: string }>(
+    () => medicoFiltro !== "todos" ? lerChaveProfissionalVisita(medicoFiltro) : {},
+    [medicoFiltro]
+  );
 
   const { data: convenios } = trpc.relatorioVisita.convenios.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id! },
+    { enabled: !!estabelecimentoAtual }
+  );
+
+  const { data: medicos } = trpc.relatorioVisita.medicos.useQuery(
     { estabelecimentoId: estabelecimentoAtual?.id! },
     { enabled: !!estabelecimentoAtual }
   );
@@ -61,6 +81,8 @@ export default function RelatorioVisita() {
       anoReferencia: anoRef,
       convenioId: convId,
       statusFiltro: statusFiltro as any,
+      medico: profissionalSelecionado.medico,
+      crm: profissionalSelecionado.crm,
     },
     { enabled: !!estabelecimentoAtual }
   );
@@ -72,9 +94,10 @@ export default function RelatorioVisita() {
   }, [data?.competencias, competencia]);
 
   const competencias = data?.competencias || [];
-  const resumo = data?.resumo || { totalItens: 0, totalPago: 0, totalGlosa: 0, totalInformado: 0, codigosUnicos: 0 };
+  const resumo = data?.resumo || { totalItens: 0, totalPago: 0, totalGlosa: 0, totalInformado: 0, codigosUnicos: 0, totalComMedico: 0, totalSemMedico: 0, totalMedicos: 0 };
   const porSituacao = data?.porSituacao || [];
   const porConvenio = data?.porConvenio || [];
+  const porMedico = data?.porMedico || [];
 
   const agrupado = useMemo(() => {
     if (!data?.porCodigo) return [];
@@ -100,7 +123,9 @@ export default function RelatorioVisita() {
         (i.descricao_item || "").toLowerCase().includes(s) ||
         (i.nome_beneficiario || "").toLowerCase().includes(s) ||
         (i.numero_guia || "").toLowerCase().includes(s) ||
-        (i.convenio_nome || "").toLowerCase().includes(s)
+        (i.convenio_nome || "").toLowerCase().includes(s) ||
+        (i.medico || "").toLowerCase().includes(s) ||
+        (i.crm || "").toLowerCase().includes(s)
       );
     }
     return items;
@@ -116,14 +141,23 @@ export default function RelatorioVisita() {
   const handleExportExcel = () => {
     if (!data) return;
     let rows: any[] = [];
-    if (viewMode === "convenio") {
+    if (viewMode === "medico") {
+      rows = porMedico.map(r => ({
+        "Médico": r.medico || "Não informado",
+        "CRM": r.crm || "Não informado",
+        "Qtd Visitas": r.qtd,
+        "Valor Pago": r.totalPago,
+        "Valor Glosa": r.totalGlosa,
+        "Origem": "XML enviado",
+      }));
+    } else if (viewMode === "convenio") {
       rows = porConvenio.map(r => ({ "Convênio": r.convenioNome, "Qtd Itens": r.qtd, "Códigos": r.codigos, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa }));
     } else if (viewMode === "agrupado") {
       rows = agrupado.map(r => ({ "Código TUSS": r.codigo, "Descrição": r.descricao, "Qtd Pagos": r.qtdPago, "Qtd Glosados": r.qtdGlosado, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa }));
     } else if (viewMode === "pacientes") {
-      rows = pacientesPagos.map((i: any) => ({ "Paciente": i.nome_beneficiario, "Guia": i.numero_guia, "Convênio": i.convenio_nome || "-", "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0) }));
+      rows = pacientesPagos.map((i: any) => ({ "Paciente": i.nome_beneficiario, "Guia": i.numero_guia, "Convênio": i.convenio_nome || "-", "Médico": i.medico || "Não informado", "CRM": i.crm || "Não informado", "Origem Médico": i.origem_profissional || "Não informado no XML", "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0) }));
     } else {
-      rows = itensFiltrados.map((i: any) => ({ "Código": i.codigo_item, "Descrição": i.descricao_item, "Convênio": i.convenio_nome || "-", "Guia": i.numero_guia, "Paciente": i.nome_beneficiario, "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0), "Vl Glosa": Number(i.valor_glosa || 0), "Situação": i.situacao_item }));
+      rows = itensFiltrados.map((i: any) => ({ "Código": i.codigo_item, "Descrição": i.descricao_item, "Convênio": i.convenio_nome || "-", "Guia": i.numero_guia, "Paciente": i.nome_beneficiario, "Médico": i.medico || "Não informado", "CRM": i.crm || "Não informado", "Origem Médico": i.origem_profissional || "Não informado no XML", "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0), "Vl Glosa": Number(i.valor_glosa || 0), "Situação": i.situacao_item }));
     }
     if (!rows.length) return;
     const wb = XLSX.utils.book_new();
@@ -131,7 +165,7 @@ export default function RelatorioVisita() {
     ws["!cols"] = Array(Object.keys(rows[0]).length).fill({ wch: 22 });
     XLSX.utils.book_append_sheet(wb, ws, "Visitas");
     const compLabel = competencias.find((c: any) => c.value === competencia)?.label || "todos";
-    XLSX.writeFile(wb, `relatorio_visitas_PS_${compLabel.replace("/", "-")}.xlsx`);
+    XLSX.writeFile(wb, `relatorio_visitas_${estabelecimentoAtual?.id || "unidade"}_${compLabel.replace("/", "-")}.xlsx`);
     toast.success("Excel exportado!");
   };
 
@@ -156,7 +190,7 @@ export default function RelatorioVisita() {
               <Stethoscope className="h-8 w-8 text-blue-500" />
               Relatório de Visita Hospitalar
             </h1>
-            <p className="text-muted-foreground">Código TUSS 10102019 — Pronto Socorro</p>
+            <p className="text-muted-foreground">Código TUSS 10102019 · {estabelecimentoAtual?.nome || "Estabelecimento"} · Médico e CRM obtidos do XML enviado</p>
           </div>
           <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Atualizar</Button>
         </div>
@@ -165,7 +199,7 @@ export default function RelatorioVisita() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Calendar className="h-5 w-5" /> Filtros</CardTitle></CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Competência</label>
                 <Select value={competencia} onValueChange={(v) => { setCompetencia(v); setPage(1); }}>
@@ -191,6 +225,19 @@ export default function RelatorioVisita() {
                 </Select>
               </div>
               <div className="space-y-2">
+                <label className="text-sm font-medium">Médico / CRM</label>
+                <Select value={medicoFiltro} onValueChange={(v) => { setMedicoFiltro(v); setPage(1); }}>
+                  <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os Médicos</SelectItem>
+                    {(medicos || []).map((m) => {
+                      const chave = criarChaveProfissionalVisita(m.medico, m.crm);
+                      return <SelectItem key={chave} value={chave}>{m.medico} · {formatarCrmVisita(m.crm)}</SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm font-medium">Status</label>
                 <Select value={statusFiltro} onValueChange={(v) => { setStatusFiltro(v); setPage(1); }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -209,6 +256,7 @@ export default function RelatorioVisita() {
                   <SelectContent>
                     <SelectItem value="agrupado">Por Código TUSS</SelectItem>
                     <SelectItem value="convenio">Por Convênio</SelectItem>
+                    <SelectItem value="medico">Por Médico</SelectItem>
                     <SelectItem value="pacientes">Pacientes Pagos</SelectItem>
                     <SelectItem value="detalhado">Detalhado (itens)</SelectItem>
                   </SelectContent>
@@ -226,13 +274,13 @@ export default function RelatorioVisita() {
             </div>
             <div className="flex gap-2 mt-4">
               <Button onClick={handleExportExcel} disabled={isLoading}><Download className="h-4 w-4 mr-2" /> Exportar Excel</Button>
-              <Button variant="outline" onClick={() => { setCompetencia("all"); setStatusFiltro("todos"); setConvenioId("todos"); setBusca(""); }}>Limpar Filtros</Button>
+              <Button variant="outline" onClick={() => { setCompetencia("all"); setStatusFiltro("todos"); setConvenioId("todos"); setMedicoFiltro("todos"); setBusca(""); }}>Limpar Filtros</Button>
             </div>
           </CardContent>
         </Card>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <Card><CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-blue-600 shrink-0" />
             <div><p className="text-xs text-muted-foreground">Total Itens</p><p className="text-xl font-bold">{resumo.totalItens.toLocaleString("pt-BR")}</p><p className="text-xs text-muted-foreground">{resumo.codigosUnicos} códigos</p></div>
@@ -260,6 +308,11 @@ export default function RelatorioVisita() {
           <Card><CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-purple-600 shrink-0" />
             <div><p className="text-xs text-muted-foreground">Convênios</p><p className="text-sm font-bold text-purple-600">{porConvenio.length} ativos</p></div>
+          </div></CardContent></Card>
+
+          <Card><CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
+            <UserRound className="h-5 w-5 text-cyan-700 shrink-0" />
+            <div><p className="text-xs text-muted-foreground">Médicos no XML</p><p className="text-sm font-bold text-cyan-700">{resumo.totalMedicos} profissionais</p><p className="text-xs text-muted-foreground">{resumo.totalComMedico} de {resumo.totalItens} visitas</p></div>
           </div></CardContent></Card>
         </div>
 
@@ -289,6 +342,7 @@ export default function RelatorioVisita() {
             <CardTitle className="flex items-center gap-2">
               {viewMode === "agrupado" ? "Resumo por Código TUSS" 
                : viewMode === "convenio" ? "Resumo por Convênio" 
+               : viewMode === "medico" ? "Resumo por Médico e CRM"
                : viewMode === "pacientes" ? <><Users className="h-5 w-5 text-emerald-600"/> Pacientes Pagos ({pacientesPagos.length})</>
                : `Itens Detalhados (${itensFiltrados.length})`}
             </CardTitle>
@@ -306,13 +360,15 @@ export default function RelatorioVisita() {
                         <TableHead>Paciente</TableHead>
                         <TableHead>Guia</TableHead>
                         <TableHead>Convênio</TableHead>
+                        <TableHead>Médico</TableHead>
+                        <TableHead>CRM</TableHead>
                         <TableHead>Data Execução</TableHead>
                         <TableHead className="text-right">Valor Pago</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {itensPaginados.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Nenhum paciente pago encontrado neste período.
                         </TableCell></TableRow>
                       ) : itensPaginados.map((item: any, i: number) => (
@@ -320,6 +376,8 @@ export default function RelatorioVisita() {
                           <TableCell className="font-semibold">{item.nome_beneficiario || "-"}</TableCell>
                           <TableCell className="font-mono text-sm">{item.numero_guia || "-"}</TableCell>
                           <TableCell className="text-sm">{item.convenio_nome || "-"}</TableCell>
+                          <TableCell className="text-sm font-medium">{item.medico || "Não informado"}</TableCell>
+                          <TableCell className="text-sm">{formatarCrmVisita(item.crm)}</TableCell>
                           <TableCell className="text-sm">{fmtDate(item.data_execucao)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-emerald-600 font-semibold">{fmt(item.valor_pago)}</TableCell>
                         </TableRow>
@@ -378,6 +436,36 @@ export default function RelatorioVisita() {
                   </div>
                 )}
               </div>
+            ) : viewMode === "medico" ? (
+              /* ========== VISÃO POR MÉDICO ========== */
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Médico</TableHead>
+                      <TableHead>CRM</TableHead>
+                      <TableHead className="text-center">Qtd Visitas</TableHead>
+                      <TableHead className="text-right">Valor Pago</TableHead>
+                      <TableHead className="text-right">Valor Glosa</TableHead>
+                      <TableHead>Origem</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {porMedico.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum médico informado nos XMLs deste recorte.</TableCell></TableRow>
+                    ) : porMedico.map((r, i) => (
+                      <TableRow key={`${r.medico}-${r.crm}-${i}`} className="cursor-pointer hover:bg-muted/50" onClick={() => { if (r.medico) setMedicoFiltro(criarChaveProfissionalVisita(r.medico, r.crm)); }}>
+                        <TableCell className="font-semibold">{r.medico || "Não informado"}</TableCell>
+                        <TableCell>{formatarCrmVisita(r.crm)}</TableCell>
+                        <TableCell className="text-center">{r.qtd.toLocaleString("pt-BR")}</TableCell>
+                        <TableCell className="text-right font-mono text-emerald-600 font-semibold">{fmt(r.totalPago)}</TableCell>
+                        <TableCell className="text-right font-mono text-red-600">{fmt(r.totalGlosa)}</TableCell>
+                        <TableCell><Badge variant="outline">XML enviado</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             ) : viewMode === "agrupado" ? (
               /* ========== VISÃO AGRUPADA POR CÓDIGO ========== */
               <div className="overflow-x-auto">
@@ -429,6 +517,8 @@ export default function RelatorioVisita() {
                         <TableHead>Convênio</TableHead>
                         <TableHead>Guia</TableHead>
                         <TableHead className="max-w-[130px]">Paciente</TableHead>
+                        <TableHead>Médico</TableHead>
+                        <TableHead>CRM</TableHead>
                         <TableHead className="text-right">Vl. Pago</TableHead>
                         <TableHead className="text-right">Vl. Glosa</TableHead>
                         <TableHead className="text-center">Status</TableHead>
@@ -436,7 +526,7 @@ export default function RelatorioVisita() {
                     </TableHeader>
                     <TableBody>
                       {itensPaginados.length === 0 ? (
-                        <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                           {!mesRef ? "Selecione uma competência para ver itens individuais" : "Nenhum item encontrado"}
                         </TableCell></TableRow>
                       ) : itensPaginados.map((item: any, i: number) => (
@@ -446,6 +536,8 @@ export default function RelatorioVisita() {
                           <TableCell className="text-sm">{item.convenio_nome || "-"}</TableCell>
                           <TableCell className="font-mono text-sm">{item.numero_guia || "-"}</TableCell>
                           <TableCell className="max-w-[130px] truncate text-sm">{item.nome_beneficiario || "-"}</TableCell>
+                          <TableCell className="max-w-[180px] text-sm"><div className="font-medium truncate">{item.medico || "Não informado"}</div>{item.origem_profissional && <div className="text-[11px] text-muted-foreground">XML enviado</div>}</TableCell>
+                          <TableCell className="text-sm">{formatarCrmVisita(item.crm)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-emerald-600 font-semibold">{fmt(item.valor_pago)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-red-600">{fmt(item.valor_glosa)}</TableCell>
                           <TableCell className="text-center">{getStatusBadge(item.situacao_item)}</TableCell>

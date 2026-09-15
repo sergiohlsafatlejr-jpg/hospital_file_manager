@@ -54,6 +54,7 @@ import { aceiteAutomaticoRouter } from "./routers/aceiteAutomaticoRouter";
 import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter";
 import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRouter";
 import { faturadoRecebidoUnificadoRouter } from "./routers/faturadoRecebidoUnificadoRouter";
+import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { sqlValoresRelatorioOxUti } from "./relatorioOxUtiValores";
 
 /**
@@ -137,6 +138,7 @@ export const appRouter = router({
   faturamentoDigitacao: faturamentoDigitacaoRouter,
   previsaoPagamentosImec: previsaoPagamentosImecRouter,
   faturadoRecebidoUnificado: faturadoRecebidoUnificadoRouter,
+  relatorioVisita: relatorioVisitaRouter,
   
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
@@ -8725,14 +8727,16 @@ export const appRouter = router({
   }),
 
   // ============ RELATÓRIO VISITA (Pronto Socorro) ============
-  relatorioVisita: router({
+  relatorioVisitaLegacy: router({
     convenios: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         let conn: any = null;
         try {
+          const permitido = await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+          if (!permitido) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para visualizar este estabelecimento" });
           const mysql2 = await import('mysql2/promise');
-          conn = await mysql2.createConnection(process.env.DATABASE_URL!);
+          conn = await mysql2.createConnection(db.getApplicationDatabaseUrl()!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
              FROM demonstrativo d
