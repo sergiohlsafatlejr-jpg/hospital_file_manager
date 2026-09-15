@@ -5,11 +5,70 @@ import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "..
 
 const codigoVisitaSql = `REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', '') = '10102019'`;
 const codigoVisitaFaturadoSql = `REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') = '10102019'`;
-const convenioSemRetornoSql = `NOT EXISTS (
-  SELECT 1 FROM demonstrativo dr
-  WHERE dr.estabelecimentoId = f.estabelecimentoId
-    AND dr.convenio_id = f.convenioId
-    AND REGEXP_REPLACE(COALESCE(dr.codigo_item, ''), '[^0-9]', '') = '10102019'
+const faturadoSemRetornoCteSql = `WITH faturado_visita_deduplicado AS (
+  SELECT f.*,
+         REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') AS codigo_normalizado,
+         CASE
+           WHEN REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(f.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '') <> ''
+             THEN CONCAT('C:', REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(f.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', ''))
+           ELSE CONCAT('G:', COALESCE(NULLIF(TRIM(LEADING '0' FROM COALESCE(f.numero_guia_operadora, '')), ''), TRIM(LEADING '0' FROM COALESCE(f.numero_guia_prestador, ''))))
+         END AS chave_beneficiario,
+         ROW_NUMBER() OVER (
+           PARTITION BY f.estabelecimentoId, f.convenioId,
+             REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', ''),
+             CASE
+               WHEN REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(f.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '') <> ''
+                 THEN CONCAT('C:', REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(f.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', ''))
+               ELSE CONCAT('G:', COALESCE(NULLIF(TRIM(LEADING '0' FROM COALESCE(f.numero_guia_operadora, '')), ''), TRIM(LEADING '0' FROM COALESCE(f.numero_guia_prestador, ''))))
+             END,
+             DATE(f.data_execucao), CAST(COALESCE(f.valor_faturado, 0) AS DECIMAL(12,2)),
+             COALESCE(NULLIF(TRIM(f.nome_prof), ''), ''), COALESCE(NULLIF(TRIM(f.conselho_prof), ''), '')
+           ORDER BY f.id DESC
+         ) AS duplicidade_ordem
+  FROM faturamento_tiss f
+  WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
+), faturado_visita_unico AS (
+  SELECT * FROM faturado_visita_deduplicado WHERE duplicidade_ordem = 1
+), faturado_visita_ocorrencia AS (
+  SELECT fu.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY fu.estabelecimentoId, fu.convenioId, fu.codigo_normalizado, fu.chave_beneficiario, DATE(fu.data_execucao)
+           ORDER BY fu.id
+         ) AS ocorrencia_item
+  FROM faturado_visita_unico fu
+), retorno_visita_ocorrencia AS (
+  SELECT d.id, d.estabelecimentoId, d.convenio_id,
+         REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', '') AS codigo_normalizado,
+         CASE
+           WHEN REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(d.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '') <> ''
+             THEN CONCAT('C:', REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(d.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', ''))
+           ELSE CONCAT('G:', TRIM(LEADING '0' FROM COALESCE(d.numero_guia, '')))
+         END AS chave_beneficiario,
+         DATE(d.data_execucao) AS data_execucao,
+         ROW_NUMBER() OVER (
+           PARTITION BY d.estabelecimentoId, d.convenio_id,
+             REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', ''),
+             CASE
+               WHEN REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(d.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '') <> ''
+                 THEN CONCAT('C:', REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(d.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', ''))
+               ELSE CONCAT('G:', TRIM(LEADING '0' FROM COALESCE(d.numero_guia, '')))
+             END,
+             DATE(d.data_execucao)
+           ORDER BY d.id
+         ) AS ocorrencia_item
+  FROM demonstrativo d
+  WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql}
+), faturado_sem_retorno AS (
+  SELECT f.*
+  FROM faturado_visita_ocorrencia f
+  LEFT JOIN retorno_visita_ocorrencia r
+    ON r.estabelecimentoId = f.estabelecimentoId
+   AND r.convenio_id = f.convenioId
+   AND r.codigo_normalizado = f.codigo_normalizado
+   AND r.chave_beneficiario = f.chave_beneficiario
+   AND r.data_execucao <=> DATE(f.data_execucao)
+   AND r.ocorrencia_item = f.ocorrencia_item
+  WHERE r.id IS NULL
 )`;
 const profissionalCteSql = `WITH profissionais_guia AS (
   SELECT estabelecimento_id, codigo_item, guia,
@@ -110,7 +169,7 @@ export const relatorioVisitaRouter = router({
              SELECT DISTINCT f.convenioId
              FROM faturamento_tiss f
              WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
-               AND f.convenioId IS NOT NULL AND ${convenioSemRetornoSql}
+               AND f.convenioId IS NOT NULL
            ) x
            LEFT JOIN convenios c ON c.id = x.convenio_id
            ORDER BY convenio_nome`,
@@ -141,7 +200,7 @@ export const relatorioVisitaRouter = router({
              SELECT NULLIF(TRIM(f.nome_prof), '') AS medico, NULLIF(TRIM(f.conselho_prof), '') AS crm, COUNT(*) AS total_visitas
              FROM faturamento_tiss f
              WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
-               AND ${convenioSemRetornoSql} AND NULLIF(TRIM(f.nome_prof), '') IS NOT NULL
+               AND NULLIF(TRIM(f.nome_prof), '') IS NOT NULL
              GROUP BY NULLIF(TRIM(f.nome_prof), ''), NULLIF(TRIM(f.conselho_prof), '')
            ) profissionais
            GROUP BY medico, crm ORDER BY medico`,
@@ -198,7 +257,7 @@ export const relatorioVisitaRouter = router({
         }
 
         let whereFaturado = "";
-        const filtrosFaturado: unknown[] = [input.estabelecimentoId];
+        const filtrosFaturado: unknown[] = [];
         if (input.mesReferencia && input.anoReferencia) {
           whereFaturado += " AND MONTH(COALESCE(f.data_referencia, f.data_execucao)) = ? AND YEAR(COALESCE(f.data_referencia, f.data_execucao)) = ?";
           filtrosFaturado.push(input.mesReferencia, input.anoReferencia);
@@ -250,7 +309,8 @@ export const relatorioVisitaRouter = router({
             parametros
           ),
           conn.execute(
-            `SELECT mes, ano, SUM(total) AS total
+            `${faturadoSemRetornoCteSql}
+             SELECT mes, ano, SUM(total) AS total
              FROM (
                SELECT MONTH(COALESCE(d.data_referencia, d.data_pagamento)) AS mes,
                       YEAR(COALESCE(d.data_referencia, d.data_pagamento)) AS ano, COUNT(*) AS total
@@ -261,13 +321,12 @@ export const relatorioVisitaRouter = router({
                UNION ALL
                SELECT MONTH(COALESCE(f.data_referencia, f.data_execucao)) AS mes,
                       YEAR(COALESCE(f.data_referencia, f.data_execucao)) AS ano, COUNT(*) AS total
-               FROM faturamento_tiss f
-               WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
-                 AND ${convenioSemRetornoSql} AND COALESCE(f.data_referencia, f.data_execucao) IS NOT NULL
+               FROM faturado_sem_retorno f
+               WHERE COALESCE(f.data_referencia, f.data_execucao) IS NOT NULL
                GROUP BY MONTH(COALESCE(f.data_referencia, f.data_execucao)), YEAR(COALESCE(f.data_referencia, f.data_execucao))
              ) periodos
              GROUP BY mes, ano ORDER BY ano DESC, mes DESC`,
-            [input.estabelecimentoId, input.estabelecimentoId]
+            [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]
           ),
           conn.execute(
             `${profissionalCteSql} SELECT d.situacao_item, COUNT(*) AS total,
@@ -333,7 +392,8 @@ export const relatorioVisitaRouter = router({
         let faturadosSemRetorno: any[] = [];
         if (incluirFaturadosSemRetorno) {
           const [rowsFaturados] = await conn.execute(
-            `SELECT f.id, f.codigo_item, f.descricao_item,
+            `${faturadoSemRetornoCteSql}
+             SELECT f.id, f.codigo_item, f.descricao_item,
                     CAST(f.valor_faturado AS DECIMAL(12,2)) AS valor_informado,
                     COALESCE(NULLIF(f.numero_guia_operadora, ''), f.numero_guia_prestador) AS numero_guia,
                     NULL AS nome_beneficiario, f.data_execucao, f.data_referencia,
@@ -341,13 +401,12 @@ export const relatorioVisitaRouter = router({
                     COALESCE(c.nome, CONCAT('Convênio ', f.convenioId)) AS convenio_nome,
                     NULLIF(TRIM(f.nome_prof), '') AS medico,
                     NULLIF(TRIM(f.conselho_prof), '') AS crm,
-                    'XML faturado — aguardando retorno detalhado' AS origem_profissional
-             FROM faturamento_tiss f
+                    'XML faturado — item sem correspondência no retorno' AS origem_profissional
+             FROM faturado_sem_retorno f
              LEFT JOIN convenios c ON c.id = f.convenioId
-             WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
-               AND ${convenioSemRetornoSql} ${whereFaturado}
+             WHERE 1 = 1 ${whereFaturado}
              ORDER BY f.data_execucao DESC, numero_guia, f.id`,
-            filtrosFaturado
+            [input.estabelecimentoId, input.estabelecimentoId, ...filtrosFaturado]
           );
           faturadosSemRetorno = rowsFaturados as any[];
         }
@@ -401,7 +460,7 @@ export const relatorioVisitaRouter = router({
         if (faturadosSemRetorno.length) {
           porCodigoCompleto.push({
             codigo_item: "10102019",
-            descricao: "Visita Hospitalar (aguardando retorno detalhado)",
+            descricao: "Visita Hospitalar (item sem correspondência no retorno)",
             situacao_item: "AGUARDANDO RETORNO",
             qtd: faturadosSemRetorno.length,
             total_pago: 0,

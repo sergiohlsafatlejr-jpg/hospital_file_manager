@@ -4480,3 +4480,10 @@
 - [x] Corrigir a listagem e os filtros do `/relatorio-visita` para incluir os três convênios quando houver visitas válidas
 - [x] Preservar médico/CRM recuperados, isolamento por estabelecimento e exportação Excel
 - [x] Validar AFFEGO, Bradesco e Saúde Caixa com dados reais, testes e build
+
+- [x] Auditar todos os convênios comparando cada visita do XML faturado com cada item do retorno importado
+- [x] Definir uma chave segura de conciliação por estabelecimento, convênio, guia, código e ocorrência do item
+- [x] Medir e tratar guias divergentes, duplicidades e retornos parciais sem classificar o convênio inteiro
+- [x] Substituir a regra por convênio pela união item a item entre faturado e demonstrativo
+- [x] Preservar médico/CRM, competência, filtros, status e Excel para todas as fontes
+- [x] Validar todos os convênios, totais, deduplicação, isolamento, testes e build

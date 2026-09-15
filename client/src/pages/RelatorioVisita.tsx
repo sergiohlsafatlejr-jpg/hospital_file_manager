@@ -175,7 +175,7 @@ export default function RelatorioVisita() {
     const s = (sit || "").toUpperCase();
     if (s === "GLOSADO") return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" /> Glosado</Badge>;
     if (s === "PARCIAL") return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><AlertCircle className="h-3 w-3" /> Parcial</Badge>;
-    if (s === "AGUARDANDO RETORNO") return <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600"><AlertCircle className="h-3 w-3" /> Aguardando retorno</Badge>;
+    if (s === "AGUARDANDO RETORNO") return <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600"><AlertCircle className="h-3 w-3" /> Item sem retorno</Badge>;
     return <Badge variant="outline" className="gap-1 border-green-500 text-green-600"><CheckCircle2 className="h-3 w-3" /> Pago</Badge>;
   };
 
@@ -249,7 +249,7 @@ export default function RelatorioVisita() {
                     <SelectItem value="pago">Pagos</SelectItem>
                     <SelectItem value="glosado">Glosados</SelectItem>
                     <SelectItem value="parcial">Parciais</SelectItem>
-                    <SelectItem value="aguardando">Aguardando retorno</SelectItem>
+                    <SelectItem value="aguardando">Item sem retorno</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -307,7 +307,7 @@ export default function RelatorioVisita() {
           <Card className={`cursor-pointer transition-all hover:shadow-md ${statusFiltro === "aguardando" ? "ring-2 ring-blue-500" : ""}`} onClick={() => setStatusFiltro(statusFiltro === "aguardando" ? "todos" : "aguardando")}>
             <CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-blue-600 shrink-0" />
-              <div><p className="text-xs text-muted-foreground">Aguardando retorno</p><p className="text-sm font-bold text-blue-600">{fmt((resumo as any).totalFaturadoSemRetorno)}</p><p className="text-xs text-muted-foreground">{(resumo as any).totalAguardandoRetorno || 0} visitas</p></div>
+              <div><p className="text-xs text-muted-foreground">Itens sem retorno</p><p className="text-sm font-bold text-blue-600">{fmt((resumo as any).totalFaturadoSemRetorno)}</p><p className="text-xs text-muted-foreground">{(resumo as any).totalAguardandoRetorno || 0} visitas faturadas sem item correspondente no retorno</p></div>
             </div></CardContent>
           </Card>
 
