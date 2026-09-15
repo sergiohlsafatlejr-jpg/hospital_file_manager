@@ -84,7 +84,11 @@ router.post('/api/internal/process-file', async (req, res) => {
       
       // Aplicar padrões de aceite automático de glosa nos itens recém-importados
       try {
-        await aplicarAceiteAutomaticoGlosa(arquivoId, arquivo.convenioId, arquivo.estabelecimentoId);
+        await aplicarAceiteAutomaticoGlosa(
+          arquivoId,
+          arquivo.convenioId ?? undefined,
+          arquivo.estabelecimentoId ?? undefined,
+        );
       } catch (aceiteErr: any) {
         console.error('[FileProcessor] Erro ao aplicar aceite automático:', aceiteErr?.message);
         await plog(arquivoId, 'info', `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`);
@@ -122,6 +126,53 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
   // CSV retornado - detectar formato IPASGO
   if (tipoArquivo === 'csv') {
     await plog(arquivoId, 'info', `Processando CSV retornado: ${arquivo.nome}`);
+
+    // Bradesco exporta um CSV hierárquico iniciado por "Extrato de Pagamento".
+    // Esse formato já possui parser próprio, mas anteriormente não estava ligado
+    // ao pipeline e era rejeitado como se todo CSV fosse IPASGO.
+    const csvUtf8 = buffer.toString('utf8').replace(/^\uFEFF/, '');
+    const isBradesco = csvUtf8.slice(0, 500).includes('Extrato de Pagamento');
+    if (isBradesco) {
+      const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
+      const result = parseBradescoCSV(
+        csvUtf8,
+        arquivoId,
+        arquivo.convenioId,
+        arquivo.estabelecimentoId || undefined,
+        dataReferenciaUpload,
+        dataPagamentoUpload,
+      );
+
+      if (!result.success || result.items.length === 0) {
+        await plog(arquivoId, 'error', `Bradesco CSV falhou: ${result.error || 'Nenhum item encontrado'}`);
+        await db.updateArquivoStatus(arquivoId, "erro");
+        return;
+      }
+
+      await db.deleteRecebimentosExcelByArquivo(arquivoId);
+      await db.deleteDemonstrativoByArquivo(arquivoId);
+      await db.updateArquivoProgresso(arquivoId, 20, 0, result.items.length);
+
+      const BATCH_SIZE = 1000;
+      for (let i = 0; i < result.items.length; i += BATCH_SIZE) {
+        const batch = result.items.slice(i, i + BATCH_SIZE);
+        const inserted = await db.insertRecebimentosExcelBatch(batch);
+        totalProcessados += inserted;
+        const progresso = Math.round(20 + (totalProcessados / result.items.length) * 60);
+        await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, result.items.length);
+      }
+
+      const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
+      const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+      await plog(
+        arquivoId,
+        'info',
+        `Bradesco CSV: ${result.totalItens} itens / ${result.totalGuias} guias / ${result.totalLotes} lotes; demonstrativo ${syncResult.total}`,
+      );
+      await db.updateArquivoStatus(arquivoId, "processado");
+      await db.updateArquivoProgresso(arquivoId, 100, totalProcessados, totalProcessados);
+      return;
+    }
     
     const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
     

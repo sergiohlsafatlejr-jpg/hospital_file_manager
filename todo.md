@@ -4487,3 +4487,14 @@
 - [x] Substituir a regra por convênio pela união item a item entre faturado e demonstrativo
 - [x] Preservar médico/CRM, competência, filtros, status e Excel para todas as fontes
 - [x] Validar todos os convênios, totais, deduplicação, isolamento, testes e build
+
+- [x] Inventariar todos os arquivos de demonstrativo e itens gravados por estabelecimento e convênio
+- [x] Identificar arquivos acessíveis, incompletos, não processados e links históricos indisponíveis
+- [x] Definir uma chave idempotente de recuperação para impedir duplicidade e preservar dados já corrigidos
+- [x] Testar a reconstrução em amostras controladas antes da execução global
+- [x] Reprocessar globalmente 60 demonstrativos recuperáveis, reconstruindo 52.004 itens a partir das fontes normalizadas e mantendo isolamento por estabelecimento
+- [x] Conectar o parser Bradesco ao pipeline CSV e reprocessar o arquivo 4650001 com 576 itens, 215 guias e 7 lotes
+- [x] Reconstruir lacunas a partir das tabelas históricas quando havia fonte normalizada, sem inventar dados para objetos ausentes
+- [x] Comparar totais antes e depois por estabelecimento, convênio, guia e item
+- [x] Validar a tela de Demonstrativo, o Relatório de Visitas, a idempotência, os testes e o build de produção
+- [x] Registrar que 20 arquivos históricos continuam indisponíveis por HTTP 403 e sem fonte normalizada; exigem restauração do armazenamento ou backup para futuro reprocessamento

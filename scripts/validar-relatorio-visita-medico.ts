@@ -34,10 +34,10 @@ if (!geral.porMedico.some((item) => item.medico && item.crm)) {
 }
 
 const conveniosEsperados = [
-  { id: 60001, nome: "Affego", visitas: 8 },
+  { id: 60001, nome: "Affego", visitas: 2 },
   { id: 60003, nome: "Bradesco", visitas: 69 },
   { id: 60007, nome: "Saude Caixa", visitas: 34 },
-  { id: 60004, nome: "Cassi", visitas: 20 },
+  { id: 60004, nome: "Cassi", visitas: 18 },
   { id: 210001, nome: "Fusex", visitas: 19 },
   { id: 60005, nome: "Geap", visitas: 12 },
   { id: 1, nome: "Unimed", visitas: 26 },
@@ -63,8 +63,8 @@ for (const esperado of conveniosEsperados) {
     throw new Error(`${esperado.nome}: o filtro retornou outro convênio`);
   }
 }
-if (geral.resumo.totalAguardandoRetorno !== 198) {
-  throw new Error(`Conciliação global incompleta: esperado 198 itens sem retorno, retornou ${geral.resumo.totalAguardandoRetorno}`);
+if (geral.resumo.totalAguardandoRetorno !== 190) {
+  throw new Error(`Conciliação global incompleta: esperado 190 itens sem retorno, retornou ${geral.resumo.totalAguardandoRetorno}`);
 }
 if (julho.resumo.totalItens !== 63) {
   throw new Error(`O recorte 07/2026 mudou: esperado 63 visitas, retornou ${julho.resumo.totalItens}`);
