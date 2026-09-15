@@ -4498,3 +4498,9 @@
 - [x] Comparar totais antes e depois por estabelecimento, convênio, guia e item
 - [x] Validar a tela de Demonstrativo, o Relatório de Visitas, a idempotência, os testes e o build de produção
 - [x] Registrar que 20 arquivos históricos continuam indisponíveis por HTTP 403 e sem fonte normalizada; exigem restauração do armazenamento ou backup para futuro reprocessamento
+
+- [x] Auditar todos os arquivos, fontes normalizadas e itens de demonstrativo vinculados ao convênio VIVACOM por estabelecimento
+- [x] Reproduzir a ausência do VIVACOM pela mesma consulta usada na tela afetada e identificar a causa raiz
+- [x] Corrigir o filtro de competência e data de pagamento do VIVACOM nas telas Demonstrativo e Contas Demonstrativo, sem misturar estabelecimentos
+- [x] Validar 708 itens VIVACOM no PSI, distribuídos entre 07/2026 (283) e 05/2026 (425), além de testes e build
+- [x] Salvar checkpoint e sincronizar a correção do VIVACOM com o GitHub

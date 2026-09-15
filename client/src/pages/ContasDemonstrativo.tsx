@@ -39,6 +39,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { formatDateBR, safeParseDate } from "@/lib/dateUtils";
+import { resolveCompetenciaDisponivel } from "@/lib/demonstrativoFilterState";
 
 
 
@@ -109,13 +110,21 @@ export default function ContasDemonstrativo() {
     { enabled: !!estabelecimentoAtual?.id }
   );
 
-  // Inicializar filtro com a competência mais recente disponível
+  // Manter a competência válida para o estabelecimento/convênio atual.
   useEffect(() => {
-    if (competenciasData && competenciasData.length > 0 && !competenciaInicializada) {
-      setCompetencia(competenciasData[0].value);
+    if (!competenciasData) return;
+    const proximaCompetencia = resolveCompetenciaDisponivel(
+      competencia,
+      competenciaInicializada,
+      competenciasData,
+    );
+    if (proximaCompetencia !== competencia) {
+      setCompetencia(proximaCompetencia);
+    }
+    if (!competenciaInicializada) {
       setCompetenciaInicializada(true);
     }
-  }, [competenciasData, competenciaInicializada]);
+  }, [competencia, competenciasData, competenciaInicializada]);
 
   // Memoize competências do banco
   const competencias = useMemo(() => competenciasData || [], [competenciasData]);

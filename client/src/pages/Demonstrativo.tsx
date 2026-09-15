@@ -35,6 +35,10 @@ import { useLocation, useSearch } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { formatDateBR } from "@/lib/dateUtils";
+import {
+  resolveCompetenciaDisponivel,
+  resolveFiltroOpcionalDisponivel,
+} from "@/lib/demonstrativoFilterState";
 
 
 
@@ -86,13 +90,23 @@ export default function Demonstrativo() {
     { enabled: !!estabelecimentoAtual }
   );
 
-  // Inicializar filtro com a competência mais recente disponível
+  // Manter a competência válida para o estabelecimento/convênio atual.
+  // Ao trocar para um convênio com outro período (ex.: VIVACOM), evita
+  // reaproveitar a competência global e retornar uma lista vazia.
   useEffect(() => {
-    if (competenciasData && competenciasData.length > 0 && !competenciaInicializada) {
-      setCompetencia(competenciasData[0].value);
+    if (!competenciasData) return;
+    const proximaCompetencia = resolveCompetenciaDisponivel(
+      competencia,
+      competenciaInicializada,
+      competenciasData,
+    );
+    if (proximaCompetencia !== competencia) {
+      setCompetencia(proximaCompetencia);
+    }
+    if (!competenciaInicializada) {
       setCompetenciaInicializada(true);
     }
-  }, [competenciasData, competenciaInicializada]);
+  }, [competencia, competenciasData, competenciaInicializada]);
 
   // Memoize competências do banco
   const competencias = useMemo(() => competenciasData || [], [competenciasData]);
@@ -120,6 +134,14 @@ export default function Demonstrativo() {
     { enabled: !!estabelecimentoAtual }
   );
   const datasPagamento = useMemo(() => datasPagamentoData || [], [datasPagamentoData]);
+
+  useEffect(() => {
+    if (!datasPagamentoData) return;
+    const proximaData = resolveFiltroOpcionalDisponivel(dataPagamento, datasPagamentoData);
+    if (proximaData !== dataPagamento) {
+      setDataPagamento(proximaData);
+    }
+  }, [dataPagamento, datasPagamentoData]);
 
   // Buscar convênios
   const { data: convenios } = trpc.convenios.list.useQuery({});
