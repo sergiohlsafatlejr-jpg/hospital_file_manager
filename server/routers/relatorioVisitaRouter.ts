@@ -4,7 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
 
 const codigoVisitaSql = `REPLACE(COALESCE(d.codigo_item, ''), '.', '') = '10102019'`;
-const profissionalCteSql = `WITH profissionais_xml AS (
+const profissionalCteSql = `WITH profissionais_guia AS (
   SELECT estabelecimento_id, codigo_item, guia,
          CASE WHEN COUNT(DISTINCT chave_profissional) = 1 THEN MAX(medico) ELSE NULL END AS medico,
          CASE WHEN COUNT(DISTINCT chave_profissional) = 1 THEN MAX(crm) ELSE NULL END AS crm,
@@ -30,11 +30,47 @@ const profissionalCteSql = `WITH profissionais_xml AS (
   ) origem
   WHERE guia <> '' AND (medico IS NOT NULL OR crm IS NOT NULL)
   GROUP BY estabelecimento_id, codigo_item, guia
+), profissionais_carteira AS (
+  SELECT estabelecimento_id, convenio_id, carteira,
+         CASE WHEN COUNT(DISTINCT chave_profissional) = 1 THEN MAX(medico) ELSE NULL END AS medico,
+         CASE WHEN COUNT(DISTINCT chave_profissional) = 1 THEN MAX(crm) ELSE NULL END AS crm,
+         CASE WHEN COUNT(DISTINCT chave_profissional) > 1 THEN 1 ELSE 0 END AS ambiguo
+  FROM (
+    SELECT f.estabelecimentoId AS estabelecimento_id,
+           f.convenioId AS convenio_id,
+           REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(f.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '') AS carteira,
+           NULLIF(TRIM(f.nome_prof), '') AS medico,
+           NULLIF(TRIM(f.conselho_prof), '') AS crm,
+           CONCAT(COALESCE(NULLIF(TRIM(f.nome_prof), ''), ''), '|', COALESCE(NULLIF(TRIM(f.conselho_prof), ''), '')) AS chave_profissional
+    FROM faturamento_tiss f
+    WHERE f.estabelecimentoId = ?
+  ) origem
+  WHERE carteira <> '' AND (medico IS NOT NULL OR crm IS NOT NULL)
+  GROUP BY estabelecimento_id, convenio_id, carteira
+), profissionais_xml AS (
+  SELECT d.id AS demonstrativo_id,
+         CASE WHEN pg.guia IS NOT NULL THEN pg.medico ELSE pc.medico END AS medico,
+         CASE WHEN pg.guia IS NOT NULL THEN pg.crm ELSE pc.crm END AS crm,
+         CASE WHEN pg.guia IS NOT NULL THEN pg.ambiguo ELSE COALESCE(pc.ambiguo, 0) END AS ambiguo,
+         CASE
+           WHEN pg.guia IS NOT NULL AND pg.ambiguo = 0 AND (pg.medico IS NOT NULL OR pg.crm IS NOT NULL) THEN 'guia_codigo'
+           WHEN pg.guia IS NULL AND pc.carteira IS NOT NULL AND pc.ambiguo = 0 AND (pc.medico IS NOT NULL OR pc.crm IS NOT NULL) THEN 'carteira_convenio'
+           ELSE NULL
+         END AS fonte
+  FROM demonstrativo d
+  LEFT JOIN profissionais_guia pg
+    ON pg.estabelecimento_id = d.estabelecimentoId
+   AND pg.codigo_item = REPLACE(COALESCE(d.codigo_item, ''), '.', '')
+   AND pg.guia = TRIM(LEADING '0' FROM COALESCE(d.numero_guia, ''))
+  LEFT JOIN profissionais_carteira pc
+    ON pc.estabelecimento_id = d.estabelecimentoId
+   AND pc.convenio_id = d.convenio_id
+   AND pc.carteira = REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(d.carteira_beneficiario, ''), '.', ''), '-', ''), '/', ''), ' ', '')
+   AND NULLIF(TRIM(d.carteira_beneficiario), '') IS NOT NULL
+  WHERE d.estabelecimentoId = ?
 )`;
 const profissionalJoinSql = `LEFT JOIN profissionais_xml px
-  ON px.estabelecimento_id = d.estabelecimentoId
- AND px.codigo_item = REPLACE(COALESCE(d.codigo_item, ''), '.', '')
- AND px.guia = TRIM(LEADING '0' FROM COALESCE(d.numero_guia, ''))`;
+  ON px.demonstrativo_id = d.id`;
 
 async function autorizar(userId: number, estabelecimentoId: number) {
   const permitido = await verificarPermissaoEstabelecimento(userId, estabelecimentoId, "visualizar");
@@ -80,13 +116,10 @@ export const relatorioVisitaRouter = router({
           `${profissionalCteSql}
            SELECT px.medico, px.crm, COUNT(DISTINCT d.id) AS total_visitas
            FROM demonstrativo d
-           INNER JOIN profissionais_xml px
-             ON px.estabelecimento_id = d.estabelecimentoId
-            AND px.codigo_item = REPLACE(COALESCE(d.codigo_item, ''), '.', '')
-            AND px.guia = TRIM(LEADING '0' FROM COALESCE(d.numero_guia, ''))
+           INNER JOIN profissionais_xml px ON px.demonstrativo_id = d.id
            WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND px.ambiguo = 0 AND px.medico IS NOT NULL
            GROUP BY px.medico, px.crm ORDER BY px.medico`,
-          [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]
+          [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]
         );
         return (rows as any[]).map((r) => ({ medico: r.medico, crm: r.crm || null, totalVisitas: Number(r.total_visitas || 0) }));
       } finally {
@@ -132,7 +165,14 @@ export const relatorioVisitaRouter = router({
         }
 
         const baseWhere = `d.estabelecimentoId = ? AND ${codigoVisitaSql}`;
-        const parametros = [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, ...filtros];
+        const parametros = [
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          input.estabelecimentoId,
+          ...filtros,
+        ];
         const fromSql = `FROM demonstrativo d ${profissionalJoinSql}`;
 
         const [[porCodigo], [resumoRows], [competencias], [porSituacao], [porConvenio], [porMedico]] = await Promise.all([
@@ -201,6 +241,7 @@ export const relatorioVisitaRouter = router({
                     d.data_pagamento, d.codigo_glosa, d.convenio_id, c.nome AS convenio_nome,
                     CASE WHEN px.ambiguo = 0 THEN px.medico ELSE NULL END AS medico,
                     CASE WHEN px.ambiguo = 0 THEN px.crm ELSE NULL END AS crm,
+                    CASE WHEN px.ambiguo = 0 THEN px.fonte ELSE NULL END AS origem_profissional,
                     COALESCE(px.ambiguo, 0) AS profissional_ambiguo
              ${fromSql} LEFT JOIN convenios c ON c.id = d.convenio_id
              WHERE ${baseWhere} ${whereExtra}
@@ -212,7 +253,11 @@ export const relatorioVisitaRouter = router({
             medico: i.medico || null,
             crm: i.crm || null,
             profissional_ambiguo: Boolean(i.profissional_ambiguo),
-            origem_profissional: i.medico || i.crm ? "XML enviado" : null,
+            origem_profissional: i.origem_profissional === "carteira_convenio"
+              ? "XML histórico — carteirinha e convênio"
+              : i.origem_profissional === "guia_codigo"
+                ? "XML enviado — guia e código"
+                : null,
           }));
         }
 

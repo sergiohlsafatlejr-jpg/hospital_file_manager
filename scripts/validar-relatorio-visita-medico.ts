@@ -17,6 +17,12 @@ const [medicos, geral] = await Promise.all([
   admin.medicos({ estabelecimentoId }),
   admin.dados({ estabelecimentoId, statusFiltro: "todos" }),
 ]);
+const julho = await admin.dados({
+  estabelecimentoId,
+  mesReferencia: 7,
+  anoReferencia: 2026,
+  statusFiltro: "todos",
+});
 
 if (!medicos.length) throw new Error("Nenhum médico do XML foi disponibilizado no filtro");
 if (geral.resumo.totalComMedico <= 0 || geral.resumo.totalMedicos <= 0) {
@@ -24,6 +30,15 @@ if (geral.resumo.totalComMedico <= 0 || geral.resumo.totalMedicos <= 0) {
 }
 if (!geral.porMedico.some((item) => item.medico && item.crm)) {
   throw new Error("A visão por médico não retornou nome e CRM");
+}
+if (julho.resumo.totalItens !== 63) {
+  throw new Error(`O recorte 07/2026 mudou: esperado 63 visitas, retornou ${julho.resumo.totalItens}`);
+}
+if (julho.resumo.totalComMedico < 54) {
+  throw new Error(`A recuperação histórica de 07/2026 ficou incompleta: ${julho.resumo.totalComMedico}/63 visitas`);
+}
+if (!julho.itens.some((item: any) => item.origem_profissional === "XML histórico — carteirinha e convênio")) {
+  throw new Error("O recorte de julho não identificou a origem histórica recuperada no banco");
 }
 
 let recorteComMedico: Awaited<ReturnType<typeof admin.dados>> | null = null;
@@ -72,6 +87,12 @@ console.log(JSON.stringify({
   estabelecimentoId,
   medicosDisponiveis: medicos.length,
   cobertura: geral.resumo,
+  recorteJulho2026: {
+    total: julho.resumo.totalItens,
+    comMedico: julho.resumo.totalComMedico,
+    semMedico: julho.resumo.totalSemMedico,
+    percentual: Number(((julho.resumo.totalComMedico / julho.resumo.totalItens) * 100).toFixed(2)),
+  },
   competenciaValidada: competenciaUsada.label,
   medicoValidado: { medico: profissional.medico, crm: profissional.crm },
   itensNoFiltro: filtrado.itens.length,

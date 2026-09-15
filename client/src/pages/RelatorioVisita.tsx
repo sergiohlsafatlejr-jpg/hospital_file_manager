@@ -190,7 +190,7 @@ export default function RelatorioVisita() {
               <Stethoscope className="h-8 w-8 text-blue-500" />
               Relatório de Visita Hospitalar
             </h1>
-            <p className="text-muted-foreground">Código TUSS 10102019 · {estabelecimentoAtual?.nome || "Estabelecimento"} · Médico e CRM obtidos do XML enviado</p>
+            <p className="text-muted-foreground">Código TUSS 10102019 · {estabelecimentoAtual?.nome || "Estabelecimento"} · Médico e CRM recuperados do XML por guia ou carteirinha</p>
           </div>
           <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Atualizar</Button>
         </div>
@@ -536,7 +536,7 @@ export default function RelatorioVisita() {
                           <TableCell className="text-sm">{item.convenio_nome || "-"}</TableCell>
                           <TableCell className="font-mono text-sm">{item.numero_guia || "-"}</TableCell>
                           <TableCell className="max-w-[130px] truncate text-sm">{item.nome_beneficiario || "-"}</TableCell>
-                          <TableCell className="max-w-[180px] text-sm"><div className="font-medium truncate">{item.medico || "Não informado"}</div>{item.origem_profissional && <div className="text-[11px] text-muted-foreground">XML enviado</div>}</TableCell>
+                          <TableCell className="max-w-[220px] text-sm"><div className="font-medium truncate">{item.medico || "Não informado"}</div>{item.origem_profissional && <div className="text-[11px] text-muted-foreground">{item.origem_profissional}</div>}</TableCell>
                           <TableCell className="text-sm">{formatarCrmVisita(item.crm)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-emerald-600 font-semibold">{fmt(item.valor_pago)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-red-600">{fmt(item.valor_glosa)}</TableCell>

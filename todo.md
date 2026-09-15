@@ -4463,3 +4463,14 @@
 - [x] Adicionar filtros e exportação por médico/CRM mantendo os filtros existentes
 - [x] Tratar XMLs sem profissional informado sem criar dados fictícios
 - [x] Validar com XMLs reais, isolamento por estabelecimento, testes e build
+
+- [x] Auditar XMLs históricos e tabelas antigas para localizar médico e CRM das visitas atualmente sem informação
+- [x] Medir associações possíveis por guia, paciente, data, código e valor sem misturar estabelecimentos
+- [x] Implementar uma estratégia segura de recuperação histórica e rejeitar vínculos ambíguos
+- [x] Preencher o relatório com os médicos recuperados e identificar a origem histórica no detalhamento e Excel
+- [x] Validar especificamente as 63 visitas exibidas na captura e a cobertura dos demais períodos
+- [x] Executar testes, isolamento por estabelecimento e build antes do novo checkpoint
+
+- [x] Localizar no banco o conteúdo bruto ou derivados dos XMLs históricos do PSI sem solicitar reenvio ao usuário
+- [x] Rastrear as 26 guias da competência de pagamento 07/2026 em todas as bases e conexões históricas disponíveis
+- [x] Recuperar médico e CRM somente de correspondências determinísticas e registrar a fonte utilizada
