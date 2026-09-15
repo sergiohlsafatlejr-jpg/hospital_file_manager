@@ -4523,4 +4523,4 @@
 - [x] Validar que os 15 arquivos históricos e R$ 16.645,29 de glosa do IMEC aparecem nos meses de referência corretos
 - [x] Confirmar isolamento por estabelecimento, executar 25 testes e o build de produção
 - [x] Salvar checkpoint da correção por data de referência
-- [ ] Sincronizar a correção com o GitHub após renovar a credencial expirada da integração
+- [x] Sincronizar a correção com o GitHub após renovar a credencial expirada da integração
