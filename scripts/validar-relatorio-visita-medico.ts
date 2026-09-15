@@ -13,9 +13,10 @@ const usuarioRestritoPsi = relatorioVisitaRouter.createCaller({
 });
 
 const estabelecimentoId = 1;
-const [medicos, geral] = await Promise.all([
+const [medicos, geral, convenios] = await Promise.all([
   admin.medicos({ estabelecimentoId }),
   admin.dados({ estabelecimentoId, statusFiltro: "todos" }),
+  admin.convenios({ estabelecimentoId }),
 ]);
 const julho = await admin.dados({
   estabelecimentoId,
@@ -30,6 +31,32 @@ if (geral.resumo.totalComMedico <= 0 || geral.resumo.totalMedicos <= 0) {
 }
 if (!geral.porMedico.some((item) => item.medico && item.crm)) {
   throw new Error("A visão por médico não retornou nome e CRM");
+}
+
+const conveniosEsperados = [
+  { id: 60001, nome: "Affego", visitas: 8 },
+  { id: 60003, nome: "Bradesco", visitas: 69 },
+  { id: 60007, nome: "Saude Caixa", visitas: 34 },
+];
+for (const esperado of conveniosEsperados) {
+  if (!convenios.some((item) => Number(item.id) === esperado.id)) {
+    throw new Error(`${esperado.nome} não apareceu no filtro de convênios`);
+  }
+  const resumoConvenio = geral.porConvenio.find((item) => Number(item.convenioId) === esperado.id);
+  if (!resumoConvenio || Number(resumoConvenio.totalFaturadoSemRetorno || 0) <= 0) {
+    throw new Error(`${esperado.nome} não apareceu no resumo com o faturamento XML`);
+  }
+  const recorteConvenio = await admin.dados({
+    estabelecimentoId,
+    convenioId: esperado.id,
+    statusFiltro: "todos",
+  });
+  if (recorteConvenio.resumo.totalAguardandoRetorno !== esperado.visitas) {
+    throw new Error(`${esperado.nome}: esperado ${esperado.visitas} visitas aguardando retorno, retornou ${recorteConvenio.resumo.totalAguardandoRetorno}`);
+  }
+  if (recorteConvenio.porConvenio.some((item) => Number(item.convenioId) !== esperado.id)) {
+    throw new Error(`${esperado.nome}: o filtro retornou outro convênio`);
+  }
 }
 if (julho.resumo.totalItens !== 63) {
   throw new Error(`O recorte 07/2026 mudou: esperado 63 visitas, retornou ${julho.resumo.totalItens}`);
@@ -96,6 +123,7 @@ console.log(JSON.stringify({
   competenciaValidada: competenciaUsada.label,
   medicoValidado: { medico: profissional.medico, crm: profissional.crm },
   itensNoFiltro: filtrado.itens.length,
+  conveniosRecuperados: conveniosEsperados.map((item) => ({ nome: item.nome, visitas: item.visitas })),
   isolamentoConfirmado: true,
 }, null, 2));
 

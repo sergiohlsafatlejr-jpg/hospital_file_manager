@@ -4474,3 +4474,9 @@
 - [x] Localizar no banco o conteúdo bruto ou derivados dos XMLs históricos do PSI sem solicitar reenvio ao usuário
 - [x] Rastrear as 26 guias da competência de pagamento 07/2026 em todas as bases e conexões históricas disponíveis
 - [x] Recuperar médico e CRM somente de correspondências determinísticas e registrar a fonte utilizada
+
+- [x] Auditar visitas de AFFEGO, Bradesco e Saúde Caixa no demonstrativo, XML faturado e tabelas históricas do PSI
+- [x] Identificar se os convênios estão ausentes por código da visita, vínculo de convenioId, nome ou competência
+- [x] Corrigir a listagem e os filtros do `/relatorio-visita` para incluir os três convênios quando houver visitas válidas
+- [x] Preservar médico/CRM recuperados, isolamento por estabelecimento e exportação Excel
+- [x] Validar AFFEGO, Bradesco e Saúde Caixa com dados reais, testes e build

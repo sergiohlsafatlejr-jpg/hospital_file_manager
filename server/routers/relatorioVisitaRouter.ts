@@ -3,7 +3,14 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
 
-const codigoVisitaSql = `REPLACE(COALESCE(d.codigo_item, ''), '.', '') = '10102019'`;
+const codigoVisitaSql = `REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', '') = '10102019'`;
+const codigoVisitaFaturadoSql = `REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') = '10102019'`;
+const convenioSemRetornoSql = `NOT EXISTS (
+  SELECT 1 FROM demonstrativo dr
+  WHERE dr.estabelecimentoId = f.estabelecimentoId
+    AND dr.convenio_id = f.convenioId
+    AND REGEXP_REPLACE(COALESCE(dr.codigo_item, ''), '[^0-9]', '') = '10102019'
+)`;
 const profissionalCteSql = `WITH profissionais_guia AS (
   SELECT estabelecimento_id, codigo_item, guia,
          CASE WHEN COUNT(DISTINCT chave_profissional) = 1 THEN MAX(medico) ELSE NULL END AS medico,
@@ -11,22 +18,22 @@ const profissionalCteSql = `WITH profissionais_guia AS (
          CASE WHEN COUNT(DISTINCT chave_profissional) > 1 THEN 1 ELSE 0 END AS ambiguo
   FROM (
     SELECT f.estabelecimentoId AS estabelecimento_id,
-           REPLACE(COALESCE(f.codigo_item, ''), '.', '') AS codigo_item,
+           REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') AS codigo_item,
            TRIM(LEADING '0' FROM COALESCE(f.numero_guia_operadora, '')) AS guia,
            NULLIF(TRIM(f.nome_prof), '') AS medico,
            NULLIF(TRIM(f.conselho_prof), '') AS crm,
            CONCAT(COALESCE(NULLIF(TRIM(f.nome_prof), ''), ''), '|', COALESCE(NULLIF(TRIM(f.conselho_prof), ''), '')) AS chave_profissional
     FROM faturamento_tiss f
-    WHERE f.estabelecimentoId = ? AND REPLACE(COALESCE(f.codigo_item, ''), '.', '') = '10102019'
+    WHERE f.estabelecimentoId = ? AND REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') = '10102019'
     UNION ALL
     SELECT f.estabelecimentoId AS estabelecimento_id,
-           REPLACE(COALESCE(f.codigo_item, ''), '.', '') AS codigo_item,
+           REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') AS codigo_item,
            TRIM(LEADING '0' FROM COALESCE(f.numero_guia_prestador, '')) AS guia,
            NULLIF(TRIM(f.nome_prof), '') AS medico,
            NULLIF(TRIM(f.conselho_prof), '') AS crm,
            CONCAT(COALESCE(NULLIF(TRIM(f.nome_prof), ''), ''), '|', COALESCE(NULLIF(TRIM(f.conselho_prof), ''), '')) AS chave_profissional
     FROM faturamento_tiss f
-    WHERE f.estabelecimentoId = ? AND REPLACE(COALESCE(f.codigo_item, ''), '.', '') = '10102019'
+    WHERE f.estabelecimentoId = ? AND REGEXP_REPLACE(COALESCE(f.codigo_item, ''), '[^0-9]', '') = '10102019'
   ) origem
   WHERE guia <> '' AND (medico IS NOT NULL OR crm IS NOT NULL)
   GROUP BY estabelecimento_id, codigo_item, guia
@@ -60,7 +67,7 @@ const profissionalCteSql = `WITH profissionais_guia AS (
   FROM demonstrativo d
   LEFT JOIN profissionais_guia pg
     ON pg.estabelecimento_id = d.estabelecimentoId
-   AND pg.codigo_item = REPLACE(COALESCE(d.codigo_item, ''), '.', '')
+   AND pg.codigo_item = REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', '')
    AND pg.guia = TRIM(LEADING '0' FROM COALESCE(d.numero_guia, ''))
   LEFT JOIN profissionais_carteira pc
     ON pc.estabelecimento_id = d.estabelecimentoId
@@ -94,11 +101,20 @@ export const relatorioVisitaRouter = router({
       const conn = await conectar();
       try {
         const [rows] = await conn.execute(
-          `SELECT DISTINCT d.convenio_id, c.nome AS convenio_nome
-           FROM demonstrativo d LEFT JOIN convenios c ON c.id = d.convenio_id
-           WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND d.convenio_id IS NOT NULL
-           ORDER BY c.nome`,
-          [input.estabelecimentoId]
+          `SELECT x.convenio_id, COALESCE(c.nome, CONCAT('Convênio ', x.convenio_id)) AS convenio_nome
+           FROM (
+             SELECT DISTINCT d.convenio_id
+             FROM demonstrativo d
+             WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND d.convenio_id IS NOT NULL
+             UNION
+             SELECT DISTINCT f.convenioId
+             FROM faturamento_tiss f
+             WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
+               AND f.convenioId IS NOT NULL AND ${convenioSemRetornoSql}
+           ) x
+           LEFT JOIN convenios c ON c.id = x.convenio_id
+           ORDER BY convenio_nome`,
+          [input.estabelecimentoId, input.estabelecimentoId]
         );
         return (rows as any[]).map((r) => ({ id: Number(r.convenio_id), nome: r.convenio_nome || `Convênio ${r.convenio_id}` }));
       } finally {
@@ -114,12 +130,29 @@ export const relatorioVisitaRouter = router({
       try {
         const [rows] = await conn.execute(
           `${profissionalCteSql}
-           SELECT px.medico, px.crm, COUNT(DISTINCT d.id) AS total_visitas
-           FROM demonstrativo d
-           INNER JOIN profissionais_xml px ON px.demonstrativo_id = d.id
-           WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND px.ambiguo = 0 AND px.medico IS NOT NULL
-           GROUP BY px.medico, px.crm ORDER BY px.medico`,
-          [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]
+           SELECT medico, crm, SUM(total_visitas) AS total_visitas
+           FROM (
+             SELECT px.medico, px.crm, COUNT(DISTINCT d.id) AS total_visitas
+             FROM demonstrativo d
+             INNER JOIN profissionais_xml px ON px.demonstrativo_id = d.id
+             WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND px.ambiguo = 0 AND px.medico IS NOT NULL
+             GROUP BY px.medico, px.crm
+             UNION ALL
+             SELECT NULLIF(TRIM(f.nome_prof), '') AS medico, NULLIF(TRIM(f.conselho_prof), '') AS crm, COUNT(*) AS total_visitas
+             FROM faturamento_tiss f
+             WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
+               AND ${convenioSemRetornoSql} AND NULLIF(TRIM(f.nome_prof), '') IS NOT NULL
+             GROUP BY NULLIF(TRIM(f.nome_prof), ''), NULLIF(TRIM(f.conselho_prof), '')
+           ) profissionais
+           GROUP BY medico, crm ORDER BY medico`,
+          [
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+          ]
         );
         return (rows as any[]).map((r) => ({ medico: r.medico, crm: r.crm || null, totalVisitas: Number(r.total_visitas || 0) }));
       } finally {
@@ -133,7 +166,7 @@ export const relatorioVisitaRouter = router({
       mesReferencia: z.number().min(1).max(12).optional(),
       anoReferencia: z.number().min(2000).max(2100).optional(),
       convenioId: z.number().optional(),
-      statusFiltro: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
+      statusFiltro: z.enum(["todos", "pago", "glosado", "parcial", "aguardando"]).optional(),
       medico: z.string().min(1).optional(),
       crm: z.string().min(1).optional(),
     }))
@@ -163,6 +196,28 @@ export const relatorioVisitaRouter = router({
           whereExtra += " AND px.crm = ? AND px.ambiguo = 0";
           filtros.push(input.crm.trim());
         }
+
+        let whereFaturado = "";
+        const filtrosFaturado: unknown[] = [input.estabelecimentoId];
+        if (input.mesReferencia && input.anoReferencia) {
+          whereFaturado += " AND MONTH(COALESCE(f.data_referencia, f.data_execucao)) = ? AND YEAR(COALESCE(f.data_referencia, f.data_execucao)) = ?";
+          filtrosFaturado.push(input.mesReferencia, input.anoReferencia);
+        }
+        if (input.convenioId) {
+          whereFaturado += " AND f.convenioId = ?";
+          filtrosFaturado.push(input.convenioId);
+        }
+        if (input.medico) {
+          whereFaturado += " AND TRIM(f.nome_prof) = ?";
+          filtrosFaturado.push(input.medico.trim());
+        }
+        if (input.crm) {
+          whereFaturado += " AND TRIM(f.conselho_prof) = ?";
+          filtrosFaturado.push(input.crm.trim());
+        }
+        const incluirFaturadosSemRetorno = !input.statusFiltro
+          || input.statusFiltro === "todos"
+          || input.statusFiltro === "aguardando";
 
         const baseWhere = `d.estabelecimentoId = ? AND ${codigoVisitaSql}`;
         const parametros = [
@@ -195,13 +250,24 @@ export const relatorioVisitaRouter = router({
             parametros
           ),
           conn.execute(
-            `SELECT MONTH(COALESCE(d.data_referencia, d.data_pagamento)) AS mes,
-                    YEAR(COALESCE(d.data_referencia, d.data_pagamento)) AS ano, COUNT(*) AS total
-             FROM demonstrativo d
-             WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql} AND COALESCE(d.data_referencia, d.data_pagamento) IS NOT NULL
-             GROUP BY MONTH(COALESCE(d.data_referencia, d.data_pagamento)), YEAR(COALESCE(d.data_referencia, d.data_pagamento))
-             ORDER BY ano DESC, mes DESC`,
-            [input.estabelecimentoId]
+            `SELECT mes, ano, SUM(total) AS total
+             FROM (
+               SELECT MONTH(COALESCE(d.data_referencia, d.data_pagamento)) AS mes,
+                      YEAR(COALESCE(d.data_referencia, d.data_pagamento)) AS ano, COUNT(*) AS total
+               FROM demonstrativo d
+               WHERE d.estabelecimentoId = ? AND ${codigoVisitaSql}
+                 AND COALESCE(d.data_referencia, d.data_pagamento) IS NOT NULL
+               GROUP BY MONTH(COALESCE(d.data_referencia, d.data_pagamento)), YEAR(COALESCE(d.data_referencia, d.data_pagamento))
+               UNION ALL
+               SELECT MONTH(COALESCE(f.data_referencia, f.data_execucao)) AS mes,
+                      YEAR(COALESCE(f.data_referencia, f.data_execucao)) AS ano, COUNT(*) AS total
+               FROM faturamento_tiss f
+               WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
+                 AND ${convenioSemRetornoSql} AND COALESCE(f.data_referencia, f.data_execucao) IS NOT NULL
+               GROUP BY MONTH(COALESCE(f.data_referencia, f.data_execucao)), YEAR(COALESCE(f.data_referencia, f.data_execucao))
+             ) periodos
+             GROUP BY mes, ano ORDER BY ano DESC, mes DESC`,
+            [input.estabelecimentoId, input.estabelecimentoId]
           ),
           conn.execute(
             `${profissionalCteSql} SELECT d.situacao_item, COUNT(*) AS total,
@@ -264,24 +330,124 @@ export const relatorioVisitaRouter = router({
         const resumo = (resumoRows as any[])[0] || {};
         const totalItens = Number(resumo.total_itens || 0);
         const totalComMedico = Number(resumo.total_com_medico || 0);
+        let faturadosSemRetorno: any[] = [];
+        if (incluirFaturadosSemRetorno) {
+          const [rowsFaturados] = await conn.execute(
+            `SELECT f.id, f.codigo_item, f.descricao_item,
+                    CAST(f.valor_faturado AS DECIMAL(12,2)) AS valor_informado,
+                    COALESCE(NULLIF(f.numero_guia_operadora, ''), f.numero_guia_prestador) AS numero_guia,
+                    NULL AS nome_beneficiario, f.data_execucao, f.data_referencia,
+                    NULL AS data_pagamento, NULL AS codigo_glosa, f.convenioId AS convenio_id,
+                    COALESCE(c.nome, CONCAT('Convênio ', f.convenioId)) AS convenio_nome,
+                    NULLIF(TRIM(f.nome_prof), '') AS medico,
+                    NULLIF(TRIM(f.conselho_prof), '') AS crm,
+                    'XML faturado — aguardando retorno detalhado' AS origem_profissional
+             FROM faturamento_tiss f
+             LEFT JOIN convenios c ON c.id = f.convenioId
+             WHERE f.estabelecimentoId = ? AND ${codigoVisitaFaturadoSql}
+               AND ${convenioSemRetornoSql} ${whereFaturado}
+             ORDER BY f.data_execucao DESC, numero_guia, f.id`,
+            filtrosFaturado
+          );
+          faturadosSemRetorno = rowsFaturados as any[];
+        }
+
+        const mapaConvenios = new Map<number, any>();
+        for (const convenio of porConvenio as any[]) {
+          mapaConvenios.set(Number(convenio.convenio_id), {
+            convenioId: convenio.convenio_id,
+            convenioNome: convenio.convenio_nome || `Convênio ${convenio.convenio_id}`,
+            qtd: Number(convenio.qtd), codigos: Number(convenio.codigos),
+            totalPago: Number(convenio.total_pago || 0), totalGlosa: Number(convenio.total_glosa || 0),
+            totalFaturadoSemRetorno: 0,
+          });
+        }
+        for (const item of faturadosSemRetorno) {
+          const id = Number(item.convenio_id);
+          const atual = mapaConvenios.get(id) || {
+            convenioId: id,
+            convenioNome: item.convenio_nome || `Convênio ${id}`,
+            qtd: 0, codigos: 0, totalPago: 0, totalGlosa: 0, totalFaturadoSemRetorno: 0,
+          };
+          atual.qtd += 1;
+          atual.codigos = Math.max(atual.codigos, 1);
+          atual.totalFaturadoSemRetorno += Number(item.valor_informado || 0);
+          mapaConvenios.set(id, atual);
+        }
+
+        const mapaMedicos = new Map<string, any>();
+        for (const medico of porMedico as any[]) {
+          const chave = `${medico.medico || ''}|${medico.crm || ''}`;
+          mapaMedicos.set(chave, {
+            medico: medico.medico || null, crm: medico.crm || null, qtd: Number(medico.qtd || 0),
+            totalPago: Number(medico.total_pago || 0), totalGlosa: Number(medico.total_glosa || 0),
+            totalFaturadoSemRetorno: 0,
+          });
+        }
+        for (const item of faturadosSemRetorno) {
+          if (!item.medico) continue;
+          const chave = `${item.medico}|${item.crm || ''}`;
+          const atual = mapaMedicos.get(chave) || {
+            medico: item.medico, crm: item.crm || null, qtd: 0, totalPago: 0, totalGlosa: 0, totalFaturadoSemRetorno: 0,
+          };
+          atual.qtd += 1;
+          atual.totalFaturadoSemRetorno += Number(item.valor_informado || 0);
+          mapaMedicos.set(chave, atual);
+        }
+
+        const totalFaturadoSemRetorno = faturadosSemRetorno.reduce((s, item) => s + Number(item.valor_informado || 0), 0);
+        const totalComMedicoSemRetorno = faturadosSemRetorno.filter((item) => item.medico || item.crm).length;
+        const porCodigoCompleto = [...(porCodigo as any[])];
+        if (faturadosSemRetorno.length) {
+          porCodigoCompleto.push({
+            codigo_item: "10102019",
+            descricao: "Visita Hospitalar (aguardando retorno detalhado)",
+            situacao_item: "AGUARDANDO RETORNO",
+            qtd: faturadosSemRetorno.length,
+            total_pago: 0,
+            total_glosa: 0,
+            total_faturado_sem_retorno: totalFaturadoSemRetorno,
+          });
+        }
+        const porSituacaoCompleto = [...(porSituacao as any[])];
+        if (faturadosSemRetorno.length) {
+          porSituacaoCompleto.push({
+            situacao_item: "AGUARDANDO RETORNO",
+            total: faturadosSemRetorno.length,
+            vl_pago: 0,
+            vl_glosa: 0,
+            vl_faturado: totalFaturadoSemRetorno,
+          });
+        }
+        if (input.mesReferencia && input.anoReferencia) {
+          itens.push(...faturadosSemRetorno.map((item) => ({
+            ...item,
+            id: `xml-${item.id}`,
+            situacao_item: "AGUARDANDO RETORNO",
+            valor_pago: 0,
+            valor_glosa: 0,
+            profissional_ambiguo: false,
+          })));
+        }
         return {
           itens,
-          porCodigo: porCodigo as any[],
-          porSituacao: porSituacao as any[],
-          porConvenio: (porConvenio as any[]).map((c) => ({
-            convenioId: c.convenio_id,
-            convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`,
-            qtd: Number(c.qtd), codigos: Number(c.codigos),
-            totalPago: Number(c.total_pago || 0), totalGlosa: Number(c.total_glosa || 0),
-          })),
-          porMedico: (porMedico as any[]).map((m) => ({
-            medico: m.medico || null, crm: m.crm || null, qtd: Number(m.qtd || 0),
-            totalPago: Number(m.total_pago || 0), totalGlosa: Number(m.total_glosa || 0),
-          })),
+          porCodigo: porCodigoCompleto,
+          porSituacao: porSituacaoCompleto,
+          porConvenio: Array.from(mapaConvenios.values()).sort((a, b) =>
+            (b.totalPago + b.totalGlosa + b.totalFaturadoSemRetorno)
+            - (a.totalPago + a.totalGlosa + a.totalFaturadoSemRetorno)
+          ),
+          porMedico: Array.from(mapaMedicos.values()).sort((a, b) => b.qtd - a.qtd),
           resumo: {
-            totalItens, totalPago: Number(resumo.total_pago || 0), totalGlosa: Number(resumo.total_glosa || 0),
-            totalInformado: Number(resumo.total_informado || 0), codigosUnicos: Number(resumo.codigos_unicos || 0),
-            totalComMedico, totalSemMedico: totalItens - totalComMedico, totalMedicos: Number(resumo.total_medicos || 0),
+            totalItens: totalItens + faturadosSemRetorno.length,
+            totalPago: Number(resumo.total_pago || 0), totalGlosa: Number(resumo.total_glosa || 0),
+            totalInformado: Number(resumo.total_informado || 0) + totalFaturadoSemRetorno,
+            codigosUnicos: totalItens + faturadosSemRetorno.length > 0 ? 1 : 0,
+            totalComMedico: totalComMedico + totalComMedicoSemRetorno,
+            totalSemMedico: totalItens + faturadosSemRetorno.length - totalComMedico - totalComMedicoSemRetorno,
+            totalMedicos: mapaMedicos.size,
+            totalFaturadoSemRetorno,
+            totalAguardandoRetorno: faturadosSemRetorno.length,
           },
           competencias: (competencias as any[]).map((c) => ({
             value: `${c.mes}-${c.ano}`, label: `${String(c.mes).padStart(2, "0")}/${c.ano}`,

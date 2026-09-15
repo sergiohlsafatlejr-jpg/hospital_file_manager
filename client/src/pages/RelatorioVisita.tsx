@@ -94,23 +94,24 @@ export default function RelatorioVisita() {
   }, [data?.competencias, competencia]);
 
   const competencias = data?.competencias || [];
-  const resumo = data?.resumo || { totalItens: 0, totalPago: 0, totalGlosa: 0, totalInformado: 0, codigosUnicos: 0, totalComMedico: 0, totalSemMedico: 0, totalMedicos: 0 };
+  const resumo = data?.resumo || { totalItens: 0, totalPago: 0, totalGlosa: 0, totalInformado: 0, codigosUnicos: 0, totalComMedico: 0, totalSemMedico: 0, totalMedicos: 0, totalFaturadoSemRetorno: 0, totalAguardandoRetorno: 0 };
   const porSituacao = data?.porSituacao || [];
   const porConvenio = data?.porConvenio || [];
   const porMedico = data?.porMedico || [];
 
   const agrupado = useMemo(() => {
     if (!data?.porCodigo) return [];
-    const map: Record<string, { codigo: string; descricao: string; qtdPago: number; qtdGlosado: number; totalPago: number; totalGlosa: number }> = {};
+    const map: Record<string, { codigo: string; descricao: string; qtdPago: number; qtdGlosado: number; qtdAguardando: number; totalPago: number; totalGlosa: number; totalFaturadoSemRetorno: number }> = {};
     for (const r of data.porCodigo) {
-      if (!map[r.codigo_item]) map[r.codigo_item] = { codigo: r.codigo_item, descricao: r.descricao || r.codigo_item, qtdPago: 0, qtdGlosado: 0, totalPago: 0, totalGlosa: 0 };
+      if (!map[r.codigo_item]) map[r.codigo_item] = { codigo: r.codigo_item, descricao: r.descricao || r.codigo_item, qtdPago: 0, qtdGlosado: 0, qtdAguardando: 0, totalPago: 0, totalGlosa: 0, totalFaturadoSemRetorno: 0 };
       const e = map[r.codigo_item];
       const sit = String(r.situacao_item || "").toUpperCase();
       if (sit === "PAGO") { e.qtdPago += Number(r.qtd || 0); e.totalPago += Number(r.total_pago || 0); }
       else if (sit === "GLOSADO") { e.qtdGlosado += Number(r.qtd || 0); e.totalGlosa += Number(r.total_glosa || 0); }
+      else if (sit === "AGUARDANDO RETORNO") { e.qtdAguardando += Number(r.qtd || 0); e.totalFaturadoSemRetorno += Number((r as any).total_faturado_sem_retorno || 0); }
       else { e.qtdPago += Number(r.qtd || 0); e.totalPago += Number(r.total_pago || 0); e.totalGlosa += Number(r.total_glosa || 0); }
     }
-    return Object.values(map).sort((a, b) => b.totalPago - a.totalPago);
+    return Object.values(map).sort((a, b) => (b.totalPago + b.totalGlosa + b.totalFaturadoSemRetorno) - (a.totalPago + a.totalGlosa + a.totalFaturadoSemRetorno));
   }, [data?.porCodigo]);
 
   const itensFiltrados = useMemo(() => {
@@ -148,16 +149,17 @@ export default function RelatorioVisita() {
         "Qtd Visitas": r.qtd,
         "Valor Pago": r.totalPago,
         "Valor Glosa": r.totalGlosa,
+        "Faturado sem Retorno": (r as any).totalFaturadoSemRetorno || 0,
         "Origem": "XML enviado",
       }));
     } else if (viewMode === "convenio") {
-      rows = porConvenio.map(r => ({ "Convênio": r.convenioNome, "Qtd Itens": r.qtd, "Códigos": r.codigos, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa }));
+      rows = porConvenio.map(r => ({ "Convênio": r.convenioNome, "Qtd Itens": r.qtd, "Códigos": r.codigos, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa, "Faturado sem Retorno": (r as any).totalFaturadoSemRetorno || 0 }));
     } else if (viewMode === "agrupado") {
-      rows = agrupado.map(r => ({ "Código TUSS": r.codigo, "Descrição": r.descricao, "Qtd Pagos": r.qtdPago, "Qtd Glosados": r.qtdGlosado, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa }));
+      rows = agrupado.map(r => ({ "Código TUSS": r.codigo, "Descrição": r.descricao, "Qtd Pagos": r.qtdPago, "Qtd Glosados": r.qtdGlosado, "Qtd Aguardando": r.qtdAguardando, "Valor Pago": r.totalPago, "Valor Glosa": r.totalGlosa, "Faturado sem Retorno": r.totalFaturadoSemRetorno }));
     } else if (viewMode === "pacientes") {
       rows = pacientesPagos.map((i: any) => ({ "Paciente": i.nome_beneficiario, "Guia": i.numero_guia, "Convênio": i.convenio_nome || "-", "Médico": i.medico || "Não informado", "CRM": i.crm || "Não informado", "Origem Médico": i.origem_profissional || "Não informado no XML", "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0) }));
     } else {
-      rows = itensFiltrados.map((i: any) => ({ "Código": i.codigo_item, "Descrição": i.descricao_item, "Convênio": i.convenio_nome || "-", "Guia": i.numero_guia, "Paciente": i.nome_beneficiario, "Médico": i.medico || "Não informado", "CRM": i.crm || "Não informado", "Origem Médico": i.origem_profissional || "Não informado no XML", "Dt Execução": fmtDate(i.data_execucao), "Vl Pago": Number(i.valor_pago || 0), "Vl Glosa": Number(i.valor_glosa || 0), "Situação": i.situacao_item }));
+      rows = itensFiltrados.map((i: any) => ({ "Código": i.codigo_item, "Descrição": i.descricao_item, "Convênio": i.convenio_nome || "-", "Guia": i.numero_guia, "Paciente": i.nome_beneficiario, "Médico": i.medico || "Não informado", "CRM": i.crm || "Não informado", "Origem Médico": i.origem_profissional || "Não informado no XML", "Dt Execução": fmtDate(i.data_execucao), "Vl Faturado": Number(i.valor_informado || 0), "Vl Pago": Number(i.valor_pago || 0), "Vl Glosa": Number(i.valor_glosa || 0), "Situação": i.situacao_item }));
     }
     if (!rows.length) return;
     const wb = XLSX.utils.book_new();
@@ -173,6 +175,7 @@ export default function RelatorioVisita() {
     const s = (sit || "").toUpperCase();
     if (s === "GLOSADO") return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" /> Glosado</Badge>;
     if (s === "PARCIAL") return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><AlertCircle className="h-3 w-3" /> Parcial</Badge>;
+    if (s === "AGUARDANDO RETORNO") return <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600"><AlertCircle className="h-3 w-3" /> Aguardando retorno</Badge>;
     return <Badge variant="outline" className="gap-1 border-green-500 text-green-600"><CheckCircle2 className="h-3 w-3" /> Pago</Badge>;
   };
 
@@ -246,6 +249,7 @@ export default function RelatorioVisita() {
                     <SelectItem value="pago">Pagos</SelectItem>
                     <SelectItem value="glosado">Glosados</SelectItem>
                     <SelectItem value="parcial">Parciais</SelectItem>
+                    <SelectItem value="aguardando">Aguardando retorno</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -280,7 +284,7 @@ export default function RelatorioVisita() {
         </Card>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
           <Card><CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-blue-600 shrink-0" />
             <div><p className="text-xs text-muted-foreground">Total Itens</p><p className="text-xl font-bold">{resumo.totalItens.toLocaleString("pt-BR")}</p><p className="text-xs text-muted-foreground">{resumo.codigosUnicos} códigos</p></div>
@@ -297,6 +301,13 @@ export default function RelatorioVisita() {
             <CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
               <TrendingDown className="h-5 w-5 text-red-600 shrink-0" />
               <div><p className="text-xs text-muted-foreground">Vl. Glosado</p><p className="text-sm font-bold text-red-600">{fmt(resumo.totalGlosa)}</p></div>
+            </div></CardContent>
+          </Card>
+
+          <Card className={`cursor-pointer transition-all hover:shadow-md ${statusFiltro === "aguardando" ? "ring-2 ring-blue-500" : ""}`} onClick={() => setStatusFiltro(statusFiltro === "aguardando" ? "todos" : "aguardando")}>
+            <CardContent className="pt-4 pb-4"><div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-blue-600 shrink-0" />
+              <div><p className="text-xs text-muted-foreground">Aguardando retorno</p><p className="text-sm font-bold text-blue-600">{fmt((resumo as any).totalFaturadoSemRetorno)}</p><p className="text-xs text-muted-foreground">{(resumo as any).totalAguardandoRetorno || 0} visitas</p></div>
             </div></CardContent>
           </Card>
 
@@ -329,6 +340,7 @@ export default function RelatorioVisita() {
                   <div className="text-right">
                     {Number(s.vl_pago || 0) > 0 && <p className="text-sm font-bold text-emerald-600">{fmt(s.vl_pago)}</p>}
                     {Number(s.vl_glosa || 0) > 0 && <p className="text-sm font-bold text-red-600">{fmt(s.vl_glosa)}</p>}
+                    {Number(s.vl_faturado || 0) > 0 && <p className="text-sm font-bold text-blue-600">{fmt(s.vl_faturado)} faturado</p>}
                   </div>
                 </CardContent>
               </Card>
@@ -407,12 +419,13 @@ export default function RelatorioVisita() {
                       <TableHead className="text-center">Códigos</TableHead>
                       <TableHead className="text-right">Valor Pago</TableHead>
                       <TableHead className="text-right">Valor Glosa</TableHead>
+                      <TableHead className="text-right">Faturado sem Retorno</TableHead>
                       <TableHead className="text-center">% Glosa</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {porConvenio.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum dado</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum dado</TableCell></TableRow>
                     ) : porConvenio.map((r, i) => {
                       const pct = r.totalPago + r.totalGlosa > 0 ? ((r.totalGlosa / (r.totalPago + r.totalGlosa)) * 100).toFixed(1) : "0.0";
                       return (
@@ -422,6 +435,7 @@ export default function RelatorioVisita() {
                           <TableCell className="text-center">{r.codigos}</TableCell>
                           <TableCell className="text-right font-mono text-emerald-600 font-semibold">{fmt(r.totalPago)}</TableCell>
                           <TableCell className="text-right font-mono text-red-600">{fmt(r.totalGlosa)}</TableCell>
+                          <TableCell className="text-right font-mono text-blue-600">{fmt((r as any).totalFaturadoSemRetorno)}</TableCell>
                           <TableCell className="text-center">{pct}%</TableCell>
                         </TableRow>
                       );
@@ -433,6 +447,7 @@ export default function RelatorioVisita() {
                     <span>Total: {porConvenio.length} convênios</span>
                     <span className="text-emerald-600">Pago: {fmt(porConvenio.reduce((s, r) => s + r.totalPago, 0))}</span>
                     <span className="text-red-600">Glosa: {fmt(porConvenio.reduce((s, r) => s + r.totalGlosa, 0))}</span>
+                    <span className="text-blue-600">Aguardando: {fmt(porConvenio.reduce((s, r) => s + Number((r as any).totalFaturadoSemRetorno || 0), 0))}</span>
                   </div>
                 )}
               </div>
@@ -447,12 +462,13 @@ export default function RelatorioVisita() {
                       <TableHead className="text-center">Qtd Visitas</TableHead>
                       <TableHead className="text-right">Valor Pago</TableHead>
                       <TableHead className="text-right">Valor Glosa</TableHead>
+                      <TableHead className="text-right">Faturado sem Retorno</TableHead>
                       <TableHead>Origem</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {porMedico.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum médico informado nos XMLs deste recorte.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum médico informado nos XMLs deste recorte.</TableCell></TableRow>
                     ) : porMedico.map((r, i) => (
                       <TableRow key={`${r.medico}-${r.crm}-${i}`} className="cursor-pointer hover:bg-muted/50" onClick={() => { if (r.medico) setMedicoFiltro(criarChaveProfissionalVisita(r.medico, r.crm)); }}>
                         <TableCell className="font-semibold">{r.medico || "Não informado"}</TableCell>
@@ -460,6 +476,7 @@ export default function RelatorioVisita() {
                         <TableCell className="text-center">{r.qtd.toLocaleString("pt-BR")}</TableCell>
                         <TableCell className="text-right font-mono text-emerald-600 font-semibold">{fmt(r.totalPago)}</TableCell>
                         <TableCell className="text-right font-mono text-red-600">{fmt(r.totalGlosa)}</TableCell>
+                        <TableCell className="text-right font-mono text-blue-600">{fmt((r as any).totalFaturadoSemRetorno)}</TableCell>
                         <TableCell><Badge variant="outline">XML enviado</Badge></TableCell>
                       </TableRow>
                     ))}
@@ -476,23 +493,27 @@ export default function RelatorioVisita() {
                       <TableHead className="max-w-[300px]">Descrição</TableHead>
                       <TableHead className="text-center">Qtd Pagos</TableHead>
                       <TableHead className="text-center">Qtd Glosados</TableHead>
+                      <TableHead className="text-center">Qtd Aguardando</TableHead>
                       <TableHead className="text-right">Total Pago</TableHead>
                       <TableHead className="text-right">Total Glosa</TableHead>
+                      <TableHead className="text-right">Faturado sem Retorno</TableHead>
                       <TableHead className="text-center">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {agrupado.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum dado encontrado</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum dado encontrado</TableCell></TableRow>
                     ) : agrupado.map((r, i) => (
                       <TableRow key={i} className={r.totalGlosa > 0 ? "bg-red-50/30 dark:bg-red-950/10" : ""}>
                         <TableCell className="font-mono text-sm font-semibold">{r.codigo}</TableCell>
                         <TableCell className="max-w-[300px] truncate text-sm">{r.descricao}</TableCell>
                         <TableCell className="text-center">{r.qtdPago}</TableCell>
                         <TableCell className="text-center">{r.qtdGlosado > 0 ? <span className="text-red-600 font-semibold">{r.qtdGlosado}</span> : "0"}</TableCell>
+                        <TableCell className="text-center">{r.qtdAguardando > 0 ? <span className="text-blue-600 font-semibold">{r.qtdAguardando}</span> : "0"}</TableCell>
                         <TableCell className="text-right font-mono text-sm text-emerald-600 font-semibold">{fmt(r.totalPago)}</TableCell>
                         <TableCell className="text-right font-mono text-sm text-red-600">{fmt(r.totalGlosa)}</TableCell>
-                        <TableCell className="text-center">{r.qtdGlosado > 0 && r.qtdPago > 0 ? getStatusBadge("PARCIAL") : r.qtdGlosado > 0 ? getStatusBadge("GLOSADO") : getStatusBadge("PAGO")}</TableCell>
+                        <TableCell className="text-right font-mono text-sm text-blue-600">{fmt(r.totalFaturadoSemRetorno)}</TableCell>
+                        <TableCell className="text-center">{r.qtdAguardando > 0 && r.qtdPago === 0 && r.qtdGlosado === 0 ? getStatusBadge("AGUARDANDO RETORNO") : r.qtdGlosado > 0 && r.qtdPago > 0 ? getStatusBadge("PARCIAL") : r.qtdGlosado > 0 ? getStatusBadge("GLOSADO") : getStatusBadge("PAGO")}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -502,6 +523,7 @@ export default function RelatorioVisita() {
                     <span>Total: {agrupado.length} códigos</span>
                     <span className="text-emerald-600">Pago: {fmt(agrupado.reduce((s, r) => s + r.totalPago, 0))}</span>
                     <span className="text-red-600">Glosa: {fmt(agrupado.reduce((s, r) => s + r.totalGlosa, 0))}</span>
+                    <span className="text-blue-600">Aguardando: {fmt(agrupado.reduce((s, r) => s + r.totalFaturadoSemRetorno, 0))}</span>
                   </div>
                 )}
               </div>
@@ -519,6 +541,7 @@ export default function RelatorioVisita() {
                         <TableHead className="max-w-[130px]">Paciente</TableHead>
                         <TableHead>Médico</TableHead>
                         <TableHead>CRM</TableHead>
+                        <TableHead className="text-right">Vl. Faturado</TableHead>
                         <TableHead className="text-right">Vl. Pago</TableHead>
                         <TableHead className="text-right">Vl. Glosa</TableHead>
                         <TableHead className="text-center">Status</TableHead>
@@ -526,7 +549,7 @@ export default function RelatorioVisita() {
                     </TableHeader>
                     <TableBody>
                       {itensPaginados.length === 0 ? (
-                        <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                        <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                           {!mesRef ? "Selecione uma competência para ver itens individuais" : "Nenhum item encontrado"}
                         </TableCell></TableRow>
                       ) : itensPaginados.map((item: any, i: number) => (
@@ -538,6 +561,7 @@ export default function RelatorioVisita() {
                           <TableCell className="max-w-[130px] truncate text-sm">{item.nome_beneficiario || "-"}</TableCell>
                           <TableCell className="max-w-[220px] text-sm"><div className="font-medium truncate">{item.medico || "Não informado"}</div>{item.origem_profissional && <div className="text-[11px] text-muted-foreground">{item.origem_profissional}</div>}</TableCell>
                           <TableCell className="text-sm">{formatarCrmVisita(item.crm)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm text-blue-600">{fmt(item.valor_informado)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-emerald-600 font-semibold">{fmt(item.valor_pago)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-red-600">{fmt(item.valor_glosa)}</TableCell>
                           <TableCell className="text-center">{getStatusBadge(item.situacao_item)}</TableCell>
