@@ -4510,3 +4510,9 @@
 - [x] Identificar a causa raiz no frontend e uma divergência secundária de período, sem mistura de estabelecimentos
 - [x] Medir o impacto: 2.546 itens e R$ 4.539,29 de glosa importados durante a análise, além de R$ 495,61 sem mês de pagamento
 - [x] Entregar ao usuário a explicação exata do erro encontrado
+
+- [x] Auditar os demonstrativos, glosas e datas de pagamento exclusivamente do IMEC no `/relatorios-glosas-bi`
+- [x] Comparar os KPIs e gráficos retornados pelo endpoint com os totais brutos do banco do IMEC
+- [x] Identificar que 15 arquivos recuperados do IMEC não aparecem por mês porque possuem competência, mas não data de pagamento
+- [x] Medir exclusivamente no IMEC: 14.958 itens, R$ 1.440.260,15 pagos e R$ 16.645,29 glosados ficam fora dos gráficos mensais
+- [x] Entregar o diagnóstico específico e a correção necessária para o IMEC
