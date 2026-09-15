@@ -4504,3 +4504,9 @@
 - [x] Corrigir o filtro de competência e data de pagamento do VIVACOM nas telas Demonstrativo e Contas Demonstrativo, sem misturar estabelecimentos
 - [x] Validar 708 itens VIVACOM no PSI, distribuídos entre 07/2026 (283) e 05/2026 (425), além de testes e build
 - [x] Salvar checkpoint e sincronizar a correção do VIVACOM com o GitHub
+
+- [x] Reproduzir a atualização incorreta do `/relatorios-glosas-bi` no estabelecimento ativo e registrar os filtros envolvidos
+- [x] Comparar os KPIs, gráficos, recursos e glosas aceitas do relatório com os dados atuais do banco
+- [x] Identificar a causa raiz no frontend e uma divergência secundária de período, sem mistura de estabelecimentos
+- [x] Medir o impacto: 2.546 itens e R$ 4.539,29 de glosa importados durante a análise, além de R$ 495,61 sem mês de pagamento
+- [x] Entregar ao usuário a explicação exata do erro encontrado
