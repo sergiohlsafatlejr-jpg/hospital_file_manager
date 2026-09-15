@@ -142,7 +142,7 @@ export const relatoriosGlosasBiRouter = router({
 
         const [mesRows] = await conn.execute<any[]>(`
           SELECT
-            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') AS mes_pagamento,
             SUM(CAST(COALESCE(d.valor_pago, 0) AS DECIMAL(14,2))) AS valor_pago,
             SUM(CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2))) AS valor_glosado,
             SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_sem_recurso,
@@ -151,8 +151,8 @@ export const relatoriosGlosasBiRouter = router({
             SUM(CASE WHEN ${pendenteCondicao} THEN CAST(d.valor_glosa AS DECIMAL(14,2)) ELSE 0 END) AS glosa_pendente,
             SUM(CASE WHEN COALESCE(d.valor_glosa, 0) > 0 THEN 1 ELSE 0 END) AS qtd_itens
           ${joinBase}
-          ${mesFiltro.where} AND d.data_pagamento IS NOT NULL
-          GROUP BY DATE_FORMAT(d.data_pagamento, '%Y/%m')
+          ${mesFiltro.where} AND COALESCE(d.data_referencia, d.data_pagamento) IS NOT NULL
+          GROUP BY DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m')
           HAVING SUM(COALESCE(d.valor_glosa, 0)) > 0
           ORDER BY mes_pagamento DESC
           LIMIT 18
@@ -243,7 +243,7 @@ export const relatoriosGlosasBiRouter = router({
             SELECT d.estabelecimentoId, d.convenio_id,
               TRIM(COALESCE(d.codigo_item,'')) AS codigo_item,
               ROUND(COALESCE(d.valor_glosa,0),2) AS valor_glosa,
-              DATE_FORMAT(d.data_pagamento,'%Y/%m') AS mes_pagamento,
+              DATE_FORMAT(COALESCE(d.data_referencia,d.data_pagamento),'%Y/%m') AS mes_pagamento,
               COALESCE(NULLIF(TRIM(d.descricao_item),''),'Item sem descrição') AS item_descricao,
               COALESCE(NULLIF(TRIM(d.codigo_glosa),''),'S/MOTIVO') AS motivo_codigo,
               COALESCE(NULLIF(TRIM(mgd.grupo),''),'Outros') AS categoria_glosa
@@ -255,7 +255,7 @@ export const relatoriosGlosasBiRouter = router({
 
             SELECT re.estabelecimentoId, re.convenioId,
               TRIM(COALESCE(re.item,'')), ROUND(COALESCE(re.valor_glosa,0),2),
-              DATE_FORMAT(COALESCE(re.data_pagamento,re.data_pagamento_upload,re.data_pagto),'%Y/%m'),
+              DATE_FORMAT(COALESCE(re.data_referencia,re.data_pagamento,re.data_pagamento_upload,re.data_pagto),'%Y/%m'),
               COALESCE(NULLIF(TRIM(re.item_desc),''),'Item sem descrição'),
               COALESCE(NULLIF(TRIM(re.codigo_glosa),''),'S/MOTIVO'),
               COALESCE(NULLIF(TRIM(mgre.grupo),''),'Outros')
@@ -294,7 +294,7 @@ export const relatoriosGlosasBiRouter = router({
           SELECT
             'aceita' AS tipo,
             CAST(COALESCE(d.valor_glosa, 0) AS DECIMAL(14,2)) AS valor,
-            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') AS mes_pagamento,
             d.convenio_id,
             COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS item_descricao,
             COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS procedimento_codigo,
@@ -365,7 +365,7 @@ export const relatoriosGlosasBiRouter = router({
           SELECT
             'recursada' AS tipo,
             CAST(COALESCE(NULLIF(rg.valorGlosado, 0), rg.valorCobrado, 0) AS DECIMAL(14,2)) AS valor,
-            DATE_FORMAT(dm.data_pagamento, '%Y/%m') AS mes_pagamento,
+            DATE_FORMAT(dm.data_referencia, '%Y/%m') AS mes_pagamento,
             rg.convenioId AS convenio_id,
             COALESCE(dm.item_descricao, NULLIF(TRIM(rg.descricaoProcedimento), ''), 'Item sem descrição') AS item_descricao,
             COALESCE(dm.procedimento_codigo, NULLIF(TRIM(rg.codigoProcedimento), ''), 'S/CÓDIGO') AS procedimento_codigo,
@@ -390,7 +390,7 @@ export const relatoriosGlosasBiRouter = router({
               d.numero_guia,
               TRIM(COALESCE(d.codigo_item, '')) AS codigo_item_match,
               ROUND(COALESCE(d.valor_glosa, 0), 2) AS valor_glosa_match,
-              MIN(d.data_pagamento) AS data_pagamento,
+              MIN(COALESCE(d.data_referencia, d.data_pagamento)) AS data_referencia,
               MIN(COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição')) AS item_descricao,
               MIN(COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO')) AS procedimento_codigo,
               MIN(COALESCE(NULLIF(TRIM(d.codigo_glosa), ''), 'S/MOTIVO')) AS motivo_codigo,
@@ -418,7 +418,7 @@ export const relatoriosGlosasBiRouter = router({
           SELECT
             'recursada' AS tipo,
             CAST(COALESCE(NULLIF(d.valor_recurso, 0), d.valor_glosa, 0) AS DECIMAL(14,2)) AS valor,
-            DATE_FORMAT(d.data_pagamento, '%Y/%m') AS mes_pagamento,
+            DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') AS mes_pagamento,
             d.convenio_id,
             COALESCE(NULLIF(TRIM(d.descricao_item), ''), 'Item sem descrição') AS item_descricao,
             COALESCE(NULLIF(TRIM(d.codigo_item), ''), 'S/CÓDIGO') AS procedimento_codigo,
@@ -1376,9 +1376,9 @@ export const relatoriosGlosasBiRouter = router({
         `, estabParams);
 
         const [competencias] = await conn.execute<any[]>(`
-          SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y/%m') as competencia
+          SELECT DISTINCT DATE_FORMAT(COALESCE(data_referencia, data_pagamento), '%Y/%m') as competencia
           FROM demonstrativo
-          WHERE valor_glosa > 0 AND data_pagamento IS NOT NULL AND estabelecimentoId = ?
+          WHERE valor_glosa > 0 AND COALESCE(data_referencia, data_pagamento) IS NOT NULL AND estabelecimentoId = ?
           ORDER BY competencia DESC
         `, estabParams);
 

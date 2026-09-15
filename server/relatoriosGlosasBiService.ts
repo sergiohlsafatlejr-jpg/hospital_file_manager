@@ -74,11 +74,11 @@ export function construirFiltroPainelGlosas(
     params.push(input.convenioId);
   }
   if (input.mesPagamentoInicio) {
-    clausulas.push("DATE_FORMAT(d.data_pagamento, '%Y/%m') >= ?");
+    clausulas.push("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?");
     params.push(input.mesPagamentoInicio);
   }
   if (input.mesPagamentoFim) {
-    clausulas.push("DATE_FORMAT(d.data_pagamento, '%Y/%m') <= ?");
+    clausulas.push("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?");
     params.push(input.mesPagamentoFim);
   }
   if (input.categoriaGlosa) {
@@ -86,7 +86,7 @@ export function construirFiltroPainelGlosas(
     params.push(input.categoriaGlosa);
   }
   if (input.mesPagamento && excluirDimensao !== "mesPagamento") {
-    clausulas.push("DATE_FORMAT(d.data_pagamento, '%Y/%m') = ?");
+    clausulas.push("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') = ?");
     params.push(input.mesPagamento);
   }
   if (input.itemDescricao && excluirDimensao !== "item") {

@@ -4516,3 +4516,10 @@
 - [x] Identificar que 15 arquivos recuperados do IMEC não aparecem por mês porque possuem competência, mas não data de pagamento
 - [x] Medir exclusivamente no IMEC: 14.958 itens, R$ 1.440.260,15 pagos e R$ 16.645,29 glosados ficam fora dos gráficos mensais
 - [x] Entregar o diagnóstico específico e a correção necessária para o IMEC
+
+- [x] Alterar o backend do `/relatorios-glosas-bi` para usar `data_referencia` em todos os filtros e agrupamentos de período
+- [x] Atualizar os textos, filtros, comparações e exportações da tela para identificar o período como referência
+- [x] Incluir testes que impeçam o retorno do uso de `data_pagamento` como competência do relatório
+- [x] Validar que os 15 arquivos históricos e R$ 16.645,29 de glosa do IMEC aparecem nos meses de referência corretos
+- [x] Confirmar isolamento por estabelecimento, executar 25 testes e o build de produção
+- [x] Salvar checkpoint e sincronizar a correção com o GitHub

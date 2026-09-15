@@ -82,11 +82,24 @@ describe("relatoriosGlosasBiService", () => {
     expect(filtro.where).toContain("d.estabelecimentoId = ?");
     expect(filtro.where).not.toContain("d.valor_glosa > 0");
     expect(filtro.where).toContain("d.convenio_id = ?");
-    expect(filtro.where).toContain("DATE_FORMAT(d.data_pagamento, '%Y/%m') = ?");
+    expect(filtro.where).toContain("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') = ?");
+    expect(filtro.where).not.toContain("DATE_FORMAT(d.data_pagamento, '%Y/%m')");
     expect(filtro.where).toContain("TRIM(d.descricao_item) = ?");
     expect(filtro.where).toContain("TRIM(d.codigo_item) = ?");
     expect(filtro.where).toContain("TRIM(d.codigo_glosa) = ?");
     expect(filtro.params).toEqual([1, 12, "2026/06", "SESSÃO DE PSICOLOGIA", "50000470", "1613"]);
+  });
+
+  it("usa data de referência como fonte oficial também no intervalo temporal", () => {
+    const filtro = construirFiltroPainelGlosas({
+      estabelecimentoId: 2550001,
+      mesPagamentoInicio: "2025/04",
+      mesPagamentoFim: "2026/06",
+    });
+
+    expect(filtro.where).toContain("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') >= ?");
+    expect(filtro.where).toContain("DATE_FORMAT(COALESCE(d.data_referencia, d.data_pagamento), '%Y/%m') <= ?");
+    expect(filtro.params).toEqual([2550001, "2025/04", "2026/06"]);
   });
 
   it("exclui a própria dimensão para manter o ranking navegável e trata códigos ausentes", () => {

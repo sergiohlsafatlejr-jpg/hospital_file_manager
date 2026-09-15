@@ -321,7 +321,7 @@ export default function RelatoriosGlosasBi() {
   const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioId, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo].filter(Boolean).length;
   const periodoLabel = mesPagamentoInicio || mesPagamentoFim
     ? `${fmtMonth(mesPagamentoInicio || filtrosQuery.data?.competencias.at(-1))} a ${fmtMonth(mesPagamentoFim || filtrosQuery.data?.competencias[0])}`
-    : "Todo o histórico com data de pagamento";
+    : "Todo o histórico por data de referência";
 
   const limparFiltros = () => {
     setMesPagamentoInicio(undefined);
@@ -364,7 +364,7 @@ export default function RelatoriosGlosasBi() {
     const workbook = XLSX.utils.book_new();
     const resumoRows = [
       ["Estabelecimento", estabelecimentoNome],
-      ["Período de pagamento", periodoLabel],
+      ["Período de referência", periodoLabel],
       ["Convênio", convenioId ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || convenioId : "Todos"],
       ["Categoria de glosa", categoriaGlosa || "Todas"],
       ["Mês selecionado no painel", mesPagamento ? fmtMonth(mesPagamento) : "Todos"],
@@ -386,7 +386,7 @@ export default function RelatoriosGlosasBi() {
     ];
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Indicador", "Valor"], ...resumoRows]), "Resumo");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porMesPagamento.map((item: any) => ({
-      "Mês do pagamento": fmtMonth(item.mesPagamento),
+      "Mês de referência": fmtMonth(item.mesPagamento),
       "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
       "Glosa aceita": item.glosaAceita,
@@ -558,7 +558,7 @@ export default function RelatoriosGlosasBi() {
                     <h1 className="text-2xl font-bold tracking-tight text-slate-950">Análise de Glosas</h1>
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Demonstrativo</span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">{estabelecimentoNome} • visão financeira por pagamento, item, convênio e procedimento</p>
+                  <p className="mt-1 text-sm text-slate-500">{estabelecimentoNome} • visão financeira por referência, item, convênio e procedimento</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -577,7 +577,7 @@ export default function RelatoriosGlosasBi() {
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Filtros do relatório</h2>
-                <p className="mt-0.5 text-xs text-slate-500">O período considera a data de pagamento registrada no demonstrativo.</p>
+                <p className="mt-0.5 text-xs text-slate-500">O período considera a data de referência do demonstrativo como data oficial.</p>
               </div>
               {filtrosAtivos > 0 && (
                 <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-slate-600"><RotateCcw className="mr-2 h-4 w-4" />Limpar {filtrosAtivos}</Button>
@@ -585,11 +585,11 @@ export default function RelatoriosGlosasBi() {
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Select value={mesPagamentoInicio || "todos"} onValueChange={(value) => setMesPagamentoInicio(value === "todos" ? undefined : value)}>
-                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Pagamento inicial" /></SelectTrigger>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Referência inicial" /></SelectTrigger>
                 <SelectContent><SelectItem value="todos">Desde o início</SelectItem>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={mesPagamentoFim || "todos"} onValueChange={(value) => setMesPagamentoFim(value === "todos" ? undefined : value)}>
-                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Pagamento final" /></SelectTrigger>
+                <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Referência final" /></SelectTrigger>
                 <SelectContent><SelectItem value="todos">Até o último mês</SelectItem>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={convenioId?.toString() || "todos"} onValueChange={(value) => setConvenioId(value === "todos" ? undefined : Number(value))}>
@@ -693,7 +693,7 @@ export default function RelatoriosGlosasBi() {
                 ) : <EmptyChart message="Nenhum recurso analisado foi encontrado para os filtros selecionados." />}
               </Panel>
 
-              <Panel title="Glosa por mês de pagamento" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
+              <Panel title="Glosa por mês de referência" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
                 {data.porMesPagamento.length ? (
                   <div className="h-[300px] sm:h-[340px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -727,7 +727,7 @@ export default function RelatoriosGlosasBi() {
                     </ComposedChart>
                   </ResponsiveContainer>
                   </div>
-                ) : <EmptyChart message="Não há glosas com data de pagamento para o período selecionado." />}
+                ) : <EmptyChart message="Não há glosas com data de referência para o período selecionado." />}
               </Panel>
 
               <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">

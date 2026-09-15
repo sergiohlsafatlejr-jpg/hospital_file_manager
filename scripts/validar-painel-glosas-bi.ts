@@ -6,10 +6,12 @@ const caller = relatoriosGlosasBiRouter.createCaller({
   user: { id: 1, role: "admin", name: "Validação interna" } as any,
 });
 
-const [prontoSocorro, imec, filtrosProntoSocorro] = await Promise.all([
+const [prontoSocorro, imec, filtrosProntoSocorro, filtrosImec, imecMaio2025] = await Promise.all([
   caller.painelExecutivo({ estabelecimentoId: 1, limite: 10 }),
   caller.painelExecutivo({ estabelecimentoId: 2550001, limite: 10 }),
   caller.filtros({ estabelecimentoId: 1 }),
+  caller.filtros({ estabelecimentoId: 2550001 }),
+  caller.painelExecutivo({ estabelecimentoId: 2550001, mesPagamento: "2025/05", limite: 10 }),
 ]);
 
 if (!prontoSocorro.porMesPagamento.length || !prontoSocorro.porItem.length || !prontoSocorro.porConvenio.length || !prontoSocorro.porProcedimento.length) {
@@ -66,6 +68,20 @@ if (Math.abs(prontoSocorro.resumo.glosaRecursadaVinculada + prontoSocorro.resumo
 
 if (imec.porMesPagamento.every((mes) => mes.taxaGlosa === 100)) {
   throw new Error("A regressão da linha mensal em 100% voltou a ocorrer no Imec");
+}
+const mesesReferenciaImec = new Set(imec.porMesPagamento.map((mes) => mes.mesPagamento));
+if (!mesesReferenciaImec.has("2025/04") || !mesesReferenciaImec.has("2026/06")) {
+  throw new Error("IMEC: os demonstrativos históricos não foram distribuídos pela data de referência");
+}
+if (!filtrosImec.competencias.includes("2025/04") || !filtrosImec.competencias.includes("2026/06")) {
+  throw new Error("IMEC: os filtros não oferecem todas as competências da data de referência");
+}
+const glosaMensalImec = imec.porMesPagamento.reduce((total, mes) => total + mes.valorGlosado, 0);
+if (Math.abs(glosaMensalImec - imec.resumo.valorGlosado) > 0.02) {
+  throw new Error(`IMEC: os meses de referência somam ${glosaMensalImec}, mas o KPI geral informa ${imec.resumo.valorGlosado}`);
+}
+if (Math.abs(imecMaio2025.resumo.valorGlosado - 5053.57) > 0.02) {
+  throw new Error(`IMEC: o filtro da referência 05/2025 retornou ${imecMaio2025.resumo.valorGlosado} de glosa`);
 }
 
 const itemBase = prontoSocorro.porItem[0];
@@ -132,6 +148,8 @@ console.log(JSON.stringify({
       glosaPendente: mes.glosaPendente,
     })),
     convenios: imec.porConvenio.length,
+    filtrosReferencia: filtrosImec.competencias,
+    validacaoMaio2025: imecMaio2025.resumo,
   },
   filtrosCruzados: {
     item: { selecionado: itemBase.nome, valorGlosado: porItem.resumo.valorGlosado },
