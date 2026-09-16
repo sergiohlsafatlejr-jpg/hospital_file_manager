@@ -4558,4 +4558,4 @@
 - [x] Validar OX UTI/Unimed 07/2026 em R$ 178.330,23 faturados e R$ 177.933,70 recebidos vinculados
 - [x] Validar OX UTI/IPASGO 08/2026 em R$ 647.421,68 faturados e R$ 0,00 recebidos até existir retorno vinculado
 - [x] Validar isolamento multiestabelecimento, 12 testes direcionados, TypeScript focado e build de produção
-- [ ] Salvar checkpoint e sincronizar a correção com o GitHub
+- [x] Salvar checkpoint e sincronizar a correção com o GitHub
