@@ -4575,3 +4575,9 @@
 - [x] Corrigir 63 resumos históricos do OX UTI e validar zero divergências contra os itens reais
 - [x] Validar R$ 130.877,36 em setembro, 21 testes direcionados, TypeScript focado e build
 - [x] Salvar checkpoint e sincronizar as correções do Hospital Urológico e OX UTI com o GitHub
+
+- [x] Comparar IPsec e OpenVPN para conectar redes hospitalares ao gateway Safatle com IP fixo
+- [x] Definir o fluxo entre hospital, gateway, Integrador de Dados e PostgreSQL sem exposição pública do banco
+- [x] Definir criptografia, autenticação, rotas, firewall, monitoramento e isolamento por hospital
+- [x] Preparar a lista de informações e responsabilidades necessárias do TI de cada hospital
+- [x] Entregar a recomendação de implantação e o roteiro de testes sem executar mudanças de infraestrutura ainda
