@@ -4574,4 +4574,4 @@
 - [x] Corrigir a listagem e o detalhe por competência e exibir separadamente prestador próprio e terceiros
 - [x] Corrigir 63 resumos históricos do OX UTI e validar zero divergências contra os itens reais
 - [x] Validar R$ 130.877,36 em setembro, 21 testes direcionados, TypeScript focado e build
-- [ ] Salvar checkpoint e sincronizar as correções do Hospital Urológico e OX UTI com o GitHub
+- [x] Salvar checkpoint e sincronizar as correções do Hospital Urológico e OX UTI com o GitHub
