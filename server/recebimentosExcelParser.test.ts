@@ -11,6 +11,57 @@ describe('recebimentosExcelParser - Detecção de Glosas', () => {
   };
 
   describe('Formato Unimed - Glosas via Erro TISS', () => {
+    it('deve preservar GLOSADO e mover o valor único da planilha compacta para glosa', () => {
+      const row = {
+        'Número Guia': '74869695',
+        'Item': '90000001',
+        'Item Desc': 'Material de teste',
+        'Valor Pagamento': '39.73',
+        'Situação Item': 'GLOSADO',
+        'Erro TISS': '2004-MATERIAL SEM NOTA FISCAL DO FORNECEDOR',
+        'Tipo Lançamento': 'MAT',
+      };
+
+      const record = extractRecebimentoExcelFromRow(
+        row,
+        defaultArgs.arquivoId,
+        defaultArgs.convenioId,
+        defaultArgs.dataReferencia,
+        defaultArgs.dataPagamento,
+        defaultArgs.estabelecimentoId
+      );
+
+      expect(record.situacaoItem).toBe('GLOSADO');
+      expect(record.valorPagamento).toBe('0.00');
+      expect(record.valorGlosa).toBe('39.73');
+      expect(record.valorInformado).toBe('39.73');
+      expect(record.codigoGlosa).toBe('2004');
+    });
+
+    it('deve manter como pagamento o valor único de item PAGO na planilha compacta', () => {
+      const row = {
+        'Número Guia': '74869696',
+        'Item': '10101012',
+        'Quantidade': '3',
+        'Valor Pagamento': '22.89',
+        'Situação Item': 'PAGO',
+      };
+
+      const record = extractRecebimentoExcelFromRow(
+        row,
+        defaultArgs.arquivoId,
+        defaultArgs.convenioId,
+        defaultArgs.dataReferencia,
+        defaultArgs.dataPagamento,
+        defaultArgs.estabelecimentoId
+      );
+
+      expect(record.situacaoItem).toBe('PAGO');
+      expect(record.valorPagamento).toBe('22.89');
+      expect(record.valorGlosa).toBe('0.00');
+      expect(record.valorInformado).toBe('22.89');
+    });
+
     it('deve marcar como PARCIAL quando Erro TISS está preenchido e há pagamento', () => {
       const row = {
         'Número Guia': '62185116',

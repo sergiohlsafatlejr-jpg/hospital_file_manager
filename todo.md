@@ -4559,3 +4559,19 @@
 - [x] Validar OX UTI/IPASGO 08/2026 em R$ 647.421,68 faturados e R$ 0,00 recebidos até existir retorno vinculado
 - [x] Validar isolamento multiestabelecimento, 12 testes direcionados, TypeScript focado e build de produção
 - [x] Salvar checkpoint e sincronizar a correção com o GitHub
+
+- [x] Identificar o arquivo Unimed exibido em 31/08/2026 no Hospital Urológico e reconciliar seus 919 itens
+- [x] Comparar valor informado, pago e glosado entre o arquivo original, `recebimentos_excel` e `demonstrativo`
+- [x] Reproduzir a glosa zerada pela mesma consulta usada na tela `/demonstrativo`
+- [x] Corrigir o parser genérico para preservar itens `GLOSADO` da planilha Unimed compacta sem estimar valores
+- [x] Reprocessar o arquivo afetado de forma idempotente e isolada no Hospital Urológico
+- [x] Adicionar testes de regressão e validar 919 itens, 4 glosados, R$ 665,80 de glosa e 50 contas pela consulta real da tela
+- [x] Executar validação real da tela e build de produção
+
+- [x] Reconciliar as oito contas do OX UTI em 09/2026 que exibiam R$ 192.447,25
+- [x] Confirmar R$ 125.918,22 no prestador próprio 1101060 e R$ 4.959,14 em terceiros
+- [x] Explicar a diferença de R$ 66.529,03: R$ 61.569,89 acumulados de agosto e R$ 4.959,14 de terceiros
+- [x] Corrigir a listagem e o detalhe por competência e exibir separadamente prestador próprio e terceiros
+- [x] Corrigir 63 resumos históricos do OX UTI e validar zero divergências contra os itens reais
+- [x] Validar R$ 130.877,36 em setembro, 21 testes direcionados, TypeScript focado e build
+- [ ] Salvar checkpoint e sincronizar as correções do Hospital Urológico e OX UTI com o GitHub

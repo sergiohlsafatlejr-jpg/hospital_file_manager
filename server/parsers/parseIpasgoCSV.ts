@@ -287,8 +287,8 @@ export function parseIpasgoCSV(
         arquivoId,
         convenioId: convenioId || null,
         estabelecimentoId: estabelecimentoId || null,
-        dataReferencia: dataRefStr,
-        dataPagamentoUpload: dataPagStr,
+        dataReferencia: dataRefStr ? new Date(`${dataRefStr}T00:00:00`) : null,
+        dataPagamentoUpload: dataPag || dataPagamentoUpload || null,
         
         // Dados do lote/protocolo
         dataPagto: dataPag || dataPagamentoUpload || null,

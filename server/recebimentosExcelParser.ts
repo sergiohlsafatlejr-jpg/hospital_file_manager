@@ -290,14 +290,25 @@ export function extractRecebimentoExcelFromRow(
         (record as any)[dbField] = intValue;
       }
     } else if (BOOLEAN_FIELDS.includes(dbField)) {
-      // Campos booleanos (GEAP)
+      // Campos booleanos (GEAP) ou situações textuais de outros convênios.
       if (typeof value === 'boolean') {
         // GEAP: "Existe Glosa" = false significa PAGO, true significa GLOSADO
         (record as any)[dbField] = value ? 'GLOSADO' : 'PAGO';
       } else if (typeof value === 'string') {
-        // Se for string, converter para boolean
-        const boolValue = value.toLowerCase() === 'true' || value === '1';
-        (record as any)[dbField] = boolValue ? 'GLOSADO' : 'PAGO';
+        const normalized = value.trim().toUpperCase();
+        if (normalized === 'TRUE' || normalized === '1' || normalized === 'SIM') {
+          (record as any)[dbField] = 'GLOSADO';
+        } else if (normalized === 'FALSE' || normalized === '0' || normalized === 'NÃO' || normalized === 'NAO') {
+          (record as any)[dbField] = 'PAGO';
+        } else if (normalized.includes('GLOS')) {
+          (record as any)[dbField] = 'GLOSADO';
+        } else if (normalized.includes('PARCIAL')) {
+          (record as any)[dbField] = 'PARCIAL';
+        } else if (normalized.includes('PAGO')) {
+          (record as any)[dbField] = 'PAGO';
+        } else if (normalized) {
+          (record as any)[dbField] = normalized;
+        }
       }
     } else {
       // Campos de texto
@@ -308,6 +319,28 @@ export function extractRecebimentoExcelFromRow(
     }
   }
   
+  // Formato compacto Unimed: a planilha possui somente "Valor Pagamento".
+  // Quando a operadora marca o item como GLOSADO, esse valor é a glosa,
+  // não um pagamento. Esta é a mesma regra do parser streaming de Unimed.
+  const isUnimedCompactFormat = Object.prototype.hasOwnProperty.call(row, 'Valor Pagamento')
+    && Object.prototype.hasOwnProperty.call(row, 'Situação Item')
+    && !Object.prototype.hasOwnProperty.call(row, 'Valor Glosa')
+    && !Object.prototype.hasOwnProperty.call(row, 'VALOR GLOSA')
+    && !Object.prototype.hasOwnProperty.call(row, 'Valor Informado')
+    && !Object.prototype.hasOwnProperty.call(row, 'VALOR INFORMADO');
+
+  if (isUnimedCompactFormat) {
+    const valorUnico = parseNumber(record.valorPagamento);
+    if (record.situacaoItem === 'GLOSADO') {
+      record.valorGlosa = valorUnico !== null ? String(valorUnico) : undefined;
+      record.valorInformado = record.valorGlosa;
+      record.valorPagamento = '0.00';
+    } else if (record.situacaoItem === 'PAGO') {
+      record.valorInformado = valorUnico !== null ? String(valorUnico) : undefined;
+      record.valorGlosa = '0.00';
+    }
+  }
+
   // Log para debug dos campos importantes
   // console.log('[Parser] tipoLancamento:', record.tipoLancamento);
   // console.log('[Parser] erroTiss:', record.erroTiss);
@@ -346,12 +379,8 @@ export function extractRecebimentoExcelFromRow(
     }
   }
   
-  // CORREÇÃO GERAL: Quando situacaoItem = "PAGO" (ou vazio) mas erroTiss está preenchido,
-  // significa que o convênio glosou o item (total ou parcialmente).
-  if (record.erroTiss && record.erroTiss.trim() !== '' && 
-      (!record.situacaoItem || record.situacaoItem === 'PAGO' || record.situacaoItem === 'NAO_PAGO')) {
-    const valorPagoNum = parseNumber(record.valorPagamento);
-    
+  // CORREÇÃO GERAL: preservar o código de glosa informado pelo convênio.
+  if (record.erroTiss && record.erroTiss.trim() !== '') {
     // Extrair código de glosa do campo erroTiss (ex: "1702-COBRANÇA DE..." ou "1407 SERVICO..." -> "1702" ou "1407")
     if (!record.codigoGlosa) {
       const codigoMatch = record.erroTiss.match(/^(\d{3,4})/);
@@ -359,13 +388,15 @@ export function extractRecebimentoExcelFromRow(
         record.codigoGlosa = codigoMatch[1];
       }
     }
-    
-    if (valorPagoNum === 0 || valorPagoNum === null) {
-      // Glosa total: valor pago = 0
-      record.situacaoItem = 'GLOSADO';
-    } else {
-      // Glosa parcial: convênio pagou algo, mas houve glosa
-      record.situacaoItem = 'PARCIAL';
+    if (!record.situacaoItem || record.situacaoItem === 'PAGO' || record.situacaoItem === 'NAO_PAGO') {
+      const valorPagoNum = parseNumber(record.valorPagamento);
+      if (valorPagoNum === 0 || valorPagoNum === null) {
+        // Glosa total: valor pago = 0
+        record.situacaoItem = 'GLOSADO';
+      } else {
+        // Glosa parcial: convênio pagou algo, mas houve glosa
+        record.situacaoItem = 'PARCIAL';
+      }
     }
   }
   
@@ -396,7 +427,9 @@ export function extractRecebimentoExcelFromRow(
   // CORREÇÃO IPASGO: Calcular valorInformado como VALOR_UNITARIO × QUANTIDADE
   // O IPASGO mapeia VALOR_UNITARIO para valorInformado, mas o valor cobrado real
   // é VALOR_UNITARIO × QUANTIDADE. Corrigir quando quantidade > 1.
-  if (record.quantidade && record.quantidade > 1) {
+  const isIpasgoUnitValueFormat = Object.prototype.hasOwnProperty.call(row, 'VALOR_UNITARIO')
+    && Object.prototype.hasOwnProperty.call(row, 'QUANTIDADE');
+  if (isIpasgoUnitValueFormat && record.quantidade && record.quantidade > 1) {
     const valorUnitarioNum = parseNumber(record.valorInformado);
     if (valorUnitarioNum !== null && valorUnitarioNum > 0) {
       const valorTotal = valorUnitarioNum * record.quantidade;

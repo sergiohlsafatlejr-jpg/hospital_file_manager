@@ -238,6 +238,9 @@ export default function ContaConvenio() {
     if (conta.numeroLote) {
       params.set('numeroLote', conta.numeroLote);
     }
+    if (conta.competencia) {
+      params.set('competencia', conta.competencia);
+    }
     setLocation(`/conta-convenio-detalhes?${params.toString()}`);
   };
 
@@ -457,7 +460,7 @@ export default function ContaConvenio() {
         </Card>
 
         {/* Cards de Resumo */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
           <Card className="border-2">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -474,10 +477,36 @@ export default function ContaConvenio() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Valor Total</p>
+                  <p className="text-sm text-muted-foreground">Todos os prestadores</p>
                   <p className="text-2xl font-bold text-green-600">{formatCurrency(resumo?.valorTotal)}</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Prestador próprio</p>
+                  <p className="text-2xl font-bold text-blue-600">{formatCurrency((resumo as any)?.valorPrestadorProprio)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Cadastro de /convenios</p>
+                </div>
+                <FileSpreadsheet className="h-8 w-8 text-blue-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Outros prestadores</p>
+                  <p className="text-2xl font-bold text-amber-600">{formatCurrency((resumo as any)?.valorOutrosPrestadores)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Fora do relatório financeiro</p>
+                </div>
+                <Layers2 className="h-8 w-8 text-amber-500" />
               </div>
             </CardContent>
           </Card>
@@ -613,7 +642,7 @@ export default function ContaConvenio() {
                       <div className="flex flex-col gap-1 min-w-[140px]">
                         <div className="flex items-center gap-2 text-sm">
                           <DollarSign className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Valores</span>
+                          <span className="font-medium">Todos os prestadores</span>
                         </div>
                         <span className={`text-lg font-bold ${(conta as any).isOutlier ? 'text-red-600' : 'text-green-600'}`}>
                           {formatCurrency(conta.valorTotal)}

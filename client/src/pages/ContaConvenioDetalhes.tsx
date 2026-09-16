@@ -208,6 +208,7 @@ export default function ContaConvenioDetalhes() {
   const numeroConta = params.get("numeroConta") || "";
   const estabelecimentoId = parseInt(params.get("estabelecimentoId") || "0") || estabelecimentoAtual?.id || 0;
   const numeroLote = params.get("numeroLote") || undefined;
+  const competencia = params.get("competencia") || undefined;
 
   const [activeTab, setActiveTab] = useState("itens");
   const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
@@ -297,6 +298,7 @@ export default function ContaConvenioDetalhes() {
       estabelecimentoId,
       tipoItem: tipoFiltro || undefined,
       numeroLote: numeroLote,
+      competencia,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );

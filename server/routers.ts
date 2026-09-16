@@ -1065,30 +1065,50 @@ export const appRouter = router({
                           if (competenciaCalc) {
                             existingResumoConditions.push(eq(contasConvenioResumo.competencia, competenciaCalc));
                           }
+                          if (loteNumero) {
+                            existingResumoConditions.push(eq(contasConvenioResumo.numeroLote, loteNumero));
+                          } else {
+                            existingResumoConditions.push(sqlDrizzle`${contasConvenioResumo.numeroLote} IS NULL` as any);
+                          }
                           const existingResumo = await dbCC.select().from(contasConvenioResumo).where(
                             and(...existingResumoConditions)
                           ).limit(1);
-                          
-                          const totalItensGuia = regs.length;
-                          let valorTotalGuia = 0;
+
                           let dataExecGuia: Date | null = null;
-                          
                           for (const r of regs) {
-                            const vlFat = r.valorFaturado ? parseFloat(String(r.valorFaturado)) : 0;
-                            const vlUnit = r.valorUnitario ? parseFloat(String(r.valorUnitario)) : 0;
-                            const qtd = r.quantidade ? parseFloat(String(r.quantidade)) : 0;
-                            valorTotalGuia += vlFat || (vlUnit * qtd);
                             if (r.dataExecucao && !dataExecGuia) dataExecGuia = new Date(r.dataExecucao);
                           }
+
+                          const resumoItensConditions = [
+                            eq(contasConvenioItens.numeroConta, guia),
+                            eq(contasConvenioItens.estabelecimentoId, grupo.estabelecimentoId),
+                            eq(contasConvenioItens.origem, "XML"),
+                          ];
+                          if (competenciaCalc) {
+                            resumoItensConditions.push(eq(contasConvenioItens.competencia, competenciaCalc));
+                          }
+                          if (loteNumero) {
+                            resumoItensConditions.push(eq(contasConvenioItens.numeroLote, loteNumero));
+                          } else {
+                            resumoItensConditions.push(sqlDrizzle`${contasConvenioItens.numeroLote} IS NULL` as any);
+                          }
+
+                          const [totaisPersistidos] = await dbCC.select({
+                            totalItens: sqlDrizzle<number>`COUNT(*)`,
+                            valorTotal: sqlDrizzle<string>`COALESCE(SUM(CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2))), 0)`,
+                          }).from(contasConvenioItens).where(and(...resumoItensConditions));
+
+                          const totalItensGuia = Number(totaisPersistidos?.totalItens || 0);
+                          const valorTotalGuia = Number(totaisPersistidos?.valorTotal || 0);
                           
                           // Usar competência já calculada acima
                           const competencia = competenciaCalc;
                           
                           if (existingResumo.length > 0) {
-                            // Atualizar resumo existente (somar itens e valor)
+                            // Recalcular a partir dos itens persistidos torna o reprocessamento idempotente.
                             const updateSet: any = {
-                              totalItens: existingResumo[0].totalItens + totalItensGuia,
-                              valorTotal: String((parseFloat(existingResumo[0].valorTotal || '0') + valorTotalGuia).toFixed(2)),
+                              totalItens: totalItensGuia,
+                              valorTotal: String(valorTotalGuia.toFixed(2)),
                             };
                             // Preencher competência se estiver NULL
                             if (!existingResumo[0].competencia && competencia) {

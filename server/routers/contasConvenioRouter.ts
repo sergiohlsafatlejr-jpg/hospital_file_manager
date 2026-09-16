@@ -13,6 +13,7 @@ import { MysqlConnector } from "../connectors/MysqlConnector";
 import { ENV } from "../_core/env";
 import { logger } from "../_core/logger";
 import { compararContaComPadroes } from "../services/comparadorPadroes";
+import { agruparResumosContaXml } from "../contasConvenioResumoUtils";
 
 /**
  * Router para Contas Convênio - Gestão Operacional
@@ -1178,7 +1179,7 @@ export const contasConvenioRouter = router({
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
       const offset = (page - 1) * pageSize;
 
-      const contas = await db
+      const contasResumo = await db
         .select()
         .from(contasConvenioResumo)
         .where(whereClause)
@@ -1193,6 +1194,106 @@ export const contasConvenioRouter = router({
 
       const total = countResult[0]?.count || 0;
 
+      // A tabela de resumo pode conter valores acumulados de importações antigas da
+      // mesma guia em competências diferentes. Para a listagem e os cartões, os
+      // valores financeiros devem sempre ser recalculados a partir dos itens que
+      // atendem exatamente aos filtros atuais.
+      const buildItemConditions = () => {
+        const itemConditions: any[] = [];
+        if (estabelecimentoId) {
+          itemConditions.push(eq(contasConvenioItens.estabelecimentoId, estabelecimentoId));
+        }
+        if (convenio) {
+          itemConditions.push(eq(contasConvenioItens.convenio, convenio));
+        }
+        if (origem) {
+          itemConditions.push(eq(contasConvenioItens.origem, origem));
+        }
+        if (statusAnalise) {
+          itemConditions.push(eq(contasConvenioItens.statusAnalise, statusAnalise));
+        }
+        if (competenciaAno && competenciaMes) {
+          itemConditions.push(eq(contasConvenioItens.competencia, `${competenciaAno}/${String(competenciaMes).padStart(2, "0")}`));
+        } else if (competenciaAno) {
+          itemConditions.push(like(contasConvenioItens.competencia, `${competenciaAno}/%`));
+        }
+        if (search) {
+          const searchPattern = `%${search}%`;
+          itemConditions.push(or(
+            like(contasConvenioItens.numeroConta, searchPattern),
+            like(contasConvenioItens.pacienteNome, searchPattern),
+            like(contasConvenioItens.convenio, searchPattern),
+          )!);
+        }
+        return itemConditions;
+      };
+
+      const itemConditions = buildItemConditions();
+      const itemWhereClause = itemConditions.length > 0 ? and(...itemConditions) : undefined;
+
+      const [resumoItensResult] = await Promise.all([
+        db
+          .select({
+            valorTotal: sql<string>`COALESCE(SUM(CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2))), 0)`,
+            valorPrestadorProprio: sql<string>`COALESCE(SUM(CASE WHEN
+              NOT EXISTS (
+                SELECT 1 FROM convenioEstabelecimentoPrestador cep_cfg
+                WHERE cep_cfg.estabelecimentoId = ${contasConvenioItens.estabelecimentoId}
+                  AND cep_cfg.convenioId = ${contasConvenioItens.convenioId}
+                  AND cep_cfg.tipoPrestador = 'proprio'
+                  AND cep_cfg.ativo = 'sim'
+              )
+              OR EXISTS (
+                SELECT 1 FROM convenioEstabelecimentoPrestador cep_match
+                WHERE cep_match.estabelecimentoId = ${contasConvenioItens.estabelecimentoId}
+                  AND cep_match.convenioId = ${contasConvenioItens.convenioId}
+                  AND cep_match.tipoPrestador = 'proprio'
+                  AND cep_match.ativo = 'sim'
+                  AND TRIM(cep_match.codigoPrestador) = TRIM(COALESCE(${contasConvenioItens.codigoPrestadorExecutante}, ''))
+              )
+              THEN CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2)) ELSE 0 END), 0)`,
+          })
+          .from(contasConvenioItens)
+          .where(itemWhereClause),
+      ]);
+
+      const contasNumerosNaPagina = [...new Set(contasResumo.map((conta) => conta.numeroConta))];
+      const totaisPorContaCompetencia = new Map<string, { totalItens: number; valorTotal: string }>();
+
+      if (contasNumerosNaPagina.length > 0) {
+        const agregadosPagina = await db
+          .select({
+            estabelecimentoId: contasConvenioItens.estabelecimentoId,
+            numeroConta: contasConvenioItens.numeroConta,
+            competencia: contasConvenioItens.competencia,
+            totalItens: sql<number>`COUNT(*)`,
+            valorTotal: sql<string>`COALESCE(SUM(CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2))), 0)`,
+          })
+          .from(contasConvenioItens)
+          .where(and(...itemConditions, inArray(contasConvenioItens.numeroConta, contasNumerosNaPagina)))
+          .groupBy(
+            contasConvenioItens.estabelecimentoId,
+            contasConvenioItens.numeroConta,
+            contasConvenioItens.competencia,
+          );
+
+        for (const agregado of agregadosPagina) {
+          totaisPorContaCompetencia.set(
+            `${agregado.estabelecimentoId}|${agregado.numeroConta}|${agregado.competencia || ""}`,
+            { totalItens: Number(agregado.totalItens || 0), valorTotal: String(agregado.valorTotal || "0") },
+          );
+        }
+      }
+
+      const contas = contasResumo.map((conta) => {
+        const agregado = totaisPorContaCompetencia.get(
+          `${conta.estabelecimentoId}|${conta.numeroConta}|${conta.competencia || ""}`,
+        );
+        return agregado
+          ? { ...conta, totalItens: agregado.totalItens, valorTotal: agregado.valorTotal }
+          : conta;
+      });
+
       // Resumo geral
       // Contar contas únicas por numeroConta (evita duplicação quando há múltiplos resumos para mesma conta)
       const resumoResult = await db
@@ -1206,28 +1307,43 @@ export const contasConvenioRouter = router({
         .from(contasConvenioResumo)
         .where(whereClause);
 
+      const valorTotalItens = Number(resumoItensResult[0]?.valorTotal || 0);
+      const valorPrestadorProprio = Number(resumoItensResult[0]?.valorPrestadorProprio || 0);
+      const resumoCorrigido = {
+        ...(resumoResult[0] || { totalContas: 0, totalDivergentes: 0, totalConformes: 0, totalPendentes: 0 }),
+        valorTotal: valorTotalItens.toFixed(2),
+        valorPrestadorProprio: valorPrestadorProprio.toFixed(2),
+        valorOutrosPrestadores: Math.max(0, valorTotalItens - valorPrestadorProprio).toFixed(2),
+      };
+
       // Identificar contas com múltiplos lotes (Altas Administrativas)
       // Busca quais numeroConta da página atual têm mais de 1 lote distinto nos itens
-      const contasNumerosNaPagina = contas.map(c => c.numeroConta);
       let contasComAltaAdm = new Map<string, { totalLotes: number; lotes: Array<{ numeroLote: string; totalItens: number; valorLote: number }> }>(); 
       
       if (contasNumerosNaPagina.length > 0) {
         // Buscar detalhes por lote para contas com múltiplos lotes
-        const lotesResult = await db.execute(
-          sql`SELECT numeroConta, numeroLote, COUNT(*) as totalItens, 
-                     COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0) as valorLote
-              FROM contas_convenio_itens
-              WHERE numeroConta IN (${sql.join(contasNumerosNaPagina.map(n => sql`${n}`), sql`, `)})
-                AND estabelecimentoId = ${estabelecimentoId || 0}
-                AND numeroLote IS NOT NULL AND numeroLote != '' AND numeroLote != 'null'
-              GROUP BY numeroConta, numeroLote
-              ORDER BY numeroConta, numeroLote`
-        );
-        const lotesRows = (lotesResult as any)[0] as any[];
+        const lotesRows = await db
+          .select({
+            numeroConta: contasConvenioItens.numeroConta,
+            numeroLote: contasConvenioItens.numeroLote,
+            totalItens: sql<number>`COUNT(*)`,
+            valorLote: sql<string>`COALESCE(SUM(CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2))), 0)`,
+          })
+          .from(contasConvenioItens)
+          .where(and(
+            ...itemConditions,
+            inArray(contasConvenioItens.numeroConta, contasNumerosNaPagina),
+            sql`${contasConvenioItens.numeroLote} IS NOT NULL`,
+            sql`${contasConvenioItens.numeroLote} <> ''`,
+            sql`${contasConvenioItens.numeroLote} <> 'null'`,
+          ))
+          .groupBy(contasConvenioItens.numeroConta, contasConvenioItens.numeroLote)
+          .orderBy(contasConvenioItens.numeroConta, contasConvenioItens.numeroLote);
         if (lotesRows && Array.isArray(lotesRows)) {
           // Agrupar por numeroConta
           const lotesMap = new Map<string, Array<{ numeroLote: string; totalItens: number; valorLote: number }>>();
           for (const row of lotesRows) {
+            if (!row.numeroLote) continue;
             const arr = lotesMap.get(row.numeroConta) || [];
             arr.push({
               numeroLote: row.numeroLote,
@@ -1344,7 +1460,7 @@ export const contasConvenioRouter = router({
       return {
         contas: contasComFlag,
         total,
-        resumo: resumoResult[0] || { totalContas: 0, valorTotal: "0", totalDivergentes: 0, totalConformes: 0, totalPendentes: 0 },
+        resumo: resumoCorrigido,
       };
     }),
 
@@ -1357,6 +1473,7 @@ export const contasConvenioRouter = router({
       estabelecimentoId: z.number(),
       tipoItem: z.string().optional(),
       numeroLote: z.string().optional(),
+      competencia: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -1373,6 +1490,9 @@ export const contasConvenioRouter = router({
       if (input.numeroLote) {
         conditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
+      if (input.competencia) {
+        conditions.push(eq(contasConvenioItens.competencia, input.competencia));
+      }
 
       const items = await db
         .select()
@@ -1387,6 +1507,9 @@ export const contasConvenioRouter = router({
       ];
       if (input.numeroLote) {
         resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
+      }
+      if (input.competencia) {
+        resumoConditions.push(eq(contasConvenioItens.competencia, input.competencia));
       }
 
       // Resumo por tipo
@@ -2097,68 +2220,16 @@ export const contasConvenioRouter = router({
         totalInseridos += batch.length;
       }
 
-      // Criar resumos agrupados por guia
-      const resumosPorGuia = new Map<string, {
-        convenio: string | null;
-        convenioId: number | null;
-        carteira: string | null;
-        totalItens: number;
-        valorTotal: number;
-        dataExecucao: Date | null;
-        arquivoDataReferencia: Date | null;
-        competenciaXml: string | null;
-        dataReferencia: Date | null;
-      }>();
-
-      for (const row of data) {
-        const guia = String(row.numero_guia_prestador || row.numero_guia_operadora || 'SEM_GUIA');
-        const existing = resumosPorGuia.get(guia) || {
-          convenio: null,
-          convenioId: null,
-          carteira: null,
-          totalItens: 0,
-          valorTotal: 0,
-          dataExecucao: null,
-          arquivoDataReferencia: null,
-          competenciaXml: null,
-          dataReferencia: null,
-        };
-
-        existing.convenio = existing.convenio || (row.convenio_nome ? String(row.convenio_nome) : null);
-        existing.convenioId = existing.convenioId || row.convenioId || null;
-        existing.carteira = existing.carteira || (row.carteira_beneficiario ? String(row.carteira_beneficiario) : null);
-        existing.totalItens += 1;
-        const vlFat = row.valor_faturado ? parseFloat(String(row.valor_faturado)) : 0;
-        const vlUnit = row.valor_unitario ? parseFloat(String(row.valor_unitario)) : 0;
-        const qtd = row.quantidade ? parseFloat(String(row.quantidade)) : 0;
-        existing.valorTotal += vlFat || (vlUnit * qtd);
-        if (row.data_execucao && !existing.dataExecucao) {
-          existing.dataExecucao = new Date(row.data_execucao);
-        }
-        // Capturar competência direta do XML (campo competencia da staging)
-        if (row.competencia_xml && !existing.competenciaXml) {
-          existing.competenciaXml = String(row.competencia_xml);
-        }
-        // Capturar data_referencia do item XML
-        if (row.data_referencia && !existing.dataReferencia) {
-          existing.dataReferencia = new Date(row.data_referencia);
-        }
-        // Capturar data de referência do arquivo de upload
-        if (row.arquivo_data_referencia && !existing.arquivoDataReferencia) {
-          existing.arquivoDataReferencia = new Date(row.arquivo_data_referencia);
-        }
-
-        resumosPorGuia.set(guia, existing);
-      }
-
-      // Inserir resumos em batches
-      const resumoEntries = Array.from(resumosPorGuia.entries());
+      // Criar resumos por conta + lote + competência. A mesma conta pode aparecer
+      // em arquivos mensais diferentes e não pode acumular valores entre períodos.
+      const resumoEntries = agruparResumosContaXml(data).map((resumo) => [resumo.numeroConta, resumo] as const);
       let totalResumos = 0;
 
       for (let i = 0; i < resumoEntries.length; i += BATCH_SIZE) {
         const batch = resumoEntries.slice(i, i + BATCH_SIZE);
         const resumoValues = batch.map(([guia, r]) => ({
           numeroConta: guia,
+          numeroLote: r.numeroLote,
           estabelecimentoId: input.estabelecimentoId,
           origem: "XML" as const,
           convenio: r.convenio,
@@ -2170,28 +2241,7 @@ export const contasConvenioRouter = router({
           dataInternacao: r.dataExecucao,
           statusAnalise: "pendente" as const,
           buscadoPor: ctx.user?.id || null,
-          competencia: (() => {
-            // Prioridade 1: usar competência direta do XML (já no formato AAAA/MM)
-            if (r.competenciaXml) {
-              return r.competenciaXml;
-            }
-            // Prioridade 2: usar data_referencia do item XML
-            if (r.dataReferencia) {
-              const d = r.dataReferencia;
-              return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-            }
-            // Prioridade 3: usar data de referência do arquivo de upload
-            if (r.arquivoDataReferencia) {
-              const d = r.arquivoDataReferencia;
-              return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-            }
-            // Prioridade 4: usar dataExecucao como último recurso
-            if (r.dataExecucao) {
-              const d = r.dataExecucao;
-              return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-            }
-            return null;
-          })(),
+          competencia: r.competencia,
         }));
 
         await db.insert(contasConvenioResumo).values(resumoValues);
