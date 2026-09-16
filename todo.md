@@ -4589,4 +4589,4 @@
 - [x] Reprocessar somente os 12 arquivos comprovadamente afetados usando o parser corrigido, com zero falhas
 - [x] Validar R$ 112.508,02 de glosas recuperadas e zero divergências pela consulta da tela Demonstrativo
 - [x] Executar 19 testes direcionados, build, verificação de diff e TypeScript focado sem erros novos
-- [ ] Salvar checkpoint e sincronizar a recuperação global Unimed com o GitHub
+- [x] Salvar checkpoint e sincronizar a recuperação global Unimed com o GitHub
