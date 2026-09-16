@@ -322,6 +322,10 @@ export function parseIpasgoCSV(
         
         // Código prestador
         codigoPrestadorPagamento: codPrestadorPag || null,
+        nomePrestadorPagamento: nomePrestadorPag || null,
+        codigoPrestador: codPrestadorXml || null,
+        prestadorExecutante: codPrestadorExecutante || null,
+        nomePrestadorExecutante: nomePrestadorExecutante || null,
       };
       
       items.push(item);

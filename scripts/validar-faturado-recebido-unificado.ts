@@ -49,8 +49,24 @@ const oxIpasgo = await caller.dados({
   convenio: "Ipasgo",
   limite: 10,
 });
-if (Math.abs(oxIpasgo.resumo.totalFaturado - 669562.9) > 0.01) {
-  throw new Error(`OX UTI/IPASGO 08/2026: esperado R$ 669.562,90, recebido ${oxIpasgo.resumo.totalFaturado}`);
+if (Math.abs(oxIpasgo.resumo.totalFaturado - 647421.68) > 0.01) {
+  throw new Error(`OX UTI/IPASGO 08/2026: esperado R$ 647.421,68 do prestador próprio, recebido ${oxIpasgo.resumo.totalFaturado}`);
+}
+if (Math.abs(oxIpasgo.resumo.totalRecebido) > 0.01 || Math.abs(oxIpasgo.resumo.totalGlosado) > 0.01) {
+  throw new Error(`OX UTI/IPASGO 08/2026: retorno ainda não pago não pode baixar o saldo; recebido ${oxIpasgo.resumo.totalRecebido}, glosa ${oxIpasgo.resumo.totalGlosado}`);
+}
+
+const oxUnimedJulho = await caller.dados({
+  estabelecimentoId: 3,
+  competencia: "2026/07",
+  convenio: "Unimed",
+  limite: 10,
+});
+if (Math.abs(oxUnimedJulho.resumo.totalFaturado - 178330.23) > 0.01) {
+  throw new Error(`OX UTI/Unimed 07/2026: esperado R$ 178.330,23 do prestador 1101060, recebido ${oxUnimedJulho.resumo.totalFaturado}`);
+}
+if (Math.abs(oxUnimedJulho.resumo.totalRecebido - 177933.7) > 0.01) {
+  throw new Error(`OX UTI/Unimed 07/2026: esperado R$ 177.933,70 vinculado aos itens faturados, recebido ${oxUnimedJulho.resumo.totalRecebido}`);
 }
 
 if (psi.estabelecimento.nome === imec.estabelecimento.nome) {
@@ -104,9 +120,8 @@ console.log(JSON.stringify({
     itens: combinado.itensGlosados.length,
   },
   recorteOxUti: {
-    competencia: "2026/08",
-    convenio: "Ipasgo",
-    resumo: oxIpasgo.resumo,
+    julho: { competencia: "2026/07", convenio: "Unimed", resumo: oxUnimedJulho.resumo },
+    agosto: { competencia: "2026/08", convenio: "Ipasgo", resumo: oxIpasgo.resumo },
   },
   recorteUrologicoExterno: {
     competencia: "2025/01",

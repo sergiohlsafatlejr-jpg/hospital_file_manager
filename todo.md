@@ -4548,3 +4548,14 @@
 - [x] Adicionar testes de prestador vinculado, normalização, deduplicação, permissões e cálculos financeiros
 - [x] Validar OX UTI/IPASGO 08/2026 em R$ 669.562,90, validar Hospital Urológico com fonte externa e executar build
 - [x] Salvar checkpoint e sincronizar a entrega com o GitHub
+
+- [x] Auditar o cadastro oficial dos prestadores próprios do OX UTI em `/convenios`: 1101060 para Unimed e 05562645000131 para IPASGO
+- [x] Reconciliar faturado, recebido e glosado de 07/2026 e 08/2026 por prestador, data, item e arquivo de origem
+- [x] Identificar que 08/2026 recebia indevidamente o arquivo completo `AnaliseContas`, sem vínculo com os itens faturados do mês
+- [x] Aplicar somente o prestador `proprio` ativo cadastrado em `/convenios` ao faturado e vincular o retorno por convênio, guia, procedimento e data
+- [x] Impedir que retorno não vinculado aos itens faturados componha os indicadores Recebido e Glosado
+- [x] Preservar no parser IPASGO os códigos do prestador XML e do prestador executante nas próximas importações
+- [x] Validar OX UTI/Unimed 07/2026 em R$ 178.330,23 faturados e R$ 177.933,70 recebidos vinculados
+- [x] Validar OX UTI/IPASGO 08/2026 em R$ 647.421,68 faturados e R$ 0,00 recebidos até existir retorno vinculado
+- [x] Validar isolamento multiestabelecimento, 12 testes direcionados, TypeScript focado e build de produção
+- [ ] Salvar checkpoint e sincronizar a correção com o GitHub
