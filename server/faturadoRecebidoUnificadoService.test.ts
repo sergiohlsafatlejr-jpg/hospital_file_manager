@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparFinanceiro, calcularIndicadoresFinanceiros, consolidarRegistrosFinanceiros, normalizarConvenio } from "./faturadoRecebidoUnificadoService";
+import { agruparFinanceiro, calcularFaturadoReconhecido, calcularIndicadoresFinanceiros, consolidarRegistrosFinanceiros, normalizarConvenio } from "./faturadoRecebidoUnificadoService";
 
 describe("faturadoRecebidoUnificadoService", () => {
   it("calcula saldo, acréscimo e percentuais sem dupla contagem", () => {
@@ -34,16 +34,21 @@ describe("faturadoRecebidoUnificadoService", () => {
     expect(normalizarConvenio("  Saúde   Caixa ")).toBe("SAUDE CAIXA");
   });
 
-  it("usa o processado do retorno quando o histórico faturado está incompleto, sem ultrapassar 100%", () => {
+  it("preserva o faturado da fonte mesmo quando o processado no retorno é maior", () => {
     const consolidado = consolidarRegistrosFinanceiros([
       { competencia: "2026/08", convenio: "Unimed", fonte: "faturado", faturado: 100, quantidade: 2 },
       { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", recebido: 180, glosado: 20, quantidade: 4 },
     ]);
     const resumo = calcularIndicadoresFinanceiros(consolidado);
-    expect(resumo.totalFaturado).toBe(200);
-    expect(resumo.percentualRecebido).toBe(90);
-    expect(resumo.percentualGlosa).toBe(10);
-    expect(resumo.totalAcrescimo).toBe(0);
+    expect(resumo.totalFaturado).toBe(100);
+    expect(resumo.percentualRecebido).toBe(180);
+    expect(resumo.percentualGlosa).toBe(20);
+    expect(resumo.totalAcrescimo).toBe(100);
     expect(resumo.quantidade).toBe(4);
+  });
+
+  it("usa o processado do retorno somente quando não existe faturado na fonte", () => {
+    expect(calcularFaturadoReconhecido(0, 180, 20)).toBe(200);
+    expect(calcularFaturadoReconhecido(100, 180, 20)).toBe(100);
   });
 });

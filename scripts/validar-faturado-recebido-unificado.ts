@@ -31,6 +31,28 @@ const [psi, imec] = await Promise.all([
   carregarEstabelecimento(2550001),
 ]);
 
+const urologicoExterno = await caller.dados({
+  estabelecimentoId: 1260036,
+  competencia: "2025/01",
+  limite: 10,
+});
+if (!urologicoExterno.lancamentosExternosConsiderados.length) {
+  throw new Error("Hospital Urológico: o faturamento externo existente não foi incorporado ao relatório");
+}
+if (urologicoExterno.estabelecimento.id !== 1260036) {
+  throw new Error("Hospital Urológico: o faturamento externo retornou outro estabelecimento");
+}
+
+const oxIpasgo = await caller.dados({
+  estabelecimentoId: 3,
+  competencia: "2026/08",
+  convenio: "Ipasgo",
+  limite: 10,
+});
+if (Math.abs(oxIpasgo.resumo.totalFaturado - 669562.9) > 0.01) {
+  throw new Error(`OX UTI/IPASGO 08/2026: esperado R$ 669.562,90, recebido ${oxIpasgo.resumo.totalFaturado}`);
+}
+
 if (psi.estabelecimento.nome === imec.estabelecimento.nome) {
   throw new Error("Duas unidades distintas retornaram a mesma identificação");
 }
@@ -80,6 +102,16 @@ console.log(JSON.stringify({
     resumoCombinado: combinado.resumo,
     motivos: combinado.motivosGlosa.length,
     itens: combinado.itensGlosados.length,
+  },
+  recorteOxUti: {
+    competencia: "2026/08",
+    convenio: "Ipasgo",
+    resumo: oxIpasgo.resumo,
+  },
+  recorteUrologicoExterno: {
+    competencia: "2025/01",
+    resumo: urologicoExterno.resumo,
+    lancamentosConsiderados: urologicoExterno.lancamentosExternosConsiderados.length,
   },
   isolamentoConfirmado: true,
   permissaoRestritaConfirmada: bloqueioConfirmado,

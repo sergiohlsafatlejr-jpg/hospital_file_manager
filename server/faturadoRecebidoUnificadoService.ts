@@ -42,6 +42,15 @@ export function normalizarConvenio(valor: string | null | undefined) {
     .toUpperCase();
 }
 
+export function calcularFaturadoReconhecido(faturadoFonte: number, recebido: number, glosado: number) {
+  const faturado = arredondar(Number(faturadoFonte || 0));
+  const processadoNoRetorno = arredondar(Number(recebido || 0) + Number(glosado || 0));
+
+  // O retorno comprova pagamento e glosa, mas não substitui uma fonte de
+  // faturamento existente. Ele só supre o faturado quando essa fonte falta.
+  return faturado > 0 ? faturado : processadoNoRetorno;
+}
+
 export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnificado[]) {
   const grupos = new Map<string, {
     competencia: string | null;
@@ -85,11 +94,10 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
   }
 
   return [...grupos.values()].map((item): RegistroFinanceiroUnificado => {
-    const processadoNoRetorno = item.recebido + item.glosado;
     return {
       competencia: item.competencia,
       convenio: item.convenio,
-      faturado: arredondar(Math.max(item.faturadoXml, processadoNoRetorno)),
+      faturado: calcularFaturadoReconhecido(item.faturadoXml, item.recebido, item.glosado),
       recebido: arredondar(item.recebido),
       glosado: arredondar(item.glosado),
       glosaAceita: arredondar(item.glosaAceita),

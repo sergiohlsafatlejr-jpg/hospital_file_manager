@@ -4535,3 +4535,16 @@
 - [ ] Definir e executar a solução de conectividade: autorização de origem no PostgreSQL ou gateway com IP fixo
 - [ ] Implementar o agendamento real das frequências dos novos mapeamentos, hoje armazenadas apenas como configuração
 - [ ] Salvar checkpoint e sincronizar as correções internas com o GitHub
+
+- [x] Auditar o IPASGO do OX UTI em 08/2026 e identificar que R$ 716.837,51 era o processado do demonstrativo substituindo indevidamente o faturado
+- [x] Confirmar os quatro prestadores ativos vinculados ao OX UTI/IPASGO e reconciliar o faturado correto de R$ 669.562,90
+- [x] Aplicar o filtro de prestadores ativos vinculados no `/faturado-recebido-unificado` sem afetar outros estabelecimentos e convênios
+- [x] Preservar todos os itens quando o estabelecimento e convênio ainda não possuem prestador ativo cadastrado
+- [x] Modelar lançamentos manuais por estabelecimento, convênio, competência, prestador e valores financeiros, com origem e auditoria
+- [x] Reutilizar e migrar `faturamento_externo` para o cadastro manual sem duplicar a estrutura nem os dados importados
+- [x] Criar API protegida para listar, cadastrar, editar e excluir lançamentos manuais com isolamento por estabelecimento
+- [x] Criar tela de cadastro manual integrada ao Faturado x Recebido e identificar claramente a origem dos valores
+- [x] Incluir lançamentos externos nos filtros, totais, gráficos e exportação, somente quando a fonte automática não existir
+- [x] Adicionar testes de prestador vinculado, normalização, deduplicação, permissões e cálculos financeiros
+- [x] Validar OX UTI/IPASGO 08/2026 em R$ 669.562,90, validar Hospital Urológico com fonte externa e executar build
+- [ ] Salvar checkpoint e sincronizar a entrega com o GitHub

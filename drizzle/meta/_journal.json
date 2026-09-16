@@ -183,6 +183,13 @@
       "when": 1783532487380,
       "tag": "0107_demonic_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "5",
+      "when": 1789561302723,
+      "tag": "0108_rich_shadow_king",
+      "breakpoints": true
     }
   ]
 }

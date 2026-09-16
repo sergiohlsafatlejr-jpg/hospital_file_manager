@@ -37,7 +37,24 @@ export const faturadoRecebidoUnificadoRouter = router({
       if (!estabelecimento) throw new TRPCError({ code: "NOT_FOUND", message: "Estabelecimento não encontrado" });
 
       const fatParams: Array<string | number> = [input.estabelecimentoId];
-      let fatWhere = "WHERE ci.estabelecimentoId = ?";
+      let fatWhere = `WHERE ci.estabelecimentoId = ?
+        AND (
+          NOT EXISTS (
+            SELECT 1
+            FROM convenioEstabelecimentoPrestador cep_config
+            WHERE cep_config.estabelecimentoId = ci.estabelecimentoId
+              AND cep_config.convenioId = ci.convenioId
+              AND cep_config.ativo = 'sim'
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM convenioEstabelecimentoPrestador cep_match
+            WHERE cep_match.estabelecimentoId = ci.estabelecimentoId
+              AND cep_match.convenioId = ci.convenioId
+              AND cep_match.ativo = 'sim'
+              AND TRIM(cep_match.codigoPrestador) = TRIM(COALESCE(ci.codigoPrestadorExecutante,''))
+          )
+        )`;
       if (input.competencia) { fatWhere += " AND ci.competencia = ?"; fatParams.push(input.competencia); }
       if (input.convenio) { fatWhere += " AND TRIM(ci.convenio) = TRIM(?)"; fatParams.push(input.convenio); }
 
@@ -45,6 +62,24 @@ export const faturadoRecebidoUnificadoRouter = router({
       let retWhere = "WHERE d.estabelecimentoId = ?";
       if (input.competencia) { retWhere += " AND DATE_FORMAT(d.data_referencia, '%Y/%m') = ?"; retParams.push(input.competencia); }
       if (input.convenio) { retWhere += " AND TRIM(c.nome) = TRIM(?)"; retParams.push(input.convenio); }
+
+      const manualParams: Array<string | number> = [input.estabelecimentoId];
+      let manualWhere = `WHERE fe.estabelecimento_id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM contas_convenio_itens ci_auto
+          WHERE ci_auto.estabelecimentoId = fe.estabelecimento_id
+            AND ci_auto.competencia = fe.mes_ano
+            AND UPPER(TRIM(ci_auto.convenio)) = UPPER(TRIM(fe.convenio))
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM demonstrativo d_auto
+          LEFT JOIN convenios c_auto ON c_auto.id = d_auto.convenio_id
+          WHERE d_auto.estabelecimentoId = fe.estabelecimento_id
+            AND DATE_FORMAT(d_auto.data_referencia,'%Y/%m') = fe.mes_ano
+            AND UPPER(TRIM(COALESCE(c_auto.nome,''))) = UPPER(TRIM(fe.convenio))
+        )`;
+      if (input.competencia) { manualWhere += " AND fe.mes_ano = ?"; manualParams.push(input.competencia); }
+      if (input.convenio) { manualWhere += " AND TRIM(fe.convenio) = TRIM(?)"; manualParams.push(input.convenio); }
 
       const recParams: Array<string | number> = [input.estabelecimentoId, input.estabelecimentoId];
       let recWhere = "WHERE rg.estabelecimentoId = ? AND rg.status <> 'cancelado' AND COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0) > 0";
@@ -70,6 +105,19 @@ export const faturadoRecebidoUnificadoRouter = router({
         ${retWhere}
         GROUP BY DATE_FORMAT(d.data_referencia,'%Y/%m'), COALESCE(NULLIF(TRIM(c.nome),''),'Sem convênio')
       `, retParams);
+
+      const [manualRows] = await conn.execute<any[]>(`
+        SELECT fe.id, fe.mes_ano AS competencia,
+          COALESCE(NULLIF(TRIM(fe.convenio),''),'Sem convênio') AS convenio,
+          fe.codigo_prestador, COALESCE(fe.valor_faturado,0) AS faturado,
+          COALESCE(fe.valor_recebido,0) AS recebido,
+          COALESCE(fe.valor_glosado,0) AS glosado,
+          COALESCE(NULLIF(fe.origem,''),'manual') AS origem,
+          fe.observacao, fe.atualizado_por_nome, fe.atualizado_em
+        FROM faturamento_externo fe
+        ${manualWhere}
+        ORDER BY fe.mes_ano DESC, fe.convenio
+      `, manualParams);
 
       const [recRows] = await conn.execute<any[]>(`
         SELECT dm.competencia,
@@ -152,6 +200,11 @@ export const faturadoRecebidoUnificadoRouter = router({
       };
       for (const row of fatRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "faturado", faturado: Number(row.faturado || 0), quantidade: Number(row.quantidade || 0) });
       for (const row of retRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), glosaAceita: Number(row.glosa_aceita || 0), quantidade: Number(row.quantidade || 0) });
+      for (const row of manualRows) {
+        const convenioManual = nomeCanonico(String(row.convenio));
+        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "faturado", faturado: Number(row.faturado || 0), quantidade: 1 });
+        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "retorno", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), quantidade: 1 });
+      }
       for (const row of aceiteHistoricoRows) registros.push({ competencia: null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", glosaAceita: Number(row.glosa_aceita || 0), quantidade: 0 });
       for (const row of recRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "recurso", glosaRecursada: Number(row.glosa_recursada || 0), glosaEmRecurso: Number(row.glosa_em_recurso || 0), glosaRecuperada: Number(row.glosa_recuperada || 0), quantidade: Number(row.quantidade || 0) });
 
@@ -183,14 +236,16 @@ export const faturadoRecebidoUnificadoRouter = router({
         SELECT competencia FROM (
           SELECT DISTINCT competencia FROM contas_convenio_itens WHERE estabelecimentoId=? AND competencia IS NOT NULL AND competencia<>''
           UNION SELECT DISTINCT DATE_FORMAT(data_referencia,'%Y/%m') FROM demonstrativo WHERE estabelecimentoId=? AND data_referencia IS NOT NULL
+          UNION SELECT DISTINCT mes_ano FROM faturamento_externo WHERE estabelecimento_id=? AND mes_ano IS NOT NULL AND mes_ano<>''
         ) periodos ORDER BY competencia DESC
-      `, [input.estabelecimentoId, input.estabelecimentoId]);
+      `, [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]);
       const [convenioRows] = await conn.execute<any[]>(`
         SELECT convenio FROM (
           SELECT DISTINCT COALESCE(NULLIF(TRIM(convenio),''),'Sem convênio') AS convenio FROM contas_convenio_itens WHERE estabelecimentoId=?
           UNION SELECT DISTINCT COALESCE(NULLIF(TRIM(c.nome),''),'Sem convênio') FROM demonstrativo d LEFT JOIN convenios c ON c.id=d.convenio_id WHERE d.estabelecimentoId=?
+          UNION SELECT DISTINCT COALESCE(NULLIF(TRIM(convenio),''),'Sem convênio') FROM faturamento_externo WHERE estabelecimento_id=?
         ) convenios_unificado ORDER BY convenio
-      `, [input.estabelecimentoId, input.estabelecimentoId]);
+      `, [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]);
 
       const registrosConsolidados = consolidarRegistrosFinanceiros(registros);
       const porConvenio = (agruparFinanceiro(registrosConsolidados, "convenio") as any[]).sort((a, b) => b.totalFaturado - a.totalFaturado);
@@ -205,15 +260,24 @@ export const faturadoRecebidoUnificadoRouter = router({
         porMes,
         motivosGlosa: motivoRows.map((row) => ({ codigo: String(row.codigo), motivo: String(row.motivo), valorGlosado: Number(row.valor_glosado || 0), quantidade: Number(row.quantidade || 0) })),
         itensGlosados: itemRows.map((row) => ({ codigo: String(row.codigo), item: String(row.item), tipo: String(row.tipo), valorGlosado: Number(row.valor_glosado || 0), quantidade: Number(row.quantidade || 0) })),
+        lancamentosExternosConsiderados: manualRows.map((row) => ({
+          id: Number(row.id), competencia: String(row.competencia), convenio: String(row.convenio),
+          codigoPrestador: row.codigo_prestador ? String(row.codigo_prestador) : null,
+          faturado: Number(row.faturado || 0), recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0),
+          origem: String(row.origem || "manual"), observacao: row.observacao ? String(row.observacao) : null,
+          atualizadoPorNome: row.atualizado_por_nome ? String(row.atualizado_por_nome) : null,
+          atualizadoEm: row.atualizado_em || null,
+        })),
         filtrosDisponiveis: {
           competencias: competenciaRows.map((row) => String(row.competencia)),
           convenios: convenioRows.map((row) => String(row.convenio)),
         },
         metodologia: {
-          faturado: "contas_convenio_itens por competência",
+          faturado: "contas_convenio_itens por competência, limitado aos prestadores ativos vinculados ao convênio e estabelecimento; o demonstrativo só supre o faturado quando não existe fonte faturada",
           recebidoGlosado: "demonstrativo por mês de referência",
           recursos: "recursosGlosa vinculado ao demonstrativo por estabelecimento, guia, código e valor",
           glosaAceita: "decisões atuais e histórico associado somente quando convênio, código, valor e estabelecimento são inequívocos; histórico sem data não é atribuído a Mês/Ano",
+          manual: "faturamento_externo é usado somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
         },
       };
     } finally {

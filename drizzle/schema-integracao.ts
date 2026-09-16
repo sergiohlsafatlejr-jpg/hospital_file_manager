@@ -1025,6 +1025,7 @@ export const faturamentoExterno = mysqlTable(
     
     // Dados do convênio
     convenio: varchar({ length: 255 }).notNull(),
+    codigoPrestador: varchar("codigo_prestador", { length: 50 }),
     
     // Competência (mês/ano de referência)
     mesAno: varchar("mes_ano", { length: 10 }).notNull(), // formato: "YYYY/MM" (ex: "2025/01")
@@ -1032,11 +1033,16 @@ export const faturamentoExterno = mysqlTable(
     // Valores financeiros
     valorFaturado: decimal("valor_faturado", { precision: 14, scale: 2 }).default("0"),
     valorRecebido: decimal("valor_recebido", { precision: 14, scale: 2 }).default("0"),
+    valorGlosado: decimal("valor_glosado", { precision: 14, scale: 2 }).default("0"),
     
     // Metadados de importação
     arquivoOrigem: varchar("arquivo_origem", { length: 500 }),
+    origem: varchar({ length: 20 }).default("excel").notNull(),
+    observacao: text(),
     importadoPor: int("importado_por"),
     importadoPorNome: varchar("importado_por_nome", { length: 255 }),
+    atualizadoPor: int("atualizado_por"),
+    atualizadoPorNome: varchar("atualizado_por_nome", { length: 255 }),
     criadoEm: timestamp("criado_em").defaultNow(),
     atualizadoEm: timestamp("atualizado_em").defaultNow(),
   },
