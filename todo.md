@@ -4590,3 +4590,12 @@
 - [x] Validar R$ 112.508,02 de glosas recuperadas e zero divergências pela consulta da tela Demonstrativo
 - [x] Executar 19 testes direcionados, build, verificação de diff e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a recuperação global Unimed com o GitHub
+
+- [x] Mapear telas, tabelas, status e transições atuais do recurso de glosa
+- [x] Identificar etapas repetitivas já automatizadas e lacunas que ainda exigem trabalho manual
+- [x] Definir regras para classificar automaticamente glosa aceita, recursável e exceções para revisão humana
+- [x] Desenhar geração automática de justificativa, lote e arquivos por convênio com aprovação do usuário
+- [x] Definir acompanhamento de prazo, envio, protocolo, retorno e indicadores operacionais
+- [x] Definir execução contínua, auditoria, permissões e isolamento por estabelecimento
+- [x] Entregar o plano por etapas para escolha do primeiro módulo
+- [ ] Definir com o usuário o estabelecimento, convênio e nível de automação do piloto
