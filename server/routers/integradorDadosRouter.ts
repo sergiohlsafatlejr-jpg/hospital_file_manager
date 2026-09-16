@@ -1369,14 +1369,18 @@ export const integradorDadosRouter = router({
       .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
       .query(async ({ input, ctx }) => {
         if (!(await isAdminOrEstabAdmin(ctx))) return [];
-        return dbIntegrador.listarConexoes(input?.estabelecimentoId);
+        const conexoes = await dbIntegrador.listarConexoes(input?.estabelecimentoId);
+        return conexoes.map(({ senhaEncriptada: _senhaEncriptada, ...conexao }) => conexao);
       }),
 
     obter: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         if (!(await isAdminOrEstabAdmin(ctx))) return null;
-        return dbIntegrador.obterConexao(input.id);
+        const conexao = await dbIntegrador.obterConexao(input.id);
+        if (!conexao) return null;
+        const { senhaEncriptada: _senhaEncriptada, ...conexaoSegura } = conexao;
+        return conexaoSegura;
       }),
 
     criar: protectedProcedure
@@ -1456,6 +1460,7 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: senha,
+              ssl: conexao.ssl === "sim",
             });
             const ok = await connector.conectar();
             if (ok) {
@@ -1463,7 +1468,7 @@ export const integradorDadosRouter = router({
               await dbIntegrador.atualizarStatusConexao(input.id, "ok");
               return { sucesso: true, mensagem: "Conexão estabelecida com sucesso" };
             }
-            throw new Error("Falha ao conectar");
+            throw new Error(connector.getUltimoErro() || "Falha ao conectar ao PostgreSQL");
           } else {
             // Para outros tipos, tentar via WarleineConnector (MySQL/SQL Server)
             const connector = new WarleineConnector({
@@ -1510,8 +1515,10 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: senha,
+              ssl: conexao.ssl === "sim",
             });
-            await connector.conectar();
+            const conectado = await connector.conectar();
+            if (!conectado) throw new Error(connector.getUltimoErro() || "Falha ao conectar ao PostgreSQL");
             // Adicionar LIMIT à query se não tiver
             let queryLimitada = input.querySql.trim().replace(/;$/, "");
             if (!/\bLIMIT\b/i.test(queryLimitada)) {
@@ -1724,8 +1731,10 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: senha,
+              ssl: conexao.ssl === "sim",
             });
-            await connector.conectar();
+            const conectado = await connector.conectar();
+            if (!conectado) throw new Error(connector.getUltimoErro() || "Falha ao conectar ao PostgreSQL");
             let queryLimitada = input.querySql.trim().replace(/;$/, "");
             if (!/\bLIMIT\b/i.test(queryLimitada)) {
               queryLimitada += " LIMIT 10";
@@ -2044,8 +2053,10 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: senha,
+              ssl: conexao.ssl === "sim",
             });
-            await connector.conectar();
+            const conectado = await connector.conectar();
+            if (!conectado) throw new Error(connector.getUltimoErro() || "Falha ao conectar ao PostgreSQL");
             rows = (await connector.executarQuery(queryFinal)) || [];
             await connector.desconectar();
           } else {
@@ -2425,9 +2436,10 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: senha,
+              ssl: conexao.ssl === "sim",
             });
             const ok = await connector.conectar();
-            if (!ok) throw new Error("Falha ao conectar à origem");
+            if (!ok) throw new Error(connector.getUltimoErro() || "Falha ao conectar à origem PostgreSQL");
             const dados = await connector.executarQuery(query);
             await connector.desconectar();
             return dados;
@@ -2459,7 +2471,7 @@ export const integradorDadosRouter = router({
               database: conexao.banco,
               user: conexao.usuario,
               password: Buffer.from(conexao.senhaEncriptada, "base64").toString("utf-8"),
-              ssl: false, // Forçar SSL desabilitado
+              ssl: conexao.ssl === "sim" ? { rejectUnauthorized: false } : false,
               connectionTimeoutMillis: 10000,
               statement_timeout: FATIA_TIMEOUT_MS,
               query_timeout: FATIA_TIMEOUT_MS,

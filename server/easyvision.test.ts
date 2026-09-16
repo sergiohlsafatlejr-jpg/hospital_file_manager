@@ -54,6 +54,45 @@ describe("EasyVisionConnector", () => {
     expect(resultado).toBe(true);
   });
 
+  it("deve respeitar a configuração SSL ao criar o pool", async () => {
+    const pg = await import("pg");
+    const connector = new EasyVisionConnector({
+      host: "postgres.hospital.local",
+      port: 5432,
+      database: "hospital",
+      user: "integrador",
+      password: "segredo",
+      ssl: true,
+    });
+
+    await connector.conectar();
+
+    expect(pg.default.Pool).toHaveBeenLastCalledWith(expect.objectContaining({
+      ssl: { rejectUnauthorized: false },
+    }));
+  });
+
+  it("deve traduzir rejeição do pg_hba para uma orientação operacional", async () => {
+    const pg = await import("pg");
+    const mockPool = new (pg.default.Pool as any)();
+    mockPool.connect.mockRejectedValueOnce(new Error(
+      'no pg_hba.conf entry for host "34.96.50.193", user "TI", database "db1", no encryption'
+    ));
+
+    const connector = new EasyVisionConnector({
+      host: "postgres.hospital.local",
+      port: 5432,
+      database: "hospital",
+      user: "integrador",
+      password: "segredo",
+    });
+
+    await expect(connector.conectar()).resolves.toBe(false);
+    expect(connector.getUltimoErro()).toContain("34.96.50.193");
+    expect(connector.getUltimoErro()).toContain("pg_hba.conf");
+    expect(connector.getUltimoErro()).toContain("sem SSL");
+  });
+
   it("deve desconectar corretamente", async () => {
     const config = {
       host: "147.93.4.135",

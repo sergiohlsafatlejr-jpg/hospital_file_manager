@@ -40,6 +40,34 @@ export interface EasyVisionAtendimentoAFaturar {
   procprin: string;
 }
 
+export function descreverErroConexaoPostgres(error: unknown): string {
+  const mensagem = error instanceof Error ? error.message : String(error);
+  const ipSaida = mensagem.match(/host \"([^\"]+)\"/)?.[1];
+
+  if (mensagem.includes("no pg_hba.conf entry")) {
+    const modo = mensagem.includes("no encryption")
+      ? "sem SSL"
+      : mensagem.includes("SSL encryption")
+        ? "com SSL"
+        : "no modo configurado";
+    const origem = ipSaida ? ` (${ipSaida})` : "";
+    return `O PostgreSQL recusou o IP de saída da aplicação${origem} no pg_hba.conf ${modo}. Autorize a origem no servidor do hospital e confirme a exigência de SSL.`;
+  }
+  if (mensagem.includes("password authentication failed")) {
+    return "O PostgreSQL recusou o usuário ou a senha cadastrados.";
+  }
+  if (mensagem.includes("ENOTFOUND")) {
+    return "O host informado não foi encontrado no DNS.";
+  }
+  if (mensagem.includes("ECONNREFUSED")) {
+    return "O host foi encontrado, mas recusou a conexão na porta cadastrada.";
+  }
+  if (mensagem.includes("ETIMEDOUT") || mensagem.toLowerCase().includes("timeout")) {
+    return "A conexão com o PostgreSQL expirou. Verifique firewall, rota e porta.";
+  }
+  return `Falha ao conectar ao PostgreSQL: ${mensagem}`;
+}
+
 /**
  * Connector para sincronizar dados do EASYVISION (PostgreSQL)
  * Responsável por conectar ao banco de dados do sistema EasyVision
@@ -50,6 +78,7 @@ export interface EasyVisionAtendimentoAFaturar {
 export class EasyVisionConnector {
   private pool: pg.Pool | null = null;
   private config: EasyVisionConnectorConfig;
+  private ultimoErro: string | null = null;
 
   constructor(config: EasyVisionConnectorConfig) {
     this.config = config;
@@ -59,6 +88,7 @@ export class EasyVisionConnector {
    * Inicializa a conexão com o banco EASYVISION
    */
   async conectar(): Promise<boolean> {
+    this.ultimoErro = null;
     try {
       this.pool = new Pool({
         host: this.config.host,
@@ -87,13 +117,26 @@ export class EasyVisionConnector {
 
       return true;
     } catch (error) {
+      this.ultimoErro = descreverErroConexaoPostgres(error);
       logger.error({
         message: "Erro ao conectar ao EASYVISION",
         error: error instanceof Error ? error.message : String(error),
         host: this.config.host,
       });
+      if (this.pool) {
+        try {
+          await this.pool.end();
+        } catch {
+          // A falha original de conexão é a informação relevante.
+        }
+        this.pool = null;
+      }
       return false;
     }
+  }
+
+  getUltimoErro(): string | null {
+    return this.ultimoErro;
   }
 
   /**
@@ -235,7 +278,7 @@ export class EasyVisionConnector {
       if (!conectado) {
         return {
           sucesso: false,
-          mensagem: "Falha ao conectar ao banco EASYVISION",
+          mensagem: this.getUltimoErro() || "Falha ao conectar ao banco EASYVISION",
         };
       }
 

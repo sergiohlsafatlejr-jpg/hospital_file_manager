@@ -193,16 +193,21 @@ export function ConexoesTab({ estabelecimentoId }: ConexoesTabProps) {
                   <TableCell className="text-sm">{conn.host}:{conn.porta}</TableCell>
                   <TableCell className="text-sm">{conn.banco}</TableCell>
                   <TableCell>
-                    {conn.ultimoStatus === "ok" ? (
-                      <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1" /> OK</Badge>
-                    ) : conn.ultimoStatus === "erro" ? (
-                      <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Erro</Badge>
-                    ) : (
-                      <Badge variant="secondary">Não testado</Badge>
-                    )}
+                    <div className="max-w-sm space-y-1">
+                      {conn.statusConexao === "ok" ? (
+                        <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1" /> OK</Badge>
+                      ) : conn.statusConexao === "erro" ? (
+                        <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" /> Erro</Badge>
+                      ) : (
+                        <Badge variant="secondary">Não testado</Badge>
+                      )}
+                      {conn.statusConexao === "erro" && conn.erroConexao && (
+                        <p className="text-xs text-destructive" title={conn.erroConexao}>{conn.erroConexao}</p>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {conn.ultimoTesteEm ? formatDateTimeBR(conn.ultimoTesteEm) : "-"}
+                    {conn.ultimoTesteConexao ? formatDateTimeBR(conn.ultimoTesteConexao) : "-"}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">

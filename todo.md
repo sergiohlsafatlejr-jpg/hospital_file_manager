@@ -4524,3 +4524,14 @@
 - [x] Confirmar isolamento por estabelecimento, executar 25 testes e o build de produção
 - [x] Salvar checkpoint da correção por data de referência
 - [x] Sincronizar a correção com o GitHub após renovar a credencial expirada da integração
+
+- [x] Mapear a tela `/integracao`, o endpoint de teste e o armazenamento das conexões externas
+- [x] Auditar com segurança a configuração “Postgres Urologico” sem expor credenciais
+- [x] Reproduzir a mensagem “Falha ao conectar” e identificar se a causa está no host, porta, SSL, autenticação, rede ou código
+- [x] Corrigir o teste para respeitar o SSL cadastrado, persistir a causa real e exibir status e última verificação corretamente
+- [x] Impedir que a senha codificada da conexão seja devolvida ao navegador
+- [x] Adicionar testes de regressão e validar o endpoint real: bloqueio confirmado no `pg_hba.conf` do PostgreSQL externo
+- [x] Executar 40 testes direcionados, checagem TypeScript focada e build de produção
+- [ ] Definir e executar a solução de conectividade: autorização de origem no PostgreSQL ou gateway com IP fixo
+- [ ] Implementar o agendamento real das frequências dos novos mapeamentos, hoje armazenadas apenas como configuração
+- [ ] Salvar checkpoint e sincronizar as correções internas com o GitHub
