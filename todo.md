@@ -4581,3 +4581,12 @@
 - [x] Definir criptografia, autenticação, rotas, firewall, monitoramento e isolamento por hospital
 - [x] Preparar a lista de informações e responsabilidades necessárias do TI de cada hospital
 - [x] Entregar a recomendação de implantação e o roteiro de testes sem executar mudanças de infraestrutura ainda
+
+- [x] Inventariar 28 arquivos Excel/Unimed retornados por estabelecimento e identificar formatos potencialmente afetados
+- [x] Comparar itens `GLOSADO` ou parciais com glosa zerada entre arquivo original, `recebimentos_excel` e `demonstrativo`
+- [x] Classificar 12 arquivos recuperáveis, 9 corretos, 1 sem valor no original e 6 indisponíveis antes da recuperação
+- [x] Validar isolamento por estabelecimento, convênio e arquivo e comprovar idempotência em duas execuções controladas
+- [x] Reprocessar somente os 12 arquivos comprovadamente afetados usando o parser corrigido, com zero falhas
+- [x] Validar R$ 112.508,02 de glosas recuperadas e zero divergências pela consulta da tela Demonstrativo
+- [x] Executar 19 testes direcionados, build, verificação de diff e TypeScript focado sem erros novos
+- [ ] Salvar checkpoint e sincronizar a recuperação global Unimed com o GitHub
