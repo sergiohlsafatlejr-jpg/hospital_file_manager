@@ -4653,3 +4653,9 @@
 - [x] Confirmar no relatório R$ 47.263,48 processados/faturados, R$ 46.931,72 recebidos e R$ 331,76 glosados entre 06/2026 e 07/2026
 - [x] Validar isolamento real, 24 testes direcionados, validador compilado, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a correção do HF Visão/IAMESc com o GitHub
+
+- [x] Ampliar o modal de cadastro manual para ocupar quase toda a largura e altura útil da tela
+- [x] Aumentar a área do histórico e manter formulário e tabela em colunas proporcionais em telas grandes
+- [x] Corrigir as rolagens internas, fixar o cabeçalho do histórico e empilhar campos financeiros quando necessário
+- [x] Validar o layout com 18 testes direcionados, build aprovado e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar a ampliação do modal com o GitHub
