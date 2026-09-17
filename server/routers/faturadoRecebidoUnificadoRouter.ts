@@ -152,18 +152,23 @@ export const faturadoRecebidoUnificadoRouter = router({
 
       const manualParams: Array<string | number> = [input.estabelecimentoId];
       let manualWhere = `WHERE fe.estabelecimento_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM contas_convenio_itens ci_auto
-          WHERE ci_auto.estabelecimentoId = fe.estabelecimento_id
-            AND ci_auto.competencia = fe.mes_ano
-            AND UPPER(TRIM(ci_auto.convenio)) = UPPER(TRIM(fe.convenio))
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM demonstrativo d_auto
-          LEFT JOIN convenios c_auto ON c_auto.id = d_auto.convenio_id
-          WHERE d_auto.estabelecimentoId = fe.estabelecimento_id
-            AND DATE_FORMAT(d_auto.data_referencia,'%Y/%m') = fe.mes_ano
-            AND UPPER(TRIM(COALESCE(c_auto.nome,''))) = UPPER(TRIM(fe.convenio))
+        AND (
+          LOWER(TRIM(COALESCE(fe.origem, ''))) = 'manual'
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM contas_convenio_itens ci_auto
+              WHERE ci_auto.estabelecimentoId = fe.estabelecimento_id
+                AND ci_auto.competencia = fe.mes_ano
+                AND UPPER(TRIM(ci_auto.convenio)) = UPPER(TRIM(fe.convenio))
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM demonstrativo d_auto
+              LEFT JOIN convenios c_auto ON c_auto.id = d_auto.convenio_id
+              WHERE d_auto.estabelecimentoId = fe.estabelecimento_id
+                AND DATE_FORMAT(d_auto.data_referencia,'%Y/%m') = fe.mes_ano
+                AND UPPER(TRIM(COALESCE(c_auto.nome,''))) = UPPER(TRIM(fe.convenio))
+            )
+          )
         )`;
       if (input.competencia) { manualWhere += " AND fe.mes_ano = ?"; manualParams.push(input.competencia); }
       if (input.convenio) { manualWhere += " AND TRIM(fe.convenio) = TRIM(?)"; manualParams.push(input.convenio); }
@@ -286,12 +291,13 @@ export const faturadoRecebidoUnificadoRouter = router({
         if (!nomes.has(chave)) nomes.set(chave, valor || "Sem convênio");
         return nomes.get(chave)!;
       };
-      for (const row of fatRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "faturado", faturado: Number(row.faturado || 0), quantidade: Number(row.quantidade || 0) });
-      for (const row of retRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), glosaAceita: Number(row.glosa_aceita || 0), quantidade: Number(row.quantidade || 0) });
+      for (const row of fatRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "faturado", origem: "automatica", faturado: Number(row.faturado || 0), quantidade: Number(row.quantidade || 0) });
+      for (const row of retRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", origem: "automatica", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), glosaAceita: Number(row.glosa_aceita || 0), quantidade: Number(row.quantidade || 0) });
       for (const row of manualRows) {
         const convenioManual = nomeCanonico(String(row.convenio));
-        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "faturado", faturado: Number(row.faturado || 0), quantidade: 1 });
-        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "retorno", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), quantidade: 1 });
+        const origem = String(row.origem).trim().toLowerCase() === "manual" ? "manual" : "planilha";
+        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "faturado", origem, faturado: Number(row.faturado || 0), quantidade: 1 });
+        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "retorno", origem, recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), quantidade: 1 });
       }
       for (const row of aceiteHistoricoRows) registros.push({ competencia: null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", glosaAceita: Number(row.glosa_aceita || 0), quantidade: 0 });
       for (const row of recRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "recurso", glosaRecursada: Number(row.glosa_recursada || 0), glosaEmRecurso: Number(row.glosa_em_recurso || 0), glosaRecuperada: Number(row.glosa_recuperada || 0), quantidade: Number(row.quantidade || 0) });
@@ -367,7 +373,7 @@ export const faturadoRecebidoUnificadoRouter = router({
           recebidoGlosado: "demonstrativo associado aos itens faturados do prestador próprio por convênio, guia, procedimento e data; usa o mês de referência somente quando não existe fonte faturada para o mesmo convênio e competência",
           recursos: "recursosGlosa vinculado ao demonstrativo por estabelecimento, guia, código e valor",
           glosaAceita: "decisões atuais e histórico associado somente quando convênio, código, valor e estabelecimento são inequívocos; histórico sem data não é atribuído a Mês/Ano",
-          manual: "faturamento_externo é usado somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
+          manual: "cadastros manuais complementam as fontes automáticas; importações por planilha são usadas somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
         },
       };
     } finally {

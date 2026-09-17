@@ -2,6 +2,7 @@ export type RegistroFinanceiroUnificado = {
   competencia: string | null;
   convenio: string;
   fonte?: "faturado" | "retorno" | "recurso";
+  origem?: "automatica" | "manual" | "planilha";
   faturado?: number;
   recebido?: number;
   glosado?: number;
@@ -55,7 +56,10 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
   const grupos = new Map<string, {
     competencia: string | null;
     convenio: string;
-    faturadoXml: number;
+    faturadoBase: number;
+    faturadoManual: number;
+    recebidoBase: number;
+    glosadoBase: number;
     recebido: number;
     glosado: number;
     glosaAceita: number;
@@ -71,7 +75,10 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     const atual = grupos.get(chave) || {
       competencia: item.competencia,
       convenio: item.convenio,
-      faturadoXml: 0,
+      faturadoBase: 0,
+      faturadoManual: 0,
+      recebidoBase: 0,
+      glosadoBase: 0,
       recebido: 0,
       glosado: 0,
       glosaAceita: 0,
@@ -81,7 +88,14 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       quantidadeFaturada: 0,
       quantidadeRetorno: 0,
     };
-    atual.faturadoXml += Number(item.faturado || 0);
+    if (item.fonte === "faturado") {
+      if (item.origem === "manual") atual.faturadoManual += Number(item.faturado || 0);
+      else atual.faturadoBase += Number(item.faturado || 0);
+    }
+    if (item.fonte === "retorno" && item.origem !== "manual") {
+      atual.recebidoBase += Number(item.recebido || 0);
+      atual.glosadoBase += Number(item.glosado || 0);
+    }
     atual.recebido += Number(item.recebido || 0);
     atual.glosado += Number(item.glosado || 0);
     atual.glosaAceita += Number(item.glosaAceita || 0);
@@ -97,7 +111,10 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     return {
       competencia: item.competencia,
       convenio: item.convenio,
-      faturado: calcularFaturadoReconhecido(item.faturadoXml, item.recebido, item.glosado),
+      faturado: arredondar(
+        calcularFaturadoReconhecido(item.faturadoBase, item.recebidoBase, item.glosadoBase)
+        + item.faturadoManual
+      ),
       recebido: arredondar(item.recebido),
       glosado: arredondar(item.glosado),
       glosaAceita: arredondar(item.glosaAceita),

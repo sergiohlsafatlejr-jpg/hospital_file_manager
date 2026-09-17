@@ -4615,3 +4615,9 @@
 - [x] Validar as competências de 12/2024 a 07/2026, os totais financeiros e o isolamento por estabelecimento e convênio
 - [x] Esclarecer no upload que a data de referência representa a competência dos atendimentos, e não o mês do pagamento
 - [x] Salvar checkpoint e sincronizar a correção com o GitHub
+
+- [x] Confirmar no banco o lançamento manual 60001 do IMEC/Unimed em 08/2026 e identificar que ele era ocultado pela existência de demonstrativo automático
+- [x] Alterar a precedência para que cadastro manual seja complemento, mantendo importações externas por planilha como fallback sem dupla contagem
+- [x] Validar o registro real no relatório: R$ 78.033,26 faturados, R$ 77.442,68 recebidos, R$ 1.912,22 glosados e R$ 1.321,64 de acréscimo
+- [x] Executar testes direcionados, build, verificação TypeScript focada e revisão do diff
+- [x] Salvar checkpoint e sincronizar a correção do lançamento manual com o GitHub

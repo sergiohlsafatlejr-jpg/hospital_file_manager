@@ -139,7 +139,7 @@ export function LancamentosManuaisDialog({
       <DialogHeader>
         <DialogTitle>Cadastro manual de faturado e recebido</DialogTitle>
         <DialogDescription>
-          Unidade: {estabelecimentoNome}. O lançamento só entra no relatório quando não houver fonte automática para o mesmo convênio e competência.
+          Unidade: {estabelecimentoNome}. Cadastros manuais complementam os dados automáticos; importações por planilha só entram quando não houver fonte automática equivalente.
         </DialogDescription>
       </DialogHeader>
 
@@ -169,14 +169,14 @@ export function LancamentosManuaisDialog({
           <div className="max-h-[560px] overflow-auto">
             {isLoading ? <div className="flex h-48 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div> : !registros.length ? <div className="flex h-48 flex-col items-center justify-center text-sm text-slate-500"><FileSpreadsheet className="mb-2 h-8 w-8 opacity-40" />Nenhum lançamento cadastrado.</div> : <Table>
               <TableHeader><TableRow><TableHead>Competência</TableHead><TableHead>Convênio</TableHead><TableHead>Origem</TableHead><TableHead className="text-right">Faturado</TableHead><TableHead className="text-right">Recebido</TableHead><TableHead className="text-right">Glosado</TableHead><TableHead>Atualização</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
-              <TableBody>{registros.map((item) => <TableRow key={item.id}><TableCell>{item.mesAno.replace(/^([0-9]{4})\/([0-9]{2})$/, "$2/$1")}</TableCell><TableCell><div className="font-medium text-slate-900">{item.convenio}</div>{item.codigoPrestador && <div className="text-xs text-slate-500">Prestador {item.codigoPrestador}</div>}</TableCell><TableCell><Badge variant="outline">{item.origem === "manual" ? "Manual" : "Planilha"}</Badge></TableCell><TableCell className="text-right">{money(item.valorFaturado)}</TableCell><TableCell className="text-right">{money(item.valorRecebido)}</TableCell><TableCell className="text-right text-rose-700">{money(item.valorGlosado)}</TableCell><TableCell className="text-xs text-slate-500">{item.atualizadoPorNome || item.importadoPorNome || "Sistema"}</TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => editar(item)} aria-label={`Editar ${item.convenio}`}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="text-rose-600" onClick={() => setConfirmarExclusao(item.id)} aria-label={`Excluir ${item.convenio}`}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>)}</TableBody>
+              <TableBody>{registros.map((item) => <TableRow key={item.id}><TableCell>{item.mesAno.replace(/^([0-9]{4})\/([0-9]{2})$/, "$2/$1")}</TableCell><TableCell><div className="font-medium text-slate-900">{item.convenio}</div>{item.codigoPrestador && <div className="text-xs text-slate-500">Prestador {item.codigoPrestador}</div>}</TableCell><TableCell><Badge variant="outline">{item.origem === "manual" ? "Manual · complemento" : "Planilha · fallback"}</Badge></TableCell><TableCell className="text-right">{money(item.valorFaturado)}</TableCell><TableCell className="text-right">{money(item.valorRecebido)}</TableCell><TableCell className="text-right text-rose-700">{money(item.valorGlosado)}</TableCell><TableCell className="text-xs text-slate-500">{item.atualizadoPorNome || item.importadoPorNome || "Sistema"}</TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" onClick={() => editar(item)} aria-label={`Editar ${item.convenio}`}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="text-rose-600" onClick={() => setConfirmarExclusao(item.id)} aria-label={`Excluir ${item.convenio}`}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>)}</TableBody>
             </Table>}
           </div>
         </section>
       </div>
 
       <DialogFooter className="flex items-center justify-between gap-3 sm:justify-between">
-        <p className="text-xs text-slate-500">A fonte automática sempre tem prioridade e impede dupla contagem.</p>
+        <p className="text-xs text-slate-500">Manual soma como complemento. Planilha externa só substitui uma fonte automática ausente.</p>
         <Button variant="outline" onClick={() => onOpenChange(false)}>Fechar</Button>
       </DialogFooter>
     </DialogContent>
