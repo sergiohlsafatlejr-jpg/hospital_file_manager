@@ -4608,4 +4608,4 @@
 - [x] Recuperar na tela 821 itens comprováveis de seis lotes: 688 do demonstrativo e 133 do lote híbrido 330001
 - [x] Preservar o lote 300001 como pendência auditável de 195 itens e R$ 829,14, sem recriar detalhes porque os itens não existem no banco e o XML histórico está indisponível
 - [x] Validar 910 recursos, 821 itens recuperados, exportação de 133 itens/R$ 2.207,29, 19 testes direcionados, build aprovado e TypeScript focado sem erros novos
-- [ ] Salvar checkpoint, sincronizar o GitHub e preparar a versão para publicação no portal
+- [x] Salvar checkpoint, sincronizar o GitHub e preparar a versão para publicação no portal
