@@ -4609,3 +4609,9 @@
 - [x] Preservar o lote 300001 como pendência auditável de 195 itens e R$ 829,14, sem recriar detalhes porque os itens não existem no banco e o XML histórico está indisponível
 - [x] Validar 910 recursos, 821 itens recuperados, exportação de 133 itens/R$ 2.207,29, 19 testes direcionados, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint, sincronizar o GitHub e preparar a versão para publicação no portal
+
+- [x] Auditar os 18 demonstrativos históricos do IMEC vinculados ao convênio Senaprev - IAMESc
+- [x] Corrigir de forma idempotente a competência dos arquivos, da fonte `recebimentos_excel` e do `demonstrativo`, sem alterar valores ou itens
+- [x] Validar as competências de 12/2024 a 07/2026, os totais financeiros e o isolamento por estabelecimento e convênio
+- [x] Esclarecer no upload que a data de referência representa a competência dos atendimentos, e não o mês do pagamento
+- [x] Salvar checkpoint e sincronizar a correção com o GitHub

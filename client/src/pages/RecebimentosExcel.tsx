@@ -756,8 +756,11 @@ export default function RecebimentosExcel() {
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Data de Referência (opcional)</Label>
+                      <Label>Competência dos atendimentos (data de referência)</Label>
                       <Input type="date" value={dataReferencia} onChange={(e) => setDataReferencia(e.target.value)} />
+                      <p className="text-xs text-muted-foreground">
+                        Informe o mês em que os atendimentos foram realizados, não o mês do pagamento.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Data de Pagamento (opcional)</Label>
