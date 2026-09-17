@@ -55,6 +55,10 @@ describe("Gestão de Permissões V2", () => {
     expect(page).toContain('!max-w-6xl w-[96vw]');
     expect(page).toContain("PermissionMatrix");
     expect(page).toContain("OperationalPermissions");
+    expect(page.match(/h-\[92vh\].*flex-col overflow-hidden/g)).toHaveLength(2);
+    expect(page.match(/overflow-y-scroll overscroll-contain/g)).toHaveLength(2);
+    expect(page.match(/\[scrollbar-gutter:stable\]/g)).toHaveLength(2);
+    expect(page.match(/\[&::-webkit-scrollbar-thumb\]:bg-slate-400/g)).toHaveLength(2);
     expect(matrix).toContain("Buscar módulo ou relatório");
     expect(matrix).toContain("Relatórios BI");
     expect(matrix).toContain("BI de Glosas");

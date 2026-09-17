@@ -1372,18 +1372,18 @@ export default function GerenciarPermissoes() {
 
       {/* Dialog para adicionar permissão */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="!max-w-6xl w-[96vw] max-h-[92vh] overflow-hidden">
-          <DialogHeader>
+        <DialogContent className="!max-w-6xl flex h-[92vh] max-h-[92vh] w-[96vw] flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Adicionar usuário ao estabelecimento</DialogTitle>
             <DialogDescription>Escolha o perfil, ajuste as ações e libere somente os módulos necessários.</DialogDescription>
           </DialogHeader>
-          <Tabs defaultValue="perfil" className="flex min-h-0 flex-col">
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs defaultValue="perfil" className="flex min-h-0 flex-1 flex-col">
+            <TabsList className="grid w-full shrink-0 grid-cols-3">
               <TabsTrigger value="perfil">1. Usuário e perfil</TabsTrigger>
               <TabsTrigger value="acoes">2. Ações</TabsTrigger>
               <TabsTrigger value="modulos">3. Módulos e BI</TabsTrigger>
             </TabsList>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+            <div className="min-h-0 flex-1 overflow-y-scroll overscroll-contain pr-3 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted/50">
               <TabsContent value="perfil" className="space-y-5 pt-2">
                 <div className="space-y-2">
                   <Label>Usuário</Label>
@@ -1456,7 +1456,7 @@ export default function GerenciarPermissoes() {
               </TabsContent>
             </div>
           </Tabs>
-          <DialogFooter className="border-t pt-3">
+          <DialogFooter className="shrink-0 border-t pt-3">
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancelar</Button>
             <Button onClick={handleAddPermissao} disabled={upsertPermissao.isPending}>
               {upsertPermissao.isPending ? "Salvando..." : "Adicionar permissão"}
@@ -1467,20 +1467,20 @@ export default function GerenciarPermissoes() {
 
       {/* Dialog para editar permissão */}
       <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) setEditingUser(null); }}>
-        <DialogContent className="!max-w-6xl w-[96vw] max-h-[92vh] overflow-hidden">
-          <DialogHeader>
+        <DialogContent className="!max-w-6xl flex h-[92vh] max-h-[92vh] w-[96vw] flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Editar permissões</DialogTitle>
             <DialogDescription>
               {editingUser?.userName || "Usuário"} — alterações válidas somente para o estabelecimento selecionado.
             </DialogDescription>
           </DialogHeader>
-          <Tabs defaultValue="perfil" className="flex min-h-0 flex-col">
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs defaultValue="perfil" className="flex min-h-0 flex-1 flex-col">
+            <TabsList className="grid w-full shrink-0 grid-cols-3">
               <TabsTrigger value="perfil">1. Perfil</TabsTrigger>
               <TabsTrigger value="acoes">2. Ações</TabsTrigger>
               <TabsTrigger value="modulos">3. Módulos e BI</TabsTrigger>
             </TabsList>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+            <div className="min-h-0 flex-1 overflow-y-scroll overscroll-contain pr-3 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted/50">
               <TabsContent value="perfil" className="space-y-5 pt-2">
                 <div className="rounded-xl border bg-muted/30 p-3">
                   <p className="font-medium">{editingUser?.userName}</p>
@@ -1544,7 +1544,7 @@ export default function GerenciarPermissoes() {
               </TabsContent>
             </div>
           </Tabs>
-          <DialogFooter className="border-t pt-3">
+          <DialogFooter className="shrink-0 border-t pt-3">
             <Button variant="outline" onClick={() => { setShowEditDialog(false); setEditingUser(null); }}>Cancelar</Button>
             <Button onClick={handleSaveEdit} disabled={upsertPermissao.isPending}>
               {upsertPermissao.isPending ? "Salvando..." : "Salvar alterações"}

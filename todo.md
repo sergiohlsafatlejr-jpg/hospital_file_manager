@@ -4678,3 +4678,9 @@
 - [x] Aprovar 121 testes direcionados, build de produção, três validadores compilados e TypeScript focado sem erros novos
 - [x] Corrigir todos os bloqueios das revisões independentes de segurança e obter aprovação lógica final
 - [x] Salvar checkpoint e sincronizar autenticação e Gestão de Permissões com o GitHub
+
+- [x] Adicionar barra de rolagem vertical visível aos modais de adicionar e editar permissões
+- [x] Manter cabeçalho, abas e botões fixos enquanto a matriz de módulos é rolada
+- [x] Validar o ajuste com 7 testes direcionados, build aprovado e TypeScript focado sem erros novos
+- [x] Diagnosticar as duas identidades do e-mail de faturamento do IMEC e localizar o vínculo no cadastro manual correto
+- [ ] Reconciliar a identidade externa com a conta vinculada ao IMEC após confirmação do administrador
