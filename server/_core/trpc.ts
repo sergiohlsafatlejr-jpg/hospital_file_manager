@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import type { TrpcContext } from "./context";
 import { logger } from "./logger";
 import { logAudit } from "./audit";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -20,6 +20,32 @@ const requireUser = t.middleware(async opts => {
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+
+  if (ctx.user.role !== "admin") {
+    const rawInput = await opts.getRawInput();
+    const estabelecimentoIds = new Set<number>();
+    const collectIds = (value: unknown, depth = 0) => {
+      if (!value || typeof value !== "object" || depth > 4) return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => collectIds(item, depth + 1));
+        return;
+      }
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === "estabelecimentoId" && typeof child === "number" && Number.isInteger(child) && child > 0) {
+          estabelecimentoIds.add(child);
+        } else {
+          collectIds(child, depth + 1);
+        }
+      }
+    };
+    collectIds(rawInput);
+    for (const estabelecimentoId of estabelecimentoIds) {
+      const autorizado = await verificarPermissaoEstabelecimento(ctx.user.id, estabelecimentoId, "visualizar");
+      if (!autorizado) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso ao estabelecimento informado" });
+      }
+    }
   }
 
   return next({

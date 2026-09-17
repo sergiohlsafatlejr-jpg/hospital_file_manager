@@ -190,6 +190,41 @@
       "when": 1789561302723,
       "tag": "0108_rich_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "5",
+      "when": 1789673250750,
+      "tag": "0109_pink_skaar",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "5",
+      "when": 1789676343712,
+      "tag": "0110_blushing_morbius",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "5",
+      "when": 1789677431470,
+      "tag": "0111_thin_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "5",
+      "when": 1789677521965,
+      "tag": "0112_serious_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "5",
+      "when": 1789678730856,
+      "tag": "0113_clumsy_leo",
+      "breakpoints": true
     }
   ]
 }

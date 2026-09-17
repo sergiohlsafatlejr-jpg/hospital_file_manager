@@ -1,6 +1,19 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { OperationalPermissions } from "@/components/permissions/OperationalPermissions";
+import { PermissionMatrix, PERMISSION_MODULES } from "@/components/permissions/PermissionMatrix";
+import {
+  ACTION_PROFILE_DEFAULTS,
+  MODULE_PERMISSION_KEYS,
+  getModulePermissionsForGroup,
+  normalizeBiParent,
+  sanitizeCustomModulePermissions,
+  type ModulePermissionKey,
+  type PermissionValue,
+  type StandardServiceGroup,
+} from "@shared/permissions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -119,39 +132,7 @@ const GRUPOS_SERVICO_PADRAO = [
   },
 ];
 
-// Definição dos módulos do sistema
-const MODULOS = [
-  { key: "acessoDashboard", label: "Dashboard", icon: BarChart3 },
-  { key: "acessoArquivos", label: "Arquivos", icon: FolderOpen },
-  { key: "acessoComparacoes", label: "Comparações", icon: GitCompare },
-  { key: "acessoFaturamento", label: "Faturamento", icon: DollarSign },
-  { key: "acessoTabelasPreco", label: "Tabelas de Preço", icon: FileText },
-  { key: "acessoAnaliseGlosa", label: "Análise de Glosa", icon: AlertCircle },
-  { key: "acessoDicionarioGlosas", label: "Dicionário de Glosas", icon: BookOpen },
-  { key: "acessoRecursosGlosa", label: "Recursos de Glosa", icon: Briefcase },
-  { key: "acessoConvenios", label: "Convênios", icon: Building2 },
-  { key: "acessoRegrasNegocio", label: "Regras de Negócio", icon: Settings },
-  { key: "acessoProdutividade", label: "Produtividade", icon: BarChart3 },
-  { key: "acessoEstabelecimentos", label: "Estabelecimentos", icon: Building2 },
-  { key: "acessoPermissoes", label: "Permissões", icon: Shield },
-  { key: "acessoImportacaoTasy", label: "Importação Tasy", icon: FolderOpen, category: "tasy" },
-  { key: "acessoContasFaturadas", label: "Contas Faturadas", icon: FileText, category: "tasy" },
-  { key: "acessoRelatoriosTasy", label: "Relatórios Tasy", icon: BarChart3, category: "tasy" },
-  { key: "acessoRelatoriosBi", label: "Relatórios BI", icon: BarChart3, category: "tasy" },
-  { key: "acessoConciliacaoContasPagas", label: "Conciliação Contas Pagas", icon: DollarSign, category: "tasy" },
-  { key: "acessoRecebimentosXml", label: "Recebimentos XML", icon: FileText, category: "recebimento" },
-  { key: "acessoRecebimentosExcel", label: "Recebimentos Excel", icon: FileText, category: "recebimento" },
-  { key: "acessoDemonstrativo", label: "Demonstrativo", icon: FileText, category: "recebimento" },
-  { key: "acessoContaConvenio", label: "Conta Convênio", icon: DollarSign, category: "recebimento" },
-  { key: "acessoRecursos", label: "Recursos", icon: Briefcase, category: "recebimento" },
-  { key: "acessoAtendimentos", label: "Atendimentos", icon: Users, category: "atendimento" },
-  { key: "acessoAtendimentosFaturar", label: "Atendimentos a Faturar", icon: FileText, category: "atendimento" },
-  // Permissões granulares por relatório
-  { key: "acessoRelFaturadoRecebido", label: "Rel. Faturado x Recebido", icon: BarChart3, category: "relatorio" },
-  { key: "acessoRelFaturamento", label: "Rel. Faturamento", icon: FileText, category: "relatorio" },
-  { key: "acessoRelAtendimentos", label: "Rel. Atendimentos", icon: Users, category: "relatorio" },
-  { key: "acessoRelCustos", label: "Rel. Custos", icon: DollarSign, category: "relatorio" },
-];
+const MODULOS = PERMISSION_MODULES;
 
 // Cores disponíveis para grupos
 const CORES_DISPONIVEIS = [
@@ -166,7 +147,34 @@ const CORES_DISPONIVEIS = [
   { value: "bg-gray-500", label: "Cinza" },
 ];
 
+type ActionPermissionKey = "podeVisualizar" | "podeEditar" | "podeExcluir" | "podeGerenciar";
+type PermissionForm = {
+  userId: number;
+  grupoServico: StandardServiceGroup;
+  grupoId: number | null;
+} & Record<ActionPermissionKey, PermissionValue>
+  & Record<ModulePermissionKey, PermissionValue>;
+
+function createPermissionForm(
+  grupoServico: StandardServiceGroup = "visualizador",
+  userId = 0,
+  grupoId: number | null = null,
+  customModules?: unknown,
+): PermissionForm {
+  const modules = customModules
+    ? sanitizeCustomModulePermissions(customModules)
+    : getModulePermissionsForGroup(grupoServico);
+  return {
+    userId,
+    grupoServico,
+    grupoId,
+    ...ACTION_PROFILE_DEFAULTS[grupoServico],
+    ...modules,
+  };
+}
+
 export default function GerenciarPermissoes() {
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState("usuarios");
   const [selectedEstabelecimento, setSelectedEstabelecimento] = useState<number | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -186,7 +194,7 @@ export default function GerenciarPermissoes() {
     email: "",
     role: "user" as "admin" | "user" | "tasy_user",
     estabelecimentosIds: [] as number[],
-    grupoServico: "visualizador" as "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador",
+    grupoServico: "visualizador" as StandardServiceGroup,
   });
   
   // Estado para novo grupo
@@ -194,56 +202,17 @@ export default function GerenciarPermissoes() {
     nome: "",
     descricao: "",
     cor: "bg-blue-500",
-    permissoesPadrao: {} as Record<string, string>,
+    permissoesPadrao: {} as Record<string, PermissionValue>,
   });
   
-  const [newPermissao, setNewPermissao] = useState({
-    userId: 0,
-    grupoServico: "visualizador" as "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador",
-    podeVisualizar: "sim" as "sim" | "nao",
-    podeEditar: "nao" as "sim" | "nao",
-    podeExcluir: "nao" as "sim" | "nao",
-    podeGerenciar: "nao" as "sim" | "nao",
-    acessoDashboard: "nao" as "sim" | "nao",
-    acessoArquivos: "nao" as "sim" | "nao",
-    acessoComparacoes: "nao" as "sim" | "nao",
-    acessoFaturamento: "nao" as "sim" | "nao",
-    acessoTabelasPreco: "nao" as "sim" | "nao",
-    acessoAnaliseGlosa: "nao" as "sim" | "nao",
-    acessoDicionarioGlosas: "nao" as "sim" | "nao",
-    acessoRecursosGlosa: "nao" as "sim" | "nao",
-    acessoConvenios: "nao" as "sim" | "nao",
-    acessoRegrasNegocio: "nao" as "sim" | "nao",
-    acessoProdutividade: "nao" as "sim" | "nao",
-    acessoEstabelecimentos: "nao" as "sim" | "nao",
-    acessoPermissoes: "nao" as "sim" | "nao",
-    acessoImportacaoTasy: "nao" as "sim" | "nao",
-    acessoContasFaturadas: "nao" as "sim" | "nao",
-    acessoRelatoriosTasy: "nao" as "sim" | "nao",
-    acessoRelatoriosBi: "nao" as "sim" | "nao",
-    acessoConciliacaoContasPagas: "nao" as "sim" | "nao",
-    acessoRecebimentosXml: "nao" as "sim" | "nao",
-    acessoRecebimentosExcel: "nao" as "sim" | "nao",
-    acessoDemonstrativo: "nao" as "sim" | "nao",
-    acessoContaConvenio: "nao" as "sim" | "nao",
-    acessoRecursos: "nao" as "sim" | "nao",
-    acessoAtendimentos: "nao" as "sim" | "nao",
-    acessoAtendimentosFaturar: "nao" as "sim" | "nao",
-    acessoRelFaturadoRecebido: "nao" as "sim" | "nao",
-    acessoRelRecebimentoGeral: "nao" as "sim" | "nao",
-    acessoRelFaturamento: "nao" as "sim" | "nao",
-    acessoRelAtendimentos: "nao" as "sim" | "nao",
-    acessoRelCustos: "nao" as "sim" | "nao",
-    acessoRelNaoRecebidos: "nao" as "sim" | "nao",
-    acessoRelPrevisaoGlosa: "nao" as "sim" | "nao",
-  });
+  const [newPermissao, setNewPermissao] = useState<PermissionForm>(() => createPermissionForm());
 
   // Verificar se é gestor
   const { data: isGestor, isLoading: loadingGestor } = trpc.permissoes.verificarGestor.useQuery();
 
-  // Buscar estabelecimentos
-  const { data: estabelecimentos, isLoading: loadingEstabelecimentos } = 
-    trpc.estabelecimentos.list.useQuery({ ativo: "sim" });
+  // Buscar somente estabelecimentos dentro do escopo administrativo do usuário
+  const { data: estabelecimentos, isLoading: loadingEstabelecimentos } =
+    trpc.permissoes.estabelecimentosGerenciaveis.useQuery(undefined, { enabled: isGestor === true });
 
   // Buscar usuários do estabelecimento selecionado
   const { data: usuarios, isLoading: loadingUsuarios, refetch: refetchUsuarios } = 
@@ -261,7 +230,7 @@ export default function GerenciarPermissoes() {
   // Buscar grupos personalizados
   const { data: gruposPersonalizados, refetch: refetchGrupos } = trpc.permissoes.listarGrupos.useQuery(
     { estabelecimentoId: selectedEstabelecimento || undefined },
-    { enabled: isGestor === true }
+    { enabled: isGestor === true && (currentUser?.role === "admin" || selectedEstabelecimento !== null) }
   );
 
   // Buscar logs de auditoria
@@ -270,7 +239,7 @@ export default function GerenciarPermissoes() {
       estabelecimentoId: selectedEstabelecimento || undefined,
       limite: 50 
     },
-    { enabled: isGestor === true }
+    { enabled: isGestor === true && (currentUser?.role === "admin" || selectedEstabelecimento !== null) }
   );
 
   // Mutations
@@ -381,113 +350,21 @@ export default function GerenciarPermissoes() {
     },
   });
 
-  // Aplicar permissões padrão do grupo
-  const aplicarPermissoesGrupo = (grupo: string) => {
-    const permissoesPadrao: Record<string, "sim" | "nao"> = {
-      acessoDashboard: "nao",
-      acessoArquivos: "nao",
-      acessoComparacoes: "nao",
-      acessoFaturamento: "nao",
-      acessoTabelasPreco: "nao",
-      acessoAnaliseGlosa: "nao",
-      acessoDicionarioGlosas: "nao",
-      acessoRecursosGlosa: "nao",
-      acessoConvenios: "nao",
-      acessoRegrasNegocio: "nao",
-      acessoProdutividade: "nao",
-      acessoEstabelecimentos: "nao",
-      acessoPermissoes: "nao",
-      acessoImportacaoTasy: "nao",
-      acessoContasFaturadas: "nao",
-      acessoRelatoriosTasy: "nao",
-      acessoRelatoriosBi: "nao",
-      acessoConciliacaoContasPagas: "nao",
-      acessoRecebimentosXml: "nao",
-      acessoRecebimentosExcel: "nao",
-      acessoDemonstrativo: "nao",
-      acessoContaConvenio: "nao",
-      acessoRecursos: "nao",
-      acessoAtendimentos: "nao",
-      acessoAtendimentosFaturar: "nao",
-      // Permissões granulares por relatório
-      acessoRelFaturadoRecebido: "nao",
-      acessoRelRecebimentoGeral: "nao",
-      acessoRelFaturamento: "nao",
-      acessoRelAtendimentos: "nao",
-      acessoRelCustos: "nao",
-      acessoRelNaoRecebidos: "nao",
-      acessoRelPrevisaoGlosa: "nao",
-    };
-
-    switch (grupo) {
-      case "administrador":
-        Object.keys(permissoesPadrao).forEach(key => {
-          permissoesPadrao[key] = "sim";
-        });
-        break;
-      case "faturista":
-        permissoesPadrao.acessoDashboard = "sim";
-        permissoesPadrao.acessoArquivos = "sim";
-        permissoesPadrao.acessoComparacoes = "sim";
-        permissoesPadrao.acessoFaturamento = "sim";
-        permissoesPadrao.acessoTabelasPreco = "sim";
-        permissoesPadrao.acessoConvenios = "sim";
-        permissoesPadrao.acessoRegrasNegocio = "sim";
-        // Relatórios de faturamento
-        permissoesPadrao.acessoRelatoriosBi = "sim";
-        permissoesPadrao.acessoRelFaturadoRecebido = "sim";
-        permissoesPadrao.acessoRelRecebimentoGeral = "sim";
-        permissoesPadrao.acessoRelFaturamento = "sim";
-        permissoesPadrao.acessoRelNaoRecebidos = "sim";
-        permissoesPadrao.acessoRelPrevisaoGlosa = "sim";
-        break;
-      case "recurso_glosa":
-        permissoesPadrao.acessoDashboard = "sim";
-        permissoesPadrao.acessoAnaliseGlosa = "sim";
-        permissoesPadrao.acessoDicionarioGlosas = "sim";
-        permissoesPadrao.acessoRecursosGlosa = "sim";
-        // Relatórios de glosa
-        permissoesPadrao.acessoRelatoriosBi = "sim";
-        permissoesPadrao.acessoRelPrevisaoGlosa = "sim";
-        break;
-      case "gestor":
-        permissoesPadrao.acessoDashboard = "sim";
-        permissoesPadrao.acessoFaturamento = "sim";
-        permissoesPadrao.acessoAnaliseGlosa = "sim";
-        permissoesPadrao.acessoProdutividade = "sim";
-        // Gestor vê todos os relatórios
-        permissoesPadrao.acessoRelatoriosBi = "sim";
-        permissoesPadrao.acessoRelFaturadoRecebido = "sim";
-        permissoesPadrao.acessoRelRecebimentoGeral = "sim";
-        permissoesPadrao.acessoRelFaturamento = "sim";
-        permissoesPadrao.acessoRelAtendimentos = "sim";
-        permissoesPadrao.acessoRelCustos = "sim";
-        permissoesPadrao.acessoRelNaoRecebidos = "sim";
-        permissoesPadrao.acessoRelPrevisaoGlosa = "sim";
-        break;
-      case "visualizador":
-      default:
-        permissoesPadrao.acessoDashboard = "sim";
-        break;
-    }
-
-    return permissoesPadrao;
+  const aplicarGrupoPadrao = (grupo: StandardServiceGroup) => {
+    setNewPermissao((prev) => createPermissionForm(grupo, prev.userId));
   };
 
-  // Atualizar permissões quando o grupo muda
-  useEffect(() => {
-    if (newPermissao.grupoServico) {
-      const permissoes = aplicarPermissoesGrupo(newPermissao.grupoServico);
-      setNewPermissao(prev => ({
-        ...prev,
-        ...permissoes,
-        podeVisualizar: "sim",
-        podeEditar: prev.grupoServico === "administrador" || prev.grupoServico === "faturista" ? "sim" : "nao",
-        podeExcluir: prev.grupoServico === "administrador" ? "sim" : "nao",
-        podeGerenciar: prev.grupoServico === "administrador" ? "sim" : "nao",
-      }));
-    }
-  }, [newPermissao.grupoServico]);
+  const aplicarGrupoPersonalizado = (grupo: { id: number; permissoesPadrao?: unknown }) => {
+    setNewPermissao((prev) => createPermissionForm("visualizador", prev.userId, grupo.id, grupo.permissoesPadrao));
+  };
+
+  const alterarModulo = (key: ModulePermissionKey, value: PermissionValue) => {
+    setNewPermissao((prev) => normalizeBiParent({ ...prev, [key]: value }) as PermissionForm);
+  };
+
+  const alterarAcao = (key: ActionPermissionKey, value: PermissionValue) => {
+    setNewPermissao((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleRemoverPermissao = (userId: number) => {
     if (!selectedEstabelecimento) return;
@@ -502,95 +379,40 @@ export default function GerenciarPermissoes() {
 
   const handleAddPermissao = () => {
     if (!selectedEstabelecimento || !newPermissao.userId) {
-      toast.error("Selecione um usu\u00e1rio");
+      toast.error("Selecione um usuário");
       return;
     }
-    
-    // Sincronizar acessoRelatoriosBi: se qualquer relat\u00f3rio individual estiver habilitado, o m\u00f3dulo pai deve ser "sim"
-    const temAlgumRelBi = (
-      newPermissao.acessoRelFaturadoRecebido === "sim" ||
-      newPermissao.acessoRelRecebimentoGeral === "sim" ||
-      newPermissao.acessoRelFaturamento === "sim" ||
-      newPermissao.acessoRelAtendimentos === "sim" ||
-      newPermissao.acessoRelCustos === "sim" ||
-      newPermissao.acessoRelNaoRecebidos === "sim" ||
-      newPermissao.acessoRelPrevisaoGlosa === "sim"
-    );
-    
+
     upsertPermissao.mutate({
-      ...newPermissao,
+      ...normalizeBiParent(newPermissao),
       estabelecimentoId: selectedEstabelecimento,
-      acessoRelatoriosBi: temAlgumRelBi ? "sim" as const : newPermissao.acessoRelatoriosBi,
     });
   };
 
   const handleEditPermissao = (user: any) => {
     setEditingUser(user);
-    setNewPermissao({
-      userId: user.userId,
-      grupoServico: (user.grupoServico || "visualizador") as "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador",
-      podeVisualizar: user.podeVisualizar || "sim",
-      podeEditar: user.podeEditar || "nao",
-      podeExcluir: user.podeExcluir || "nao",
-      podeGerenciar: user.podeGerenciar || "nao",
-      acessoDashboard: user.acessoDashboard || "nao",
-      acessoArquivos: user.acessoArquivos || "nao",
-      acessoComparacoes: user.acessoComparacoes || "nao",
-      acessoFaturamento: user.acessoFaturamento || "nao",
-      acessoTabelasPreco: user.acessoTabelasPreco || "nao",
-      acessoAnaliseGlosa: user.acessoAnaliseGlosa || "nao",
-      acessoDicionarioGlosas: user.acessoDicionarioGlosas || "nao",
-      acessoRecursosGlosa: user.acessoRecursosGlosa || "nao",
-      acessoConvenios: user.acessoConvenios || "nao",
-      acessoRegrasNegocio: user.acessoRegrasNegocio || "nao",
-      acessoProdutividade: user.acessoProdutividade || "nao",
-      acessoEstabelecimentos: user.acessoEstabelecimentos || "nao",
-      acessoPermissoes: user.acessoPermissoes || "nao",
-      acessoImportacaoTasy: user.acessoImportacaoTasy || "nao",
-      acessoContasFaturadas: user.acessoContasFaturadas || "nao",
-      acessoRelatoriosTasy: user.acessoRelatoriosTasy || "nao",
-      acessoRelatoriosBi: user.acessoRelatoriosBi || "nao",
-      acessoConciliacaoContasPagas: user.acessoConciliacaoContasPagas || "nao",
-      acessoRecebimentosXml: user.acessoRecebimentosXml || "nao",
-      acessoRecebimentosExcel: user.acessoRecebimentosExcel || "nao",
-      acessoDemonstrativo: user.acessoDemonstrativo || "nao",
-      acessoContaConvenio: user.acessoContaConvenio || "nao",
-      acessoRecursos: user.acessoRecursos || "nao",
-      acessoAtendimentos: user.acessoAtendimentos || "nao",
-      acessoAtendimentosFaturar: user.acessoAtendimentosFaturar || "nao",
-      acessoRelFaturadoRecebido: user.acessoRelFaturadoRecebido || "nao",
-      acessoRelRecebimentoGeral: user.acessoRelRecebimentoGeral || "nao",
-      acessoRelFaturamento: user.acessoRelFaturamento || "nao",
-      acessoRelAtendimentos: user.acessoRelAtendimentos || "nao",
-      acessoRelCustos: user.acessoRelCustos || "nao",
-      acessoRelNaoRecebidos: user.acessoRelNaoRecebidos || "nao",
-      acessoRelPrevisaoGlosa: user.acessoRelPrevisaoGlosa || "nao",
-    });
+    const grupo = (user.grupoServico || "visualizador") as StandardServiceGroup;
+    const base = createPermissionForm(grupo, user.userId, user.grupoId || null);
+    const modules = Object.fromEntries(
+      MODULE_PERMISSION_KEYS.map((key) => [key, user[key] || base[key]]),
+    ) as Record<ModulePermissionKey, PermissionValue>;
+    setNewPermissao(normalizeBiParent({
+      ...base,
+      ...modules,
+      podeVisualizar: user.podeVisualizar || base.podeVisualizar,
+      podeEditar: user.podeEditar || base.podeEditar,
+      podeExcluir: user.podeExcluir || base.podeExcluir,
+      podeGerenciar: user.podeGerenciar || base.podeGerenciar,
+    }) as PermissionForm);
     setShowEditDialog(true);
   };
 
   const handleSaveEdit = () => {
     if (!selectedEstabelecimento || !editingUser) return;
-    
-    // Sincronizar acessoRelatoriosBi: se qualquer relatório individual estiver habilitado, o módulo pai deve ser "sim"
-    const temAlgumRelBi = (
-      newPermissao.acessoRelFaturadoRecebido === "sim" ||
-      newPermissao.acessoRelRecebimentoGeral === "sim" ||
-      newPermissao.acessoRelFaturamento === "sim" ||
-      newPermissao.acessoRelAtendimentos === "sim" ||
-      newPermissao.acessoRelCustos === "sim" ||
-      newPermissao.acessoRelNaoRecebidos === "sim" ||
-      newPermissao.acessoRelPrevisaoGlosa === "sim"
-    );
-    
-    const permissaoFinal = {
-      ...newPermissao,
+    upsertPermissao.mutate({
+      ...normalizeBiParent(newPermissao),
       estabelecimentoId: selectedEstabelecimento,
-      // Se qualquer relatório individual está habilitado, habilitar o módulo pai automaticamente
-      acessoRelatoriosBi: temAlgumRelBi ? "sim" as const : newPermissao.acessoRelatoriosBi,
-    };
-    
-    upsertPermissao.mutate(permissaoFinal);
+    });
   };
 
   const handleCreateUser = () => {
@@ -662,7 +484,17 @@ export default function GerenciarPermissoes() {
     setSelectedEstabelecimentosIds([]);
   };
 
-  const getGrupoInfo = (grupoServico: string | null) => {
+  const getGrupoInfo = (grupoServico: string | null, grupoId?: number | null) => {
+    const personalizado = grupoId ? gruposPersonalizados?.find((grupo) => grupo.id === grupoId) : undefined;
+    if (personalizado) {
+      return {
+        value: `custom-${personalizado.id}`,
+        label: personalizado.nome,
+        description: personalizado.descricao || "Grupo personalizado",
+        icon: Shield,
+        color: personalizado.cor || "bg-indigo-500",
+      };
+    }
     const grupo = GRUPOS_SERVICO_PADRAO.find(g => g.value === grupoServico);
     return grupo || GRUPOS_SERVICO_PADRAO.find(g => g.value === "visualizador")!;
   };
@@ -735,10 +567,12 @@ export default function GerenciarPermissoes() {
             <UserPlus className="h-4 w-4 mr-2" />
             Novo Usuário
           </Button>
-          <Button variant="outline" onClick={() => setShowCreateGroupDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Grupo
-          </Button>
+          {currentUser?.role === "admin" && (
+            <Button variant="outline" onClick={() => setShowCreateGroupDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Grupo
+            </Button>
+          )}
         </div>
       </div>
 
@@ -844,46 +678,7 @@ export default function GerenciarPermissoes() {
                     </CardDescription>
                   </div>
                   <Button onClick={() => {
-                    setNewPermissao({
-                      userId: 0,
-                      grupoServico: "visualizador",
-                      podeVisualizar: "sim",
-                      podeEditar: "nao",
-                      podeExcluir: "nao",
-                      podeGerenciar: "nao",
-                      acessoDashboard: "nao",
-                      acessoArquivos: "nao",
-                      acessoComparacoes: "nao",
-                      acessoFaturamento: "nao",
-                      acessoTabelasPreco: "nao",
-                      acessoAnaliseGlosa: "nao",
-                      acessoDicionarioGlosas: "nao",
-                      acessoRecursosGlosa: "nao",
-                      acessoConvenios: "nao",
-                      acessoRegrasNegocio: "nao",
-                      acessoProdutividade: "nao",
-                      acessoEstabelecimentos: "nao",
-                      acessoPermissoes: "nao",
-                      acessoImportacaoTasy: "nao",
-                      acessoContasFaturadas: "nao",
-                      acessoRelatoriosTasy: "nao",
-                      acessoRelatoriosBi: "nao",
-                      acessoConciliacaoContasPagas: "nao",
-                      acessoRecebimentosXml: "nao",
-                      acessoRecebimentosExcel: "nao",
-                      acessoDemonstrativo: "nao",
-                      acessoContaConvenio: "nao",
-                      acessoRecursos: "nao",
-                      acessoAtendimentos: "nao",
-                      acessoAtendimentosFaturar: "nao",
-                      acessoRelFaturadoRecebido: "sim",
-                      acessoRelRecebimentoGeral: "sim",
-                      acessoRelFaturamento: "sim",
-                      acessoRelAtendimentos: "sim",
-                      acessoRelCustos: "sim",
-                      acessoRelNaoRecebidos: "sim",
-                      acessoRelPrevisaoGlosa: "sim",
-                    });
+                    setNewPermissao(createPermissionForm("visualizador"));
                     setShowAddDialog(true);
                   }}>
                     <UserPlus className="h-4 w-4 mr-2" />
@@ -911,7 +706,7 @@ export default function GerenciarPermissoes() {
                     </TableHeader>
                     <TableBody>
                       {usuarios.map((user) => {
-                        const grupoInfo = getGrupoInfo(user.grupoServico);
+                        const grupoInfo = getGrupoInfo(user.grupoServico, user.grupoId);
                         const Icon = grupoInfo.icon;
                         const modulosAtivos = MODULOS.filter(m => 
                           user[m.key as keyof typeof user] === "sim"
@@ -1292,7 +1087,11 @@ export default function GerenciarPermissoes() {
               <Label>Tipo de Usuário</Label>
               <Select
                 value={newUser.role}
-                onValueChange={(value: "admin" | "user" | "tasy_user") => setNewUser(prev => ({ ...prev, role: value }))}
+                onValueChange={(value: "admin" | "user" | "tasy_user") => setNewUser(prev => ({
+                  ...prev,
+                  role: value,
+                  grupoServico: value === "tasy_user" ? "usuario_tasy" : prev.grupoServico,
+                }))}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1300,7 +1099,7 @@ export default function GerenciarPermissoes() {
                 <SelectContent>
                   <SelectItem value="user">Usuário Comum</SelectItem>
                   <SelectItem value="tasy_user">Usuário Tasy</SelectItem>
-                  <SelectItem value="admin">Administrador do Sistema</SelectItem>
+                  {currentUser?.role === "admin" && <SelectItem value="admin">Administrador do Sistema</SelectItem>}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -1360,9 +1159,7 @@ export default function GerenciarPermissoes() {
                   </p>
                   <Select
                     value={newUser.grupoServico}
-                    onValueChange={(value: "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador") => 
-                      setNewUser(prev => ({ ...prev, grupoServico: value }))
-                    }
+                    onValueChange={(value: StandardServiceGroup) => setNewUser(prev => ({ ...prev, grupoServico: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1400,7 +1197,7 @@ export default function GerenciarPermissoes() {
 
       {/* Dialog para criar novo grupo */}
       <Dialog open={showCreateGroupDialog} onOpenChange={setShowCreateGroupDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="!max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5" />
@@ -1428,23 +1225,7 @@ export default function GerenciarPermissoes() {
                   // Verificar se é um grupo padrão
                   const grupoPadrao = GRUPOS_SERVICO_PADRAO.find(g => g.value === value);
                   if (grupoPadrao) {
-                    // Definir permissões baseadas no grupo padrão
-                    const permissoes: Record<string, string> = {};
-                    MODULOS.forEach(modulo => {
-                      if (value === "administrador") {
-                        permissoes[modulo.key] = "sim";
-                      } else if (value === "faturista") {
-                        permissoes[modulo.key] = ["acessoDashboard", "acessoArquivos", "acessoComparacoes", "acessoFaturamento", "acessoTabelasPreco"].includes(modulo.key) ? "sim" : "nao";
-                      } else if (value === "recurso_glosa") {
-                        permissoes[modulo.key] = ["acessoDashboard", "acessoAnaliseGlosa", "acessoDicionarioGlosas", "acessoRecursosGlosa"].includes(modulo.key) ? "sim" : "nao";
-                      } else if (value === "gestor") {
-                        permissoes[modulo.key] = ["acessoDashboard", "acessoFaturamento", "acessoProdutividade", "acessoEstabelecimentos"].includes(modulo.key) ? "sim" : "nao";
-                      } else if (value === "visualizador") {
-                        permissoes[modulo.key] = modulo.key === "acessoDashboard" ? "sim" : "nao";
-                      } else if (value === "usuario_tasy") {
-                        permissoes[modulo.key] = ["acessoDashboard", "acessoImportacaoTasy", "acessoContasFaturadas", "acessoRelatoriosTasy", "acessoRelatoriosBi", "acessoConciliacaoContasPagas"].includes(modulo.key) ? "sim" : "nao";
-                      }
-                    });
+                    const permissoes = getModulePermissionsForGroup(value as StandardServiceGroup);
                     setNewGroup(prev => ({ ...prev, permissoesPadrao: permissoes }));
                     toast.success(`Permissões copiadas do grupo ${grupoPadrao.label}`);
                   } else {
@@ -1453,7 +1234,7 @@ export default function GerenciarPermissoes() {
                     if (grupoPersonalizado && grupoPersonalizado.permissoesPadrao) {
                       setNewGroup(prev => ({ 
                         ...prev, 
-                        permissoesPadrao: grupoPersonalizado.permissoesPadrao as Record<string, string>
+                        permissoesPadrao: sanitizeCustomModulePermissions(grupoPersonalizado.permissoesPadrao),
                       }));
                       toast.success(`Permissões copiadas do grupo ${grupoPersonalizado.nome}`);
                     }
@@ -1591,338 +1372,182 @@ export default function GerenciarPermissoes() {
 
       {/* Dialog para adicionar permissão */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="!max-w-6xl w-[96vw] max-h-[92vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Adicionar Usuário ao Estabelecimento</DialogTitle>
-            <DialogDescription>
-              Selecione um usuário e configure suas permissões para este estabelecimento.
-            </DialogDescription>
+            <DialogTitle>Adicionar usuário ao estabelecimento</DialogTitle>
+            <DialogDescription>Escolha o perfil, ajuste as ações e libere somente os módulos necessários.</DialogDescription>
           </DialogHeader>
-
-          <Tabs defaultValue="usuario">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="usuario">Usuário e Grupo</TabsTrigger>
-              <TabsTrigger value="modulos">Módulos</TabsTrigger>
+          <Tabs defaultValue="perfil" className="flex min-h-0 flex-col">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="perfil">1. Usuário e perfil</TabsTrigger>
+              <TabsTrigger value="acoes">2. Ações</TabsTrigger>
+              <TabsTrigger value="modulos">3. Módulos e BI</TabsTrigger>
             </TabsList>
-
-            <TabsContent value="usuario" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Selecione o Usuário</Label>
-                <Select
-                  value={newPermissao.userId.toString()}
-                  onValueChange={(value) => setNewPermissao(prev => ({ ...prev, userId: parseInt(value) }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Escolha um usuário" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {usuariosDisponiveis?.map((user) => (
-                      <SelectItem key={user.id} value={user.id.toString()}>
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          <span>{user.name}</span>
-                          <span className="text-muted-foreground">({user.email})</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Grupo de Serviço</Label>
-                <div className="grid grid-cols-1 gap-2">
-                  {GRUPOS_SERVICO_PADRAO.map((grupo) => {
-                    const Icon = grupo.icon;
-                    const isSelected = newPermissao.grupoServico === grupo.value;
-                    return (
-                      <div
-                        key={grupo.value}
-                        className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
-                          isSelected ? "border-primary bg-primary/5" : "hover:border-primary/50"
-                        }`}
-                        onClick={() => setNewPermissao(prev => ({ 
-                          ...prev, 
-                          grupoServico: grupo.value as typeof prev.grupoServico 
-                        }))}
-                      >
-                        <div className={`p-2 rounded-lg ${grupo.color} text-white`}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-sm">{grupo.label}</h4>
-                          <p className="text-xs text-muted-foreground">{grupo.description}</p>
-                        </div>
-                        {isSelected && (
-                          <Badge variant="default">Selecionado</Badge>
-                        )}
-                      </div>
-                    );
-                  })}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+              <TabsContent value="perfil" className="space-y-5 pt-2">
+                <div className="space-y-2">
+                  <Label>Usuário</Label>
+                  <Select value={newPermissao.userId ? newPermissao.userId.toString() : undefined} onValueChange={(value) => setNewPermissao((prev) => ({ ...prev, userId: Number(value) }))}>
+                    <SelectTrigger><SelectValue placeholder="Escolha um usuário" /></SelectTrigger>
+                    <SelectContent>
+                      {usuariosDisponiveis?.map((usuario) => (
+                        <SelectItem key={usuario.id} value={usuario.id.toString()}>
+                          {usuario.name} ({usuario.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="modulos" className="space-y-4 mt-4">
-              <p className="text-sm text-muted-foreground mb-4">
-                Personalize os módulos que este usuário pode acessar.
-              </p>
-              
-              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Módulos Gerais</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => !(m as any).category).map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{modulo.label}</span>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Perfis padrão</h4>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {GRUPOS_SERVICO_PADRAO.map((grupo) => {
+                      const Icon = grupo.icon;
+                      const isSelected = newPermissao.grupoId === null && newPermissao.grupoServico === grupo.value;
+                      return (
+                        <button
+                          type="button"
+                          key={grupo.value}
+                          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${isSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/40 hover:bg-muted/40"}`}
+                          onClick={() => aplicarGrupoPadrao(grupo.value as StandardServiceGroup)}
+                        >
+                          <div className={`rounded-lg p-2 ${grupo.color} text-white`}><Icon className="h-4 w-4" /></div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">{grupo.label}</p>
+                            <p className="text-xs text-muted-foreground">{grupo.description}</p>
+                          </div>
+                          {isSelected && <Badge>Aplicado</Badge>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {gruposPersonalizados && gruposPersonalizados.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Grupos personalizados</h4>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {gruposPersonalizados.map((grupo) => {
+                          const isSelected = newPermissao.grupoId === grupo.id;
+                          return (
+                            <button
+                              type="button"
+                              key={grupo.id}
+                              className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${isSelected ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500" : "hover:border-indigo-300 hover:bg-indigo-50/40"}`}
+                              onClick={() => aplicarGrupoPersonalizado(grupo)}
+                            >
+                              <div className={`rounded-lg p-2 ${grupo.cor || "bg-indigo-500"} text-white`}><Shield className="h-4 w-4" /></div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium">{grupo.nome}</p>
+                                <p className="text-xs text-muted-foreground">{grupo.descricao || "Perfil personalizado"}</p>
+                              </div>
+                              {isSelected && <Badge>Aplicado</Badge>}
+                            </button>
+                          );
+                        })}
                       </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
                     </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-teal-600 uppercase tracking-wider mt-4">Módulos Tasy</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "tasy").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-teal-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-teal-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-blue-600 uppercase tracking-wider mt-4">Módulos Recebimento / Demonstrativo</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "recebimento").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-blue-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-blue-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-purple-600 uppercase tracking-wider mt-4">Módulos Atendimentos (Instituto do Rim)</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "atendimento").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-purple-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-purple-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-orange-600 uppercase tracking-wider mt-4">Relatórios BI (Permissões Individuais)</h4>
-              <p className="text-xs text-muted-foreground mb-2">Controle quais relatórios específicos este usuário pode acessar dentro de Relatórios BI.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "relatorio").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-orange-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-orange-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
+                  )}
+              </TabsContent>
+              <TabsContent value="acoes" className="pt-3">
+                <OperationalPermissions values={newPermissao} onChange={alterarAcao} />
+              </TabsContent>
+              <TabsContent value="modulos" className="pt-3">
+                <PermissionMatrix values={newPermissao} onChange={alterarModulo} />
+              </TabsContent>
+            </div>
           </Tabs>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleAddPermissao}>
-              Adicionar Permissão
+          <DialogFooter className="border-t pt-3">
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancelar</Button>
+            <Button onClick={handleAddPermissao} disabled={upsertPermissao.isPending}>
+              {upsertPermissao.isPending ? "Salvando..." : "Adicionar permissão"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Dialog para editar permissão */}
-      <Dialog open={showEditDialog} onOpenChange={(open) => {
-        setShowEditDialog(open);
-        if (!open) setEditingUser(null);
-      }}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) setEditingUser(null); }}>
+        <DialogContent className="!max-w-6xl w-[96vw] max-h-[92vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Editar Permissões</DialogTitle>
+            <DialogTitle>Editar permissões</DialogTitle>
             <DialogDescription>
-              Atualize as permissões de {editingUser?.userName || "usuário"} para este estabelecimento.
+              {editingUser?.userName || "Usuário"} — alterações válidas somente para o estabelecimento selecionado.
             </DialogDescription>
           </DialogHeader>
-
-          <Tabs defaultValue="grupo">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="grupo">Grupo de Serviço</TabsTrigger>
-              <TabsTrigger value="modulos">Módulos</TabsTrigger>
+          <Tabs defaultValue="perfil" className="flex min-h-0 flex-col">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="perfil">1. Perfil</TabsTrigger>
+              <TabsTrigger value="acoes">2. Ações</TabsTrigger>
+              <TabsTrigger value="modulos">3. Módulos e BI</TabsTrigger>
             </TabsList>
-
-            <TabsContent value="grupo" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Grupo de Serviço</Label>
-                <div className="grid grid-cols-1 gap-2">
-                  {GRUPOS_SERVICO_PADRAO.map((grupo) => {
-                    const Icon = grupo.icon;
-                    const isSelected = newPermissao.grupoServico === grupo.value;
-                    return (
-                      <div
-                        key={grupo.value}
-                        className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
-                          isSelected ? "border-primary bg-primary/5" : "hover:border-primary/50"
-                        }`}
-                        onClick={() => setNewPermissao(prev => ({ 
-                          ...prev, 
-                          grupoServico: grupo.value as typeof prev.grupoServico 
-                        }))}
-                      >
-                        <div className={`p-2 rounded-lg ${grupo.color} text-white`}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-sm">{grupo.label}</h4>
-                          <p className="text-xs text-muted-foreground">{grupo.description}</p>
-                        </div>
-                        {isSelected && (
-                          <Badge variant="default">Selecionado</Badge>
-                        )}
-                      </div>
-                    );
-                  })}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+              <TabsContent value="perfil" className="space-y-5 pt-2">
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="font-medium">{editingUser?.userName}</p>
+                  <p className="text-sm text-muted-foreground">{editingUser?.userEmail}</p>
                 </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="modulos" className="space-y-4 mt-4">
-              <p className="text-sm text-muted-foreground mb-4">
-                Personalize os módulos que este usuário pode acessar.
-              </p>
-              
-              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Módulos Gerais</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => !(m as any).category).map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{modulo.label}</span>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Perfis padrão</h4>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {GRUPOS_SERVICO_PADRAO.map((grupo) => {
+                      const Icon = grupo.icon;
+                      const isSelected = newPermissao.grupoId === null && newPermissao.grupoServico === grupo.value;
+                      return (
+                        <button
+                          type="button"
+                          key={grupo.value}
+                          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${isSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/40 hover:bg-muted/40"}`}
+                          onClick={() => aplicarGrupoPadrao(grupo.value as StandardServiceGroup)}
+                        >
+                          <div className={`rounded-lg p-2 ${grupo.color} text-white`}><Icon className="h-4 w-4" /></div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">{grupo.label}</p>
+                            <p className="text-xs text-muted-foreground">{grupo.description}</p>
+                          </div>
+                          {isSelected && <Badge>Aplicado</Badge>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {gruposPersonalizados && gruposPersonalizados.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Grupos personalizados</h4>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {gruposPersonalizados.map((grupo) => {
+                          const isSelected = newPermissao.grupoId === grupo.id;
+                          return (
+                            <button
+                              type="button"
+                              key={grupo.id}
+                              className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${isSelected ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500" : "hover:border-indigo-300 hover:bg-indigo-50/40"}`}
+                              onClick={() => aplicarGrupoPersonalizado(grupo)}
+                            >
+                              <div className={`rounded-lg p-2 ${grupo.cor || "bg-indigo-500"} text-white`}><Shield className="h-4 w-4" /></div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium">{grupo.nome}</p>
+                                <p className="text-xs text-muted-foreground">{grupo.descricao || "Perfil personalizado"}</p>
+                              </div>
+                              {isSelected && <Badge>Aplicado</Badge>}
+                            </button>
+                          );
+                        })}
                       </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
                     </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-teal-600 uppercase tracking-wider mt-4">Módulos Tasy</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "tasy").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-teal-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-teal-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-blue-600 uppercase tracking-wider mt-4">Módulos Recebimento / Demonstrativo</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "recebimento").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-blue-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-blue-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-purple-600 uppercase tracking-wider mt-4">Módulos Atendimentos (Instituto do Rim)</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "atendimento").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-purple-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-purple-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <h4 className="font-semibold text-sm text-orange-600 uppercase tracking-wider mt-4">Relatórios BI (Permissões Individuais)</h4>
-              <p className="text-xs text-muted-foreground mb-2">Controle quais relatórios específicos este usuário pode acessar dentro de Relatórios BI.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {MODULOS.filter(m => (m as any).category === "relatorio").map((modulo) => {
-                  const Icon = modulo.icon;
-                  const isEnabled = newPermissao[modulo.key as keyof typeof newPermissao] === "sim";
-                  return (
-                    <div key={modulo.key} className="flex items-center justify-between p-3 border rounded-lg border-orange-200">
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-4 w-4 text-orange-600" />
-                        <span className="font-medium">{modulo.label}</span>
-                      </div>
-                      <Switch checked={isEnabled} onCheckedChange={(checked) => setNewPermissao(prev => ({ ...prev, [modulo.key]: checked ? "sim" : "nao" }))} />
-                    </div>
-                  );
-                })}
-              </div>
-            </TabsContent>
+                  )}
+              </TabsContent>
+              <TabsContent value="acoes" className="pt-3">
+                <OperationalPermissions values={newPermissao} onChange={alterarAcao} />
+              </TabsContent>
+              <TabsContent value="modulos" className="pt-3">
+                <PermissionMatrix values={newPermissao} onChange={alterarModulo} />
+              </TabsContent>
+            </div>
           </Tabs>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowEditDialog(false);
-              setEditingUser(null);
-            }}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              Salvar Alterações
+          <DialogFooter className="border-t pt-3">
+            <Button variant="outline" onClick={() => { setShowEditDialog(false); setEditingUser(null); }}>Cancelar</Button>
+            <Button onClick={handleSaveEdit} disabled={upsertPermissao.isPending}>
+              {upsertPermissao.isPending ? "Salvando..." : "Salvar alterações"}
             </Button>
           </DialogFooter>
         </DialogContent>

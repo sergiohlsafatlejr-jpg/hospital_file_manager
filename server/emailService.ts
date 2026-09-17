@@ -6,16 +6,18 @@ let transporter: nodemailer.Transporter | null = null;
 
 function getTransporter(): nodemailer.Transporter {
   if (!transporter) {
+    const port = parseInt(ENV.smtpPort, 10);
     transporter = nodemailer.createTransport({
       host: ENV.smtpHost,
-      port: parseInt(ENV.smtpPort, 10),
-      secure: parseInt(ENV.smtpPort, 10) === 465,
+      port,
+      secure: port === 465,
+      requireTLS: port !== 465,
       auth: {
         user: ENV.smtpUser,
         pass: ENV.smtpPass,
       },
       tls: {
-        rejectUnauthorized: false,
+        rejectUnauthorized: true,
       },
     });
   }

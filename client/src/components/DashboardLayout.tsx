@@ -182,7 +182,7 @@ const menuItems: MenuItem[] = [
     ]},
     // Subpasta: Glosas BI
     { icon: AlertTriangle, label: "Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi", children: [
-      { icon: AlertTriangle, label: "Relatório BI de Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi" },
+      { icon: AlertTriangle, label: "Relatório BI de Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosGlosasBi" },
     ]},
     // Subpasta: Recepção
     { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [

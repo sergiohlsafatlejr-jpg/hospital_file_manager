@@ -65,8 +65,8 @@ export default function AlterarSenha() {
     e.preventDefault();
 
     // Validações básicas
-    if (newPassword.length < 6) {
-      toast.error("A nova senha deve ter pelo menos 6 caracteres");
+    if (newPassword.length < 10 || !/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      toast.error("Use pelo menos 10 caracteres, com letra maiúscula, minúscula e número");
       return;
     }
 
@@ -98,8 +98,8 @@ export default function AlterarSenha() {
     if (!password) return { strength: 0, label: "", color: "" };
     
     let strength = 0;
-    if (password.length >= 6) strength++;
-    if (password.length >= 8) strength++;
+    if (password.length >= 10) strength++;
+    if (password.length >= 14) strength++;
     if (/[A-Z]/.test(password)) strength++;
     if (/[0-9]/.test(password)) strength++;
     if (/[^A-Za-z0-9]/.test(password)) strength++;
@@ -297,12 +297,16 @@ export default function AlterarSenha() {
               <p className="text-sm font-medium">Dicas para uma senha segura:</p>
               <ul className="text-xs text-muted-foreground space-y-1">
                 <li className="flex items-center gap-2">
-                  <CheckCircle2 className={`h-3 w-3 ${newPassword.length >= 6 ? "text-green-500" : "text-muted-foreground"}`} />
-                  Pelo menos 6 caracteres
+                  <CheckCircle2 className={`h-3 w-3 ${newPassword.length >= 10 ? "text-green-500" : "text-muted-foreground"}`} />
+                  Pelo menos 10 caracteres
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className={`h-3 w-3 ${/[A-Z]/.test(newPassword) ? "text-green-500" : "text-muted-foreground"}`} />
                   Pelo menos uma letra maiúscula
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className={`h-3 w-3 ${/[a-z]/.test(newPassword) ? "text-green-500" : "text-muted-foreground"}`} />
+                  Pelo menos uma letra minúscula
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className={`h-3 w-3 ${/[0-9]/.test(newPassword) ? "text-green-500" : "text-muted-foreground"}`} />

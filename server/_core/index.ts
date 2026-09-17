@@ -32,6 +32,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  // A aplicação fica atrás de exatamente um proxy de borda da plataforma.
+  // Não confiar genericamente em faixas privadas impede spoofing por hosts internos.
+  app.set("trust proxy", 1);
+  app.use((_req, res, next) => {
+    res.setHeader("Referrer-Policy", "no-referrer");
+    next();
+  });
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

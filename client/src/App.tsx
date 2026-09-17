@@ -111,6 +111,9 @@ const FaturamentoGuiaEditor = lazy(() => import("./pages/FaturamentoGuiaEditor")
 const FaturamentoRemessas = lazy(() => import("./pages/FaturamentoRemessas"));
 const FaturamentoRemessaDetalhe = lazy(() => import("./pages/FaturamentoRemessaDetalhe"));
 const FaturamentoRemessasFechadas = lazy(() => import("./pages/FaturamentoRemessasFechadas"));
+const LoginSenha = lazy(() => import("./pages/LoginSenha"));
+const EsqueciSenha = lazy(() => import("./pages/EsqueciSenha"));
+const RedefinirSenha = lazy(() => import("./pages/RedefinirSenha"));
 
 function PageLoader() {
   return (
@@ -127,24 +130,30 @@ function Router() {
   const { selecionado, isLoading } = useEstabelecimento();
   const [location] = useLocation();
   const redirectedRef = useRef(false);
+  const isPublicAuthPath = location === "/login"
+    || location === "/esqueci-senha"
+    || location === "/redefinir-senha";
 
   // FIX: Move navigation to useEffect to avoid calling window.location.href during render
   // This was causing NotFoundError: Failed to execute 'removeChild' on 'Node'
   useEffect(() => {
-    if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento" && !redirectedRef.current) {
+    if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento" && !isPublicAuthPath && !redirectedRef.current) {
       redirectedRef.current = true;
       window.location.href = "/selecionar-estabelecimento";
     }
-  }, [isLoading, selecionado, location]);
+  }, [isLoading, selecionado, location, isPublicAuthPath]);
 
   // Show loader while checking or redirecting
-  if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento") {
+  if (!isLoading && !selecionado && location !== "/selecionar-estabelecimento" && !isPublicAuthPath) {
     return <PageLoader />;
   }
 
   return (
     <Suspense fallback={<PageLoader />}>
       <Switch>
+        <Route path={"/login"} component={LoginSenha} />
+        <Route path={"/esqueci-senha"} component={EsqueciSenha} />
+        <Route path={"/redefinir-senha"} component={RedefinirSenha} />
         <Route path={"/selecionar-estabelecimento"} component={SelecionarEstabelecimento} />
         <Route path={"/"} component={Inicio} />
         <Route path={"/dashboard"} component={Home} />

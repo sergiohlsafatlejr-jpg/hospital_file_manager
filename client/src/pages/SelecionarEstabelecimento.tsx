@@ -6,7 +6,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useEstabelecimento, Estabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 
 function formatTimeAgo(dateStr: string): string {
@@ -52,7 +51,7 @@ export default function SelecionarEstabelecimento() {
   };
 
   const handleLogin = () => {
-    window.location.href = getLoginUrl();
+    setLocation("/login");
   };
 
   const isAuthenticated = Boolean(user);

@@ -36,9 +36,12 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
+      const persistedUser = await db.getUserByOpenId(userInfo.openId);
+
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
+        sessionVersion: Number(persistedUser?.sessionVersion || 0),
       });
 
       const cookieOptions = getSessionCookieOptions(req);

@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, date, datetime, boolean, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, date, datetime, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -9,9 +9,11 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  emailCanonical: varchar("emailCanonical", { length: 320 }).unique(),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin", "tasy_user"]).default("user").notNull(),
   passwordHash: varchar("passwordHash", { length: 255 }), // Senha criptografada com bcrypt
+  sessionVersion: int("sessionVersion").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -19,6 +21,49 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+/**
+ * Tokens de uso único para redefinição de senha.
+ * Apenas o hash SHA-256 do token é persistido; o valor enviado por e-mail nunca é salvo.
+ */
+export const passwordResetTokens = mysqlTable("passwordResetTokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("idx_password_reset_user").on(table.userId),
+  expiresIdx: index("idx_password_reset_expires").on(table.expiresAt),
+}));
+
+/**
+ * Eventos mínimos de autenticação usados para auditoria e limitação de tentativas.
+ * E-mail e IP são registrados somente como hashes não reversíveis.
+ */
+export const authSecurityEvents = mysqlTable("authSecurityEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  eventType: mysqlEnum("eventType", ["login_success", "login_failure", "reset_request"]).notNull(),
+  emailHash: varchar("emailHash", { length: 64 }).notNull(),
+  ipHash: varchar("ipHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  emailEventIdx: index("idx_auth_event_email_type_date").on(table.emailHash, table.eventType, table.createdAt),
+  ipEventIdx: index("idx_auth_event_ip_type_date").on(table.ipHash, table.eventType, table.createdAt),
+}));
+
+/** Contadores atômicos de janela para impedir rajadas concorrentes de autenticação. */
+export const authRateLimits = mysqlTable("authRateLimits", {
+  bucketHash: varchar("bucketHash", { length: 64 }).primaryKey(),
+  scope: mysqlEnum("scope", ["login_email", "login_ip", "reset_email", "reset_ip"]).notNull(),
+  attemptCount: int("attemptCount").default(0).notNull(),
+  windowStartedAt: timestamp("windowStartedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  updatedIdx: index("idx_auth_rate_updated").on(table.updatedAt),
+}));
 
 /**
  * Estabelecimentos (Hospitals/Clinics)
@@ -934,6 +979,7 @@ export const permissoesEstabelecimento = mysqlTable("permissoesEstabelecimento",
     "visualizador",   // Acesso apenas para visualização (somente leitura)
     "usuario_tasy"    // Acesso a: Importação Tasy, Contas Faturadas, Relatórios Tasy, Relatórios BI, Conciliação
   ]).default("visualizador").notNull(),
+  grupoId: int("grupoId"), // Grupo personalizado aplicado; null usa somente o perfil padrão
   
   // Permissões específicas (mantém para compatibilidade e controle granular)
   podeVisualizar: mysqlEnum("podeVisualizar", ["sim", "nao"]).default("sim").notNull(),
@@ -980,6 +1026,7 @@ export const permissoesEstabelecimento = mysqlTable("permissoesEstabelecimento",
   acessoRelCustos: mysqlEnum("acessoRelCustos", ["sim", "nao"]).default("nao").notNull(),
   acessoRelNaoRecebidos: mysqlEnum("acessoRelNaoRecebidos", ["sim", "nao"]).default("nao").notNull(),
   acessoRelPrevisaoGlosa: mysqlEnum("acessoRelPrevisaoGlosa", ["sim", "nao"]).default("nao").notNull(),
+  acessoRelatoriosGlosasBi: mysqlEnum("acessoRelatoriosGlosasBi", ["sim", "nao"]).default("nao").notNull(),
   acessoFaturamentoExterno: mysqlEnum("acessoFaturamentoExterno", ["sim", "nao"]).default("sim").notNull(),
   
   // Módulos do Painel Executivo Safatle
@@ -993,7 +1040,9 @@ export const permissoesEstabelecimento = mysqlTable("permissoesEstabelecimento",
   
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  userEstabelecimentoUnique: uniqueIndex("uq_permissoes_user_estabelecimento").on(table.userId, table.estabelecimentoId),
+}));
 
 export type PermissaoEstabelecimento = typeof permissoesEstabelecimento.$inferSelect;
 export type InsertPermissaoEstabelecimento = typeof permissoesEstabelecimento.$inferInsert;

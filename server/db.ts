@@ -107,6 +107,7 @@ import { storageGet } from "./storage";
 import { extrairChaveXmlDaUrl, extrairRecursosDoXml } from "./recursoExcelFallback";
 
 import { GLOSAS_TISS } from '../shared/glossaryGlosas';
+import { getModulePermissionsForGroup, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _rawPool: Pool | null = null;
@@ -193,6 +194,31 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
     textFields.forEach(assignNullable);
 
+    let canonical: string | null = null;
+    if (user.email !== undefined) {
+      canonical = typeof user.email === "string" && user.email.trim()
+        ? user.email.trim().toLowerCase()
+        : null;
+      if (canonical) {
+        const matches = await db
+          .select({ openId: users.openId })
+          .from(users)
+          .where(sql`LOWER(TRIM(${users.email})) = ${canonical}`);
+        const hasConflict = matches.some((match) => match.openId !== user.openId);
+        if (hasConflict) {
+          await db
+            .update(users)
+            .set({ emailCanonical: null })
+            .where(sql`LOWER(TRIM(${users.email})) = ${canonical}`);
+        }
+        values.emailCanonical = hasConflict ? null : canonical;
+        updateSet.emailCanonical = hasConflict ? null : canonical;
+      } else {
+        values.emailCanonical = null;
+        updateSet.emailCanonical = null;
+      }
+    }
+
     if (user.lastSignedIn !== undefined) {
       values.lastSignedIn = user.lastSignedIn;
       updateSet.lastSignedIn = user.lastSignedIn;
@@ -213,9 +239,50 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
+    const [existingByOpenId] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.openId, user.openId))
+      .limit(1);
+    if (existingByOpenId) {
+      await db.update(users).set(updateSet).where(eq(users.openId, user.openId));
+      return;
+    }
+
+    try {
+      await db.insert(users).values(values);
+    } catch (insertError) {
+      const [createdConcurrently] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.openId, user.openId))
+        .limit(1);
+      if (createdConcurrently) {
+        await db.update(users).set(updateSet).where(eq(users.openId, user.openId));
+        return;
+      }
+      if (!canonical) throw insertError;
+
+      // Uma identidade diferente ganhou a corrida pelo mesmo e-mail.
+      // Falha fechado: nenhuma delas poderá usar senha até reconciliação administrativa.
+      await db
+        .update(users)
+        .set({ emailCanonical: null })
+        .where(sql`LOWER(TRIM(${users.email})) = ${canonical}`);
+      values.emailCanonical = null;
+      updateSet.emailCanonical = null;
+      try {
+        await db.insert(users).values(values);
+      } catch (retryError) {
+        const [sameIdentity] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.openId, user.openId))
+          .limit(1);
+        if (!sameIdentity) throw retryError;
+        await db.update(users).set(updateSet).where(eq(users.openId, user.openId));
+      }
+    }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -6530,6 +6597,7 @@ export async function getPermissoesUsuario(userId: number) {
       userId: permissoesEstabelecimento.userId,
       estabelecimentoId: permissoesEstabelecimento.estabelecimentoId,
       grupoServico: permissoesEstabelecimento.grupoServico,
+      grupoId: permissoesEstabelecimento.grupoId,
       podeVisualizar: permissoesEstabelecimento.podeVisualizar,
       podeEditar: permissoesEstabelecimento.podeEditar,
       podeExcluir: permissoesEstabelecimento.podeExcluir,
@@ -6567,6 +6635,7 @@ export async function getPermissoesUsuario(userId: number) {
       acessoRelCustos: permissoesEstabelecimento.acessoRelCustos,
       acessoRelNaoRecebidos: permissoesEstabelecimento.acessoRelNaoRecebidos,
       acessoRelPrevisaoGlosa: permissoesEstabelecimento.acessoRelPrevisaoGlosa,
+      acessoRelatoriosGlosasBi: permissoesEstabelecimento.acessoRelatoriosGlosasBi,
       acessoFaturamentoExterno: permissoesEstabelecimento.acessoFaturamentoExterno,
       // Módulos Safatle
       acessoPainelExecutivo: permissoesEstabelecimento.acessoPainelExecutivo,
@@ -6603,6 +6672,35 @@ export async function getEstabelecimentosPermitidos(userId: number): Promise<num
   return permissoes.map(p => p.estabelecimentoId);
 }
 
+export async function getEstabelecimentosGerenciaveis(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  if (user?.role === "admin") {
+    return db.select().from(estabelecimentos).where(eq(estabelecimentos.ativo, "sim")).orderBy(estabelecimentos.nome);
+  }
+
+  return db
+    .select({
+      id: estabelecimentos.id,
+      nome: estabelecimentos.nome,
+      cnpj: estabelecimentos.cnpj,
+      endereco: estabelecimentos.endereco,
+      ativo: estabelecimentos.ativo,
+      createdAt: estabelecimentos.createdAt,
+      updatedAt: estabelecimentos.updatedAt,
+    })
+    .from(permissoesEstabelecimento)
+    .innerJoin(estabelecimentos, eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentos.id))
+    .where(and(
+      eq(permissoesEstabelecimento.userId, userId),
+      eq(permissoesEstabelecimento.podeGerenciar, "sim"),
+      eq(estabelecimentos.ativo, "sim"),
+    ))
+    .orderBy(estabelecimentos.nome);
+}
+
 /**
  * Verifica se um usuário é gestor (tem acesso a todos os estabelecimentos ou permissão de gerenciar)
  */
@@ -6614,21 +6712,31 @@ export async function verificarSeGestor(userId: number): Promise<boolean> {
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (user?.role === "admin") return true;
 
-  // Verificar se tem permissão de gerenciar em algum estabelecimento
-  // OU se o grupoServico é 'gestor' ou 'administrador' (que semanticamente implica acesso total)
+  // A gestão é uma permissão operacional explícita e permanece restrita à unidade.
   const permissoes = await db
     .select()
     .from(permissoesEstabelecimento)
     .where(and(
       eq(permissoesEstabelecimento.userId, userId),
-      or(
-        eq(permissoesEstabelecimento.podeGerenciar, "sim"),
-        inArray(permissoesEstabelecimento.grupoServico, ["gestor", "administrador"])
-      )
+      eq(permissoesEstabelecimento.podeGerenciar, "sim")
     ))
     .limit(1);
 
   return permissoes.length > 0;
+}
+
+export async function getPermissaoUsuarioEstabelecimento(userId: number, estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [permissao] = await db
+    .select()
+    .from(permissoesEstabelecimento)
+    .where(and(
+      eq(permissoesEstabelecimento.userId, userId),
+      eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentoId),
+    ))
+    .limit(1);
+  return permissao;
 }
 
 /**
@@ -6694,6 +6802,7 @@ export async function upsertPermissaoEstabelecimento(data: InsertPermissaoEstabe
       .update(permissoesEstabelecimento)
       .set({
         grupoServico: data.grupoServico,
+        grupoId: data.grupoId,
         podeVisualizar: data.podeVisualizar,
         podeEditar: data.podeEditar,
         podeExcluir: data.podeExcluir,
@@ -6731,6 +6840,7 @@ export async function upsertPermissaoEstabelecimento(data: InsertPermissaoEstabe
         acessoRelCustos: data.acessoRelCustos,
         acessoRelNaoRecebidos: data.acessoRelNaoRecebidos,
         acessoRelPrevisaoGlosa: data.acessoRelPrevisaoGlosa,
+        acessoRelatoriosGlosasBi: data.acessoRelatoriosGlosasBi,
         acessoFaturamentoExterno: data.acessoFaturamentoExterno,
         // Módulos Safatle
         acessoPainelExecutivo: data.acessoPainelExecutivo,
@@ -6757,6 +6867,7 @@ export async function criarPermissaoEstabelecimento(data: {
   usuarioId: number;
   estabelecimentoId: number;
   grupoId?: number;
+  grupoServico?: StandardServiceGroup;
   podeVisualizar?: boolean;
   podeEditar?: boolean;
   podeExcluir?: boolean;
@@ -6766,38 +6877,52 @@ export async function criarPermissaoEstabelecimento(data: {
   if (!db) throw new Error("Database not available");
 
   // Buscar grupo de serviço se fornecido
-  type GrupoServicoType = "administrador" | "faturista" | "recurso_glosa" | "gestor" | "visualizador";
-  let grupoServico: GrupoServicoType = "visualizador";
+  let grupoServico: StandardServiceGroup = data.grupoServico || "visualizador";
+  let permissoesModulo = getModulePermissionsForGroup(grupoServico);
   
   if (data.grupoId) {
     const [grupo] = await db
       .select()
       .from(gruposServico)
-      .where(eq(gruposServico.id, data.grupoId))
+      .where(and(
+        eq(gruposServico.id, data.grupoId),
+        eq(gruposServico.ativo, "sim"),
+        or(
+          isNull(gruposServico.estabelecimentoId),
+          eq(gruposServico.estabelecimentoId, data.estabelecimentoId),
+        ),
+      ))
       .limit(1);
-    if (grupo) {
-      const nomeNormalizado = grupo.nome.toLowerCase().replace(/\s+/g, "_");
-      // Mapear para valores válidos do enum
-      const grupoMap: Record<string, GrupoServicoType> = {
-        "administrador": "administrador",
-        "faturista": "faturista",
-        "recurso_glosa": "recurso_glosa",
-        "recurso_de_glosa": "recurso_glosa",
-        "gestor": "gestor",
-        "visualizador": "visualizador",
-      };
-      grupoServico = grupoMap[nomeNormalizado] || "visualizador";
+    if (!grupo) {
+      throw new Error("Grupo personalizado inexistente, inativo ou indisponível para este estabelecimento");
     }
+    const nomeNormalizado = grupo.nome.toLowerCase().replace(/\s+/g, "_");
+    // Mapear para valores válidos do enum
+    const grupoMap: Record<string, StandardServiceGroup> = {
+      "administrador": "administrador",
+      "faturista": "faturista",
+      "recurso_glosa": "recurso_glosa",
+      "recurso_de_glosa": "recurso_glosa",
+      "gestor": "gestor",
+      "visualizador": "visualizador",
+      "usuario_tasy": "usuario_tasy",
+    };
+    grupoServico = grupoMap[nomeNormalizado] || "visualizador";
+    permissoesModulo = grupo.permissoesPadrao
+      ? sanitizeCustomModulePermissions(grupo.permissoesPadrao)
+      : getModulePermissionsForGroup(grupoServico);
   }
 
   const result = await db.insert(permissoesEstabelecimento).values({
     userId: data.usuarioId,
     estabelecimentoId: data.estabelecimentoId,
     grupoServico,
+    grupoId: data.grupoId,
     podeVisualizar: data.podeVisualizar ? "sim" : "nao",
     podeEditar: data.podeEditar ? "sim" : "nao",
     podeExcluir: data.podeExcluir ? "sim" : "nao",
     podeGerenciar: data.podeGerenciar ? "sim" : "nao",
+    ...permissoesModulo,
   });
   return { id: Number(result[0].insertId) };
 }
@@ -6830,6 +6955,7 @@ export async function getUsuariosEstabelecimento(estabelecimentoId: number) {
       userId: permissoesEstabelecimento.userId,
       estabelecimentoId: permissoesEstabelecimento.estabelecimentoId,
       grupoServico: permissoesEstabelecimento.grupoServico,
+      grupoId: permissoesEstabelecimento.grupoId,
       podeVisualizar: permissoesEstabelecimento.podeVisualizar,
       podeEditar: permissoesEstabelecimento.podeEditar,
       podeExcluir: permissoesEstabelecimento.podeExcluir,
@@ -6867,6 +6993,7 @@ export async function getUsuariosEstabelecimento(estabelecimentoId: number) {
       acessoRelCustos: permissoesEstabelecimento.acessoRelCustos,
       acessoRelNaoRecebidos: permissoesEstabelecimento.acessoRelNaoRecebidos,
       acessoRelPrevisaoGlosa: permissoesEstabelecimento.acessoRelPrevisaoGlosa,
+      acessoRelatoriosGlosasBi: permissoesEstabelecimento.acessoRelatoriosGlosasBi,
       acessoFaturamentoExterno: permissoesEstabelecimento.acessoFaturamentoExterno,
       userName: users.name,
       userEmail: users.email,
@@ -7769,7 +7896,7 @@ export async function getMetricasEnvioXML(filters: {
 export async function verificarAcessoModulo(
   userId: number,
   estabelecimentoId: number,
-  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos"
+  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos"
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -7811,6 +7938,7 @@ export async function verificarAcessoModulo(
     contasFaturadas: "acessoContasFaturadas",
     relatoriosTasy: "acessoRelatoriosTasy",
     relatoriosBi: "acessoRelatoriosBi",
+    relatoriosGlosasBi: "acessoRelatoriosGlosasBi",
     conciliacaoContasPagas: "acessoConciliacaoContasPagas",
     recebimentosXml: "acessoRecebimentosXml",
     recebimentosExcel: "acessoRecebimentosExcel",
@@ -7838,122 +7966,18 @@ export async function verificarAcessoModulo(
  * Retorna os módulos permitidos para um grupo de serviço
  */
 export function getModulosPermitidosPorGrupo(grupoServico: string): Record<string, "sim" | "nao"> {
-  const todosModulos = {
-    acessoDashboard: "nao" as const,
-    acessoArquivos: "nao" as const,
-    acessoComparacoes: "nao" as const,
-    acessoFaturamento: "nao" as const,
-    acessoTabelasPreco: "nao" as const,
-    acessoAnaliseGlosa: "nao" as const,
-    acessoDicionarioGlosas: "nao" as const,
-    acessoRecursosGlosa: "nao" as const,
-    acessoConvenios: "nao" as const,
-    acessoRegrasNegocio: "nao" as const,
-    acessoProdutividade: "nao" as const,
-    acessoEstabelecimentos: "nao" as const,
-    acessoPermissoes: "nao" as const,
-    acessoImportacaoTasy: "nao" as const,
-    acessoContasFaturadas: "nao" as const,
-    acessoRelatoriosTasy: "nao" as const,
-    acessoRelatoriosBi: "nao" as const,
-    acessoConciliacaoContasPagas: "nao" as const,
-    acessoRecebimentosXml: "nao" as const,
-    acessoRecebimentosExcel: "nao" as const,
-    acessoDemonstrativo: "nao" as const,
-    acessoContaConvenio: "nao" as const,
-    acessoRecursos: "nao" as const,
-    acessoAtendimentos: "nao" as const,
-    acessoAtendimentosFaturar: "nao" as const,
-    // Permissões granulares por relatório
-    acessoRelFaturadoRecebido: "nao" as const,
-    acessoRelRecebimentoGeral: "nao" as const,
-    acessoRelFaturamento: "nao" as const,
-    acessoRelAtendimentos: "nao" as const,
-    acessoRelCustos: "nao" as const,
-    acessoRelNaoRecebidos: "nao" as const,
-    acessoRelPrevisaoGlosa: "nao" as const,
-    acessoFaturamentoExterno: "nao" as const,
-  };
-
-  switch (grupoServico) {
-    case "administrador":
-      return Object.fromEntries(Object.keys(todosModulos).map(k => [k, "sim"])) as Record<string, "sim" | "nao">;
-    case "faturista":
-      return {
-        ...todosModulos,
-        acessoDashboard: "sim",
-        acessoArquivos: "sim",
-        acessoComparacoes: "sim",
-        acessoFaturamento: "sim",
-        acessoTabelasPreco: "sim",
-        acessoConvenios: "sim",
-        acessoRegrasNegocio: "sim",
-      };
-    case "recurso_glosa":
-      return {
-        ...todosModulos,
-        acessoDashboard: "sim",
-        acessoAnaliseGlosa: "sim",
-        acessoDicionarioGlosas: "sim",
-        acessoRecursosGlosa: "sim",
-      };
-    case "gestor":
-      return {
-        ...todosModulos,
-        acessoDashboard: "sim",
-        acessoFaturamento: "sim",
-        acessoAnaliseGlosa: "sim",
-        acessoProdutividade: "sim",
-      };
-    case "visualizador":
-    default:
-      return {
-        ...todosModulos,
-        acessoDashboard: "sim",
-      };
-  }
+  const validGroups: StandardServiceGroup[] = ["administrador", "faturista", "recurso_glosa", "gestor", "visualizador", "usuario_tasy"];
+  const group = validGroups.includes(grupoServico as StandardServiceGroup)
+    ? grupoServico as StandardServiceGroup
+    : "visualizador";
+  return getModulePermissionsForGroup(group);
 }
 
 /**
  * Retorna os módulos permitidos para o grupo Usuário Tasy
  */
 export function getModulosTasyUser(): Record<string, "sim" | "nao"> {
-  return {
-    acessoDashboard: "sim",
-    acessoArquivos: "nao",
-    acessoComparacoes: "nao",
-    acessoFaturamento: "nao",
-    acessoTabelasPreco: "nao",
-    acessoAnaliseGlosa: "nao",
-    acessoDicionarioGlosas: "nao",
-    acessoRecursosGlosa: "nao",
-    acessoConvenios: "nao",
-    acessoRegrasNegocio: "nao",
-    acessoProdutividade: "nao",
-    acessoEstabelecimentos: "nao",
-    acessoPermissoes: "nao",
-    acessoImportacaoTasy: "sim",
-    acessoContasFaturadas: "sim",
-    acessoRelatoriosTasy: "sim",
-    acessoRelatoriosBi: "sim",
-    acessoConciliacaoContasPagas: "sim",
-    acessoRecebimentosXml: "nao",
-    acessoRecebimentosExcel: "nao",
-    acessoDemonstrativo: "nao",
-    acessoContaConvenio: "nao",
-    acessoRecursos: "nao",
-    acessoAtendimentos: "nao",
-    acessoAtendimentosFaturar: "nao",
-    // Permissões granulares por relatório - Tasy user tem acesso a todos os relatórios BI
-    acessoRelFaturadoRecebido: "sim",
-    acessoRelRecebimentoGeral: "sim",
-    acessoRelFaturamento: "sim",
-    acessoRelAtendimentos: "sim",
-    acessoRelCustos: "sim",
-    acessoRelNaoRecebidos: "sim",
-    acessoRelPrevisaoGlosa: "sim",
-    acessoFaturamentoExterno: "sim",
-  };
+  return getModulePermissionsForGroup("usuario_tasy");
 }
 
 /**
@@ -7988,6 +8012,34 @@ export async function listarTodosUsuarios() {
   );
 
   return usuariosComContagem;
+}
+
+export async function listarUsuariosPorEstabelecimentos(estabelecimentosIds: number[]) {
+  const db = await getDb();
+  if (!db || estabelecimentosIds.length === 0) return [];
+
+  const usuarios = await db
+    .selectDistinct({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+    })
+    .from(users)
+    .innerJoin(permissoesEstabelecimento, eq(permissoesEstabelecimento.userId, users.id))
+    .where(inArray(permissoesEstabelecimento.estabelecimentoId, estabelecimentosIds))
+    .orderBy(users.name);
+
+  return Promise.all(usuarios.map(async (user) => {
+    const permissoes = await db
+      .select({ estabelecimentoId: permissoesEstabelecimento.estabelecimentoId })
+      .from(permissoesEstabelecimento)
+      .where(and(
+        eq(permissoesEstabelecimento.userId, user.id),
+        inArray(permissoesEstabelecimento.estabelecimentoId, estabelecimentosIds),
+      ));
+    return { ...user, estabelecimentosCount: permissoes.length };
+  }));
 }
 
 /**
@@ -8226,11 +8278,12 @@ export async function criarUsuario(dados: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // Verificar se email já existe
+  const emailCanonical = dados.email.trim().toLowerCase();
+  // Verificar identidade canônica para impedir duplicidades por caixa ou espaços.
   const existente = await db
     .select()
     .from(users)
-    .where(eq(users.email, dados.email))
+    .where(sql`LOWER(TRIM(${users.email})) = ${emailCanonical}`)
     .limit(1);
   
   if (existente.length > 0) {
@@ -8239,7 +8292,8 @@ export async function criarUsuario(dados: {
   
   const result = await db.insert(users).values({
     name: dados.name,
-    email: dados.email,
+    email: dados.email.trim(),
+    emailCanonical,
     role: dados.role || "user",
     openId: `manual_${Date.now()}`, // Placeholder até login OAuth
   });
@@ -8258,12 +8312,15 @@ export async function setUserPassword(userId: number, newPassword: string): Prom
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // Hash da senha com bcrypt (10 rounds)
-  const passwordHash = await bcrypt.hash(newPassword, 10);
+  // Hash da senha com bcrypt (12 rounds)
+  const passwordHash = await bcrypt.hash(newPassword, 12);
   
   await db
     .update(users)
-    .set({ passwordHash })
+    .set({
+      passwordHash,
+      sessionVersion: sql`${users.sessionVersion} + 1`,
+    })
     .where(eq(users.id, userId));
   
   return true;

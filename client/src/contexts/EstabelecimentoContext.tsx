@@ -52,6 +52,7 @@ export type ModuloPermissao =
   | "relFaturamento"
   | "relAtendimentos"
   | "relCustos"
+  | "relatoriosGlosasBi"
   | "relNaoRecebidos"
   | "relPrevisaoGlosa"
   | "faturamentoExterno"
@@ -96,6 +97,7 @@ interface PermissoesModulo {
   acessoRelFaturamento: "sim" | "nao";
   acessoRelAtendimentos: "sim" | "nao";
   acessoRelCustos: "sim" | "nao";
+  acessoRelatoriosGlosasBi: "sim" | "nao";
   acessoRelNaoRecebidos: "sim" | "nao";
   acessoRelPrevisaoGlosa: "sim" | "nao";
   acessoFaturamentoExterno: "sim" | "nao";
@@ -162,6 +164,7 @@ const moduloParaCampo: Record<ModuloPermissao, keyof PermissoesModulo> = {
   relFaturamento: "acessoRelFaturamento",
   relAtendimentos: "acessoRelAtendimentos",
   relCustos: "acessoRelCustos",
+  relatoriosGlosasBi: "acessoRelatoriosGlosasBi",
   relNaoRecebidos: "acessoRelNaoRecebidos",
   relPrevisaoGlosa: "acessoRelPrevisaoGlosa",
   faturamentoExterno: "acessoFaturamentoExterno",
@@ -205,8 +208,8 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
   // Obter permissões do estabelecimento atual
   const permissoesModulo: PermissoesModulo | null = (() => {
     if (!estabelecimentoAtual || estabelecimentoAtual.id === 0) {
-      // Se visualizando todos ou nenhum selecionado, usar permissões máximas se for admin/gestor
-      if (user?.role === "admin" || isGestor) {
+      // Apenas administrador do sistema recebe acesso global sem unidade selecionada.
+      if (user?.role === "admin") {
         return {
           acessoDashboard: "sim",
           acessoArquivos: "sim",
@@ -230,13 +233,15 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoRecebimentosExcel: "sim",
           acessoDemonstrativo: "sim",
           acessoContaConvenio: "sim",
-          acessoRecursos: "sim",          acessoAtendimentos: "sim",
+          acessoRecursos: "sim",
+          acessoAtendimentos: "sim",
           acessoAtendimentosFaturar: "sim",
           acessoRelFaturadoRecebido: "sim",
           acessoRelRecebimentoGeral: "sim",
           acessoRelFaturamento: "sim",
           acessoRelAtendimentos: "sim",
           acessoRelCustos: "sim",
+          acessoRelatoriosGlosasBi: "sim",
           acessoRelNaoRecebidos: "sim",
           acessoRelPrevisaoGlosa: "sim",
           acessoFaturamentoExterno: "sim",
@@ -294,6 +299,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoRelFaturamento: "sim",
           acessoRelAtendimentos: "sim",
           acessoRelCustos: "sim",
+          acessoRelatoriosGlosasBi: "sim",
           acessoRelNaoRecebidos: "sim",
           acessoRelPrevisaoGlosa: "sim",
           acessoFaturamentoExterno: "sim",
@@ -342,6 +348,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
       acessoRelFaturamento: (permissao as any).acessoRelFaturamento || "nao",
       acessoRelAtendimentos: (permissao as any).acessoRelAtendimentos || "nao",
       acessoRelCustos: (permissao as any).acessoRelCustos || "nao",
+      acessoRelatoriosGlosasBi: (permissao as any).acessoRelatoriosGlosasBi || "nao",
       acessoRelNaoRecebidos: (permissao as any).acessoRelNaoRecebidos || "nao",
       acessoRelPrevisaoGlosa: (permissao as any).acessoRelPrevisaoGlosa || "nao",
       acessoFaturamentoExterno: (permissao as any).acessoFaturamentoExterno || "sim",
@@ -364,6 +371,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
     "acessoRelFaturamento",
     "acessoRelAtendimentos",
     "acessoRelCustos",
+    "acessoRelatoriosGlosasBi",
     "acessoRelNaoRecebidos",
     "acessoRelPrevisaoGlosa",
   ];
@@ -375,7 +383,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
     modulo: ModuloPermissao,
     estabelecimentoId: number
   ): boolean => {
-    if (user?.role === "admin" || isGestor) return true;
+    if (user?.role === "admin") return true;
 
     const permissao = minhasPermissoes.find(
       (item: any) => item.estabelecimentoId === estabelecimentoId
@@ -403,7 +411,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
   // mantêm o comportamento anterior até que suas telas sejam auditadas para não
   // consultar o backend com estabelecimentoId = 0.
   const temAcessoModulo = (modulo: ModuloPermissao): boolean => {
-    if (user?.role === "admin" || isGestor) return true;
+    if (user?.role === "admin") return true;
     if (!estabelecimentoAtual) return false;
 
     if (estabelecimentoAtual.id === 0) {

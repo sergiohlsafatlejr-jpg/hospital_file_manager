@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
@@ -55,6 +56,25 @@ import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter
 import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRouter";
 import { faturadoRecebidoUnificadoRouter } from "./routers/faturadoRecebidoUnificadoRouter";
 import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
+import { passwordAuthRouter } from "./routers/passwordAuthRouter";
+import { validateNewPassword } from "./passwordAuthService";
+import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
+
+const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
+
+async function refreshPasswordSession(ctx: any, userId: number) {
+  const user = await db.getUserById(userId);
+  if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Conta não encontrada" });
+  const token = await sdk.createSessionToken(user.openId, {
+    name: user.name || "Usuário",
+    expiresInMs: PASSWORD_SESSION_MS,
+    sessionVersion: Number(user.sessionVersion || 0),
+  });
+  ctx.res.cookie(COOKIE_NAME, token, {
+    ...getSessionCookieOptions(ctx.req),
+    maxAge: PASSWORD_SESSION_MS,
+  });
+}
 import { sqlValoresRelatorioOxUti } from "./relatorioOxUtiValores";
 import {
   exigirAcessoEstabelecimento,
@@ -145,9 +165,19 @@ export const appRouter = router({
   previsaoPagamentosImec: previsaoPagamentosImecRouter,
   faturadoRecebidoUnificado: faturadoRecebidoUnificadoRouter,
   relatorioVisita: relatorioVisitaRouter,
+  passwordAuth: passwordAuthRouter,
   
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) => {
+      if (!ctx.user) return null;
+      const {
+        passwordHash: _passwordHash,
+        emailCanonical: _emailCanonical,
+        sessionVersion: _sessionVersion,
+        ...safeUser
+      } = ctx.user;
+      return safeUser;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -163,10 +193,12 @@ export const appRouter = router({
     changePassword: protectedProcedure
       .input(z.object({
         currentPassword: z.string().optional(),
-        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+        newPassword: z.string().min(1).max(128),
         confirmPassword: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const policyError = validateNewPassword(input.newPassword);
+        if (policyError) throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
         // Validar confirmação de senha
         if (input.newPassword !== input.confirmPassword) {
           throw new TRPCError({
@@ -197,17 +229,20 @@ export const appRouter = router({
             message: result.message,
           });
         }
-        
+
+        await refreshPasswordSession(ctx, ctx.user.id);
         return { success: true, message: result.message };
       }),
       
     // Definir senha pela primeira vez (para usuários sem senha)
     setInitialPassword: protectedProcedure
       .input(z.object({
-        newPassword: z.string().min(6, "A senha deve ter pelo menos 6 caracteres"),
+        newPassword: z.string().min(1).max(128),
         confirmPassword: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const policyError = validateNewPassword(input.newPassword);
+        if (policyError) throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
         // Validar confirmação de senha
         if (input.newPassword !== input.confirmPassword) {
           throw new TRPCError({
@@ -226,6 +261,7 @@ export const appRouter = router({
         }
         
         await db.setUserPassword(ctx.user.id, input.newPassword);
+        await refreshPasswordSession(ctx, ctx.user.id);
         return { success: true, message: "Senha definida com sucesso" };
       }),
   }),
@@ -4455,8 +4491,7 @@ export const appRouter = router({
       }
       const idsPermitidos = await db.getEstabelecimentosPermitidos(ctx.user.id);
       if (idsPermitidos.length === 0) {
-        // Se não tem permissões, dar acesso a todos (comportamento padrão)
-        return db.getEstabelecimentos("sim");
+        return [];
       }
       const todosEst = await db.getEstabelecimentos("sim");
       return todosEst.filter(e => idsPermitidos.includes(e.id));
@@ -4465,6 +4500,11 @@ export const appRouter = router({
     // Verificar se usuário é gestor
     verificarGestor: protectedProcedure.query(async ({ ctx }) => {
       return db.verificarSeGestor(ctx.user.id);
+    }),
+
+    // Listar somente unidades que o usuário pode administrar
+    estabelecimentosGerenciaveis: protectedProcedure.query(async ({ ctx }) => {
+      return db.getEstabelecimentosGerenciaveis(ctx.user.id);
     }),
 
     // Verificar permissão específica para um estabelecimento
@@ -4505,6 +4545,7 @@ export const appRouter = router({
         userId: z.number(),
         estabelecimentoId: z.number(),
         grupoServico: z.enum(["administrador", "faturista", "recurso_glosa", "gestor", "visualizador", "usuario_tasy"]).optional(),
+        grupoId: z.number().nullable().optional(),
         podeVisualizar: z.enum(["sim", "nao"]).optional(),
         podeEditar: z.enum(["sim", "nao"]).optional(),
         podeExcluir: z.enum(["sim", "nao"]).optional(),
@@ -4541,6 +4582,8 @@ export const appRouter = router({
         acessoRelCustos: z.enum(["sim", "nao"]).optional(),
         acessoRelNaoRecebidos: z.enum(["sim", "nao"]).optional(),
         acessoRelPrevisaoGlosa: z.enum(["sim", "nao"]).optional(),
+        acessoRelatoriosGlosasBi: z.enum(["sim", "nao"]).optional(),
+        acessoFaturamentoExterno: z.enum(["sim", "nao"]).optional(),
         // Módulos Safatle
         acessoPainelExecutivo: z.enum(["sim", "nao"]).optional(),
         acessoVisaoGeral: z.enum(["sim", "nao"]).optional(),
@@ -4562,7 +4605,35 @@ export const appRouter = router({
             message: "Você não tem permissão para gerenciar este estabelecimento",
           });
         }
-        return db.upsertPermissaoEstabelecimento(input);
+        if (ctx.user.role !== "admin") {
+          const alvo = await db.getUserById(input.userId);
+          if (alvo?.role === "admin") {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores do sistema" });
+          }
+        }
+        if (input.grupoId) {
+          const grupo = await db.buscarGrupoServicoPorId(input.grupoId);
+          if (!grupo || grupo.ativo !== "sim" || (grupo.estabelecimentoId && grupo.estabelecimentoId !== input.estabelecimentoId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Grupo personalizado inválido para este estabelecimento" });
+          }
+        }
+
+        const anterior = await db.getPermissaoUsuarioEstabelecimento(input.userId, input.estabelecimentoId);
+        const normalizado = normalizeBiParent(input);
+        const resultado = await db.upsertPermissaoEstabelecimento(normalizado);
+        const usuarioAfetado = await db.getUserById(input.userId);
+        await db.registrarLogAuditoria({
+          usuarioId: ctx.user.id,
+          usuarioNome: ctx.user.name,
+          usuarioAfetadoId: input.userId,
+          usuarioAfetadoNome: usuarioAfetado?.name || "Usuário",
+          estabelecimentoId: input.estabelecimentoId,
+          tipoAcao: anterior ? "alterar_permissao" : "criar_permissao",
+          descricao: anterior ? "Permissões de acesso atualizadas" : "Permissão de acesso criada",
+          valoresAnteriores: anterior || undefined,
+          valoresNovos: normalizado,
+        });
+        return resultado;
       }),
 
     // Obter módulos permitidos por grupo de serviço
@@ -4574,16 +4645,14 @@ export const appRouter = router({
 
     // Listar todos os usuários do sistema (para seleção)
     listarUsuarios: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
-        const isGestor = await db.verificarSeGestor(ctx.user.id);
-        if (!isGestor) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Apenas gestores podem listar usuários",
-          });
-        }
+      if (ctx.user.role === "admin") {
+        return db.listarTodosUsuarios();
       }
-      return db.listarTodosUsuarios();
+      const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
+      if (gerenciaveis.length === 0) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gestores podem listar usuários" });
+      }
+      return db.listarUsuariosPorEstabelecimentos(gerenciaveis.map((item) => item.id));
     }),
 
     // Listar permissões de todos os usuários para o Safatle
@@ -4625,7 +4694,25 @@ export const appRouter = router({
             message: "Você não tem permissão para gerenciar este estabelecimento",
           });
         }
+        if (ctx.user.role !== "admin") {
+          const alvo = await db.getUserById(input.userId);
+          if (alvo?.role === "admin") {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores do sistema" });
+          }
+        }
+        const anterior = await db.getPermissaoUsuarioEstabelecimento(input.userId, input.estabelecimentoId);
+        const usuarioAfetado = await db.getUserById(input.userId);
         await db.deletePermissaoEstabelecimento(input.userId, input.estabelecimentoId);
+        await db.registrarLogAuditoria({
+          usuarioId: ctx.user.id,
+          usuarioNome: ctx.user.name,
+          usuarioAfetadoId: input.userId,
+          usuarioAfetadoNome: usuarioAfetado?.name || "Usuário",
+          estabelecimentoId: input.estabelecimentoId,
+          tipoAcao: "remover_permissao",
+          descricao: "Acesso ao estabelecimento removido",
+          valoresAnteriores: anterior || undefined,
+        });
         return { success: true };
       }),
 
@@ -4635,6 +4722,7 @@ export const appRouter = router({
         name: z.string().min(2),
         email: z.string().email(),
         role: z.enum(["admin", "user", "tasy_user"]).optional(),
+        grupoServico: z.enum(["administrador", "faturista", "recurso_glosa", "gestor", "visualizador", "usuario_tasy"]).optional(),
         grupoId: z.number().optional(),
         estabelecimentosIds: z.array(z.number()).optional(),
       }))
@@ -4647,6 +4735,28 @@ export const appRouter = router({
               message: "Apenas administradores ou gestores podem criar usuários",
             });
           }
+          if (input.role === "admin") {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem criar administradores do sistema" });
+          }
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
+          const idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
+          if ((input.estabelecimentosIds || []).some((id) => !idsGerenciaveis.has(id))) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode atribuir estabelecimentos que administra" });
+          }
+        }
+
+        if (input.grupoId) {
+          const grupo = await db.buscarGrupoServicoPorId(input.grupoId);
+          const estabelecimentosDestino = input.estabelecimentosIds || [];
+          const grupoDisponivelEmTodos = grupo?.ativo === "sim" && estabelecimentosDestino.every(
+            (estabelecimentoId) => grupo.estabelecimentoId === null || grupo.estabelecimentoId === estabelecimentoId,
+          );
+          if (!grupoDisponivelEmTodos) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Grupo personalizado inválido, inativo ou indisponível para um dos estabelecimentos",
+            });
+          }
         }
         
         try {
@@ -4654,15 +4764,20 @@ export const appRouter = router({
           
           // Criar permissões para múltiplos estabelecimentos
           if (input.estabelecimentosIds && input.estabelecimentosIds.length > 0) {
+            const perfil: StandardServiceGroup = input.role === "tasy_user"
+              ? "usuario_tasy"
+              : (input.grupoServico || "visualizador");
+            const acoes = ACTION_PROFILE_DEFAULTS[perfil];
             for (const estabelecimentoId of input.estabelecimentosIds) {
               await db.criarPermissaoEstabelecimento({
                 usuarioId: userId,
                 estabelecimentoId,
                 grupoId: input.grupoId,
-                podeVisualizar: true,
-                podeEditar: false,
-                podeExcluir: false,
-                podeGerenciar: false,
+                grupoServico: perfil,
+                podeVisualizar: acoes.podeVisualizar === "sim",
+                podeEditar: acoes.podeEditar === "sim",
+                podeExcluir: acoes.podeExcluir === "sim",
+                podeGerenciar: acoes.podeGerenciar === "sim",
               });
             }
           }
@@ -4699,7 +4814,12 @@ export const appRouter = router({
     // Listar grupos de serviço
     listarGrupos: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          if (!input.estabelecimentoId || !await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "gerenciar")) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Selecione uma unidade que você administra" });
+          }
+        }
         return db.listarGruposServico(input.estabelecimentoId);
       }),
 
@@ -4710,7 +4830,7 @@ export const appRouter = router({
         descricao: z.string().optional(),
         cor: z.string().optional(),
         icone: z.string().optional(),
-        permissoesPadrao: z.record(z.string(), z.string()).optional(),
+        permissoesPadrao: z.record(z.string(), z.enum(["sim", "nao"])).optional(),
         estabelecimentoId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -4723,6 +4843,7 @@ export const appRouter = router({
         
         const grupoId = await db.criarGrupoServico({
           ...input,
+          permissoesPadrao: sanitizeCustomModulePermissions(input.permissoesPadrao),
           criadoPor: ctx.user.id,
         });
         
@@ -4749,7 +4870,7 @@ export const appRouter = router({
         descricao: z.string().optional(),
         cor: z.string().optional(),
         icone: z.string().optional(),
-        permissoesPadrao: z.record(z.string(), z.string()).optional(),
+        permissoesPadrao: z.record(z.string(), z.enum(["sim", "nao"])).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
@@ -4760,7 +4881,13 @@ export const appRouter = router({
         }
         
         const grupoAnterior = await db.buscarGrupoServicoPorId(input.id);
-        const { id, ...dados } = input;
+        const { id, ...dadosInput } = input;
+        const dados = {
+          ...dadosInput,
+          ...(dadosInput.permissoesPadrao
+            ? { permissoesPadrao: sanitizeCustomModulePermissions(dadosInput.permissoesPadrao) }
+            : {}),
+        };
         await db.atualizarGrupoServico(id, dados);
         
         // Registrar no log de auditoria
@@ -4820,12 +4947,8 @@ export const appRouter = router({
       }))
       .query(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          const isGestor = await db.verificarSeGestor(ctx.user.id);
-          if (!isGestor) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "Apenas administradores ou gestores podem ver logs de auditoria",
-            });
+          if (!input.estabelecimentoId || !await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "gerenciar")) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode consultar a auditoria das unidades que administra" });
           }
         }
         
@@ -4840,16 +4963,14 @@ export const appRouter = router({
     listarEstabelecimentosUsuario: protectedProcedure
       .input(z.object({ userId: z.number() }))
       .query(async ({ ctx, input }) => {
+        const estabelecimentosUsuario = await db.getEstabelecimentosUsuario(input.userId);
         if (ctx.user.role !== "admin") {
-          const isGestor = await db.verificarSeGestor(ctx.user.id);
-          if (!isGestor) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "Apenas administradores ou gestores podem ver estabelecimentos de usuários",
-            });
-          }
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
+          const idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
+          if (idsGerenciaveis.size === 0) throw new TRPCError({ code: "FORBIDDEN" });
+          return estabelecimentosUsuario.filter((item) => idsGerenciaveis.has(item.id));
         }
-        return db.getEstabelecimentosUsuario(input.userId);
+        return estabelecimentosUsuario;
       }),
 
     // Atualizar estabelecimentos de um usuário (adicionar/remover)
@@ -4860,23 +4981,27 @@ export const appRouter = router({
         grupoId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        let idsGerenciaveis: Set<number> | null = null;
         if (ctx.user.role !== "admin") {
-          const isGestor = await db.verificarSeGestor(ctx.user.id);
-          if (!isGestor) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "Apenas administradores ou gestores podem atualizar estabelecimentos de usuários",
-            });
+          const alvo = await db.getUserById(input.userId);
+          if (alvo?.role === "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores" });
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
+          idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
+          if (input.estabelecimentosIds.some((id) => !idsGerenciaveis!.has(id))) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode alterar unidades que administra" });
           }
         }
 
         // Buscar estabelecimentos atuais do usuário
         const estabelecimentosAtuais = await db.getEstabelecimentosUsuario(input.userId);
         const idsAtuais = estabelecimentosAtuais.map(e => e.id);
+        const idsAtuaisEditaveis = idsGerenciaveis
+          ? idsAtuais.filter((id) => idsGerenciaveis!.has(id))
+          : idsAtuais;
         
         // Identificar o que adicionar e remover
         const idsParaAdicionar = input.estabelecimentosIds.filter(id => !idsAtuais.includes(id));
-        const idsParaRemover = idsAtuais.filter(id => !input.estabelecimentosIds.includes(id));
+        const idsParaRemover = idsAtuaisEditaveis.filter(id => !input.estabelecimentosIds.includes(id));
         
         // Remover permissões
         for (const estabelecimentoId of idsParaRemover) {

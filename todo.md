@@ -4659,3 +4659,22 @@
 - [x] Corrigir as rolagens internas, fixar o cabeçalho do histórico e empilhar campos financeiros quando necessário
 - [x] Validar o layout com 18 testes direcionados, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a ampliação do modal com o GitHub
+
+- [x] Criar login por e-mail e senha, solicitação “Esqueci minha senha” e redefinição pública por token de uso único
+- [x] Configurar SMTP com STARTTLS obrigatório, resposta antienumeração e link de 30 minutos no fragmento da URL
+- [x] Implementar identidade canônica única, habilitar 40 contas não ambíguas e bloquear com segurança as duas identidades que compartilham o único e-mail duplicado
+- [x] Implementar rate limit atômico por identidade e IP, sessão de senha com 12 horas e revogação por versão após troca
+- [x] Aplicar autorização global por estabelecimento em procedures protegidas que recebem `estabelecimentoId`
+- [x] Validar schema real, SMTP, token inexistente, identidade canônica e ausência de dados sensíveis em texto puro
+
+- [x] Refazer a Gestão de Permissões com matriz pesquisável de 37 módulos ativos, organizados em 7 seções
+- [x] Adicionar permissão específica para o BI de Glosas e preservar os 48 acessos existentes durante a migração
+- [x] Aplicar a permissão do BI de Glosas nas 15 APIs do relatório e bloquear `estabelecimentoId` zero ou fora do escopo
+- [x] Separar ações de visualizar, editar, excluir e gerenciar usuários por unidade
+- [x] Aplicar corretamente os perfis padrão e grupos personalizados ao criar ou editar acessos
+- [x] Restringir gestores às unidades administradas, impedir escalada para administrador global e auditar inclusão, alteração e remoção
+- [x] Validar 118 vínculos, 35 usuários, 20 estabelecimentos, zero BI sem módulo pai, zero grupo órfão e zero vínculo duplicado
+- [x] Validar escopo tRPC real: administrador com 23 unidades/42 usuários; gestor com 6 unidades/33 usuários vinculados
+- [x] Aprovar 121 testes direcionados, build de produção, três validadores compilados e TypeScript focado sem erros novos
+- [x] Corrigir todos os bloqueios das revisões independentes de segurança e obter aprovação lógica final
+- [x] Salvar checkpoint e sincronizar autenticação e Gestão de Permissões com o GitHub

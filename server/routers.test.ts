@@ -45,9 +45,12 @@ function createAuthContext(): TrpcContext {
     id: 1,
     openId: "test-user-123",
     email: "test@example.com",
+    emailCanonical: "test@example.com",
     name: "Test User",
     loginMethod: "manus",
     role: "user",
+    passwordHash: "hash-nao-deve-ser-exposto",
+    sessionVersion: 2,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
@@ -97,6 +100,9 @@ describe("auth.me", () => {
     expect(result).not.toBeNull();
     expect(result?.name).toBe("Test User");
     expect(result?.email).toBe("test@example.com");
+    expect(result).not.toHaveProperty("passwordHash");
+    expect(result).not.toHaveProperty("emailCanonical");
+    expect(result).not.toHaveProperty("sessionVersion");
   });
 });
 

@@ -22,4 +22,5 @@ export const ENV = {
   smtpUser: process.env.SMTP_USER ?? "",
   smtpPass: process.env.SMTP_PASS ?? "",
   smtpFrom: process.env.SMTP_FROM ?? "",
+  publicAppUrl: process.env.PUBLIC_APP_URL ?? "https://portal.safatle.com.br",
 };

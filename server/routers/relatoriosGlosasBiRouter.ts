@@ -2,7 +2,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
-import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
+import { getApplicationDatabaseUrl, verificarAcessoModulo, verificarPermissaoEstabelecimento } from "../db";
 import {
   agruparEventosAnaliseGlosa,
   complementarRankingGlosa,
@@ -74,17 +74,32 @@ const filtroPainelGlosasSchema = z.object({
   limite: z.number().int().min(5).max(50).default(15),
 });
 
-async function validarAcessoPainelGlosas(ctx: any, estabelecimentoId: number) {
+export async function validarAcessoPainelGlosas(ctx: any, estabelecimentoId: number) {
   if (ctx.user?.role === "admin") return;
-  const permitido = await verificarPermissaoEstabelecimento(ctx.user.id, estabelecimentoId, "visualizar");
-  if (!permitido) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Usuário sem acesso ao estabelecimento selecionado" });
+  const [podeVisualizarUnidade, podeAcessarRelatorio] = await Promise.all([
+    verificarPermissaoEstabelecimento(ctx.user.id, estabelecimentoId, "visualizar"),
+    verificarAcessoModulo(ctx.user.id, estabelecimentoId, "relatoriosGlosasBi"),
+  ]);
+  if (!podeVisualizarUnidade || !podeAcessarRelatorio) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Usuário sem acesso ao BI de Glosas neste estabelecimento" });
   }
 }
 
+const biGlosasProcedure = protectedProcedure.use(async ({ ctx, next, getRawInput }) => {
+  const rawInput = await getRawInput();
+  const estabelecimentoId = rawInput && typeof rawInput === "object"
+    ? Number((rawInput as Record<string, unknown>).estabelecimentoId)
+    : 0;
+  if (!Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Estabelecimento é obrigatório para consultar o BI de Glosas" });
+  }
+  await validarAcessoPainelGlosas(ctx, estabelecimentoId);
+  return next();
+});
+
 
 export const relatoriosGlosasBiRouter = router({
-  painelExecutivo: protectedProcedure
+  painelExecutivo: biGlosasProcedure
     .input(filtroPainelGlosasSchema)
     .query(async ({ input, ctx }) => {
       await validarAcessoPainelGlosas(ctx, input.estabelecimentoId);
@@ -594,7 +609,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // KPIs gerais
-  kpis: protectedProcedure
+  kpis: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -712,7 +727,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Tendência mensal de glosas
-  tendenciaMensal: protectedProcedure
+  tendenciaMensal: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -800,7 +815,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Glosas por convênio
-  porConvenio: protectedProcedure
+  porConvenio: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       competenciaInicio: z.string().optional(),
@@ -873,7 +888,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Glosas por código (motivo)
-  porCodigo: protectedProcedure
+  porCodigo: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -959,7 +974,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Glosas por tipo de lançamento
-  porTipoLancamento: protectedProcedure
+  porTipoLancamento: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -1012,7 +1027,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Status de recurso de glosa
-  statusRecurso: protectedProcedure
+  statusRecurso: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -1069,7 +1084,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Top itens mais glosados (por código de procedimento)
-  topItensGlosados: protectedProcedure
+  topItensGlosados: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -1130,7 +1145,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Recursos de glosa integrados (cruzando demonstrativo com recursosGlosa)
-  recursosIntegrados: protectedProcedure
+  recursosIntegrados: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -1248,7 +1263,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Análise por setor/tipo de lançamento com detalhamento
-  analisePorSetor: protectedProcedure
+  analisePorSetor: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number().optional(),
@@ -1310,7 +1325,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Padrões de glosa por convênio ao longo do tempo
-  padroesPorConvenio: protectedProcedure
+  padroesPorConvenio: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       convenioId: z.number(),
@@ -1354,7 +1369,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // Filtros disponíveis
-  filtros: protectedProcedure
+  filtros: biGlosasProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
       await validarAcessoPainelGlosas(ctx, input.estabelecimentoId);
@@ -1409,7 +1424,7 @@ export const relatoriosGlosasBiRouter = router({
     }),
 
   // IA: Análise de devolutivas por motivo de glosa com sugestões de melhoria
-  analisarDevolutiva: protectedProcedure
+  analisarDevolutiva: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       codigoGlosa: z.string(),
@@ -1591,7 +1606,7 @@ Responda APENAS com JSON válido, sem markdown ou texto adicional.`,
     }),
 
   // Comparativo entre dois meses com análise de IA
-  comparativoMeses: protectedProcedure
+  comparativoMeses: biGlosasProcedure
     .input(z.object({
       estabelecimentoId: z.number().int().positive(),
       competencia1: z.string(), // YYYY/MM
@@ -1772,9 +1787,9 @@ VARIAÇÕES:
     }),
 
   // Motivos de glosa por item (código glosa + descrição item + valor glosado + %)
-  motivosPorItem: protectedProcedure
+  motivosPorItem: biGlosasProcedure
     .input(z.object({
-      estabelecimentoId: z.number(),
+      estabelecimentoId: z.number().int().positive(),
       convenioId: z.number().optional(),
       competenciaInicio: z.string().optional(),
       competenciaFim: z.string().optional(),
@@ -1784,12 +1799,8 @@ VARIAÇÕES:
       const mysql2 = await import("mysql2/promise");
       const conn = await mysql2.createConnection(process.env.DATABASE_URL!);
       try {
-        const params: any[] = [];
-        let where = "WHERE d.valor_glosa > 0";
-        if (input.estabelecimentoId > 0) {
-          where += " AND d.estabelecimentoId = ?";
-          params.push(input.estabelecimentoId);
-        }
+        const params: any[] = [input.estabelecimentoId];
+        let where = "WHERE d.valor_glosa > 0 AND d.estabelecimentoId = ?";
         if (input.convenioId) {
           where += " AND d.convenio_id = ?";
           params.push(input.convenioId);
