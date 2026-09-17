@@ -4683,4 +4683,6 @@
 - [x] Manter cabeçalho, abas e botões fixos enquanto a matriz de módulos é rolada
 - [x] Validar o ajuste com 7 testes direcionados, build aprovado e TypeScript focado sem erros novos
 - [x] Diagnosticar as duas identidades do e-mail de faturamento do IMEC e localizar o vínculo no cadastro manual correto
-- [ ] Reconciliar a identidade externa com a conta vinculada ao IMEC após confirmação do administrador
+- [x] Reconciliar a identidade externa com a conta vinculada ao IMEC após confirmação do administrador
+- [x] Preservar o perfil Gestor e o vínculo com Imec Senador Canedo, removendo somente a identidade duplicada sem referências
+- [x] Enviar novo link seguro de criação de senha e validar uma única conta canônica com vínculo ativo
