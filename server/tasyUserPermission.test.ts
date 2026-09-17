@@ -41,9 +41,6 @@ const menuItems: MenuItem[] = [
   { label: "Acompanhamento Recursos", path: "/acompanhamento-recursos" },
   { label: "Envio em Lote", path: "/envio-recursos-lote" },
   
-  // Itens Não Recebidos
-  { label: "Não Recebidos", path: "/nao-recebidos" },
-  
   // Relatórios e Históricos
   { label: "Relatórios", path: "/relatorios" },
   { label: "Tendências", path: "/tendencias" },
@@ -60,7 +57,6 @@ const menuItems: MenuItem[] = [
   { label: "Faturado Tasy", path: "/faturado-tasy", tasyOnly: true },
   { label: "Contas Faturadas", path: "/contas-faturadas", tasyOnly: true },
   { label: "Relatórios Tasy", path: "/relatorios-tasy", tasyOnly: true },
-  { label: "Relatórios BI", path: "/relatorios-bi", tasyOnly: true },
   { label: "Conciliação Contas Pagas", path: "/conciliacao-contas-pagas", tasyOnly: true },
   
   // Configurações
@@ -200,9 +196,9 @@ describe("Permissão de Usuário Tasy", () => {
   });
   
   describe("Itens Tasy Marcados Corretamente", () => {
-    it("deve ter pelo menos 5 itens marcados como tasyOnly", () => {
+    it("deve ter pelo menos 4 itens marcados como tasyOnly", () => {
       const tasyItems = menuItems.filter(i => i.tasyOnly);
-      expect(tasyItems.length).toBeGreaterThanOrEqual(5);
+      expect(tasyItems.length).toBeGreaterThanOrEqual(4);
     });
     
     it("todos os itens Tasy devem conter 'Tasy' no label ou path", () => {
@@ -213,7 +209,6 @@ describe("Permissão de Usuário Tasy", () => {
         const hasTasyInPath = item.path.toLowerCase().includes('tasy');
         const isRelatedToTasy = hasTasyInLabel || hasTasyInPath || 
           item.path === '/contas-faturadas' || 
-          item.path === '/relatorios-bi' ||
           item.path === '/conciliacao-contas-pagas';
         
         expect(isRelatedToTasy).toBe(true);

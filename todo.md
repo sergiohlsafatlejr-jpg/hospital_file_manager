@@ -4621,3 +4621,10 @@
 - [x] Validar o registro real no relatório: R$ 78.033,26 faturados, R$ 77.442,68 recebidos, R$ 1.912,22 glosados e R$ 1.321,64 de acréscimo
 - [x] Executar testes direcionados, build, verificação TypeScript focada e revisão do diff
 - [x] Salvar checkpoint e sincronizar a correção do lançamento manual com o GitHub
+
+- [x] Desativar Faturado x Recebido (Legado), Recebimento Geral, Não Recebidos e Previsão de Glosa
+- [x] Desativar BI Financeiro (TASY), Protocolos TASY, Previsão Recebimentos e Fluxo de Caixa (BI)
+- [x] Remover as oito entradas do menu, suas rotas diretas e os controles de permissão exclusivos, preservando código e dados históricos
+- [x] Manter Faturado x Recebido unificado e Previsão Pagamentos Imec como relatórios substitutos ativos
+- [x] Validar ausência das rotas, 44 testes direcionados, build aprovado e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar a desativação dos relatórios com o GitHub

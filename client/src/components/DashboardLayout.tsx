@@ -58,7 +58,6 @@ import {
   Lock,
   KeyRound,
   Brain,
-  Clock,
   Database,
   ArrowLeftRight,
   FileCode2,
@@ -164,21 +163,13 @@ const menuItems: MenuItem[] = [
   ]},
 
 // Módulo 5 - Relatórios BI (com subpastas)
-  { icon: PieChart, label: "Relatórios BI", path: "/relatorios-bi", modulo: "relatoriosBi", children: [
+  { icon: PieChart, label: "Relatórios BI", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
     // Subpasta: Faturamento
     { icon: Receipt, label: "Faturamento", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
       { icon: BarChart3, label: "Faturado x Recebido", path: "/faturado-recebido-unificado", modulo: "relFaturadoRecebido" },
-      { icon: BarChart3, label: "Faturado x Recebido (Legado)", path: "/relatorios-bi", modulo: "relFaturadoRecebido" },
-      { icon: Receipt, label: "Recebimento Geral", path: "/relatorio-recebimento-geral", modulo: "relRecebimentoGeral" },
       { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relFaturamento" },
-      { icon: Clock, label: "Não Recebidos", path: "/nao-recebidos", modulo: "relNaoRecebidos" },
-      { icon: TrendingUp, label: "Previsão de Glosa", path: "/previsao-glosa", modulo: "relPrevisaoGlosa" },
       { icon: FileSpreadsheet, label: "Faturamento Externo", path: "/faturamento-externo", modulo: "faturamentoExterno" },
-      { icon: BarChart3, label: "BI Financeiro (TASY)", path: "/bi-financeiro-tasy", modulo: "relFaturadoRecebido" },
-      { icon: Receipt, label: "Protocolos TASY", path: "/relatorio-protocolos", modulo: "relFaturadoRecebido" },
-      { icon: CalendarClock, label: "Previsão Recebimentos", path: "/previsao-recebimentos", modulo: "relFaturadoRecebido", estabelecimentoIds: [2550001] },
       { icon: CalendarClock, label: "Previsão Pagamentos Imec", path: "/previsao-pagamentos-imec", modulo: "relFaturadoRecebido", estabelecimentoIds: [2550001] },
-      { icon: BarChart3, label: "Fluxo de Caixa (BI)", path: "/fluxo-caixa-bi", modulo: "relFaturadoRecebido" },
       { icon: FlaskConical, label: "Rel. Laboratório", path: "/relatorio-laboratorio", modulo: "relFaturadoRecebido" },
       { icon: Activity, label: "Rel. Ultrassom", path: "/relatorio-ultrassom", modulo: "relFaturadoRecebido" },
       { icon: Stethoscope, label: "Rel. Visita Hospitalar", path: "/relatorio-visita", modulo: "relFaturadoRecebido" },

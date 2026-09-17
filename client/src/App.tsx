@@ -41,11 +41,9 @@ const AlterarSenha = lazy(() => import("./pages/AlterarSenha"));
 const ContaDetalhes = lazy(() => import("./pages/ContaDetalhes"));
 const AcompanhamentoRecursos = lazy(() => import("./pages/AcompanhamentoRecursos"));
 const DashboardIA = lazy(() => import("./pages/DashboardIA"));
-const NaoRecebidos = lazy(() => import("./pages/NaoRecebidos"));
 const EnvioRecursosLote = lazy(() => import("./pages/EnvioRecursosLote"));
 const RegrasIA = lazy(() => import("./pages/RegrasIA"));
 const ConciliacaoDetalhes = lazy(() => import("./pages/ConciliacaoDetalhes"));
-const RelatoriosBI = lazy(() => import("./pages/RelatoriosBI"));
 const ConciliacaoContasFaturadas = lazy(() => import("./pages/ConciliacaoContasFaturadas"));
 const ConciliacaoCruzada = lazy(() => import("./pages/ConciliacaoCruzada"));
 const VinculacoesPadrao = lazy(() => import("./pages/VinculacoesPadrao"));
@@ -58,14 +56,12 @@ const AtendimentosFaturar = lazy(() => import("./pages/AtendimentosFaturar"));
 const AtendimentosSemProtocolo = lazy(() => import("./pages/AtendimentosSemProtocolo"));
 const GerenciarAvisos = lazy(() => import("./pages/GerenciarAvisos"));
 const AuditDashboard = lazy(() => import("./pages/AuditDashboard"));
-const PrevisaoGlosa = lazy(() => import("./pages/PrevisaoGlosa").then(m => ({ default: m.PrevisaoGlosa })));
 const DashboardMotorRegras = lazy(() => import("./pages/DashboardMotorRegras"));
 const CacheDashboard = lazy(() => import("./pages/CacheDashboard"));
 const HistoricoValidacaoXml = lazy(() => import("./pages/HistoricoValidacaoXml").then(m => ({ default: m.HistoricoValidacaoXml })));
 const PopularHistoricoXml = lazy(() => import("./pages/PopularHistoricoXml").then(m => ({ default: m.PopularHistoricoXml })));
 const IntegradorDados = lazy(() => import("./pages/IntegradorDados").then(m => ({ default: m.IntegradorDados })));
 const MapeamentoConvenios = lazy(() => import("./pages/MapeamentoConvenios"));
-const RelatorioRecebimentoGeral = lazy(() => import("./pages/RelatorioRecebimentoGeral"));
 const PadroesCobranca = lazy(() => import("./pages/PadroesCobranca"));
 const CriarGabarito = lazy(() => import("./pages/CriarGabarito"));
 const EditarPadrao = lazy(() => import("./pages/EditarPadrao"));
@@ -92,11 +88,7 @@ const UploadFolhaRH = lazy(() => import("./pages/rh/UploadFolha"));
 const FolhaPagamento = lazy(() => import("./pages/rh/FolhaPagamento"));
 const Colaboradores = lazy(() => import("./pages/rh/Colaboradores"));
 const PlanoSalarios = lazy(() => import("./pages/rh/PlanoSalarios"));
-const BiFinanceiroTasy = lazy(() => import("./pages/BiFinanceiroTasy"));
-const RelatorioProtocolos = lazy(() => import("./pages/RelatorioProtocolos"));
-const PrevisaoRecebimentos = lazy(() => import("./pages/PrevisaoRecebimentos"));
 const AnaliseFaturamentosBi = lazy(() => import("./pages/AnaliseFaturamentosBi"));
-const FluxoCaixaBI = lazy(() => import("./pages/FluxoCaixaBI"));
 const RelatorioLaboratorio = lazy(() => import("./pages/RelatorioLaboratorio"));
 const RelatorioVisita = lazy(() => import("./pages/RelatorioVisita"));
 const RelatorioVisitaXml = lazy(() => import("./pages/RelatorioVisitaXml"));
@@ -184,11 +176,8 @@ function Router() {
         <Route path={"/alterar-senha"} component={AlterarSenha} />
         <Route path={"/acompanhamento-recursos"} component={AcompanhamentoRecursos} />
         <Route path={"/dashboard-ia"} component={DashboardIA} />
-        <Route path={"/nao-recebidos"} component={NaoRecebidos} />
         <Route path={"/envio-recursos-lote"} component={EnvioRecursosLote} />
         <Route path={"/regras-ia"} component={RegrasIA} />
-        <Route path={"/relatorios-bi"} component={RelatoriosBI} />
-        <Route path={"/previsao-glosa"} component={PrevisaoGlosa} />
         <Route path={"/motor-regras"} component={DashboardMotorRegras} />
         <Route path={"/conciliacao-cruzada"} component={ConciliacaoCruzada} />
         <Route path={"/vinculacoes-padrao"} component={VinculacoesPadrao} />
@@ -208,7 +197,6 @@ function Router() {
         <Route path={"/popular-historico-xml"} component={PopularHistoricoXml} />
         <Route path={"/integracao"} component={IntegradorDados} />
         <Route path={"/mapeamento-convenios"} component={MapeamentoConvenios} />
-        <Route path={"/relatorio-recebimento-geral"} component={RelatorioRecebimentoGeral} />
         <Route path={"/padroes-cobranca"} component={PadroesCobranca} />
         <Route path={"/criar-gabarito"} component={CriarGabarito} />
         <Route path={"/editar-padrao/:id"} component={EditarPadrao} />
@@ -229,12 +217,8 @@ function Router() {
         <Route path={"/permissoes-safatle"} component={PermissoesSafatle} />
         <Route path={"/recebimentos-pdf-saude-caixa"} component={RecebimentosPdfSaudeCaixa} />
         <Route path={"/atendimentos-unificados"} component={AtendimentosUnificados} />
-        <Route path={"/bi-financeiro-tasy"} component={BiFinanceiroTasy} />
-        <Route path={"/relatorio-protocolos"} component={RelatorioProtocolos} />
-        <Route path={"/previsao-recebimentos"} component={PrevisaoRecebimentos} />
         <Route path={"/previsao-pagamentos-imec"} component={PrevisaoPagamentosImec} />
         <Route path={"/analise-faturamento-itens"} component={AnaliseFaturamentosBi} />
-        <Route path={"/fluxo-caixa-bi"} component={FluxoCaixaBI} />
         <Route path={"/relatorio-laboratorio"} component={RelatorioLaboratorio} />
         <Route path={"/relatorio-visita"} component={RelatorioVisita} />
         <Route path={"/relatorio-visita-xml"} component={RelatorioVisitaXml} />

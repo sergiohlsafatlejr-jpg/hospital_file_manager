@@ -148,12 +148,9 @@ const MODULOS = [
   { key: "acessoAtendimentosFaturar", label: "Atendimentos a Faturar", icon: FileText, category: "atendimento" },
   // Permissões granulares por relatório
   { key: "acessoRelFaturadoRecebido", label: "Rel. Faturado x Recebido", icon: BarChart3, category: "relatorio" },
-  { key: "acessoRelRecebimentoGeral", label: "Rel. Recebimento Geral", icon: DollarSign, category: "relatorio" },
   { key: "acessoRelFaturamento", label: "Rel. Faturamento", icon: FileText, category: "relatorio" },
   { key: "acessoRelAtendimentos", label: "Rel. Atendimentos", icon: Users, category: "relatorio" },
   { key: "acessoRelCustos", label: "Rel. Custos", icon: DollarSign, category: "relatorio" },
-  { key: "acessoRelNaoRecebidos", label: "Rel. Não Recebidos", icon: AlertCircle, category: "relatorio" },
-  { key: "acessoRelPrevisaoGlosa", label: "Rel. Previsão de Glosa", icon: BarChart3, category: "relatorio" },
 ];
 
 // Cores disponíveis para grupos

@@ -13,7 +13,7 @@ export default function RelatorioRecebimentoGeral() {
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         <RecebimentoGeralReport
           estabelecimentoId={estabelecimentoId}
-          onBack={() => setLocation("/relatorios-bi")}
+          onBack={() => setLocation("/faturado-recebido-unificado")}
         />
       </div>
     </DashboardLayout>
