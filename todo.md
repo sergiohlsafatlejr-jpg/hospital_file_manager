@@ -4646,3 +4646,10 @@
 - [x] Exibir na tela o status “Atualização automática ativa” ou a quantidade de arquivos ainda em processamento
 - [x] Validar banco real, 22 testes direcionados, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a atualização automática com o GitHub
+
+- [x] Auditar os arquivos 5460418 e 5460419 do HF Visão/Senaprev-IAMESc e confirmar 1.031 itens em 455 guias
+- [x] Identificar que o IAMESc não informa código de prestador nos demonstrativos, embora o HF Visão tenha o prestador próprio 1379-0 cadastrado
+- [x] Corrigir o fallback para aceitar demonstrativos sem nenhum código de prestador, preservando estabelecimento e convênio como escopos obrigatórios
+- [x] Confirmar no relatório R$ 47.263,48 processados/faturados, R$ 46.931,72 recebidos e R$ 331,76 glosados entre 06/2026 e 07/2026
+- [x] Validar isolamento real, 24 testes direcionados, validador compilado, build aprovado e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar a correção do HF Visão/IAMESc com o GitHub

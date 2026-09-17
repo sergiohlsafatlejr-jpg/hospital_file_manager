@@ -135,6 +135,11 @@ export const faturadoRecebidoUnificadoRouter = router({
             )
             AND (
               NOT EXISTS (SELECT 1 FROM prestadores_proprios pp_cfg WHERE pp_cfg.convenioId = d.convenio_id)
+              OR (
+                TRIM(COALESCE(d.codigo_prestador,'')) = ''
+                AND TRIM(COALESCE(d.prestador_executante,'')) = ''
+                AND TRIM(COALESCE(d.codigo_prestador_pagamento,'')) = ''
+              )
               OR EXISTS (
                 SELECT 1 FROM prestadores_proprios pp_match
                 WHERE pp_match.convenioId = d.convenio_id
