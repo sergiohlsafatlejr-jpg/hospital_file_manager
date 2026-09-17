@@ -281,6 +281,7 @@ export default function RecebimentosXml() {
     utils.demonstrativo.resumo.invalidate();
     utils.demonstrativo.competencias.invalidate();
     utils.arquivos.list.invalidate();
+    utils.faturadoRecebidoUnificado.dados.invalidate();
 
     setIsUploading(false);
     if (successCount > 0) setActiveTab("listagem");
@@ -813,6 +814,7 @@ export default function RecebimentosXml() {
                 utils.demonstrativo.resumo.invalidate();
                 utils.demonstrativo.competencias.invalidate();
                 utils.arquivos.list.invalidate();
+                utils.faturadoRecebidoUnificado.dados.invalidate();
               }}
             />
           </TabsContent>

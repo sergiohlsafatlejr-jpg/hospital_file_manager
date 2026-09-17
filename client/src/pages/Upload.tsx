@@ -322,6 +322,7 @@ export default function Upload() {
     utils.dashboard.resumo.invalidate();
     utils.dashboard.ultimosArquivos.invalidate();
     utils.procedimentos.list.invalidate();
+    utils.faturadoRecebidoUnificado.dados.invalidate();
 
     setIsUploading(false);
   };

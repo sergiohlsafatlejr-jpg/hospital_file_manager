@@ -4637,3 +4637,12 @@
 - [x] Esclarecer no upload que a data de referência é a competência das guias, e não a data de upload ou pagamento
 - [x] Validar banco real, idempotência, 66 testes direcionados, scripts compilados, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a correção do Instituto do Rim com o GitHub
+
+- [x] Auditar as importações recentes do Instituto do Rim e confirmar que os valores já estavam persistidos nas fontes automáticas
+- [x] Confirmar 08/2026/Unimed em R$ 1.561.935,83 faturados, R$ 1.455.975,59 recebidos e R$ 7.903,54 glosados, sem diferença entre fonte e relatório
+- [x] Fazer o Faturado x Recebido atualizar sempre ao abrir a página ou voltar para a aba
+- [x] Acompanhar arquivos em processamento e atualizar automaticamente o relatório quando o processamento terminar
+- [x] Invalidar o cache do relatório nos uploads de XML enviado, Excel e XML de retorno
+- [x] Exibir na tela o status “Atualização automática ativa” ou a quantidade de arquivos ainda em processamento
+- [x] Validar banco real, 22 testes direcionados, build aprovado e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar a atualização automática com o GitHub
