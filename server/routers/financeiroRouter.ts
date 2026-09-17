@@ -20,17 +20,38 @@ const empresasRouter = router({
     return db.select().from(finEmpresas).orderBy(finEmpresas.nome);
   }),
   criar: protectedProcedure
-    .input(z.object({ nome: z.string().min(1), cnpj: z.string().optional(), estabelecimentoId: z.number().optional() }))
+    .input(z.object({
+      nome: z.string().min(1),
+      cnpj: z.string().optional(),
+      estabelecimentoId: z.number().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
-      const [result] = await db.insert(finEmpresas).values({ ...input, cnpj: input.cnpj || null, estabelecimentoId: input.estabelecimentoId || null, userId: ctx.user.id });
+      const [result] = await db.insert(finEmpresas).values({
+        ...input,
+        cnpj: input.cnpj || null,
+        estabelecimentoId: input.estabelecimentoId || null,
+        userId: ctx.user.id
+      });
       return { id: result.insertId };
     }),
   atualizar: protectedProcedure
-    .input(z.object({ id: z.number(), nome: z.string().min(1), cnpj: z.string().optional(), estabelecimentoId: z.number().optional() }))
+    .input(z.object({
+      id: z.number(),
+      nome: z.string().min(1),
+      cnpj: z.string().optional(),
+      estabelecimentoId: z.number().optional(),
+    }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
-      await db.update(finEmpresas).set({ nome: input.nome, cnpj: input.cnpj || null, estabelecimentoId: input.estabelecimentoId || null }).where(eq(finEmpresas.id, input.id));
+      const { id, ...updateData } = input;
+      await db.update(finEmpresas)
+        .set({
+          ...updateData,
+          cnpj: input.cnpj || null,
+          estabelecimentoId: input.estabelecimentoId || null
+        })
+        .where(eq(finEmpresas.id, id));
       return { success: true };
     }),
   excluir: protectedProcedure
@@ -1564,6 +1585,7 @@ const importadorRouter = router({
 // ============================================================
 // BANCO INTER
 // ============================================================
+
 const bancoInterRouter = router({
   status: protectedProcedure.query(async () => {
     return getInterStatus();
@@ -1603,8 +1625,10 @@ const bancoInterRouter = router({
     }),
 
   // ---- COBRANÇA (BOLETO COM PIX) ----
+
   emitirBoleto: protectedProcedure
     .input(z.object({
+      bancoId: z.number().optional(),
       seuNumero: z.string().max(15),
       valorNominal: z.number().min(2.5).max(99999999.99),
       dataVencimento: z.string(), // YYYY-MM-DD
@@ -1647,17 +1671,22 @@ const bancoInterRouter = router({
       formasRecebimento: z.array(z.enum(["BOLETO", "PIX"])).optional(),
     }))
     .mutation(async ({ input }) => {
-      return emitirBoleto(input);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return emitirBoleto(input, config);
     }),
 
   consultarBoleto: protectedProcedure
-    .input(z.object({ codigoSolicitacao: z.string() }))
+    .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
     .query(async ({ input }) => {
-      return consultarBoleto(input.codigoSolicitacao);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return consultarBoleto(input.codigoSolicitacao, config);
     }),
 
   listarBoletos: protectedProcedure
     .input(z.object({
+      bancoId: z.number().optional(),
       dataInicial: z.string(),
       dataFinal: z.string(),
       situacao: z.string().optional(),
@@ -1665,32 +1694,46 @@ const bancoInterRouter = router({
       itensPorPagina: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      return listarBoletos(input.dataInicial, input.dataFinal, input.situacao, input.pagina, input.itensPorPagina);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return listarBoletos(input.dataInicial, input.dataFinal, input.situacao, input.pagina, input.itensPorPagina, config);
     }),
 
   downloadBoletoPdf: protectedProcedure
-    .input(z.object({ codigoSolicitacao: z.string() }))
+    .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
     .mutation(async ({ input }) => {
-      return downloadBoletoPdf(input.codigoSolicitacao);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return downloadBoletoPdf(input.codigoSolicitacao, config);
     }),
 
   cancelarBoleto: protectedProcedure
     .input(z.object({
+      bancoId: z.number().optional(),
       codigoSolicitacao: z.string(),
       motivoCancelamento: z.string().max(50),
     }))
     .mutation(async ({ input }) => {
-      return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento, config);
     }),
 
   sumarioBoletos: protectedProcedure
     .input(z.object({
+      bancoId: z.number().optional(),
       dataInicial: z.string(),
       dataFinal: z.string(),
     }))
     .query(async ({ input }) => {
-      return sumarioBoletos(input.dataInicial, input.dataFinal);
+      const db = (await getDb())!;
+      const config = await obterInterConfigPorBanco(db, input.bancoId);
+      return sumarioBoletos(input.dataInicial, input.dataFinal, config);
     }),
+// end of banco inter router (was at bottom of previous block)
+// wait, the previous block wasn't a separate router, it was in `bancoInter: protectedProcedure`?
+// No, looking at lines 1954-2043, it's just exported under `financeiroRouter` itself.
+// Let me just replace the inline fields instead of wrapping them in a subrouter.
 });
 
 // ============================================================

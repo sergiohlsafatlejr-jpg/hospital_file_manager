@@ -1372,8 +1372,12 @@ function ContasReceber() {
           </DialogHeader>
           {boletoItem && (() => {
             const clienteAtrelado = boletoItem?.clienteId ? clientes.data?.find((c: any) => c.id === boletoItem.clienteId) : null;
+            const bancoAtrelado = boletoItem?.bancoId ? bancos.data?.find((b: any) => b.id === boletoItem.bancoId) : null;
             return (
               <form onSubmit={handleGerarBoleto} className="space-y-3">
+                <div className="bg-muted/50 p-3 rounded-md text-sm mb-4">
+                  <span className="font-semibold">Banco Emissor:</span> {bancoAtrelado ? bancoAtrelado.nome : "Padrão (.env)"}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Nome / Razão Social *</Label><Input name="nome" defaultValue={boletoItem?.clienteNome || clienteAtrelado?.nome || ""} required /></div>
                   <div><Label>CPF / CNPJ *</Label><Input name="cpfCnpj" defaultValue={clienteAtrelado?.cnpj || ""} required /></div>
@@ -1937,6 +1941,7 @@ function Cadastros() {
   const clientes = trpc.financeiro.clientes.listar.useQuery();
 
   const [empDialog, setEmpDialog] = useState(false);
+  const [empEdicao, setEmpEdicao] = useState<any>(null);
   const [catDialog, setCatDialog] = useState(false);
   const [cliDialog, setCliDialog] = useState(false);
   const [editCliente, setEditCliente] = useState<any>(null);
@@ -2165,7 +2170,9 @@ function BancoInterView() {
   const [boletoSelecionado, setBoletoSelecionado] = useState<string | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState("");
   const [filtroSituacao, setFiltroSituacao] = useState("");
+  const [bancoBoletoBusca, setBancoBoletoBusca] = useState<number | "todas">("todas");
   const [novoBoleto, setNovoBoleto] = useState({
+    bancoId: undefined as number | undefined,
     seuNumero: "",
     valorNominal: 0,
     dataVencimento: "",
@@ -2180,6 +2187,7 @@ function BancoInterView() {
   });
 
   const statusQuery = trpc.financeiro.bancoInter.status.useQuery();
+  const bancos = trpc.financeiro.bancos.listar.useQuery();
   const saldoQuery = trpc.financeiro.bancoInter.saldo.useQuery(undefined, {
     enabled: statusQuery.data?.configured === true,
   });
@@ -2189,6 +2197,7 @@ function BancoInterView() {
   const boletosQuery = trpc.financeiro.bancoInter.listarBoletos.useQuery({
     ...boletoPeriodo,
     situacao: filtroSituacao || undefined,
+    bancoId: bancoBoletoBusca === "todas" ? undefined : bancoBoletoBusca,
   }, {
     enabled: statusQuery.data?.configured === true && subTab === "boletos",
   });
@@ -2431,6 +2440,15 @@ function BancoInterView() {
                         <SelectItem value="EXPIRADO">Expirado</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select value={String(bancoBoletoBusca)} onValueChange={(v) => setBancoBoletoBusca(v === "todas" ? "todas" : Number(v))}>
+                      <SelectTrigger className="w-56"><SelectValue placeholder="Banco Emissor (Todos)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">Todos os Bancos</SelectItem>
+                        {(bancos.data || []).map((b: any) => (
+                          <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button variant="outline" size="sm" onClick={() => boletosQuery.refetch()}>
                       <RefreshCw className="h-4 w-4 mr-1" /> Atualizar
                     </Button>
@@ -2518,6 +2536,18 @@ function BancoInterView() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <Label>Banco Emissor (Opcional - usa padrão se não selecionado)</Label>
+                <Select value={novoBoleto.bancoId ? String(novoBoleto.bancoId) : "padrao"} onValueChange={(v) => setNovoBoleto(p => ({ ...p, bancoId: v === "padrao" ? undefined : Number(v) }))}>
+                  <SelectTrigger><SelectValue placeholder="Padrão (.env)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="padrao">Padrão (.env)</SelectItem>
+                    {(bancos.data || []).map((b: any) => (
+                      <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div><Label>Seu Número *</Label><Input value={novoBoleto.seuNumero} onChange={(e) => setNovoBoleto(p => ({ ...p, seuNumero: e.target.value }))} placeholder="Número de referência" maxLength={15} /></div>
               <div><Label>Valor Nominal (R$) *</Label><Input type="number" step="0.01" min="2.50" value={novoBoleto.valorNominal || ''} onChange={(e) => setNovoBoleto(p => ({ ...p, valorNominal: parseFloat(e.target.value) || 0 }))} placeholder="0,00" /></div>
               <div><Label>Data Vencimento *</Label><Input type="date" value={novoBoleto.dataVencimento} onChange={(e) => setNovoBoleto(p => ({ ...p, dataVencimento: e.target.value }))} /></div>
