@@ -674,13 +674,18 @@ export default function Upload() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="dataReferencia">Data de Referência (opcional)</Label>
+                <Label htmlFor="dataReferencia">
+                  {direcao === "enviado" ? "Competência das guias (data de referência)" : "Competência do demonstrativo (data de referência)"}
+                </Label>
                 <Input
                   id="dataReferencia"
                   type="date"
                   value={dataReferencia}
                   onChange={(e) => setDataReferencia(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Informe o mês ao qual os atendimentos pertencem (preferencialmente dia 01), não a data do upload nem a data do pagamento.
+                </p>
               </div>
 
               {/* Campo de Data de Pagamento - aparece apenas para arquivos retornados */}

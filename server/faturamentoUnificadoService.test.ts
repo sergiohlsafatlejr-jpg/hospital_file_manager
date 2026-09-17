@@ -77,11 +77,13 @@ describe("faturamentoUnificadoService", () => {
       mockExecute
         .mockResolvedValueOnce([{ affectedRows: 0 }])
         .mockResolvedValueOnce([{ affectedRows: 50 }])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
+        .mockResolvedValueOnce([{ affectedRows: 0 }])
         .mockResolvedValueOnce([[{ total: 50 }]]);
       
       const result = await popularDeIntegFaturado(2, "2025-12");
       
-      expect(mockExecute).toHaveBeenCalledTimes(3);
+      expect(mockExecute).toHaveBeenCalledTimes(5);
       expect(result).toBeDefined();
       expect(result).toHaveProperty("total");
     });

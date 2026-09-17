@@ -48,7 +48,10 @@ export default function ConciliacaoCruzada() {
   );
 
   // Aba ativa
-  const [abaAtiva, setAbaAtiva] = useState("conciliados");
+  // Abrir primeiro a origem importada. A aba "Conciliados" só contém dados
+  // depois que o cruzamento foi executado e, por isso, podia parecer vazia
+  // mesmo com milhares de XMLs corretamente processados.
+  const [abaAtiva, setAbaAtiva] = useState("faturamento");
 
   // Filtros compartilhados - persistidos em localStorage
   const storageKey = `conciliacao_filtros_${estabelecimentoId}`;
@@ -614,12 +617,22 @@ export default function ConciliacaoCruzada() {
     });
   };
 
-  const executarConciliacaoAutomatica = () => {
-    conciliarAuto.mutate({
-      estabelecimentoId,
-      competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
-      convenioId: convenioIdNum,
-    });
+  const executarConciliacaoAutomatica = async () => {
+    const competencia = competenciaFiltro !== "todos" ? competenciaFiltro : undefined;
+    try {
+      // Os arquivos enviados podem terminar depois do demonstrativo de retorno.
+      // Atualizar a camada unificada imediatamente antes do cruzamento garante
+      // que a conciliação use todos os XMLs que já concluíram o processamento.
+      await popularTudo.mutateAsync({ estabelecimentoId, competencia });
+      setAbaAtiva("conciliados");
+      conciliarAuto.mutate({
+        estabelecimentoId,
+        competencia,
+        convenioId: convenioIdNum,
+      });
+    } catch {
+      // O onError da mutation já apresenta a mensagem operacional ao usuário.
+    }
   };
 
   const executarReset = () => {
@@ -809,10 +822,12 @@ export default function ConciliacaoCruzada() {
             <Button 
               className="bg-primary hover:bg-primary/90"
               onClick={executarConciliacaoAutomatica}
-              disabled={conciliarAuto.isPending || conciliacaoEmAndamento}
+              disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}
             >
-              {(conciliarAuto.isPending || conciliacaoEmAndamento) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
-              {conciliacaoEmAndamento && statusJob?.progresso 
+              {(popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+              {popularTudo.isPending
+                ? "Atualizando dados..."
+                : conciliacaoEmAndamento && statusJob?.progresso
                 ? `Conciliando ${statusJob.progresso.competenciaAtual || ''} (${statusJob.progresso.competenciasProcessadas}/${statusJob.progresso.competenciasTotal}) - ${(statusJob.progresso.itensProcessados || 0).toLocaleString('pt-BR')} itens${statusJob.progresso.tempoDecorrido ? ` - ${Math.floor(statusJob.progresso.tempoDecorrido / 60)}min${statusJob.progresso.tempoDecorrido % 60}s` : ''}...`
                 : conciliarAuto.isPending 
                   ? "Iniciando..." 

@@ -4628,3 +4628,12 @@
 - [x] Manter Faturado x Recebido unificado e Previsão Pagamentos Imec como relatórios substitutos ativos
 - [x] Validar ausência das rotas, 44 testes direcionados, build aprovado e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar a desativação dos relatórios com o GitHub
+
+- [x] Auditar os 416 XMLs Unimed enviados em 17/09/2026 no Instituto do Rim e confirmar referência 08/2026 em todos
+- [x] Identificar a guia 73273636 como XML histórico com referência incorreta 09/2026 e retorno comprovado em 07/2026
+- [x] Corrigir transacionalmente 114 arquivos/113 guias históricos comprovados de julho em arquivos, faturamento TISS, Conta Convênio e faturamento unificado, preservando 25 guias sem fonte suficiente
+- [x] Reconstruir e executar a conciliação de 08/2026: 18.660 itens faturados, 18.705 registros conciliados e 1.311 guias visíveis nas duas abas
+- [x] Fazer a tela abrir em Faturamento Unificado e atualizar a camada de faturamento antes de iniciar a conciliação automática
+- [x] Esclarecer no upload que a data de referência é a competência das guias, e não a data de upload ou pagamento
+- [x] Validar banco real, idempotência, 66 testes direcionados, scripts compilados, build aprovado e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar a correção do Instituto do Rim com o GitHub
