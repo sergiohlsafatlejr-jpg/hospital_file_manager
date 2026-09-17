@@ -6629,6 +6629,16 @@ export async function getPermissoesUsuario(userId: number) {
       acessoAtendimentosFaturar: permissoesEstabelecimento.acessoAtendimentosFaturar,
       // Permissões granulares por relatório
       acessoRelFaturadoRecebido: permissoesEstabelecimento.acessoRelFaturadoRecebido,
+      acessoRelPrevisaoPagamentosImec: permissoesEstabelecimento.acessoRelPrevisaoPagamentosImec,
+      acessoRelLaboratorio: permissoesEstabelecimento.acessoRelLaboratorio,
+      acessoRelUltrassom: permissoesEstabelecimento.acessoRelUltrassom,
+      acessoRelVisitaHospitalar: permissoesEstabelecimento.acessoRelVisitaHospitalar,
+      acessoRelVisitasFaturadasXml: permissoesEstabelecimento.acessoRelVisitasFaturadasXml,
+      acessoRelOxUti: permissoesEstabelecimento.acessoRelOxUti,
+      acessoRelOxUtiFaturado: permissoesEstabelecimento.acessoRelOxUtiFaturado,
+      acessoRelResumoPacienteOxUti: permissoesEstabelecimento.acessoRelResumoPacienteOxUti,
+      acessoRelFisioterapia: permissoesEstabelecimento.acessoRelFisioterapia,
+      acessoRelComparativoMesAMes: permissoesEstabelecimento.acessoRelComparativoMesAMes,
       acessoRelRecebimentoGeral: permissoesEstabelecimento.acessoRelRecebimentoGeral,
       acessoRelFaturamento: permissoesEstabelecimento.acessoRelFaturamento,
       acessoRelAtendimentos: permissoesEstabelecimento.acessoRelAtendimentos,
@@ -6834,6 +6844,16 @@ export async function upsertPermissaoEstabelecimento(data: InsertPermissaoEstabe
         acessoAtendimentosFaturar: data.acessoAtendimentosFaturar,
         // Permissões granulares por relatório
         acessoRelFaturadoRecebido: data.acessoRelFaturadoRecebido,
+        acessoRelPrevisaoPagamentosImec: data.acessoRelPrevisaoPagamentosImec,
+        acessoRelLaboratorio: data.acessoRelLaboratorio,
+        acessoRelUltrassom: data.acessoRelUltrassom,
+        acessoRelVisitaHospitalar: data.acessoRelVisitaHospitalar,
+        acessoRelVisitasFaturadasXml: data.acessoRelVisitasFaturadasXml,
+        acessoRelOxUti: data.acessoRelOxUti,
+        acessoRelOxUtiFaturado: data.acessoRelOxUtiFaturado,
+        acessoRelResumoPacienteOxUti: data.acessoRelResumoPacienteOxUti,
+        acessoRelFisioterapia: data.acessoRelFisioterapia,
+        acessoRelComparativoMesAMes: data.acessoRelComparativoMesAMes,
         acessoRelRecebimentoGeral: data.acessoRelRecebimentoGeral,
         acessoRelFaturamento: data.acessoRelFaturamento,
         acessoRelAtendimentos: data.acessoRelAtendimentos,
@@ -6987,6 +7007,16 @@ export async function getUsuariosEstabelecimento(estabelecimentoId: number) {
       acessoAtendimentosFaturar: permissoesEstabelecimento.acessoAtendimentosFaturar,
       // Permissões granulares por relatório
       acessoRelFaturadoRecebido: permissoesEstabelecimento.acessoRelFaturadoRecebido,
+      acessoRelPrevisaoPagamentosImec: permissoesEstabelecimento.acessoRelPrevisaoPagamentosImec,
+      acessoRelLaboratorio: permissoesEstabelecimento.acessoRelLaboratorio,
+      acessoRelUltrassom: permissoesEstabelecimento.acessoRelUltrassom,
+      acessoRelVisitaHospitalar: permissoesEstabelecimento.acessoRelVisitaHospitalar,
+      acessoRelVisitasFaturadasXml: permissoesEstabelecimento.acessoRelVisitasFaturadasXml,
+      acessoRelOxUti: permissoesEstabelecimento.acessoRelOxUti,
+      acessoRelOxUtiFaturado: permissoesEstabelecimento.acessoRelOxUtiFaturado,
+      acessoRelResumoPacienteOxUti: permissoesEstabelecimento.acessoRelResumoPacienteOxUti,
+      acessoRelFisioterapia: permissoesEstabelecimento.acessoRelFisioterapia,
+      acessoRelComparativoMesAMes: permissoesEstabelecimento.acessoRelComparativoMesAMes,
       acessoRelRecebimentoGeral: permissoesEstabelecimento.acessoRelRecebimentoGeral,
       acessoRelFaturamento: permissoesEstabelecimento.acessoRelFaturamento,
       acessoRelAtendimentos: permissoesEstabelecimento.acessoRelAtendimentos,
@@ -7896,7 +7926,7 @@ export async function getMetricasEnvioXML(filters: {
 export async function verificarAcessoModulo(
   userId: number,
   estabelecimentoId: number,
-  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos"
+  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos"
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -7949,6 +7979,16 @@ export async function verificarAcessoModulo(
     atendimentosFaturar: "acessoAtendimentosFaturar",
     // Permissões granulares por relatório
     relFaturadoRecebido: "acessoRelFaturadoRecebido",
+    relPrevisaoPagamentosImec: "acessoRelPrevisaoPagamentosImec",
+    relLaboratorio: "acessoRelLaboratorio",
+    relUltrassom: "acessoRelUltrassom",
+    relVisitaHospitalar: "acessoRelVisitaHospitalar",
+    relVisitasFaturadasXml: "acessoRelVisitasFaturadasXml",
+    relOxUti: "acessoRelOxUti",
+    relOxUtiFaturado: "acessoRelOxUtiFaturado",
+    relResumoPacienteOxUti: "acessoRelResumoPacienteOxUti",
+    relFisioterapia: "acessoRelFisioterapia",
+    relComparativoMesAMes: "acessoRelComparativoMesAMes",
     relRecebimentoGeral: "acessoRelRecebimentoGeral",
     relFaturamento: "acessoRelFaturamento",
     relAtendimentos: "acessoRelAtendimentos",

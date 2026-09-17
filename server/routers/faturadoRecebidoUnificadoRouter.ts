@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
 import {
   agruparFinanceiro,
@@ -23,8 +23,10 @@ async function validarAcesso(ctx: any, estabelecimentoId: number) {
   if (!permitido) throw new TRPCError({ code: "FORBIDDEN", message: "Usuário sem acesso ao estabelecimento selecionado" });
 }
 
+const relatorioProcedure = reportProcedure("relFaturadoRecebido");
+
 export const faturadoRecebidoUnificadoRouter = router({
-  dados: protectedProcedure.input(inputSchema).query(async ({ input, ctx }) => {
+  dados: relatorioProcedure.input(inputSchema).query(async ({ input, ctx }) => {
     await validarAcesso(ctx, input.estabelecimentoId);
     const databaseUrl = getApplicationDatabaseUrl();
     if (!databaseUrl) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados não configurado" });

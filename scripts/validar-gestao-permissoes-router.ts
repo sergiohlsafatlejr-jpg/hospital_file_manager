@@ -1,17 +1,33 @@
 import { appRouter } from "../server/routers";
 import { getRawPool } from "../server/db";
+import { reportProcedure, router } from "../server/_core/trpc";
 import { validarAcessoPainelGlosas } from "../server/routers/relatoriosGlosasBiRouter";
+import { z } from "zod";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function callerFor(user: any) {
-  return appRouter.createCaller({
+function contextFor(user: any) {
+  return {
     user,
     req: { ip: "127.0.0.1", protocol: "https", secure: true, headers: {}, socket: { remoteAddress: "127.0.0.1" } },
     res: {},
-  } as any);
+  } as any;
+}
+
+function callerFor(user: any) {
+  return appRouter.createCaller(contextFor(user));
+}
+
+const reportProbeRouter = router({
+  laboratorio: reportProcedure("relLaboratorio")
+    .input(z.object({ estabelecimentoId: z.number().int() }))
+    .query(({ input }) => ({ estabelecimentoId: input.estabelecimentoId })),
+});
+
+function reportCallerFor(user: any) {
+  return reportProbeRouter.createCaller(contextFor(user));
 }
 
 async function main() {
@@ -81,24 +97,54 @@ async function main() {
       WHERE pe.podeVisualizar='sim' AND pe.acessoRelatoriosGlosasBi='sim'
       LIMIT 1
     `);
-    let denied = false;
+    let biBloqueado = false;
     if (biDenied[0]) {
       try {
         await validarAcessoPainelGlosas({ user: biDenied[0] }, Number(biDenied[0].estabelecimentoId));
       } catch (error: any) {
-        denied = error?.code === "FORBIDDEN";
+        biBloqueado = error?.code === "FORBIDDEN";
       }
     }
-    assert(!biDenied[0] || denied, "Usuário sem módulo conseguiu acessar o BI de Glosas");
+    assert(!biDenied[0] || biBloqueado, "Usuário sem módulo conseguiu acessar o BI de Glosas");
     if (biAllowed[0]) {
       await validarAcessoPainelGlosas({ user: biAllowed[0] }, Number(biAllowed[0].estabelecimentoId));
+    }
+
+    const [relDenied] = await pool.execute<any[]>(`
+      SELECT u.*, pe.estabelecimentoId
+      FROM permissoesEstabelecimento pe
+      INNER JOIN users u ON u.id=pe.userId AND u.role<>'admin'
+      WHERE pe.podeVisualizar='sim'
+        AND pe.grupoServico<>'administrador'
+        AND pe.acessoRelLaboratorio='nao'
+      LIMIT 1
+    `);
+    const [relAllowed] = await pool.execute<any[]>(`
+      SELECT u.*, pe.estabelecimentoId
+      FROM permissoesEstabelecimento pe
+      INNER JOIN users u ON u.id=pe.userId AND u.role<>'admin'
+      WHERE pe.podeVisualizar='sim' AND pe.acessoRelLaboratorio='sim'
+      LIMIT 1
+    `);
+    let relatorioBloqueado = false;
+    if (relDenied[0]) {
+      try {
+        await reportCallerFor(relDenied[0]).laboratorio({ estabelecimentoId: Number(relDenied[0].estabelecimentoId) });
+      } catch (error: any) {
+        relatorioBloqueado = error?.code === "FORBIDDEN";
+      }
+    }
+    assert(!relDenied[0] || relatorioBloqueado, "Usuário sem permissão conseguiu acessar o relatório de Laboratório");
+    if (relAllowed[0]) {
+      await reportCallerFor(relAllowed[0]).laboratorio({ estabelecimentoId: Number(relAllowed[0].estabelecimentoId) });
     }
 
     console.log(JSON.stringify({
       validado: true,
       administrador: { estabelecimentos: adminEstabelecimentos.length, usuariosVisiveis: adminUsuarios.length },
       gestor: managerResult || { validado: true, observacao: "Nenhum gestor não-admin cadastrado" },
-      biGlosas: { bloqueioSemModulo: denied || !biDenied[0], liberacaoComModulo: Boolean(biAllowed[0]) },
+      biGlosas: { bloqueioSemModulo: biBloqueado || !biDenied[0], liberacaoComModulo: Boolean(biAllowed[0]) },
+      relatorioLaboratorio: { bloqueioSemModulo: relatorioBloqueado || !relDenied[0], liberacaoComModulo: Boolean(relAllowed[0]) },
       dadosPessoaisExibidos: false,
     }, null, 2));
   } finally {

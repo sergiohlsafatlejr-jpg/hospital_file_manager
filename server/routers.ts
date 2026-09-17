@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, reportProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
@@ -61,6 +61,12 @@ import { validateNewPassword } from "./passwordAuthService";
 import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
+const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
+const relatorioVisitaXmlProcedure = reportProcedure("relVisitasFaturadasXml");
+const relatorioUltrassomProcedure = reportProcedure("relUltrassom");
+const relatorioOxUtiProcedure = reportProcedure("relOxUti");
+const relatorioOxUtiFaturadoProcedure = reportProcedure("relOxUtiFaturado");
+const resumoPacienteOxUtiProcedure = reportProcedure("relResumoPacienteOxUti");
 
 async function refreshPasswordSession(ctx: any, userId: number) {
   const user = await db.getUserById(userId);
@@ -4576,6 +4582,16 @@ export const appRouter = router({
         acessoAtendimentos: z.enum(["sim", "nao"]).optional(),
         acessoAtendimentosFaturar: z.enum(["sim", "nao"]).optional(),
         acessoRelFaturadoRecebido: z.enum(["sim", "nao"]).optional(),
+        acessoRelPrevisaoPagamentosImec: z.enum(["sim", "nao"]).optional(),
+        acessoRelLaboratorio: z.enum(["sim", "nao"]).optional(),
+        acessoRelUltrassom: z.enum(["sim", "nao"]).optional(),
+        acessoRelVisitaHospitalar: z.enum(["sim", "nao"]).optional(),
+        acessoRelVisitasFaturadasXml: z.enum(["sim", "nao"]).optional(),
+        acessoRelOxUti: z.enum(["sim", "nao"]).optional(),
+        acessoRelOxUtiFaturado: z.enum(["sim", "nao"]).optional(),
+        acessoRelResumoPacienteOxUti: z.enum(["sim", "nao"]).optional(),
+        acessoRelFisioterapia: z.enum(["sim", "nao"]).optional(),
+        acessoRelComparativoMesAMes: z.enum(["sim", "nao"]).optional(),
         acessoRelRecebimentoGeral: z.enum(["sim", "nao"]).optional(),
         acessoRelFaturamento: z.enum(["sim", "nao"]).optional(),
         acessoRelAtendimentos: z.enum(["sim", "nao"]).optional(),
@@ -8808,7 +8824,7 @@ export const appRouter = router({
   }),
   relatorioLaboratorio: router({
     // Lista de convênios disponíveis
-    convenios: protectedProcedure
+    convenios: relatorioLaboratorioProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -8835,7 +8851,7 @@ export const appRouter = router({
       }),
 
     // Dados do relatório
-    dados: protectedProcedure
+    dados: relatorioLaboratorioProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
@@ -8988,7 +9004,7 @@ export const appRouter = router({
 
   // ============ RELATÓRIO VISITA (Pronto Socorro) ============
   relatorioVisitaLegacy: router({
-    convenios: protectedProcedure
+    convenios: relatorioLaboratorioProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input, ctx }) => {
         let conn: any = null;
@@ -9016,7 +9032,7 @@ export const appRouter = router({
         }
       }),
 
-    dados: protectedProcedure
+    dados: relatorioLaboratorioProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
@@ -9117,7 +9133,7 @@ export const appRouter = router({
 
   // ============ RELATÓRIO VISITA XML (Faturamento/Enviado) ============
   relatorioVisitaXml: router({
-    convenios: protectedProcedure
+    convenios: relatorioVisitaXmlProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9143,7 +9159,7 @@ export const appRouter = router({
         }
       }),
 
-    competencias: protectedProcedure
+    competencias: relatorioVisitaXmlProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9175,7 +9191,7 @@ export const appRouter = router({
         }
       }),
 
-    dados: protectedProcedure
+    dados: relatorioVisitaXmlProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
@@ -9310,7 +9326,7 @@ export const appRouter = router({
 
   // ============ RELATÓRIO ULTRASSOM (Pronto Socorro) ============
   relatorioUltrassom: router({
-    convenios: protectedProcedure
+    convenios: relatorioUltrassomProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9336,7 +9352,7 @@ export const appRouter = router({
         }
       }),
 
-    dados: protectedProcedure
+    dados: relatorioUltrassomProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
@@ -9440,7 +9456,7 @@ export const appRouter = router({
   // ============================================================
   relatorioOxUti: router({
     // Meses de competência (data_referencia = mês do faturamento/XML) disponíveis
-    mesesDisponiveis: protectedProcedure
+    mesesDisponiveis: relatorioOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9461,7 +9477,7 @@ export const appRouter = router({
       }),
 
     // Meses de pagamento (demonstrativo) disponíveis para filtro
-    mesesPagamentoDisponiveis: protectedProcedure
+    mesesPagamentoDisponiveis: relatorioOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9482,7 +9498,7 @@ export const appRouter = router({
       }),
 
     // Dados principais do relatório Ox UTI
-    dados: protectedProcedure
+    dados: relatorioOxUtiProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -9648,7 +9664,7 @@ export const appRouter = router({
       }),
 
     // Convênios disponíveis para filtro
-    convenios: protectedProcedure
+    convenios: relatorioOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9670,7 +9686,7 @@ export const appRouter = router({
       }),
 
     // Itens detalhados de um paciente específico para o modal
-    itensPorPaciente: protectedProcedure
+    itensPorPaciente: relatorioOxUtiProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -9771,7 +9787,7 @@ export const appRouter = router({
   // ─── Relatório OX UTI - Faturado (dados do XML enviado) ───────────────────
   relatorioOxUtiFaturado: router({
     // Meses disponíveis nos itens enviados via XML
-    mesesDisponiveis: protectedProcedure
+    mesesDisponiveis: relatorioOxUtiFaturadoProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9792,7 +9808,7 @@ export const appRouter = router({
       }),
 
     // Convênios disponíveis para filtro
-    convenios: protectedProcedure
+    convenios: relatorioOxUtiFaturadoProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9812,7 +9828,7 @@ export const appRouter = router({
       }),
 
     // Dados principais do relatório
-    dados: protectedProcedure
+    dados: relatorioOxUtiFaturadoProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -9941,7 +9957,7 @@ export const appRouter = router({
       }),
 
     // Meses de pagamento disponíveis (para filtro de data pagamento)
-    mesesPagamento: protectedProcedure
+    mesesPagamento: relatorioOxUtiFaturadoProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -9962,7 +9978,7 @@ export const appRouter = router({
       }),
 
     // Cruzamento Faturado x Pago por guia (competência)
-    faturadoXPago: protectedProcedure
+    faturadoXPago: relatorioOxUtiFaturadoProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -10087,7 +10103,7 @@ export const appRouter = router({
 
   // Relatório Resumo Paciente Ox UTI - Faturado x Recebido por paciente/guia com categorias
   resumoPacienteOxUti: router({
-    mesesDisponiveis: protectedProcedure
+    mesesDisponiveis: resumoPacienteOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -10107,7 +10123,7 @@ export const appRouter = router({
         }
       }),
 
-    convenios: protectedProcedure
+    convenios: resumoPacienteOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;
@@ -10126,7 +10142,7 @@ export const appRouter = router({
         }
       }),
 
-    faturado: protectedProcedure
+    faturado: resumoPacienteOxUtiProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -10203,7 +10219,7 @@ export const appRouter = router({
         }
       }),
 
-    recebido: protectedProcedure
+    recebido: resumoPacienteOxUtiProcedure
       .input(z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
@@ -10290,7 +10306,7 @@ export const appRouter = router({
         }
       }),
 
-    mesesPagamento: protectedProcedure
+    mesesPagamento: resumoPacienteOxUtiProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
         let conn: any = null;

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
 
 const codigoVisitaSql = `REGEXP_REPLACE(COALESCE(d.codigo_item, ''), '[^0-9]', '') = '10102019'`;
@@ -152,8 +152,10 @@ async function conectar() {
   return mysql2.createConnection(databaseUrl);
 }
 
+const relatorioProcedure = reportProcedure("relVisitaHospitalar");
+
 export const relatorioVisitaRouter = router({
-  convenios: protectedProcedure
+  convenios: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
     .query(async ({ input, ctx }) => {
       await autorizar(ctx.user.id, input.estabelecimentoId);
@@ -181,7 +183,7 @@ export const relatorioVisitaRouter = router({
       }
     }),
 
-  medicos: protectedProcedure
+  medicos: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
     .query(async ({ input, ctx }) => {
       await autorizar(ctx.user.id, input.estabelecimentoId);
@@ -219,7 +221,7 @@ export const relatorioVisitaRouter = router({
       }
     }),
 
-  dados: protectedProcedure
+  dados: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       mesReferencia: z.number().min(1).max(12).optional(),

@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import type { TrpcContext } from "./context";
 import { logger } from "./logger";
 import { logAudit } from "./audit";
-import { getDb, verificarPermissaoEstabelecimento } from "../db";
+import { getDb, verificarAcessoModulo, verificarPermissaoEstabelecimento } from "../db";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -57,6 +57,49 @@ const requireUser = t.middleware(async opts => {
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
+
+export type ReportPermissionModule = Parameters<typeof verificarAcessoModulo>[2];
+
+/**
+ * Procedure protegida por estabelecimento e por módulo específico de relatório.
+ * O middleware falha fechado quando a entrada não informa uma unidade positiva.
+ */
+export function reportProcedure(modulo: ReportPermissionModule) {
+  return protectedProcedure.use(t.middleware(async (opts) => {
+    const user = opts.ctx.user;
+    if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+
+    const rawInput = await opts.getRawInput();
+    const estabelecimentoIds = new Set<number>();
+    const collectIds = (value: unknown, depth = 0) => {
+      if (!value || typeof value !== "object" || depth > 4) return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => collectIds(item, depth + 1));
+        return;
+      }
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === "estabelecimentoId" && typeof child === "number" && Number.isInteger(child) && child > 0) {
+          estabelecimentoIds.add(child);
+        } else {
+          collectIds(child, depth + 1);
+        }
+      }
+    };
+    collectIds(rawInput);
+
+    if (estabelecimentoIds.size === 0) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Estabelecimento obrigatório para acessar este relatório" });
+    }
+    if (user.role === "admin") return opts.next();
+    for (const estabelecimentoId of estabelecimentoIds) {
+      const autorizado = await verificarAcessoModulo(user.id, estabelecimentoId, modulo);
+      if (!autorizado) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso a este relatório no estabelecimento informado" });
+      }
+    }
+    return opts.next();
+  }));
+}
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

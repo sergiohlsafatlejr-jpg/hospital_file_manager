@@ -16,6 +16,12 @@ describe("Gestão de Permissões V2", () => {
     expect(MODULE_PERMISSION_KEYS).toHaveLength(new Set(MODULE_PERMISSION_KEYS).size);
     expect(MODULE_PERMISSION_KEYS).toContain("acessoRelatoriosGlosasBi");
     expect(MODULE_PERMISSION_KEYS).toContain("acessoFaturamentoExterno");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelPrevisaoPagamentosImec");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelLaboratorio");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelVisitaHospitalar");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelOxUti");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelFisioterapia");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRelComparativoMesAMes");
     expect(MODULE_PERMISSION_KEYS).toContain("acessoNfseConsolidado");
     expect(ACTIVE_BI_PERMISSION_KEYS).toContain("acessoRelatoriosGlosasBi");
     const migration = read("drizzle/0113_clumsy_leo.sql");
@@ -62,7 +68,56 @@ describe("Gestão de Permissões V2", () => {
     expect(matrix).toContain("Buscar módulo ou relatório");
     expect(matrix).toContain("Relatórios BI");
     expect(matrix).toContain("BI de Glosas");
+    expect(matrix).toContain("Previsão Pagamentos Imec");
+    expect(matrix).toContain("Visitas Faturadas (XML)");
+    expect(matrix).toContain("Resumo Paciente UTI");
     expect(actions).toContain("Gerenciar usuários");
+  });
+
+  it("vincula cada relatório ativo a uma permissão específica no menu", () => {
+    const menu = read("client/src/components/DashboardLayout.tsx");
+    const expectedMappings = [
+      '["/faturado-recebido-unificado", "relFaturadoRecebido"]',
+      '["/previsao-pagamentos-imec", "relPrevisaoPagamentosImec"]',
+      '["/relatorio-laboratorio", "relLaboratorio"]',
+      '["/relatorio-ultrassom", "relUltrassom"]',
+      '["/relatorio-visita", "relVisitaHospitalar"]',
+      '["/relatorio-visita-xml", "relVisitasFaturadasXml"]',
+      '["/relatorio-ox-uti", "relOxUti"]',
+      '["/relatorio-ox-uti-faturado", "relOxUtiFaturado"]',
+      '["/resumo-paciente-ox-uti", "relResumoPacienteOxUti"]',
+      '["/relatorio-fisioterapia", "relFisioterapia"]',
+      '["/comparativo-mes-a-mes", "relComparativoMesAMes"]',
+    ];
+    for (const serialized of expectedMappings) {
+      const [path, modulo] = JSON.parse(serialized);
+      expect(menu).toContain(`path: "${path}", modulo: "${modulo}"`);
+    }
+  });
+
+  it("protege os endpoints dos relatórios com a mesma permissão específica", () => {
+    const guardedRouters: Array<[string, string]> = [
+      ["server/routers/faturadoRecebidoUnificadoRouter.ts", 'reportProcedure("relFaturadoRecebido")'],
+      ["server/routers/faturamentoExternoRouter.ts", 'reportProcedure("faturamentoExterno")'],
+      ["server/routers/previsaoPagamentosImecRouter.ts", 'reportProcedure("relPrevisaoPagamentosImec")'],
+      ["server/routers/relatorioFaturamentoRouter.ts", 'reportProcedure("relFaturamento")'],
+      ["server/routers/relatorioFisioterapiaRouter.ts", 'reportProcedure("relFisioterapia")'],
+      ["server/routers/relatorioVisitaRouter.ts", 'reportProcedure("relVisitaHospitalar")'],
+      ["server/routers/comparativoMesAMesRouter.ts", 'reportProcedure("relComparativoMesAMes")'],
+    ];
+    for (const [path, guard] of guardedRouters) {
+      const source = read(path);
+      expect(source).toContain(guard);
+      expect(source).not.toContain("protectedProcedure");
+    }
+
+    const mainRouter = read("server/routers.ts");
+    expect(mainRouter).toContain('reportProcedure("relLaboratorio")');
+    expect(mainRouter).toContain('reportProcedure("relVisitasFaturadasXml")');
+    expect(mainRouter).toContain('reportProcedure("relUltrassom")');
+    expect(mainRouter).toContain('reportProcedure("relOxUti")');
+    expect(mainRouter).toContain('reportProcedure("relOxUtiFaturado")');
+    expect(mainRouter).toContain('reportProcedure("relResumoPacienteOxUti")');
   });
 
   it("não concede acesso global a gestores nem falha aberto sem vínculo", () => {

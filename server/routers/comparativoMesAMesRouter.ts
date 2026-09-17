@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 import { buscarTotaisFaturamentoExterno } from "../faturamentoExterno";
@@ -86,12 +86,14 @@ function buildQueryForSource(
   }
 }
 
+const relatorioProcedure = reportProcedure("relComparativoMesAMes");
+
 export const comparativoMesAMesRouter = router({
   /**
    * Buscar dados do comparativo mês a mês
    * Retorna totais por mês com detalhamento por convênio
    */
-  getDados: protectedProcedure
+  getDados: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       anoAtual: z.number().min(2020).max(2030).default(2026),
@@ -241,7 +243,7 @@ export const comparativoMesAMesRouter = router({
   /**
    * Exportar dados do comparativo para Excel (retorna dados formatados)
    */
-  getExportData: protectedProcedure
+  getExportData: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       anoAtual: z.number().min(2020).max(2030).default(2026),

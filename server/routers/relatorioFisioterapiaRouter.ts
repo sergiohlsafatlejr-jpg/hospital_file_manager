@@ -1,4 +1,4 @@
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
@@ -15,12 +15,14 @@ import { sql } from "drizzle-orm";
 
 const CODIGOS_FISIOTERAPIA = ['20103093', '20203047'];
 
+const relatorioProcedure = reportProcedure("relFisioterapia");
+
 export const relatorioFisioterapiaRouter = router({
   /**
    * Buscar dados do relatório de fisioterapia
    * Retorna pacientes pagos agrupados por guia/paciente com detalhes por dia
    */
-  getDados: protectedProcedure
+  getDados: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       mesAno: z.string().regex(/^\d{4}-\d{2}$/, "Formato deve ser YYYY-MM").optional(),
@@ -125,7 +127,7 @@ export const relatorioFisioterapiaRouter = router({
    * Buscar meses disponíveis para o filtro
    * Usa data_referencia (data do demonstrativo) para agrupar por mês
    */
-  getMesesDisponiveis: protectedProcedure
+  getMesesDisponiveis: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
     }))
@@ -160,7 +162,7 @@ export const relatorioFisioterapiaRouter = router({
    * Exportar dados para Excel (retorna dados formatados para download)
    * Usa data_referencia para filtrar por mês
    */
-  exportarExcel: protectedProcedure
+  exportarExcel: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number(),
       mesAno: z.string().regex(/^\d{4}-\d{2}$/, "Formato deve ser YYYY-MM").optional(),

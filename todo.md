@@ -4686,3 +4686,13 @@
 - [x] Reconciliar a identidade externa com a conta vinculada ao IMEC após confirmação do administrador
 - [x] Preservar o perfil Gestor e o vínculo com Imec Senador Canedo, removendo somente a identidade duplicada sem referências
 - [x] Enviar novo link seguro de criação de senha e validar uma única conta canônica com vínculo ativo
+
+- [x] Separar em permissões próprias os dez relatórios que ainda compartilhavam o acesso de Faturado x Recebido
+- [x] Exibir 16 controles individuais na seção Relatórios BI, incluindo previsão IMEC, laboratório, ultrassom, visitas, OX UTI, fisioterapia e comparativo mensal
+- [x] Preservar os 29 acessos existentes em cada novo campo e normalizar o único vínculo legado sem módulo BI pai
+- [x] Aplicar o mesmo bloqueio individual no menu e nas APIs de 13 relatórios, sempre exigindo estabelecimento positivo
+- [x] Ocultar o cadastro manual dentro do Faturado x Recebido quando o usuário não tiver permissão de Faturamento Externo
+- [x] Validar 119 vínculos, 36 usuários, 20 estabelecimentos, zero relatório sem módulo pai, zero grupo órfão e zero vínculo duplicado
+- [x] Validar bloqueio e liberação real via tRPC para Relatório de Laboratório e BI de Glosas
+- [x] Aprovar 54 testes direcionados, build de produção, validadores compilados e TypeScript focado sem erros novos
+- [x] Salvar checkpoint e sincronizar os controles individuais de relatórios com o GitHub

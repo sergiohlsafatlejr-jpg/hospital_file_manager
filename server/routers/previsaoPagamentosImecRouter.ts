@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import mysql from "mysql2/promise";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { getApplicationDatabaseUrl, verificarPermissaoEstabelecimento } from "../db";
 import {
   gerarPrevisaoPagamentosImec,
@@ -15,8 +15,10 @@ const inputSchema = z.object({
   convenioId: z.number().int().positive().optional(),
 });
 
+const relatorioProcedure = reportProcedure("relPrevisaoPagamentosImec");
+
 export const previsaoPagamentosImecRouter = router({
-  dados: protectedProcedure
+  dados: relatorioProcedure
     .input(inputSchema)
     .query(async ({ input, ctx }) => {
       const podeVisualizar = ctx.user.role === "admin"

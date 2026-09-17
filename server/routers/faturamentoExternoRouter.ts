@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import { verificarPermissaoEstabelecimento } from "../db";
 import {
   buscarTotaisFaturamentoExterno,
@@ -36,22 +36,24 @@ const lancamentoManualSchema = z.object({
   observacao: z.string().trim().max(2000).nullable().optional(),
 });
 
+const relatorioProcedure = reportProcedure("faturamentoExterno");
+
 export const faturamentoExternoRouter = router({
-  listar: protectedProcedure
+  listar: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive(), ano: z.number().int().optional() }))
     .query(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "visualizar");
       return listarFaturamentoExterno(input.estabelecimentoId, input.ano);
     }),
 
-  listarConvenios: protectedProcedure
+  listarConvenios: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "visualizar");
       return listarConveniosExternos(input.estabelecimentoId);
     }),
 
-  importar: protectedProcedure
+  importar: relatorioProcedure
     .input(z.object({
       estabelecimentoId: z.number().int().positive(),
       dados: z.array(z.object({
@@ -74,28 +76,28 @@ export const faturamentoExternoRouter = router({
       );
     }),
 
-  salvarManual: protectedProcedure
+  salvarManual: relatorioProcedure
     .input(lancamentoManualSchema)
     .mutation(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "editar");
       return salvarFaturamentoExternoManual(input, ctx.user.id, ctx.user.name || "Usuário");
     }),
 
-  excluir: protectedProcedure
+  excluir: relatorioProcedure
     .input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "excluir");
       return excluirFaturamentoExterno(input.id, input.estabelecimentoId);
     }),
 
-  totaisPorMes: protectedProcedure
+  totaisPorMes: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive(), ano: z.number().int() }))
     .query(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "visualizar");
       return buscarTotaisFaturamentoExterno(input.estabelecimentoId, input.ano);
     }),
 
-  totaisPorConvenio: protectedProcedure
+  totaisPorConvenio: relatorioProcedure
     .input(z.object({ estabelecimentoId: z.number().int().positive(), ano: z.number().int() }))
     .query(async ({ input, ctx }) => {
       await validarAcesso(ctx, input.estabelecimentoId, "visualizar");

@@ -48,6 +48,16 @@ export type ModuloPermissao =
   | "atendimentosFaturar"
   // Permissões granulares por relatório
   | "relFaturadoRecebido"
+  | "relPrevisaoPagamentosImec"
+  | "relLaboratorio"
+  | "relUltrassom"
+  | "relVisitaHospitalar"
+  | "relVisitasFaturadasXml"
+  | "relOxUti"
+  | "relOxUtiFaturado"
+  | "relResumoPacienteOxUti"
+  | "relFisioterapia"
+  | "relComparativoMesAMes"
   | "relRecebimentoGeral"
   | "relFaturamento"
   | "relAtendimentos"
@@ -93,6 +103,16 @@ interface PermissoesModulo {
   acessoAtendimentosFaturar: "sim" | "nao";
   // Permissões granulares por relatório
   acessoRelFaturadoRecebido: "sim" | "nao";
+  acessoRelPrevisaoPagamentosImec: "sim" | "nao";
+  acessoRelLaboratorio: "sim" | "nao";
+  acessoRelUltrassom: "sim" | "nao";
+  acessoRelVisitaHospitalar: "sim" | "nao";
+  acessoRelVisitasFaturadasXml: "sim" | "nao";
+  acessoRelOxUti: "sim" | "nao";
+  acessoRelOxUtiFaturado: "sim" | "nao";
+  acessoRelResumoPacienteOxUti: "sim" | "nao";
+  acessoRelFisioterapia: "sim" | "nao";
+  acessoRelComparativoMesAMes: "sim" | "nao";
   acessoRelRecebimentoGeral: "sim" | "nao";
   acessoRelFaturamento: "sim" | "nao";
   acessoRelAtendimentos: "sim" | "nao";
@@ -160,6 +180,16 @@ const moduloParaCampo: Record<ModuloPermissao, keyof PermissoesModulo> = {
   atendimentosFaturar: "acessoAtendimentosFaturar",
   // Permissões granulares por relatório
   relFaturadoRecebido: "acessoRelFaturadoRecebido",
+  relPrevisaoPagamentosImec: "acessoRelPrevisaoPagamentosImec",
+  relLaboratorio: "acessoRelLaboratorio",
+  relUltrassom: "acessoRelUltrassom",
+  relVisitaHospitalar: "acessoRelVisitaHospitalar",
+  relVisitasFaturadasXml: "acessoRelVisitasFaturadasXml",
+  relOxUti: "acessoRelOxUti",
+  relOxUtiFaturado: "acessoRelOxUtiFaturado",
+  relResumoPacienteOxUti: "acessoRelResumoPacienteOxUti",
+  relFisioterapia: "acessoRelFisioterapia",
+  relComparativoMesAMes: "acessoRelComparativoMesAMes",
   relRecebimentoGeral: "acessoRelRecebimentoGeral",
   relFaturamento: "acessoRelFaturamento",
   relAtendimentos: "acessoRelAtendimentos",
@@ -237,6 +267,16 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoAtendimentos: "sim",
           acessoAtendimentosFaturar: "sim",
           acessoRelFaturadoRecebido: "sim",
+          acessoRelPrevisaoPagamentosImec: "sim",
+          acessoRelLaboratorio: "sim",
+          acessoRelUltrassom: "sim",
+          acessoRelVisitaHospitalar: "sim",
+          acessoRelVisitasFaturadasXml: "sim",
+          acessoRelOxUti: "sim",
+          acessoRelOxUtiFaturado: "sim",
+          acessoRelResumoPacienteOxUti: "sim",
+          acessoRelFisioterapia: "sim",
+          acessoRelComparativoMesAMes: "sim",
           acessoRelRecebimentoGeral: "sim",
           acessoRelFaturamento: "sim",
           acessoRelAtendimentos: "sim",
@@ -295,6 +335,16 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoAtendimentos: "sim",
           acessoAtendimentosFaturar: "sim",
           acessoRelFaturadoRecebido: "sim",
+          acessoRelPrevisaoPagamentosImec: "sim",
+          acessoRelLaboratorio: "sim",
+          acessoRelUltrassom: "sim",
+          acessoRelVisitaHospitalar: "sim",
+          acessoRelVisitasFaturadasXml: "sim",
+          acessoRelOxUti: "sim",
+          acessoRelOxUtiFaturado: "sim",
+          acessoRelResumoPacienteOxUti: "sim",
+          acessoRelFisioterapia: "sim",
+          acessoRelComparativoMesAMes: "sim",
           acessoRelRecebimentoGeral: "sim",
           acessoRelFaturamento: "sim",
           acessoRelAtendimentos: "sim",
@@ -344,6 +394,16 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
       acessoAtendimentos: (permissao as any).acessoAtendimentos || "nao",
       acessoAtendimentosFaturar: (permissao as any).acessoAtendimentosFaturar || "nao",
       acessoRelFaturadoRecebido: (permissao as any).acessoRelFaturadoRecebido || "nao",
+      acessoRelPrevisaoPagamentosImec: (permissao as any).acessoRelPrevisaoPagamentosImec || "nao",
+      acessoRelLaboratorio: (permissao as any).acessoRelLaboratorio || "nao",
+      acessoRelUltrassom: (permissao as any).acessoRelUltrassom || "nao",
+      acessoRelVisitaHospitalar: (permissao as any).acessoRelVisitaHospitalar || "nao",
+      acessoRelVisitasFaturadasXml: (permissao as any).acessoRelVisitasFaturadasXml || "nao",
+      acessoRelOxUti: (permissao as any).acessoRelOxUti || "nao",
+      acessoRelOxUtiFaturado: (permissao as any).acessoRelOxUtiFaturado || "nao",
+      acessoRelResumoPacienteOxUti: (permissao as any).acessoRelResumoPacienteOxUti || "nao",
+      acessoRelFisioterapia: (permissao as any).acessoRelFisioterapia || "nao",
+      acessoRelComparativoMesAMes: (permissao as any).acessoRelComparativoMesAMes || "nao",
       acessoRelRecebimentoGeral: (permissao as any).acessoRelRecebimentoGeral || "nao",
       acessoRelFaturamento: (permissao as any).acessoRelFaturamento || "nao",
       acessoRelAtendimentos: (permissao as any).acessoRelAtendimentos || "nao",
@@ -367,6 +427,16 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
   // Campos de relatórios BI individuais
   const camposRelatoriosBiIndividuais: (keyof PermissoesModulo)[] = [
     "acessoRelFaturadoRecebido",
+    "acessoRelPrevisaoPagamentosImec",
+    "acessoRelLaboratorio",
+    "acessoRelUltrassom",
+    "acessoRelVisitaHospitalar",
+    "acessoRelVisitasFaturadasXml",
+    "acessoRelOxUti",
+    "acessoRelOxUtiFaturado",
+    "acessoRelResumoPacienteOxUti",
+    "acessoRelFisioterapia",
+    "acessoRelComparativoMesAMes",
     "acessoRelRecebimentoGeral",
     "acessoRelFaturamento",
     "acessoRelAtendimentos",

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { reportProcedure, router } from "../_core/trpc";
 import {
   buscarRelatorioUnificado,
   listarConveniosUnificado,
@@ -12,8 +12,10 @@ import {
   buscarTabelaPorTipoAtendimento,
 } from "../relatorioFaturamento";
 
+const relatorioProcedure = reportProcedure("relFaturamento");
+
 export const relatorioFaturamentoRouter = router({
-  buscar: protectedProcedure
+  buscar: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),
@@ -38,7 +40,7 @@ export const relatorioFaturamentoRouter = router({
       };
     }),
 
-  listarConvenios: protectedProcedure
+  listarConvenios: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),
@@ -49,7 +51,7 @@ export const relatorioFaturamentoRouter = router({
       return listarConveniosUnificado(input.estabelecimentoId);
     }),
 
-  buscarPorConvenio: protectedProcedure
+  buscarPorConvenio: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),
@@ -90,7 +92,7 @@ export const relatorioFaturamentoRouter = router({
       };
     }),
 
-  buscarPorSetor: protectedProcedure
+  buscarPorSetor: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),
@@ -104,7 +106,7 @@ export const relatorioFaturamentoRouter = router({
       return buscarTabelaPorSetor(input);
     }),
 
-  buscarPorTipoAtendimento: protectedProcedure
+  buscarPorTipoAtendimento: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),
@@ -118,7 +120,7 @@ export const relatorioFaturamentoRouter = router({
       return buscarTabelaPorTipoAtendimento(input);
     }),
 
-  detalheMesConvenio: protectedProcedure
+  detalheMesConvenio: relatorioProcedure
     .input(
       z.object({
         estabelecimentoId: z.number(),

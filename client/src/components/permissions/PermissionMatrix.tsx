@@ -78,7 +78,17 @@ export const PERMISSION_SECTIONS: PermissionSection[] = [
   {
     id: "bi", title: "Relatórios BI", description: "Controle individual dos relatórios ativos", accent: "border-orange-200",
     modules: [
-      { key: "acessoRelFaturadoRecebido", label: "Faturado x Recebido", description: "Relatório financeiro unificado e derivados", icon: BarChart3 },
+      { key: "acessoRelFaturadoRecebido", label: "Faturado x Recebido", description: "Relatório financeiro unificado", icon: BarChart3 },
+      { key: "acessoRelPrevisaoPagamentosImec", label: "Previsão Pagamentos Imec", description: "Previsão exclusiva do IMEC", icon: Receipt },
+      { key: "acessoRelLaboratorio", label: "Relatório de Laboratório", description: "Produção e recebimento laboratorial", icon: FileText },
+      { key: "acessoRelUltrassom", label: "Relatório de Ultrassom", description: "Produção e recebimento de ultrassom", icon: Activity },
+      { key: "acessoRelVisitaHospitalar", label: "Relatório de Visita Hospitalar", description: "Visitas médicas e profissionais", icon: Stethoscope },
+      { key: "acessoRelVisitasFaturadasXml", label: "Visitas Faturadas (XML)", description: "Visitas identificadas nos XMLs faturados", icon: FileText },
+      { key: "acessoRelOxUti", label: "Relatório OX UTI", description: "Recebimentos e glosas da OX UTI", icon: Activity },
+      { key: "acessoRelOxUtiFaturado", label: "OX UTI - Faturado (XML)", description: "Faturamento XML da OX UTI", icon: FileText },
+      { key: "acessoRelResumoPacienteOxUti", label: "Resumo Paciente UTI", description: "Resumo consolidado por paciente", icon: Users },
+      { key: "acessoRelFisioterapia", label: "Relatório de Fisioterapia", description: "Produção e recebimento de fisioterapia", icon: Activity },
+      { key: "acessoRelComparativoMesAMes", label: "Comparativo Mês a Mês", description: "Evolução comparativa mensal", icon: BarChart3 },
       { key: "acessoRelFaturamento", label: "Relatório de Faturamento", description: "Faturamento detalhado", icon: FileText },
       { key: "acessoFaturamentoExterno", label: "Faturamento Externo", description: "Cadastro e importação de valores externos", icon: Receipt },
       { key: "acessoRelatoriosGlosasBi", label: "BI de Glosas", description: "Indicadores interativos de glosas", icon: Activity },
