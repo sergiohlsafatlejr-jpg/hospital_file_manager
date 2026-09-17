@@ -125,29 +125,32 @@ export default function AnaliseGlosa() {
     trpc.glosa.porConvenio.useQuery({
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
   
   const { data: glosaPorProcedimento, isLoading: loadingProcedimento, refetch: refetchProcedimento } = 
     trpc.glosa.porProcedimento.useQuery({
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
       limit: 20,
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
 
   const { data: tendenciaGlosa, isLoading: loadingTendencia, refetch: refetchTendencia } = 
     trpc.glosa.tendencia.useQuery({
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
       meses: parseInt(periodoMeses),
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
 
   const { data: resumoGlosa, isLoading: loadingResumo } = 
     trpc.glosa.resumo.useQuery({
       convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
       estabelecimentoId: estabelecimentoAtual?.id,
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
 
-  const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
+  const { data: convenios } = trpc.convenios.list.useQuery(
+    { ativo: "sim", estabelecimentoId: estabelecimentoAtual?.id },
+    { enabled: !!estabelecimentoAtual?.id },
+  );
 
   // Buscar itens glosados com novos filtros
   const { data: itensGlosados, isLoading: loadingItens, refetch: refetchItens } = 
@@ -164,7 +167,7 @@ export default function AnaliseGlosa() {
       dataPagamento: dataPagamentoFiltro || undefined,
       page: paginaAtual,
       pageSize: 50,
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
 
   // Buscar itens glosados aceitos (separados)
   const { data: itensAceitos, isLoading: loadingAceitos, refetch: refetchAceitos } = 
@@ -177,7 +180,7 @@ export default function AnaliseGlosa() {
       dataPagamento: dataPagamentoFiltro || undefined,
       page: paginaAceitos,
       pageSize: 50,
-    });
+    }, { enabled: !!estabelecimentoAtual?.id });
 
 
 
@@ -277,9 +280,10 @@ export default function AnaliseGlosa() {
     {
       codigoGlosa: codigoGlosaFiltro !== "todos" ? codigoGlosaFiltro : "",
       convenioId: convenioItens !== "todos" ? parseInt(convenioItens) : 0,
+      estabelecimentoId: estabelecimentoAtual?.id!,
     },
     {
-      enabled: codigoGlosaFiltro !== "todos" && convenioItens !== "todos",
+      enabled: !!estabelecimentoAtual?.id && codigoGlosaFiltro !== "todos" && convenioItens !== "todos",
     }
   );
 
@@ -288,9 +292,10 @@ export default function AnaliseGlosa() {
     {
       codigoGlosa: codigoGlosaFiltro !== "todos" ? codigoGlosaFiltro : "",
       convenioId: convenioItens !== "todos" ? parseInt(convenioItens) : undefined,
+      estabelecimentoId: estabelecimentoAtual?.id!,
     },
     {
-      enabled: codigoGlosaFiltro !== "todos",
+      enabled: !!estabelecimentoAtual?.id && codigoGlosaFiltro !== "todos",
     }
   );
 

@@ -59,13 +59,13 @@ export default function EnvioRecursosLote() {
   // Buscar datas de pagamento disponíveis para o filtro
   const { data: datasPagamento } = trpc.recursos.datasPagamentoDisponiveis.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
   // Buscar recursos agrupados por convênio (guias finalizadas com valor a recursar)
   const { data: recursosAgrupados, isLoading, refetch } = trpc.recursos.agrupadosPorConvenio.useQuery({  
     estabelecimentoId: estabelecimentoAtual?.id,
     dataPagamento: filtroDataPagamento || undefined,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
   // Buscar recursos de um convênio específico
   const { data: recursosConvenio, isLoading: loadingRecursos } = trpc.recursos.recursosDoConvenio.useQuery(
@@ -75,7 +75,7 @@ export default function EnvioRecursosLote() {
       apenasNaoEnviados: true,
       dataPagamento: filtroDataPagamento || undefined,
     },
-    { enabled: !!convenioExpandido }
+    { enabled: !!convenioExpandido && !!estabelecimentoAtual?.id }
   );
 
   // Mutation para criar lote

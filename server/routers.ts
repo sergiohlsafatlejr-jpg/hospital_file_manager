@@ -56,6 +56,12 @@ import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRo
 import { faturadoRecebidoUnificadoRouter } from "./routers/faturadoRecebidoUnificadoRouter";
 import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { sqlValoresRelatorioOxUti } from "./relatorioOxUtiValores";
+import {
+  exigirAcessoEstabelecimento,
+  exigirConvenioDoEstabelecimento,
+  exigirAcessoLote,
+  exigirAcessoRecurso,
+} from "./recursoGlosaPermissions";
 
 /**
  * Sanitize filename to remove special characters that can cause issues with S3/URLs
@@ -2279,6 +2285,7 @@ export const appRouter = router({
         estabelecimentoId: z.number().optional() 
       }).optional())
       .query(async ({ ctx, input }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getGlosaPorConvenio(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
       }),
 
@@ -2291,6 +2298,7 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getGlosaPorProcedimento(
           ctx.user.id,
           input?.convenioId,
@@ -2308,6 +2316,7 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getTendenciaGlosa(
           ctx.user.id,
           input?.convenioId,
@@ -2322,6 +2331,7 @@ export const appRouter = router({
         estabelecimentoId: z.number().optional() 
       }).optional())
       .query(async ({ ctx, input }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getResumoGlosa(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
       }),
 
@@ -2344,6 +2354,7 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getItensGlosados({
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
@@ -2375,6 +2386,7 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getItensGlosadosAceitos({
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
@@ -2405,6 +2417,7 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getRecursosGlosa(
           ctx.user.id,
           {
@@ -2423,14 +2436,15 @@ export const appRouter = router({
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return db.getRecursoById(input.id);
+      .query(async ({ input, ctx }) => {
+        return exigirAcessoRecurso(ctx.user.id, input.id, "visualizar");
       }),
 
     create: trackedProtectedProcedure
       .input(
         z.object({
           divergenciaId: z.number().optional(),
+          estabelecimentoId: z.number(),
           convenioId: z.number(),
           codigoProcedimento: z.string().optional(),
           descricaoProcedimento: z.string().optional(),
@@ -2446,6 +2460,12 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "editar",
+        );
         const id = await db.createRecursoGlosa({
           ...input,
           userId: ctx.user.id,
@@ -2490,6 +2510,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.id, "editar");
         await db.updateRecursoGlosa(
           input.id,
           ctx.user.id,
@@ -2501,7 +2522,8 @@ export const appRouter = router({
 
     delete: trackedProtectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.id, "excluir");
         await db.deleteRecursoGlosa(input.id);
         return { success: true };
       }),
@@ -2524,6 +2546,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.recursoId, "editar");
         await db.addHistoricoRecurso({
           recursoId: input.recursoId,
           userId: ctx.user.id,
@@ -2536,6 +2559,7 @@ export const appRouter = router({
     estatisticas: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getEstatisticasRecursos(ctx.user.id, input?.estabelecimentoId);
       }),
 
@@ -2547,6 +2571,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.id, "editar");
         await db.updateRecursoGlosa(
           input.id,
           ctx.user.id,
@@ -2574,6 +2599,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.id, "editar");
         await db.updateRecursoGlosa(
           input.id,
           ctx.user.id,
@@ -2626,6 +2652,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoRecurso(ctx.user.id, input.recursoId, "editar");
         const updateData: any = {};
         
         if (input.valorRecebido !== undefined) {
@@ -2660,14 +2687,17 @@ export const appRouter = router({
         z.object({
           codigoGlosa: z.string(),
           convenioId: z.number(),
+          estabelecimentoId: z.number(),
           codigoProcedimento: z.string().optional(),
           valorGlosado: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
         return db.sugerirArgumentoComIA({
           codigoGlosa: input.codigoGlosa,
           convenioId: input.convenioId,
+          estabelecimentoId: input.estabelecimentoId,
           codigoProcedimento: input.codigoProcedimento,
           valorGlosado: input.valorGlosado,
           userId: ctx.user.id,
@@ -2678,21 +2708,27 @@ export const appRouter = router({
     historicoContestacoes: protectedProcedure
       .input(
         z.object({
+          estabelecimentoId: z.number(),
           convenioId: z.number().optional(),
           codigoGlosa: z.string().optional(),
           resultado: z.string().optional(),
           page: z.number().default(1),
           limit: z.number().default(20),
-        }).optional()
+        })
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        }
         return db.getHistoricoContestacoes({
           userId: ctx.user.id,
-          convenioId: input?.convenioId,
-          codigoGlosa: input?.codigoGlosa,
-          resultado: input?.resultado,
-          page: input?.page || 1,
-          limit: input?.limit || 20,
+          estabelecimentoId: input.estabelecimentoId,
+          convenioId: input.convenioId,
+          codigoGlosa: input.codigoGlosa,
+          resultado: input.resultado,
+          page: input.page || 1,
+          limit: input.limit || 20,
         });
       }),
 
@@ -2701,14 +2737,20 @@ export const appRouter = router({
       .input(
         z.object({
           codigoGlosa: z.string(),
+          estabelecimentoId: z.number(),
           convenioId: z.number().optional(),
         })
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        }
         return db.getEstatisticasContestacaoPorCodigo({
           codigoGlosa: input.codigoGlosa,
           convenioId: input.convenioId,
           userId: ctx.user.id,
+          estabelecimentoId: input.estabelecimentoId,
         });
       }),
 
@@ -2717,15 +2759,21 @@ export const appRouter = router({
       .input(
         z.object({
           codigoGlosa: z.string(),
+          estabelecimentoId: z.number(),
           convenioId: z.number().optional(),
           limit: z.number().default(5),
         })
       )
       .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        }
         return db.getMelhoresArgumentos({
           codigoGlosa: input.codigoGlosa,
           convenioId: input.convenioId,
           userId: ctx.user.id,
+          estabelecimentoId: input.estabelecimentoId,
           limit: input.limit,
         });
       }),
@@ -2755,6 +2803,37 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const itensComEscopo = input.itens.map(item => ({
+          item,
+          estabelecimentoId: item.estabelecimentoId || input.estabelecimentoId,
+        }));
+        if (itensComEscopo.some(({ estabelecimentoId }) => !estabelecimentoId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione o estabelecimento dos recursos" });
+        }
+
+        for (const { item, estabelecimentoId } of itensComEscopo) {
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            item.convenioId,
+            estabelecimentoId,
+            "editar",
+          );
+
+          if (item.procedimentoId) {
+            const demonstrativo = await db.getDemonstrativoById(item.procedimentoId);
+            if (
+              !demonstrativo ||
+              demonstrativo.estabelecimentoId !== estabelecimentoId ||
+              demonstrativo.convenioId !== item.convenioId
+            ) {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "Item do demonstrativo não pertence ao estabelecimento e convênio selecionados",
+              });
+            }
+          }
+        }
+
         const resultados: { id: number; codigo: string; procedimentoId?: number }[] = [];
         const erros: { codigo: string; erro: string }[] = [];
         const procedimentosParaAtualizar: number[] = [];
@@ -2818,6 +2897,7 @@ export const appRouter = router({
         if (!item) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
         }
+        await exigirAcessoEstabelecimento(ctx.user.id, item.estabelecimentoId, "editar");
 
         const codigoGlosa = (item.codigoGlosa || '').match(/^(\d+)/)?.[1] || "";
 
@@ -2852,13 +2932,16 @@ export const appRouter = router({
         z.object({
           codigoGlosa: z.string(),
           convenioId: z.number(),
+          estabelecimentoId: z.number(),
           codigoProcedimento: z.string().optional(),
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
         return db.sugerirClassificacaoGlosa(
           input.codigoGlosa,
           input.convenioId,
+          input.estabelecimentoId,
           input.codigoProcedimento
         );
       }),
@@ -2867,14 +2950,20 @@ export const appRouter = router({
     classificarAutomaticamente: protectedProcedure
       .input(
         z.object({
+          estabelecimentoId: z.number(),
           convenioId: z.number().optional(),
           limiteConfianca: z.number().min(50).max(100).default(70),
-        }).optional()
+        })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar");
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "editar");
+        }
         return db.classificarGlosasAutomaticamente(
-          input?.convenioId,
-          input?.limiteConfianca || 70
+          input.estabelecimentoId,
+          input.convenioId,
+          input.limiteConfianca || 70
         );
       }),
 
@@ -2883,11 +2972,16 @@ export const appRouter = router({
       .input(
         z.object({
           codigoGlosa: z.string(),
+          estabelecimentoId: z.number(),
           convenioId: z.number().optional(),
         })
       )
-      .query(async ({ input }) => {
-        return db.buscarHistoricoDecisoes(input.codigoGlosa, input.convenioId);
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        }
+        return db.buscarHistoricoDecisoes(input.codigoGlosa, input.convenioId, input.estabelecimentoId);
       }),
 
     // ============ LOTES DE RECURSOS ============
@@ -2902,7 +2996,8 @@ export const appRouter = router({
           limit: z.number().default(20),
         }).optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.listarLotesRecurso({
           estabelecimentoId: input?.estabelecimentoId,
           convenioId: input?.convenioId,
@@ -2919,7 +3014,8 @@ export const appRouter = router({
           estabelecimentoId: z.number().optional(),
         }).optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getResumoLotesRecurso(input?.estabelecimentoId);
       }),
 
@@ -2935,13 +3031,15 @@ export const appRouter = router({
           valorTotalRecuperado: z.string().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
         return db.atualizarLoteRecurso(input);
       }),
 
     detalhesLote: protectedProcedure
       .input(z.object({ loteId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         return db.getDetalhesLoteRecurso(input.loteId);
       }),
 
@@ -2954,7 +3052,8 @@ export const appRouter = router({
           dataPagamento: z.string().optional(),
         }).optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         return db.getRecursosAgrupadosPorConvenio({
           estabelecimentoId: input?.estabelecimentoId,
           status: input?.status,
@@ -2964,7 +3063,8 @@ export const appRouter = router({
 
     datasPagamentoDisponiveis: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
         const { sql } = await import('drizzle-orm');
         const database = await db.getDb();
         if (!database || !input?.estabelecimentoId) return [];
@@ -2995,7 +3095,8 @@ export const appRouter = router({
           dataPagamento: z.string().optional(),
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
         return db.getRecursosDoConvenio({
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId,
@@ -3020,6 +3121,12 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "editar",
+        );
         return db.criarLoteRecurso({
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId,
@@ -3042,7 +3149,8 @@ export const appRouter = router({
           dataPrazoPagamento: z.date().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
         return db.enviarLoteRecurso({
           loteId: input.loteId,
           protocoloEnvio: input.protocoloEnvio,
@@ -3064,6 +3172,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
         const recursos = await db.getRecursosParaExportacao(ctx.user.id, {
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId,
@@ -3124,7 +3233,8 @@ export const appRouter = router({
           loteId: z.number(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const dados = await db.getRecursosLoteParaExportacao(input.loteId);
         if (!dados) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado" });
@@ -3147,7 +3257,8 @@ export const appRouter = router({
           anexoKey: z.string(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
         const sucesso = await db.atualizarAnexoProtocoloLote(
           input.loteId,
           input.anexoUrl,
@@ -3166,7 +3277,8 @@ export const appRouter = router({
           loteId: z.number(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xmls = await db.gerarXmlsRecursoGlosaPorProtocolo(input.loteId);
         if (!xmls || xmls.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
@@ -3221,7 +3333,8 @@ export const appRouter = router({
           loteId: z.number(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xmls = await db.gerarXmlsRecursoGlosaPorProtocolo(input.loteId);
         if (!xmls || xmls.length === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
@@ -3280,7 +3393,8 @@ export const appRouter = router({
           loteId: z.number(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xml = await db.gerarXmlRecursoGlosa(input.loteId);
         if (!xml) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
@@ -3297,7 +3411,8 @@ export const appRouter = router({
           loteId: z.number(),
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         return db.getHistoricoXmlLote(input.loteId);
       }),
   }),

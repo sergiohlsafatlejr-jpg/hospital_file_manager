@@ -136,9 +136,12 @@ export default function RecursosGlosa() {
     busca: busca || undefined,
     page,
     limit: 15,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
-  const { data: estatisticas } = trpc.recursos.estatisticas.useQuery({ estabelecimentoId: estabelecimentoAtual?.id });
+  const { data: estatisticas } = trpc.recursos.estatisticas.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id },
+    { enabled: !!estabelecimentoAtual?.id },
+  );
   
   // Query para datas de pagamento disponíveis (para filtro na aba itens glosados)
   const { data: datasDisponiveis } = trpc.demonstrativo.datasPagamento.useQuery();
@@ -257,12 +260,13 @@ export default function RecursosGlosa() {
   };
 
   const handleCriarRecurso = () => {
-    if (!novoRecurso.convenioId || !novoRecurso.justificativaRecurso) {
+    if (!estabelecimentoAtual?.id || !novoRecurso.convenioId || !novoRecurso.justificativaRecurso) {
       toast.error("Preencha os campos obrigatórios");
       return;
     }
     createMutation.mutate({
       ...novoRecurso,
+      estabelecimentoId: estabelecimentoAtual.id,
       convenioId: parseInt(novoRecurso.convenioId),
     });
   };
@@ -291,6 +295,10 @@ export default function RecursosGlosa() {
   };
 
   const handleGerarComIA = () => {
+    if (!estabelecimentoAtual?.id) {
+      toast.error("Selecione um estabelecimento");
+      return;
+    }
     if (!novoRecurso.codigoGlosa || !novoRecurso.convenioId) {
       toast.error("Informe o código da glosa e o convênio");
       return;
@@ -300,6 +308,7 @@ export default function RecursosGlosa() {
     sugerirIAMutation.mutate({
       codigoGlosa: novoRecurso.codigoGlosa,
       convenioId: parseInt(novoRecurso.convenioId),
+      estabelecimentoId: estabelecimentoAtual.id,
       codigoProcedimento: novoRecurso.codigoProcedimento || undefined,
       valorGlosado: novoRecurso.valorGlosado || undefined,
     });

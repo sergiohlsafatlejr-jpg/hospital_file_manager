@@ -87,11 +87,11 @@ export default function AcompanhamentoRecursos() {
     convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
     search: busca || undefined,
     limit: 100,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
   const { data: resumo } = trpc.recursos.resumoLotes.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
   const utils = trpc.useUtils();
 
@@ -151,20 +151,7 @@ export default function AcompanhamentoRecursos() {
 
   useEffect(() => {
     if (detalhesLoteData && loteIdParaDetalhes !== null) {
-      const itens = detalhesLoteData.recursos?.map((r: any) => ({
-        id: r.id,
-        guiaNumero: r.guiaNumero,
-        codigoProcedimento: r.codigoProcedimento,
-        descricaoProcedimento: r.descricaoProcedimento,
-        pacienteNome: r.pacienteNome,
-        valorGlosado: r.valorGlosado,
-        valorRecursado: r.valorRecursado,
-        valorRecebido: r.valorRecebido,
-        dataPagamento: r.dataPagamento,
-        status: r.status,
-        motivoGlosa: r.motivoGlosa,
-        justificativa: r.justificativa,
-      })) || [];
+      const itens = detalhesLoteData.itens || detalhesLoteData.recursos || [];
       
       setLoteDetalhes({ ...detalhesLoteData, itens });
       setDialogDetalhes(true);
@@ -826,6 +813,21 @@ export default function AcompanhamentoRecursos() {
                 </Card>
               </div>
 
+              {loteDetalhes.historicoIncompleto && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                    <div>
+                      <p className="font-medium">Detalhes históricos incompletos</p>
+                      <p className="mt-1 text-sm">
+                        O lote registra {loteDetalhes.itensRegistrados || loteDetalhes.quantidadeItens || 0} itens e {formatCurrency(loteDetalhes.valorTotalRecursado)} recursados,
+                        mas somente {loteDetalhes.itensLocalizados || 0} itens possuem vínculo recuperável no banco. Os totais originais foram preservados e nenhum item foi recriado sem comprovação.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {loteDetalhes.itens && loteDetalhes.itens.length > 0 && (
                 <div>
                   <h4 className="font-medium mb-3">Itens Recursados ({loteDetalhes.itens.length})</h4>
@@ -841,12 +843,13 @@ export default function AcompanhamentoRecursos() {
                           <TableHead className="text-right">Vl. Recebido</TableHead>
                           <TableHead>Data Pgto</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead>Origem</TableHead>
                           <TableHead className="text-center">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {loteDetalhes.itens.map((item: any) => (
-                          <TableRow key={item.id}>
+                          <TableRow key={item.chaveItem || `${item.fonte || "item"}-${item.id}`}>
                             <TableCell className="font-medium">{item.guiaNumero || "-"}</TableCell>
                             <TableCell>{item.codigoProcedimento}</TableCell>
                             <TableCell className="max-w-[200px] truncate">{item.descricaoProcedimento}</TableCell>
@@ -868,11 +871,16 @@ export default function AcompanhamentoRecursos() {
                             </TableCell>
                             <TableCell>
                               <Badge variant="outline">
-                                {item.status === "deferido" ? "Deferido" : item.status === "indeferido" ? "Indeferido" : item.status === "enviado" ? "Enviado" : "Pendente"}
+                                {item.status === "deferido" || item.status === "recurso_deferido" ? "Deferido" : item.status === "indeferido" || item.status === "recurso_indeferido" ? "Indeferido" : item.status === "enviado" || item.status === "recurso_enviado" ? "Enviado" : item.status === "recurso_criado" ? "Criado" : "Pendente"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary">
+                                {item.fonte === "demonstrativo" ? "Demonstrativo" : item.fonte === "conciliacao" ? "Conciliação" : item.fonte === "xml_lote" ? "XML histórico" : "Recurso"}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-center">
-                              {editandoItem === item.id ? (
+                              {item.editavelPagamento !== false && editandoItem === item.id ? (
                                 <div className="flex gap-1 justify-center">
                                   <Button size="sm" variant="ghost" onClick={handleSalvarPagamento} disabled={salvandoItem} className="h-7 px-2 text-green-600 hover:text-green-700">
                                     {salvandoItem ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -881,10 +889,12 @@ export default function AcompanhamentoRecursos() {
                                     <XCircle className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              ) : (
+                              ) : item.editavelPagamento !== false ? (
                                 <Button size="sm" variant="ghost" onClick={() => handleEditarItem(item)} className="h-7 px-2" title="Editar pagamento">
                                   <FileText className="h-4 w-4" />
                                 </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Somente leitura</span>
                               )}
                             </TableCell>
                           </TableRow>

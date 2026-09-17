@@ -4599,3 +4599,13 @@
 - [x] Definir execução contínua, auditoria, permissões e isolamento por estabelecimento
 - [x] Entregar o plano por etapas para escolha do primeiro módulo
 - [ ] Definir com o usuário o estabelecimento, convênio e nível de automação do piloto
+
+- [x] Identificar os cinco estabelecimentos com recursos históricos: PSI 631, Hospital Urológico 96, Maternidade Ela 80, Nossa Senhora de Inhumas 64 e OX UTI 39
+- [x] Auditar 910 recursos ativos, 25 lotes e os vínculos entre `demonstrativo`, conciliação, `decisoesGlosa`, `recursosGlosa` e históricos por estabelecimento e convênio
+- [x] Corrigir a visibilidade por estabelecimento, removendo o criador como escopo de leitura e preservando-o somente para auditoria
+- [x] Classificar os lotes históricos sem inventar dados: seis recuperáveis e um lote sem itens comprováveis
+- [x] Implementar autorização por estabelecimento, recurso, lote e convênio, com bloqueio de itens cruzados na criação de lotes
+- [x] Recuperar na tela 821 itens comprováveis de seis lotes: 688 do demonstrativo e 133 do lote híbrido 330001
+- [x] Preservar o lote 300001 como pendência auditável de 195 itens e R$ 829,14, sem recriar detalhes porque os itens não existem no banco e o XML histórico está indisponível
+- [x] Validar 910 recursos, 821 itens recuperados, exportação de 133 itens/R$ 2.207,29, 19 testes direcionados, build aprovado e TypeScript focado sem erros novos
+- [ ] Salvar checkpoint, sincronizar o GitHub e preparar a versão para publicação no portal

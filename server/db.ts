@@ -2002,7 +2002,7 @@ export async function updateRecursoGlosa(
 }
 
 export async function getRecursosGlosa(
-  userId: number,
+  _userId: number,
   filters?: {
     convenioId?: number;
     estabelecimentoId?: number;
@@ -2018,7 +2018,9 @@ export async function getRecursosGlosa(
   const db = await getDb();
   if (!db) return { recursos: [], total: 0 };
 
-  const conditions: any[] = [eq(recursosGlosa.userId, userId)];
+  // A rota valida o acesso ao estabelecimento. O criador permanece como
+  // auditoria e não pode ocultar recursos dos demais usuários autorizados.
+  const conditions: any[] = [];
 
   if (filters?.estabelecimentoId) {
     conditions.push(eq(recursosGlosa.estabelecimentoId, filters.estabelecimentoId));
@@ -2124,7 +2126,7 @@ export async function getRecursoById(id: number) {
  * Buscar recursos para exportação (sem paginação)
  */
 export async function getRecursosParaExportacao(
-  userId: number,
+  _userId: number,
   filters?: {
     convenioId?: number;
     estabelecimentoId?: number;
@@ -2137,7 +2139,7 @@ export async function getRecursosParaExportacao(
   const db = await getDb();
   if (!db) return [];
 
-  const conditions: any[] = [eq(recursosGlosa.userId, userId)];
+  const conditions: any[] = [];
 
   if (filters?.convenioId) {
     conditions.push(eq(recursosGlosa.convenioId, filters.convenioId));
@@ -2204,11 +2206,11 @@ export async function addHistoricoRecurso(historico: InsertHistoricoRecurso) {
   await db.insert(historicoRecursos).values(historico);
 }
 
-export async function getEstatisticasRecursos(userId: number, estabelecimentoId?: number) {
+export async function getEstatisticasRecursos(_userId: number, estabelecimentoId?: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const conditions: any[] = [eq(recursosGlosa.userId, userId)];
+  const conditions: any[] = [];
   if (estabelecimentoId) {
     conditions.push(eq(recursosGlosa.estabelecimentoId, estabelecimentoId));
   }
@@ -2216,7 +2218,7 @@ export async function getEstatisticasRecursos(userId: number, estabelecimentoId?
   const recursos = await db
     .select()
     .from(recursosGlosa)
-    .where(and(...conditions));
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
 
   const stats = {
     total: recursos.length,
@@ -3642,6 +3644,7 @@ export async function registrarHistoricoContestacao(data: {
 
 export async function getHistoricoContestacoes(params: {
   userId: number;
+  estabelecimentoId: number;
   convenioId?: number;
   codigoGlosa?: string;
   resultado?: string;
@@ -3651,7 +3654,9 @@ export async function getHistoricoContestacoes(params: {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, totalPages: 0 };
   
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [
+    eq(recursosGlosa.estabelecimentoId, params.estabelecimentoId),
+  ];
   
   if (params.convenioId) {
     conditions.push(eq(historicoContestacoes.convenioId, params.convenioId));
@@ -3684,6 +3689,7 @@ export async function getHistoricoContestacoes(params: {
         convenioNome: convenios.nome,
       })
       .from(historicoContestacoes)
+      .innerJoin(recursosGlosa, eq(historicoContestacoes.recursoId, recursosGlosa.id))
       .leftJoin(convenios, eq(historicoContestacoes.convenioId, convenios.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(historicoContestacoes.createdAt))
@@ -3692,6 +3698,7 @@ export async function getHistoricoContestacoes(params: {
     db
       .select({ count: sql<number>`count(*)` })
       .from(historicoContestacoes)
+      .innerJoin(recursosGlosa, eq(historicoContestacoes.recursoId, recursosGlosa.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined),
   ]);
 
@@ -3707,11 +3714,15 @@ export async function getEstatisticasContestacaoPorCodigo(params: {
   codigoGlosa: string;
   convenioId?: number;
   userId: number;
+  estabelecimentoId: number;
 }) {
   const db = await getDb();
   if (!db) return { codigoGlosa: params.codigoGlosa, descricao: '', total: 0, deferidos: 0, deferidosParcial: 0, indeferidos: 0, pendentes: 0, taxaSucesso: 0, valorTotalGlosado: 0, valorTotalRecuperado: 0 };
   
-  const conditions: SQL[] = [eq(historicoContestacoes.codigoGlosa, params.codigoGlosa)];
+  const conditions: SQL[] = [
+    eq(historicoContestacoes.codigoGlosa, params.codigoGlosa),
+    eq(recursosGlosa.estabelecimentoId, params.estabelecimentoId),
+  ];
   
   if (params.convenioId) {
     conditions.push(eq(historicoContestacoes.convenioId, params.convenioId));
@@ -3724,10 +3735,11 @@ export async function getEstatisticasContestacaoPorCodigo(params: {
       deferidosParcial: sql<number>`sum(case when resultado = 'deferido_parcial' then 1 else 0 end)`,
       indeferidos: sql<number>`sum(case when resultado = 'indeferido' then 1 else 0 end)`,
       pendentes: sql<number>`sum(case when resultado = 'pendente' then 1 else 0 end)`,
-      valorTotalGlosado: sql<number>`sum(CAST(valor_glosado AS DECIMAL(10,2)))`,
-      valorTotalRecuperado: sql<number>`sum(CAST(valor_recuperado AS DECIMAL(10,2)))`,
+      valorTotalGlosado: sql<number>`sum(CAST(${historicoContestacoes.valorGlosado} AS DECIMAL(10,2)))`,
+      valorTotalRecuperado: sql<number>`sum(CAST(${historicoContestacoes.valorRecuperado} AS DECIMAL(10,2)))`,
     })
     .from(historicoContestacoes)
+    .innerJoin(recursosGlosa, eq(historicoContestacoes.recursoId, recursosGlosa.id))
     .where(and(...conditions));
 
   const total = stats[0]?.total || 0;
@@ -3752,10 +3764,12 @@ export async function getMelhoresArgumentos(params: {
   codigoGlosa: string;
   convenioId?: number;
   userId: number;
+  estabelecimentoId: number;
   limit: number;
 }) {
   const conditions: SQL[] = [
     eq(historicoContestacoes.codigoGlosa, params.codigoGlosa),
+    eq(recursosGlosa.estabelecimentoId, params.estabelecimentoId),
     or(
       eq(historicoContestacoes.resultado, "deferido"),
       eq(historicoContestacoes.resultado, "deferido_parcial")
@@ -3778,6 +3792,7 @@ export async function getMelhoresArgumentos(params: {
       dataContestacao: historicoContestacoes.dataContestacao,
     })
     .from(historicoContestacoes)
+    .innerJoin(recursosGlosa, eq(historicoContestacoes.recursoId, recursosGlosa.id))
     .leftJoin(convenios, eq(historicoContestacoes.convenioId, convenios.id))
     .where(and(...conditions))
     .orderBy(desc(historicoContestacoes.dataContestacao))
@@ -3789,6 +3804,7 @@ export async function getMelhoresArgumentos(params: {
 export async function sugerirArgumentoComIA(params: {
   codigoGlosa: string;
   convenioId: number;
+  estabelecimentoId: number;
   codigoProcedimento?: string;
   valorGlosado?: string;
   userId: number;
@@ -3804,6 +3820,7 @@ export async function sugerirArgumentoComIA(params: {
     codigoGlosa: params.codigoGlosa,
     convenioId: params.convenioId,
     userId: params.userId,
+    estabelecimentoId: params.estabelecimentoId,
     limit: 3,
   });
   
@@ -3812,6 +3829,7 @@ export async function sugerirArgumentoComIA(params: {
     codigoGlosa: params.codigoGlosa,
     convenioId: params.convenioId,
     userId: params.userId,
+    estabelecimentoId: params.estabelecimentoId,
   });
   
   // Buscar nome do convênio
@@ -4591,7 +4609,8 @@ export async function getDemonstrativoById(id: number) {
  */
 export async function buscarHistoricoDecisoes(
   codigoGlosa: string,
-  convenioId?: number
+  convenioId: number | undefined,
+  estabelecimentoId: number,
 ): Promise<{
   totalDecisoes: number;
   totalAceitas: number;
@@ -4619,13 +4638,25 @@ export async function buscarHistoricoDecisoes(
   }
 
   try {
-    const conditions = [eq(decisoesGlosa.codigoGlosa, codigoGlosa)];
+    const conditions = [
+      eq(decisoesGlosa.codigoGlosa, codigoGlosa),
+      or(
+        eq(demonstrativo.estabelecimentoId, estabelecimentoId),
+        eq(recursosGlosa.estabelecimentoId, estabelecimentoId),
+      )!,
+    ];
     if (convenioId) {
       conditions.push(eq(decisoesGlosa.convenioId, convenioId));
     }
 
-    const decisoes = await db.select()
+    const decisoes = await db.select({
+        decisao: decisoesGlosa.decisao,
+        resultadoRecurso: decisoesGlosa.resultadoRecurso,
+        motivoDecisao: decisoesGlosa.motivoDecisao,
+      })
       .from(decisoesGlosa)
+      .leftJoin(demonstrativo, eq(decisoesGlosa.procedimentoId, demonstrativo.id))
+      .leftJoin(recursosGlosa, eq(decisoesGlosa.recursoId, recursosGlosa.id))
       .where(and(...conditions));
 
     const totalDecisoes = decisoes.length;
@@ -4700,6 +4731,7 @@ export async function buscarHistoricoDecisoes(
  * Classifica automaticamente glosas com base no histórico
  */
 export async function classificarGlosasAutomaticamente(
+  estabelecimentoId: number,
   convenioId?: number,
   limiteConfianca: number = 70
 ): Promise<{ classificados: number; erros: number }> {
@@ -4713,6 +4745,7 @@ export async function classificarGlosasAutomaticamente(
     // Buscar procedimentos glosados pendentes de classificação
     const conditions = [
       eq(demonstrativo.classificacaoGlosa, "pendente"),
+      eq(demonstrativo.estabelecimentoId, estabelecimentoId),
     ];
 
     const procs = await db.select()
@@ -4731,7 +4764,7 @@ export async function classificarGlosasAutomaticamente(
       if (!codigoGlosa) continue;
 
       // Buscar histórico para este código de glosa
-      const historico = await buscarHistoricoDecisoes(codigoGlosa, arq.convenioId);
+      const historico = await buscarHistoricoDecisoes(codigoGlosa, arq.convenioId, estabelecimentoId);
 
       if (historico.confianca >= limiteConfianca && historico.decisaoRecomendada !== "pendente") {
         const classificacao = historico.decisaoRecomendada === "aceitar" ? "auto_aceitar" : "auto_recursar";
@@ -4763,6 +4796,7 @@ export async function classificarGlosasAutomaticamente(
 export async function sugerirClassificacaoGlosa(
   codigoGlosa: string,
   convenioId: number,
+  estabelecimentoId: number,
   codigoProcedimento?: string
 ): Promise<{
   sugestao: "aceitar" | "recursar" | "pendente";
@@ -4771,7 +4805,7 @@ export async function sugerirClassificacaoGlosa(
   taxaSucessoRecurso: number;
   motivo: string;
 }> {
-  const historico = await buscarHistoricoDecisoes(codigoGlosa, convenioId);
+  const historico = await buscarHistoricoDecisoes(codigoGlosa, convenioId, estabelecimentoId);
 
   let motivo = "";
   if (historico.decisaoRecomendada === "aceitar") {
@@ -8685,6 +8719,19 @@ export async function recalcularTotalLote(loteId: number): Promise<{ success: bo
 /**
  * Busca detalhes de um lote de recurso com seus recursos
  */
+export async function getLoteRecursoById(loteId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [lote] = await db
+    .select()
+    .from(lotesRecurso)
+    .where(eq(lotesRecurso.id, loteId))
+    .limit(1);
+
+  return lote || null;
+}
+
 export async function getDetalhesLoteRecurso(loteId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -8697,7 +8744,44 @@ export async function getDetalhesLoteRecurso(loteId: number) {
 
   if (!lote) return null;
 
-  // Buscar recursos do lote
+  const [demoRows] = await db.execute(sql.raw(`
+    SELECT
+      d.id,
+      d.numero_guia AS guiaNumero,
+      d.codigo_item AS codigoProcedimento,
+      d.descricao_item AS descricaoProcedimento,
+      d.nome_beneficiario AS pacienteNome,
+      d.valor_glosa AS valorGlosado,
+      COALESCE(d.valor_recurso, d.valor_glosa) AS valorRecursado,
+      d.valor_pago AS valorRecebido,
+      d.data_pagamento AS dataPagamento,
+      d.recurso_status AS status,
+      d.codigo_glosa AS motivoGlosa,
+      d.justificativa_recurso AS justificativa
+    FROM demonstrativo d
+    WHERE d.recurso_id = ${Number(loteId)}
+    ORDER BY d.nome_beneficiario, d.numero_guia, d.id
+  `));
+
+  const [concRows] = await db.execute(sql.raw(`
+    SELECT
+      ca.id,
+      ca.numeroGuia AS guiaNumero,
+      ca.codigoItem AS codigoProcedimento,
+      ca.descricaoItem AS descricaoProcedimento,
+      ca.pacienteNome,
+      ca.valorGlosa AS valorGlosado,
+      COALESCE(ca.valorRecurso, ca.valorGlosa) AS valorRecursado,
+      ca.valorPago AS valorRecebido,
+      NULL AS dataPagamento,
+      ca.statusRecursoItem AS status,
+      ca.codigoGlosa AS motivoGlosa,
+      '' AS justificativa
+    FROM conciliados_automatico ca
+    WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
+    ORDER BY ca.pacienteNome, ca.numeroGuia, ca.id
+  `));
+
   const recursosDoLote = await db
     .select()
     .from(recursosGlosa)
@@ -8714,29 +8798,78 @@ export async function getDetalhesLoteRecurso(loteId: number) {
     ? await db.select().from(estabelecimentos).where(eq(estabelecimentos.id, lote.estabelecimentoId)).limit(1)
     : [null];
 
-  // Mapear recursos para itens com campos de pagamento
-  const itens = recursosDoLote.map(r => ({
+  const itensDemonstrativo = (demoRows as unknown as any[]).map(r => ({
+    ...r,
+    chaveItem: `demonstrativo-${r.id}`,
+    fonte: "demonstrativo",
+    editavelPagamento: false,
+    valorGlosado: String(r.valorGlosado || "0"),
+    valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
+    valorRecebido: String(r.valorRecebido || "0"),
+  }));
+
+  const itensConciliacao = (concRows as unknown as any[]).map(r => ({
+    ...r,
+    chaveItem: `conciliacao-${r.id}`,
+    fonte: "conciliacao",
+    editavelPagamento: false,
+    valorGlosado: String(r.valorGlosado || "0"),
+    valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
+    valorRecebido: String(r.valorRecebido || "0"),
+  }));
+
+  const itensLegados = recursosDoLote.map(r => ({
     id: r.id,
+    chaveItem: `recursos_glosa-${r.id}`,
+    fonte: "recursos_glosa",
+    editavelPagamento: true,
     guiaNumero: r.guiaNumero,
     codigoProcedimento: r.codigoProcedimento,
     descricaoProcedimento: r.descricaoProcedimento,
     pacienteNome: r.pacienteNome,
     valorGlosado: r.valorGlosado,
-    valorRecursado: r.valorCobrado, // valorRecursado = valorCobrado (valor que foi cobrado/recursado)
+    valorRecursado: r.valorCobrado,
     valorRecebido: r.valorRecebido || "0",
     dataPagamento: r.dataPagamento,
     status: r.status,
-    motivoGlosa: r.motivoGlosaConvenio, // Campo correto é motivoGlosaConvenio
-    justificativa: r.justificativaRecurso, // Campo correto é justificativaRecurso
+    motivoGlosa: r.motivoGlosaConvenio,
+    justificativa: r.justificativaRecurso,
   }));
+
+  let itens: any[] = [...itensDemonstrativo, ...itensConciliacao, ...itensLegados];
+
+  // Lotes muito antigos podem conservar somente o XML enviado.
+  if (itens.length === 0 && lote.xmlUrl) {
+    const exportacao = await getRecursosLoteParaExportacao(loteId);
+    itens = (exportacao?.recursos || []).map((r: any, index: number) => ({
+      id: r.id || index + 1,
+      chaveItem: r.chaveItem || `xml_lote-${index + 1}`,
+      fonte: r.fonte || "xml_lote",
+      editavelPagamento: false,
+      guiaNumero: r.guia,
+      codigoProcedimento: r.codigoProcedimento,
+      descricaoProcedimento: r.descricaoProcedimento,
+      pacienteNome: r.paciente,
+      valorGlosado: String(r.valorGlosado || "0"),
+      valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
+      valorRecebido: String(r.valorRecebido || "0"),
+      dataPagamento: r.dataPagamento || null,
+      status: r.status,
+      motivoGlosa: r.motivoGlosa,
+      justificativa: r.descricaoRecurso,
+    }));
+  }
 
   return {
     ...lote,
     convenioNome: convenio?.nome || "Não informado",
     estabelecimentoNome: estabelecimento?.nome || "Não informado",
-    recursos: recursosDoLote,
+    recursos: itens,
     itens: itens,
-    totalRecursos: recursosDoLote.length,
+    totalRecursos: itens.length,
+    itensRegistrados: Number(lote.quantidadeItens || 0),
+    itensLocalizados: itens.length,
+    historicoIncompleto: itens.length < Number(lote.quantidadeItens || 0),
     valorTotalRecebido: lote.valorTotalRecebido || "0",
   };
 }
@@ -9706,10 +9839,12 @@ export async function criarLoteRecurso(params: {
   if (!db) throw new Error("Database not available");
 
   // Separar IDs por fonte
-  const demoIds = (params.demonstrativoIds && params.demonstrativoIds.length > 0)
-    ? params.demonstrativoIds
-    : params.recursosIds;
-  const concIds = params.conciliacaoIds || [];
+  const demoIds = Array.from(new Set(
+    (params.demonstrativoIds && params.demonstrativoIds.length > 0)
+      ? params.demonstrativoIds
+      : params.recursosIds,
+  ));
+  const concIds = Array.from(new Set(params.conciliacaoIds || []));
 
   if (demoIds.length === 0 && concIds.length === 0) {
     throw new Error("Nenhum item selecionado para o lote");
@@ -9733,14 +9868,19 @@ export async function criarLoteRecurso(params: {
   if (demoIds.length > 0) {
     const demoIdsStr = demoIds.join(',');
     const [demoRows2] = await db.execute(sql.raw(`
-      SELECT id, COALESCE(valor_glosa, 0) as valor_glosa, COALESCE(valor_recurso, valor_glosa, 0) as valor_recurso
+      SELECT id, COALESCE(valor_glosa, 0) as valorGlosa, COALESCE(valor_recurso, valor_glosa, 0) as valorRecurso
       FROM demonstrativo
       WHERE id IN (${demoIdsStr})
+        AND estabelecimentoId = ${params.estabelecimentoId}
+        AND convenio_id = ${params.convenioId}
     `));
-    const demoArray = demoRows2 as any[];
+    const demoArray = demoRows2 as unknown as any[];
+    if (demoArray.length !== demoIds.length) {
+      throw new Error("Um ou mais itens do demonstrativo não pertencem ao estabelecimento e convênio do lote");
+    }
     for (const item of demoArray) {
-      valorTotalGlosado += parseFloat(item.valor_glosa || "0");
-      valorTotalRecursado += parseFloat(item.valor_recurso || item.valor_glosa || "0");
+      valorTotalGlosado += parseFloat(item.valorGlosa || "0");
+      valorTotalRecursado += parseFloat(item.valorRecurso || item.valorGlosa || "0");
     }
     totalItens += demoArray.length;
   }
@@ -9752,8 +9892,13 @@ export async function criarLoteRecurso(params: {
       SELECT id, COALESCE(valorGlosa, 0) as valorGlosa, COALESCE(valorRecurso, valorGlosa, 0) as valorRecurso
       FROM conciliados_automatico
       WHERE id IN (${concIdsStr})
+        AND estabelecimentoId = ${params.estabelecimentoId}
+        AND convenioId = ${params.convenioId}
     `));
-    const concArray = concRows2 as any[];
+    const concArray = concRows2 as unknown as any[];
+    if (concArray.length !== concIds.length) {
+      throw new Error("Um ou mais itens da conciliação não pertencem ao estabelecimento e convênio do lote");
+    }
     for (const item of concArray) {
       valorTotalGlosado += parseFloat(item.valorGlosa || "0");
       valorTotalRecursado += parseFloat(item.valorRecurso || item.valorGlosa || "0");
@@ -9788,9 +9933,11 @@ export async function criarLoteRecurso(params: {
   if (demoIds.length > 0) {
     const demoIdsStr = demoIds.join(',');
     await db.execute(sql.raw(`
-      UPDATE demonstrativo 
+      UPDATE demonstrativo
       SET recurso_id = ${loteId}, recurso_status = 'recurso_enviado'
       WHERE id IN (${demoIdsStr})
+        AND estabelecimentoId = ${params.estabelecimentoId}
+        AND convenio_id = ${params.convenioId}
     `));
   }
 
@@ -9798,9 +9945,11 @@ export async function criarLoteRecurso(params: {
   if (concIds.length > 0) {
     const concIdsStr = concIds.join(',');
     await db.execute(sql.raw(`
-      UPDATE conciliados_automatico 
+      UPDATE conciliados_automatico
       SET statusRecursoItem = 'recurso_enviado', xmlRecursoLoteId = ${loteId}
       WHERE id IN (${concIdsStr})
+        AND estabelecimentoId = ${params.estabelecimentoId}
+        AND convenioId = ${params.convenioId}
     `));
   }
 
@@ -10065,6 +10214,10 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
 
   // Formatar dados para exportação - Padrão Unimed
   const dadosExportacao = recursosDoLote.map((recurso, index) => ({
+    id: recurso.id,
+    chaveItem: `${recurso.fonte || 'recursos_glosa'}-${recurso.id || index + 1}`,
+    fonte: recurso.fonte || 'recursos_glosa',
+    editavelPagamento: recurso.fonte === 'antigo',
     // Campos padrão
     numero: index + 1,
     paciente: recurso.pacienteNome || "N/A",
@@ -10532,7 +10685,7 @@ export async function gerarXmlsRecursoGlosaPorProtocolo(loteId: number): Promise
     const senha = complementar?.senha || "";
     const guiaOperadora = complementar?.guiaOperadora || guiaNumero;
 
-    const itensXml = recursos.map((recurso, index) => {
+    const itensXml = recursos.map((recurso: any, index: number) => {
       // Buscar data de execução real do faturamento/demonstrativo
       let dataExecucao = dataAtual;
       if (recurso.dataGlosa) {

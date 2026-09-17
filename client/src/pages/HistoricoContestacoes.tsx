@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +50,7 @@ const ORIGEM_CONFIG: { [key: string]: { label: string; color: string; icon: any 
 
 export default function HistoricoContestacoes() {
   const { user } = useAuth();
+  const { estabelecimentoAtual } = useEstabelecimento();
   
   // Estados de filtro
   const [busca, setBusca] = useState("");
@@ -62,14 +64,18 @@ export default function HistoricoContestacoes() {
 
   // Queries
   const { data: historicoData, isLoading, refetch } = trpc.recursos.historicoContestacoes.useQuery({
+    estabelecimentoId: estabelecimentoAtual?.id!,
     convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
     codigoGlosa: busca || undefined,
     resultado: resultadoFiltro !== "todos" ? resultadoFiltro : undefined,
     page,
     limit: 20,
-  });
+  }, { enabled: !!estabelecimentoAtual?.id });
 
-  const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
+  const { data: convenios } = trpc.convenios.list.useQuery(
+    { ativo: "sim", estabelecimentoId: estabelecimentoAtual?.id },
+    { enabled: !!estabelecimentoAtual?.id },
+  );
 
   const formatCurrency = (value: string | number | null) => {
     const num = typeof value === "string" ? parseFloat(value) : value;
