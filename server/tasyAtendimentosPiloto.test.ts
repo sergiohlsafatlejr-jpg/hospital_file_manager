@@ -46,8 +46,36 @@ describe("piloto Tasy multiestabelecimento", () => {
     expect(service).toContain("progress.processedRows % 25_000 === 0");
     expect(service).toContain("isTasySnapshotCoverageSafe(activeAccounts, totalAccounts)");
     expect(service).toContain("WHERE estabelecimentoId = ?");
-    expect(service).toContain("PARTITION BY origemId");
+    expect(service).toContain("MAX(${tasyStageSortKey()}) AS latestSortKey");
+    expect(service).toContain("resumableValidatedStage");
+    expect(service).toContain("publicationBatchSize = 5_000");
+    expect(service).toContain("await upsertTasyStageBatch");
     expect(service).toContain("ON DUPLICATE KEY UPDATE");
+  });
+
+  it("mapeia Tipo pela Categoria e interpreta as datas DD/MM/AA do Tasy", () => {
+    const service = read("server/tasyCsvImportService.ts");
+    const cli = read("scripts/importar-atendimentos-tasy-csv.ts");
+    expect(service).toContain('values.CATEGORIA || null');
+    expect(service).toContain('parseTasyDate(values.ENTRADA)');
+    expect(service).toContain('parseTasyDate(values.SAIDA)');
+    expect(service).toContain('entrada, saida, categoria, procedimento');
+    expect(service).toContain('tipo_atendimento = VALUES(tipo_atendimento)');
+    expect(service).toContain('!options.forceReprocess');
+    expect(cli).toContain('--forcar-reprocessamento');
+    expect(read("server/routers.ts")).toContain('serializeTasyCivilDate(d.data_entrada)');
+  });
+
+  it("remove o convênio Particular da visão e usa ausência de título como pendência", () => {
+    const router = read("server/routers.ts");
+    const tasyRouter = read("server/routers/tasyImportacaoRouter.ts");
+    const page = read("client/src/pages/AtendimentosUnificados.tsx");
+    expect(router).toContain("!= 'PARTICULAR'");
+    expect(router).toContain("TRIM(${atendimentosUnificados.titulo}) = ''");
+    expect(tasyRouter).toContain("titulo IS NULL OR TRIM(titulo) = ''");
+    expect(tasyRouter).toContain("pendenciasPorEtapa");
+    expect(page).toContain("AtendimentosPendenciasEtapa");
+    expect(page).toContain("Particulares não incluídos");
   });
 
   it("usa upload em disco, execução síncrona e confirmação explícita do snapshot", () => {

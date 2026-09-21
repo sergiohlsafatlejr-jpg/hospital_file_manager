@@ -45,15 +45,30 @@ export const tasyImportacaoRouter = router({
       const [rows] = await pool.query<any[]>(`
         SELECT
           COUNT(*) AS totalContas,
-          SUM(CASE WHEN LOWER(TRIM(COALESCE(etapaConta, ''))) = 'conta em protocolo com titulo (finalizada)' THEN 1 ELSE 0 END) AS finalizadas,
-          SUM(CASE WHEN LOWER(TRIM(COALESCE(etapaConta, ''))) != 'conta em protocolo com titulo (finalizada)' THEN 1 ELSE 0 END) AS pendentes,
+          SUM(CASE WHEN titulo IS NOT NULL AND TRIM(titulo) != '' THEN 1 ELSE 0 END) AS finalizadas,
+          SUM(CASE WHEN titulo IS NULL OR TRIM(titulo) = '' THEN 1 ELSE 0 END) AS pendentes,
           COALESCE(SUM(valorConta), 0) AS valorTotal,
-          COALESCE(SUM(CASE WHEN LOWER(TRIM(COALESCE(etapaConta, ''))) != 'conta em protocolo com titulo (finalizada)' THEN valorConta ELSE 0 END), 0) AS valorPendente,
+          COALESCE(SUM(CASE WHEN titulo IS NULL OR TRIM(titulo) = '' THEN valorConta ELSE 0 END), 0) AS valorPendente,
           MAX(dataSincronizacao) AS ultimaSincronizacao
         FROM atendimentos_unificados
         WHERE estabelecimentoId = ?
           AND origemSistema IN ('tasy', 'tasy_hemolabor')
           AND ativoNaFonte = 1
+          AND UPPER(TRIM(COALESCE(convenio, ''))) != 'PARTICULAR'
+      `, [input.estabelecimentoId]);
+      const [pendingStageRows] = await pool.query<any[]>(`
+        SELECT
+          COALESCE(NULLIF(TRIM(etapaConta), ''), 'Sem etapa') AS etapa,
+          COUNT(*) AS contas,
+          COALESCE(SUM(valorConta), 0) AS valorPendente
+        FROM atendimentos_unificados
+        WHERE estabelecimentoId = ?
+          AND origemSistema IN ('tasy', 'tasy_hemolabor')
+          AND ativoNaFonte = 1
+          AND UPPER(TRIM(COALESCE(convenio, ''))) != 'PARTICULAR'
+          AND (titulo IS NULL OR TRIM(titulo) = '')
+        GROUP BY COALESCE(NULLIF(TRIM(etapaConta), ''), 'Sem etapa')
+        ORDER BY valorPendente DESC, contas DESC, etapa ASC
       `, [input.estabelecimentoId]);
       const row = rows[0] || {};
       return {
@@ -63,6 +78,11 @@ export const tasyImportacaoRouter = router({
         valorTotal: Number(row.valorTotal || 0),
         valorPendente: Number(row.valorPendente || 0),
         ultimaSincronizacao: row.ultimaSincronizacao || null,
+        pendenciasPorEtapa: pendingStageRows.map((stage) => ({
+          etapa: String(stage.etapa || "Sem etapa"),
+          contas: Number(stage.contas || 0),
+          valorPendente: Number(stage.valorPendente || 0),
+        })),
       };
     }),
 

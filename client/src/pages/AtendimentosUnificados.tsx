@@ -28,6 +28,7 @@ import {
   AtendimentosKPIs,
   AtendimentosFiltros,
   AtendimentosDistribuicao,
+  AtendimentosPendenciasEtapa,
   AtendimentosTabela,
   NotificacaoModal,
   NotificacaoLoteModal,
@@ -242,9 +243,15 @@ export default function AtendimentosUnificados() {
     let internacao = 0, exame = 0, ambulatorio = 0, prontoSocorro = 0;
     tipos.forEach(t => {
       const upper = t.value.toUpperCase();
-      if (upper.includes("INTERNADO") || upper.includes("INTERNACAO") || upper.includes("INTERNAÇÃO")) internacao += t.count;
+      if (
+        upper.includes("INTERNADO")
+        || upper.includes("INTERNACAO")
+        || upper.includes("INTERNAÇÃO")
+        || upper.includes("APARTAMENTO")
+        || upper.includes("ENFERMARIA")
+      ) internacao += t.count;
       else if (upper.includes("EXAME")) exame += t.count;
-      else if (upper.includes("AMBULAT")) ambulatorio += t.count;
+      else if (upper.includes("AMBULAT") || upper.includes("AMBULT")) ambulatorio += t.count;
       else if (upper.includes("PRONTO") || upper.includes("SOCORRO")) prontoSocorro += t.count;
     });
     return { total: serverTotal, internacao, exame, ambulatorio, prontoSocorro };
@@ -564,13 +571,14 @@ export default function AtendimentosUnificados() {
                 <Database className="h-5 w-5 text-teal-700" />
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-teal-700">Fonte Tasy</p>
-                  <p className="font-semibold">{tasyResumo?.totalContas.toLocaleString("pt-BR") || 0} contas ativas</p>
+                  <p className="font-semibold">{tasyResumo?.totalContas.toLocaleString("pt-BR") || 0} contas exibidas</p>
+                  <p className="text-xs text-teal-700">Particulares não incluídos</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <FileText className="h-5 w-5 text-amber-700" />
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Pendentes</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Sem título</p>
                   <p className="font-semibold">{tasyResumo?.pendentes.toLocaleString("pt-BR") || 0} contas</p>
                 </div>
               </div>
@@ -605,6 +613,14 @@ export default function AtendimentosUnificados() {
             filtroTipoAtivo={filtros.tipo}
             onFiltroTipo={(tipo) => handleFiltroChange("tipo", tipo)}
           />
+
+          {isTasyLayout && (
+            <AtendimentosPendenciasEtapa
+              items={tasyResumo?.pendenciasPorEtapa || []}
+              filtroAtivo={filtros.etapa}
+              onFiltro={(etapa) => handleFiltroChange("etapa", etapa)}
+            />
+          )}
 
           {/* Distribuições */}
           {distribuicaoPlano.length > 0 && (

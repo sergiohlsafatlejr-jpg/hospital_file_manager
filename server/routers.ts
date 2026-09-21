@@ -48,6 +48,7 @@ import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
+import { serializeTasyCivilDate } from "./tasyCivilDate";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -8050,6 +8051,12 @@ export const appRouter = router({
           baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
           baseConditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
           baseConditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+          baseConditions.push(
+            or(
+              sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
+              sql`UPPER(TRIM(COALESCE(${atendimentosUnificados.convenio}, ''))) != 'PARTICULAR'`
+            )!
+          );
           // Não filtrar por data_saida IS NULL - para WARLEINE/EASYVISION a query externa já traz apenas os atendimentos relevantes
           // Para TASY, a situação pendente/finalizada é escolhida explicitamente pelo usuário.
 
@@ -8057,9 +8064,6 @@ export const appRouter = router({
           const filterConditions: any[] = [...baseConditions];
           if (input.origemSistema && input.origemSistema !== 'all') {
             filterConditions.push(eq(atendimentosUnificados.origemSistema, input.origemSistema));
-          }
-          if (input.tipo) {
-            filterConditions.push(like(atendimentosUnificados.tipo_atendimento, `%${input.tipo}%`));
           }
           if (input.convenio) {
             filterConditions.push(eq(atendimentosUnificados.convenio, input.convenio));
@@ -8071,14 +8075,14 @@ export const appRouter = router({
             filterConditions.push(
               or(
                 sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
-                isNull(atendimentosUnificados.etapaConta),
-                sql`LOWER(TRIM(${atendimentosUnificados.etapaConta})) != 'conta em protocolo com titulo (finalizada)'`
+                sql`${atendimentosUnificados.titulo} IS NULL OR TRIM(${atendimentosUnificados.titulo}) = ''`
               )!
             );
           } else if (input.situacao === "finalizadas") {
             filterConditions.push(
               sql`${atendimentosUnificados.origemSistema} IN ('tasy', 'tasy_hemolabor')
-                  AND LOWER(TRIM(${atendimentosUnificados.etapaConta})) = 'conta em protocolo com titulo (finalizada)'`
+                  AND ${atendimentosUnificados.titulo} IS NOT NULL
+                  AND TRIM(${atendimentosUnificados.titulo}) != ''`
             );
           }
           if (input.descricao) {
@@ -8147,6 +8151,31 @@ export const appRouter = router({
             );
           }
 
+          const aggregationWhereClause = and(...filterConditions);
+          if (input.tipo) {
+            const normalizedType = input.tipo.toUpperCase();
+            if (normalizedType === 'INTERNACAO') {
+              filterConditions.push(sql`(
+                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%INTERN%'
+                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%APARTAMENTO%'
+                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%ENFERMARIA%'
+              )`);
+            } else if (normalizedType === 'AMBULAT') {
+              filterConditions.push(sql`(
+                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%AMBULAT%'
+                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%AMBULT%'
+              )`);
+            } else if (normalizedType === 'EXAME') {
+              filterConditions.push(sql`UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%EXAME%'`);
+            } else if (normalizedType === 'PRONTO') {
+              filterConditions.push(sql`(
+                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%PRONTO%'
+                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%SOCORRO%'
+              )`);
+            } else {
+              filterConditions.push(like(atendimentosUnificados.tipo_atendimento, `%${input.tipo}%`));
+            }
+          }
           const whereClause = and(...filterConditions);
           const baseWhereClause = and(...baseConditions);
 
@@ -8186,7 +8215,7 @@ export const appRouter = router({
 
           // Agregações para filtros (sobre dados base, sem filtros de usuário)
           const [tiposR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
-            dbInstance.execute(sql`SELECT tipo_atendimento as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND tipo_atendimento IS NOT NULL AND tipo_atendimento != '' GROUP BY tipo_atendimento ORDER BY cnt DESC LIMIT 50`),
+            dbInstance.execute(sql`SELECT tipo_atendimento as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} AND tipo_atendimento IS NOT NULL AND tipo_atendimento != '' GROUP BY tipo_atendimento ORDER BY cnt DESC LIMIT 50`),
             dbInstance.execute(sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`),
             dbInstance.execute(sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`),
             dbInstance.execute(sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`),
@@ -8224,8 +8253,16 @@ export const appRouter = router({
             convenio: d.convenio || "",
             paciente: d.paciente || "",
             caracter_atendimento: d.caracter_atendimento || "",
-            data_entrada: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
-            data_saida: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+            data_entrada: d.data_entrada
+              ? ((d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+                  ? (serializeTasyCivilDate(d.data_entrada) || "")
+                  : new Date(d.data_entrada).toISOString())
+              : "",
+            data_saida: d.data_saida
+              ? ((d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+                  ? serializeTasyCivilDate(d.data_saida)
+                  : new Date(d.data_saida).toISOString())
+              : null,
             tipo_atendimento: d.tipo_atendimento || "",
             descricao_atendimento: d.descricao_atendimento || "",
             codigo_servico: d.codigo_servico || "",

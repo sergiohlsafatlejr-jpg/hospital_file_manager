@@ -111,8 +111,8 @@ export function AtendimentosFiltros({
             <SelectValue placeholder="Situação" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="pendentes">Contas pendentes</SelectItem>
-            <SelectItem value="finalizadas">Contas finalizadas</SelectItem>
+            <SelectItem value="pendentes">{isTasyLayout ? "Sem título" : "Contas pendentes"}</SelectItem>
+            <SelectItem value="finalizadas">{isTasyLayout ? "Com título" : "Contas finalizadas"}</SelectItem>
             <SelectItem value="todos">Todas as contas</SelectItem>
           </SelectContent>
         </Select>
@@ -221,7 +221,7 @@ export function AtendimentosFiltros({
           )}
           {filtros.situacao !== "pendentes" && (
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("situacao", "pendentes")}>
-              Situação: {filtros.situacao === "finalizadas" ? "Finalizadas" : "Todas"} <X className="w-3 h-3" />
+              Situação: {filtros.situacao === "finalizadas" ? (isTasyLayout ? "Com título" : "Finalizadas") : "Todas"} <X className="w-3 h-3" />
             </Badge>
           )}
           {filtros.etapa && (

@@ -239,18 +239,18 @@ export function getDiasParadoColor(dias: number): string {
 
 export function getTipoAtendimentoColor(tipo?: string | null): string {
   const t = tipo?.toUpperCase() || "";
-  if (t.includes("INTERNADO") || t.includes("INTERNACAO") || t.includes("INTERNAÇÃO")) return "bg-orange-500 text-white";
+  if (t.includes("INTERNADO") || t.includes("INTERNACAO") || t.includes("INTERNAÇÃO") || t.includes("APARTAMENTO") || t.includes("ENFERMARIA")) return "bg-orange-500 text-white";
   if (t.includes("EXAME")) return "bg-purple-500 text-white";
-  if (t.includes("AMBULAT")) return "bg-blue-500 text-white";
+  if (t.includes("AMBULAT") || t.includes("AMBULT")) return "bg-blue-500 text-white";
   if (t.includes("PRONTO") || t.includes("SOCORRO")) return "bg-red-500 text-white";
   return "bg-slate-500 text-white";
 }
 
 export function getTipoAtendimentoCategoria(tipo?: string | null): string {
   const t = tipo?.toUpperCase() || "";
-  if (t.includes("INTERNADO") || t.includes("INTERNACAO") || t.includes("INTERNAÇÃO")) return "internacao";
+  if (t.includes("INTERNADO") || t.includes("INTERNACAO") || t.includes("INTERNAÇÃO") || t.includes("APARTAMENTO") || t.includes("ENFERMARIA")) return "internacao";
   if (t.includes("EXAME")) return "exame";
-  if (t.includes("AMBULAT")) return "ambulatorio";
+  if (t.includes("AMBULAT") || t.includes("AMBULT")) return "ambulatorio";
   if (t.includes("PRONTO") || t.includes("SOCORRO")) return "pronto_socorro";
   return "outro";
 }

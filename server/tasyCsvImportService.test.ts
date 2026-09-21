@@ -5,6 +5,7 @@ import {
   isTasyFinalizedStage,
   isTasySnapshotCoverageSafe,
   normalizeTasyCompetencia,
+  parseTasyDate,
   parseTasyDecimal,
   repairTasyCsvRecord,
 } from "./tasyCsvImportService";
@@ -32,6 +33,18 @@ describe("tasyCsvImportService", () => {
     expect(parseTasyDecimal("1234.56")).toBe(1234.56);
     expect(parseTasyDecimal("")).toBeNull();
     expect(parseTasyDecimal("inválido")).toBeNull();
+  });
+
+  it("converte as datas DD/MM/AA usadas pelo CSV Hemolabor", () => {
+    expect(parseTasyDate("01/01/26")?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+    expect(parseTasyDate("21/09/26 14:30:45")?.toISOString()).toBe("2026-09-21T14:30:45.000Z");
+    expect(parseTasyDate("2026-09-21")?.toISOString()).toBe("2026-09-21T00:00:00.000Z");
+  });
+
+  it("não corrige silenciosamente datas impossíveis", () => {
+    expect(parseTasyDate("31/02/26")).toBeNull();
+    expect(parseTasyDate("texto")).toBeNull();
+    expect(parseTasyDate("")).toBeNull();
   });
 
   it("normaliza competências válidas e sinaliza anomalias", () => {

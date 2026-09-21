@@ -14,10 +14,11 @@ async function main() {
   const publish = process.argv.includes("--publicar");
   const replaceSnapshot = process.argv.includes("--substituir-snapshot");
   const allowLargeSnapshotReduction = process.argv.includes("--forcar-reducao");
+  const forceReprocess = process.argv.includes("--forcar-reprocessamento");
 
   if (!file || !Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0 || !Number.isInteger(userId) || userId <= 0) {
     throw new Error(
-      "Uso: pnpm exec tsx scripts/importar-atendimentos-tasy-csv.ts --arquivo <csv> --estabelecimento <id> --usuario <id> [--config <id>] [--publicar] [--substituir-snapshot] [--forcar-reducao]",
+      "Uso: pnpm exec tsx scripts/importar-atendimentos-tasy-csv.ts --arquivo <csv> --estabelecimento <id> --usuario <id> [--config <id>] [--publicar] [--substituir-snapshot] [--forcar-reducao] [--forcar-reprocessamento]",
     );
   }
 
@@ -31,6 +32,7 @@ async function main() {
     publish,
     replaceSnapshot,
     allowLargeSnapshotReduction,
+    forceReprocess,
     onProgress: (progress) => {
       console.error(
         `[Tasy CSV] fase=${progress.phase} processadas=${progress.processedRows} válidas=${progress.validRows} avisos=${progress.warningRows} rejeitadas=${progress.rejectedRows}`,

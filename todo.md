@@ -4723,3 +4723,11 @@
 - [x] Estabilizar paginação por ID, remover fallbacks de notificação sem unidade e validar e-mails contra o estabelecimento
 - [x] Aprovar 47 testes direcionados, build de produção e validador real com teste negativo de autorização
 - [x] Salvar checkpoint e sincronizar o piloto Tasy com o GitHub
+- [x] Corrigir o campo Tipo do Tasy para usar Categoria do CSV em todas as contas publicadas
+- [x] Interpretar datas DD/MM/AA do Hemolabor e recuperar Entrada em 139.541 contas e Saída em 9.611 contas
+- [x] Excluir automaticamente o convênio Particular da tela e dos KPIs, preservando os dados no snapshot auditável
+- [x] Definir pendência Tasy como conta sem Título e criar KPIs compactos de valor pendente por Etapa da Conta
+- [x] Substituir a publicação pesada por deduplicação compacta e upserts em lotes de 5.000 compatíveis com o limite do TiDB
+- [x] Revalidar 139.541 contas/R$ 170.470.465,96, 112.984 contas exibidas e R$ 157.974.575,41 pendentes sem título
+- [x] Aprovar 54 testes direcionados, build, check focado, idempotência e validador real dos campos corrigidos
+- [x] Serializar Entrada/Saída Tasy como datas civis YYYY-MM-DD e validar a exibição em America/Sao_Paulo sem recuo de um dia

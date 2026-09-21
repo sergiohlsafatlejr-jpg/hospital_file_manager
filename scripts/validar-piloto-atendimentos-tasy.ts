@@ -9,8 +9,13 @@ const RESULTADO_PILOTO = {
   totalRejeitadas: 0,
   totalContas: 139_541,
   valorConsolidado: 170_470_465.96,
-  pendentes: 63_201,
-  finalizadas: 76_340,
+};
+const RESULTADO_VISAO = {
+  totalContas: 112_984,
+  pendentes: 112_794,
+  comTitulo: 190,
+  valorTotal: 157_993_136.99,
+  valorPendente: 157_974_575.41,
 };
 const permitirLegado = process.argv.includes("--allow-legacy");
 
@@ -83,7 +88,10 @@ async function main() {
     const [active] = await pool.query<any[]>(`
       SELECT COUNT(*) total, ROUND(SUM(COALESCE(valorConta,0)),2) valor,
              COUNT(DISTINCT estabelecimentoId) estabelecimentos,
-             SUM(CASE WHEN ultimoLoteId<>? THEN 1 ELSE 0 END) outroLote
+             SUM(CASE WHEN ultimoLoteId<>? THEN 1 ELSE 0 END) outroLote,
+             SUM(data_entrada IS NOT NULL) comEntrada,
+             SUM(data_saida IS NOT NULL) comSaida,
+             SUM(tipo_atendimento = dsCategoria) tipoIgualCategoria
       FROM atendimentos_unificados
       WHERE estabelecimentoId=? AND origemSistema IN ('tasy','tasy_hemolabor') AND ativoNaFonte=1
     `, [lot.id, ESTABELECIMENTO_HEMOLABOR]);
@@ -91,6 +99,9 @@ async function main() {
     assert(Number(active[0]?.estabelecimentos || 0) === 1, "Publicação Tasy misturou estabelecimentos");
     assert(Number(active[0]?.outroLote || 0) === 0, "Snapshot ativo contém outro lote Tasy");
     assert(Math.abs(Number(active[0]?.valor || 0) - Number(lot.valorConsolidado || 0)) < 0.01, "Valor ativo diverge do lote");
+    assert(Number(active[0]?.comEntrada || 0) === RESULTADO_PILOTO.totalContas, "Entrada não foi preenchida em todas as contas");
+    assert(Number(active[0]?.comSaida || 0) === 9_611, "Quantidade de contas com Saída diverge do CSV");
+    assert(Number(active[0]?.tipoIgualCategoria || 0) === RESULTADO_PILOTO.totalContas, "Campo Tipo diverge da Categoria do CSV");
 
     const [duplicates] = await pool.query<any[]>(`
       SELECT COUNT(*) total FROM (
@@ -127,15 +138,24 @@ async function main() {
       sortColumn: "data_entrada",
       sortOrder: "desc",
     });
-    assert(page.total === Number(lot.totalPublicadas), "Total da tela diverge do lote publicado");
+    assert(page.total === RESULTADO_VISAO.totalContas, "Total da tela sem particulares diverge do esperado");
     assert(page.items.length > 0, "Tela paginada não retornou contas Tasy");
     assert(page.items.every((item: any) => Number(item.estabelecimentoId) === ESTABELECIMENTO_HEMOLABOR), "Tela retornou conta de outra unidade");
+    assert(page.items.every((item: any) => String(item.convenio || '').trim().toUpperCase() !== 'PARTICULAR'), "Tela retornou convênio Particular");
     assert(page.items.some((item: any) => Number(item.valorConta || 0) >= 0), "Tela não retornou o campo valor da conta");
+    assert(page.items.some((item: any) => item.data_entrada), "Tela não retornou a data de entrada do Tasy");
+    assert(page.items.every((item: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(item.data_entrada || ''))), "Entrada Tasy não foi devolvida como data civil YYYY-MM-DD");
+    assert(page.items.every((item: any) => !item.data_saida || /^\d{4}-\d{2}-\d{2}$/.test(String(item.data_saida))), "Saída Tasy não foi devolvida como data civil YYYY-MM-DD");
+    assert(page.items.some((item: any) => item.tipo_atendimento === item.dsCategoria), "Campo Tipo não foi preenchido pela Categoria");
 
     const summary = await caller.tasyImportacao.resumo({ estabelecimentoId: ESTABELECIMENTO_HEMOLABOR });
-    assert(summary.totalContas === Number(lot.totalPublicadas), "Resumo Tasy diverge da tela");
-    assert(summary.pendentes === RESULTADO_PILOTO.pendentes, "Total de contas pendentes diverge do piloto validado");
-    assert(summary.finalizadas === RESULTADO_PILOTO.finalizadas, "Total de contas finalizadas diverge do piloto validado");
+    assert(summary.totalContas === RESULTADO_VISAO.totalContas, "Resumo Tasy diverge da tela sem particulares");
+    assert(summary.pendentes === RESULTADO_VISAO.pendentes, "Total de contas sem título diverge do esperado");
+    assert(summary.finalizadas === RESULTADO_VISAO.comTitulo, "Total de contas com título diverge do esperado");
+    assert(Math.abs(summary.valorTotal - RESULTADO_VISAO.valorTotal) < 0.01, "Valor total da visão diverge do esperado");
+    assert(Math.abs(summary.valorPendente - RESULTADO_VISAO.valorPendente) < 0.01, "Valor pendente sem título diverge do esperado");
+    assert(summary.pendenciasPorEtapa.length > 0, "Resumo não trouxe valores pendentes por etapa");
+    assert(Math.abs(summary.pendenciasPorEtapa.reduce((total, etapa) => total + etapa.valorPendente, 0) - summary.valorPendente) < 0.01, "Valores por etapa não fecham com o valor pendente");
 
     const deniedCaller = callerFor({ ...admins[0], id: 2_147_483_647, role: "user" });
     await assertForbidden(
@@ -173,7 +193,13 @@ async function main() {
       totalAvisos: Number(lot.totalAvisos),
       totalRejeitadas: Number(lot.totalRejeitadas),
       totalContas: Number(lot.totalPublicadas),
+      totalContasExibidas: summary.totalContas,
       valorConsolidado: Number(lot.valorConsolidado),
+      valorExibido: summary.valorTotal,
+      valorPendente: summary.valorPendente,
+      contasComEntrada: Number(active[0]?.comEntrada || 0),
+      contasComSaida: Number(active[0]?.comSaida || 0),
+      tipoPreenchidoPorCategoria: Number(active[0]?.tipoIgualCategoria || 0),
       pendentes: summary.pendentes,
       finalizadas: summary.finalizadas,
       tabelasLegadasPresentes: legacyCount,

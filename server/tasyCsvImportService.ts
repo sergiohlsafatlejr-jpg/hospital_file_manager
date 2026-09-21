@@ -24,6 +24,7 @@ export interface TasyCsvImportOptions {
   publish?: boolean;
   replaceSnapshot?: boolean;
   allowLargeSnapshotReduction?: boolean;
+  forceReprocess?: boolean;
   deadlineAtMs?: number;
   onProgress?: (progress: TasyImportProgress) => void;
 }
@@ -117,20 +118,32 @@ export function assertTasyImportWithinDeadline(deadlineAtMs?: number): void {
   }
 }
 
-function parseDate(value: string): Date | null {
+function buildUtcDate(year: number, month: number, day: number, hour: number, minute: number, second: number): Date | null {
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+    || date.getUTCHours() !== hour
+    || date.getUTCMinutes() !== minute
+    || date.getUTCSeconds() !== second
+  ) return null;
+  return date;
+}
+
+export function parseTasyDate(value: string): Date | null {
   const raw = clean(value);
   if (!raw) return null;
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (iso) {
     const [, y, m, d, hh = "00", mm = "00", ss = "00"] = iso;
-    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss)));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildUtcDate(Number(y), Number(m), Number(d), Number(hh), Number(mm), Number(ss));
   }
-  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (br) {
     const [, d, m, y, hh = "00", mm = "00", ss = "00"] = br;
-    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss)));
-    return Number.isNaN(date.getTime()) ? null : date;
+    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
+    return buildUtcDate(year, Number(m), Number(d), Number(hh), Number(mm), Number(ss));
   }
   return null;
 }
@@ -181,6 +194,23 @@ function parseStageRow(record: string[], line: number, loteId: number, estabelec
   const valorConta = parseTasyDecimal(values.VALOR_CONTA);
   if (values.VALOR_CONTA && valorConta === null) warnings.push("VALOR_INVALIDO");
   if (!values.VALOR_CONTA) warnings.push("VALOR_AUSENTE");
+  const origemAtualizadaEm = parseTasyDate(values.ATUALIZACAO);
+  const entrada = parseTasyDate(values.ENTRADA);
+  const saida = parseTasyDate(values.SAIDA);
+  const alta = parseTasyDate(values.ALTA);
+  const dataDefinitivo = parseTasyDate(values.DT_DEFINITIVO);
+  const dataEtapa = parseTasyDate(values.DT_ETAPA);
+  const parsedDates = [
+    ["ATUALIZACAO", values.ATUALIZACAO, origemAtualizadaEm],
+    ["ENTRADA", values.ENTRADA, entrada],
+    ["SAIDA", values.SAIDA, saida],
+    ["ALTA", values.ALTA, alta],
+    ["DT_DEFINITIVO", values.DT_DEFINITIVO, dataDefinitivo],
+    ["DT_ETAPA", values.DT_ETAPA, dataEtapa],
+  ] as const;
+  for (const [field, rawValue, parsedValue] of parsedDates) {
+    if (rawValue && !parsedValue) warnings.push(`${field}_FORMATO_INVALIDO`);
+  }
 
   const origemId = `${atendimento}:${conta}`;
   const statusValidacao = warnings.length > 0 ? "aviso" : "valido";
@@ -193,18 +223,18 @@ function parseStageRow(record: string[], line: number, loteId: number, estabelec
       line,
       values.SEQUENCIA || null,
       origemId,
-      parseDate(values.ATUALIZACAO),
+      origemAtualizadaEm,
       values.CONVENIO || null,
       values.CATEGORIA || null,
       values.PLANO || null,
       values.ACOMODACAO || null,
-      parseDate(values.ENTRADA),
-      parseDate(values.SAIDA),
-      parseDate(values.ALTA),
-      parseDate(values.DT_DEFINITIVO),
+      entrada,
+      saida,
+      alta,
+      dataDefinitivo,
       competencia.value,
       values.SETOR_ENTRADA || null,
-      parseDate(values.DT_ETAPA),
+      dataEtapa,
       values.ETAPA_CONTA || null,
       values.SETOR_ETAPA || null,
       values.USUARIO_ETAPA || null,
@@ -259,6 +289,116 @@ async function flushBatch(connection: PoolConnection, stageRows: StageValues[], 
   }
 }
 
+function tasyStageSortKey(alias = ""): string {
+  const column = (name: string) => alias ? `${alias}.${name}` : name;
+  return `CONCAT(
+    DATE_FORMAT(COALESCE(${column("origemAtualizadaEm")}, '1000-01-01 00:00:00'), '%Y%m%d%H%i%s'),
+    DATE_FORMAT(COALESCE(${column("dataEtapa")}, '1000-01-01 00:00:00'), '%Y%m%d%H%i%s'),
+    LPAD(CAST(COALESCE(NULLIF(${column("sequencia")}, ''), '0') AS UNSIGNED), 20, '0'),
+    LPAD(${column("linhaArquivo")}, 12, '0')
+  )`;
+}
+
+function latestTasyStageRowsSql(): string {
+  return `
+    SELECT candidate.*
+    FROM tasy_atendimentos_staging candidate
+    INNER JOIN (
+      SELECT origemId, MAX(${tasyStageSortKey()}) AS latestSortKey
+      FROM tasy_atendimentos_staging
+      WHERE loteId = ? AND estabelecimentoId = ? AND statusValidacao != 'rejeitado'
+      GROUP BY origemId
+    ) selected
+      ON selected.origemId = candidate.origemId
+     AND selected.latestSortKey = ${tasyStageSortKey("candidate")}
+    WHERE candidate.loteId = ?
+      AND candidate.estabelecimentoId = ?
+      AND candidate.statusValidacao != 'rejeitado'
+  `;
+}
+
+async function upsertTasyStageBatch(
+  connection: PoolConnection,
+  loteId: number,
+  estabelecimentoId: number,
+  stageIds: number[],
+): Promise<void> {
+  if (stageIds.length === 0) return;
+  const placeholders = stageIds.map(() => "?").join(",");
+  await connection.execute(`
+    INSERT INTO atendimentos_unificados (
+      origemSistema, origemId, estabelecimentoId, configId, ultimoLoteId,
+      origemAtualizadaEm, statusConta, ativoNaFonte, hashConteudo,
+      numero_atendimento, codigo_saida, convenio, paciente, caracter_atendimento,
+      data_entrada, data_saida, tipo_atendimento, descricao_atendimento,
+      codigo_servico, codigo_procedimento, procedimentoDescricao, destino_conta,
+      dsCategoria, dsPlano, competencia, referencia, protTasy, nomeProtocolo,
+      protConv, dtEntrega, protStatus, titulo, dtTitulo, dsSetorEntrada,
+      etapaConta, setorEtapa, dtEtapa, userEtapa, motivoDevolucao, conta,
+      autorizacao, valorConta, matricula, medicoResp, codServico, centroCusto,
+      dataSincronizacao, criadoEm, atualizadoEm
+    )
+    SELECT
+      'tasy', origemId, estabelecimentoId, configId, loteId,
+      origemAtualizadaEm, statusConta, 1, hashConteudo,
+      atendimento, statusConta, convenio, paciente, acomodacao,
+      entrada, saida, categoria, procedimento,
+      codigoProcedimento, codigoProcedimento, procedimento, setorEtapa,
+      categoria, plano, competencia, competencia, protocolo, nomeProtocolo,
+      protocolo, dataDefinitivo, statusConta, titulo, NULL, setorEntrada,
+      etapaConta, setorEtapa, dataEtapa, usuarioEtapa, motivoDevolucao, conta,
+      autorizacao, valorConta, matricula, medico, codigoProcedimento, setorEtapa,
+      NOW(), NOW(), NOW()
+    FROM tasy_atendimentos_staging
+    WHERE id IN (${placeholders}) AND loteId = ? AND estabelecimentoId = ?
+    ON DUPLICATE KEY UPDATE
+      configId = VALUES(configId),
+      ultimoLoteId = VALUES(ultimoLoteId),
+      origemAtualizadaEm = VALUES(origemAtualizadaEm),
+      statusConta = VALUES(statusConta),
+      ativoNaFonte = 1,
+      hashConteudo = VALUES(hashConteudo),
+      numero_atendimento = VALUES(numero_atendimento),
+      codigo_saida = VALUES(codigo_saida),
+      convenio = VALUES(convenio),
+      paciente = VALUES(paciente),
+      caracter_atendimento = VALUES(caracter_atendimento),
+      data_entrada = VALUES(data_entrada),
+      data_saida = VALUES(data_saida),
+      tipo_atendimento = VALUES(tipo_atendimento),
+      descricao_atendimento = VALUES(descricao_atendimento),
+      codigo_servico = VALUES(codigo_servico),
+      codigo_procedimento = VALUES(codigo_procedimento),
+      procedimentoDescricao = VALUES(procedimentoDescricao),
+      destino_conta = VALUES(destino_conta),
+      dsCategoria = VALUES(dsCategoria),
+      dsPlano = VALUES(dsPlano),
+      competencia = VALUES(competencia),
+      referencia = VALUES(referencia),
+      protTasy = VALUES(protTasy),
+      nomeProtocolo = VALUES(nomeProtocolo),
+      protConv = VALUES(protConv),
+      dtEntrega = VALUES(dtEntrega),
+      protStatus = VALUES(protStatus),
+      titulo = VALUES(titulo),
+      dsSetorEntrada = VALUES(dsSetorEntrada),
+      etapaConta = VALUES(etapaConta),
+      setorEtapa = VALUES(setorEtapa),
+      dtEtapa = VALUES(dtEtapa),
+      userEtapa = VALUES(userEtapa),
+      motivoDevolucao = VALUES(motivoDevolucao),
+      conta = VALUES(conta),
+      autorizacao = VALUES(autorizacao),
+      valorConta = VALUES(valorConta),
+      matricula = VALUES(matricula),
+      medicoResp = VALUES(medicoResp),
+      codServico = VALUES(codServico),
+      centroCusto = VALUES(centroCusto),
+      dataSincronizacao = NOW(),
+      atualizadoEm = NOW()
+  `, [...stageIds, loteId, estabelecimentoId]);
+}
+
 export async function publishTasyLot(
   connection: PoolConnection,
   loteId: number,
@@ -290,19 +430,8 @@ export async function publishTasyLot(
 
     const [summary] = await connection.query<RowDataPacket[]>(`
       SELECT COUNT(*) AS totalAccounts, COALESCE(SUM(valorConta), 0) AS totalValue
-      FROM (
-        SELECT valorConta,
-          ROW_NUMBER() OVER (
-            PARTITION BY origemId
-            ORDER BY origemAtualizadaEm DESC, dataEtapa DESC,
-                     CAST(COALESCE(NULLIF(sequencia, ''), '0') AS UNSIGNED) DESC,
-                     linhaArquivo DESC
-          ) AS rn
-        FROM tasy_atendimentos_staging
-        WHERE loteId = ? AND estabelecimentoId = ? AND statusValidacao != 'rejeitado'
-      ) latest
-      WHERE rn = 1
-    `, [loteId, estabelecimentoId]);
+      FROM (${latestTasyStageRowsSql()}) latest
+    `, [loteId, estabelecimentoId, loteId, estabelecimentoId]);
 
     const totalAccounts = Number(summary[0]?.totalAccounts || 0);
     const totalValue = Number(summary[0]?.totalValue || 0);
@@ -326,99 +455,33 @@ export async function publishTasyLot(
       }
     }
 
+    const [selectedStageRows] = await connection.query<RowDataPacket[]>(`
+      SELECT id FROM (${latestTasyStageRowsSql()}) latest ORDER BY id
+    `, [loteId, estabelecimentoId, loteId, estabelecimentoId]);
+    if (selectedStageRows.length !== totalAccounts) {
+      throw new Error(`Consolidação inconsistente: esperadas ${totalAccounts} contas e selecionadas ${selectedStageRows.length}.`);
+    }
+
+    const publicationBatchSize = 5_000;
+    for (let index = 0; index < selectedStageRows.length; index += publicationBatchSize) {
+      assertTasyImportWithinDeadline(deadlineAtMs);
+      const stageIds = selectedStageRows
+        .slice(index, index + publicationBatchSize)
+        .map((row) => Number(row.id));
+      await upsertTasyStageBatch(connection, loteId, estabelecimentoId, stageIds);
+    }
+
     if (replaceSnapshot) {
       await connection.execute(
         `UPDATE atendimentos_unificados
          SET ativoNaFonte = 0, atualizadoEm = NOW()
          WHERE estabelecimentoId = ?
            AND origemSistema IN ('tasy', 'tasy_hemolabor')
+           AND ultimoLoteId != ?
            AND ativoNaFonte = 1`,
-        [estabelecimentoId],
+        [estabelecimentoId, loteId],
       );
     }
-
-    await connection.execute(`
-      INSERT INTO atendimentos_unificados (
-        origemSistema, origemId, estabelecimentoId, configId, ultimoLoteId,
-        origemAtualizadaEm, statusConta, ativoNaFonte, hashConteudo,
-        numero_atendimento, codigo_saida, convenio, paciente, caracter_atendimento,
-        data_entrada, data_saida, tipo_atendimento, descricao_atendimento,
-        codigo_servico, codigo_procedimento, procedimentoDescricao, destino_conta,
-        dsCategoria, dsPlano, competencia, referencia, protTasy, nomeProtocolo,
-        protConv, dtEntrega, protStatus, titulo, dtTitulo, dsSetorEntrada,
-        etapaConta, setorEtapa, dtEtapa, userEtapa, motivoDevolucao, conta,
-        autorizacao, valorConta, matricula, medicoResp, codServico, centroCusto,
-        dataSincronizacao, criadoEm, atualizadoEm
-      )
-      SELECT
-        'tasy', origemId, estabelecimentoId, configId, loteId,
-        origemAtualizadaEm, statusConta, 1, hashConteudo,
-        atendimento, statusConta, convenio, paciente, acomodacao,
-        entrada, saida, tipoGuia, procedimento,
-        codigoProcedimento, codigoProcedimento, procedimento, setorEtapa,
-        categoria, plano, competencia, competencia, protocolo, nomeProtocolo,
-        protocolo, dataDefinitivo, statusConta, titulo, NULL, setorEntrada,
-        etapaConta, setorEtapa, dataEtapa, usuarioEtapa, motivoDevolucao, conta,
-        autorizacao, valorConta, matricula, medico, codigoProcedimento, setorEtapa,
-        NOW(), NOW(), NOW()
-      FROM (
-        SELECT s.*,
-          ROW_NUMBER() OVER (
-            PARTITION BY origemId
-            ORDER BY origemAtualizadaEm DESC, dataEtapa DESC,
-                     CAST(COALESCE(NULLIF(sequencia, ''), '0') AS UNSIGNED) DESC,
-                     linhaArquivo DESC
-          ) AS rn
-        FROM tasy_atendimentos_staging s
-        WHERE loteId = ? AND estabelecimentoId = ? AND statusValidacao != 'rejeitado'
-      ) latest
-      WHERE rn = 1
-      ON DUPLICATE KEY UPDATE
-        configId = VALUES(configId),
-        ultimoLoteId = VALUES(ultimoLoteId),
-        origemAtualizadaEm = VALUES(origemAtualizadaEm),
-        statusConta = VALUES(statusConta),
-        ativoNaFonte = 1,
-        hashConteudo = VALUES(hashConteudo),
-        numero_atendimento = VALUES(numero_atendimento),
-        codigo_saida = VALUES(codigo_saida),
-        convenio = VALUES(convenio),
-        paciente = VALUES(paciente),
-        caracter_atendimento = VALUES(caracter_atendimento),
-        data_entrada = VALUES(data_entrada),
-        data_saida = VALUES(data_saida),
-        tipo_atendimento = VALUES(tipo_atendimento),
-        descricao_atendimento = VALUES(descricao_atendimento),
-        codigo_servico = VALUES(codigo_servico),
-        codigo_procedimento = VALUES(codigo_procedimento),
-        procedimentoDescricao = VALUES(procedimentoDescricao),
-        destino_conta = VALUES(destino_conta),
-        dsCategoria = VALUES(dsCategoria),
-        dsPlano = VALUES(dsPlano),
-        competencia = VALUES(competencia),
-        referencia = VALUES(referencia),
-        protTasy = VALUES(protTasy),
-        nomeProtocolo = VALUES(nomeProtocolo),
-        protConv = VALUES(protConv),
-        dtEntrega = VALUES(dtEntrega),
-        protStatus = VALUES(protStatus),
-        titulo = VALUES(titulo),
-        dsSetorEntrada = VALUES(dsSetorEntrada),
-        etapaConta = VALUES(etapaConta),
-        setorEtapa = VALUES(setorEtapa),
-        dtEtapa = VALUES(dtEtapa),
-        userEtapa = VALUES(userEtapa),
-        motivoDevolucao = VALUES(motivoDevolucao),
-        conta = VALUES(conta),
-        autorizacao = VALUES(autorizacao),
-        valorConta = VALUES(valorConta),
-        matricula = VALUES(matricula),
-        medicoResp = VALUES(medicoResp),
-        codServico = VALUES(codServico),
-        centroCusto = VALUES(centroCusto),
-        dataSincronizacao = NOW(),
-        atualizadoEm = NOW()
-    `, [loteId, estabelecimentoId]);
 
     const [published] = await connection.query<RowDataPacket[]>(`
       SELECT COUNT(*) AS total
@@ -505,10 +568,34 @@ export async function importTasyCsvFile(options: TasyCsvImportOptions): Promise<
       `, [options.estabelecimentoId, fileHash]);
 
       const lot = existing[0];
-      if (lot && (lot.status === "publicado" || (lot.status === "validado" && !options.publish))) {
+      let resumableValidatedStage = false;
+      if (
+        !options.forceReprocess
+        && options.publish
+        && lot?.status === "erro"
+        && Number(lot.totalLinhas || 0) > 0
+        && Number(lot.totalValidas || 0) + Number(lot.totalAvisos || 0) + Number(lot.totalRejeitadas || 0) === Number(lot.totalLinhas)
+      ) {
+        const [stageSummary] = await connection.query<RowDataPacket[]>(`
+          SELECT COUNT(*) AS total
+          FROM tasy_atendimentos_staging
+          WHERE loteId = ? AND estabelecimentoId = ?
+        `, [lot.id, options.estabelecimentoId]);
+        resumableValidatedStage = Number(stageSummary[0]?.total || 0) === Number(lot.totalLinhas);
+      }
+
+      if (resumableValidatedStage) {
+        validatedLotToPublish = lot;
+        loteId = Number(lot.id);
+        await connection.execute(`
+          UPDATE tasy_integracao_lotes
+          SET status = 'validado', erroResumo = NULL, atualizadoEm = NOW()
+          WHERE id = ? AND estabelecimentoId = ?
+        `, [loteId, options.estabelecimentoId]);
+      } else if (!options.forceReprocess && lot && (lot.status === "publicado" || (lot.status === "validado" && !options.publish))) {
         reusableLot = lot;
         loteId = Number(lot.id);
-      } else if (lot && lot.status === "validado" && options.publish) {
+      } else if (!options.forceReprocess && lot && lot.status === "validado" && options.publish) {
         validatedLotToPublish = lot;
         loteId = Number(lot.id);
       } else {
@@ -713,11 +800,17 @@ export async function importTasyCsvFile(options: TasyCsvImportOptions): Promise<
     };
   } catch (error) {
     if (loteId > 0) {
+      const recoverableValidatedStage = progress.phase === "publishing";
       await connection.execute(`
         UPDATE tasy_integracao_lotes
-        SET status = 'erro', erroResumo = ?
+        SET status = ?, erroResumo = ?
         WHERE id = ? AND estabelecimentoId = ?
-      `, [error instanceof Error ? error.message.slice(0, 2000) : "Erro desconhecido", loteId, options.estabelecimentoId]);
+      `, [
+        recoverableValidatedStage ? "validado" : "erro",
+        error instanceof Error ? error.message.slice(0, 2000) : "Erro desconhecido",
+        loteId,
+        options.estabelecimentoId,
+      ]);
     }
     throw error;
   } finally {
