@@ -69,6 +69,48 @@ A segunda abordagem é a mais adequada para Conta Convênio e BI, mas a escolha 
 
 ## Modelo recomendado
 
+## Como impedir duplicidade entre Warleine e XML
+
+O banco deve preservar a origem de cada registro, mas as telas não devem somar todas as origens. O mesmo item pode existir no XML enviado ao convênio e no faturamento extraído do Warleine. A deduplicação precisa ocorrer por uma **chave de negócio do item**, nunca apenas por competência ou por número da conta.
+
+A chave recomendada combina `estabelecimentoId`, conta, guia, código do item, data de execução, quantidade, valor faturado e indicação `receber`. A descrição pode ajudar na conferência, mas não deve ser a única chave porque pode variar entre fontes. Quando o código da guia muda entre prestador e operadora, as duas variantes devem ser consideradas pela conciliação.
+
+Cada registro publicado deve manter `origemSistema`, `origemId`, `loteId`, `chaveNegocioHash` e `ativoParaRelatorio`. Quando houver o mesmo item nas duas fontes, o Warleine fica ativo para o **valor faturado** e o XML permanece armazenado, mas inativo para somatórios. Assim não se perde rastreabilidade nem se duplica o faturamento.
+
+A regra atual de `popularFaturamentoUnificado` não é suficiente. Ela deixa de importar XML quando encontra Warleine, mas não desativa XMLs que já estavam publicados. Portanto, uma carga histórica posterior do Warleine ainda poderia coexistir com XML antigo e duplicar os totais.
+
+No estado atual do Instituto do Rim, o arquivo recebido contém competências de `2026/01` a `2026/06`, enquanto os XMLs existentes em `faturamento_unificado` estão em `2026/07`, `2026/08` e `2026/09`. Portanto, **este arquivo específico não se sobrepõe aos XMLs atuais por competência**. A proteção continua necessária para futuras extrações do banco Warleine que incluam julho em diante.
+
+## Como impedir duplicidade no Faturado x Recebido
+
+O BI atual inicia o recebido e a glosa com os valores de `faturamento_unificado` e depois soma novamente `recebimentos_excel`. Se os valores do arquivo Warleine forem publicados diretamente em `valorPago` e `valorGlosa`, os mesmos pagamentos poderão ser contados duas vezes quando também existirem nos demonstrativos.
+
+A regra recomendada separa a fonte autoritativa de cada métrica:
+
+| Métrica | Fonte principal | Fallback | Regra |
+|---|---|---|---|
+| Faturado | Warleine | XML enviado | XML só entra quando não existir item Warleine equivalente |
+| Recebido | Demonstrativo conciliado | Warleine | Nunca somar as duas fontes para o mesmo item |
+| Glosado | Demonstrativo conciliado | Warleine | Nunca somar as duas fontes para o mesmo item |
+| Em aberto | Saldo calculado do item canônico | Valor em aberto do Warleine | Não somar saldo do Warleine ao saldo calculado |
+| Recurso e recuperação | Warleine/recurso vinculado | Demonstrativo quando aplicável | Manter origem e estado, sem somar eventos repetidos |
+
+O BI deve consultar uma visão canônica que produza **uma linha financeira por item**. Para cada item, a visão seleciona o faturado da fonte prioritária e usa o demonstrativo conciliado como pagamento/glosa. Os valores de pagamento do Warleine continuam armazenados para auditoria e comparação, mas só entram como fallback quando não houver demonstrativo vinculado.
+
+Essa mudança também corrige a diferença de escopo entre `recebimentos_excel` e `demonstrativo`. O primeiro já é a projeção consumida pelo BI; o segundo guarda o demonstrativo operacional. Eles não devem ser somados entre si.
+
+## Como funcionará quando a fonte mudar de arquivo para banco
+
+O arquivo e a conexão direta devem usar o mesmo pipeline. Apenas o adaptador de entrada muda:
+
+- no arquivo, o lote registra hash, nome, tamanho e linha do XLSX/CSV;
+- na conexão, o lote registra `configId`, intervalo consultado e identificador da execução;
+- ambos gravam na mesma `warleine_faturamento_staging` com o mesmo modelo tipado;
+- ambos passam pelas mesmas regras de validação, quarentena, idempotência e publicação;
+- o `estabelecimentoId` vem sempre da unidade autorizada no portal ou da configuração do conector, nunca de uma coluna do arquivo ou de um valor inferido.
+
+Uma carga do banco pode ser incremental por data de atualização, mas deve fechar um lote antes de publicar. Se uma sincronização falhar no meio, o lote continua recuperável e nenhum snapshot parcial deve substituir o conjunto ativo.
+
 ### `warleine_faturamento_lotes`
 
 Esta tabela registra o arquivo ou a sincronização que originou os dados. Deve conter `estabelecimentoId`, tipo da fonte (`xlsx`, `csv` ou banco), `configId`, nome e hash do arquivo, tamanho, status, totais de linhas, contas, valores, avisos, rejeições, usuário e datas de processamento. A unicidade deve ser `(estabelecimentoId, arquivoHash)` para garantir idempotência sem misturar unidades.
