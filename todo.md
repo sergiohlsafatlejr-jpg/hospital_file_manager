@@ -4738,3 +4738,5 @@
 - [x] Impedir códigos A/E/I de sobrescreverem a Categoria autoritativa do Tasy e provar o conflito em SQL real
 - [x] Normalizar espaços no nome da origem Tasy de forma idêntica no TypeScript e no SQL
 - [x] Aprovar 62 testes direcionados, build de produção, TypeScript focado e validador real multi-sistema
+- [x] Exibir no Instituto do Rim o painel completo Quantidade por Serviço, com os 19 serviços clicáveis sem exigir expansão
+- [x] Posicionar o painel de Serviço antes dos convênios para localizar e filtrar pacientes com menos etapas

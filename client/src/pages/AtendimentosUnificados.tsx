@@ -618,6 +618,17 @@ export default function AtendimentosUnificados() {
           )}
 
           {/* Distribuições */}
+          {distribuicaoTipoServico.length > 0 && (
+            <AtendimentosDistribuicao
+              titulo="Quantidade por Serviço"
+              icon="servico"
+              items={distribuicaoTipoServico}
+              filtroAtivo={filtros.servico}
+              onFiltro={(v) => handleFiltroChange("servico", v)}
+              maxVisible={isTasyLayout ? 10 : 30}
+            />
+          )}
+
           {distribuicaoPlano.length > 0 && (
             <AtendimentosDistribuicao
               titulo="Quantidade por Plano (Convênio)"
@@ -625,16 +636,6 @@ export default function AtendimentosUnificados() {
               items={distribuicaoPlano}
               filtroAtivo={filtros.convenio}
               onFiltro={(v) => handleFiltroChange("convenio", v)}
-            />
-          )}
-
-          {distribuicaoTipoServico.length > 0 && (
-            <AtendimentosDistribuicao
-              titulo="Quantidade por Tipo de Serviço"
-              icon="servico"
-              items={distribuicaoTipoServico}
-              filtroAtivo={filtros.servico}
-              onFiltro={(v) => handleFiltroChange("servico", v)}
             />
           )}
 

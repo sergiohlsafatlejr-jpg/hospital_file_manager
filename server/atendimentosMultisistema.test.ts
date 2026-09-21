@@ -29,8 +29,9 @@ describe("tela de atendimentos padronizada entre sistemas", () => {
   it("oferece distribuição e filtro de Tipo de Serviço sem depender do layout Tasy", () => {
     const page = read("client/src/pages/AtendimentosUnificados.tsx");
     const filters = read("client/src/components/atendimentos/AtendimentosFiltros.tsx");
-    expect(page).toContain('titulo="Quantidade por Tipo de Serviço"');
+    expect(page).toContain('titulo="Quantidade por Serviço"');
     expect(page).toContain("aggregations?.servicos");
+    expect(page).toContain("maxVisible={isTasyLayout ? 10 : 30}");
     expect(filters).toContain('placeholder="Tipo de Serviço"');
     expect(filters).toContain("servicos.length > 0 || isTasyLayout");
   });
