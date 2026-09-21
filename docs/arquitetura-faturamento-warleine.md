@@ -111,6 +111,25 @@ O arquivo e a conexão direta devem usar o mesmo pipeline. Apenas o adaptador de
 
 Uma carga do banco pode ser incremental por data de atualização, mas deve fechar um lote antes de publicar. Se uma sincronização falhar no meio, o lote continua recuperável e nenhum snapshot parcial deve substituir o conjunto ativo.
 
+## Relatório separado para os dados do sistema
+
+Para a entrada de julho em diante, a opção mais segura é criar inicialmente um relatório **Faturado x Recebido — Sistema Warleine**. Ele deve reutilizar exatamente o mesmo componente visual do relatório atual, alterando apenas a consulta de dados. Isso evita manter duas interfaces diferentes e, ao mesmo tempo, impede que XML, demonstrativo e Warleine sejam somados sem uma conciliação comprovada.
+
+| Opção | Funcionamento | Vantagem | Limitação |
+|---|---|---|---|
+| Novo relatório com a mesma interface | O relatório atual permanece inalterado e uma nova rota consulta apenas a base Warleine | Isolamento total, validação simples e nenhum risco de duplicar o relatório atual | O usuário alterna entre duas páginas durante o piloto |
+| Uma página com seletor de base | A tela atual recebe as opções `Oficial`, `Sistema Warleine` e `Comparativo` | Experiência centralizada e mesma URL | Exige mais cuidado visual para o usuário não confundir as bases |
+
+Durante o piloto, recomenda-se o **novo relatório com a mesma interface**. Depois que julho em diante for confrontado e aprovado, as duas visões podem ser reunidas em uma única página sem alterar as regras de cálculo.
+
+O relatório atual continuará mostrando a visão oficial baseada no XML enviado e nos demonstrativos recebidos. O novo relatório usará somente o snapshot publicado do Warleine e poderá mostrar faturado, recebido, em aberto, glosado, em recurso, aceito, em análise e recuperado.
+
+Os relatórios não devem consultar a staging diretamente. A staging é temporária e pode conter linhas inválidas ou um lote incompleto. Após a validação, os dados devem ser publicados em uma tabela final tipada, por exemplo `warleine_faturamento_itens`, com versão ativa por estabelecimento e competência. Essa tabela alimentará exclusivamente o relatório do sistema durante o piloto.
+
+Uma terceira visão, **Comparativo**, pode relacionar as fontes sem somá-las. Ela mostrará, para a mesma conta ou item, o valor do Warleine ao lado do valor do XML ou demonstrativo e classificará o resultado como coincidente, ausente em uma fonte ou divergente. Dessa forma, o relatório ajuda a escolher a fonte definitiva sem fabricar um total híbrido.
+
+Quando o Warleine for aprovado como fonte oficial, a regra poderá ser alterada por estabelecimento e competência: faturado do Warleine; recebido e glosa do demonstrativo conciliado; fallback do próprio Warleine apenas quando não houver demonstrativo. Os XMLs continuarão armazenados para auditoria, mas deixarão de participar dos somatórios daquela competência.
+
 ### `warleine_faturamento_lotes`
 
 Esta tabela registra o arquivo ou a sincronização que originou os dados. Deve conter `estabelecimentoId`, tipo da fonte (`xlsx`, `csv` ou banco), `configId`, nome e hash do arquivo, tamanho, status, totais de linhas, contas, valores, avisos, rejeições, usuário e datas de processamento. A unicidade deve ser `(estabelecimentoId, arquivoHash)` para garantir idempotência sem misturar unidades.
