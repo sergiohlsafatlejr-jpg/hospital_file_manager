@@ -4731,3 +4731,10 @@
 - [x] Revalidar 139.541 contas/R$ 170.470.465,96, 112.984 contas exibidas e R$ 157.974.575,41 pendentes sem título
 - [x] Aprovar 54 testes direcionados, build, check focado, idempotência e validador real dos campos corrigidos
 - [x] Serializar Entrada/Saída Tasy como datas civis YYYY-MM-DD e validar a exibição em America/Sao_Paulo sem recuo de um dia
+- [x] Padronizar Categoria e Tipo de Serviço entre EasyVision, Warleine e Tasy sem alterar os campos brutos de origem
+- [x] Restaurar a coluna, a distribuição clicável e o filtro de Tipo de Serviço para qualquer sistema na tela `/atendimentos`
+- [x] Corrigir no Instituto do Rim os KPIs para 58 internações, 417 exames e 192 ambulatórios, fechando os 667 atendimentos
+- [x] Validar 19 tipos de serviço no Instituto do Rim, incluindo 178 atendimentos de Tomografia, e 62 tipos de serviço no Hemolabor
+- [x] Impedir códigos A/E/I de sobrescreverem a Categoria autoritativa do Tasy e provar o conflito em SQL real
+- [x] Normalizar espaços no nome da origem Tasy de forma idêntica no TypeScript e no SQL
+- [x] Aprovar 62 testes direcionados, build de produção, TypeScript focado e validador real multi-sistema

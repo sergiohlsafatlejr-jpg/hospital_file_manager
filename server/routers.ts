@@ -49,6 +49,7 @@ import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
 import { serializeTasyCivilDate } from "./tasyCivilDate";
+import { buildAtendimentoNormalizationSql, normalizeAtendimentoCategory, resolveAtendimentoServiceType } from "./atendimentoNormalization";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -8041,10 +8042,18 @@ export const appRouter = router({
         try {
           const dbInstance = await getDb();
           if (!dbInstance) {
-            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, aggregations: { tipos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
+            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, aggregations: { tipos: [], servicos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
           }
           const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
           const { eq, and, notLike, or, isNull, like, sql, desc: descOrd, asc: ascOrd, count } = await import("drizzle-orm");
+          const { normalizedCategorySql, normalizedServiceSql } = buildAtendimentoNormalizationSql({
+            origemSistema: atendimentosUnificados.origemSistema,
+            tipoAtendimento: atendimentosUnificados.tipo_atendimento,
+            descricaoAtendimento: atendimentosUnificados.descricao_atendimento,
+            dsCategoria: atendimentosUnificados.dsCategoria,
+            codigoServico: atendimentosUnificados.codigo_servico,
+            dsSetorEntrada: atendimentosUnificados.dsSetorEntrada,
+          });
 
           // Condições base (mesmas da procedure listar)
           const baseConditions: any[] = [];
@@ -8086,7 +8095,7 @@ export const appRouter = router({
             );
           }
           if (input.descricao) {
-            filterConditions.push(eq(atendimentosUnificados.dsSetorEntrada, input.descricao));
+            filterConditions.push(sql`${normalizedServiceSql} = ${input.descricao}`);
           }
           if (input.protocolo && input.protocolo !== 'all') {
             if (input.protocolo === 'null' || input.protocolo === '__sem_protocolo__') {
@@ -8154,27 +8163,12 @@ export const appRouter = router({
           const aggregationWhereClause = and(...filterConditions);
           if (input.tipo) {
             const normalizedType = input.tipo.toUpperCase();
-            if (normalizedType === 'INTERNACAO') {
-              filterConditions.push(sql`(
-                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%INTERN%'
-                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%APARTAMENTO%'
-                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%ENFERMARIA%'
-              )`);
-            } else if (normalizedType === 'AMBULAT') {
-              filterConditions.push(sql`(
-                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%AMBULAT%'
-                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%AMBULT%'
-              )`);
-            } else if (normalizedType === 'EXAME') {
-              filterConditions.push(sql`UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%EXAME%'`);
-            } else if (normalizedType === 'PRONTO') {
-              filterConditions.push(sql`(
-                UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%PRONTO%'
-                OR UPPER(COALESCE(${atendimentosUnificados.tipo_atendimento}, '')) LIKE '%SOCORRO%'
-              )`);
-            } else {
-              filterConditions.push(like(atendimentosUnificados.tipo_atendimento, `%${input.tipo}%`));
-            }
+            const canonicalType = normalizedType === 'AMBULAT'
+              ? 'AMBULATORIO'
+              : normalizedType === 'PRONTO'
+              ? 'PRONTO SOCORRO'
+              : normalizedType;
+            filterConditions.push(sql`${normalizedCategorySql} = ${canonicalType}`);
           }
           const whereClause = and(...filterConditions);
           const baseWhereClause = and(...baseConditions);
@@ -8184,14 +8178,14 @@ export const appRouter = router({
             data_entrada: atendimentosUnificados.data_entrada,
             paciente: atendimentosUnificados.paciente,
             convenio: atendimentosUnificados.convenio,
-            tipo_atendimento: atendimentosUnificados.tipo_atendimento,
+            tipo_atendimento: normalizedCategorySql,
             numero_atendimento: atendimentosUnificados.numero_atendimento,
             valorConta: atendimentosUnificados.valorConta,
             etapaConta: atendimentosUnificados.etapaConta,
             setorEtapa: atendimentosUnificados.setorEtapa,
             origemSistema: atendimentosUnificados.origemSistema,
             descricao_atendimento: atendimentosUnificados.descricao_atendimento,
-            codigo_servico: atendimentosUnificados.codigo_servico,
+            codigo_servico: normalizedServiceSql,
             dtEntrega: atendimentosUnificados.dtEntrega,
             dtEtapa: atendimentosUnificados.dtEtapa,
             competencia: atendimentosUnificados.competencia,
@@ -8214,8 +8208,9 @@ export const appRouter = router({
           const totalValor = parseFloat((valorResult as any)?.[0]?.[0]?.totalValor || (valorResult as any)?.[0]?.totalValor || '0');
 
           // Agregações para filtros (sobre dados base, sem filtros de usuário)
-          const [tiposR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
-            dbInstance.execute(sql`SELECT tipo_atendimento as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} AND tipo_atendimento IS NOT NULL AND tipo_atendimento != '' GROUP BY tipo_atendimento ORDER BY cnt DESC LIMIT 50`),
+          const [tiposR, servicosR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
+            dbInstance.execute(sql`SELECT ${normalizedCategorySql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC`),
+            dbInstance.execute(sql`SELECT ${normalizedServiceSql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC LIMIT 100`),
             dbInstance.execute(sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`),
             dbInstance.execute(sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`),
             dbInstance.execute(sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`),
@@ -8243,7 +8238,20 @@ export const appRouter = router({
           }
 
           // Mapear dados
-          const items = dataResult.map(d => ({
+          const items = dataResult.map(d => {
+            const categoriaAtendimento = normalizeAtendimentoCategory({
+              origemSistema: d.origemSistema,
+              tipoAtendimento: d.tipo_atendimento,
+              descricaoAtendimento: d.descricao_atendimento,
+              dsCategoria: d.dsCategoria,
+            });
+            const tipoServico = resolveAtendimentoServiceType({
+              origemSistema: d.origemSistema,
+              descricaoAtendimento: d.descricao_atendimento,
+              codigoServico: d.codigo_servico,
+              dsSetorEntrada: d.dsSetorEntrada,
+            });
+            return ({
             id: d.id,
             origemSistema: d.origemSistema,
             origemId: d.origemId,
@@ -8263,7 +8271,10 @@ export const appRouter = router({
                   ? serializeTasyCivilDate(d.data_saida)
                   : new Date(d.data_saida).toISOString())
               : null,
-            tipo_atendimento: d.tipo_atendimento || "",
+            tipo_atendimento: categoriaAtendimento,
+            categoriaAtendimento,
+            tipoAtendimentoOrigem: d.tipo_atendimento || "",
+            tipoServico,
             descricao_atendimento: d.descricao_atendimento || "",
             codigo_servico: d.codigo_servico || "",
             codigo_procedimento: d.codigo_procedimento || "",
@@ -8316,7 +8327,8 @@ export const appRouter = router({
             codServico: d.codServico || "",
             centroCusto: d.centroCusto || "",
             dataSincronizacao: d.dataSincronizacao ? new Date(d.dataSincronizacao).toISOString() : null,
-          }));
+          });
+          });
 
           return {
             items,
@@ -8326,6 +8338,7 @@ export const appRouter = router({
             totalPages,
             aggregations: {
               tipos: parseAgg(tiposR),
+              servicos: parseAgg(servicosR),
               convenios: parseAgg(conveniosR),
               etapas: parseAgg(etapasR),
               origens: parseAgg(origensR),

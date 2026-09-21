@@ -68,12 +68,11 @@ function getConvenio(d: AtendimentoUnificado): string {
 }
 
 function getTipo(d: AtendimentoUnificado): string {
-  return d.tipo_atendimento || d.tipoatend || d.tipoatendimentodescricao || "-";
+  return d.categoriaAtendimento || d.tipo_atendimento || d.tipoatendimentodescricao || d.tipoatend || "-";
 }
 
-function getServico(d: AtendimentoUnificado, isTasy: boolean): string {
-  if (isTasy) return d.dsSetorEntrada || d.codigo_servico || d.codServico || "-";
-  return d.descricao_atendimento || d.codigo_servico || d.codserv || "-";
+function getServico(d: AtendimentoUnificado): string {
+  return d.tipoServico || d.codigo_servico || d.codServico || d.codserv || d.dsSetorEntrada || d.descricao_atendimento || "-";
 }
 
 export function AtendimentosTabela({
@@ -98,12 +97,12 @@ export function AtendimentosTabela({
     { key: "data_entrada", label: "Entrada", width: "w-[95px]" },
     { key: "data_saida", label: "Saída", width: "w-[95px]" },
     { key: "diasParado", label: "Dias", width: "w-[85px]" },
-    { key: "tipo_atendimento", label: "Tipo", width: "w-[120px]" },
+    { key: "tipo_atendimento", label: "Categoria", width: "w-[120px]" },
+    { key: "codigo_servico", label: "Tipo de Serviço", width: "max-w-[170px]" },
   ];
 
   // Colunas específicas TASY
   const tasyExtras = [
-    { key: "codigo_servico", label: "Serviço", width: "w-[100px]" },
     { key: "descricao_atendimento", label: "Descrição", width: "max-w-[140px]" },
     { key: "valorConta", label: "Valor da conta", width: "w-[110px]" },
     { key: "etapaConta", label: "Etapa", width: "max-w-[130px]" },
@@ -113,7 +112,6 @@ export function AtendimentosTabela({
 
   // Colunas específicas WARLEINE/EASYVISION
   const outrosExtras = [
-    { key: "codigo_servico", label: "Serviço", width: "max-w-[150px]" },
     { key: "valorConta", label: "Valor", width: "w-[100px]" },
     { key: "etapaConta", label: "Etapa", width: "max-w-[130px]" },
   ];
@@ -232,10 +230,14 @@ export function AtendimentosTabela({
                       </Badge>
                     </td>
 
+                    {/* Tipo de Serviço padronizado para qualquer sistema */}
+                    <td className="px-3 py-2.5 text-xs max-w-[170px] truncate" title={getServico(d)}>
+                      {getServico(d)}
+                    </td>
+
                     {/* Colunas extras baseadas no layout */}
                     {isTasyLayout ? (
                       <>
-                        <td className="px-3 py-2.5 text-xs">{d.codigo_servico || d.codServico || "-"}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[140px] truncate">{d.descricao_atendimento || "-"}</td>
                         <td className="px-3 py-2.5 text-xs font-mono whitespace-nowrap">{formatCurrency(d.valorConta)}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[130px] truncate">{d.etapaConta || "-"}</td>
@@ -244,7 +246,6 @@ export function AtendimentosTabela({
                       </>
                     ) : (
                       <>
-                        <td className="px-3 py-2.5 text-xs max-w-[150px] truncate">{getServico(d, false)}</td>
                         <td className="px-3 py-2.5 text-xs font-mono">{formatCurrency(d.valorConta)}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[130px] truncate">{d.etapaConta || "-"}</td>
                       </>

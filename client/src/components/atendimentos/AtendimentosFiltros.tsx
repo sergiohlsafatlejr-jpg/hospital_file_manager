@@ -31,6 +31,7 @@ interface FiltrosState {
 interface Aggregations {
   origens: { value: string; count: number }[];
   tipos: { value: string; count: number }[];
+  servicos: { value: string; count: number }[];
   convenios: { value: string; count: number }[];
   etapas: { value: string; count: number }[];
   protocolos: { value: string; count: number }[];
@@ -63,6 +64,7 @@ export function AtendimentosFiltros({
   const origens = aggregations?.origens || [];
   const protocolos = aggregations?.protocolos || [];
   const etapas = aggregations?.etapas || [];
+  const servicos = aggregations?.servicos || [];
   const anosDisp = (aggregations?.anos || []).map(a => a.value).filter(a => a.length === 4).sort().reverse();
 
   return (
@@ -73,7 +75,7 @@ export function AtendimentosFiltros({
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por Nº Atend., Paciente, Plano, Tipo..."
+            placeholder="Buscar por Nº Atend., Paciente, Plano, Categoria ou Serviço..."
             value={filtros.busca}
             onChange={e => onFiltroChange("busca", e.target.value)}
             className="pl-10"
@@ -149,9 +151,26 @@ export function AtendimentosFiltros({
         )}
       </div>
 
-      {/* Linha 2: Filtros TASY-específicos */}
-      {isTasyLayout && (
+      {/* Linha 2: Tipo de Serviço comum + filtros TASY-específicos */}
+      {(servicos.length > 0 || isTasyLayout) && (
         <div className="flex flex-wrap gap-3">
+          {servicos.length > 0 && (
+            <Select value={filtros.servico || "all"} onValueChange={v => onFiltroChange("servico", v === "all" ? "" : v)}>
+              <SelectTrigger className="w-[240px]">
+                <SelectValue placeholder="Tipo de Serviço" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os Tipos de Serviço</SelectItem>
+                {servicos.map(s => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.value} ({s.count})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {isTasyLayout && (<>
           {/* Protocolo */}
           {protocolos.length > 0 && (
             <Select value={filtros.protocolo} onValueChange={v => onFiltroChange("protocolo", v)}>
@@ -186,6 +205,7 @@ export function AtendimentosFiltros({
               </SelectContent>
             </Select>
           )}
+          </>)}
         </div>
       )}
 
@@ -201,7 +221,7 @@ export function AtendimentosFiltros({
           )}
           {filtros.tipo !== "todos" && (
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("tipo", "todos")}>
-              Tipo: {filtros.tipo} <X className="w-3 h-3" />
+              Categoria: {filtros.tipo} <X className="w-3 h-3" />
             </Badge>
           )}
           {filtros.origem !== "all" && (
@@ -216,7 +236,7 @@ export function AtendimentosFiltros({
           )}
           {filtros.servico && (
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("servico", "")}>
-              Serviço: {filtros.servico} <X className="w-3 h-3" />
+              Tipo de Serviço: {filtros.servico} <X className="w-3 h-3" />
             </Badge>
           )}
           {filtros.situacao !== "pendentes" && (

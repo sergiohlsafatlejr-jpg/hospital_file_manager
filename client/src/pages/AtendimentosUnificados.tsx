@@ -240,20 +240,11 @@ export default function AtendimentosUnificados() {
   // ===== KPIs =====
   const kpis = useMemo(() => {
     const tipos = aggregations?.tipos || [];
-    let internacao = 0, exame = 0, ambulatorio = 0, prontoSocorro = 0;
-    tipos.forEach(t => {
-      const upper = t.value.toUpperCase();
-      if (
-        upper.includes("INTERNADO")
-        || upper.includes("INTERNACAO")
-        || upper.includes("INTERNAÇÃO")
-        || upper.includes("APARTAMENTO")
-        || upper.includes("ENFERMARIA")
-      ) internacao += t.count;
-      else if (upper.includes("EXAME")) exame += t.count;
-      else if (upper.includes("AMBULAT") || upper.includes("AMBULT")) ambulatorio += t.count;
-      else if (upper.includes("PRONTO") || upper.includes("SOCORRO")) prontoSocorro += t.count;
-    });
+    const count = (category: string) => tipos.find(t => t.value === category)?.count || 0;
+    const internacao = count("INTERNACAO");
+    const exame = count("EXAME");
+    const ambulatorio = count("AMBULATORIO");
+    const prontoSocorro = count("PRONTO SOCORRO");
     return { total: serverTotal, internacao, exame, ambulatorio, prontoSocorro };
   }, [aggregations, serverTotal]);
 
@@ -268,6 +259,10 @@ export default function AtendimentosUnificados() {
 
   const distribuicaoEtapa = useMemo(() => {
     return (aggregations?.etapas || []).map(e => ({ label: e.value || "Sem Etapa", count: e.count }));
+  }, [aggregations]);
+
+  const distribuicaoTipoServico = useMemo(() => {
+    return (aggregations?.servicos || []).map(s => ({ label: s.value || "Sem Tipo de Serviço", count: s.count }));
   }, [aggregations]);
 
   // ===== Handlers =====
@@ -397,8 +392,8 @@ export default function AtendimentosUnificados() {
       "Data Entrada": a.data_entrada ? formatDateBR(a.data_entrada) : "-",
       "Data Saída": a.data_saida ? formatDateBR(a.data_saida) : "-",
       "Dias Parado": a.diasParado,
-      "Tipo": a.tipo_atendimento,
-      "Serviço": a.descricao_atendimento || a.codigo_servico || "-",
+      "Categoria": a.categoriaAtendimento || a.tipo_atendimento,
+      "Tipo de Serviço": a.tipoServico || a.codigo_servico || a.descricao_atendimento || "-",
       "Valor": a.valorConta || "-",
       "Etapa": a.etapaConta || "-",
       "Setor Etapa": a.setorEtapa || "-",
@@ -630,6 +625,16 @@ export default function AtendimentosUnificados() {
               items={distribuicaoPlano}
               filtroAtivo={filtros.convenio}
               onFiltro={(v) => handleFiltroChange("convenio", v)}
+            />
+          )}
+
+          {distribuicaoTipoServico.length > 0 && (
+            <AtendimentosDistribuicao
+              titulo="Quantidade por Tipo de Serviço"
+              icon="servico"
+              items={distribuicaoTipoServico}
+              filtroAtivo={filtros.servico}
+              onFiltro={(v) => handleFiltroChange("servico", v)}
             />
           )}
 

@@ -153,6 +153,9 @@ export interface AtendimentoUnificado {
   data_entrada?: string | Date | null;
   data_saida?: string | Date | null;
   tipo_atendimento?: string | null;
+  categoriaAtendimento?: string | null;
+  tipoAtendimentoOrigem?: string | null;
+  tipoServico?: string | null;
   descricao_atendimento?: string | null;
   codigo_servico?: string | null;
   codigo_procedimento?: string | null;
