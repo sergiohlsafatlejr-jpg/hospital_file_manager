@@ -3,6 +3,8 @@
 **Autor:** Manus AI  
 **Data:** 21 de setembro de 2026
 
+O mapeamento semântico detalhado dos campos está no documento [`dicionario-dados-warleine.md`](./dicionario-dados-warleine.md).
+
 ## Conclusão
 
 A melhor organização é manter **uma única staging compartilhada para o Warleine**, sempre recortada por estabelecimento e por lote de importação. A tabela que deve permanecer é `warleine_faturamento_staging`, porque ela já é usada pelo integrador automático. Porém, seu modelo atual, com apenas `estabelecimentoId`, `configId` e `dadosBrutos`, precisa ser ampliado para receber campos tipados, rastreamento de lote, hash da linha e status de validação.
