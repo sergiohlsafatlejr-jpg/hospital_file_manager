@@ -1,0 +1,2 @@
+ALTER TABLE `historico_notificacoes_atendimento` MODIFY COLUMN `observacao` text NOT NULL;--> statement-breakpoint
+ALTER TABLE `tasy_integracao_lotes` ADD CONSTRAINT `uq_tasy_lote_estab_hash` UNIQUE(`estabelecimentoId`,`arquivoHash`);

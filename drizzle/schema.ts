@@ -2859,10 +2859,25 @@ export const notificacoesAtendimentoItem = mysqlTable("notificacoes_atendimento_
   motivoIdx: index("idx_notif_item_motivo").on(table.motivo),
 }));
 
+export const historicoNotificacoesAtendimento = mysqlTable("historico_notificacoes_atendimento", {
+  id: int("id").autoincrement().primaryKey(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  qtdAtendimentos: int("qtdAtendimentos").notNull(),
+  observacao: text("observacao").notNull(),
+  usuario: varchar("usuario", { length: 255 }),
+  atendimentosJson: json("atendimentosJson").notNull(),
+  notificacoesJson: json("notificacoesJson").notNull(),
+  criadoEm: timestamp("criadoEm").defaultNow().notNull(),
+}, (table) => ({
+  estabelecimentoIdx: index("idx_hist_notif_atend_estab").on(table.estabelecimentoId),
+  criadoEmIdx: index("idx_hist_notif_atend_criado").on(table.criadoEm),
+}));
+
 export type NotificacaoAtendimento = typeof notificacoesAtendimento.$inferSelect;
 export type InsertNotificacaoAtendimento = typeof notificacoesAtendimento.$inferInsert;
 export type NotificacaoAtendimentoItem = typeof notificacoesAtendimentoItem.$inferSelect;
 export type InsertNotificacaoAtendimentoItem = typeof notificacoesAtendimentoItem.$inferInsert;
+export type HistoricoNotificacaoAtendimento = typeof historicoNotificacoesAtendimento.$inferSelect;
 
 
 // =====================================================

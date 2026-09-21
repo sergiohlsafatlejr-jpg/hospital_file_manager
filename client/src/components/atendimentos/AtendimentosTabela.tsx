@@ -105,6 +105,7 @@ export function AtendimentosTabela({
   const tasyExtras = [
     { key: "codigo_servico", label: "Serviço", width: "w-[100px]" },
     { key: "descricao_atendimento", label: "Descrição", width: "max-w-[140px]" },
+    { key: "valorConta", label: "Valor da conta", width: "w-[110px]" },
     { key: "etapaConta", label: "Etapa", width: "max-w-[130px]" },
     { key: "setorEtapa", label: "Setor Etapa", width: "max-w-[120px]" },
     { key: "userEtapa", label: "User Etapa", width: "max-w-[100px]" },
@@ -236,6 +237,7 @@ export function AtendimentosTabela({
                       <>
                         <td className="px-3 py-2.5 text-xs">{d.codigo_servico || d.codServico || "-"}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[140px] truncate">{d.descricao_atendimento || "-"}</td>
+                        <td className="px-3 py-2.5 text-xs font-mono whitespace-nowrap">{formatCurrency(d.valorConta)}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[130px] truncate">{d.etapaConta || "-"}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[120px] truncate">{d.setorEtapa || "-"}</td>
                         <td className="px-3 py-2.5 text-xs max-w-[100px] truncate">{d.userEtapa || "-"}</td>

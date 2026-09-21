@@ -319,8 +319,12 @@ export default function AtendimentosSemProtocolo() {
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("atendimentos");
 
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id;
+
   // Histórico de notificações
-  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
+  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, {
+    enabled: Boolean(estabelecimentoId),
     refetchOnWindowFocus: false,
   });
 
@@ -346,12 +350,10 @@ export default function AtendimentosSemProtocolo() {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
   const [tempoRestante, setTempoRestante] = useState<string>("");
 
-  const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id;
-
   const POLLING_INTERVAL = 60 * 60 * 1000;
 
-  const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listarComProtocolo.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
+  const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listarComProtocolo.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, {
+    enabled: Boolean(estabelecimentoId),
     refetchOnWindowFocus: false,
     refetchInterval: POLLING_INTERVAL,
     refetchIntervalInBackground: false,
@@ -435,6 +437,7 @@ export default function AtendimentosSemProtocolo() {
     onSuccess: (result) => {
       const atendimentosSelecionadosData = dadosFiltrados.filter(d => selecionados.has(d.numatend));
       salvarHistoricoMutation.mutate({
+        estabelecimentoId: estabelecimentoId || 0,
         qtdAtendimentos: result.count,
         observacao: loteObservacao,
         atendimentos: atendimentosSelecionadosData.map(a => ({
@@ -501,6 +504,7 @@ export default function AtendimentosSemProtocolo() {
     const nomeEstab = estabelecimentoAtual?.nome || "Estabelecimento";
 
     enviarEmailMutation.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       destinatarioEmail: emailDestinatario.trim(),
       estabelecimentoNome: nomeEstab,
       mensagemPersonalizada: emailMensagem.trim() || undefined,
@@ -785,6 +789,7 @@ export default function AtendimentosSemProtocolo() {
       return;
     }
     registrarNotificacao.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       numatend: atendimentoSelecionado.numatend,
       observacao,
       notificacoes: notificacaoLinhas,
@@ -849,6 +854,7 @@ export default function AtendimentosSemProtocolo() {
       .map(d => ({ numatend: d.numatend, nomepac: d.nomepac }));
 
     registrarNotificacaoLote.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       atendimentos: atendimentosSelecionados,
       observacao: loteObservacao,
       notificacoes: loteNotificacaoLinhas,

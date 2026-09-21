@@ -148,128 +148,109 @@ export const faturamentoGeral = mysqlTable(
   })
 );
 
-// TASY - Maternidade Ela - Atendimentos (Staging)
-export const tasyMaternidadeElaAtendimentosStaging = mysqlTable(
-  "Tasy_maternidadeela_atendimentos_stagion",
+// TASY - Lotes de importação compartilhados por estabelecimento
+export const tasyIntegracaoLotes = mysqlTable(
+  "tasy_integracao_lotes",
   {
     id: int().primaryKey().autoincrement(),
     estabelecimentoId: int().notNull(),
     configId: int(),
-    numeroAtendimento: varchar({ length: 50 }),
-    tipoSaida: varchar({ length: 100 }),
-    local: varchar({ length: 255 }),
-    paciente: varchar({ length: 255 }),
-    carater: varchar({ length: 50 }),
-    dataAdmissao: timestamp(),
-    dataAlta: timestamp(),
-    tipoAtendimento: varchar({ length: 100 }),
-    servico: varchar({ length: 255 }),
-    procedimentoPrincipal: varchar({ length: 255 }),
-    centroCusto: varchar({ length: 100 }),
-    dadosBrutos: json(),
-    criadoEm: timestamp().defaultNow(),
-    atualizadoEm: timestamp().defaultNow(),
-    convenio: varchar({ length: 255 }),
-    dsCategoria: varchar({ length: 255 }),
-    dsPlano: varchar({ length: 255 }),
-    competencia: varchar({ length: 20 }),
-    referencia: varchar({ length: 20 }),
-    protTasy: varchar({ length: 50 }),
-    nomeProtocolo: varchar({ length: 255 }),
-    protConv: varchar({ length: 100 }),
-    dtEntrega: timestamp(),
-    protStatus: varchar({ length: 50 }),
-    titulo: varchar({ length: 100 }),
-    dtTitulo: timestamp(),
-    dataVencimento: timestamp(),
-    dsSetorEntrada: varchar({ length: 255 }),
-    dsSetorLeito: varchar({ length: 255 }),
-    etapaConta: varchar({ length: 255 }),
-    setorEtapa: varchar({ length: 255 }),
-    dtEtapa: timestamp(),
-    userEtapa: varchar({ length: 100 }),
-    motivoDevolucao: text(),
-    conta: varchar({ length: 50 }),
-    autorizacao: varchar({ length: 100 }),
-    matricula: varchar({ length: 100 }),
-    sexo: varchar({ length: 10 }),
-    idade: varchar({ length: 50 }),
-    codServico: varchar({ length: 50 }),
-    procedimentoPrincipal2: varchar({ length: 500 }),
-    dataInicio: varchar({ length: 20 }),
-    dataFim: varchar({ length: 20 }),
-    dsMotivoAlta: varchar({ length: 255 }),
-    medicoResp: varchar({ length: 255 }),
-    crm: varchar({ length: 50 }),
-    valorConta: decimal({ precision: 15, scale: 2 }),
+    arquivoNome: varchar({ length: 255 }).notNull(),
+    arquivoHash: varchar({ length: 64 }).notNull(),
+    arquivoTamanho: int(),
+    status: varchar({ length: 30 }).notNull().default("recebido"),
+    totalLinhas: int().notNull().default(0),
+    totalValidas: int().notNull().default(0),
+    totalAvisos: int().notNull().default(0),
+    totalRejeitadas: int().notNull().default(0),
+    totalContas: int().notNull().default(0),
+    totalPublicadas: int().notNull().default(0),
+    valorConsolidado: decimal({ precision: 18, scale: 2 }).notNull().default("0"),
+    erroResumo: text(),
+    criadoPor: int().notNull(),
+    iniciadoEm: timestamp().defaultNow().notNull(),
+    validadoEm: timestamp(),
+    publicadoEm: timestamp(),
+    atualizadoEm: timestamp().defaultNow().onUpdateNow().notNull(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_tasy_matela_estab").on(table.estabelecimentoId),
-    configIdx: index("idx_tasy_matela_config").on(table.configId),
+    estabelecimentoHashUnique: uniqueIndex("uq_tasy_lote_estab_hash").on(table.estabelecimentoId, table.arquivoHash),
+    estabelecimentoIdx: index("idx_tasy_lote_estab").on(table.estabelecimentoId),
+    statusIdx: index("idx_tasy_lote_status").on(table.status),
+    arquivoHashIdx: index("idx_tasy_lote_hash").on(table.arquivoHash),
   })
 );
 
-// Alias para compatibilidade
-export const tasyAtendimentosStaging = tasyMaternidadeElaAtendimentosStaging;
-
-// TASY - Hemolabor - Atendimentos (Staging)
-export const tasyHemolaborAtendimentosStaging = mysqlTable(
-  "TASY_hemolabor_atendimentos_stagion",
+// TASY - Staging única para todos os estabelecimentos
+export const tasyAtendimentosStaging = mysqlTable(
+  "tasy_atendimentos_staging",
   {
     id: int().primaryKey().autoincrement(),
+    loteId: int().notNull(),
     estabelecimentoId: int().notNull(),
     configId: int(),
-    numeroAtendimento: varchar({ length: 50 }),
-    tipoSaida: varchar({ length: 100 }),
-    local: varchar({ length: 255 }),
-    paciente: varchar({ length: 255 }),
-    carater: varchar({ length: 50 }),
-    dataAdmissao: timestamp(),
-    dataAlta: timestamp(),
-    tipoAtendimento: varchar({ length: 100 }),
-    servico: varchar({ length: 255 }),
-    procedimentoPrincipal: varchar({ length: 255 }),
-    centroCusto: varchar({ length: 100 }),
-    dadosBrutos: json(),
-    criadoEm: timestamp().defaultNow(),
-    atualizadoEm: timestamp().defaultNow(),
+    linhaArquivo: int().notNull(),
+    sequencia: varchar({ length: 100 }),
+    origemId: varchar({ length: 255 }),
+    origemAtualizadaEm: timestamp(),
     convenio: varchar({ length: 255 }),
-    dsCategoria: varchar({ length: 255 }),
-    dsPlano: varchar({ length: 255 }),
+    categoria: varchar({ length: 255 }),
+    plano: varchar({ length: 255 }),
+    acomodacao: varchar({ length: 255 }),
+    entrada: timestamp(),
+    saida: timestamp(),
+    alta: timestamp(),
+    dataDefinitivo: timestamp(),
     competencia: varchar({ length: 20 }),
-    referencia: varchar({ length: 20 }),
-    protTasy: varchar({ length: 50 }),
-    nomeProtocolo: varchar({ length: 255 }),
-    protConv: varchar({ length: 100 }),
-    dtEntrega: timestamp(),
-    protStatus: varchar({ length: 50 }),
-    titulo: varchar({ length: 100 }),
-    dtTitulo: timestamp(),
-    dataVencimento: timestamp(),
-    dsSetorEntrada: varchar({ length: 255 }),
-    dsSetorLeito: varchar({ length: 255 }),
+    setorEntrada: varchar({ length: 255 }),
+    dataEtapa: timestamp(),
     etapaConta: varchar({ length: 255 }),
     setorEtapa: varchar({ length: 255 }),
-    dtEtapa: timestamp(),
-    userEtapa: varchar({ length: 100 }),
+    usuarioEtapa: varchar({ length: 100 }),
     motivoDevolucao: text(),
-    conta: varchar({ length: 50 }),
+    statusConta: varchar({ length: 30 }),
+    protocolo: varchar({ length: 100 }),
+    nomeProtocolo: varchar({ length: 255 }),
+    titulo: varchar({ length: 100 }),
+    atendimento: varchar({ length: 100 }),
+    conta: varchar({ length: 100 }),
     autorizacao: varchar({ length: 100 }),
     matricula: varchar({ length: 100 }),
-    sexo: varchar({ length: 10 }),
-    idade: varchar({ length: 50 }),
-    codServico: varchar({ length: 50 }),
-    procedimentoPrincipal2: varchar({ length: 500 }),
-    dataInicio: varchar({ length: 20 }),
-    dataFim: varchar({ length: 20 }),
-    dsMotivoAlta: varchar({ length: 255 }),
-    medicoResp: varchar({ length: 255 }),
-    crm: varchar({ length: 50 }),
-    valorConta: decimal({ precision: 15, scale: 2 }),
+    paciente: varchar({ length: 255 }),
+    tipoGuia: varchar({ length: 50 }),
+    codigoProcedimento: varchar({ length: 100 }),
+    procedimento: varchar({ length: 500 }),
+    medico: varchar({ length: 255 }),
+    valorConta: decimal({ precision: 18, scale: 2 }),
+    statusValidacao: varchar({ length: 20 }).notNull().default("valido"),
+    erroValidacao: text(),
+    hashConteudo: varchar({ length: 64 }).notNull(),
+    criadoEm: timestamp().defaultNow().notNull(),
   },
   (table) => ({
-    estabelecimentoIdx: index("idx_tasy_hemolabor_estab").on(table.estabelecimentoId),
-    configIdx: index("idx_tasy_hemolabor_config").on(table.configId),
+    loteLinhaUnique: uniqueIndex("uq_tasy_stage_lote_linha").on(table.loteId, table.linhaArquivo),
+    loteIdx: index("idx_tasy_stage_lote").on(table.loteId),
+    estabelecimentoStatusIdx: index("idx_tasy_stage_estab_status").on(table.estabelecimentoId, table.statusValidacao),
+    origemIdx: index("idx_tasy_stage_origem").on(table.estabelecimentoId, table.origemId),
+  })
+);
+
+// TASY - Registros rejeitados sem exposição de dados clínicos
+export const tasyIntegracaoQuarentena = mysqlTable(
+  "tasy_integracao_quarentena",
+  {
+    id: int().primaryKey().autoincrement(),
+    loteId: int().notNull(),
+    estabelecimentoId: int().notNull(),
+    linhaArquivo: int().notNull(),
+    codigoErro: varchar({ length: 80 }).notNull(),
+    detalhe: text(),
+    referenciaHash: varchar({ length: 64 }).notNull(),
+    criadoEm: timestamp().defaultNow().notNull(),
+  },
+  (table) => ({
+    loteIdx: index("idx_tasy_quarentena_lote").on(table.loteId),
+    estabelecimentoIdx: index("idx_tasy_quarentena_estab").on(table.estabelecimentoId),
   })
 );
 
@@ -327,6 +308,12 @@ export const atendimentos = mysqlTable(
     origemSistema: varchar({ length: 50 }).notNull(), // warleine, tasy, omni, gesthor
     origemId: varchar({ length: 255 }).notNull(), // ID original no sistema
     estabelecimentoId: int().notNull(),
+    configId: int(),
+    ultimoLoteId: int(),
+    origemAtualizadaEm: timestamp(),
+    statusConta: varchar({ length: 30 }),
+    ativoNaFonte: boolean().notNull().default(true),
+    hashConteudo: varchar({ length: 64 }),
     
     // Campos específicos solicitados (DE-PARA WARLEINE)
     numero_atendimento: varchar({ length: 100 }), // numatend
@@ -340,6 +327,7 @@ export const atendimentos = mysqlTable(
     descricao_atendimento: varchar({ length: 255 }), // tipoatendimentodescricao
     codigo_servico: varchar({ length: 100 }), // codserv
     codigo_procedimento: varchar({ length: 500 }), // procprin
+    procedimentoDescricao: varchar({ length: 500 }),
     destino_conta: varchar({ length: 100 }), // codcc_destino
     
     // Dados de categoria/plano
@@ -402,10 +390,13 @@ export const atendimentos = mysqlTable(
     atualizadoEm: timestamp().defaultNow(),
   },
   (table) => ({
+    estabelecimentoOrigemUnique: uniqueIndex("uq_atend_estab_origem").on(table.estabelecimentoId, table.origemSistema, table.origemId),
     origemSistemaIdx: index("idx_atend_origem_sistema").on(table.origemSistema),
     origemIdIdx: index("idx_atend_origem_id").on(table.origemId),
     estabelecimentoIdx: index("idx_atend_estab").on(table.estabelecimentoId),
     dataEntradaIdx: index("idx_atend_data_entrada").on(table.data_entrada),
+    estabelecimentoOrigemAtivoIdx: index("idx_atend_estab_origem_ativo").on(table.estabelecimentoId, table.origemSistema, table.ativoNaFonte),
+    estabelecimentoEtapaIdx: index("idx_atend_estab_etapa").on(table.estabelecimentoId, table.etapaConta),
   })
 );
 

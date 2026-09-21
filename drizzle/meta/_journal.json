@@ -232,6 +232,34 @@
       "when": 1789687899098,
       "tag": "0114_whole_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "5",
+      "when": 1789997774900,
+      "tag": "0115_pink_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "5",
+      "when": 1789999693422,
+      "tag": "0116_gorgeous_rhodey",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "5",
+      "when": 1789999771893,
+      "tag": "0117_motionless_the_captain",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "5",
+      "when": 1790006974452,
+      "tag": "0118_past_major_mapleleaf",
+      "breakpoints": true
     }
   ]
 }

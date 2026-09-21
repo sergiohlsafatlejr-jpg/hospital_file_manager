@@ -49,7 +49,8 @@ export default function AtendimentosFaturar() {
 
   const POLLING_INTERVAL = 60 * 60 * 1000; // 60 minutos em ms
 
-  const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentosFaturar.listar.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
+  const { data: atendimentos, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentosFaturar.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, {
+    enabled: Boolean(estabelecimentoId),
     refetchOnWindowFocus: false,
     refetchInterval: POLLING_INTERVAL,
     refetchIntervalInBackground: false,

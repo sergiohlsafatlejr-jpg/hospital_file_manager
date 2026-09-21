@@ -101,6 +101,7 @@ import {
   InsertNotificacaoAtendimento,
   notificacoesAtendimentoItem,
   InsertNotificacaoAtendimentoItem,
+  historicoNotificacoesAtendimento,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { storageGet } from "./storage";
@@ -7926,7 +7927,7 @@ export async function getMetricasEnvioXML(filters: {
 export async function verificarAcessoModulo(
   userId: number,
   estabelecimentoId: number,
-  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos"
+  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos" | "atendimentos" | "atendimentosFaturar"
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -18855,9 +18856,29 @@ export async function getRelatorioDemonstrativo(
 // NOTIFICAÇÕES DE ATENDIMENTOS (MySQL interno)
 // ========================================
 
+export async function verificarAtendimentosDoEstabelecimento(
+  estabelecimentoId: number,
+  numatends: string[],
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db || !Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) return false;
+  const unicos = [...new Set(numatends.map((value) => value.trim()).filter(Boolean))];
+  if (unicos.length === 0) return false;
+  const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
+  const encontrados = await db
+    .selectDistinct({ numero: atendimentosUnificados.numero_atendimento })
+    .from(atendimentosUnificados)
+    .where(and(
+      eq(atendimentosUnificados.estabelecimentoId, estabelecimentoId),
+      eq(atendimentosUnificados.ativoNaFonte, true),
+      inArray(atendimentosUnificados.numero_atendimento, unicos),
+    ));
+  return encontrados.filter((row) => row.numero).length === unicos.length;
+}
+
 export async function salvarNotificacaoAtendimento(dados: {
   numatend: string;
-  estabelecimentoId?: number;
+  estabelecimentoId: number;
   observacao: string;
   usuario?: string;
   itens: Array<{
@@ -18871,7 +18892,7 @@ export async function salvarNotificacaoAtendimento(dados: {
 
   const result = await db.insert(notificacoesAtendimento).values({
     numatend: dados.numatend,
-    estabelecimentoId: dados.estabelecimentoId ?? null,
+    estabelecimentoId: dados.estabelecimentoId,
     observacao: dados.observacao || "",
     usuario: dados.usuario ?? null,
   });
@@ -18894,7 +18915,7 @@ export async function salvarNotificacaoAtendimento(dados: {
 
 export async function salvarNotificacoesAtendimentoEmLote(dados: Array<{
   numatend: string;
-  estabelecimentoId?: number;
+  estabelecimentoId: number;
   observacao: string;
   usuario?: string;
   itens: Array<{
@@ -18919,7 +18940,7 @@ export async function salvarNotificacoesAtendimentoEmLote(dados: Array<{
   return { salvos, erros };
 }
 
-export async function buscarNotificacoesAtendimento(numatends: string[]): Promise<Record<string, {
+export async function buscarNotificacoesAtendimento(numatends: string[], estabelecimentoId: number): Promise<Record<string, {
   motivo: string;
   observacao: string;
   usuario: string | null;
@@ -18934,7 +18955,10 @@ export async function buscarNotificacoesAtendimento(numatends: string[]): Promis
   const notificacoes = await db
     .select()
     .from(notificacoesAtendimento)
-    .where(inArray(notificacoesAtendimento.numatend, numatends))
+    .where(and(
+      eq(notificacoesAtendimento.estabelecimentoId, estabelecimentoId),
+      inArray(notificacoesAtendimento.numatend, numatends),
+    ))
     .orderBy(desc(notificacoesAtendimento.criadoEm));
 
   if (notificacoes.length === 0) return {};
@@ -18976,7 +19000,7 @@ export async function buscarNotificacoesAtendimento(numatends: string[]): Promis
   return resultado;
 }
 
-export async function getHistoricoNotificacoesAtendimento(numatend: string): Promise<Array<{
+export async function getHistoricoNotificacoesAtendimento(numatend: string, estabelecimentoId: number): Promise<Array<{
   id: number;
   observacao: string;
   usuario: string | null;
@@ -18993,7 +19017,10 @@ export async function getHistoricoNotificacoesAtendimento(numatend: string): Pro
   const notificacoes = await db
     .select()
     .from(notificacoesAtendimento)
-    .where(eq(notificacoesAtendimento.numatend, numatend))
+    .where(and(
+      eq(notificacoesAtendimento.estabelecimentoId, estabelecimentoId),
+      eq(notificacoesAtendimento.numatend, numatend),
+    ))
     .orderBy(desc(notificacoesAtendimento.criadoEm));
 
   if (notificacoes.length === 0) return [];
@@ -19016,6 +19043,47 @@ export async function getHistoricoNotificacoesAtendimento(numatend: string): Pro
         setor: i.setor,
         medico: i.medico,
       })),
+  }));
+}
+
+export async function salvarHistoricoNotificacoesAtendimento(dados: {
+  estabelecimentoId: number;
+  qtdAtendimentos: number;
+  observacao: string;
+  usuario?: string | null;
+  atendimentos: unknown[];
+  notificacoes: unknown[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco de dados indisponível");
+  const result = await db.insert(historicoNotificacoesAtendimento).values({
+    estabelecimentoId: dados.estabelecimentoId,
+    qtdAtendimentos: dados.qtdAtendimentos,
+    observacao: dados.observacao,
+    usuario: dados.usuario || null,
+    atendimentosJson: dados.atendimentos,
+    notificacoesJson: dados.notificacoes,
+  });
+  return Number(result[0].insertId);
+}
+
+export async function listarHistoricoNotificacoesAtendimento(estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(historicoNotificacoesAtendimento)
+    .where(eq(historicoNotificacoesAtendimento.estabelecimentoId, estabelecimentoId))
+    .orderBy(desc(historicoNotificacoesAtendimento.criadoEm))
+    .limit(100);
+  return rows.map((row) => ({
+    id: row.id,
+    dataGeracao: row.criadoEm,
+    qtdAtendimentos: row.qtdAtendimentos,
+    observacao: row.observacao,
+    usuario: row.usuario,
+    atendimentos: Array.isArray(row.atendimentosJson) ? row.atendimentosJson : [],
+    notificacoes: Array.isArray(row.notificacoesJson) ? row.notificacoesJson : [],
   }));
 }
 

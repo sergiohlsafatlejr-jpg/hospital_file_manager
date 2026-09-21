@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, reportProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, reportProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
@@ -14,9 +14,8 @@ import { parseExcelRecebimentoTiss, parseXmlRecebimentoTiss } from "./recebiment
 import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
 import * as db from "./db";
 import { getDb } from "./db";
-import { getAtendimentosParados, salvarNotificacao, salvarNotificacaoEmLote, getAtendimentosAFaturar, salvarHistoricoNotificacao, listarHistoricoNotificacoes, buscarMotivosNotificacao } from "./pgAtendimentos";
-import { salvarNotificacaoAtendimento, salvarNotificacoesAtendimentoEmLote, buscarNotificacoesAtendimento, getHistoricoNotificacoesAtendimento } from "./db";
-import { getAtendimentosParadosUnificados, calcularDiasParadoUnificado, getKPIsPorTipo, getQuantidadePorPlano, getQuantidadePorServico } from "./atendimentosUnificados";
+import { salvarNotificacaoAtendimento, salvarNotificacoesAtendimentoEmLote, buscarNotificacoesAtendimento, getHistoricoNotificacoesAtendimento, verificarAtendimentosDoEstabelecimento, salvarHistoricoNotificacoesAtendimento, listarHistoricoNotificacoesAtendimento } from "./db";
+import { getAtendimentosParadosUnificados, getAtendimentosParadosPorEstabelecimento, calcularDiasParadoUnificado, getKPIsPorTipo, getQuantidadePorPlano, getQuantidadePorServico } from "./atendimentosUnificados";
 import { motorRegrasRouter } from "./routers/motorRegrasRouter";
 import { enviarEmail, gerarHtmlNotificacaoAtendimentos, verificarConexaoSMTP } from "./emailService";
 import { padroesProcedimentosRouter } from "./routers/padroesProcedimentosRouter";
@@ -48,6 +47,7 @@ import { rpaRouter } from "./routers/rpaRouter";
 import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
+import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -163,6 +163,7 @@ export const appRouter = router({
   relatoriosGlosasBi: relatoriosGlosasBiRouter,
   medCompara: medComparaRouter,
   tasy: tasyRouter,
+  tasyImportacao: tasyImportacaoRouter,
   relatorioFisioterapia: relatorioFisioterapiaRouter,
   comparativoMesAMes: comparativoMesAMesRouter,
   fonteRelatorios: fonteRelatoriosRouter,
@@ -5327,6 +5328,9 @@ export const appRouter = router({
 
     // Buscar atendimentos consolidados de todos os estabelecimentos
     atendimentosConsolidados: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Visão consolidada disponível somente para administradores." });
+      }
       const { getAtendimentosParadosUnificados, calcularDiasParadoUnificado } = await import("./atendimentosUnificados");
       const estabelecimentosList = await db.getEstabelecimentos();
       const estabMap = new Map(estabelecimentosList.map(e => [e.id, e.nome]));
@@ -7656,21 +7660,19 @@ export const appRouter = router({
 
   // ===== ATENDIMENTOS (banco interno com fallback para PostgreSQL externo) =====
   atendimentos: router({
-    listar: protectedProcedure
-      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+    listar: reportProcedure("atendimentos")
+      .input(z.object({ estabelecimentoId: z.number().int().positive() }))
       .query(async ({ input }) => {
         try {
-          const estabId = input?.estabelecimentoId;
+          const estabId = input.estabelecimentoId;
           // Buscar da tabela atendimentos_unificados filtrado por estabelecimento
           const dbInstance = await getDb();
           if (dbInstance) {
             const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
             const { eq, and, notLike, or, isNull, sql } = await import("drizzle-orm");
             // Filtrar por estabelecimento e excluir os que são "A_FATURAR" (esses vão para outra tela)
-            let conditions = [];
-            if (estabId) {
-              conditions.push(eq(atendimentosUnificados.estabelecimentoId, estabId));
-            }
+            let conditions = [eq(atendimentosUnificados.estabelecimentoId, estabId)];
+            conditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
             conditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
             // Para dados TASY: mostrar apenas os que NÃO têm protocolo (nomeProtocolo NULL ou vazio)
             // Os que têm protocolo vão para a tela "Atendimentos Sem Protocolo"
@@ -7687,18 +7689,12 @@ export const appRouter = router({
             const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
             let motivosMap: Record<string, string> = {};
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, estabId);
               for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
                 motivosMap[numatend] = notif.motivo;
               }
             } catch (err) {
               console.error("[atendimentos.listar] Erro ao buscar motivos de notificação do MySQL:", err);
-              // Fallback: tentar buscar do PostgreSQL externo
-              try {
-                motivosMap = await buscarMotivosNotificacao(numatends);
-              } catch (err2) {
-                console.error("[atendimentos.listar] Erro ao buscar motivos do PostgreSQL:", err2);
-              }
             }
             
             return dadosInternos.map(d => ({
@@ -7770,19 +7766,17 @@ export const appRouter = router({
       }),
 
     // Listar atendimentos TASY que TÊM protocolo preenchido (para tela Atendimentos Sem Protocolo)
-    listarComProtocolo: protectedProcedure
-      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+    listarComProtocolo: reportProcedure("atendimentos")
+      .input(z.object({ estabelecimentoId: z.number().int().positive() }))
       .query(async ({ input }) => {
         try {
-          const estabId = input?.estabelecimentoId;
+          const estabId = input.estabelecimentoId;
           const dbInstance = await getDb();
           if (dbInstance) {
             const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
             const { eq, and, notLike, isNotNull, ne, or } = await import("drizzle-orm");
-            let conditions = [];
-            if (estabId) {
-              conditions.push(eq(atendimentosUnificados.estabelecimentoId, estabId));
-            }
+            let conditions = [eq(atendimentosUnificados.estabelecimentoId, estabId)];
+            conditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
             // Apenas TASY com nomeProtocolo preenchido
             conditions.push(or(eq(atendimentosUnificados.origemSistema, 'tasy'), eq(atendimentosUnificados.origemSistema, 'tasy_hemolabor'))!);
             conditions.push(isNotNull(atendimentosUnificados.nomeProtocolo));
@@ -7794,7 +7788,7 @@ export const appRouter = router({
             const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
             let motivosMap: Record<string, string> = {};
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, estabId);
               for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
                 motivosMap[numatend] = notif.motivo;
               }
@@ -7866,8 +7860,9 @@ export const appRouter = router({
         }
       }),
 
-    registrarNotificacao: protectedProcedure
+    registrarNotificacao: reportProcedure("atendimentos")
       .input(z.object({
+        estabelecimentoId: z.number().int().positive(),
         numatend: z.string(),
         observacao: z.string(),
         notificacoes: z.array(z.object({
@@ -7878,9 +7873,12 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         try {
+          const pertence = await verificarAtendimentosDoEstabelecimento(input.estabelecimentoId, [input.numatend]);
+          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "Atendimento não pertence à unidade selecionada." });
           // Salvar no MySQL interno (fonte principal)
           const mysqlId = await salvarNotificacaoAtendimento({
             numatend: input.numatend,
+            estabelecimentoId: input.estabelecimentoId,
             observacao: input.observacao,
             usuario: ctx.user?.name || "Usu\u00e1rio",
             itens: input.notificacoes.map(n => ({
@@ -7890,27 +7888,18 @@ export const appRouter = router({
             })),
           });
 
-          // Tentar salvar tamb\u00e9m no PostgreSQL externo (backup)
-          try {
-            await salvarNotificacao(
-              input.numatend,
-              input.observacao,
-              input.notificacoes
-            );
-          } catch (pgErr) {
-            console.warn("[registrarNotificacao] Falha ao salvar no PostgreSQL externo (backup):", pgErr);
-          }
-
           return { success: true, id: mysqlId };
         } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao registrar notifica\u00e7\u00e3o: ${err.message}`,
           });
         }
       }),
-    registrarNotificacaoEmLote: protectedProcedure
+    registrarNotificacaoEmLote: reportProcedure("atendimentos")
       .input(z.object({
+        estabelecimentoId: z.number().int().positive(),
         atendimentos: z.array(z.object({
           numatend: z.string(),
           nomepac: z.string(),
@@ -7924,9 +7913,15 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         try {
+          const pertence = await verificarAtendimentosDoEstabelecimento(
+            input.estabelecimentoId,
+            input.atendimentos.map((atendimento) => atendimento.numatend),
+          );
+          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "O lote contém atendimento de outra unidade." });
           // Salvar no MySQL interno (fonte principal)
           const dadosLote = input.atendimentos.map(a => ({
             numatend: a.numatend,
+            estabelecimentoId: input.estabelecimentoId,
             observacao: input.observacao,
             usuario: ctx.user?.name || "Usu\u00e1rio",
             itens: input.notificacoes.map(n => ({
@@ -7938,41 +7933,9 @@ export const appRouter = router({
 
           const resultadoMySQL = await salvarNotificacoesAtendimentoEmLote(dadosLote);
 
-          // Tentar salvar tamb\u00e9m no PostgreSQL externo (backup)
-          try {
-            await salvarNotificacaoEmLote(
-              input.atendimentos,
-              input.observacao,
-              input.notificacoes
-            );
-          } catch (pgErr) {
-            console.warn("[registrarNotificacaoEmLote] Falha ao salvar no PostgreSQL externo (backup):", pgErr);
-          }
-
-          // Salvar no hist\u00f3rico para persist\u00eancia
-          try {
-            await salvarHistoricoNotificacao(
-              input.atendimentos.length,
-              input.observacao,
-              ctx.user?.name || "Usu\u00e1rio",
-              input.atendimentos.map(a => ({
-                numatend: a.numatend,
-                nomepac: a.nomepac,
-                nomeplaco: "",
-                datatend: "",
-                datasai: null,
-                diasParado: 0,
-                tipoatendimentodescricao: "",
-                codserv: "",
-              })),
-              input.notificacoes
-            );
-          } catch (histErr) {
-            console.error("Erro ao salvar hist\u00f3rico de notifica\u00e7\u00e3o:", histErr);
-          }
-
           return { success: true, ids: [], count: resultadoMySQL.salvos };
         } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao registrar notifica\u00e7\u00f5es em lote: ${err.message}`,
@@ -7981,8 +7944,9 @@ export const appRouter = router({
       }),
 
     // Salvar histórico de notificação com dados completos dos atendimentos
-    salvarHistorico: protectedProcedure
+    salvarHistorico: reportProcedure("atendimentos")
       .input(z.object({
+        estabelecimentoId: z.number().int().positive(),
         qtdAtendimentos: z.number(),
         observacao: z.string(),
         atendimentos: z.array(z.object({
@@ -8003,15 +7967,22 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         try {
-          const id = await salvarHistoricoNotificacao(
-            input.qtdAtendimentos,
-            input.observacao,
-            ctx.user?.name || "Usuário",
-            input.atendimentos,
-            input.notificacoes
+          const pertence = await verificarAtendimentosDoEstabelecimento(
+            input.estabelecimentoId,
+            input.atendimentos.map((atendimento) => atendimento.numatend),
           );
+          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "O histórico contém atendimento de outra unidade." });
+          const id = await salvarHistoricoNotificacoesAtendimento({
+            estabelecimentoId: input.estabelecimentoId,
+            qtdAtendimentos: input.qtdAtendimentos,
+            observacao: input.observacao,
+            usuario: ctx.user?.name || "Usuário",
+            atendimentos: input.atendimentos,
+            notificacoes: input.notificacoes,
+          });
           return { success: true, id };
         } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao salvar histórico: ${err.message}`,
@@ -8020,29 +7991,21 @@ export const appRouter = router({
       }),
 
     // Listar histórico de notificações
-    listarHistorico: protectedProcedure
-      .query(async () => {
+    listarHistorico: reportProcedure("atendimentos")
+      .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+      .query(async ({ input }) => {
         try {
-          const historico = await listarHistoricoNotificacoes();
-          return historico.map(h => ({
-            id: h.id,
-            dataGeracao: h.data_geracao,
-            qtdAtendimentos: h.qtd_atendimentos,
-            observacao: h.observacao,
-            usuario: h.usuario,
-            atendimentos: JSON.parse(h.atendimentos_json),
-            notificacoes: JSON.parse(h.notificacoes_json),
-          }));
+          return listarHistoricoNotificacoesAtendimento(input.estabelecimentoId);
         } catch (err: any) {
            console.error("[atendimentos.listarHistorico] Erro:", err.message);
           return [];
         }
       }),
-    listarParadosUnificados: protectedProcedure
-      .query(async ({ ctx }) => {
+    listarParadosUnificados: reportProcedure("atendimentos")
+      .input(z.object({ estabelecimentoId: z.number().int().positive() }))
+      .query(async ({ input }) => {
         try {
-          // Buscar todos os atendimentos parados da tabela unificada
-          const dados = await getAtendimentosParadosUnificados();
+          const dados = await getAtendimentosParadosPorEstabelecimento(input.estabelecimentoId);
           return dados.map(d => ({
             ...d,
             diasParado: calcularDiasParadoUnificado(d.data_entrada, d.data_saida, d.origemSistema, d.dtEntrega, d.dtEtapa),
@@ -8055,9 +8018,9 @@ export const appRouter = router({
         }
       }),
 
-    listarPaginado: protectedProcedure
+    listarPaginado: reportProcedure("atendimentos")
       .input(z.object({
-        estabelecimentoId: z.number().optional(),
+        estabelecimentoId: z.number().int().positive(),
         page: z.number().min(1).default(1),
         pageSize: z.number().min(10).max(200).default(50),
         origemSistema: z.string().optional(),
@@ -8065,6 +8028,7 @@ export const appRouter = router({
         convenio: z.string().optional(),
         etapa: z.string().optional(),
         protocolo: z.string().optional(),
+        situacao: z.enum(["pendentes", "finalizadas", "todos"]).default("pendentes"),
         ano: z.string().optional(),
         mes: z.string().optional(),
         busca: z.string().optional(),
@@ -8083,19 +8047,11 @@ export const appRouter = router({
 
           // Condições base (mesmas da procedure listar)
           const baseConditions: any[] = [];
-          if (input.estabelecimentoId) {
-            baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
-          }
+          baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
+          baseConditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
           baseConditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
-          baseConditions.push(
-            or(
-              sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
-              isNull(atendimentosUnificados.nomeProtocolo),
-              eq(atendimentosUnificados.nomeProtocolo, '')
-            )!
-          );
           // Não filtrar por data_saida IS NULL - para WARLEINE/EASYVISION a query externa já traz apenas os atendimentos relevantes
-          // Para TASY o CSV já traz só contas paradas
+          // Para TASY, a situação pendente/finalizada é escolhida explicitamente pelo usuário.
 
           // Condições de filtro
           const filterConditions: any[] = [...baseConditions];
@@ -8111,11 +8067,25 @@ export const appRouter = router({
           if (input.etapa) {
             filterConditions.push(eq(atendimentosUnificados.etapaConta, input.etapa));
           }
+          if (input.situacao === "pendentes") {
+            filterConditions.push(
+              or(
+                sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
+                isNull(atendimentosUnificados.etapaConta),
+                sql`LOWER(TRIM(${atendimentosUnificados.etapaConta})) != 'conta em protocolo com titulo (finalizada)'`
+              )!
+            );
+          } else if (input.situacao === "finalizadas") {
+            filterConditions.push(
+              sql`${atendimentosUnificados.origemSistema} IN ('tasy', 'tasy_hemolabor')
+                  AND LOWER(TRIM(${atendimentosUnificados.etapaConta})) = 'conta em protocolo com titulo (finalizada)'`
+            );
+          }
           if (input.descricao) {
             filterConditions.push(eq(atendimentosUnificados.dsSetorEntrada, input.descricao));
           }
           if (input.protocolo && input.protocolo !== 'all') {
-            if (input.protocolo === 'null') {
+            if (input.protocolo === 'null' || input.protocolo === '__sem_protocolo__') {
               filterConditions.push(or(isNull(atendimentosUnificados.nomeProtocolo), eq(atendimentosUnificados.nomeProtocolo, ''))!);
             } else if (input.protocolo === 'com_protocolo') {
               filterConditions.push(sql`${atendimentosUnificados.nomeProtocolo} IS NOT NULL AND ${atendimentosUnificados.nomeProtocolo} != ''`);
@@ -8206,7 +8176,7 @@ export const appRouter = router({
           // Queries em paralelo
           const [totalResult, dataResult, valorResult] = await Promise.all([
             dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
-            dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
+            dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
             dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(15,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
           ]);
 
@@ -8234,12 +8204,12 @@ export const appRouter = router({
           let motivosMap: Record<string, string> = {};
           if (numatends.length > 0) {
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends);
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, input.estabelecimentoId);
               for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
                 motivosMap[numatend] = notif.motivo;
               }
             } catch (err) {
-              try { motivosMap = await buscarMotivosNotificacao(numatends); } catch (err2) { /* silenciar */ }
+              console.error("[atendimentos.listarPaginado] Erro ao buscar motivos da unidade:", err);
             }
           }
 
@@ -8260,6 +8230,7 @@ export const appRouter = router({
             descricao_atendimento: d.descricao_atendimento || "",
             codigo_servico: d.codigo_servico || "",
             codigo_procedimento: d.codigo_procedimento || "",
+            procedimentoDescricao: d.procedimentoDescricao || "",
             destino_conta: d.destino_conta || "",
             motivo: motivosMap[d.numero_atendimento || ""] || null,
             diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
@@ -8293,6 +8264,10 @@ export const appRouter = router({
             conta: d.conta || "",
             autorizacao: d.autorizacao || "",
             valorConta: d.valorConta ? String(d.valorConta) : "",
+            statusConta: d.statusConta || "",
+            ativoNaFonte: d.ativoNaFonte,
+            ultimoLoteId: d.ultimoLoteId,
+            origemAtualizadaEm: d.origemAtualizadaEm ? new Date(d.origemAtualizadaEm).toISOString() : null,
             matricula: d.matricula || "",
             sexo: d.sexo || "",
             idade: d.idade || "",
@@ -8330,7 +8305,7 @@ export const appRouter = router({
         }
       }),
 
-    getKPIs: protectedProcedure
+    getKPIs: adminProcedure
       .query(async ({ ctx }) => {
         try {
           const kpis = await getKPIsPorTipo();
@@ -8343,7 +8318,7 @@ export const appRouter = router({
         }
       }),
 
-    getQuantidadePorPlano: protectedProcedure
+    getQuantidadePorPlano: adminProcedure
       .query(async ({ ctx }) => {
         try {
           const dados = await getQuantidadePorPlano();
@@ -8356,7 +8331,7 @@ export const appRouter = router({
         }
       }),
 
-    getQuantidadePorServico: protectedProcedure
+    getQuantidadePorServico: adminProcedure
       .query(async ({ ctx }) => {
         try {
           const dados = await getQuantidadePorServico();
@@ -8370,14 +8345,15 @@ export const appRouter = router({
       }),
 
     // Verificar conexão SMTP
-    verificarSMTP: protectedProcedure
+    verificarSMTP: adminProcedure
       .query(async () => {
         return await verificarConexaoSMTP();
       }),
 
     // Enviar notificação por e-mail
-    enviarNotificacaoEmail: protectedProcedure
+    enviarNotificacaoEmail: reportProcedure("atendimentos")
       .input(z.object({
+        estabelecimentoId: z.number().int().positive(),
         destinatarioEmail: z.string().email(),
         estabelecimentoNome: z.string(),
         mensagemPersonalizada: z.string().optional(),
@@ -8389,10 +8365,17 @@ export const appRouter = router({
           diasParado: z.number(),
           dataEntrada: z.string(),
           observacao: z.string().optional(),
-        })),
+        })).min(1).max(200),
       }))
       .mutation(async ({ input, ctx }) => {
         try {
+          const pertence = await verificarAtendimentosDoEstabelecimento(
+            input.estabelecimentoId,
+            input.atendimentos.map((atendimento) => atendimento.numatend),
+          );
+          if (!pertence) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "O e-mail contém atendimento de outra unidade." });
+          }
           const html = gerarHtmlNotificacaoAtendimentos({
             estabelecimentoNome: input.estabelecimentoNome,
             totalAtendimentos: input.atendimentos.length,
@@ -8416,6 +8399,7 @@ export const appRouter = router({
 
           return { success: true, messageId: resultado.messageId };
         } catch (err: any) {
+          if (err instanceof TRPCError) throw err;
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao enviar e-mail: ${err.message}`,
@@ -8426,21 +8410,20 @@ export const appRouter = router({
 
   // ===== ATENDIMENTOS A FATURAR (banco interno com fallback para PostgreSQL externo) =====
   atendimentosFaturar: router({
-    listar: protectedProcedure
-      .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
+    listar: reportProcedure("atendimentosFaturar")
+      .input(z.object({ estabelecimentoId: z.number().int().positive() }))
       .query(async ({ input }) => {
         try {
-          const estabId = input?.estabelecimentoId;
+          const estabId = input.estabelecimentoId;
           // Buscar da tabela atendimentos_a_faturar (tabela própria, separada da unificados)
           const dbInstance = await getDb();
           if (dbInstance) {
             const { atendimentosAFaturar } = await import("../drizzle/schema-integracao");
             const { eq } = await import("drizzle-orm");
-            let query = dbInstance.select().from(atendimentosAFaturar);
-            if (estabId) {
-              query = query.where(eq(atendimentosAFaturar.estabelecimentoId, estabId)) as any;
-            }
-            const dadosInternos = await query;
+            const dadosInternos = await dbInstance
+              .select()
+              .from(atendimentosAFaturar)
+              .where(eq(atendimentosAFaturar.estabelecimentoId, estabId));
             return dadosInternos.map((d: any) => ({
               numatend: d.numatend || "",
               nomeplaco: d.nomeplaco || "",

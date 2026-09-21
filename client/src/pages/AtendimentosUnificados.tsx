@@ -7,9 +7,10 @@
  *
  * Usa a tabela `atendimentos_unificados` com filtros dinâmicos por tabs
  */
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -19,7 +20,7 @@ import { formatDateBR, safeParseDate } from "@/lib/dateUtils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ArrowLeft, RefreshCw, Download, Timer, Bell, FileText,
+  ArrowLeft, RefreshCw, Download, Bell, FileText, Database, CheckCircle2, CircleDollarSign, UploadCloud,
 } from "lucide-react";
 
 // Componentes de Atendimentos
@@ -39,11 +40,8 @@ import type { FiltrosState, Aggregations } from "@/components/atendimentos";
 import {
   type AtendimentoUnificado,
   type NotificacaoLinha,
-  type AtendimentoView,
-  ATENDIMENTO_VIEWS,
   isTasyOrigem,
   getOrigemLabel,
-  formatCurrency,
   PAGE_SIZE,
 } from "@/lib/atendimentosConstants";
 import { gerarPDFAtendimentos } from "@/lib/atendimentosPdfGenerator";
@@ -56,18 +54,20 @@ const FILTROS_INICIAIS: FiltrosState = {
   etapa: "",
   convenio: "",
   servico: "",
+  situacao: "pendentes",
   ano: "",
   mes: "",
 };
 
 export default function AtendimentosUnificados() {
-  const { estabelecimentoAtual } = useEstabelecimento();
+  const { estabelecimentoAtual, temAcessoModulo } = useEstabelecimento();
+  const { user } = useAuth();
   const [, navigate] = useLocation();
+  const inputCsvRef = useRef<HTMLInputElement>(null);
+  const [enviandoCsv, setEnviandoCsv] = useState(false);
 
   // ===== Estado da Aba Ativa =====
   const [viewAtiva, setViewAtiva] = useState<string>("atendimentos");
-  const [subView, setSubView] = useState<AtendimentoView>("todos");
-
   // ===== Filtros =====
   const [filtros, setFiltros] = useState<FiltrosState>(FILTROS_INICIAIS);
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -101,7 +101,7 @@ export default function AtendimentosUnificados() {
 
   // ===== Query principal — server-side pagination =====
   const queryInput = useMemo(() => ({
-    estabelecimentoId: estabelecimentoAtual?.id,
+    estabelecimentoId: estabelecimentoAtual?.id || 0,
     page: paginaAtual,
     pageSize: PAGE_SIZE,
     origemSistema: filtros.origem !== "all" ? filtros.origem : undefined,
@@ -109,6 +109,7 @@ export default function AtendimentosUnificados() {
     convenio: filtros.convenio || undefined,
     etapa: filtros.etapa || undefined,
     protocolo: filtros.protocolo !== "all" ? filtros.protocolo : undefined,
+    situacao: filtros.situacao,
     ano: filtros.ano || undefined,
     mes: filtros.mes || undefined,
     busca: debouncedBusca || undefined,
@@ -119,15 +120,29 @@ export default function AtendimentosUnificados() {
     estabelecimentoAtual?.id, paginaAtual, filtros, debouncedBusca, sortColumn, sortOrder,
   ]);
 
-  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(queryInput);
+  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(
+    queryInput,
+    { enabled: Boolean(estabelecimentoAtual?.id) },
+  );
 
   const atendimentos = paginatedResult?.items || [];
   const serverTotal = paginatedResult?.total || 0;
   const serverTotalPages = paginatedResult?.totalPages || 0;
   const aggregations = (paginatedResult?.aggregations || null) as Aggregations | null;
 
+  const { data: tasyResumo } = trpc.tasyImportacao.resumo.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id || 0 },
+    { enabled: Boolean(estabelecimentoAtual?.id) },
+  );
+  const { data: tasyLotes, refetch: refetchTasyLotes } = trpc.tasyImportacao.listarLotes.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id || 0, limit: 3 },
+    { enabled: Boolean(estabelecimentoAtual?.id), refetchInterval: 10_000 },
+  );
+  const ultimoLoteTasy = tasyLotes?.[0];
+
   // ===== Histórico de notificações =====
-  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
+  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery({ estabelecimentoId: estabelecimentoAtual?.id || 0 }, {
+    enabled: Boolean(estabelecimentoAtual?.id),
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -167,6 +182,7 @@ export default function AtendimentosUnificados() {
     onSuccess: (result) => {
       const atendimentosSelecionadosData = atendimentos.filter(d => selecionados.has(d.numero_atendimento || ""));
       salvarHistoricoMutation.mutate({
+        estabelecimentoId: estabelecimentoAtual?.id || 0,
         qtdAtendimentos: result.count,
         observacao: loteObservacao,
         atendimentos: atendimentosSelecionadosData.map((a: any) => ({
@@ -312,6 +328,7 @@ export default function AtendimentosUnificados() {
     if (!atendimentoSelecionado) return;
     if (!observacao.trim()) { toast.error("Preencha a observação"); return; }
     registrarNotificacao.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       numatend: atendimentoSelecionado.numatend,
       observacao,
       notificacoes: notificacaoLinhas,
@@ -332,6 +349,7 @@ export default function AtendimentosUnificados() {
       .filter(d => selecionados.has(d.numero_atendimento || ""))
       .map(d => ({ numatend: d.numero_atendimento || "", nomepac: d.paciente || "" }));
     registrarNotificacaoLote.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       atendimentos: atends,
       observacao: loteObservacao,
       notificacoes: loteNotificacaoLinhas,
@@ -347,6 +365,7 @@ export default function AtendimentosUnificados() {
 
     const selecionadosData = atendimentos.filter(d => selecionados.has(d.numero_atendimento || ""));
     enviarEmailMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       destinatarioEmail: emailDestinatario.trim(),
       estabelecimentoNome: estabelecimentoAtual?.nome || "Atendimentos",
       mensagemPersonalizada: emailMensagem.trim() || undefined,
@@ -399,6 +418,45 @@ export default function AtendimentosUnificados() {
     }
   }
 
+  async function importarCsvTasy(file?: File) {
+    if (!file || !estabelecimentoAtual?.id) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast.error("Selecione um arquivo CSV exportado do Tasy.");
+      return;
+    }
+    const confirmouSnapshot = window.confirm(
+      `O arquivo substituirá o snapshot Tasy ativo de ${estabelecimentoAtual.nome}. Confirme somente se ele contém a exportação completa das contas da unidade.`,
+    );
+    if (!confirmouSnapshot) {
+      if (inputCsvRef.current) inputCsvRef.current.value = "";
+      return;
+    }
+    setEnviandoCsv(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("estabelecimentoId", String(estabelecimentoAtual.id));
+      form.append("substituirSnapshot", "true");
+      form.append("confirmarSubstituicao", "true");
+      const response = await fetch("/api/tasy/importar-csv", {
+        method: "POST",
+        headers: { "x-estabelecimento-id": String(estabelecimentoAtual.id) },
+        body: form,
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível enviar o arquivo.");
+      toast.success(payload.message || "CSV Tasy validado e publicado com sucesso.");
+      await refetchTasyLotes();
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao importar CSV Tasy.");
+    } finally {
+      setEnviandoCsv(false);
+      if (inputCsvRef.current) inputCsvRef.current.value = "";
+    }
+  }
+
   // ===== Reset de página quando filtros mudam =====
   useEffect(() => { setPaginaAtual(1); }, [filtros, debouncedBusca]);
 
@@ -422,6 +480,27 @@ export default function AtendimentosUnificados() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {(user?.role === "admin" || temAcessoModulo("importacaoTasy")) && (
+            <>
+              <input
+                ref={inputCsvRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => importarCsvTasy(event.target.files?.[0])}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => inputCsvRef.current?.click()}
+                disabled={enviandoCsv}
+                className="gap-2"
+              >
+                <UploadCloud className="w-4 h-4" />
+                {enviandoCsv ? "Processando CSV..." : "Importar CSV Tasy"}
+              </Button>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
             <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
             {isFetching ? "Atualizando..." : "Atualizar"}
@@ -479,6 +558,42 @@ export default function AtendimentosUnificados() {
 
         {/* ===== Tab: Atendimentos ===== */}
         <TabsContent value="atendimentos" className="space-y-4 mt-4">
+          {(tasyResumo?.totalContas || ultimoLoteTasy) && (
+            <div className="grid gap-3 rounded-xl border border-teal-200 bg-teal-50/70 p-4 text-teal-950 md:grid-cols-4">
+              <div className="flex items-center gap-3">
+                <Database className="h-5 w-5 text-teal-700" />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-teal-700">Fonte Tasy</p>
+                  <p className="font-semibold">{tasyResumo?.totalContas.toLocaleString("pt-BR") || 0} contas ativas</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-amber-700" />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Pendentes</p>
+                  <p className="font-semibold">{tasyResumo?.pendentes.toLocaleString("pt-BR") || 0} contas</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <CircleDollarSign className="h-5 w-5 text-emerald-700" />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Valor pendente</p>
+                  <p className="font-semibold">{(tasyResumo?.valorPendente || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-blue-700" />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Última carga</p>
+                  <p className="font-semibold">{ultimoLoteTasy ? `Lote ${ultimoLoteTasy.id} · ${ultimoLoteTasy.status}` : "Sem lote"}</p>
+                  {ultimoLoteTasy?.publicadoEm && (
+                    <p className="text-xs text-teal-700">{new Date(ultimoLoteTasy.publicadoEm).toLocaleString("pt-BR")}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* KPIs */}
           <AtendimentosKPIs
             total={kpis.total}

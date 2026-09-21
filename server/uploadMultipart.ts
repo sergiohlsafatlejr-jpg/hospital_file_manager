@@ -8,12 +8,15 @@
  * - Cria/atualiza registro no banco
  * - Dispara processamento em background
  */
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { nanoid } from 'nanoid';
+import { mkdirSync, promises as fs } from 'node:fs';
+import { extname } from 'node:path';
 import * as db from './db';
 import { storagePut } from './storage';
 import { sdk } from './_core/sdk';
+import { importTasyCsvFile } from './tasyCsvImportService';
 
 const router = Router();
 
@@ -23,6 +26,62 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
+
+const tasyUploadDir = '/tmp/portal-safatle-tasy';
+mkdirSync(tasyUploadDir, { recursive: true });
+const uploadTasyCsv = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, tasyUploadDir),
+    filename: (_req, file, callback) => callback(null, `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`),
+  }),
+  limits: { fileSize: 512 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => callback(null, extname(file.originalname).toLowerCase() === '.csv'),
+});
+
+type TasyUploadRequest = Request & {
+  tasyUploadUser?: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
+  tasyEstabelecimentoId?: number;
+  tasyDeadlineAtMs?: number;
+};
+
+async function authorizeTasyUpload(req: TasyUploadRequest, res: Response, next: NextFunction) {
+  try {
+    let user: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
+    try {
+      user = await sdk.authenticateRequest(req);
+    } catch {
+      res.status(401).json({ error: 'Não autenticado' });
+      return;
+    }
+
+    const estabelecimentoId = Number(req.header('x-estabelecimento-id'));
+    if (!Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) {
+      res.status(400).json({ error: 'Informe um estabelecimento válido antes do upload.' });
+      return;
+    }
+
+    const allowedEstablishment = user.role === 'admin'
+      || await db.verificarPermissaoEstabelecimento(user.id, estabelecimentoId, 'gerenciar');
+    if (!allowedEstablishment) {
+      res.status(403).json({ error: 'Sem permissão para importar dados nesta unidade.' });
+      return;
+    }
+    const allowedModule = user.role === 'admin'
+      || await db.verificarAcessoModulo(user.id, estabelecimentoId, 'importacaoTasy');
+    if (!allowedModule) {
+      res.status(403).json({ error: 'Sem permissão para usar a importação Tasy nesta unidade.' });
+      return;
+    }
+
+    req.tasyUploadUser = user;
+    req.tasyEstabelecimentoId = estabelecimentoId;
+    req.tasyDeadlineAtMs = Date.now() + 13 * 60 * 1000;
+    next();
+  } catch (error) {
+    console.error('[Tasy CSV] Erro ao autorizar upload:', error);
+    res.status(500).json({ error: 'Não foi possível autorizar o upload Tasy.' });
+  }
+}
 
 // Sanitizar nome do arquivo
 function sanitizeFilename(name: string): string {
@@ -197,6 +256,80 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
   } catch (error: any) {
     console.error('[UploadMultipart] Erro:', error);
     res.status(500).json({ error: error.message || 'Erro interno no upload' });
+  }
+});
+
+router.post(
+  '/api/tasy/importar-csv',
+  (req, res, next) => {
+    // O lote piloto de 272 MB concluiu em cerca de quatro minutos; o limite da
+    // hospedagem é de 15 minutos. O timeout precisa ser aplicado antes do multer.
+    req.setTimeout(15 * 60 * 1000);
+    res.setTimeout(15 * 60 * 1000);
+    next();
+  },
+  authorizeTasyUpload,
+  uploadTasyCsv.single('file'),
+  async (req: TasyUploadRequest, res: Response) => {
+  let tempPath = req.file?.path;
+  try {
+    const user = req.tasyUploadUser;
+    const estabelecimentoId = req.tasyEstabelecimentoId;
+    const configId = req.body.configId ? Number(req.body.configId) : null;
+    const validConfigId = typeof configId === 'number' && Number.isInteger(configId) && configId > 0 ? configId : null;
+    const substituirSnapshot = req.body.substituirSnapshot === 'true';
+    const confirmarSubstituicao = req.body.confirmarSubstituicao === 'true';
+    if (!req.file || !tempPath) return res.status(400).json({ error: 'Selecione um arquivo CSV.' });
+    if (!user || !estabelecimentoId) {
+      await fs.unlink(tempPath).catch(() => undefined);
+      return res.status(401).json({ error: 'Autorização do upload não encontrada.' });
+    }
+    if (Number(req.body.estabelecimentoId) !== estabelecimentoId) {
+      await fs.unlink(tempPath).catch(() => undefined);
+      return res.status(400).json({ error: 'A unidade do formulário diverge da autorização do upload.' });
+    }
+    if (substituirSnapshot && !confirmarSubstituicao) {
+      await fs.unlink(tempPath).catch(() => undefined);
+      return res.status(400).json({ error: 'Confirme explicitamente que o arquivo representa o snapshot completo da unidade.' });
+    }
+
+    const originalName = req.file.originalname;
+    const processingPath = tempPath;
+    tempPath = undefined;
+    try {
+      const result = await importTasyCsvFile({
+        filePath: processingPath,
+        fileName: originalName,
+        estabelecimentoId,
+        userId: user.id,
+        configId: validConfigId,
+        publish: true,
+        replaceSnapshot: substituirSnapshot,
+        deadlineAtMs: req.tasyDeadlineAtMs,
+        onProgress: (progress) => {
+          if (progress.processedRows > 0 && progress.processedRows % 100_000 === 0) {
+            console.log(`[Tasy CSV] estabelecimento=${estabelecimentoId} fase=${progress.phase} linhas=${progress.processedRows}`);
+          }
+        },
+      });
+      return res.status(200).json({
+        success: true,
+        processandoEmBackground: false,
+        loteId: result.loteId,
+        reutilizado: result.reusedExistingLot,
+        totalContas: result.totalAccounts,
+        totalPublicadas: result.publishedAccounts,
+        message: result.reusedExistingLot
+          ? 'Este arquivo já havia sido processado; o lote existente foi reutilizado.'
+          : 'CSV validado e publicado com sucesso.',
+      });
+    } finally {
+      await fs.unlink(processingPath).catch(() => undefined);
+    }
+  } catch (error: any) {
+    if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
+    console.error('[Tasy CSV] Erro ao receber arquivo:', error?.message || error);
+    return res.status(500).json({ error: error?.message || 'Erro interno no upload Tasy.' });
   }
 });
 

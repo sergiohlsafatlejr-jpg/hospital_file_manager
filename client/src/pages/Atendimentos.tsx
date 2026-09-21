@@ -333,8 +333,12 @@ export default function Atendimentos() {
   // Aba ativa
   const [abaAtiva, setAbaAtiva] = useState("atendimentos");
 
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id;
+
   // Histórico de notificações
-  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
+  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, {
+    enabled: Boolean(estabelecimentoId),
     refetchOnWindowFocus: false,
   });
 
@@ -360,12 +364,10 @@ export default function Atendimentos() {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
   const [tempoRestante, setTempoRestante] = useState<string>("");
 
-  const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id;
-
   const POLLING_INTERVAL = 60 * 60 * 1000;
 
-  const { data: rawData, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listar.useQuery({ estabelecimentoId: estabelecimentoId || undefined }, {
+  const { data: rawData, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.atendimentos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, {
+    enabled: Boolean(estabelecimentoId),
     refetchOnWindowFocus: false,
     refetchInterval: POLLING_INTERVAL,
     refetchIntervalInBackground: false,
@@ -461,6 +463,7 @@ export default function Atendimentos() {
     onSuccess: (result) => {
       const atendimentosSelecionadosData = dadosFiltrados.filter(d => selecionados.has(d.numatend));
       salvarHistoricoMutation.mutate({
+        estabelecimentoId: estabelecimentoId || 0,
         qtdAtendimentos: result.count,
         observacao: loteObservacao,
         atendimentos: atendimentosSelecionadosData.map(a => ({
@@ -527,6 +530,7 @@ export default function Atendimentos() {
     const nomeEstab = estabelecimentoAtual?.nome || "Estabelecimento";
 
     enviarEmailMutation.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       destinatarioEmail: emailDestinatario.trim(),
       estabelecimentoNome: nomeEstab,
       mensagemPersonalizada: emailMensagem.trim() || undefined,
@@ -897,6 +901,7 @@ export default function Atendimentos() {
       return;
     }
     registrarNotificacao.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       numatend: atendimentoSelecionado.numatend,
       observacao,
       notificacoes: notificacaoLinhas,
@@ -961,6 +966,7 @@ export default function Atendimentos() {
       .map(d => ({ numatend: d.numatend, nomepac: d.nomepac }));
 
     registrarNotificacaoLote.mutate({
+      estabelecimentoId: estabelecimentoId || 0,
       atendimentos: atendimentosSelecionados,
       observacao: loteObservacao,
       notificacoes: loteNotificacaoLinhas,

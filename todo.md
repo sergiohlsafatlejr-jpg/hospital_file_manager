@@ -4704,3 +4704,22 @@
 - [x] Identificar correções prévias obrigatórias em chave única, escopo das APIs, notificações e paginação
 - [x] Documentar o plano de implantação multiestabelecimento sem dependência imediata de VPN
 - [x] Salvar checkpoint e sincronizar a documentação da arquitetura Tasy com o GitHub
+
+- [x] Criar lote auditável, staging Tasy compartilhada, quarentena e chave idempotente por estabelecimento/origem
+- [x] Implementar importador CSV streaming com reparo determinístico do valor decimal e deduplicação por hash
+- [x] Importar o CSV Hemolabor com 657.032 linhas, 602.828 válidas, 54.204 avisos e zero rejeição
+- [x] Consolidar e publicar 139.541 contas do Hemolabor com R$ 170.470.465,96, preservando 63.201 pendentes e 76.340 finalizadas
+- [x] Provar idempotência reimportando o mesmo arquivo sem criar novo lote ou duplicar contas
+- [x] Substituir `/atendimentos` pela tela paginada, com situação da conta, valor, resumo Tasy, histórico de lotes e upload CSV restrito
+- [x] Exigir estabelecimento em listagens, notificações e histórico e impedir mistura entre unidades
+- [x] Criar histórico interno isolado de notificações e validar a nova tabela no banco
+- [x] Aprovar 30 testes direcionados, build de produção, compilação dos módulos e validador real do lote e da tela
+- [x] Excluir definitivamente as duas stagings Tasy legadas após confirmação destrutiva explícita, sem backup conforme autorizado
+- [x] Revalidar sem legado: 139.541 contas, R$ 170.470.465,96, zero tabelas antigas e isolamento por estabelecimento aprovado
+- [x] Endurecer a autorização de todas as APIs e do upload antes do Multer, incluindo módulo e unidade positiva
+- [x] Proteger snapshots com cobertura mínima de 80% a partir de 100 contas ativas e exceção operacional explícita
+- [x] Serializar reserva e publicação por estabelecimento, criar unicidade unidade/hash e recuperação de lotes interrompidos
+- [x] Remover processamento via setImmediate, aguardar a carga com timeout de 15 minutos e deadline recuperável de 13 minutos
+- [x] Estabilizar paginação por ID, remover fallbacks de notificação sem unidade e validar e-mails contra o estabelecimento
+- [x] Aprovar 47 testes direcionados, build de produção e validador real com teste negativo de autorização
+- [x] Salvar checkpoint e sincronizar o piloto Tasy com o GitHub

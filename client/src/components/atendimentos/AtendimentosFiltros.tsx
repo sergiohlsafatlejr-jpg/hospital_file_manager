@@ -23,6 +23,7 @@ interface FiltrosState {
   etapa: string;
   convenio: string;
   servico: string;
+  situacao: "pendentes" | "finalizadas" | "todos";
   ano: string;
   mes: string;
 }
@@ -54,6 +55,7 @@ export function AtendimentosFiltros({
     filtros.etapa !== "" ||
     filtros.convenio !== "" ||
     filtros.servico !== "" ||
+    filtros.situacao !== "pendentes" ||
     filtros.ano !== "" ||
     filtros.mes !== "" ||
     filtros.busca !== "";
@@ -102,6 +104,18 @@ export function AtendimentosFiltros({
             </SelectContent>
           </Select>
         )}
+
+        {/* Situação operacional da conta */}
+        <Select value={filtros.situacao} onValueChange={v => onFiltroChange("situacao", v as FiltrosState["situacao"])}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Situação" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pendentes">Contas pendentes</SelectItem>
+            <SelectItem value="finalizadas">Contas finalizadas</SelectItem>
+            <SelectItem value="todos">Todas as contas</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* Filtro por ano */}
         {anosDisp.length > 0 && (
@@ -203,6 +217,11 @@ export function AtendimentosFiltros({
           {filtros.servico && (
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("servico", "")}>
               Serviço: {filtros.servico} <X className="w-3 h-3" />
+            </Badge>
+          )}
+          {filtros.situacao !== "pendentes" && (
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("situacao", "pendentes")}>
+              Situação: {filtros.situacao === "finalizadas" ? "Finalizadas" : "Todas"} <X className="w-3 h-3" />
             </Badge>
           )}
           {filtros.etapa && (

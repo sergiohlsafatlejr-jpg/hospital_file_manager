@@ -346,7 +346,7 @@ export default function AtendimentosParadosUnificados() {
 
   // Buscar dados com paginação server-side
   const queryInput = useMemo(() => ({
-    estabelecimentoId: estabelecimentoAtual?.id,
+    estabelecimentoId: estabelecimentoAtual?.id || 0,
     page: currentPage,
     pageSize: PAGE_SIZE,
     origemSistema: filtroOrigem !== "all" ? filtroOrigem : undefined,
@@ -362,7 +362,10 @@ export default function AtendimentosParadosUnificados() {
     sortOrder,
   }), [estabelecimentoAtual?.id, currentPage, filtroOrigem, filtroTipo, filtroConvenio, filtroEtapa, filtroProtocolo, filtroAno, filtroMes, debouncedSearch, filtroServico, sortColumn, sortOrder]);
 
-  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(queryInput);
+  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(
+    queryInput,
+    { enabled: Boolean(estabelecimentoAtual?.id) },
+  );
 
   const atendimentos = paginatedResult?.items || [];
   const serverTotal = paginatedResult?.total || 0;
@@ -370,7 +373,8 @@ export default function AtendimentosParadosUnificados() {
   const aggregations = paginatedResult?.aggregations;
 
   // Histórico de notificações
-  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery(undefined, {
+  const { data: historicoNotificacoes, refetch: refetchHistorico } = trpc.atendimentos.listarHistorico.useQuery({ estabelecimentoId: estabelecimentoAtual?.id || 0 }, {
+    enabled: Boolean(estabelecimentoAtual?.id),
     refetchOnWindowFocus: false,
   });
 
@@ -396,6 +400,7 @@ export default function AtendimentosParadosUnificados() {
     onSuccess: (result) => {
       const atendimentosSelecionadosData = filteredData.filter(d => selecionados.has(d.numero_atendimento || ""));
       salvarHistoricoMutation.mutate({
+        estabelecimentoId: estabelecimentoAtual?.id || 0,
         qtdAtendimentos: result.count,
         observacao: loteObservacao,
         atendimentos: atendimentosSelecionadosData.map((a: any) => ({
@@ -533,6 +538,7 @@ export default function AtendimentosParadosUnificados() {
     if (!atendimentoSelecionado) return;
     if (!observacao.trim()) { toast.error("Preencha a observação"); return; }
     registrarNotificacao.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       numatend: atendimentoSelecionado.numero_atendimento || "",
       observacao,
       notificacoes: notificacaoLinhas,
@@ -554,6 +560,7 @@ export default function AtendimentosParadosUnificados() {
       .map(d => ({ numatend: d.numero_atendimento || "", nomepac: d.paciente || "" }));
 
     registrarNotificacaoLote.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       atendimentos: atendimentosSelecionados,
       observacao: loteObservacao,
       notificacoes: loteNotificacaoLinhas,
@@ -570,6 +577,7 @@ export default function AtendimentosParadosUnificados() {
     const atendimentosSelecionadosData = filteredData.filter(d => selecionados.has(d.numero_atendimento || ""));
 
     enviarEmailMutation.mutate({
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       destinatarioEmail: emailDestinatario.trim(),
       estabelecimentoNome: "Atendimentos Parados",
       mensagemPersonalizada: emailMensagem.trim() || undefined,

@@ -52,7 +52,10 @@ export async function getAtendimentosParadosPorEstabelecimento(estabelecimentoId
       .select()
       .from(atendimentos)
       .where(
-        eq(atendimentos.estabelecimentoId, estabelecimentoId)
+        and(
+          eq(atendimentos.estabelecimentoId, estabelecimentoId),
+          eq(atendimentos.ativoNaFonte, true),
+        )
       )
       .orderBy(atendimentos.data_entrada);
 
