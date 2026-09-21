@@ -1,0 +1,37 @@
+flowchart LR
+  subgraph HOSP["Ambiente de cada hospital"]
+    TASY["Banco Tasy"]
+    EXT["Extrator seguro\nconsulta somente leitura"]
+    TASY --> EXT
+  end
+
+  subgraph PORTAL["Portal Safatle"]
+    CFG["Configuração da fonte\nconfigId + estabelecimentoId"]
+    LOT["Lote de integração\nstatus, contagens e auditoria"]
+    STG["tasy_atendimentos_staging\ncompartilhada entre unidades\nestabelecimentoId obrigatório"]
+    VAL["Validação e de-para\nquarentena para erros"]
+    UNI["atendimentos_unificados\nfonte única da tela"]
+    API["API /atendimentos\nescopo obrigatório por unidade"]
+    UI["Tela /atendimentos\nmesmo formato para todos"]
+
+    CFG -->|"carimba a unidade"| LOT
+    EXT -->|"HTTPS/SFTP/arquivo\nsem escolher unidade no payload"| LOT
+    LOT --> STG
+    STG --> VAL
+    VAL -->|"transação + upsert idempotente"| UNI
+    VAL -->|"registro inválido"| Q["Quarentena\nerro + linha de origem"]
+    UNI --> API
+    API --> UI
+  end
+
+  USER["Usuário autorizado"] -->|"estabelecimento selecionado"| API
+
+  classDef source fill:#e8f1ff,stroke:#2b6cb0,color:#102a43;
+  classDef stage fill:#fff7df,stroke:#b7791f,color:#4a2c0a;
+  classDef target fill:#e8fff3,stroke:#25855a,color:#12372a;
+  classDef security fill:#f5eaff,stroke:#805ad5,color:#322659;
+
+  class TASY,EXT source;
+  class LOT,STG,VAL,Q stage;
+  class UNI,UI target;
+  class CFG,API,USER security;

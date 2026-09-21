@@ -4696,3 +4696,11 @@
 - [x] Validar bloqueio e liberação real via tRPC para Relatório de Laboratório e BI de Glosas
 - [x] Aprovar 54 testes direcionados, build de produção, validadores compilados e TypeScript focado sem erros novos
 - [x] Salvar checkpoint e sincronizar os controles individuais de relatórios com o GitHub
+
+- [x] Abandonar temporariamente a implantação da VPN site-to-site sem realizar alterações no gateway
+- [x] Auditar a tela `/atendimentos`, as duas stagings Tasy históricas e a tabela `atendimentos_unificados`
+- [x] Confirmar que o estabelecimento deve ser atribuído pela configuração autenticada, e não recebido da consulta Tasy
+- [x] Definir staging Tasy compartilhada, lote auditável, quarentena e promoção transacional idempotente para a tabela unificada
+- [x] Identificar correções prévias obrigatórias em chave única, escopo das APIs, notificações e paginação
+- [x] Documentar o plano de implantação multiestabelecimento sem dependência imediata de VPN
+- [x] Salvar checkpoint e sincronizar a documentação da arquitetura Tasy com o GitHub
