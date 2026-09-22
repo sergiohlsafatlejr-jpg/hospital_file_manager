@@ -131,7 +131,8 @@ const menuItems: MenuItem[] = [
   { icon: FolderUp, label: "Upload Contas", path: "/upload", modulo: "arquivos", children: [
     { icon: Upload, label: "Upload de Arquivos", path: "/upload", modulo: "arquivos" },
     { icon: FileSearch, label: "Arquivos", path: "/arquivos", modulo: "arquivos" },
-    { icon: List, label: "Conta Convênio", path: "/conta-convenio", modulo: "arquivos" },
+    { icon: List, label: "Conta Convênio", path: "/conta-convenio", modulo: "contaConvenio" },
+    { icon: Database, label: "Conta Convênio — Warleine", path: "/conta-convenio-warleine", modulo: "contaConvenio" },
   ]},
 
   // Módulo 2 - Regras de Contas
@@ -167,6 +168,7 @@ const menuItems: MenuItem[] = [
     // Subpasta: Faturamento
     { icon: Receipt, label: "Faturamento", path: "/faturado-recebido-unificado", modulo: "relatoriosBi", children: [
       { icon: BarChart3, label: "Faturado x Recebido", path: "/faturado-recebido-unificado", modulo: "relFaturadoRecebido" },
+      { icon: Database, label: "Faturado x Recebido — Warleine", path: "/faturado-recebido-warleine", modulo: "relFaturadoRecebido" },
       { icon: FileText, label: "Rel. Faturamento", path: "/relatorio-faturamento", modulo: "relFaturamento" },
       { icon: FileSpreadsheet, label: "Faturamento Externo", path: "/faturamento-externo", modulo: "faturamentoExterno" },
       { icon: CalendarClock, label: "Previsão Pagamentos Imec", path: "/previsao-pagamentos-imec", modulo: "relPrevisaoPagamentosImec", estabelecimentoIds: [2550001] },
@@ -183,6 +185,7 @@ const menuItems: MenuItem[] = [
     // Subpasta: Glosas BI
     { icon: AlertTriangle, label: "Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosBi", children: [
       { icon: AlertTriangle, label: "Relatório BI de Glosas", path: "/relatorios-glosas-bi", modulo: "relatoriosGlosasBi" },
+      { icon: Database, label: "Glosas — Warleine", path: "/relatorios-glosas-warleine", modulo: "relatoriosGlosasBi" },
     ]},
     // Subpasta: Recepção
     { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [

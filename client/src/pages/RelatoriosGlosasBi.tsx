@@ -267,8 +267,9 @@ function LoadingDashboard() {
   );
 }
 
-export default function RelatoriosGlosasBi() {
+export function RelatoriosGlosasView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" | "WARLEINE" }) {
   const { estabelecimentoAtual } = useEstabelecimento();
+  const isWarleine = fonte === "WARLEINE";
   const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
   const estabelecimentoNome = estabelecimentoAtual?.nome?.trim() || "Estabelecimento";
   const hasEstabelecimento = estabelecimentoId > 0;
@@ -276,6 +277,7 @@ export default function RelatoriosGlosasBi() {
   const [mesPagamentoInicio, setMesPagamentoInicio] = useState<string | undefined>();
   const [mesPagamentoFim, setMesPagamentoFim] = useState<string | undefined>();
   const [convenioId, setConvenioId] = useState<number | undefined>();
+  const [convenioChave, setConvenioChave] = useState<string | undefined>();
   const [categoriaGlosa, setCategoriaGlosa] = useState<string | undefined>();
   const [mesPagamento, setMesPagamento] = useState<string | undefined>();
   const [itemDescricao, setItemDescricao] = useState<string | undefined>();
@@ -286,10 +288,15 @@ export default function RelatoriosGlosasBi() {
   const [competencia2, setCompetencia2] = useState("");
   const [comparativo, setComparativo] = useState<any>(null);
 
-  const filtrosQuery = trpc.relatoriosGlosasBi.filtros.useQuery(
+  const officialFiltersQuery = trpc.relatoriosGlosasBi.filtros.useQuery(
     { estabelecimentoId },
-    { enabled: hasEstabelecimento, staleTime: 60_000 },
+    { enabled: hasEstabelecimento && !isWarleine, staleTime: 60_000 },
   );
+  const warleineFiltersQuery = trpc.warleineFaturamento.filtrosGlosas.useQuery(
+    { estabelecimentoId },
+    { enabled: hasEstabelecimento && isWarleine, staleTime: 60_000 },
+  );
+  const filtrosQuery = (isWarleine ? warleineFiltersQuery : officialFiltersQuery) as typeof officialFiltersQuery;
 
   const painelInput = useMemo(() => ({
     estabelecimentoId,
@@ -303,11 +310,22 @@ export default function RelatoriosGlosasBi() {
     motivoCodigo,
     limite: 20,
   }), [estabelecimentoId, convenioId, mesPagamentoInicio, mesPagamentoFim, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo]);
+  const warleinePanelInput = useMemo(() => {
+    const categoriaWarleine: "COM_CODIGO" | "SEM_CODIGO" | undefined =
+      categoriaGlosa === "COM_CODIGO" || categoriaGlosa === "SEM_CODIGO" ? categoriaGlosa : undefined;
+    const { convenioId: _officialConvenioId, ...commonInput } = painelInput;
+    return { ...commonInput, convenioChave, categoriaGlosa: categoriaWarleine };
+  }, [painelInput, convenioChave, categoriaGlosa]);
 
-  const painelQuery = trpc.relatoriosGlosasBi.painelExecutivo.useQuery(
+  const officialPanelQuery = trpc.relatoriosGlosasBi.painelExecutivo.useQuery(
     painelInput,
-    { enabled: hasEstabelecimento, staleTime: 60_000, placeholderData: (previousData) => previousData },
+    { enabled: hasEstabelecimento && !isWarleine, staleTime: 60_000, placeholderData: (previousData) => previousData },
   );
+  const warleinePanelQuery = trpc.warleineFaturamento.glosasBi.useQuery(
+    warleinePanelInput,
+    { enabled: hasEstabelecimento && isWarleine, staleTime: 60_000, placeholderData: (previousData) => previousData },
+  );
+  const painelQuery = (isWarleine ? warleinePanelQuery : officialPanelQuery) as typeof officialPanelQuery;
 
   const comparativoMutation = trpc.relatoriosGlosasBi.comparativoMeses.useMutation({
     onSuccess: (data) => {
@@ -318,7 +336,8 @@ export default function RelatoriosGlosasBi() {
   });
 
   const data = painelQuery.data;
-  const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioId, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo].filter(Boolean).length;
+  const convenioSelecionado = isWarleine ? convenioChave : convenioId;
+  const filtrosAtivos = [mesPagamentoInicio, mesPagamentoFim, convenioSelecionado, categoriaGlosa, mesPagamento, itemDescricao, procedimentoCodigo, motivoCodigo].filter(Boolean).length;
   const periodoLabel = mesPagamentoInicio || mesPagamentoFim
     ? `${fmtMonth(mesPagamentoInicio || filtrosQuery.data?.competencias.at(-1))} a ${fmtMonth(mesPagamentoFim || filtrosQuery.data?.competencias[0])}`
     : "Todo o histórico por data de referência";
@@ -327,6 +346,7 @@ export default function RelatoriosGlosasBi() {
     setMesPagamentoInicio(undefined);
     setMesPagamentoFim(undefined);
     setConvenioId(undefined);
+    setConvenioChave(undefined);
     setCategoriaGlosa(undefined);
     setMesPagamento(undefined);
     setItemDescricao(undefined);
@@ -335,19 +355,22 @@ export default function RelatoriosGlosasBi() {
   };
 
   const toggleMesPagamento = (valor: string) => setMesPagamento((atual) => atual === valor ? undefined : valor);
-  const toggleConvenio = (valor: number) => setConvenioId((atual) => atual === valor ? undefined : valor);
+  const toggleConvenio = (valor: number | string) => {
+    if (isWarleine) setConvenioChave((atual) => atual === String(valor) ? undefined : String(valor));
+    else setConvenioId((atual) => atual === Number(valor) ? undefined : Number(valor));
+  };
   const toggleItem = (valor: string) => setItemDescricao((atual) => atual === valor ? undefined : valor);
   const toggleProcedimento = (valor: string) => setProcedimentoCodigo((atual) => atual === valor ? undefined : valor);
   const toggleMotivo = (valor: string) => setMotivoCodigo((atual) => atual === valor ? undefined : valor);
 
-  const convenioSelecionadoNome = convenioId
-    ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || String(convenioId)
+  const convenioSelecionadoNome = convenioSelecionado
+    ? filtrosQuery.data?.convenios.find((item) => String(item.id) === String(convenioSelecionado))?.nome || String(convenioSelecionado)
     : undefined;
   const motivoSelecionadoNome = motivoCodigo
     ? data?.porMotivo.find((item: any) => item.codigoGlosa === motivoCodigo)?.nome || motivoCodigo
     : undefined;
   const recorteInterativoLabel = [
-    mesPagamento ? `Mês ${fmtMonth(mesPagamento)}` : null,
+    mesPagamento ? `${isWarleine ? "Competência" : "Mês"} ${fmtMonth(mesPagamento)}` : null,
     convenioSelecionadoNome ? `Convênio ${convenioSelecionadoNome}` : null,
     itemDescricao ? `Item ${itemDescricao}` : null,
     procedimentoCodigo ? `Procedimento ${procedimentoCodigo}` : null,
@@ -364,10 +387,11 @@ export default function RelatoriosGlosasBi() {
     const workbook = XLSX.utils.book_new();
     const resumoRows = [
       ["Estabelecimento", estabelecimentoNome],
+      ["Fonte", isWarleine ? "Sistema Warleine" : "Demonstrativo"],
       ["Período de referência", periodoLabel],
-      ["Convênio", convenioId ? filtrosQuery.data?.convenios.find((item) => item.id === convenioId)?.nome || convenioId : "Todos"],
+      ["Convênio", convenioSelecionadoNome || "Todos"],
       ["Categoria de glosa", categoriaGlosa || "Todas"],
-      ["Mês selecionado no painel", mesPagamento ? fmtMonth(mesPagamento) : "Todos"],
+      [isWarleine ? "Competência selecionada no painel" : "Mês selecionado no painel", mesPagamento ? fmtMonth(mesPagamento) : "Todos"],
       ["Item selecionado no painel", itemDescricao || "Todos"],
       ["Procedimento selecionado no painel", procedimentoCodigo || "Todos"],
       ["Motivo selecionado no painel", motivoCodigo ? `${motivoCodigo} — ${motivoSelecionadoNome || motivoCodigo}` : "Todos"],
@@ -386,7 +410,7 @@ export default function RelatoriosGlosasBi() {
     ];
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Indicador", "Valor"], ...resumoRows]), "Resumo");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.porMesPagamento.map((item: any) => ({
-      "Mês de referência": fmtMonth(item.mesPagamento),
+      [isWarleine ? "Competência Warleine" : "Mês de referência"]: fmtMonth(item.mesPagamento),
       "Valor processado": item.valorProcessado,
       "Valor glosado": item.valorGlosado,
       "Glosa aceita": item.glosaAceita,
@@ -452,7 +476,7 @@ export default function RelatoriosGlosasBi() {
       "Valor recursado": lote.valorRecursado,
       "Itens históricos sem vínculo atual": lote.itensSemVinculoAtual,
     }))), "Recursos por Lote");
-    XLSX.writeFile(workbook, `glosas-${estabelecimentoNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(workbook, `glosas-${isWarleine ? "warleine-" : ""}${estabelecimentoNome.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast.success("Excel exportado com os dados e descrições do relatório.");
   };
 
@@ -555,8 +579,8 @@ export default function RelatoriosGlosasBi() {
                 <div className="rounded-2xl bg-rose-50 p-3 text-rose-700"><ShieldCheck className="h-6 w-6" /></div>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-950">Análise de Glosas</h1>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Demonstrativo</span>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-950">Análise de Glosas{isWarleine ? " — Sistema Warleine" : ""}</h1>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">{isWarleine ? "Fonte isolada Warleine" : "Demonstrativo"}</span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">{estabelecimentoNome} • visão financeira por referência, item, convênio e procedimento</p>
                 </div>
@@ -568,7 +592,7 @@ export default function RelatoriosGlosasBi() {
                 <Button variant="outline" size="sm" onClick={handleExportExcel} className="bg-white text-emerald-700"><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</Button>
                 <Button variant="outline" size="sm" onClick={() => window.print()} className="bg-white"><FileText className="mr-2 h-4 w-4" />PDF</Button>
                 <Button variant="outline" size="sm" onClick={handleExportPptx} className="bg-white text-violet-700"><Presentation className="mr-2 h-4 w-4" />PowerPoint</Button>
-                <Button size="sm" onClick={() => setShowComparar(true)} className="bg-slate-900 text-white hover:bg-slate-800"><ArrowLeftRight className="mr-2 h-4 w-4" />Comparar meses</Button>
+                {!isWarleine && <Button size="sm" onClick={() => setShowComparar(true)} className="bg-slate-900 text-white hover:bg-slate-800"><ArrowLeftRight className="mr-2 h-4 w-4" />Comparar meses</Button>}
               </div>
             </div>
           </header>
@@ -577,7 +601,7 @@ export default function RelatoriosGlosasBi() {
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Filtros do relatório</h2>
-                <p className="mt-0.5 text-xs text-slate-500">O período considera a data de referência do demonstrativo como data oficial.</p>
+                <p className="mt-0.5 text-xs text-slate-500">{isWarleine ? "O período considera a competência informada pelo sistema Warleine; data de pagamento permanece um campo separado." : "O período considera a data de referência do demonstrativo como data oficial."}</p>
               </div>
               {filtrosAtivos > 0 && (
                 <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-slate-600"><RotateCcw className="mr-2 h-4 w-4" />Limpar {filtrosAtivos}</Button>
@@ -592,7 +616,10 @@ export default function RelatoriosGlosasBi() {
                 <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Referência final" /></SelectTrigger>
                 <SelectContent><SelectItem value="todos">Até o último mês</SelectItem>{filtrosQuery.data?.competencias.map((mes) => <SelectItem key={mes} value={mes}>{fmtMonth(mes)}</SelectItem>)}</SelectContent>
               </Select>
-              <Select value={convenioId?.toString() || "todos"} onValueChange={(value) => setConvenioId(value === "todos" ? undefined : Number(value))}>
+              <Select value={convenioSelecionado?.toString() || "todos"} onValueChange={(value) => {
+                if (isWarleine) setConvenioChave(value === "todos" ? undefined : value);
+                else setConvenioId(value === "todos" ? undefined : Number(value));
+              }}>
                 <SelectTrigger className="bg-slate-50"><SelectValue placeholder="Todos os convênios" /></SelectTrigger>
                 <SelectContent><SelectItem value="todos">Todos os convênios</SelectItem>{filtrosQuery.data?.convenios.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>)}</SelectContent>
               </Select>
@@ -608,11 +635,11 @@ export default function RelatoriosGlosasBi() {
               </div>
               {painelQuery.isFetching && !painelQuery.isLoading && <span className="inline-flex shrink-0 items-center gap-2 text-xs font-medium text-blue-700"><Loader2 className="h-3.5 w-3.5 animate-spin" />Recalculando</span>}
             </div>
-            {(mesPagamento || convenioId || itemDescricao || procedimentoCodigo || motivoCodigo) && (
+            {(mesPagamento || convenioSelecionado || itemDescricao || procedimentoCodigo || motivoCodigo) && (
               <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Filtros interativos ativos">
                 <span className="mr-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Recorte ativo</span>
-                {mesPagamento && <ActiveFilterChip label="Mês" value={fmtMonth(mesPagamento)} onClear={() => setMesPagamento(undefined)} />}
-                {convenioId && <ActiveFilterChip label="Convênio" value={convenioSelecionadoNome || String(convenioId)} onClear={() => setConvenioId(undefined)} />}
+                {mesPagamento && <ActiveFilterChip label={isWarleine ? "Competência" : "Mês"} value={fmtMonth(mesPagamento)} onClear={() => setMesPagamento(undefined)} />}
+                {convenioSelecionado && <ActiveFilterChip label="Convênio" value={convenioSelecionadoNome || String(convenioSelecionado)} onClear={() => isWarleine ? setConvenioChave(undefined) : setConvenioId(undefined)} />}
                 {itemDescricao && <ActiveFilterChip label="Item" value={itemDescricao} onClear={() => setItemDescricao(undefined)} />}
                 {procedimentoCodigo && <ActiveFilterChip label="Procedimento" value={procedimentoCodigo} onClear={() => setProcedimentoCodigo(undefined)} />}
                 {motivoCodigo && <ActiveFilterChip label="Motivo" value={`${motivoCodigo} — ${motivoSelecionadoNome || motivoCodigo}`} onClear={() => setMotivoCodigo(undefined)} />}
@@ -693,7 +720,7 @@ export default function RelatoriosGlosasBi() {
                 ) : <EmptyChart message="Nenhum recurso analisado foi encontrado para os filtros selecionados." />}
               </Panel>
 
-              <Panel title="Glosa por mês de referência" subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
+              <Panel title={isWarleine ? "Glosa por competência Warleine" : "Glosa por mês de referência"} subtitle={`Clique em uma barra para cruzar todas as análises • ${periodoLabel}`} icon={CalendarDays}>
                 {data.porMesPagamento.length ? (
                   <div className="h-[300px] sm:h-[340px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -727,12 +754,12 @@ export default function RelatoriosGlosasBi() {
                     </ComposedChart>
                   </ResponsiveContainer>
                   </div>
-                ) : <EmptyChart message="Não há glosas com data de referência para o período selecionado." />}
+                ) : <EmptyChart message={isWarleine ? "Não há glosas na competência selecionada." : "Não há glosas com data de referência para o período selecionado."} />}
               </Panel>
 
               <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
                 <Panel title="Glosa por convênio" subtitle="Clique em uma operadora para cruzar todo o relatório" icon={Tags}>
-                  <HorizontalRankingChart data={data.porConvenio} color={COLORS.blue} selectedValue={convenioId} getValue={(item) => item.convenioId} onSelect={(item) => toggleConvenio(item.convenioId)} />
+                  <HorizontalRankingChart data={data.porConvenio} color={COLORS.blue} selectedValue={convenioSelecionado} getValue={(item) => item.convenioId} onSelect={(item) => toggleConvenio(item.convenioId)} />
                 </Panel>
                 <Panel title="Glosa por procedimento" subtitle="Clique em um código para cruzar todo o relatório" icon={Stethoscope}>
                   <HorizontalRankingChart data={data.porProcedimento.map((item: any) => ({ ...item, nome: `${item.codigoItem} — ${item.nome}` }))} color={COLORS.purple} selectedValue={procedimentoCodigo} getValue={(item) => item.codigoItem} onSelect={(item) => toggleProcedimento(item.codigoItem)} />
@@ -819,13 +846,13 @@ export default function RelatoriosGlosasBi() {
                 ) : <EmptyChart message="Nenhum motivo de glosa encontrado para os filtros selecionados." />}
               </Panel>
 
-              {comparativo && <ComparativoSection result={comparativo} />}
+              {!isWarleine && comparativo && <ComparativoSection result={comparativo} />}
             </>
           ) : null}
         </div>
       </main>
 
-      <Dialog open={showComparar} onOpenChange={setShowComparar}>
+      <Dialog open={!isWarleine && showComparar} onOpenChange={setShowComparar}>
         <DialogContent className="border-slate-200 bg-white text-slate-900 sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Comparar competências</DialogTitle>
@@ -842,6 +869,10 @@ export default function RelatoriosGlosasBi() {
       </Dialog>
     </DashboardLayout>
   );
+}
+
+export default function RelatoriosGlosasBi() {
+  return <RelatoriosGlosasView />;
 }
 
 function ComparativoSection({ result }: { result: any }) {

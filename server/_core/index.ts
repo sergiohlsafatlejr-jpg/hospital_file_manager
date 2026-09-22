@@ -10,6 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { initializeJobScheduler } from "./jobScheduler";
 import { fileProcessorRouter } from "../fileProcessor";
 import { uploadMultipartRouter } from "../uploadMultipart";
+import { initializeWarleineImportWorker } from "../warleineFaturamentoWorker";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -81,6 +82,7 @@ async function startServer() {
   } catch (error) {
     console.error("Erro ao inicializar JobScheduler:", error);
   }
+  initializeWarleineImportWorker();
 }
 
 startServer().catch(console.error);

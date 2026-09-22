@@ -98,6 +98,9 @@ const RelatorioOxUtiFaturado = lazy(() => import("./pages/RelatorioOxUtiFaturado
 const PrevisaoPagamentosImec = lazy(() => import("./pages/PrevisaoPagamentosImec"));
 const ResumoPacienteOxUti = lazy(() => import("./pages/ResumoPacienteOxUti"));
 const FaturadoRecebidoUnificado = lazy(() => import("./pages/FaturadoRecebidoUnificado"));
+const FaturadoRecebidoWarleine = lazy(() => import("./pages/FaturadoRecebidoWarleine"));
+const RelatoriosGlosasWarleine = lazy(() => import("./pages/RelatoriosGlosasWarleine"));
+const ContaConvenioWarleine = lazy(() => import("./pages/ContaConvenioWarleine"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
 const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
 const RelatorioFisioterapia = lazy(() => import("./pages/RelatorioFisioterapia"));
@@ -162,6 +165,7 @@ function Router() {
         <Route path={"/relatorios"} component={Relatorios} />
         <Route path={"/configuracoes/:rest*"} component={Configuracoes} />
         <Route path={"/conta-convenio"} component={ContaConvenio} />
+        <Route path={"/conta-convenio-warleine"} component={ContaConvenioWarleine} />
         <Route path={"/conta-convenio-detalhes"} component={ContaConvenioDetalhes} />
         <Route path={"/demonstrativo-detalhes"} component={DemonstrativoDetalhes} />
         <Route path={"/contas/:guiaNumero"} component={ContaDetalhes} />
@@ -237,9 +241,11 @@ function Router() {
         <Route path={"/relatorio-ox-uti-faturado"} component={RelatorioOxUtiFaturado} />
         <Route path={"/resumo-paciente-ox-uti"} component={ResumoPacienteOxUti} />
         <Route path={"/faturado-recebido-unificado"} component={FaturadoRecebidoUnificado} />
+        <Route path={"/faturado-recebido-warleine"} component={FaturadoRecebidoWarleine} />
         <Route path={"/contratos-convenios"} component={ContratosConvenios} />
         <Route path={"/auditoria-sistema"} component={LogAuditoriaSistema} />
         <Route path={"/relatorios-glosas-bi"} component={RelatoriosGlosasBi} />
+        <Route path={"/relatorios-glosas-warleine"} component={RelatoriosGlosasWarleine} />
         <Route path={"/rh/upload"} component={UploadFolhaRH} />
         <Route path={"/rh/folha-pagamento"} component={FolhaPagamento} />
         <Route path={"/rh/colaboradores"} component={Colaboradores} />

@@ -4740,3 +4740,24 @@
 - [x] Aprovar 62 testes direcionados, build de produção, TypeScript focado e validador real multi-sistema
 - [x] Exibir no Instituto do Rim o painel completo Quantidade por Serviço, com os 19 serviços clicáveis sem exigir expansão
 - [x] Posicionar o painel de Serviço antes dos convênios para localizar e filtrar pacientes com menos etapas
+- [x] Criar pipeline Warleine por lote com staging canônica, quarentena, hash idempotente e publicação por estabelecimento/competência
+- [x] Validar e publicar no Instituto do Rim 319.784 itens em 26.877 contas, de 2026/01 a 2026/06
+- [x] Preservar 41 linhas inválidas em quarentena: 25 com colunas excedentes e 16 com modalidade de recebimento inválida
+- [x] Criar Conta Convênio — Warleine, Faturado x Recebido — Warleine e Glosas — Warleine sem somar XMLs ou demonstrativos
+- [x] Adicionar upload XLSX autorizado, confirmação de snapshot, limite de tamanho, storage criptografado, job persistido e worker recuperável
+- [x] Bloquear sincronização, transformação e limpeza legadas de faturamento para impedir duplicidade ou perda da trilha de auditoria
+- [x] Proteger todas as competências contra redução grande por quantidade e valor, sem bypass simples de publicação
+- [x] Rejeitar arquivos XLSX com múltiplas abas para evitar omissão silenciosa e usar Decimal exato nos valores financeiros
+- [x] Paginar o detalhamento da Conta Convênio Warleine em blocos de 100 itens e corrigir o filtro Sem convênio
+- [x] Identificar cada ocorrência por hash do arquivo e linha física, preservando 197 conteúdos repetidos legítimos com aviso auditável
+- [x] Serializar workers concorrentes com claim transacional, ownership e lease renovável
+- [x] Versionar o envelope criptográfico e suportar chave dedicada `WARLEINE_FILE_ENCRYPTION_KEY`
+- [x] Remover CRC32 do filtro de convênio e usar chave textual sem colisões no BI Warleine
+- [x] Restringir redução excepcional de snapshot a administrador, com justificativa e auditoria persistidas
+- [x] Comprovar idempotência do lote real e validar R$ 25.511.790,73 faturados, R$ 21.863.777,63 recebidos, R$ 2.770.054,93 em aberto e R$ 994.221,78 glosados
+- [x] Trocar o snapshot por ponteiros atômicos por estabelecimento e competência, sem atualizar 319 mil linhas na ativação
+- [x] Condicionar limpeza, staging, progresso, validação, materialização, publicação e falha ao mesmo claim e lease vigente
+- [x] Consolidar convênios por chave estável em Conta Convênio, Faturado x Recebido e Glosas, usando nome apenas como rótulo determinístico
+- [x] Republicar o lote criptografado pelo worker em 369 segundos, mantendo 319.784 itens e 6 competências ativos durante todo o processamento
+- [x] Aprovar 30 testes Warleine, build de produção, TypeScript focado sem regressões, compilação dos scripts, revisão independente sem bloqueadores e validador real final
+- [ ] Excluir a tabela vazia `staging_faturamento_warleine` após confirmação destrutiva explícita; manter `warleine_faturamento_staging`

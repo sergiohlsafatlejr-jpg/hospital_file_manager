@@ -17,6 +17,8 @@ import * as db from './db';
 import { storagePut } from './storage';
 import { sdk } from './_core/sdk';
 import { importTasyCsvFile } from './tasyCsvImportService';
+import { hashWarleineFile, reserveWarleineImportJob } from './warleineFaturamentoImportService';
+import { encryptWarleineFile } from './warleineFileVault';
 
 const router = Router();
 
@@ -38,11 +40,60 @@ const uploadTasyCsv = multer({
   fileFilter: (_req, file, callback) => callback(null, extname(file.originalname).toLowerCase() === '.csv'),
 });
 
+const warleineUploadDir = '/tmp/portal-safatle-warleine';
+mkdirSync(warleineUploadDir, { recursive: true });
+const uploadWarleineXlsx = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, warleineUploadDir),
+    filename: (_req, file, callback) => callback(null, `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`),
+  }),
+  limits: { fileSize: 128 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => callback(null, extname(file.originalname).toLowerCase() === '.xlsx'),
+});
+
 type TasyUploadRequest = Request & {
   tasyUploadUser?: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
   tasyEstabelecimentoId?: number;
   tasyDeadlineAtMs?: number;
 };
+
+type WarleineUploadRequest = Request & {
+  warleineUploadUser?: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
+  warleineEstabelecimentoId?: number;
+  warleineDeadlineAtMs?: number;
+};
+
+async function authorizeWarleineUpload(req: WarleineUploadRequest, res: Response, next: NextFunction) {
+  try {
+    let user: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
+    try {
+      user = await sdk.authenticateRequest(req);
+    } catch {
+      res.status(401).json({ error: 'Não autenticado' });
+      return;
+    }
+    const estabelecimentoId = Number(req.header('x-estabelecimento-id'));
+    if (!Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) {
+      res.status(400).json({ error: 'Informe um estabelecimento válido antes do upload.' });
+      return;
+    }
+    const allowedEstablishment = user.role === 'admin'
+      || await db.verificarPermissaoEstabelecimento(user.id, estabelecimentoId, 'gerenciar');
+    const allowedModule = user.role === 'admin'
+      || await db.verificarAcessoModulo(user.id, estabelecimentoId, 'contaConvenio');
+    if (!allowedEstablishment || !allowedModule) {
+      res.status(403).json({ error: 'Sem permissão para importar faturamento Warleine nesta unidade.' });
+      return;
+    }
+    req.warleineUploadUser = user;
+    req.warleineEstabelecimentoId = estabelecimentoId;
+    req.warleineDeadlineAtMs = Date.now() + 13 * 60 * 1000;
+    next();
+  } catch (error) {
+    console.error('[Warleine XLSX] Erro ao autorizar upload:', error);
+    res.status(500).json({ error: 'Não foi possível autorizar o upload Warleine.' });
+  }
+}
 
 async function authorizeTasyUpload(req: TasyUploadRequest, res: Response, next: NextFunction) {
   try {
@@ -332,5 +383,66 @@ router.post(
     return res.status(500).json({ error: error?.message || 'Erro interno no upload Tasy.' });
   }
 });
+
+router.post(
+  '/api/warleine/importar-faturamento',
+  (req, res, next) => {
+    req.setTimeout(15 * 60 * 1000);
+    res.setTimeout(15 * 60 * 1000);
+    next();
+  },
+  authorizeWarleineUpload,
+  uploadWarleineXlsx.single('file'),
+  async (req: WarleineUploadRequest, res: Response) => {
+    let tempPath = req.file?.path;
+    try {
+      const user = req.warleineUploadUser;
+      const estabelecimentoId = req.warleineEstabelecimentoId;
+      if (!req.file || !tempPath) return res.status(400).json({ error: 'Selecione um arquivo XLSX do Warleine.' });
+      if (!user || !estabelecimentoId) {
+        await fs.unlink(tempPath).catch(() => undefined);
+        return res.status(401).json({ error: 'Autorização do upload não encontrada.' });
+      }
+      if (Number(req.body.estabelecimentoId) !== estabelecimentoId) {
+        await fs.unlink(tempPath).catch(() => undefined);
+        return res.status(400).json({ error: 'A unidade do formulário diverge da autorização do upload.' });
+      }
+      if (req.body.confirmarSubstituicao !== 'true') {
+        await fs.unlink(tempPath).catch(() => undefined);
+        return res.status(400).json({ error: 'Confirme que o arquivo substitui as competências nele contidas.' });
+      }
+
+      const processingPath = tempPath;
+      const fileHash = await hashWarleineFile(processingPath);
+      const storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
+      const encryptedFile = encryptWarleineFile(await fs.readFile(processingPath));
+      await storagePut(storageKey, encryptedFile, 'application/octet-stream');
+      const job = await reserveWarleineImportJob({
+        estabelecimentoId,
+        userId: user.id,
+        fileName: req.file.originalname,
+        fileHash,
+        fileSize: req.file.size,
+        storageKey,
+      });
+      await fs.unlink(processingPath).catch(() => undefined);
+      tempPath = undefined;
+      return res.status(job.status === 'publicado' ? 200 : 202).json({
+        success: true,
+        processandoEmBackground: job.status !== 'publicado',
+        loteId: job.loteId,
+        reutilizado: job.reusedExistingLot,
+        status: job.status,
+        message: job.status === 'publicado'
+          ? 'Este arquivo já havia sido publicado; o lote existente foi reutilizado.'
+          : 'Arquivo recebido com segurança e enfileirado para validação e publicação.',
+      });
+    } catch (error: any) {
+      if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
+      console.error('[Warleine XLSX] Erro ao receber arquivo:', error?.message || error);
+      return res.status(500).json({ error: error?.message || 'Erro interno no upload Warleine.' });
+    }
+  },
+);
 
 export { router as uploadMultipartRouter };

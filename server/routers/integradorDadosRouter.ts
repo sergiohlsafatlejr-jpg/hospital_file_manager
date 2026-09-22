@@ -441,6 +441,13 @@ export const integradorDadosRouter = router({
 
         if (config.sistema === "warleine") {
           try {
+            if (config.tipoDados?.toLowerCase().includes("faturamento")) {
+              return {
+                sucesso: false,
+                mensagem: "A sincronização legada de faturamento Warleine foi desativada para evitar duplicidade. Use o pipeline canônico por lote; a conexão direta deverá alimentar o mesmo contrato validado do XLSX.",
+                registrosProcessados: 0,
+              };
+            }
             // Parse da configuração de conexão
             let conexao = {};
             if (config.conexaoConfig) {
@@ -862,77 +869,10 @@ export const integradorDadosRouter = router({
         const isFaturamento = config.tipoDados?.toLowerCase().includes('faturamento');
 
         if (isFaturamento) {
-          // FATURAMENTO: transformar de warleine_faturamento_staging para faturamento_geral
-          const stagingData = await db
-            .select()
-            .from(warleineFaturamentoStaging)
-            .where(eq(warleineFaturamentoStaging.configId, input.configId));
-          console.log(`[DEBUG] Transformando ${stagingData.length} registros de FATURAMENTO`);
-          let registrosTransformados = 0;
-          const BATCH_SIZE = 100;
-          for (let i = 0; i < stagingData.length; i += BATCH_SIZE) {
-            const batch = stagingData.slice(i, i + BATCH_SIZE);
-            const valuesToInsert = batch.map((row) => {
-              const dados = row.dadosBrutos as any;
-              return {
-                origemSistema: "WARLEINE",
-                estabelecimentoId: row.estabelecimentoId,
-                configId: config.id,
-                aihguia: dados?.aihguia || null,
-                codcc: dados?.codcc || null,
-                codconv: dados?.codconv || null,
-                codgrufi: dados?.codgrufi || null,
-                codproprio: dados?.codproprio || null,
-                codrecur: dados?.codrecur || null,
-                codtiss: dados?.codtiss || null,
-                complrecur: dados?.complrecur || null,
-                data: dados?.data ? new Date(dados.data) : null,
-                dataint: dados?.dataint ? new Date(dados.dataint) : null,
-                datasai: dados?.datasai ? new Date(dados.datasai) : null,
-                descmotivo: dados?.descmotivo || null,
-                descricao: dados?.descricao || null,
-                funcaotiss: dados?.funcaotiss || null,
-                gl_aceita: dados?.gl_aceita || null,
-                gl_analise: dados?.gl_analise || null,
-                gl_recuperada: dados?.gl_recuperada || null,
-                gl_recurso: dados?.gl_recurso || null,
-                guiacobra: dados?.guiacobra || null,
-                matricula: dados?.matricula || null,
-                mesprod: dados?.mesprod || null,
-                nomecc: dados?.nomecc || null,
-                nomeconv: dados?.nomeconv || null,
-                nomeprest: dados?.nomeprest || null,
-                numconta: dados?.numconta || null,
-                numfatura: dados?.numfatura || null,
-                prestexe: dados?.prestexe || null,
-                procdisco: dados?.procdisco || null,
-                protocolo: dados?.protocolo || null,
-                quantidade: dados?.quantidade || null,
-                receber: dados?.receber || null,
-                tipoatend: dados?.tipoatend || null,
-                tipoproc: dados?.tipoproc || null,
-                vl_aberto: dados?.vl_aberto || null,
-                vl_faturado: dados?.vl_faturado || null,
-                vl_glosas: dados?.vl_glosas || null,
-                vl_receb_a_maior: dados?.vl_receb_a_maior || null,
-                vl_recebido: dados?.vl_recebido || null,
-                vl_total_recebido: dados?.vl_total_recebido || null,
-                vl_unitario: dados?.vl_unitario || null,
-              };
-            });
-            await db.insert(faturamentoGeral).values(valuesToInsert);
-            registrosTransformados += valuesToInsert.length;
-          }
-          await db
-            .update(queryConfiguracoes)
-            .set({ ultimaSincronizacao: new Date() })
-            .where(eq(queryConfiguracoes.id, input.configId));
-          return {
-            sucesso: true,
-            mensagem: `${registrosTransformados} registros de faturamento transformados`,
-            registrosTransformados,
-          };
-        } else {
+          throw new Error("A transformação legada de faturamento Warleine foi desativada. Os relatórios usam exclusivamente os itens publicados pelo pipeline canônico por lote.");
+        }
+
+        {
           // ATENDIMENTOS: transformar de warleine_atendimentos_staging para atendimentos_unificados
           const stagingData = await db
             .select()
@@ -1290,19 +1230,7 @@ export const integradorDadosRouter = router({
         let registrosRemovidosUnificados = 0;
 
         if (isFaturamento) {
-          // Limpar faturamento_geral
-          await db.execute(
-            sql.raw(`DELETE FROM faturamento_geral WHERE configId = ${input.configId}`)
-          );
-          const [countResult] = await db.execute(
-            sql.raw(`SELECT ROW_COUNT() as cnt`)
-          );
-          registrosRemovidosUnificados = (countResult as any)?.cnt || 0;
-
-          // Limpar staging de faturamento
-          await db.execute(
-            sql.raw(`DELETE FROM warleine_faturamento_staging WHERE configId = ${input.configId}`)
-          );
+          throw new Error("A limpeza legada de faturamento Warleine foi desativada. A retenção e a reversão devem ser executadas por lote no pipeline canônico.");
         } else {
           // Limpar atendimentos_unificados
           const stagingData = await db

@@ -57,6 +57,7 @@ import { aceiteAutomaticoRouter } from "./routers/aceiteAutomaticoRouter";
 import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter";
 import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRouter";
 import { faturadoRecebidoUnificadoRouter } from "./routers/faturadoRecebidoUnificadoRouter";
+import { warleineFaturamentoRouter } from "./routers/warleineFaturamentoRouter";
 import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { passwordAuthRouter } from "./routers/passwordAuthRouter";
 import { validateNewPassword } from "./passwordAuthService";
@@ -173,6 +174,7 @@ export const appRouter = router({
   faturamentoDigitacao: faturamentoDigitacaoRouter,
   previsaoPagamentosImec: previsaoPagamentosImecRouter,
   faturadoRecebidoUnificado: faturadoRecebidoUnificadoRouter,
+  warleineFaturamento: warleineFaturamentoRouter,
   relatorioVisita: relatorioVisitaRouter,
   passwordAuth: passwordAuthRouter,
   

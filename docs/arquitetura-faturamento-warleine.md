@@ -1,4 +1,4 @@
-# Arquitetura proposta para faturamento Warleine
+# Arquitetura implantada para faturamento Warleine
 
 **Autor:** Manus AI  
 **Data:** 21 de setembro de 2026
@@ -7,11 +7,26 @@ O mapeamento semântico detalhado dos campos está no documento [`dicionario-dad
 
 ## Conclusão
 
-A melhor organização é manter **uma única staging compartilhada para o Warleine**, sempre recortada por estabelecimento e por lote de importação. A tabela que deve permanecer é `warleine_faturamento_staging`, porque ela já é usada pelo integrador automático. Porém, seu modelo atual, com apenas `estabelecimentoId`, `configId` e `dadosBrutos`, precisa ser ampliado para receber campos tipados, rastreamento de lote, hash da linha e status de validação.
+A implantação mantém **uma única staging compartilhada para o Warleine**, sempre recortada por estabelecimento e por lote: `warleine_faturamento_staging`. Ela foi ampliada com `loteId`, número da linha, status, aviso e índices. Os campos canônicos tipados são publicados em `warleine_faturamento_itens`; a staging nunca alimenta relatórios diretamente.
 
 A tabela `staging_faturamento_warleine` está vazia, não possui consumo ativo no código e não tem índices ou controle de lote suficientes. Ela pode ser removida **somente depois** da criação da nova estrutura, da migração validada e da autorização explícita para o `DROP TABLE`.
 
-O arquivo recebido é um **XLSX de 60 MB**, embora tenha sido chamado de CSV. Ele contém **319.825 itens**, distribuídos em **26.878 contas** e seis competências, de `2026/01` a `2026/06`. Não contém somente contas sem recebimento: há valores pagos, valores em aberto, glosas e recursos no mesmo arquivo.
+O arquivo recebido é um **XLSX de 60 MB**, embora tenha sido chamado de CSV. Ele contém **319.825 linhas**, das quais **319.784 foram validadas e publicadas** e 41 foram preservadas em quarentena. A publicação formou **26.877 contas** em seis competências, de `2026/01` a `2026/06`. Não contém somente contas sem recebimento: há valores pagos, valores em aberto, glosas e recursos no mesmo arquivo.
+
+## Estado implantado
+
+| Componente | Estado |
+|---|---|
+| Lotes | `warleine_faturamento_lotes`, com hash por estabelecimento, totais, status e competências |
+| Staging única | `warleine_faturamento_staging`, compartilhada e isolada por `estabelecimentoId` e `loteId` |
+| Quarentena | `warleine_faturamento_quarentena`, com 41 linhas não publicadas neste lote |
+| Publicação | `warleine_faturamento_itens`, com snapshot ativo por estabelecimento e competência |
+| Conta Convênio | `/conta-convenio-warleine`, usando somente a publicação Warleine |
+| Faturado x Recebido | `/faturado-recebido-warleine`, mesma interface do oficial e fonte isolada |
+| BI de Glosas | `/relatorios-glosas-warleine`, mesma interface do oficial e fonte isolada |
+| Fonte oficial existente | Mantida sem alterações e sem soma automática com Warleine |
+
+O lote piloto do Instituto do Rim foi publicado com **R$ 25.511.790,73 faturados**, **R$ 21.863.777,63 recebidos**, **R$ 2.770.054,93 em aberto** e **R$ 994.221,78 glosados**. A diferença de R$ 40,00 no faturado e de R$ 2.816,31 no aberto em relação ao total bruto está integralmente nas 41 linhas rejeitadas; nenhum valor foi estimado ou fabricado.
 
 ## Auditoria do arquivo recebido
 
@@ -52,11 +67,11 @@ A chave operacional formada por conta, item, data, quantidade, valor, indicaçã
 
 | Tabela | Estado no banco | Uso atual | Avaliação |
 |---|---:|---|---|
-| `warleine_faturamento_staging` | 0 linhas | Usada pelo integrador automático | Deve permanecer e ser ampliada |
+| `warleine_faturamento_staging` | Staging canônica versionada por lote | Importação XLSX e futuro adaptador do banco | Deve permanecer |
 | `staging_faturamento_warleine` | 0 linhas | Nenhuma referência ativa | Candidata à remoção após migração e autorização |
 | `faturamento_geral` | 0 linhas | Destino de uma transformação antiga | Não deve ser a nova fonte principal |
 | `integ_faturado` | 0 linhas | Consumida por Conta Convênio e relatórios legados | Compatibilidade temporária; exige correção de chave e escopo |
-| `faturamento_unificado` | 36.448 linhas, somente XML TISS do Instituto do Rim | Fonte analítica já usada por BI e conciliação | Deve ser o destino canônico dos itens Warleine |
+| `faturamento_unificado` | Fonte oficial com XML TISS do Instituto do Rim | BI e conciliação existentes | Permanece isolada; não recebe este piloto Warleine |
 
 A sincronização antiga de `integ_faturado` agrupa dados por conta e perde o detalhamento de item. Além disso, gera `_id` começando em 1 a cada estabelecimento, embora `_id` seja chave primária global. Esse desenho não é seguro para múltiplos estabelecimentos e não deve ser usado para a nova carga sem correção.
 
@@ -65,9 +80,9 @@ A sincronização antiga de `integ_faturado` agrupa dados por conta e perde o de
 | Abordagem | Como funciona | Trade-offs | Custo | Complexidade de implantação |
 |---|---|---|---|---|
 | Consolidação mínima | Mantém `warleine_faturamento_staging` com JSON e adapta o fluxo atual para preencher `integ_faturado` | Mais rápida, mas preserva perda de campos, dificulta auditoria e mantém risco de duplicidade e chave global | Baixo, sem nova infraestrutura | Baixa |
-| Pipeline auditável por lote | Amplia `warleine_faturamento_staging`, cria lote e quarentena, valida os campos e publica em `faturamento_unificado` e na projeção de Conta Convênio | Exige mais desenvolvimento inicial, mas preserva todos os valores, permite reprocessamento idempotente e atende vários estabelecimentos com segurança | Médio de desenvolvimento, sem nova infraestrutura recorrente | Média |
+| Pipeline auditável por lote | Amplia `warleine_faturamento_staging`, cria lote e quarentena e publica em `warleine_faturamento_itens` | Preserva todos os valores válidos, permite reprocessamento idempotente e mantém a fonte oficial sem duplicidade | Médio de desenvolvimento, sem nova infraestrutura recorrente | Média |
 
-A segunda abordagem é a mais adequada para Conta Convênio e BI, mas a escolha final deve ser confirmada antes da implementação.
+A segunda abordagem foi escolhida e implantada com relatórios separados durante o piloto.
 
 ## Modelo recomendado
 
@@ -77,7 +92,7 @@ O banco deve preservar a origem de cada registro, mas as telas não devem somar 
 
 A chave recomendada combina `estabelecimentoId`, conta, guia, código do item, data de execução, quantidade, valor faturado e indicação `receber`. A descrição pode ajudar na conferência, mas não deve ser a única chave porque pode variar entre fontes. Quando o código da guia muda entre prestador e operadora, as duas variantes devem ser consideradas pela conciliação.
 
-Cada registro publicado deve manter `origemSistema`, `origemId`, `loteId`, `chaveNegocioHash` e `ativoParaRelatorio`. Quando houver o mesmo item nas duas fontes, o Warleine fica ativo para o **valor faturado** e o XML permanece armazenado, mas inativo para somatórios. Assim não se perde rastreabilidade nem se duplica o faturamento.
+Cada registro publicado mantém `loteId`, `chaveNegocioHash`, `linhaHash` e `ativoParaRelatorio`. Durante o piloto, nenhuma origem é desativada na base oficial: as rotas Warleine consultam exclusivamente `warleine_faturamento_itens`, enquanto as rotas oficiais continuam consultando XML e demonstrativos. Assim, não há soma entre fontes nem alteração silenciosa dos relatórios existentes.
 
 A regra atual de `popularFaturamentoUnificado` não é suficiente. Ela deixa de importar XML quando encontra Warleine, mas não desativa XMLs que já estavam publicados. Portanto, uma carga histórica posterior do Warleine ainda poderia coexistir com XML antigo e duplicar os totais.
 
@@ -138,7 +153,7 @@ Esta tabela registra o arquivo ou a sincronização que originou os dados. Deve 
 
 ### `warleine_faturamento_staging`
 
-Esta será a única staging Warleine. Cada linha deve ter `loteId`, `estabelecimentoId`, número da linha, hash da linha, campos normalizados e tipados, dados brutos preservados e status de validação. Valores financeiros devem usar `DECIMAL`; datas devem ser datas civis; identificadores devem permanecer como texto para não perder zeros à esquerda.
+Esta é a única staging Warleine **operacional**. Cada linha tem `loteId`, `estabelecimentoId`, número da linha, hash da linha, campos normalizados e tipados, dados brutos preservados e status de validação. Valores financeiros usam `DECIMAL`; datas são civis; identificadores permanecem como texto para não perder zeros à esquerda. A tabela legada vazia permanece apenas até autorização explícita de exclusão e não participa do fluxo.
 
 O mapeamento precisa ser posicional para os cabeçalhos duplicados. A primeira `descricao` deve receber um nome semântico diferente da descrição do item. Os dois `codrecur` devem ser preservados separadamente durante a validação; só depois podem ser consolidados quando forem iguais.
 
@@ -148,21 +163,30 @@ Linhas deslocadas, inválidas ou sem conta devem ser registradas por lote e esta
 
 ### Publicação
 
-A publicação deve ser transacional e idempotente. `faturamento_unificado` deve ser a fonte canônica de itens para o BI. Ela precisa receber também os campos financeiros hoje ausentes: valor em aberto, recebido a maior, recurso, glosa aceita, glosa em análise e glosa recuperada.
+A publicação é transacional e idempotente em `warleine_faturamento_itens`, com ativação somente depois da validação. Cada ocorrência física recebe a identidade canônica `hash do arquivo:número da linha`; assim, a reexecução do mesmo lote é idempotente, mas duas cobranças idênticas em linhas diferentes não são descartadas. Conteúdos idênticos repetidos são preservados e recebem o aviso `CONTEUDO_REPETIDO_NO_ARQUIVO` para auditoria.
+
+A versão ativa é selecionada por `warleine_faturamento_snapshots_ativos`, uma tabela pequena com uma linha por estabelecimento e competência. Depois de materializar e validar todos os itens, o publicador troca esses ponteiros na transação final. As três telas consultam a view `warleine_faturamento_itens_ativos`; portanto, nunca observam lote incompleto e a troca não depende de atualizar centenas de milhares de linhas antigas.
+
+Toda competência é comparada com o snapshot ativo por quantidade e pelos totais de faturado, recebido, aberto e glosa. Uma queda superior a **0,5%** em qualquer dimensão bloqueia a publicação. A exceção exige administrador, justificativa mínima, data e usuário persistidos no lote antes de um novo processamento integral. Os cálculos financeiros usam `Decimal` no parser, nas comparações de cobertura e nos agregados de relatórios; a conversão para `number` acontece apenas na borda da API, depois de validar a faixa segura.
+
+O worker reclama cada job em transação, grava `claimToken`, proprietário e lease renovável, e condiciona limpeza, batches de staging, progresso, validação, materialização, falha e publicação final ao mesmo token e a um lease ainda vigente. Isso impede dois processos simultâneos para o mesmo lote e permite recuperação segura após reinício. O arquivo durável usa envelope criptográfico versionado; uma chave dedicada pode ser configurada em `WARLEINE_FILE_ENCRYPTION_KEY`, com compatibilidade controlada para arquivos anteriores.
 
 A tela Conta Convênio pode receber uma projeção controlada desses itens em `contas_convenio_itens` e seus cabeçalhos em `contas_convenio_resumo`. Para impedir divergência, a projeção deve guardar referência ao item canônico e ser atualizada somente pelo publicador do lote.
 
 ```mermaid
 flowchart LR
-    A[Arquivo XLSX/CSV ou banco Warleine] --> B[warleine_faturamento_lotes]
-    B --> C[warleine_faturamento_staging]
-    C --> D{Validação por linha}
-    D -->|Inválida| E[warleine_faturamento_quarentena]
-    D -->|Válida| F[Publicação transacional]
-    F --> G[faturamento_unificado]
-    G --> H[Relatórios BI]
-    F --> I[Projeção Conta Convênio]
-    I --> J[Tela Conta Convênio]
+    A[Arquivo XLSX Warleine] --> B[Upload autorizado]
+    B --> C[Arquivo criptografado no storage]
+    C --> D[Job persistido no lote]
+    D --> E[Worker recuperável]
+    E --> F[warleine_faturamento_staging]
+    F --> G{Validação por linha}
+    G -->|Inválida| H[warleine_faturamento_quarentena]
+    G -->|Válida| I[Publicação transacional]
+    I --> J[warleine_faturamento_itens]
+    J --> M[Ponteiro ativo por competência]
+    M --> K[Relatórios Warleine]
+    M --> L[Conta Convênio Warleine]
 ```
 
 ## Resultados que o arquivo permite entregar
@@ -171,12 +195,14 @@ Na tela **Conta Convênio**, o sistema poderá listar todas as contas do lote, a
 
 Nos **Relatórios BI**, será possível apresentar faturado, recebido, aberto e glosado por competência, convênio, item, grupo financeiro, setor e tipo de atendimento. Também será possível medir taxa de glosa, taxa de recuperação, principais motivos, valores aceitos, valores em análise e recursos ainda sem recuperação.
 
-## Decisões necessárias antes da importação
+## Decisões e pendência operacional
 
-1. Confirmar que o arquivo `IRG01-2026-06-2026.xlsx` pertence ao estabelecimento **Instituto do Rim**. O arquivo não contém `estabelecimentoId`; esse vínculo deve vir da unidade selecionada e autorizada no portal.
-2. Confirmar se devem ser importadas todas as competências encontradas, de `2026/01` a `2026/06`, ou somente `2026/06`.
-3. Escolher entre a consolidação mínima e o pipeline auditável por lote.
-4. Autorizar separadamente a exclusão definitiva da tabela vazia `staging_faturamento_warleine` depois que a migração e os testes estiverem concluídos. Nenhuma tabela foi excluída nesta auditoria.
+1. O arquivo foi vinculado ao estabelecimento **Instituto do Rim** pela unidade autorizada do portal; o vínculo nunca é inferido da planilha.
+2. As seis competências encontradas, de `2026/01` a `2026/06`, foram publicadas.
+3. O pipeline auditável por lote foi implantado e os caminhos legados que poderiam duplicar, transformar ou limpar dados foram bloqueados.
+4. O upload grava uma cópia criptografada no storage, reserva um job persistido e retorna sem depender da duração da requisição. O worker retoma jobs após reinício, limita tentativas e registra progresso e falhas no lote.
+5. A tabela vazia `staging_faturamento_warleine` continua aguardando autorização destrutiva específica para o `DROP TABLE`. Nenhuma migração de exclusão está versionada; `warleine_faturamento_staging` é a única staging operacional.
+6. A prova final do worker reprocessou 319.825 linhas em 369 segundos, publicou 319.784 itens e preservou os seis ponteiros ativos durante todo o processamento. O validador confirmou 26.877 contas, 197 conteúdos repetidos preservados, 41 linhas em quarentena e isolamento aprovado.
 
 ## References
 

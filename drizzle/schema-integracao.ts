@@ -65,21 +65,182 @@ export const warleineAtendimentosStaging = mysqlTable(
   })
 );
 
-// WARLEINE - Faturamento (Staging)
+// WARLEINE - Lotes de faturamento por estabelecimento e fonte
+export const warleineFaturamentoLotes = mysqlTable(
+  "warleine_faturamento_lotes",
+  {
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    configId: int(),
+    origem: varchar({ length: 20 }).notNull().default("arquivo"),
+    arquivoNome: varchar({ length: 255 }).notNull(),
+    arquivoHash: varchar({ length: 64 }).notNull(),
+    arquivoTamanho: int(),
+    arquivoStorageKey: varchar({ length: 500 }),
+    status: varchar({ length: 30 }).notNull().default("recebido"),
+    tentativas: int().notNull().default(0),
+    claimToken: varchar({ length: 64 }),
+    claimedBy: varchar({ length: 100 }),
+    leaseExpiresAt: timestamp(),
+    totalLinhas: int().notNull().default(0),
+    totalValidas: int().notNull().default(0),
+    totalAvisos: int().notNull().default(0),
+    totalRejeitadas: int().notNull().default(0),
+    totalPublicadas: int().notNull().default(0),
+    valorFaturado: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorRecebido: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorTotalRecebido: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorAberto: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorGlosa: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    competencias: json(),
+    erroResumo: text(),
+    reducaoAprovadaEm: timestamp(),
+    reducaoAprovadaPor: int(),
+    reducaoAprovacaoMotivo: text(),
+    criadoPor: int().notNull(),
+    iniciadoEm: timestamp().defaultNow().notNull(),
+    validadoEm: timestamp(),
+    publicadoEm: timestamp(),
+    atualizadoEm: timestamp().defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    estabelecimentoHashUnique: uniqueIndex("uq_warleine_fat_lote_estab_hash").on(table.estabelecimentoId, table.arquivoHash),
+    estabelecimentoStatusIdx: index("idx_warleine_fat_lote_estab_status").on(table.estabelecimentoId, table.status),
+    leaseIdx: index("idx_warleine_fat_lote_lease").on(table.status, table.leaseExpiresAt),
+  }),
+);
+
+// WARLEINE - Faturamento (única staging compartilhada)
 export const warleineFaturamentoStaging = mysqlTable(
   "warleine_faturamento_staging",
   {
     id: int().primaryKey().autoincrement(),
+    loteId: int(),
     estabelecimentoId: int().notNull(),
-    configId: int().notNull(),
+    configId: int(),
+    numeroLinha: int(),
+    status: varchar({ length: 20 }).notNull().default("valido"),
+    avisoCodigo: varchar({ length: 100 }),
     
-    // Dados brutos em JSON (preserva estrutura original)
+    // Dados canônicos em JSON. Chaves repetidas do arquivo são preservadas
+    // com nomes distintos pelo importador posicional.
     dadosBrutos: json().notNull(),
   },
   (table) => ({
     estabelecimentoIdx: index("idx_warleine_fatur_estab").on(table.estabelecimentoId),
     configuracaoIdx: index("idx_warleine_fatur_config").on(table.configId),
+    loteLinhaUnique: uniqueIndex("uq_warleine_fatur_lote_linha").on(table.loteId, table.numeroLinha),
+    loteStatusIdx: index("idx_warleine_fatur_lote_status").on(table.loteId, table.status),
+    loteEstabelecimentoIdIdx: index("idx_warleine_staging_lote_estab_id").on(table.loteId, table.estabelecimentoId, table.id),
   })
+);
+
+export const warleineFaturamentoQuarentena = mysqlTable(
+  "warleine_faturamento_quarentena",
+  {
+    id: int().primaryKey().autoincrement(),
+    loteId: int().notNull(),
+    estabelecimentoId: int().notNull(),
+    numeroLinha: int().notNull(),
+    erroCodigo: varchar({ length: 100 }).notNull(),
+    erroDetalhe: text(),
+    dadosBrutos: json(),
+    criadoEm: timestamp().defaultNow().notNull(),
+  },
+  (table) => ({
+    loteLinhaUnique: uniqueIndex("uq_warleine_quarentena_lote_linha").on(table.loteId, table.numeroLinha),
+    estabelecimentoIdx: index("idx_warleine_quarentena_estab").on(table.estabelecimentoId),
+  }),
+);
+
+export const warleineFaturamentoItens = mysqlTable(
+  "warleine_faturamento_itens",
+  {
+    id: int().primaryKey().autoincrement(),
+    loteId: int().notNull(),
+    estabelecimentoId: int().notNull(),
+    numeroLinha: int().notNull(),
+    origemRegistroId: varchar({ length: 191 }).notNull(),
+    origemAtualizadoEm: varchar({ length: 30 }),
+    chaveNegocioHash: varchar({ length: 64 }).notNull(),
+    linhaHash: varchar({ length: 64 }).notNull(),
+    ativoParaRelatorio: boolean().notNull().default(false),
+
+    convenioFaturadoNome: varchar({ length: 255 }),
+    convenioFaturadoCodigo: varchar({ length: 100 }),
+    competencia: varchar({ length: 7 }).notNull(),
+    remessaFaturamento: varchar({ length: 100 }),
+    codigoRecursoOrigem1: varchar({ length: 100 }),
+    tipoItem: varchar({ length: 50 }),
+    protocoloConvenio: varchar({ length: 100 }),
+    numeroConta: varchar({ length: 100 }).notNull(),
+    guiaOperadora: varchar({ length: 100 }),
+    guiaPrestador: varchar({ length: 100 }),
+    pacienteNome: varchar({ length: 255 }),
+    carteiraBeneficiario: varchar({ length: 100 }),
+    dataAberturaConta: varchar({ length: 10 }),
+    dataEntrada: varchar({ length: 10 }),
+    dataAlta: varchar({ length: 10 }),
+    codigoTuss: varchar({ length: 100 }),
+    codigoItemInterno: varchar({ length: 100 }),
+    codigoTipoServico: varchar({ length: 50 }),
+    servicoNome: text(),
+    funcaoTiss: varchar({ length: 50 }),
+    recebimentoViaHospital: varchar({ length: 1 }),
+    setorCodigo: varchar({ length: 50 }),
+    setorNome: varchar({ length: 255 }),
+    prestadorExecutanteCodigo: varchar({ length: 100 }),
+    prestadorExecutanteNome: varchar({ length: 255 }),
+    quantidade: decimal({ precision: 18, scale: 4 }).notNull().default("0"),
+    valorFaturado: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorRecebido: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorRecebidoMaior: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorTotalRecebido: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorAberto: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorGlosa: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorRecursado: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorGlosaAceita: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorGlosaAnalise: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    valorGlosaRecuperada: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    codigoGlosa: varchar({ length: 100 }),
+    motivoGlosa: text(),
+    codigoMotivoInterno: varchar({ length: 100 }),
+    observacaoGlosa: text(),
+    tipoAtendimento: varchar({ length: 100 }),
+    operadorCodigo: varchar({ length: 100 }),
+    operadorNome: varchar({ length: 255 }),
+    dataFechamentoRemessa: varchar({ length: 10 }),
+    dataPagamento: varchar({ length: 10 }),
+    dataAssociacaoWarleine: varchar({ length: 10 }),
+    convenioPagadorNome: varchar({ length: 255 }),
+    valorUnitario: decimal({ precision: 20, scale: 4 }).notNull().default("0"),
+    publicadoEm: timestamp().defaultNow().notNull(),
+  },
+  (table) => ({
+    loteLinhaUnique: uniqueIndex("uq_warleine_item_lote_linha").on(table.loteId, table.numeroLinha),
+    estabelecimentoOrigemUnique: uniqueIndex("uq_warleine_item_estab_origem").on(table.estabelecimentoId, table.origemRegistroId),
+    estabelecimentoCompetenciaIdx: index("idx_warleine_item_estab_comp").on(table.estabelecimentoId, table.ativoParaRelatorio, table.competencia),
+    estabelecimentoContaIdx: index("idx_warleine_item_estab_conta").on(table.estabelecimentoId, table.ativoParaRelatorio, table.numeroConta),
+    estabelecimentoConvenioIdx: index("idx_warleine_item_estab_convenio").on(table.estabelecimentoId, table.ativoParaRelatorio, table.convenioFaturadoCodigo),
+    loteIdx: index("idx_warleine_item_lote").on(table.loteId),
+    loteEstabelecimentoCompetenciaIdx: index("idx_warleine_item_lote_estab_comp").on(table.loteId, table.estabelecimentoId, table.competencia),
+    negocioHashIdx: index("idx_warleine_item_negocio_hash").on(table.chaveNegocioHash),
+  }),
+);
+
+export const warleineFaturamentoSnapshotsAtivos = mysqlTable(
+  "warleine_faturamento_snapshots_ativos",
+  {
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    competencia: varchar({ length: 7 }).notNull(),
+    loteId: int().notNull(),
+    ativadoEm: timestamp().defaultNow().notNull(),
+  },
+  (table) => ({
+    estabelecimentoCompetenciaUnique: uniqueIndex("uq_warleine_snapshot_estab_comp").on(table.estabelecimentoId, table.competencia),
+    loteIdx: index("idx_warleine_snapshot_lote").on(table.loteId),
+  }),
 );
 
 // Faturamento Geral (dados transformados do faturamento WARLEINE)

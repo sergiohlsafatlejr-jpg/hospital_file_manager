@@ -1,0 +1,2 @@
+CREATE INDEX `idx_warleine_item_lote_estab_comp` ON `warleine_faturamento_itens` (`loteId`,`estabelecimentoId`,`competencia`);--> statement-breakpoint
+CREATE INDEX `idx_warleine_staging_lote_estab_id` ON `warleine_faturamento_staging` (`loteId`,`estabelecimentoId`,`id`);
