@@ -58,6 +58,7 @@ import { faturamentoDigitacaoRouter } from "./routers/faturamentoDigitacaoRouter
 import { previsaoPagamentosImecRouter } from "./routers/previsaoPagamentosImecRouter";
 import { faturadoRecebidoUnificadoRouter } from "./routers/faturadoRecebidoUnificadoRouter";
 import { warleineFaturamentoRouter } from "./routers/warleineFaturamentoRouter";
+import { atendimentosBiRouter } from "./routers/atendimentosBiRouter";
 import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { passwordAuthRouter } from "./routers/passwordAuthRouter";
 import { validateNewPassword } from "./passwordAuthService";
@@ -175,6 +176,7 @@ export const appRouter = router({
   previsaoPagamentosImec: previsaoPagamentosImecRouter,
   faturadoRecebidoUnificado: faturadoRecebidoUnificadoRouter,
   warleineFaturamento: warleineFaturamentoRouter,
+  atendimentosBi: atendimentosBiRouter,
   relatorioVisita: relatorioVisitaRouter,
   passwordAuth: passwordAuthRouter,
   

@@ -4761,3 +4761,6 @@
 - [x] Republicar o lote criptografado pelo worker em 369 segundos, mantendo 319.784 itens e 6 competências ativos durante todo o processamento
 - [x] Aprovar 30 testes Warleine, build de produção, TypeScript focado sem regressões, compilação dos scripts, revisão independente sem bloqueadores e validador real final
 - [ ] Excluir a tabela vazia `staging_faturamento_warleine` após confirmação destrutiva explícita; manter `warleine_faturamento_staging`
+- [x] Criar o **BI de Atendimentos** na aba Relatórios BI → Recepção, com filtros clicáveis por mês de entrada, etapa, convênio, setor, categoria e permanência, sem mostrar conta, paciente, matrícula ou outro identificador individual
+- [x] Fixar o painel BI em contas **sem título** no backend, removendo da API e da interface qualquer opção de reexibir contas com título e preservando a exclusão de Particular do snapshot Tasy
+- [x] Validar no Hemolabor 112.794 contas sem título e R$ 157.974.575,41 pendentes, todos os seis filtros clicáveis, 10 testes de segurança/contrato e build de produção; a resposta agregada real foi medida em aproximadamente 3,2 segundos

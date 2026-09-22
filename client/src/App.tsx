@@ -70,6 +70,7 @@ const DashboardAuditoria = lazy(() => import("./pages/DashboardAuditoria"));
 const ConferenciaCorrecao = lazy(() => import("./pages/ConferenciaCorrecao"));
 const ConferenciaCorrecaoDetalhes = lazy(() => import("./pages/ConferenciaCorrecao").then(m => ({ default: m.ConferenciaCorrecaoDetalhes })));
 const RelatorioAtendimentos = lazy(() => import("./pages/RelatorioAtendimentos"));
+const AtendimentosBi = lazy(() => import("./pages/AtendimentosBi"));
 const RelatorioCustos = lazy(() => import("./pages/RelatorioCustos"));
 const RelatorioFaturamento = lazy(() => import("./pages/RelatorioFaturamento"));
 const FaturamentoExterno = lazy(() => import("./pages/FaturamentoExterno"));
@@ -220,6 +221,7 @@ function Router() {
         <Route path={"/relatorio-faturamento"} component={RelatorioFaturamento} />
         <Route path={"/faturamento-externo"} component={FaturamentoExterno} />
         <Route path={"/relatorio-atendimentos"} component={RelatorioAtendimentos} />
+        <Route path={"/bi-atendimentos"} component={AtendimentosBi} />
         <Route path={"/relatorio-custos"} component={RelatorioCustos} />
         <Route path={"/nfse"} component={NfseModule} />
         <Route path={"/financeiro"} component={FinanceiroModule} />

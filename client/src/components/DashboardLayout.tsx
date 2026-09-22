@@ -190,6 +190,7 @@ const menuItems: MenuItem[] = [
     // Subpasta: Recepção
     { icon: Users, label: "Recepção", path: "/relatorio-atendimentos", modulo: "relatoriosBi", children: [
       { icon: Users, label: "Rel. Atendimentos", path: "/relatorio-atendimentos", modulo: "relAtendimentos" },
+      { icon: BarChart3, label: "BI de Atendimentos", path: "/bi-atendimentos", modulo: "relAtendimentos" },
     ]},
     // Subpasta: Compras
     { icon: Package, label: "Compras", path: "/relatorio-custos", modulo: "relatoriosBi", children: [
