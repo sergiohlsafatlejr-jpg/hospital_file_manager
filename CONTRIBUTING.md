@@ -8,17 +8,17 @@ Este documento descreve como configurar o ambiente de desenvolvimento local para
 
 O Portal Safatle é uma plataforma de automação de processos hospitalares focada em faturamento, conciliação de contas, análise de glosas e geração de XML de recurso TISS. O sistema é composto por um frontend React e um backend Express com tRPC, utilizando banco de dados MySQL/TiDB.
 
-| Componente | Tecnologia | Versão |
-|---|---|---|
-| Runtime | Node.js | 22.x |
-| Gerenciador de pacotes | pnpm | 10.4.x |
-| Frontend | React 19 + Tailwind CSS 4 | - |
-| Backend | Express 4 + tRPC 11 | - |
-| ORM | Drizzle ORM | 0.44.x |
-| Banco de dados | MySQL / TiDB | 8.x |
-| Linguagem | TypeScript | 5.9.x |
-| Testes | Vitest | 2.1.x |
-| Build | Vite 7 + esbuild | - |
+| Componente             | Tecnologia                | Versão |
+| ---------------------- | ------------------------- | ------ |
+| Runtime                | Node.js                   | 22.x   |
+| Gerenciador de pacotes | pnpm                      | 10.4.x |
+| Frontend               | React 19 + Tailwind CSS 4 | -      |
+| Backend                | Express 4 + tRPC 11       | -      |
+| ORM                    | Drizzle ORM               | 0.44.x |
+| Banco de dados         | MySQL / TiDB              | 8.x    |
+| Linguagem              | TypeScript                | 5.9.x  |
+| Testes                 | Vitest                    | 2.1.x  |
+| Build                  | Vite 7 + esbuild          | -      |
 
 ---
 
@@ -36,8 +36,8 @@ Antes de começar, certifique-se de ter instalado em sua máquina:
 ## Clonando o Repositório
 
 ```bash
-git clone https://github.com/sergiohlsafatlejr-jpg/hospital_file_manager.git
-cd hospital_file_manager
+git clone https://github.com/sergiohlsafatlejr-jpg/safatle-sistema.git
+cd safatle-sistema
 ```
 
 ---
@@ -150,10 +150,13 @@ npx vitest run server/nomeDoArquivo.test.ts
 ### Migrações de banco de dados
 
 ```bash
-pnpm db:push
+pnpm db:generate
+pnpm db:check
 ```
 
-Gera e aplica migrações do Drizzle ORM. Execute sempre que alterar `drizzle/schema.ts` ou `drizzle/schema-integracao.ts`.
+Esses comandos geram e validam a migração do Drizzle ORM sem aplicá-la em produção. Execute-os sempre que alterar `drizzle/schema.ts` ou `drizzle/schema-integracao.ts`.
+
+O comando `pnpm db:migrate` aplica as migrações pendentes e é reservado à homologação e ao responsável pela liberação em produção. O comando legado `pnpm db:push`, que gera e aplica na mesma execução, não deve ser usado durante o desenvolvimento normal.
 
 ---
 
@@ -216,25 +219,25 @@ O ciclo de desenvolvimento segue quatro etapas principais:
 Todas as datas vindas do banco devem ser tratadas com `safeParseDate` antes de exibição para evitar problemas de fuso horário (UTC-3 mostrando um dia a menos).
 
 ```tsx
-import { safeParseDate, formatDateBR } from '@/lib/dateUtils';
+import { safeParseDate, formatDateBR } from "@/lib/dateUtils";
 
 // Correto
 const dataFormatada = formatDateBR(item.dataExecucao);
 
 // Incorreto - NÃO FAÇA ISSO
-const data = new Date(item.dataExecucao).toLocaleDateString('pt-BR');
+const data = new Date(item.dataExecucao).toLocaleDateString("pt-BR");
 ```
 
 ### Convenções gerais
 
-| Aspecto | Padrão |
-|---|---|
-| Estilo de código | Prettier (configuração do projeto) |
-| Nomes de variáveis | camelCase |
-| Nomes de tabelas | camelCase (Drizzle) |
-| Nomes de arquivos | PascalCase para componentes, camelCase para serviços |
-| Commits | Mensagens descritivas em português |
-| Branches | `feature/nome-da-feature`, `fix/descricao-do-bug`, `hotfix/descricao` |
+| Aspecto            | Padrão                                                             |
+| ------------------ | ------------------------------------------------------------------ |
+| Estilo de código   | Prettier (configuração do projeto)                                 |
+| Nomes de variáveis | camelCase                                                          |
+| Nomes de tabelas   | camelCase (Drizzle)                                                |
+| Nomes de arquivos  | PascalCase para componentes, camelCase para serviços               |
+| Commits            | Mensagens descritivas em português                                 |
+| Branches           | `feat/nome-da-feature`, `fix/descricao-do-bug`, `hotfix/descricao` |
 
 ### Componentes UI
 
@@ -244,29 +247,34 @@ Antes de criar um novo componente, verifique se já existe um equivalente em `cl
 
 ## Fluxo de Contribuição (Git)
 
+O fluxo completo de trabalho simultâneo entre Sergio, Danilo e Paulo está descrito em [`docs/trabalho-em-equipe-manus-github-banco.md`](docs/trabalho-em-equipe-manus-github-banco.md). Quando houver alteração de banco, também é obrigatório seguir [`docs/processo-migracoes-banco-equipe.md`](docs/processo-migracoes-banco-equipe.md).
+
 1. Certifique-se de estar na branch `main` atualizada:
+
    ```bash
    git checkout main
    git pull origin main
    ```
 
 2. Crie uma branch para sua feature ou correção:
+
    ```bash
-   git checkout -b feature/minha-nova-feature
+   git checkout -b feat/minha-nova-feature
    ```
 
 3. Faça suas alterações, commite e envie:
+
    ```bash
    git add .
    git commit -m "Implementar nova funcionalidade X"
-   git push origin feature/minha-nova-feature
+   git push origin feat/minha-nova-feature
    ```
 
 4. Abra um **Pull Request** no GitHub para a branch `main`.
 
 5. Aguarde a revisão e aprovação antes do merge.
 
-> **Regra importante:** Nunca faça push direto na branch `main`. Sempre use Pull Requests.
+> **Regra importante:** Nunca faça push direto na branch `main`. Sempre use Pull Requests. Toda alteração em `drizzle/` precisa ser revisada por outra pessoa antes da aplicação.
 
 ---
 
@@ -274,17 +282,17 @@ Antes de criar um novo componente, verifique se já existe um equivalente em `cl
 
 O sistema é dividido nos seguintes módulos principais:
 
-| Módulo | Descrição | Arquivos principais |
-|---|---|---|
-| Faturamento | Upload e processamento de XMLs TISS | `server/faturamentoUnificadoService.ts`, `ConciliacaoCruzada.tsx` |
-| Conciliação | Comparação automática XML enviado vs retorno | `server/faturamentoUnificadoService.ts` |
-| Análise de Glosa | Identificação e recurso de glosas | `AnaliseGlosa.tsx`, `server/xmlRecursoService.ts` |
-| XML Recurso | Geração de XML de recurso de glosa TISS | `server/xmlRecursoService.ts` |
-| Demonstrativo | Visualização de retornos dos convênios | `Demonstrativo.tsx` |
-| Financeiro | Contas a receber, repasses, fluxo de caixa | `FinanceiroModule.tsx`, `server/routers/financeiroRouter.ts` |
-| Atendimentos | Integração com sistema Tasy | `Atendimentos.tsx`, `server/connectors/` |
-| Tabelas de Preço | Cadastro de tabelas por convênio | `TabelasPreco.tsx` |
-| Integrador | Conexões com sistemas externos | `client/src/components/integrador/` |
+| Módulo           | Descrição                                    | Arquivos principais                                               |
+| ---------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| Faturamento      | Upload e processamento de XMLs TISS          | `server/faturamentoUnificadoService.ts`, `ConciliacaoCruzada.tsx` |
+| Conciliação      | Comparação automática XML enviado vs retorno | `server/faturamentoUnificadoService.ts`                           |
+| Análise de Glosa | Identificação e recurso de glosas            | `AnaliseGlosa.tsx`, `server/xmlRecursoService.ts`                 |
+| XML Recurso      | Geração de XML de recurso de glosa TISS      | `server/xmlRecursoService.ts`                                     |
+| Demonstrativo    | Visualização de retornos dos convênios       | `Demonstrativo.tsx`                                               |
+| Financeiro       | Contas a receber, repasses, fluxo de caixa   | `FinanceiroModule.tsx`, `server/routers/financeiroRouter.ts`      |
+| Atendimentos     | Integração com sistema Tasy                  | `Atendimentos.tsx`, `server/connectors/`                          |
+| Tabelas de Preço | Cadastro de tabelas por convênio             | `TabelasPreco.tsx`                                                |
+| Integrador       | Conexões com sistemas externos               | `client/src/components/integrador/`                               |
 
 ---
 
@@ -293,8 +301,8 @@ O sistema é dividido nos seguintes módulos principais:
 **O servidor não inicia:**
 Verifique se o arquivo `.env` está configurado corretamente e se o banco de dados está acessível. As variáveis `DATABASE_URL` e `JWT_SECRET` são obrigatórias.
 
-**Erros de migração (db:push):**
-Se uma migração falhar porque a coluna/tabela já existe, pode ser necessário marcar a migração como aplicada manualmente na tabela `__drizzle_migrations`.
+**Erros de migração:**
+Se uma migração falhar porque a coluna ou tabela já existe, interrompa a execução e registre o erro. Não edite uma migração antiga e não marque a migração manualmente na tabela `__drizzle_migrations` sem diagnóstico, backup e autorização do responsável pela liberação. A correção normal é criar uma nova migração versionada.
 
 **Datas aparecendo com um dia a menos:**
 Sempre use `safeParseDate()` do `@/lib/dateUtils` ao converter strings de data do banco. Nunca use `new Date(string)` diretamente.
