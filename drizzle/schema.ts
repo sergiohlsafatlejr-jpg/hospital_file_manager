@@ -634,7 +634,7 @@ export const tabelasPreco = mysqlTable("tabelasPreco", {
 
   // Dados do item
   codigo: varchar("codigo", { length: 50 }).notNull(),
-  nome: varchar("nome", { length: 255 }).notNull(),
+  nome: text("nome").notNull(),
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
   
   // Vigência

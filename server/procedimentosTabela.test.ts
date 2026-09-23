@@ -89,4 +89,22 @@ describe("procedimentosTabela", () => {
     expect(result.errors).toEqual([]);
     expect(result.items.map((item) => item.valor)).toEqual(["300.00", "450.00"]);
   });
+
+  it("converte o exemplo 31102360 de 11A para 1533.70", () => {
+    const result = normalizarProcedimentos(
+      [{
+        codigo: 31102360,
+        descricao: "Ureterorrenolitotripsia flexível a laser unilateral",
+        porte: 5,
+        numero_auxiliares: 1,
+        valor: "11A",
+        tipo_de_beneficiario: "REDE PADRAO",
+      }],
+      "dados_completo",
+      new Map([["11A", 1533.70]]),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.items[0]).toMatchObject({ codigo: "31102360", valor: "1533.70" });
+  });
 });

@@ -5094,7 +5094,17 @@ export async function createTabelasPrecoEmLote(items: InsertTabelaPreco[]): Prom
         inseridos += batch.length;
       } catch (error) {
         console.error(`[Database] Erro ao inserir lote ${i / batchSize + 1}:`, error);
-        erros += batch.length;
+        // Uma linha inválida não deve impedir a gravação das demais linhas
+        // válidas do arquivo (por exemplo, uma descrição acima do limite antigo).
+        for (const item of batch) {
+          try {
+            await dbConn.insert(tabelasPreco).values(item);
+            inseridos += 1;
+          } catch (itemError) {
+            console.error(`[Database] Erro ao inserir item ${item.codigo}:`, itemError);
+            erros += 1;
+          }
+        }
       }
     }
     return { inseridos, erros };
