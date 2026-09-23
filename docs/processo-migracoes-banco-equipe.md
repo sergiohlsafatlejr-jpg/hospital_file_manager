@@ -1,7 +1,7 @@
 # Processo de migrações de banco para a equipe Safalte
 
 **Autor:** Manus AI  
-**Sistema:** `hospital_file_manager`  
+**Sistema:** `safatle-sistema`
 **Banco:** MySQL/TiDB  
 **Ferramenta de migração:** Drizzle Kit
 
@@ -15,14 +15,15 @@ O projeto já está preparado para esse modelo. O arquivo `drizzle.config.ts` l�
 
 ## O que cada pessoa pode fazer
 
-| Papel | Permissões recomendadas | Responsabilidade |
-|---|---|---|
-| Desenvolvedor, como Danilo | Acesso ao repositório GitHub e à prévia do sistema; sem credencial direta de produção | Criar branch, editar schema, gerar a migração, escrever testes e abrir Pull Request |
-| Revisor técnico | Acesso ao repositório e ao ambiente de homologação | Revisar SQL, impacto nos dados, índices, isolamento por estabelecimento e plano de reversão |
-| Responsável pela liberação | Acesso controlado ao ambiente de produção e ao checkpoint Manus | Aprovar e executar a migração uma única vez, registrar validação e sincronizar a versão |
-| Usuário do portal | Acesso funcional aos módulos autorizados por estabelecimento | Validar a tela e os resultados; não executa comandos de banco |
+| Papel              | Permissões recomendadas                                                             | Responsabilidade                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Sergio             | Administrador do repositório e responsável pela liberação                           | Priorizar entregas, aprovar operações destrutivas e controlar a aplicação em produção                                           |
+| Danilo             | Acesso de escrita ao repositório e à homologação; sem credencial direta de produção | Criar branch, desenvolver, preparar migração, escrever testes e abrir Pull Request                                              |
+| Paulo              | Acesso de escrita ao repositório e à homologação; sem credencial direta de produção | Criar branch, desenvolver, preparar migração, escrever testes e revisar o trabalho de Danilo                                    |
+| Revisor da entrega | Acesso ao repositório e ao ambiente de homologação                                  | Revisar SQL, impacto nos dados, índices, isolamento por estabelecimento e plano de reversão; Danilo e Paulo alternam este papel |
+| Usuário do portal  | Acesso funcional aos módulos autorizados por estabelecimento                        | Validar a tela e os resultados; não executa comandos de banco                                                                   |
 
-Danilo pode desenvolver e preparar migrações, mas **não precisa nem deve receber a senha do banco de produção**. A mudança chega ao banco por arquivo SQL versionado e por uma liberação controlada.
+Danilo e Paulo podem desenvolver e preparar migrações, mas **não precisam nem devem receber a senha do banco de produção**. A mudança chega ao banco por arquivo SQL versionado e por uma liberação controlada.
 
 ## Estrutura que deve permanecer no repositório
 
@@ -46,7 +47,7 @@ Os arquivos SQL, snapshots e journal devem entrar no mesmo commit. Não é permi
 
 ## Configuração recomendada dos comandos
 
-O projeto hoje possui o atalho `pnpm db:push`, que executa `drizzle-kit generate && drizzle-kit migrate`. Para uma equipe, ele é prático, porém perigoso: quem o executa pode gerar e aplicar uma migração na mesma ação.
+O projeto mantém o atalho legado `pnpm db:push`, que executa `drizzle-kit generate && drizzle-kit migrate`. Para uma equipe, ele é prático, porém perigoso: quem o executa pode gerar e aplicar uma migração na mesma ação.
 
 O procedimento recomendado é separar os comandos abaixo no `package.json`:
 
@@ -55,8 +56,7 @@ O procedimento recomendado é separar os comandos abaixo no `package.json`:
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
-    "db:migrate": "drizzle-kit migrate",
-    "db:status": "drizzle-kit check"
+    "db:migrate": "drizzle-kit migrate"
   }
 }
 ```
@@ -69,10 +69,10 @@ O Drizzle Kit gera os arquivos SQL a partir da diferença entre o schema TypeScr
 
 O ideal é manter dois bancos separados:
 
-| Ambiente | Finalidade | Quem aplica migração | Credencial |
-|---|---|---|---|
-| Homologação | Testes de schema, importações e validação funcional | Desenvolvedor ou revisor | Segredo de homologação, limitado ao ambiente |
-| Produção | Portal Safatle e dados reais | Apenas responsável pela liberação | Segredo de produção, nunca exposto ao código ou ao GitHub |
+| Ambiente    | Finalidade                                          | Quem aplica migração              | Credencial                                                |
+| ----------- | --------------------------------------------------- | --------------------------------- | --------------------------------------------------------- |
+| Homologação | Testes de schema, importações e validação funcional | Desenvolvedor ou revisor          | Segredo de homologação, limitado ao ambiente              |
+| Produção    | Portal Safatle e dados reais                        | Apenas responsável pela liberação | Segredo de produção, nunca exposto ao código ou ao GitHub |
 
 A configuração atual usa `DATABASE_URL`. Para separar os ambientes, devem existir secrets distintos, como `DATABASE_URL_STAGING` e `DATABASE_URL_PRODUCTION`, configurados apenas no ambiente de execução. Os valores não entram no GitHub, em mensagens, arquivos `.env` versionados ou capturas de tela.
 
@@ -82,11 +82,11 @@ Uma implantação inicial segura pode continuar usando o banco atual como produ�
 
 ### 1. Criar uma branch exclusiva
 
-Danilo começa atualizando a branch principal e criando uma branch de trabalho. A alteração não deve ser feita diretamente em `main`.
+O desenvolvedor começa atualizando a branch principal e criando uma branch de trabalho. A alteração não deve ser feita diretamente em `main`.
 
 ```bash
 git checkout main
-git pull github main
+git pull origin main
 git checkout -b feat/nome-da-alteracao
 ```
 
@@ -113,14 +113,14 @@ O resultado deve criar uma nova migração, por exemplo `drizzle/0125_nome_gerad
 
 A Pull Request deve responder claramente às perguntas abaixo.
 
-| Pergunta | Exemplo de resposta esperada |
-|---|---|
-| A migração cria, altera ou remove o quê? | “Adiciona índice composto para consulta de itens por estabelecimento e competência.” |
-| O dado existente será preservado? | “Sim; coluna nova aceita nulo na primeira etapa.” |
-| Há `DROP`, `DELETE`, `TRUNCATE` ou redução de tipo? | “Não.” Se houver, exige autorização explícita do responsável. |
-| O banco suporta a alteração com o volume atual? | “Índice criado após medir a tabela; execução testada em homologação.” |
-| Há isolamento por estabelecimento? | “A tabela e os índices incluem `estabelecimentoId`.” |
-| Existe validação depois da aplicação? | “O script valida totais, quantidade e ausência de cruzamento de unidades.” |
+| Pergunta                                            | Exemplo de resposta esperada                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| A migração cria, altera ou remove o quê?            | “Adiciona índice composto para consulta de itens por estabelecimento e competência.” |
+| O dado existente será preservado?                   | “Sim; coluna nova aceita nulo na primeira etapa.”                                    |
+| Há `DROP`, `DELETE`, `TRUNCATE` ou redução de tipo? | “Não.” Se houver, exige autorização explícita do responsável.                        |
+| O banco suporta a alteração com o volume atual?     | “Índice criado após medir a tabela; execução testada em homologação.”                |
+| Há isolamento por estabelecimento?                  | “A tabela e os índices incluem `estabelecimentoId`.”                                 |
+| Existe validação depois da aplicação?               | “O script valida totais, quantidade e ausência de cruzamento de unidades.”           |
 
 Nunca se deve editar uma migração já aplicada, inclusive `0119` a `0124`. A correção deve ser uma migração nova. Alterar histórico aplicado faz o repositório divergir do banco e impede auditoria confiável.
 
@@ -177,8 +177,8 @@ Não se deve tentar combinar manualmente dois snapshots do Drizzle ou renumerar 
 Antes de abrir Pull Request, execute:
 
 ```bash
-git fetch github
-git rebase github/main
+git fetch origin
+git rebase origin/main
 pnpm db:check
 pnpm test
 pnpm build
@@ -187,24 +187,24 @@ git diff --check
 
 ## Checklist de liberação
 
-| Item | Obrigatório |
-|---|---|
-| Branch atualizada com `main` | Sim |
-| Schema TypeScript alterado no arquivo correto | Sim |
-| Nova migração, snapshot e journal incluídos no commit | Sim |
-| SQL revisado por outra pessoa | Sim |
-| Testes, build e `db:check` aprovados | Sim |
-| Homologação validada para mudanças relevantes | Sim |
-| Aprovação explícita para qualquer ação destrutiva | Sim |
-| `db:migrate` executado uma única vez por responsável | Sim |
-| Validador funcional e conferência de isolamento aprovados | Sim |
-| Checkpoint Manus e push GitHub confirmados | Sim |
+| Item                                                      | Obrigatório |
+| --------------------------------------------------------- | ----------- |
+| Branch atualizada com `main`                              | Sim         |
+| Schema TypeScript alterado no arquivo correto             | Sim         |
+| Nova migração, snapshot e journal incluídos no commit     | Sim         |
+| SQL revisado por outra pessoa                             | Sim         |
+| Testes, build e `db:check` aprovados                      | Sim         |
+| Homologação validada para mudanças relevantes             | Sim         |
+| Aprovação explícita para qualquer ação destrutiva         | Sim         |
+| `db:migrate` executado uma única vez por responsável      | Sim         |
+| Validador funcional e conferência de isolamento aprovados | Sim         |
+| Checkpoint Manus e push GitHub confirmados                | Sim         |
 
-## Regra operacional para Danilo
+## Regra operacional para Danilo e Paulo
 
-Danilo pode preparar migrations, testes e Pull Requests. Ele não deve executar `pnpm db:migrate` no banco de produção, nem receber a `DATABASE_URL` de produção. O responsável pela liberação executa a aplicação depois da revisão.
+Danilo e Paulo podem preparar migrations, testes e Pull Requests. Eles não devem executar `pnpm db:migrate` no banco de produção, nem receber a `DATABASE_URL` de produção. Sergio, ou outro responsável formalmente designado por ele, executa a aplicação depois da revisão.
 
-Enquanto o GitHub não estiver autenticado novamente nesta sessão, o checkpoint Manus é a referência preservada da versão atual. Para colaboração sustentável, o próximo passo é adicionar Danilo como colaborador do repositório e reativar o acesso de sincronização GitHub. A partir daí, toda alteração de schema deve entrar por Pull Request.
+Danilo (`Danilochavesc`) e Paulo (`PaulohsBorges`) já possuem acesso de escrita ao repositório. Como a branch `main` não está protegida, a proibição de push direto depende do processo da equipe e da revisão por Pull Request. O fluxo de CI, o arquivo `CODEOWNERS` e o checklist de Pull Request reduzem o risco, mas não substituem uma regra de proteção de branch quando ela estiver disponível.
 
 ## References
 
