@@ -21,7 +21,7 @@ O arquivo recebido é um **XLSX de 60 MB**, embora tenha sido chamado de CSV. El
 | Staging única | `warleine_faturamento_staging`, compartilhada e isolada por `estabelecimentoId` e `loteId` |
 | Quarentena | `warleine_faturamento_quarentena`, com 41 linhas não publicadas neste lote |
 | Publicação | `warleine_faturamento_itens`, com snapshot ativo por estabelecimento e competência |
-| Conta Convênio | `/conta-convenio-warleine`, usando somente a publicação Warleine |
+| Conta Convênio | `/conta-convenio`, com seletor explícito entre a base padrão e o faturamento publicado Warleine |
 | Faturado x Recebido | `/faturado-recebido-warleine`, mesma interface do oficial e fonte isolada |
 | BI de Glosas | `/relatorios-glosas-warleine`, mesma interface do oficial e fonte isolada |
 | Fonte oficial existente | Mantida sem alterações e sem soma automática com Warleine |
@@ -171,7 +171,13 @@ Toda competência é comparada com o snapshot ativo por quantidade e pelos totai
 
 O worker reclama cada job em transação, grava `claimToken`, proprietário e lease renovável, e condiciona limpeza, batches de staging, progresso, validação, materialização, falha e publicação final ao mesmo token e a um lease ainda vigente. Isso impede dois processos simultâneos para o mesmo lote e permite recuperação segura após reinício. O arquivo durável usa envelope criptográfico versionado; uma chave dedicada pode ser configurada em `WARLEINE_FILE_ENCRYPTION_KEY`, com compatibilidade controlada para arquivos anteriores.
 
-A tela Conta Convênio pode receber uma projeção controlada desses itens em `contas_convenio_itens` e seus cabeçalhos em `contas_convenio_resumo`. Para impedir divergência, a projeção deve guardar referência ao item canônico e ser atualizada somente pelo publicador do lote.
+### Conta Convênio unificada e motor de regras
+
+A tela padrão `/conta-convenio` passou a concentrar as duas experiências. O usuário escolhe a origem de forma explícita entre **Base padrão** e **Faturado Warleine**. A escolha não combina listas, totais, filtros ou relatórios. No modo Warleine, a tela lê exclusivamente `warleine_faturamento_itens_ativos`, que resolve o lote pelo ponteiro ativo de cada estabelecimento e competência. A origem é indicada visualmente em cada conta.
+
+O modo Warleine mantém os filtros de competência, convênio, situação da análise e busca. Ações que alteram XML, itens oficiais, prontuário, feedbacks ou exclusão de conta não são oferecidas nessa origem. A exportação é identificada como exportação da página atual. O detalhe continua na rota padrão `/conta-convenio-detalhes`, com o parâmetro de origem, sem criar uma tela ou menu paralelo.
+
+O motor de regras reutiliza a mesma função de comparação aplicada às contas XML. A execução cria ou atualiza apenas o registro de resultado em `warleine_faturamento_analises`, identificado por estabelecimento, competência, conta, chave de convênio e lote. Os itens publicados não são copiados para `contas_convenio_itens`, `contas_convenio_resumo` ou `faturamento_unificado`. Durante a análise, a linha do ponteiro ativo é bloqueada na transação; assim, uma publicação concorrente não pode trocar o snapshot entre a leitura dos itens e a persistência do resultado.
 
 ```mermaid
 flowchart LR
@@ -186,12 +192,14 @@ flowchart LR
     I --> J[warleine_faturamento_itens]
     J --> M[Ponteiro ativo por competência]
     M --> K[Relatórios Warleine]
-    M --> L[Conta Convênio Warleine]
+    M --> L[Conta Convênio: fonte Warleine]
+    L --> N[Motor de regras]
+    N --> O[warleine_faturamento_analises]
 ```
 
 ## Resultados que o arquivo permite entregar
 
-Na tela **Conta Convênio**, o sistema poderá listar todas as contas do lote, abrir os itens, mostrar valor faturado, recebido, em aberto e glosado, além do motivo de glosa, recurso e recuperação. A busca poderá usar conta, guia, paciente, convênio, competência, setor, item e prestador.
+Na tela **Conta Convênio**, o modo Warleine lista apenas as contas do snapshot selecionado, abre os itens publicados e mostra o valor faturado da conta, com o resultado do motor de regras quando já analisado. A busca usa conta, guia, convênio e competência. Os valores recebidos, em aberto e glosados continuam disponíveis nos relatórios Warleine isolados, sem compor os indicadores da fonte padrão.
 
 Nos **Relatórios BI**, será possível apresentar faturado, recebido, aberto e glosado por competência, convênio, item, grupo financeiro, setor e tipo de atendimento. Também será possível medir taxa de glosa, taxa de recuperação, principais motivos, valores aceitos, valores em análise e recursos ainda sem recuperação.
 

@@ -14,9 +14,11 @@ describe("implantação do faturamento Warleine", () => {
     expect(schema).toContain("warleine_faturamento_itens");
     expect(schema).toContain("warleine_faturamento_snapshots_ativos");
     expect(schema).toContain("warleine_faturamento_quarentena");
+    expect(schema).toContain("warleine_faturamento_analises");
     expect(schema).toContain("uq_warleine_fat_lote_estab_hash");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS `warleine_faturamento_staging`");
     expect(migration).toContain("ALTER TABLE `warleine_faturamento_staging`");
+    expect(read("drizzle/0125_tricky_pretty_boy.sql")).toContain("CREATE TABLE `warleine_faturamento_analises`");
     expect(read("drizzle/schema.ts")).toContain('mysqlTable("staging_faturamento_warleine"');
   });
 
@@ -37,6 +39,8 @@ describe("implantação do faturamento Warleine", () => {
     expect(financial).toContain("warleine_faturamento_itens_ativos");
     expect(financial).not.toMatch(/FROM\s+faturamento_unificado/i);
     expect(financial).not.toMatch(/FROM\s+demonstrativo/i);
+    expect(financial).not.toMatch(/INSERT\s+INTO\s+contas_convenio_itens/i);
+    expect(financial).not.toMatch(/INSERT\s+INTO\s+faturamento_unificado/i);
     expect(page).toContain("XMLs, demonstrativos, lançamentos manuais e a base oficial não são somados nesta visão");
   });
 
@@ -99,15 +103,15 @@ describe("implantação do faturamento Warleine", () => {
     expect(reporting).toContain("MAX(${CONVENIO_NOME_SQL}) AS convenio");
     expect(reporting).not.toContain("GROUP BY convenioChave,convenio");
     expect(reporting).toContain("conveniosDetalhes");
+    expect(reporting).toContain("warleine_faturamento_analises");
+    expect(reporting).toContain("FOR UPDATE");
   });
 
   it("oferece aprovação administrativa auditável e não mascara exportação parcial", () => {
     const router = read("server/routers/warleineFaturamentoRouter.ts");
-    const page = read("client/src/pages/ContaConvenioWarleine.tsx");
     expect(router).toContain("aprovarReducaoSnapshot: adminProcedure");
     expect(router).toContain("motivo: z.string().trim().min(10)");
-    expect(page).toContain("Aprovar redução excepcional");
-    expect(page).toContain("Exportar página atual");
+    expect(read("client/src/pages/ContaConvenio.tsx")).toContain("Exportar página atual");
   });
 
   it("pagina os itens de uma conta com limite e desempate por id", () => {
@@ -125,14 +129,21 @@ describe("implantação do faturamento Warleine", () => {
     expect(cli).not.toContain("importWarleineFaturamentoFile");
   });
 
-  it("expõe rotas separadas e identificadas para Conta Convênio e os dois relatórios", () => {
+  it("unifica a Conta Convênio e preserva relatórios Warleine explicitamente separados", () => {
     const app = read("client/src/App.tsx");
     const menu = read("client/src/components/DashboardLayout.tsx");
-    expect(app).toContain('/conta-convenio-warleine');
+    const page = read("client/src/pages/ContaConvenio.tsx");
+    const details = read("client/src/pages/ContaConvenioDetalhes.tsx");
+    expect(app).toContain('/conta-convenio');
+    expect(app).not.toContain('/conta-convenio-warleine');
     expect(app).toContain('/faturado-recebido-warleine');
     expect(app).toContain('/relatorios-glosas-warleine');
-    expect(menu).toContain("Conta Convênio — Warleine");
+    expect(menu).not.toContain("Conta Convênio — Warleine");
     expect(menu).toContain("Faturado x Recebido — Warleine");
     expect(menu).toContain("Glosas — Warleine");
+    expect(page).toContain('value="WARLEINE"');
+    expect(page).toContain("warleineFaturamento.compararComPadroes");
+    expect(page).toContain("!isWarleine && <Button");
+    expect(details).toContain('params.get("fonte") === "WARLEINE"');
   });
 });

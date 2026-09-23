@@ -95,6 +95,14 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 // Badge de origem
 const OrigemBadge = ({ origem }: { origem: string }) => {
+  if (origem === "WARLEINE") {
+    return (
+      <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200">
+        <Database className="h-3 w-3 mr-1" />
+        Warleine
+      </Badge>
+    );
+  }
   if (origem === "BANCO_CLIENTE") {
     return (
       <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
@@ -120,6 +128,9 @@ export default function ContaConvenio() {
   
   // Filtros
   const [searchTerm, setSearchTerm] = useState(urlParams.get("search") || "");
+  const [fonteDados, setFonteDados] = useState<"PADRAO" | "WARLEINE">(
+    urlParams.get("fonte") === "WARLEINE" ? "WARLEINE" : "PADRAO",
+  );
   const [convenioFiltro, setConvenioFiltro] = useState(urlParams.get("convenio") || "");
   const [origemFiltro, setOrigemFiltro] = useState(urlParams.get("origem") || "");
   const [statusFiltro, setStatusFiltro] = useState(urlParams.get("status") || "");
@@ -127,13 +138,15 @@ export default function ContaConvenio() {
   const [mesFiltro, setMesFiltro] = useState(urlParams.get("mes") || "");
   const [page, setPage] = useState(parseInt(urlParams.get("page") || "1"));
   const pageSize = 20;
+  const isWarleine = fonteDados === "WARLEINE";
 
   // Sincronizar filtros com a URL para preservar ao navegar e voltar
   useEffect(() => {
     const params = new URLSearchParams();
+    if (fonteDados === "WARLEINE") params.set("fonte", "WARLEINE");
     if (searchTerm) params.set("search", searchTerm);
     if (convenioFiltro) params.set("convenio", convenioFiltro);
-    if (origemFiltro) params.set("origem", origemFiltro);
+    if (!isWarleine && origemFiltro) params.set("origem", origemFiltro);
     if (statusFiltro) params.set("status", statusFiltro);
     if (anoFiltro) params.set("ano", anoFiltro);
     if (mesFiltro) params.set("mes", mesFiltro);
@@ -141,11 +154,12 @@ export default function ContaConvenio() {
     const qs = params.toString();
     const newUrl = qs ? `/conta-convenio?${qs}` : "/conta-convenio";
     window.history.replaceState(null, "", newUrl);
-  }, [searchTerm, convenioFiltro, origemFiltro, statusFiltro, anoFiltro, mesFiltro, page]);
+  }, [fonteDados, searchTerm, convenioFiltro, origemFiltro, statusFiltro, anoFiltro, mesFiltro, page]);
 
   // Buscar competências disponíveis
   const { data: competenciasData } = trpc.contasConvenio.listarCompetencias.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id || undefined }
+    { estabelecimentoId: estabelecimentoAtual?.id || undefined },
+    { enabled: !isWarleine && !!estabelecimentoAtual?.id },
   );
 
   // Meses do ano para o select
@@ -175,7 +189,7 @@ export default function ContaConvenio() {
   }, [competenciasData, anoFiltro]);
 
   // Buscar contas da nova tabela contas_convenio_resumo
-  const { data: contasData, isLoading, refetch } = trpc.contasConvenio.listarContas.useQuery(
+  const contasPadraoQuery = trpc.contasConvenio.listarContas.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || undefined,
       convenio: convenioFiltro && convenioFiltro !== "all" ? convenioFiltro : undefined,
@@ -186,13 +200,70 @@ export default function ContaConvenio() {
       search: searchTerm || undefined,
       page,
       pageSize,
-    }
+    },
+    { enabled: !isWarleine && !!estabelecimentoAtual?.id },
   );
+
+  const competenciaWarleine = anoFiltro && anoFiltro !== "all" && mesFiltro && mesFiltro !== "all"
+    ? `${anoFiltro}/${mesFiltro.padStart(2, "0")}`
+    : undefined;
+  const contasWarleineQuery = trpc.warleineFaturamento.listarContas.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      competencia: competenciaWarleine,
+      competenciaAno: anoFiltro && anoFiltro !== "all" ? anoFiltro : undefined,
+      convenio: convenioFiltro && convenioFiltro !== "all" ? convenioFiltro : undefined,
+      statusAnalise: statusFiltro && statusFiltro !== "all" ? statusFiltro as "pendente" | "conforme" | "divergente" | "revisado" : undefined,
+      search: searchTerm || undefined,
+      page,
+      pageSize,
+    },
+    { enabled: isWarleine && !!estabelecimentoAtual?.id },
+  );
+
+  const contasData = useMemo(() => {
+    if (!isWarleine) return contasPadraoQuery.data;
+    const data = contasWarleineQuery.data;
+    if (!data) return undefined;
+    return {
+      total: data.total,
+      resumo: {
+        totalContas: data.resumo.totalContas,
+        valorTotal: data.resumo.valorFaturado,
+        totalConformes: data.resumo.totalConformes,
+        totalDivergentes: data.resumo.totalDivergentes,
+        totalPendentes: data.resumo.totalPendentes,
+      },
+      contas: data.contas.map((conta) => ({
+        ...conta,
+        valorTotal: conta.valorFaturado,
+        statusAnaliseResumo: conta.statusAnalise,
+      })),
+    };
+  }, [isWarleine, contasPadraoQuery.data, contasWarleineQuery.data]);
+  const isLoading = isWarleine ? contasWarleineQuery.isLoading : contasPadraoQuery.isLoading;
+  const refetch = isWarleine ? contasWarleineQuery.refetch : contasPadraoQuery.refetch;
 
   // Buscar convênios disponíveis nas contas
   const { data: conveniosDisponiveis } = trpc.contasConvenio.listarConvenios.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id || undefined }
+    { estabelecimentoId: estabelecimentoAtual?.id || undefined },
+    { enabled: !isWarleine && !!estabelecimentoAtual?.id },
   );
+
+  const competenciasFonte = isWarleine
+    ? contasWarleineQuery.data?.filtros.competencias || []
+    : competenciasData?.meses?.map((mes) => `${mes.ano}/${String(mes.mes).padStart(2, "0")}`) || [];
+  const anosDisponiveis = [...new Set(competenciasFonte.map((competencia) => Number(competencia.slice(0, 4))))]
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a);
+  const mesesDisponiveisFonte = isWarleine
+    ? nomesMeses.filter((mes) => competenciasFonte.some((competencia) =>
+      (!anoFiltro || anoFiltro === "all" || competencia.startsWith(`${anoFiltro}/`)) && competencia.slice(5, 7) === mes.value,
+    ))
+    : mesesDisponiveis;
+  const conveniosFonte = isWarleine
+    ? (contasWarleineQuery.data?.filtros.conveniosDetalhes || []).map((item) => ({ chave: item.chave, nome: item.nome }))
+    : (conveniosDisponiveis || []).map((item: any) => ({ chave: item.convenio || "sem", nome: item.convenio || "Sem convênio", totalContas: item.totalContas }));
 
   // Mutation para excluir conta
   const excluirContaMutation = trpc.contasConvenio.excluirConta.useMutation({
@@ -210,6 +281,18 @@ export default function ContaConvenio() {
         toast.success(`Conta conforme! ${result.totalItensAnalisados} itens analisados, nenhuma divergência crítica.`);
       } else {
         toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s) (${result.totalCriticos} crítica(s), ${result.totalAlertas} alerta(s))`);
+      }
+      refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const compararWarleineMutation = trpc.warleineFaturamento.compararComPadroes.useMutation({
+    onSuccess: (result) => {
+      if (result.statusGeral === "conforme") {
+        toast.success(`Conta conforme! ${result.totalItensAnalisados} itens Warleine analisados.`);
+      } else {
+        toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s) na conta Warleine.`);
       }
       refetch();
     },
@@ -240,6 +323,10 @@ export default function ContaConvenio() {
     }
     if (conta.competencia) {
       params.set('competencia', conta.competencia);
+    }
+    if (isWarleine) {
+      params.set("fonte", "WARLEINE");
+      params.set("convenioChave", conta.convenioChave);
     }
     setLocation(`/conta-convenio-detalhes?${params.toString()}`);
   };
@@ -279,9 +366,9 @@ export default function ContaConvenio() {
     setPage(1);
   };
 
-  const temFiltrosAtivos = (convenioFiltro && convenioFiltro !== "all") || 
-    (origemFiltro && origemFiltro !== "all") || 
-    (statusFiltro && statusFiltro !== "all") || 
+  const temFiltrosAtivos = (convenioFiltro && convenioFiltro !== "all") ||
+    (!isWarleine && origemFiltro && origemFiltro !== "all") ||
+    (statusFiltro && statusFiltro !== "all") ||
     (anoFiltro && anoFiltro !== "all") ||
     (mesFiltro && mesFiltro !== "all") ||
     searchTerm;
@@ -294,11 +381,13 @@ export default function ContaConvenio() {
           <div>
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Conta Convênio</h1>
             <p className="text-muted-foreground">
-              Contas importadas do banco do hospital e XML para análise e comparação com padrões
+              {isWarleine
+                ? "Faturamento publicado do Warleine, analisado na mesma tela e pelo mesmo motor de regras"
+                : "Contas importadas do banco do hospital e XML para análise e comparação com padrões"}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button 
+            {!isWarleine && <Button
               variant="default" 
               size="sm" 
               onClick={() => {
@@ -316,19 +405,19 @@ export default function ContaConvenio() {
                 <Upload className="mr-2 h-4 w-4" />
               )}
               {migrarXml.isPending ? "Migrando..." : "Importar XMLs"}
-            </Button>
+            </Button>}
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Atualizar
             </Button>
-            <Button 
+            <Button
               variant="outline" 
               size="sm" 
               onClick={handleExportExcel}
               disabled={!contasData?.contas?.length}
             >
               <Download className="mr-2 h-4 w-4" />
-              Exportar Excel
+              Exportar página atual
             </Button>
           </div>
         </div>
@@ -342,7 +431,22 @@ export default function ContaConvenio() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 lg:grid-cols-7 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+              {/* Fonte */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Fonte dos dados</label>
+                <Select value={fonteDados} onValueChange={(valor: "PADRAO" | "WARLEINE") => {
+                  setFonteDados(valor);
+                  setConvenioFiltro(""); setOrigemFiltro(""); setStatusFiltro("");
+                  setAnoFiltro(""); setMesFiltro(""); setSearchTerm(""); setPage(1);
+                }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PADRAO">XML e Banco Hospital</SelectItem>
+                    <SelectItem value="WARLEINE">Faturado Warleine</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {/* Ano */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Ano</label>
@@ -352,7 +456,7 @@ export default function ContaConvenio() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    {competenciasData?.anos?.map((ano: number) => (
+                    {anosDisponiveis.map((ano: number) => (
                       <SelectItem key={ano} value={String(ano)}>
                         {ano}
                       </SelectItem>
@@ -370,7 +474,7 @@ export default function ContaConvenio() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    {mesesDisponiveis.map((m) => (
+                    {mesesDisponiveisFonte.map((m) => (
                       <SelectItem key={m.value} value={m.value}>
                         {m.label}
                       </SelectItem>
@@ -388,9 +492,9 @@ export default function ContaConvenio() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
-                    {conveniosDisponiveis?.map((conv: any) => (
-                      <SelectItem key={conv.convenio || "sem"} value={conv.convenio || "sem"}>
-                        {conv.convenio || "Sem convênio"} ({conv.totalContas})
+                    {conveniosFonte.map((conv: any) => (
+                      <SelectItem key={conv.chave} value={conv.chave}>
+                        {conv.nome}{conv.totalContas != null ? ` (${conv.totalContas})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -398,7 +502,7 @@ export default function ContaConvenio() {
               </div>
 
               {/* Origem */}
-              <div className="space-y-2">
+              {!isWarleine && <div className="space-y-2">
                 <label className="text-sm font-medium">Origem</label>
                 <Select value={origemFiltro} onValueChange={(v) => { setOrigemFiltro(v); setPage(1); }}>
                   <SelectTrigger>
@@ -410,7 +514,7 @@ export default function ContaConvenio() {
                     <SelectItem value="XML">XML</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
 
               {/* Status */}
               <div className="space-y-2">
@@ -424,7 +528,7 @@ export default function ContaConvenio() {
                     <SelectItem value="pendente">Pendente</SelectItem>
                     <SelectItem value="conforme">Conforme</SelectItem>
                     <SelectItem value="divergente">Divergente</SelectItem>
-                    <SelectItem value="revisado">Revisado</SelectItem>
+                    {!isWarleine && <SelectItem value="revisado">Revisado</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>
@@ -460,7 +564,7 @@ export default function ContaConvenio() {
         </Card>
 
         {/* Cards de Resumo */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
+        <div className={`grid grid-cols-2 md:grid-cols-3 ${isWarleine ? "xl:grid-cols-5" : "xl:grid-cols-7"} gap-4`}>
           <Card className="border-2">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -477,7 +581,7 @@ export default function ContaConvenio() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Todos os prestadores</p>
+                  <p className="text-sm text-muted-foreground">{isWarleine ? "Valor faturado" : "Todos os prestadores"}</p>
                   <p className="text-2xl font-bold text-green-600">{formatCurrency(resumo?.valorTotal)}</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-green-500" />
@@ -485,7 +589,7 @@ export default function ContaConvenio() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 border-blue-200">
+          {!isWarleine && <Card className="border-2 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -496,9 +600,9 @@ export default function ContaConvenio() {
                 <FileSpreadsheet className="h-8 w-8 text-blue-500" />
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Card className="border-2 border-amber-200">
+          {!isWarleine && <Card className="border-2 border-amber-200">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -509,7 +613,7 @@ export default function ContaConvenio() {
                 <Layers2 className="h-8 w-8 text-amber-500" />
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
           <Card className="border-2 border-green-200">
             <CardContent className="p-4">
@@ -566,11 +670,13 @@ export default function ContaConvenio() {
                 <FileSearch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium">Nenhuma conta encontrada</h3>
                 <p className="text-muted-foreground mb-4">
-                  Importe contas via Upload de XML ou busque uma conta no banco do hospital.
+                  {isWarleine
+                    ? "Não há contas faturadas publicadas nessa fonte para os filtros selecionados."
+                    : "Importe contas via Upload de XML ou busque uma conta no banco do hospital."}
                 </p>
-                <Button variant="outline" onClick={() => setLocation("/upload")}>
+                {!isWarleine && <Button variant="outline" onClick={() => setLocation("/upload")}>
                   Ir para Upload
-                </Button>
+                </Button>}
               </CardContent>
             </Card>
           ) : (
@@ -642,7 +748,7 @@ export default function ContaConvenio() {
                       <div className="flex flex-col gap-1 min-w-[140px]">
                         <div className="flex items-center gap-2 text-sm">
                           <DollarSign className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">Todos os prestadores</span>
+                          <span className="font-medium">{isWarleine ? "Faturado" : "Todos os prestadores"}</span>
                         </div>
                         <span className={`text-lg font-bold ${(conta as any).isOutlier ? 'text-red-600' : 'text-green-600'}`}>
                           {formatCurrency(conta.valorTotal)}
@@ -678,15 +784,24 @@ export default function ContaConvenio() {
                           size="sm"
                           onClick={() => {
                             if (!estabelecimentoAtual?.id) return;
-                            compararMutation.mutate({
-                              numeroConta: conta.numeroConta,
-                              estabelecimentoId: conta.estabelecimentoId,
-                            });
+                            if (isWarleine) {
+                              compararWarleineMutation.mutate({
+                                estabelecimentoId: estabelecimentoAtual.id,
+                                competencia: conta.competencia,
+                                numeroConta: conta.numeroConta,
+                                convenioChave: conta.convenioChave,
+                              });
+                            } else {
+                              compararMutation.mutate({
+                                numeroConta: conta.numeroConta,
+                                estabelecimentoId: conta.estabelecimentoId,
+                              });
+                            }
                           }}
-                          disabled={compararMutation.isPending}
+                          disabled={compararMutation.isPending || compararWarleineMutation.isPending}
                           title="Comparar com padrões de cobrança"
                         >
-                          {compararMutation.isPending ? (
+                          {compararMutation.isPending || compararWarleineMutation.isPending ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <BarChart3 className="h-4 w-4" />
@@ -699,7 +814,7 @@ export default function ContaConvenio() {
                           <Eye className="h-4 w-4 mr-1" />
                           Ver
                         </Button>
-                        <Button 
+                        {!isWarleine && <Button
                           variant="ghost" 
                           size="sm"
                           className="text-red-500 hover:text-red-700 hover:bg-red-50"
@@ -714,7 +829,7 @@ export default function ContaConvenio() {
                           title="Excluir conta"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </Button>}
                       </div>
                     </div>
                   </CardContent>

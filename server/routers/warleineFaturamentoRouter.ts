@@ -2,6 +2,8 @@ import { z } from "zod";
 import { adminProcedure, router, reportProcedure } from "../_core/trpc";
 import {
   approveWarleineSnapshotReduction,
+  compararContaWarleineComPadroes,
+  getWarleineAccountDetails,
   getWarleineAccountItems,
   getWarleineAccounts,
   getWarleineFinancialData,
@@ -42,12 +44,22 @@ export const warleineFaturamentoRouter = router({
   listarContas: reportProcedure("contaConvenio")
     .input(estabelecimentoSchema.extend({
       competencia: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
+      competenciaAno: z.string().regex(/^\d{4}$/).optional(),
       convenio: z.string().trim().min(1).max(255).optional(),
+      statusAnalise: z.enum(["pendente", "conforme", "divergente", "revisado"]).optional(),
       search: z.string().trim().min(1).max(255).optional(),
       page: z.number().int().min(1).default(1),
       pageSize: z.number().int().min(10).max(100).default(20),
     }))
     .query(({ input }) => getWarleineAccounts(input)),
+
+  compararComPadroes: reportProcedure("contaConvenio")
+    .input(estabelecimentoSchema.extend({
+      competencia: z.string().regex(/^\d{4}\/\d{2}$/),
+      numeroConta: z.string().trim().min(1).max(100),
+      convenioChave: z.string().trim().min(1).max(255),
+    }))
+    .mutation(({ ctx, input }) => compararContaWarleineComPadroes({ ...input, userId: ctx.user.id })),
 
   listarItensConta: reportProcedure("contaConvenio")
     .input(estabelecimentoSchema.extend({
@@ -58,6 +70,16 @@ export const warleineFaturamentoRouter = router({
       pageSize: z.number().int().min(20).max(200).default(100),
     }))
     .query(({ input }) => getWarleineAccountItems(input.estabelecimentoId, input.competencia, input.numeroConta, input.convenioChave, input.page, input.pageSize)),
+
+  detalharConta: reportProcedure("contaConvenio")
+    .input(estabelecimentoSchema.extend({
+      competencia: z.string().regex(/^\d{4}\/\d{2}$/),
+      numeroConta: z.string().trim().min(1).max(100),
+      convenioChave: z.string().trim().min(1).max(255),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(20).max(200).default(100),
+    }))
+    .query(({ input }) => getWarleineAccountDetails(input.estabelecimentoId, input.competencia, input.numeroConta, input.convenioChave, input.page, input.pageSize)),
 
   lotes: reportProcedure("contaConvenio")
     .input(estabelecimentoSchema)

@@ -101,7 +101,6 @@ const ResumoPacienteOxUti = lazy(() => import("./pages/ResumoPacienteOxUti"));
 const FaturadoRecebidoUnificado = lazy(() => import("./pages/FaturadoRecebidoUnificado"));
 const FaturadoRecebidoWarleine = lazy(() => import("./pages/FaturadoRecebidoWarleine"));
 const RelatoriosGlosasWarleine = lazy(() => import("./pages/RelatoriosGlosasWarleine"));
-const ContaConvenioWarleine = lazy(() => import("./pages/ContaConvenioWarleine"));
 const RpaManager = lazy(() => import("./pages/RpaManager"));
 const VinculacaoInteligente = lazy(() => import("./pages/VinculacaoInteligente"));
 const RelatorioFisioterapia = lazy(() => import("./pages/RelatorioFisioterapia"));
@@ -166,7 +165,6 @@ function Router() {
         <Route path={"/relatorios"} component={Relatorios} />
         <Route path={"/configuracoes/:rest*"} component={Configuracoes} />
         <Route path={"/conta-convenio"} component={ContaConvenio} />
-        <Route path={"/conta-convenio-warleine"} component={ContaConvenioWarleine} />
         <Route path={"/conta-convenio-detalhes"} component={ContaConvenioDetalhes} />
         <Route path={"/demonstrativo-detalhes"} component={DemonstrativoDetalhes} />
         <Route path={"/contas/:guiaNumero"} component={ContaDetalhes} />

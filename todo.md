@@ -4743,7 +4743,7 @@
 - [x] Criar pipeline Warleine por lote com staging canônica, quarentena, hash idempotente e publicação por estabelecimento/competência
 - [x] Validar e publicar no Instituto do Rim 319.784 itens em 26.877 contas, de 2026/01 a 2026/06
 - [x] Preservar 41 linhas inválidas em quarentena: 25 com colunas excedentes e 16 com modalidade de recebimento inválida
-- [x] Criar Conta Convênio — Warleine, Faturado x Recebido — Warleine e Glosas — Warleine sem somar XMLs ou demonstrativos
+- [x] Criar Faturado x Recebido — Warleine e Glosas — Warleine sem somar XMLs ou demonstrativos
 - [x] Adicionar upload XLSX autorizado, confirmação de snapshot, limite de tamanho, storage criptografado, job persistido e worker recuperável
 - [x] Bloquear sincronização, transformação e limpeza legadas de faturamento para impedir duplicidade ou perda da trilha de auditoria
 - [x] Proteger todas as competências contra redução grande por quantidade e valor, sem bypass simples de publicação
@@ -4760,6 +4760,9 @@
 - [x] Consolidar convênios por chave estável em Conta Convênio, Faturado x Recebido e Glosas, usando nome apenas como rótulo determinístico
 - [x] Republicar o lote criptografado pelo worker em 369 segundos, mantendo 319.784 itens e 6 competências ativos durante todo o processamento
 - [x] Aprovar 30 testes Warleine, build de produção, TypeScript focado sem regressões, compilação dos scripts, revisão independente sem bloqueadores e validador real final
+- [x] Unificar Warleine na rota `/conta-convenio` com seletor explícito de fonte, mantendo XML e demonstrativos fora da consulta Warleine
+- [x] Reutilizar o motor de regras no snapshot ativo Warleine e persistir somente o resultado em `warleine_faturamento_analises`, sem copiar itens para tabelas oficiais
+- [x] Remover a rota e o menu paralelos de Conta Convênio Warleine; preservar os relatórios Warleine separados por decisão anti-duplicidade
 - [ ] Excluir a tabela vazia `staging_faturamento_warleine` após confirmação destrutiva explícita; manter `warleine_faturamento_staging`
 - [x] Criar o **BI de Atendimentos** na aba Relatórios BI → Recepção, com filtros clicáveis por mês de entrada, etapa, convênio, setor, categoria e permanência, sem mostrar conta, paciente, matrícula ou outro identificador individual
 - [x] Fixar o painel BI em contas **sem título** no backend, removendo da API e da interface qualquer opção de reexibir contas com título e preservando a exclusão de Particular do snapshot Tasy
