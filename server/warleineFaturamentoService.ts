@@ -388,34 +388,56 @@ export async function getWarleineAccountDetails(
   page = 1,
   pageSize = 100,
 ) {
-  const [itemData, analysisData] = await Promise.all([
-    getWarleineAccountItems(estabelecimentoId, competencia, numeroConta, convenioChave, page, pageSize),
-    getWarleineAccountAnalysis(estabelecimentoId, competencia, numeroConta, convenioChave),
-  ]);
-  const divergencias = analysisData?.divergencias || [];
-  const byCode = new Map<string, unknown[]>();
-  for (const divergence of divergencias as Array<{ codigoItem?: unknown }>) {
-    const codigo = String(divergence.codigoItem || "");
-    if (!codigo) continue;
-    byCode.set(codigo, [...(byCode.get(codigo) || []), divergence]);
+  const pool = await getRawPool();
+  if (!pool) throw new Error("Banco indisponível");
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    // A publicação atualiza este ponteiro no mesmo banco. O lock mantém itens e
+    // análise referenciando a mesma versão até que a resposta seja construída.
+    const [snapshotRows] = await connection.query<RowDataPacket[]>(`
+      SELECT loteId FROM warleine_faturamento_snapshots_ativos
+      WHERE estabelecimentoId=? AND competencia=?
+      FOR UPDATE
+    `, [estabelecimentoId, competencia]);
+    if (!snapshotRows[0]) throw new Error("Não existe snapshot ativo para a competência selecionada.");
+
+    const [itemData, analysisData] = await Promise.all([
+      getWarleineAccountItems(estabelecimentoId, competencia, numeroConta, convenioChave, page, pageSize),
+      getWarleineAccountAnalysis(estabelecimentoId, competencia, numeroConta, convenioChave),
+    ]);
+    await connection.commit();
+
+    const divergencias = analysisData?.divergencias || [];
+    const byCode = new Map<string, unknown[]>();
+    for (const divergence of divergencias as Array<{ codigoItem?: unknown }>) {
+      const codigo = String(divergence.codigoItem || "");
+      if (!codigo) continue;
+      byCode.set(codigo, [...(byCode.get(codigo) || []), divergence]);
+    }
+    return {
+      ...itemData,
+      analysis: analysisData,
+      items: itemData.items.map((item) => {
+        const codigo = item.codigoTuss || item.codigoItemInterno;
+        const divergenciasItem = byCode.get(codigo) || [];
+        return {
+          ...item,
+          codigoItem: codigo,
+          descricaoItem: item.servicoNome,
+          valorTotal: item.valorFaturado,
+          setor: item.setorNome,
+          statusAnalise: analysisData?.statusAnalise || "pendente",
+          divergencias: divergenciasItem,
+        };
+      }),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-  return {
-    ...itemData,
-    analysis: analysisData,
-    items: itemData.items.map((item) => {
-      const codigo = item.codigoTuss || item.codigoItemInterno;
-      const divergenciasItem = byCode.get(codigo) || [];
-      return {
-        ...item,
-        codigoItem: codigo,
-        descricaoItem: item.servicoNome,
-        valorTotal: item.valorFaturado,
-        setor: item.setorNome,
-        statusAnalise: analysisData?.statusAnalise || "pendente",
-        divergencias: divergenciasItem,
-      };
-    }),
-  };
 }
 
 export async function getWarleineAccountAnalysis(

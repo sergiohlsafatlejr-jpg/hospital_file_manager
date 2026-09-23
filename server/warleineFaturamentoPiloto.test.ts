@@ -122,6 +122,16 @@ describe("implantação do faturamento Warleine", () => {
     expect(router).toContain("pageSize: z.number().int().min(20).max(200)");
   });
 
+  it("fixa o snapshot enquanto monta o detalhe e lê a análise", () => {
+    const service = read("server/warleineFaturamentoService.ts");
+    const start = service.indexOf("export async function getWarleineAccountDetails");
+    const end = service.indexOf("export async function getWarleineAccountAnalysis", start);
+    const detail = service.slice(start, end);
+    expect(detail).toContain("FOR UPDATE");
+    expect(detail).toContain("getWarleineAccountItems");
+    expect(detail).toContain("getWarleineAccountAnalysis");
+  });
+
   it("faz a CLI enfileirar o arquivo criptografado em vez de escrever sem lease", () => {
     const cli = read("scripts/importar-faturamento-warleine.ts");
     expect(cli).toContain("reserveWarleineImportJob");
