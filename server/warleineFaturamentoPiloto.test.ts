@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -155,5 +155,6 @@ describe("implantação do faturamento Warleine", () => {
     expect(page).toContain("warleineFaturamento.compararComPadroes");
     expect(page).toContain("!isWarleine && <Button");
     expect(details).toContain('params.get("fonte") === "WARLEINE"');
+    expect(existsSync(resolve(root, "client/src/pages/ContaConvenioWarleine.tsx"))).toBe(false);
   });
 });
