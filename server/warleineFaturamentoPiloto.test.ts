@@ -18,7 +18,7 @@ describe("implantação do faturamento Warleine", () => {
     expect(schema).toContain("uq_warleine_fat_lote_estab_hash");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS `warleine_faturamento_staging`");
     expect(migration).toContain("ALTER TABLE `warleine_faturamento_staging`");
-    expect(read("drizzle/0125_tricky_pretty_boy.sql")).toContain("CREATE TABLE `warleine_faturamento_analises`");
+    expect(read("drizzle/0126_flowery_siren.sql")).toContain("CREATE TABLE `warleine_faturamento_analises`");
     expect(read("drizzle/schema.ts")).toContain('mysqlTable("staging_faturamento_warleine"');
   });
 

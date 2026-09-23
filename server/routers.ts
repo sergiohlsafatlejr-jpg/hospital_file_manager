@@ -63,6 +63,7 @@ import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { passwordAuthRouter } from "./routers/passwordAuthRouter";
 import { validateNewPassword } from "./passwordAuthService";
 import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
+import { normalizarProcedimentos, PROCEDIMENTO_FONTES } from "./procedimentosTabela";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -3683,6 +3684,7 @@ export const appRouter = router({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]).optional(),
+          procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
           codigo: z.string().optional(),
           nome: z.string().optional(),
           apenasVigentes: z.boolean().optional().default(true),
@@ -3695,6 +3697,7 @@ export const appRouter = router({
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
           tipo: input?.tipo,
+          procedimentoFonte: input?.procedimentoFonte,
           codigo: input?.codigo,
           nome: input?.nome,
           apenasVigentes: input?.apenasVigentes,
@@ -3721,6 +3724,10 @@ export const appRouter = router({
           nome: z.string(),
           valor: z.string(),
           vigenciaInicio: z.string(),
+          procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
+          porte: z.string().optional(),
+          numeroAuxiliares: z.number().int().nonnegative().optional(),
+          tipoBeneficiario: z.string().optional(),
           unidade: z.string().optional(),
           observacao: z.string().optional(),
         })
@@ -3736,6 +3743,10 @@ export const appRouter = router({
           nome: input.nome,
           valor: input.valor,
           vigenciaInicio,
+          procedimentoFonte: input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : null,
+          porte: input.tipo === "procedimentos" ? input.porte || null : null,
+          numeroAuxiliares: input.tipo === "procedimentos" ? input.numeroAuxiliares ?? null : null,
+          tipoBeneficiario: input.tipo === "procedimentos" ? input.tipoBeneficiario || null : null,
           unidade: input.unidade,
           observacao: input.observacao,
         });
@@ -3765,6 +3776,10 @@ export const appRouter = router({
           nome: z.string().optional(),
           valor: z.string().optional(),
           vigenciaInicio: z.string().optional(),
+          procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
+          porte: z.string().optional(),
+          numeroAuxiliares: z.number().int().nonnegative().optional(),
+          tipoBeneficiario: z.string().optional(),
           unidade: z.string().optional(),
           observacao: z.string().optional(),
         })
@@ -3780,6 +3795,10 @@ export const appRouter = router({
         if (data.nome) updateData.nome = data.nome;
         if (data.valor) updateData.valor = data.valor;
         if (data.vigenciaInicio) updateData.vigenciaInicio = new Date(data.vigenciaInicio);
+        if (data.procedimentoFonte !== undefined) updateData.procedimentoFonte = data.procedimentoFonte;
+        if (data.porte !== undefined) updateData.porte = data.porte;
+        if (data.numeroAuxiliares !== undefined) updateData.numeroAuxiliares = data.numeroAuxiliares;
+        if (data.tipoBeneficiario !== undefined) updateData.tipoBeneficiario = data.tipoBeneficiario;
         if (data.unidade !== undefined) updateData.unidade = data.unidade;
         if (data.observacao !== undefined) updateData.observacao = data.observacao;
         
@@ -3881,6 +3900,7 @@ export const appRouter = router({
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]),
           nomeArquivo: z.string(),
           formatoArquivo: z.enum(["excel", "csv", "dbf"]),
+          procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
           conteudo: z.string(), // Base64 encoded file content
           substituirExistentes: z.boolean().optional().default(false),
         })
@@ -3901,143 +3921,144 @@ export const appRouter = router({
         }
 
         try {
-          // Decodificar conteúdo Base64
+          // Decodificar conteúdo Base64 e ler o primeiro conjunto de dados.
           const buffer = Buffer.from(input.conteudo, "base64");
-          
-          // Parsear arquivo baseado no formato
-          let items: any[] = [];
-          
+          let rawItems: Array<Record<string, unknown>> = [];
+
           if (input.formatoArquivo === "excel") {
             const XLSX = await import("xlsx");
             const workbook = XLSX.read(buffer, { type: "buffer" });
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
-            const rawItems = XLSX.utils.sheet_to_json(sheet);
-            // Normalizar nomes das colunas removendo espaços extras
-            items = rawItems.map((row: any) => {
-              const normalized: any = {};
-              for (const [key, value] of Object.entries(row)) {
-                // Remove espaços no início e fim, e substitui múltiplos espaços por um único
-                const normalizedKey = key.trim().replace(/\s+/g, ' ');
-                normalized[normalizedKey] = value;
-              }
-              return normalized;
-            });
+            rawItems = XLSX.utils.sheet_to_json(sheet) as Array<Record<string, unknown>>;
           } else if (input.formatoArquivo === "csv") {
-            const content = buffer.toString("utf-8");
-            const lines = content.split("\n").filter(l => l.trim());
-            const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-            items = lines.slice(1).map(line => {
-              const values = line.split(",");
-              const obj: any = {};
-              headers.forEach((h, i) => {
-                obj[h] = values[i]?.trim();
-              });
-              return obj;
-            });
+            const { parse } = await import("csv-parse/sync");
+            rawItems = parse(buffer.toString("utf-8"), {
+              columns: true,
+              skip_empty_lines: true,
+              bom: true,
+              relax_column_count: true,
+            }) as Array<Record<string, unknown>>;
           } else if (input.formatoArquivo === "dbf") {
-            // Para DBF, usar biblioteca específica
             const DBFFile = await import("dbffile");
-            const tempPath = `/tmp/import_${Date.now()}.dbf`;
+            const tempPath = `/tmp/import_${Date.now()}_${Math.random().toString(36).slice(2)}.dbf`;
             const fs = await import("fs/promises");
-            await fs.writeFile(tempPath, buffer);
-            const dbf = await DBFFile.DBFFile.open(tempPath);
-            items = await dbf.readRecords();
-            await fs.unlink(tempPath);
+            try {
+              await fs.writeFile(tempPath, buffer);
+              const dbf = await DBFFile.DBFFile.open(tempPath);
+              rawItems = await dbf.readRecords() as Array<Record<string, unknown>>;
+            } finally {
+              await fs.rm(tempPath, { force: true });
+            }
           }
 
           // Se substituir existentes, desativar itens anteriores
           if (input.substituirExistentes) {
-            await db.desativarTabelasPreco(input.convenioId, input.tipo);
+            await db.desativarTabelasPreco(
+              input.convenioId,
+              input.tipo,
+              input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined,
+            );
           }
 
-          // Mapear e inserir itens
-          const tabelaItems = items.map((item: any) => {
-            // Normalizar nomes de campos (suportar vários formatos, incluindo nomes com espaços)
-            // Função auxiliar para buscar valor com variações de nome
-            const findValue = (keys: string[]): any => {
+          let tabelaItems: any[] = [];
+          let importErrors: string[] = [];
+
+          if (input.tipo === "procedimentos") {
+            const procedimentoFonte = input.procedimentoFonte || "site";
+            let precoPortes = new Map<string, number>();
+
+            // O formato Dados Completos usa valores simbólicos como 3C,
+            // resolvidos contra a tabela de Preço de Portes do próprio Safatle.
+            if (procedimentoFonte === "dados_completo") {
+              const referencia = await db.getTabelasPreco({
+                convenioId: input.convenioId,
+                estabelecimentoId: input.estabelecimentoId,
+                tipo: "procedimentos",
+                procedimentoFonte: "preco_portes",
+                apenasVigentes: false,
+                page: 1,
+                limit: 100000,
+              });
+              precoPortes = new Map(
+                referencia.items.map((item) => [
+                  normalizarCodigo(item.codigo, "preco_portes"),
+                  Number(item.valor),
+                ]),
+              );
+            }
+
+            const normalized = normalizarProcedimentos(rawItems, procedimentoFonte, precoPortes);
+            importErrors = normalized.errors;
+            if (!normalized.items.length) {
+              throw new Error(importErrors[0] || "Nenhum registro válido foi encontrado no arquivo.");
+            }
+
+            tabelaItems = normalized.items.map((item) => ({
+              convenioId: input.convenioId,
+              estabelecimentoId: input.estabelecimentoId || null,
+              tipo: "procedimentos" as const,
+              procedimentoFonte,
+              codigo: item.codigo,
+              nome: item.nome,
+              valor: item.valor,
+              vigenciaInicio: new Date(),
+              porte: item.porte || null,
+              numeroAuxiliares: item.numeroAuxiliares ?? null,
+              tipoBeneficiario: item.tipoBeneficiario || null,
+              unidade: null,
+              observacao: null,
+            }));
+          } else {
+            const findValue = (item: Record<string, unknown>, keys: string[]): unknown => {
               for (const key of keys) {
-                // Tentar chave exata
                 if (item[key] !== undefined) return item[key];
-                // Tentar com espaço no final (comum em arquivos Excel)
-                if (item[key + " "] !== undefined) return item[key + " "];
-                // Tentar com espaço no início
-                if (item[" " + key] !== undefined) return item[" " + key];
+                if (item[`${key} `] !== undefined) return item[`${key} `];
+                if (item[` ${key}`] !== undefined) return item[` ${key}`];
               }
               return undefined;
             };
 
-            const codigo = findValue(["codigo", "Codigo", "CODIGO", "cod", "Cod", "COD", "code", "Code", "CODE"]) || "";
-            const nome = findValue(["nome", "Nome", "NOME", "descricao", "Descricao", "DESCRICAO", "name", "Name", "NAME", "desc", "Desc", "DESC"]) || "";
-            const valorStr = String(findValue(["valor", "Valor", "VALOR", "preco", "Preco", "PRECO", "price", "Price", "PRICE", "vl", "Vl", "VL"]) || "0");
-            const valor = valorStr.replace(/[^0-9.,]/g, "").replace(",", ".");
-            
-            // Função para parsear datas em vários formatos (DD/MM/AAAA, AAAA-MM-DD, etc.)
-            const parseDate = (value: any): Date => {
-              if (!value) return new Date();
-              
-              // Se já for uma Date válida
-              if (value instanceof Date && !isNaN(value.getTime())) {
-                return value;
+            const parseDate = (value: unknown): Date => {
+              if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+              const text = String(value ?? "").trim();
+              const brMatch = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+              if (brMatch) return new Date(Number(brMatch[3]), Number(brMatch[2]) - 1, Number(brMatch[1]));
+              const isoMatch = text.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+              if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+              const serial = Number(text);
+              if (Number.isFinite(serial) && serial > 1 && serial < 100000) {
+                return new Date(new Date(1899, 11, 30).getTime() + serial * 24 * 60 * 60 * 1000);
               }
-              
-              const str = String(value).trim();
-              
-              // Formato DD/MM/AAAA ou DD-MM-AAAA (brasileiro)
-              const brMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-              if (brMatch) {
-                const [, day, month, year] = brMatch;
-                return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-              }
-              
-              // Formato AAAA-MM-DD (ISO)
-              const isoMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-              if (isoMatch) {
-                const [, year, month, day] = isoMatch;
-                return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-              }
-              
-              // Número serial do Excel (dias desde 1900-01-01)
-              const num = parseFloat(str);
-              if (!isNaN(num) && num > 1 && num < 100000) {
-                const excelEpoch = new Date(1899, 11, 30);
-                return new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000);
-              }
-              
-              // Tentar parse padrão
-              const parsed = new Date(str);
-              if (!isNaN(parsed.getTime())) {
-                return parsed;
-              }
-              
-              // Fallback: data atual
-              return new Date();
+              const parsed = new Date(text);
+              return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
             };
 
-            // Vigência - suportar vários formatos de nome de coluna
-            const vigenciaInicioRaw = findValue([
-              "vigencia_inicio", "Vigencia_inicio", "VIGENCIA_INICIO",
-              "inicio_vigencia", "Inicio_vigencia", "INICIO_VIGENCIA",
-              "vigenciaInicio", "VigenciaInicio", "VIGENCIAINICIO",
-              "data_inicio", "Data_inicio", "DATA_INICIO",
-              "dataInicio", "DataInicio", "DATAINICIO",
-              "inicio", "Inicio", "INICIO"
-            ]);
-            
-            // Campo vigenciaFim removido conforme solicitação do usuário
-
-            return {
-              convenioId: input.convenioId,
-              estabelecimentoId: input.estabelecimentoId || null, // Estabelecimento específico ou null para global
-              tipo: input.tipo,
-              codigo: String(codigo).trim(),
-              nome: String(nome).trim(),
-              valor: valor || "0",
-              vigenciaInicio: parseDate(vigenciaInicioRaw),
-              unidade: findValue(["unidade", "Unidade", "UNIDADE", "unit", "Unit", "UNIT"]),
-              observacao: findValue(["observacao", "Observacao", "OBSERVACAO", "obs", "Obs", "OBS"]),
-            };
-          }).filter((item: any) => item.codigo && item.nome);
+            tabelaItems = rawItems.map((item) => {
+              const codigo = findValue(item, ["codigo", "Codigo", "CODIGO", "cod", "Cod", "COD", "code", "Code", "CODE"]);
+              const nome = findValue(item, ["nome", "Nome", "NOME", "descricao", "Descricao", "DESCRICAO", "name", "Name", "NAME", "desc", "Desc", "DESC"]);
+              const valor = parseValor(findValue(item, ["valor", "Valor", "VALOR", "preco", "Preco", "PRECO", "price", "Price", "PRICE", "vl", "Vl", "VL"]));
+              const vigenciaInicioRaw = findValue(item, [
+                "vigencia_inicio", "Vigencia_inicio", "VIGENCIA_INICIO",
+                "inicio_vigencia", "Inicio_vigencia", "INICIO_VIGENCIA",
+                "vigenciaInicio", "VigenciaInicio", "VIGENCIAINICIO",
+                "data_inicio", "Data_inicio", "DATA_INICIO",
+                "dataInicio", "DataInicio", "DATAINICIO",
+                "inicio", "Inicio", "INICIO",
+              ]);
+              return {
+                convenioId: input.convenioId,
+                estabelecimentoId: input.estabelecimentoId || null,
+                tipo: input.tipo,
+                codigo: String(codigo ?? "").trim(),
+                nome: String(nome ?? "").trim(),
+                valor: valor.toFixed(2),
+                vigenciaInicio: parseDate(vigenciaInicioRaw),
+                unidade: findValue(item, ["unidade", "Unidade", "UNIDADE", "unit", "Unit", "UNIT"]),
+                observacao: findValue(item, ["observacao", "Observacao", "OBSERVACAO", "obs", "Obs", "OBS"]),
+              };
+            }).filter((item) => item.codigo && item.nome);
+          }
 
           // Inserir em lote
           const resultado = await db.createTabelasPrecoEmLote(tabelaItems);
@@ -4045,17 +4066,18 @@ export const appRouter = router({
           // Atualizar status da importação
           await db.updateImportacaoTabela(importacaoId, {
             status: "concluido",
-            totalItens: items.length,
+            totalItens: rawItems.length,
             itensImportados: resultado.inseridos,
-            itensErro: resultado.erros,
+            itensErro: resultado.erros + importErrors.length,
+            mensagemErro: importErrors.length ? importErrors.slice(0, 20).join(" | ") : null,
           });
 
           return {
             success: true,
             importacaoId,
-            totalItens: items.length,
+            totalItens: rawItems.length,
             itensImportados: resultado.inseridos,
-            itensErro: resultado.erros,
+            itensErro: resultado.erros + importErrors.length,
           };
         } catch (error: any) {
           // Atualizar status com erro

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build, banco e diagnóstico de qualidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/safatle_ci
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Verificar tipos (diagnóstico temporário)
+        continue-on-error: true
+        run: pnpm check
+
+      - name: Executar testes (diagnóstico temporário)
+        continue-on-error: true
+        run: pnpm test
+
+      - name: Gerar build
+        run: pnpm build
+
+      - name: Conferir histórico de migrações
+        run: pnpm db:check

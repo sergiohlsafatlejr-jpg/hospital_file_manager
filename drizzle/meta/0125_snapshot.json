@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "9202ce89-7601-475e-a94d-03d4b7cedb17",
+  "id": "fec08c4e-1964-42d4-ace1-e62c2d1b12b6",
   "prevId": "b4aeeb65-f132-4740-8a33-43e8491c883a",
   "tables": {
     "ajustes_auditoria": {
@@ -19016,6 +19016,34 @@
           "autoincrement": false,
           "onUpdate": true,
           "default": "(now())"
+        },
+        "procedimentoFonte": {
+          "name": "procedimentoFonte",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "porte": {
+          "name": "porte",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "numeroAuxiliares": {
+          "name": "numeroAuxiliares",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tipoBeneficiario": {
+          "name": "tipoBeneficiario",
+          "type": "varchar(150)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -24450,185 +24478,6 @@
       "compositePrimaryKeys": {
         "warleine_atendimentos_staging_id": {
           "name": "warleine_atendimentos_staging_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "warleine_faturamento_analises": {
-      "name": "warleine_faturamento_analises",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "estabelecimentoId": {
-          "name": "estabelecimentoId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "competencia": {
-          "name": "competencia",
-          "type": "varchar(7)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "numeroConta": {
-          "name": "numeroConta",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "convenioChave": {
-          "name": "convenioChave",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "loteId": {
-          "name": "loteId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "statusAnalise": {
-          "name": "statusAnalise",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pendente'"
-        },
-        "totalItensAnalisados": {
-          "name": "totalItensAnalisados",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "totalDivergencias": {
-          "name": "totalDivergencias",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "totalAlertas": {
-          "name": "totalAlertas",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "totalCriticos": {
-          "name": "totalCriticos",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "scoreRisco": {
-          "name": "scoreRisco",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "resumoPorTipo": {
-          "name": "resumoPorTipo",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "detalhesRisco": {
-          "name": "detalhesRisco",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "divergencias": {
-          "name": "divergencias",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "padroesDetalhados": {
-          "name": "padroesDetalhados",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "analisadoPor": {
-          "name": "analisadoPor",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "analisadoEm": {
-          "name": "analisadoEm",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "atualizadoEm": {
-          "name": "atualizadoEm",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "uq_warleine_analise_conta_lote": {
-          "name": "uq_warleine_analise_conta_lote",
-          "columns": [
-            "estabelecimentoId",
-            "competencia",
-            "numeroConta",
-            "convenioChave",
-            "loteId"
-          ],
-          "isUnique": true
-        },
-        "idx_warleine_analise_estab_status": {
-          "name": "idx_warleine_analise_estab_status",
-          "columns": [
-            "estabelecimentoId",
-            "statusAnalise"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "warleine_faturamento_analises_id": {
-          "name": "warleine_faturamento_analises_id",
           "columns": [
             "id"
           ]
