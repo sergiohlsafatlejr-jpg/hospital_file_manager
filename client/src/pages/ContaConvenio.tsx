@@ -258,7 +258,8 @@ export default function ContaConvenio() {
     .sort((a, b) => b - a);
   const mesesDisponiveisFonte = isWarleine
     ? nomesMeses.filter((mes) => competenciasFonte.some((competencia) =>
-      (!anoFiltro || anoFiltro === "all" || competencia.startsWith(`${anoFiltro}/`)) && competencia.slice(5, 7) === mes.value,
+      (!anoFiltro || anoFiltro === "all" || competencia.startsWith(`${anoFiltro}/`)) &&
+      Number(competencia.slice(5, 7)) === Number(mes.value),
     ))
     : mesesDisponiveis;
   const conveniosFonte = isWarleine

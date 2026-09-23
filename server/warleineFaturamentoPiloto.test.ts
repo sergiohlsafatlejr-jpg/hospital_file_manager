@@ -154,6 +154,8 @@ describe("implantação do faturamento Warleine", () => {
     expect(page).toContain('value="WARLEINE"');
     expect(page).toContain("warleineFaturamento.compararComPadroes");
     expect(page).toContain("!isWarleine && <Button");
+    expect(page).toContain('Number(competencia.slice(5, 7)) === Number(mes.value)');
+    expect(page).toContain('mesFiltro.padStart(2, "0")');
     expect(details).toContain('params.get("fonte") === "WARLEINE"');
     expect(existsSync(resolve(root, "client/src/pages/ContaConvenioWarleine.tsx"))).toBe(false);
   });
