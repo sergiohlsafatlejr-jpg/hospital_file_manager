@@ -101,6 +101,7 @@ import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR, toInputDateValue } from "@/lib/dateUtils";
+import ContaConvenioWarleineDetalhes from "./ContaConvenioWarleineDetalhes";
 
 // Formatar valor em reais
 const formatCurrency = (value: number | string | null | undefined) => {
@@ -198,7 +199,7 @@ const DecisaoBadge = ({ decisao }: { decisao: string }) => {
   }
 };
 
-export default function ContaConvenioDetalhes() {
+function ContaConvenioDetalhesPadrao() {
   const { user } = useAuth();
   const { estabelecimentoAtual } = useEstabelecimento();
   const [, setLocation] = useLocation();
@@ -3338,4 +3339,14 @@ export default function ContaConvenioDetalhes() {
       </div>
     </DashboardLayout>
   );
+}
+
+
+export default function ContaConvenioDetalhes() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  if (params.get("fonte") === "WARLEINE") {
+    return <ContaConvenioWarleineDetalhes />;
+  }
+  return <ContaConvenioDetalhesPadrao />;
 }

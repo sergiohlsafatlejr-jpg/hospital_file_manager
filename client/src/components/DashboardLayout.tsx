@@ -132,7 +132,6 @@ const menuItems: MenuItem[] = [
     { icon: Upload, label: "Upload de Arquivos", path: "/upload", modulo: "arquivos" },
     { icon: FileSearch, label: "Arquivos", path: "/arquivos", modulo: "arquivos" },
     { icon: List, label: "Conta Convênio", path: "/conta-convenio", modulo: "contaConvenio" },
-    { icon: Database, label: "Conta Convênio — Warleine", path: "/conta-convenio-warleine", modulo: "contaConvenio" },
   ]},
 
   // Módulo 2 - Regras de Contas

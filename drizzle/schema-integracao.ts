@@ -243,6 +243,46 @@ export const warleineFaturamentoSnapshotsAtivos = mysqlTable(
   }),
 );
 
+// WARLEINE - Resultado do motor de regras por conta e versão ativa do snapshot.
+// A análise não replica os itens faturados: aponta para o lote ativo da competência.
+export const warleineFaturamentoAnalises = mysqlTable(
+  "warleine_faturamento_analises",
+  {
+    id: int().primaryKey().autoincrement(),
+    estabelecimentoId: int().notNull(),
+    competencia: varchar({ length: 7 }).notNull(),
+    numeroConta: varchar({ length: 100 }).notNull(),
+    convenioChave: varchar({ length: 255 }).notNull(),
+    loteId: int().notNull(),
+    statusAnalise: varchar({ length: 20 }).notNull().default("pendente"),
+    totalItensAnalisados: int().notNull().default(0),
+    totalDivergencias: int().notNull().default(0),
+    totalAlertas: int().notNull().default(0),
+    totalCriticos: int().notNull().default(0),
+    scoreRisco: int().notNull().default(0),
+    resumoPorTipo: json(),
+    detalhesRisco: json(),
+    divergencias: json(),
+    padroesDetalhados: json(),
+    analisadoPor: int(),
+    analisadoEm: timestamp().defaultNow().notNull(),
+    atualizadoEm: timestamp().defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => ({
+    contaLoteUnique: uniqueIndex("uq_warleine_analise_conta_lote").on(
+      table.estabelecimentoId,
+      table.competencia,
+      table.numeroConta,
+      table.convenioChave,
+      table.loteId,
+    ),
+    estabelecimentoStatusIdx: index("idx_warleine_analise_estab_status").on(
+      table.estabelecimentoId,
+      table.statusAnalise,
+    ),
+  }),
+);
+
 // Faturamento Geral (dados transformados do faturamento WARLEINE)
 export const faturamentoGeral = mysqlTable(
   "faturamento_geral",

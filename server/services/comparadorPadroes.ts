@@ -68,6 +68,22 @@ export interface ResultadoComparacao {
 }
 
 /**
+ * Forma mínima exigida pelo motor. A origem permanece externa: essa interface
+ * permite analisar a publicação Warleine sem copiar itens para a fonte XML.
+ */
+export interface ItemParaComparacao {
+  codigoItem?: string | null;
+  descricaoItem?: string | null;
+  tipoItem?: string | null;
+  quantidade?: string | number | null;
+  valorUnitario?: string | number | null;
+  valorTotal?: string | number | null;
+  setor?: string | null;
+  codigoProcedimento?: string | null;
+  [campo: string]: unknown;
+}
+
+/**
  * Seleciona o melhor padrão de composição considerando setor.
  * Prioridade: gabarito com setor > gabarito sem setor > padrão com setor > padrão sem setor
  */
@@ -118,6 +134,33 @@ export async function compararContaComPadroes(
       eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
     ));
 
+  return compararItensComPadroes({
+    numeroConta,
+    estabelecimentoId,
+    convenio: itens[0]?.convenio ?? null,
+    itens: itens as unknown as ItemParaComparacao[],
+  });
+}
+
+/**
+ * Executa a mesma regra de preço, quantidade, glosa e composição sobre uma
+ * coleção já autorizada de itens. O chamador deve preservar a fonte e a
+ * versão do snapshot ao persistir o resultado.
+ */
+export async function compararItensComPadroes({
+  numeroConta,
+  estabelecimentoId,
+  convenio,
+  itens,
+}: {
+  numeroConta: string;
+  estabelecimentoId: number;
+  convenio: string | null | undefined;
+  itens: ItemParaComparacao[];
+}): Promise<ResultadoComparacao> {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
   if (itens.length === 0) {
     return {
       numeroConta,
@@ -137,10 +180,10 @@ export async function compararContaComPadroes(
   }
 
   // 2. Identificar o convênio e setores da conta
-  const convenio = itens[0].convenio;
-  const setoresNaConta = [...new Set(itens.map(i => (i as any).setor).filter(Boolean))];
+  const convenioNormalizado = convenio?.trim() || null;
+  const setoresNaConta = [...new Set(itens.map(i => typeof i.setor === "string" ? i.setor : null).filter(Boolean))] as string[];
   
-  if (!convenio) {
+  if (!convenioNormalizado) {
     logger.warn({ message: "Conta sem convênio identificado", numeroConta });
     return {
       numeroConta,
@@ -171,7 +214,7 @@ export async function compararContaComPadroes(
     .from(padraoPrecoConvenio)
     .where(and(
       eq(padraoPrecoConvenio.estabelecimentoId, estabelecimentoId),
-      eq(padraoPrecoConvenio.convenio, convenio),
+      eq(padraoPrecoConvenio.convenio, convenioNormalizado),
     ));
 
   // Indexar padrões de preço por código para match com setor
@@ -189,7 +232,7 @@ export async function compararContaComPadroes(
     .where(eq(padraoQuantidadeItem.estabelecimentoId, estabelecimentoId));
 
   const padroesQtdFiltrados = padroesQtd.filter(p => 
-    p.convenio === convenio || !p.convenio
+    p.convenio === convenioNormalizado || !p.convenio
   );
   
   // Indexar padrões de quantidade por código+setor para match mais preciso
@@ -206,7 +249,7 @@ export async function compararContaComPadroes(
     .from(padraoGlosaConvenio)
     .where(and(
       eq(padraoGlosaConvenio.estabelecimentoId, estabelecimentoId),
-      eq(padraoGlosaConvenio.convenio, convenio),
+      eq(padraoGlosaConvenio.convenio, convenioNormalizado),
     ));
 
   const mapGlosa = new Map(padroesGlosa.map(p => [p.codigoItem, p]));
@@ -261,12 +304,12 @@ export async function compararContaComPadroes(
 
   // 7. Analisar cada item
   for (const item of itens) {
-    const codigo = item.codigoItem;
+    const codigo = item.codigoItem ? String(item.codigoItem) : "";
     if (!codigo) continue;
 
-    const valorUnitario = parseFloat(item.valorUnitario || "0");
-    const valorTotal = parseFloat(item.valorTotal || "0");
-    const quantidade = parseFloat(item.quantidade || "0");
+    const valorUnitario = parseFloat(String(item.valorUnitario ?? "0"));
+    const valorTotal = parseFloat(String(item.valorTotal ?? "0"));
+    const quantidade = parseFloat(String(item.quantidade ?? "0"));
     const setorItem = (item as any).setor || null;
 
     // 7a. Comparação de PREÇO (com suporte a setor)

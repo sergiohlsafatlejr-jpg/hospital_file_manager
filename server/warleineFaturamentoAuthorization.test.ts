@@ -9,6 +9,8 @@ vi.mock("./warleineFaturamentoService", () => ({
   approveWarleineSnapshotReduction: vi.fn(async () => ({ success: true, loteId: 1 })),
   getWarleineAccounts: vi.fn(async () => ({ contas: [], total: 0, resumo: {}, filtros: {} })),
   getWarleineAccountItems: vi.fn(async () => ({ items: [], total: 0, page: 1, pageSize: 100 })),
+  getWarleineAccountDetails: vi.fn(async () => ({ conta: null, items: [], total: 0, page: 1, pageSize: 20, analysis: null })),
+  compararContaWarleineComPadroes: vi.fn(async () => ({ statusGeral: "conforme", totalItensAnalisados: 0, totalDivergencias: 0 })),
   getWarleineFinancialData: vi.fn(async () => ({ meses: [], convenios: [], resumo: {}, filtros: {} })),
   getWarleineFinancialDetails: vi.fn(async () => []),
   getWarleineGlosaDashboard: vi.fn(async () => ({ resumo: {}, porMesPagamento: [], porConvenio: [], porItem: [], porProcedimento: [], porMotivo: [], recursosAnalisados: { lotes: [] } })),
@@ -17,7 +19,13 @@ vi.mock("./warleineFaturamentoService", () => ({
 }));
 
 import { verificarAcessoModulo, verificarPermissaoEstabelecimento } from "./db";
-import { approveWarleineSnapshotReduction, getWarleineAccounts, getWarleineFinancialData } from "./warleineFaturamentoService";
+import {
+  approveWarleineSnapshotReduction,
+  compararContaWarleineComPadroes,
+  getWarleineAccountDetails,
+  getWarleineAccounts,
+  getWarleineFinancialData,
+} from "./warleineFaturamentoService";
 import { warleineFaturamentoRouter } from "./routers/warleineFaturamentoRouter";
 
 function context(role: "admin" | "user" = "user") {
@@ -50,11 +58,33 @@ describe("autorização do faturamento Warleine", () => {
     expect(getWarleineFinancialData).not.toHaveBeenCalled();
   });
 
+  it("protege análise e detalhe da conta pelo módulo e estabelecimento", async () => {
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    vi.mocked(verificarAcessoModulo).mockResolvedValue(true);
+    const caller = warleineFaturamentoRouter.createCaller(context());
+    const input = { estabelecimentoId: 4, competencia: "2026/06", numeroConta: "conta-segura", convenioChave: "101" };
+
+    await expect(caller.compararComPadroes(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.detalharConta({ ...input, page: 1, pageSize: 20 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(compararContaWarleineComPadroes).not.toHaveBeenCalled();
+    expect(getWarleineAccountDetails).not.toHaveBeenCalled();
+
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(true);
+    vi.mocked(verificarAcessoModulo).mockResolvedValue(false);
+    await expect(caller.compararComPadroes(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(verificarAcessoModulo).toHaveBeenCalledWith(91, 4, "contaConvenio");
+    expect(compararContaWarleineComPadroes).not.toHaveBeenCalled();
+  });
+
   it("permite ao administrador consultar somente uma unidade positiva explícita", async () => {
     const caller = warleineFaturamentoRouter.createCaller(context("admin"));
-    await expect(caller.listarContas({ estabelecimentoId: 4, page: 1, pageSize: 20 })).resolves.toMatchObject({ total: 0 });
-    expect(getWarleineAccounts).toHaveBeenCalledWith(expect.objectContaining({ estabelecimentoId: 4 }));
+    await expect(caller.listarContas({ estabelecimentoId: 4, competenciaAno: "2026", page: 1, pageSize: 20 })).resolves.toMatchObject({ total: 0 });
+    expect(getWarleineAccounts).toHaveBeenCalledWith(expect.objectContaining({ estabelecimentoId: 4, competenciaAno: "2026" }));
     await expect(caller.listarContas({ estabelecimentoId: 0, page: 1, pageSize: 20 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.listarContas({ estabelecimentoId: 4, competenciaAno: "26", page: 1, pageSize: 20 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await expect(caller.detalharConta({ estabelecimentoId: 4, competencia: "2026/06", numeroConta: "conta-admin", convenioChave: "101", page: 1, pageSize: 20 })).resolves.toMatchObject({ total: 0 });
+    expect(getWarleineAccountDetails).toHaveBeenCalledWith(4, "2026/06", "conta-admin", "101", 1, 20);
   });
 
   it("nega aprovação excepcional a usuário comum e permite ao administrador com justificativa", async () => {

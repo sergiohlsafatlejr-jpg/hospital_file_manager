@@ -1,6 +1,7 @@
 import type { RowDataPacket } from "mysql2/promise";
 import Decimal from "decimal.js";
 import { getRawPool } from "./db";
+import { compararItensComPadroes, type ResultadoComparacao } from "./services/comparadorPadroes";
 
 export type WarleineFinancialFilters = {
   estabelecimentoId: number;
@@ -25,7 +26,9 @@ export type WarleineGlosaFilters = {
 export type WarleineAccountsFilters = {
   estabelecimentoId: number;
   competencia?: string;
+  competenciaAno?: string;
   convenio?: string;
+  statusAnalise?: "pendente" | "conforme" | "divergente" | "revisado";
   search?: string;
   page: number;
   pageSize: number;
@@ -34,6 +37,14 @@ export type WarleineAccountsFilters = {
 const ACTIVE = "1=1";
 const CONVENIO_CHAVE_SQL = "COALESCE(NULLIF(convenioFaturadoCodigo,''),NULLIF(convenioFaturadoNome,''),'SEM_CONVENIO')";
 const CONVENIO_NOME_SQL = "COALESCE(NULLIF(convenioFaturadoNome,''),'Sem convênio')";
+
+type WarleineAnalysisInput = {
+  estabelecimentoId: number;
+  competencia: string;
+  numeroConta: string;
+  convenioChave: string;
+  userId: number;
+};
 
 export function canonicalizeWarleineConventionDetails(rows: readonly unknown[]): Array<{ chave: string; nome: string }> {
   const canonical = new Map<string, string>();
@@ -287,12 +298,195 @@ export async function getWarleineGlosaDashboard(filters: WarleineGlosaFilters) {
   };
 }
 
+export async function compararContaWarleineComPadroes(input: WarleineAnalysisInput): Promise<ResultadoComparacao> {
+  const pool = await getRawPool();
+  if (!pool) throw new Error("Banco indisponível");
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    // A publicação troca este mesmo ponteiro em transação. O lock impede gravar
+    // uma análise cujo lote deixou de ser o snapshot ativo durante o cálculo.
+    const [snapshotRows] = await connection.query<RowDataPacket[]>(`
+      SELECT loteId FROM warleine_faturamento_snapshots_ativos
+      WHERE estabelecimentoId=? AND competencia=?
+      FOR UPDATE
+    `, [input.estabelecimentoId, input.competencia]);
+    const loteId = Number(snapshotRows[0]?.loteId || 0);
+    if (!loteId) throw new Error("Não existe snapshot ativo para a competência selecionada.");
+
+    const [rows] = await connection.query<RowDataPacket[]>(`
+      SELECT
+        COALESCE(NULLIF(codigoTuss,''), NULLIF(codigoItemInterno,'')) AS codigoItem,
+        servicoNome AS descricaoItem,
+        tipoItem,
+        quantidade,
+        valorUnitario,
+        valorFaturado AS valorTotal,
+        setorNome AS setor,
+        codigoTuss AS codigoProcedimento,
+        ${CONVENIO_NOME_SQL} AS convenio
+      FROM warleine_faturamento_itens
+      WHERE estabelecimentoId=? AND competencia=? AND loteId=? AND numeroConta=?
+        AND ${CONVENIO_CHAVE_SQL}=?
+      ORDER BY id
+    `, [input.estabelecimentoId, input.competencia, loteId, input.numeroConta, input.convenioChave]);
+
+    const convenio = rows[0]?.convenio ? String(rows[0].convenio) : null;
+    const resultado = await compararItensComPadroes({
+      numeroConta: input.numeroConta,
+      estabelecimentoId: input.estabelecimentoId,
+      convenio,
+      itens: rows.map((row) => ({
+        codigoItem: row.codigoItem ? String(row.codigoItem) : null,
+        descricaoItem: row.descricaoItem ? String(row.descricaoItem) : null,
+        tipoItem: row.tipoItem ? String(row.tipoItem) : null,
+        quantidade: row.quantidade ? String(row.quantidade) : null,
+        valorUnitario: row.valorUnitario ? String(row.valorUnitario) : null,
+        valorTotal: row.valorTotal ? String(row.valorTotal) : null,
+        setor: row.setor ? String(row.setor) : null,
+        codigoProcedimento: row.codigoProcedimento ? String(row.codigoProcedimento) : null,
+      })),
+    });
+
+    const totalCriticos = resultado.divergencias.filter((item) => item.severidade === "critico").length;
+    await connection.execute(`
+    INSERT INTO warleine_faturamento_analises (
+      estabelecimentoId, competencia, numeroConta, convenioChave, loteId,
+      statusAnalise, totalItensAnalisados, totalDivergencias, totalAlertas,
+      totalCriticos, scoreRisco, resumoPorTipo, detalhesRisco, divergencias,
+      padroesDetalhados, analisadoPor, analisadoEm, atualizadoEm
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    ON DUPLICATE KEY UPDATE
+      statusAnalise=VALUES(statusAnalise), totalItensAnalisados=VALUES(totalItensAnalisados),
+      totalDivergencias=VALUES(totalDivergencias), totalAlertas=VALUES(totalAlertas),
+      totalCriticos=VALUES(totalCriticos), scoreRisco=VALUES(scoreRisco),
+      resumoPorTipo=VALUES(resumoPorTipo), detalhesRisco=VALUES(detalhesRisco),
+      divergencias=VALUES(divergencias), padroesDetalhados=VALUES(padroesDetalhados),
+      analisadoPor=VALUES(analisadoPor), analisadoEm=NOW(), atualizadoEm=NOW()
+  `, [
+    input.estabelecimentoId, input.competencia, input.numeroConta, input.convenioChave, loteId,
+    resultado.statusGeral, resultado.totalItensAnalisados, resultado.totalDivergencias,
+    resultado.totalAlertas, totalCriticos, resultado.scoreRisco.score,
+    JSON.stringify(resultado.resumoPorTipo), JSON.stringify(resultado.scoreRisco),
+    JSON.stringify(resultado.divergencias), JSON.stringify(resultado.padroesDetalhados), input.userId,
+    ]);
+    await connection.commit();
+    return resultado;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getWarleineAccountDetails(
+  estabelecimentoId: number,
+  competencia: string,
+  numeroConta: string,
+  convenioChave: string,
+  page = 1,
+  pageSize = 100,
+) {
+  const pool = await getRawPool();
+  if (!pool) throw new Error("Banco indisponível");
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    // A publicação atualiza este ponteiro no mesmo banco. O lock mantém itens e
+    // análise referenciando a mesma versão até que a resposta seja construída.
+    const [snapshotRows] = await connection.query<RowDataPacket[]>(`
+      SELECT loteId FROM warleine_faturamento_snapshots_ativos
+      WHERE estabelecimentoId=? AND competencia=?
+      FOR UPDATE
+    `, [estabelecimentoId, competencia]);
+    if (!snapshotRows[0]) throw new Error("Não existe snapshot ativo para a competência selecionada.");
+
+    const [itemData, analysisData] = await Promise.all([
+      getWarleineAccountItems(estabelecimentoId, competencia, numeroConta, convenioChave, page, pageSize),
+      getWarleineAccountAnalysis(estabelecimentoId, competencia, numeroConta, convenioChave),
+    ]);
+    await connection.commit();
+
+    const divergencias = analysisData?.divergencias || [];
+    const byCode = new Map<string, unknown[]>();
+    for (const divergence of divergencias as Array<{ codigoItem?: unknown }>) {
+      const codigo = String(divergence.codigoItem || "");
+      if (!codigo) continue;
+      byCode.set(codigo, [...(byCode.get(codigo) || []), divergence]);
+    }
+    return {
+      ...itemData,
+      analysis: analysisData,
+      items: itemData.items.map((item) => {
+        const codigo = item.codigoTuss || item.codigoItemInterno;
+        const divergenciasItem = byCode.get(codigo) || [];
+        return {
+          ...item,
+          codigoItem: codigo,
+          descricaoItem: item.servicoNome,
+          valorTotal: item.valorFaturado,
+          setor: item.setorNome,
+          statusAnalise: analysisData?.statusAnalise || "pendente",
+          divergencias: divergenciasItem,
+        };
+      }),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getWarleineAccountAnalysis(
+  estabelecimentoId: number,
+  competencia: string,
+  numeroConta: string,
+  convenioChave: string,
+) {
+  const pool = await getRawPool();
+  if (!pool) throw new Error("Banco indisponível");
+  const [rows] = await pool.query<RowDataPacket[]>(`
+    SELECT a.statusAnalise,a.totalItensAnalisados,a.totalDivergencias,a.totalAlertas,
+           a.totalCriticos,a.scoreRisco,a.resumoPorTipo,a.detalhesRisco,a.divergencias,
+           a.padroesDetalhados,a.analisadoEm
+    FROM warleine_faturamento_analises a
+    INNER JOIN warleine_faturamento_snapshots_ativos s
+      ON s.estabelecimentoId=a.estabelecimentoId AND s.competencia=a.competencia AND s.loteId=a.loteId
+    WHERE a.estabelecimentoId=? AND a.competencia=? AND a.numeroConta=? AND a.convenioChave=?
+    LIMIT 1
+  `, [estabelecimentoId, competencia, numeroConta, convenioChave]);
+  const row = rows[0];
+  if (!row) return null;
+  const parseJson = (value: unknown) => {
+    if (value == null) return null;
+    if (typeof value === "object") return value;
+    try { return JSON.parse(String(value)); } catch { return null; }
+  };
+  return {
+    statusAnalise: String(row.statusAnalise),
+    totalItensAnalisados: n(row.totalItensAnalisados),
+    totalDivergencias: n(row.totalDivergencias),
+    totalAlertas: n(row.totalAlertas),
+    totalCriticos: n(row.totalCriticos),
+    scoreRisco: n(row.scoreRisco),
+    resumoPorTipo: parseJson(row.resumoPorTipo),
+    detalhesRisco: parseJson(row.detalhesRisco),
+    divergencias: parseJson(row.divergencias) || [],
+    padroesDetalhados: parseJson(row.padroesDetalhados) || [],
+    analisadoEm: row.analisadoEm ? String(row.analisadoEm) : null,
+  };
+}
+
 export async function getWarleineAccounts(filters: WarleineAccountsFilters) {
   const pool = await getRawPool();
   if (!pool) throw new Error("Banco indisponível");
   const clauses = ["estabelecimentoId=?", ACTIVE];
   const params: unknown[] = [filters.estabelecimentoId];
   if (filters.competencia) { clauses.push("competencia=?"); params.push(filters.competencia); }
+  else if (filters.competenciaAno) { clauses.push("competencia LIKE ?"); params.push(`${filters.competenciaAno}/%`); }
   if (filters.convenio) { clauses.push(`${CONVENIO_CHAVE_SQL}=?`); params.push(filters.convenio); }
   if (filters.search) {
     clauses.push("(numeroConta LIKE ? OR pacienteNome LIKE ? OR convenioFaturadoNome LIKE ? OR guiaOperadora LIKE ? OR guiaPrestador LIKE ?)");
@@ -301,11 +495,18 @@ export async function getWarleineAccounts(filters: WarleineAccountsFilters) {
   }
   const where = clauses.join(" AND ");
   const offset = (filters.page - 1) * filters.pageSize;
-  const accountCte = `SELECT estabelecimentoId, competencia, numeroConta, ${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio, MAX(pacienteNome) AS pacienteNome, MAX(carteiraBeneficiario) AS carteiraBeneficiario, MAX(guiaOperadora) AS guiaOperadora, MAX(guiaPrestador) AS guiaPrestador, COUNT(*) AS totalItens, SUM(valorFaturado) AS valorFaturado, SUM(valorTotalRecebido) AS valorRecebido, SUM(valorAberto) AS valorAberto, SUM(valorGlosa) AS valorGlosa FROM warleine_faturamento_itens_ativos WHERE ${where} GROUP BY estabelecimentoId,competencia,numeroConta,convenioChave`;
+  const accountBase = `SELECT estabelecimentoId, competencia, numeroConta, MAX(loteId) AS loteId, ${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio, MAX(pacienteNome) AS pacienteNome, MAX(carteiraBeneficiario) AS carteiraBeneficiario, MAX(guiaOperadora) AS guiaOperadora, MAX(guiaPrestador) AS guiaPrestador, COUNT(*) AS totalItens, SUM(valorFaturado) AS valorFaturado, SUM(valorTotalRecebido) AS valorRecebido, SUM(valorAberto) AS valorAberto, SUM(valorGlosa) AS valorGlosa FROM warleine_faturamento_itens_ativos WHERE ${where} GROUP BY estabelecimentoId,competencia,numeroConta,convenioChave`;
+  const accountCte = `SELECT c.*, COALESCE(a.statusAnalise, 'pendente') AS statusAnalise, COALESCE(a.totalDivergencias, 0) AS totalDivergencias, COALESCE(a.totalAlertas, 0) AS totalAlertas, COALESCE(a.scoreRisco, 0) AS scoreRisco FROM (${accountBase}) c LEFT JOIN warleine_faturamento_analises a ON a.estabelecimentoId=c.estabelecimentoId AND a.competencia=c.competencia AND a.numeroConta=c.numeroConta AND a.convenioChave=c.convenioChave AND a.loteId=c.loteId`;
+  const analysisWhere = filters.statusAnalise ? " WHERE statusAnalise=?" : "";
+  const analysisParams = filters.statusAnalise ? [...params, filters.statusAnalise] : params;
+  const filterClauses = ["estabelecimentoId=?", ACTIVE];
+  const filterParams: unknown[] = [filters.estabelecimentoId];
+  if (filters.competencia) { filterClauses.push("competencia=?"); filterParams.push(filters.competencia); }
+  else if (filters.competenciaAno) { filterClauses.push("competencia LIKE ?"); filterParams.push(`${filters.competenciaAno}/%`); }
   const [[listRows], [summaryRows], [filterRows]] = await Promise.all([
-    pool.query<RowDataPacket[]>(`SELECT * FROM (${accountCte}) contas ORDER BY competencia DESC, numeroConta DESC, convenio ASC LIMIT ? OFFSET ?`, [...params, filters.pageSize, offset]),
-    pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS totalContas, COALESCE(SUM(valorFaturado),0) AS valorFaturado, COALESCE(SUM(valorRecebido),0) AS valorRecebido, COALESCE(SUM(valorAberto),0) AS valorAberto, COALESCE(SUM(valorGlosa),0) AS valorGlosa FROM (${accountCte}) contas`, params),
-    pool.query<RowDataPacket[]>(`SELECT competencia, ${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio FROM warleine_faturamento_itens_ativos WHERE estabelecimentoId=? AND ${ACTIVE} GROUP BY competencia,convenioChave ORDER BY competencia DESC, convenio`, [filters.estabelecimentoId]),
+    pool.query<RowDataPacket[]>(`SELECT * FROM (${accountCte}) contas${analysisWhere} ORDER BY competencia DESC, numeroConta DESC, convenio ASC LIMIT ? OFFSET ?`, [...analysisParams, filters.pageSize, offset]),
+    pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS totalContas, COALESCE(SUM(valorFaturado),0) AS valorFaturado, COALESCE(SUM(valorRecebido),0) AS valorRecebido, COALESCE(SUM(valorAberto),0) AS valorAberto, COALESCE(SUM(valorGlosa),0) AS valorGlosa, SUM(statusAnalise='conforme') AS totalConformes, SUM(statusAnalise='divergente') AS totalDivergentes, SUM(statusAnalise='pendente') AS totalPendentes FROM (${accountCte}) contas${analysisWhere}`, analysisParams),
+    pool.query<RowDataPacket[]>(`SELECT competencia, ${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio FROM warleine_faturamento_itens_ativos WHERE ${filterClauses.join(" AND ")} GROUP BY competencia,convenioChave ORDER BY competencia DESC, convenio`, filterParams),
   ]);
   const summary = summaryRows[0] || {} as RowDataPacket;
   return {
@@ -326,9 +527,18 @@ export async function getWarleineAccounts(filters: WarleineAccountsFilters) {
       valorAberto: money(row.valorAberto),
       valorGlosa: money(row.valorGlosa),
       origem: "WARLEINE" as const,
+      statusAnalise: String(row.statusAnalise || "pendente"),
+      totalDivergencias: n(row.totalDivergencias),
+      totalAlertas: n(row.totalAlertas),
+      scoreRisco: n(row.scoreRisco),
     })),
     total: n(summary.totalContas),
-    resumo: { totalContas: n(summary.totalContas), valorFaturado: money(summary.valorFaturado), valorRecebido: money(summary.valorRecebido), valorAberto: money(summary.valorAberto), valorGlosa: money(summary.valorGlosa) },
+    resumo: {
+      totalContas: n(summary.totalContas), valorFaturado: money(summary.valorFaturado),
+      valorRecebido: money(summary.valorRecebido), valorAberto: money(summary.valorAberto),
+      valorGlosa: money(summary.valorGlosa), totalConformes: n(summary.totalConformes),
+      totalDivergentes: n(summary.totalDivergentes), totalPendentes: n(summary.totalPendentes),
+    },
     filtros: {
       competencias: [...new Set(filterRows.map((row) => String(row.competencia)))],
       convenios: canonicalizeWarleineConventionDetails(filterRows).map((item) => item.nome),
@@ -343,7 +553,7 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
   const safePage = Math.max(1, page);
   const safePageSize = Math.max(20, Math.min(200, pageSize));
   const offset = (safePage - 1) * safePageSize;
-  const [[rows], [countRows]] = await Promise.all([
+  const [[rows], [countRows], [summaryRows]] = await Promise.all([
     pool.query<RowDataPacket[]>(`
     SELECT id,codigoTuss,codigoItemInterno,servicoNome,tipoItem,quantidade,valorUnitario,valorFaturado,valorTotalRecebido,valorAberto,valorGlosa,codigoGlosa,motivoGlosa,dataAberturaConta,dataEntrada,dataAlta,prestadorExecutanteNome,setorNome
     FROM warleine_faturamento_itens_ativos
@@ -352,7 +562,16 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
     LIMIT ? OFFSET ?
   `, [estabelecimentoId, competencia, numeroConta, convenioChave, safePageSize, offset]),
     pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS total FROM warleine_faturamento_itens_ativos WHERE estabelecimentoId=? AND ${ACTIVE} AND competencia=? AND numeroConta=? AND ${CONVENIO_CHAVE_SQL}=?`, [estabelecimentoId, competencia, numeroConta, convenioChave]),
+    pool.query<RowDataPacket[]>(`
+      SELECT COALESCE(SUM(valorFaturado),0) AS valorFaturado,
+             COALESCE(SUM(valorTotalRecebido),0) AS valorRecebido,
+             COALESCE(SUM(valorAberto),0) AS valorAberto,
+             COALESCE(SUM(valorGlosa),0) AS valorGlosa
+      FROM warleine_faturamento_itens_ativos
+      WHERE estabelecimentoId=? AND ${ACTIVE} AND competencia=? AND numeroConta=? AND ${CONVENIO_CHAVE_SQL}=?
+    `, [estabelecimentoId, competencia, numeroConta, convenioChave]),
   ]);
+  const summary = summaryRows[0] || {} as RowDataPacket;
   return { items: rows.map((row) => ({
     id: Number(row.id), codigoTuss: String(row.codigoTuss || ""), codigoItemInterno: String(row.codigoItemInterno || ""), servicoNome: String(row.servicoNome || ""),
     tipoItem: String(row.tipoItem || ""), quantidade: n(row.quantidade), valorUnitario: money(row.valorUnitario), valorFaturado: money(row.valorFaturado),
@@ -360,7 +579,13 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
     motivoGlosa: String(row.motivoGlosa || ""), dataAberturaConta: row.dataAberturaConta ? String(row.dataAberturaConta) : null,
     dataEntrada: row.dataEntrada ? String(row.dataEntrada) : null, dataAlta: row.dataAlta ? String(row.dataAlta) : null,
     prestadorExecutanteNome: String(row.prestadorExecutanteNome || ""), setorNome: String(row.setorNome || ""),
-  })), total: n(countRows[0]?.total), page: safePage, pageSize: safePageSize };
+  })), total: n(countRows[0]?.total), page: safePage, pageSize: safePageSize,
+  resumoConta: {
+    valorFaturado: money(summary.valorFaturado),
+    valorRecebido: money(summary.valorRecebido),
+    valorAberto: money(summary.valorAberto),
+    valorGlosa: money(summary.valorGlosa),
+  } };
 }
 
 export async function getWarleineLotSummary(estabelecimentoId: number) {
