@@ -631,6 +631,7 @@ export const tabelasPreco = mysqlTable("tabelasPreco", {
   porte: varchar("porte", { length: 100 }),
   numeroAuxiliares: int("numeroAuxiliares"),
   tipoBeneficiario: varchar("tipoBeneficiario", { length: 150 }),
+  valorPorteAnestesico: decimal("valorPorteAnestesico", { precision: 12, scale: 2 }),
 
   // Dados do item
   codigo: varchar("codigo", { length: 50 }).notNull(),

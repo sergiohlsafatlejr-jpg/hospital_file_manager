@@ -4018,6 +4018,7 @@ export const appRouter = router({
           if (input.tipo === "procedimentos") {
             const fonte = procedimentoFonte || "site";
             let precoPortes = new Map<string, number>();
+            let portesAnestesicos = new Map<string, number>();
 
             // O formato Dados Completos usa valores simbólicos como 3C,
             // resolvidos contra a tabela de Preço de Portes do próprio Safatle.
@@ -4037,9 +4038,25 @@ export const appRouter = router({
                   Number(item.valor),
                 ]),
               );
+
+              const referenciaAnestesica = await db.getTabelasPreco({
+                convenioId: input.convenioId,
+                estabelecimentoId: input.estabelecimentoId,
+                tipo: "procedimentos",
+                procedimentoFonte: "porte_anestesico",
+                apenasVigentes: false,
+                page: 1,
+                limit: 100000,
+              });
+              portesAnestesicos = new Map(
+                referenciaAnestesica.items.map((item) => [
+                  `AN${normalizarCodigo(item.codigo, "porte_anestesico")}`,
+                  Number(item.valor),
+                ]),
+              );
             }
 
-            const normalized = normalizarProcedimentos(rawItems, fonte, precoPortes);
+            const normalized = normalizarProcedimentos(rawItems, fonte, precoPortes, portesAnestesicos);
             const portesNaoResolvidos = normalized.errors.some((error) =>
               error.includes("Porte ") && error.includes("não encontrado na tabela de Preço de Portes"),
             );
@@ -4047,6 +4064,14 @@ export const appRouter = router({
               throw new Error(precoPortes.size === 0
                 ? "ATENÇÃO: importe primeiro a planilha de Preço de Portes para este convênio e estabelecimento. Ela é necessária para converter valores como 3C, 4A e 5B."
                 : "A tabela de Preço de Portes não possui todos os códigos necessários para esta planilha. Confira os códigos de porte e importe a referência correta antes de tentar novamente.");
+            }
+            const anestesicosNaoResolvidos = normalized.errors.some((error) =>
+              error.includes("Porte anestésico") && error.includes("não encontrado"),
+            );
+            if (fonte === "dados_completo" && anestesicosNaoResolvidos) {
+              throw new Error(portesAnestesicos.size === 0
+                ? "ATENÇÃO: importe primeiro a planilha de Porte Anestésico para este convênio e estabelecimento. Ela é necessária para converter portes como 5 em AN5 (R$ 806,41)."
+                : "A tabela de Porte Anestésico não possui todos os portes numéricos necessários para esta planilha.");
             }
             importErrors = normalized.errors;
             if (!normalized.items.length) {
@@ -4065,6 +4090,7 @@ export const appRouter = router({
               porte: item.porte || null,
               numeroAuxiliares: item.numeroAuxiliares ?? null,
               tipoBeneficiario: item.tipoBeneficiario || null,
+              valorPorteAnestesico: item.valorPorteAnestesico || null,
               unidade: null,
               observacao: null,
             }));

@@ -532,6 +532,7 @@ export default function TabelasPreco() {
                                     {item.porte ? `Porte: ${item.porte}` : ""}
                                     {item.porte && item.numeroAuxiliares ? " · " : ""}
                                     {item.numeroAuxiliares ? `Auxiliares: ${item.numeroAuxiliares}` : ""}
+                                    {item.valorPorteAnestesico ? ` · Anestésico: ${formatCurrency(item.valorPorteAnestesico)}` : ""}
                                   </div>
                                 )}
                               </TableCell>
@@ -757,8 +758,8 @@ export default function TabelasPreco() {
                     <li>• <strong>dados_completo</strong>: codigo, descricao, porte, numero_auxiliares, valor, tipo_de_beneficiario</li>
                     <li>• <strong>preco_portes</strong>: codigo, valor, tipo_de_beneficiario</li>
                     <li>• <strong>porte_anestesico</strong>: codigo, valor, tipo_de_beneficiario</li>
-                    <li>• <strong>Importe primeiro o Preço de Portes</strong> para este convênio e estabelecimento.</li>
-                    <li>• Valores como <strong>3C</strong> em Dados Completos são resolvidos por essa tabela de referência.</li>
+                    <li>• <strong>Importe primeiro o Preço de Portes e o Porte Anestésico</strong> para este convênio e estabelecimento.</li>
+                    <li>• Valores como <strong>3C</strong> e portes como <strong>5 → AN5</strong> são resolvidos pelas tabelas de referência.</li>
                   </ul>
                 ) : (
                   <ul className="text-sm text-muted-foreground space-y-1">

@@ -102,9 +102,34 @@ describe("procedimentosTabela", () => {
       }],
       "dados_completo",
       new Map([["11A", 1533.70]]),
+      new Map([["AN5", 806.41]]),
     );
 
     expect(result.errors).toEqual([]);
     expect(result.items[0]).toMatchObject({ codigo: "31102360", valor: "1533.70" });
+  });
+
+  it("converte porte 5 para AN5 e preserva o valor do anestesista", () => {
+    const result = normalizarProcedimentos(
+      [{
+        codigo: 31102360,
+        descricao: "Ureterorrenolitotripsia flexível a laser unilateral",
+        porte: 5,
+        numero_auxiliares: 1,
+        valor: "11A",
+        tipo_de_beneficiario: "REDE PADRAO",
+      }],
+      "dados_completo",
+      new Map([["11A", 1533.70]]),
+      new Map([["AN5", 806.41]]),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.items[0]).toMatchObject({
+      codigo: "31102360",
+      valor: "1533.70",
+      porte: "5",
+      valorPorteAnestesico: "806.41",
+    });
   });
 });

@@ -21,6 +21,7 @@ export type ProcedimentoImportItem = {
   porte?: string;
   numeroAuxiliares?: number;
   tipoBeneficiario?: string;
+  valorPorteAnestesico?: string;
 };
 
 export type ProcedimentoImportResult = {
@@ -167,6 +168,7 @@ export function normalizarProcedimentos(
   rows: Array<Record<string, unknown>>,
   fonte: ProcedimentoFonte,
   precoPortes: Map<string, number> = new Map(),
+  portesAnestesicos: Map<string, number> = new Map(),
 ): ProcedimentoImportResult {
   const items: ProcedimentoImportItem[] = [];
   const errors: string[] = [];
@@ -186,6 +188,21 @@ export function normalizarProcedimentos(
     const descricao = asText(row.descricao ?? row.nome ?? row.desc);
     const tipoBeneficiario = asText(row.tipo_de_beneficiario ?? row.tipo_beneficiario ?? row.beneficiario);
     const porte = asText(row.porte);
+
+    let valorPorteAnestesico: string | undefined;
+    if (fonte === "dados_completo" && porte) {
+      const porteNumero = porte.toUpperCase().replace(/^AN/, "");
+      if (/^\d+$/.test(porteNumero)) {
+        const codigoPorteAnestesico = `AN${Number(porteNumero)}`;
+        const valorAnestesico = portesAnestesicos.get(codigoPorteAnestesico);
+        if (valorAnestesico !== undefined) {
+          valorPorteAnestesico = valorAnestesico.toFixed(2);
+        } else {
+          errors.push(`Linha ${linha}: Porte anestésico ${codigoPorteAnestesico} não encontrado na tabela de Porte Anestésico.`);
+          return;
+        }
+      }
+    }
 
     const valorRaw = row.valor ?? row.preco ?? row.price ?? row.vl;
     const resolved = resolveValor(valorRaw, precoPortes, fonte === "dados_completo");
@@ -210,6 +227,7 @@ export function normalizarProcedimentos(
       porte: porte || undefined,
       numeroAuxiliares: fonte === "dados_completo" ? numeroAuxiliares : undefined,
       tipoBeneficiario: tipoBeneficiario || undefined,
+      ...(valorPorteAnestesico ? { valorPorteAnestesico } : {}),
     });
   });
 

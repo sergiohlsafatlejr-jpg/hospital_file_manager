@@ -323,6 +323,13 @@
       "when": 1790172425000,
       "tag": "0127_procedimentos_descricao_longa",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "5",
+      "when": 1790173200000,
+      "tag": "0128_valor_porte_anestesico",
+      "breakpoints": true
     }
   ]
 }
