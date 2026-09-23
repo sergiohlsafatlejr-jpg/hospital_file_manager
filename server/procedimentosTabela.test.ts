@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectarFonteProcedimentoPorNome,
   encontrarLinhaCabecalhoProcedimentos,
   normalizarCodigo,
   normalizarProcedimentos,
@@ -7,6 +8,13 @@ import {
 } from "./procedimentosTabela";
 
 describe("procedimentosTabela", () => {
+  it("detecta a fonte pelo nome dos arquivos de atualização", () => {
+    expect(detectarFonteProcedimentoPorNome("atualizacao_Porte_Anestesico.xlsx")).toBe("porte_anestesico");
+    expect(detectarFonteProcedimentoPorNome("atualizacao_Preco_Porte.xlsx")).toBe("preco_portes");
+    expect(detectarFonteProcedimentoPorNome("atualizacao_Dados_Completo.xlsx")).toBe("dados_completo");
+    expect(detectarFonteProcedimentoPorNome("atualizacao_Tabela_Unimed_Site.xlsx")).toBe("site");
+  });
+
   it("encontra o cabeçalho de Dados Completos depois de linhas introdutórias", () => {
     const rows = [
       ["Unimed Goiânia - Terminologia de Procedimentos"],

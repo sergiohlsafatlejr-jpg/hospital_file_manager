@@ -65,6 +65,7 @@ import { validateNewPassword } from "./passwordAuthService";
 import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
 import {
   encontrarLinhaCabecalhoProcedimentos,
+  detectarFonteProcedimentoPorNome,
   normalizarCodigo,
   normalizarProcedimentos,
   PROCEDIMENTO_FONTES,
@@ -3929,7 +3930,12 @@ export const appRouter = router({
           // Decodificar conteúdo Base64 e ler o primeiro conjunto de dados.
           const buffer = Buffer.from(input.conteudo, "base64");
           let rawItems: Array<Record<string, unknown>> = [];
-          const procedimentoFonte = input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined;
+          const fontePeloNome = input.tipo === "procedimentos"
+            ? detectarFonteProcedimentoPorNome(input.nomeArquivo)
+            : undefined;
+          let procedimentoFonte = input.tipo === "procedimentos"
+            ? fontePeloNome || input.procedimentoFonte || "site"
+            : undefined;
 
           if (input.formatoArquivo === "excel") {
             const XLSX = await import("xlsx");
@@ -3938,6 +3944,16 @@ export const appRouter = router({
               ? workbook.SheetNames
               : workbook.SheetNames.slice(0, 1);
             let encontrouCabecalho = false;
+            const fontesCandidatas = input.tipo === "procedimentos"
+              ? [
+                  fontePeloNome,
+                  input.procedimentoFonte,
+                  "dados_completo",
+                  "porte_anestesico",
+                  "preco_portes",
+                  "site",
+                ].filter(Boolean) as Array<typeof PROCEDIMENTO_FONTES[number]>
+              : [];
 
             for (const sheetName of sheetNames) {
               const sheet = workbook.Sheets[sheetName];
@@ -3946,12 +3962,16 @@ export const appRouter = router({
                 defval: null,
                 raw: true,
               }) as unknown[][];
-              const headerRow = procedimentoFonte
-                ? encontrarLinhaCabecalhoProcedimentos(rows, procedimentoFonte)
+              const fonteDaAba = fontesCandidatas.find((fonte) =>
+                encontrarLinhaCabecalhoProcedimentos(rows, fonte) >= 0,
+              );
+              const headerRow = fonteDaAba
+                ? encontrarLinhaCabecalhoProcedimentos(rows, fonteDaAba)
                 : -1;
 
               if (headerRow >= 0) {
                 encontrouCabecalho = true;
+                procedimentoFonte = fonteDaAba;
                 rawItems = XLSX.utils.sheet_to_json(sheet, {
                   range: headerRow,
                   defval: null,

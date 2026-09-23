@@ -71,6 +71,20 @@ export function encontrarLinhaCabecalhoProcedimentos(
   });
 }
 
+/** Detecta os nomes padronizados dos quatro arquivos de atualização do projeto. */
+export function detectarFonteProcedimentoPorNome(value: unknown): ProcedimentoFonte | undefined {
+  const name = String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (name.includes("anestes")) return "porte_anestesico";
+  if (name.includes("preco") && name.includes("porte")) return "preco_portes";
+  if (name.includes("dados") && name.includes("completo")) return "dados_completo";
+  if (name.includes("unimed") && name.includes("site")) return "site";
+  return undefined;
+}
+
 function normalizarLinha(row: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {

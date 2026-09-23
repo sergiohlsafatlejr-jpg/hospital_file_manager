@@ -39,6 +39,18 @@ const procedimentoFontes: Array<{ value: ProcedimentoFonte; label: string; descr
   { value: "porte_anestesico", label: "Porte Anestésico", description: "Código, valor e beneficiário" },
 ];
 
+function detectarFontePorNome(nomeArquivo: string): ProcedimentoFonte | undefined {
+  const nome = nomeArquivo
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (nome.includes("anestes")) return "porte_anestesico";
+  if (nome.includes("preco") && nome.includes("porte")) return "preco_portes";
+  if (nome.includes("dados") && nome.includes("completo")) return "dados_completo";
+  if (nome.includes("unimed") && nome.includes("site")) return "site";
+  return undefined;
+}
+
 const tiposTabela = [
   { value: "diarias", label: "Diárias", icon: Bed, description: "Diárias de apartamento, UTI, etc." },
   { value: "mat_med", label: "Mat/Med", icon: Pill, description: "Materiais e medicamentos" },
@@ -74,6 +86,17 @@ export default function TabelasPreco() {
   // Import states
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importSubstituir, setImportSubstituir] = useState(false);
+
+  const handleImportFileChange = (file: File | null) => {
+    setImportFile(file);
+    if (file && tipoSelecionado === "procedimentos") {
+      const fonteDetectada = detectarFontePorNome(file.name);
+      if (fonteDetectada) {
+        setProcedimentoFonte(fonteDetectada);
+        setPage(1);
+      }
+    }
+  };
 
   // Queries
   const { data: convenios } = trpc.convenios.list.useQuery();
@@ -716,7 +739,7 @@ export default function TabelasPreco() {
                     type="file"
                     accept=".xlsx,.xls,.csv,.dbf"
                     ref={fileInputRef}
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    onChange={(e) => handleImportFileChange(e.target.files?.[0] || null)}
                   />
                 </div>
                 {importFile && (
