@@ -33,10 +33,22 @@ type TipoTabela = "diarias" | "mat_med" | "taxas" | "procedimentos";
 type ProcedimentoFonte = "porte_anestesico" | "preco_portes" | "dados_completo" | "site";
 
 const procedimentoFontes: Array<{ value: ProcedimentoFonte; label: string; description: string }> = [
-  { value: "site", label: "Tabela Unimed (Site)", description: "Código, descrição, valor e beneficiário" },
-  { value: "dados_completo", label: "Dados Completos", description: "Código, descrição, porte e auxiliares" },
   { value: "preco_portes", label: "Preço de Portes", description: "Código e valor de referência do porte" },
   { value: "porte_anestesico", label: "Porte Anestésico", description: "Código, valor e beneficiário" },
+  { value: "dados_completo", label: "Dados Completos", description: "Código, descrição, porte e auxiliares" },
+  { value: "site", label: "Tabela Unimed (Site)", description: "Código, descrição, valor e beneficiário" },
+];
+
+const ordemImportacaoUnimed: Array<{
+  etapa: number;
+  fonte: ProcedimentoFonte;
+  arquivo: string;
+  descricao: string;
+}> = [
+  { etapa: 1, fonte: "preco_portes", arquivo: "atualizacao_Preco_Porte.xlsx", descricao: "Referência dos valores 1A, 1B, 2A..." },
+  { etapa: 2, fonte: "porte_anestesico", arquivo: "atualizacao_Porte_Anestesico.xlsx", descricao: "Referência dos valores AN0 até AN8" },
+  { etapa: 3, fonte: "dados_completo", arquivo: "atualizacao_Dados_Completo.xlsx", descricao: "Procedimentos, portes e auxiliares" },
+  { etapa: 4, fonte: "site", arquivo: "atualizacao_Tabela_Unimed_Site.xlsx", descricao: "Tabela complementar publicada no site" },
 ];
 
 function detectarFontePorNome(nomeArquivo: string): ProcedimentoFonte | undefined {
@@ -97,6 +109,10 @@ export default function TabelasPreco() {
       }
     }
   };
+
+  const etapaImportacaoAtual = ordemImportacaoUnimed.find(
+    (etapa) => etapa.fonte === procedimentoFonte,
+  );
 
   // Queries
   const { data: convenios } = trpc.convenios.list.useQuery();
@@ -436,6 +452,56 @@ export default function TabelasPreco() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-sm">Ordem recomendada para importar a Unimed</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Siga as etapas abaixo. Clique em uma etapa para selecionar o formato correspondente.
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="shrink-0">
+                        Etapa {etapaImportacaoAtual?.etapa || 1} de 4
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      {ordemImportacaoUnimed.map((etapa) => {
+                        const selecionada = etapa.fonte === procedimentoFonte;
+                        return (
+                          <button
+                            key={etapa.fonte}
+                            type="button"
+                            onClick={() => {
+                              setProcedimentoFonte(etapa.fonte);
+                              setPage(1);
+                            }}
+                            className={`rounded-md border p-3 text-left transition-colors ${
+                              selecionada
+                                ? "border-primary bg-background shadow-sm"
+                                : "border-transparent bg-background/60 hover:border-primary/40"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                selecionada ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                              }`}>
+                                {etapa.etapa}
+                              </span>
+                              <span className="text-xs font-semibold leading-tight">
+                                {procedimentoFontes.find((fonte) => fonte.value === etapa.fonte)?.label}
+                              </span>
+                            </div>
+                            <p className="mt-2 truncate text-[11px] text-muted-foreground" title={etapa.arquivo}>
+                              {etapa.arquivo}
+                            </p>
+                            <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+                              {etapa.descricao}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <Select value={procedimentoFonte} onValueChange={(value) => {
                     setProcedimentoFonte(value as ProcedimentoFonte);
                     setPage(1);
@@ -452,6 +518,11 @@ export default function TabelasPreco() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {etapaImportacaoAtual
+                      ? `Selecionado: etapa ${etapaImportacaoAtual.etapa} — ${etapaImportacaoAtual.arquivo}`
+                      : "Selecione o formato da planilha antes de importar."}
+                  </p>
                 </CardContent>
               </Card>
             )}
