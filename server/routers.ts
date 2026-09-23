@@ -63,7 +63,12 @@ import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { passwordAuthRouter } from "./routers/passwordAuthRouter";
 import { validateNewPassword } from "./passwordAuthService";
 import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
-import { normalizarProcedimentos, PROCEDIMENTO_FONTES } from "./procedimentosTabela";
+import {
+  encontrarLinhaCabecalhoProcedimentos,
+  normalizarCodigo,
+  normalizarProcedimentos,
+  PROCEDIMENTO_FONTES,
+} from "./procedimentosTabela";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -3924,13 +3929,48 @@ export const appRouter = router({
           // Decodificar conteúdo Base64 e ler o primeiro conjunto de dados.
           const buffer = Buffer.from(input.conteudo, "base64");
           let rawItems: Array<Record<string, unknown>> = [];
+          const procedimentoFonte = input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined;
 
           if (input.formatoArquivo === "excel") {
             const XLSX = await import("xlsx");
             const workbook = XLSX.read(buffer, { type: "buffer" });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            rawItems = XLSX.utils.sheet_to_json(sheet) as Array<Record<string, unknown>>;
+            const sheetNames = input.tipo === "procedimentos"
+              ? workbook.SheetNames
+              : workbook.SheetNames.slice(0, 1);
+            let encontrouCabecalho = false;
+
+            for (const sheetName of sheetNames) {
+              const sheet = workbook.Sheets[sheetName];
+              const rows = XLSX.utils.sheet_to_json(sheet, {
+                header: 1,
+                defval: null,
+                raw: true,
+              }) as unknown[][];
+              const headerRow = procedimentoFonte
+                ? encontrarLinhaCabecalhoProcedimentos(rows, procedimentoFonte)
+                : -1;
+
+              if (headerRow >= 0) {
+                encontrouCabecalho = true;
+                rawItems = XLSX.utils.sheet_to_json(sheet, {
+                  range: headerRow,
+                  defval: null,
+                  raw: true,
+                }) as Array<Record<string, unknown>>;
+                break;
+              }
+            }
+
+            if (input.tipo === "procedimentos" && !encontrouCabecalho) {
+              throw new Error(
+                `Não foi encontrada uma aba com as colunas do formato ${procedimentoFonte}. Verifique se o arquivo contém codigo, descricao, porte, numero_auxiliares, valor e tipo_de_beneficiario.`,
+              );
+            }
+
+            if (input.tipo !== "procedimentos" && !rawItems.length) {
+              const sheet = workbook.Sheets[workbook.SheetNames[0]];
+              rawItems = XLSX.utils.sheet_to_json(sheet) as Array<Record<string, unknown>>;
+            }
           } else if (input.formatoArquivo === "csv") {
             const { parse } = await import("csv-parse/sync");
             rawItems = parse(buffer.toString("utf-8"), {
@@ -3952,25 +3992,16 @@ export const appRouter = router({
             }
           }
 
-          // Se substituir existentes, desativar itens anteriores
-          if (input.substituirExistentes) {
-            await db.desativarTabelasPreco(
-              input.convenioId,
-              input.tipo,
-              input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined,
-            );
-          }
-
           let tabelaItems: any[] = [];
           let importErrors: string[] = [];
 
           if (input.tipo === "procedimentos") {
-            const procedimentoFonte = input.procedimentoFonte || "site";
+            const fonte = procedimentoFonte || "site";
             let precoPortes = new Map<string, number>();
 
             // O formato Dados Completos usa valores simbólicos como 3C,
             // resolvidos contra a tabela de Preço de Portes do próprio Safatle.
-            if (procedimentoFonte === "dados_completo") {
+            if (fonte === "dados_completo") {
               const referencia = await db.getTabelasPreco({
                 convenioId: input.convenioId,
                 estabelecimentoId: input.estabelecimentoId,
@@ -3988,7 +4019,15 @@ export const appRouter = router({
               );
             }
 
-            const normalized = normalizarProcedimentos(rawItems, procedimentoFonte, precoPortes);
+            const normalized = normalizarProcedimentos(rawItems, fonte, precoPortes);
+            const portesNaoResolvidos = normalized.errors.some((error) =>
+              error.includes("Porte ") && error.includes("não encontrado na tabela de Preço de Portes"),
+            );
+            if (fonte === "dados_completo" && portesNaoResolvidos) {
+              throw new Error(precoPortes.size === 0
+                ? "ATENÇÃO: importe primeiro a planilha de Preço de Portes para este convênio e estabelecimento. Ela é necessária para converter valores como 3C, 4A e 5B."
+                : "A tabela de Preço de Portes não possui todos os códigos necessários para esta planilha. Confira os códigos de porte e importe a referência correta antes de tentar novamente.");
+            }
             importErrors = normalized.errors;
             if (!normalized.items.length) {
               throw new Error(importErrors[0] || "Nenhum registro válido foi encontrado no arquivo.");
@@ -3998,7 +4037,7 @@ export const appRouter = router({
               convenioId: input.convenioId,
               estabelecimentoId: input.estabelecimentoId || null,
               tipo: "procedimentos" as const,
-              procedimentoFonte,
+              procedimentoFonte: fonte,
               codigo: item.codigo,
               nome: item.nome,
               valor: item.valor,
@@ -4058,6 +4097,16 @@ export const appRouter = router({
                 observacao: findValue(item, ["observacao", "Observacao", "OBSERVACAO", "obs", "Obs", "OBS"]),
               };
             }).filter((item) => item.codigo && item.nome);
+          }
+
+          // Só desativar os registros anteriores depois que o arquivo foi lido
+          // e validado; assim um erro não deixa a tabela sem dados ativos.
+          if (input.substituirExistentes) {
+            await db.desativarTabelasPreco(
+              input.convenioId,
+              input.tipo,
+              input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined,
+            );
           }
 
           // Inserir em lote

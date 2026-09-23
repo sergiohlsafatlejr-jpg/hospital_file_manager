@@ -734,7 +734,8 @@ export default function TabelasPreco() {
                     <li>• <strong>dados_completo</strong>: codigo, descricao, porte, numero_auxiliares, valor, tipo_de_beneficiario</li>
                     <li>• <strong>preco_portes</strong>: codigo, valor, tipo_de_beneficiario</li>
                     <li>• <strong>porte_anestesico</strong>: codigo, valor, tipo_de_beneficiario</li>
-                    <li>• Valores como <strong>3C</strong> em Dados Completos são resolvidos pelo Preço de Portes importado no Safatle.</li>
+                    <li>• <strong>Importe primeiro o Preço de Portes</strong> para este convênio e estabelecimento.</li>
+                    <li>• Valores como <strong>3C</strong> em Dados Completos são resolvidos por essa tabela de referência.</li>
                   </ul>
                 ) : (
                   <ul className="text-sm text-muted-foreground space-y-1">

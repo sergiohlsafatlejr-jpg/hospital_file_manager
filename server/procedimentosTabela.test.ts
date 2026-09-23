@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  encontrarLinhaCabecalhoProcedimentos,
   normalizarCodigo,
   normalizarProcedimentos,
   parseValor,
 } from "./procedimentosTabela";
 
 describe("procedimentosTabela", () => {
+  it("encontra o cabeçalho de Dados Completos depois de linhas introdutórias", () => {
+    const rows = [
+      ["Unimed Goiânia - Terminologia de Procedimentos"],
+      [null, "LEGENDA"],
+      ["codigo", "descricao", "porte", "numero_auxiliares", "valor", "tipo_de_beneficiario"],
+      ["10101012", "Consulta", "", 0, 150, "REDE PADRAO"],
+    ];
+
+    expect(encontrarLinhaCabecalhoProcedimentos(rows, "dados_completo")).toBe(2);
+  });
+
   it("normaliza cabeçalhos e códigos sem alterar a regra do importador legado", () => {
     expect(normalizarCodigo("000123", "site")).toBe("123");
     expect(normalizarCodigo("Porte 003", "porte_anestesico")).toBe("3");
@@ -54,5 +66,19 @@ describe("procedimentosTabela", () => {
 
     expect(result.items).toHaveLength(0);
     expect(result.errors[0]).toContain("Porte 9Z não encontrado");
+  });
+
+  it("resolve a maior parte dos valores simbólicos com a tabela de portes", () => {
+    const result = normalizarProcedimentos(
+      [
+        { codigo: "1", descricao: "A", porte: "3C", numero_auxiliares: 0, valor: "3C", tipo_de_beneficiario: "REDE PADRAO" },
+        { codigo: "2", descricao: "B", porte: "4A", numero_auxiliares: 0, valor: "4A", tipo_de_beneficiario: "REDE PADRAO" },
+      ],
+      "dados_completo",
+      new Map([["3C", 300], ["4A", 450]]),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.items.map((item) => item.valor)).toEqual(["300.00", "450.00"]);
   });
 });

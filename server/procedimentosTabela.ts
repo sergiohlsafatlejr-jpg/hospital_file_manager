@@ -28,6 +28,22 @@ export type ProcedimentoImportResult = {
   errors: string[];
 };
 
+const PROCEDIMENTO_COLUNA_ALIASES: Record<string, string[]> = {
+  codigo: ["codigo", "cod", "codigo_procedimento"],
+  descricao: ["descricao", "nome", "desc"],
+  valor: ["valor", "preco", "price", "vl"],
+  porte: ["porte"],
+  numero_auxiliares: ["numero_auxiliares", "numero_de_auxiliares", "auxiliares"],
+  tipo_de_beneficiario: ["tipo_de_beneficiario", "tipo_beneficiario", "beneficiario"],
+};
+
+const PROCEDIMENTO_COLUNAS_OBRIGATORIAS: Record<ProcedimentoFonte, string[]> = {
+  porte_anestesico: ["codigo", "valor", "tipo_de_beneficiario"],
+  preco_portes: ["codigo", "valor", "tipo_de_beneficiario"],
+  dados_completo: ["codigo", "descricao", "porte", "numero_auxiliares", "valor", "tipo_de_beneficiario"],
+  site: ["codigo", "descricao", "valor", "tipo_de_beneficiario"],
+};
+
 /**
  * Normaliza nomes de colunas da mesma forma que o importador Python de origem:
  * remove acentos, espaços e underscores excedentes e converte para snake_case.
@@ -40,6 +56,19 @@ export function normalizarCabecalho(value: unknown): string {
     .replace(/[\s_]+/g, "_")
     .toLowerCase()
     .replace(/^_+|_+$/g, "");
+}
+
+/** Localiza a linha de cabeçalho em planilhas que possuem título, legenda ou abas auxiliares. */
+export function encontrarLinhaCabecalhoProcedimentos(
+  rows: unknown[][],
+  fonte: ProcedimentoFonte,
+): number {
+  return rows.findIndex((row) => {
+    const headers = new Set(row.map(normalizarCabecalho));
+    return PROCEDIMENTO_COLUNAS_OBRIGATORIAS[fonte].every((column) => {
+      return (PROCEDIMENTO_COLUNA_ALIASES[column] || [column]).some((alias) => headers.has(alias));
+    });
+  });
 }
 
 function normalizarLinha(row: Record<string, unknown>): Record<string, unknown> {
@@ -128,18 +157,9 @@ export function normalizarProcedimentos(
   const items: ProcedimentoImportItem[] = [];
   const errors: string[] = [];
 
-  const requiredColumns: Record<ProcedimentoFonte, string[]> = {
-    porte_anestesico: ["codigo", "valor", "tipo_de_beneficiario"],
-    preco_portes: ["codigo", "valor", "tipo_de_beneficiario"],
-    dados_completo: ["codigo", "descricao", "porte", "numero_auxiliares", "valor", "tipo_de_beneficiario"],
-    site: ["codigo", "descricao", "valor", "tipo_de_beneficiario"],
-  };
   const availableColumns = new Set(Object.keys(normalizarLinha(rows[0] || {})));
-  const columnAliases: Record<string, string[]> = {
-    numero_auxiliares: ["numero_auxiliares", "numero_de_auxiliares"],
-  };
-  const missingColumns = requiredColumns[fonte].filter((column) => {
-    return !(columnAliases[column] || [column]).some((alias) => availableColumns.has(alias));
+  const missingColumns = PROCEDIMENTO_COLUNAS_OBRIGATORIAS[fonte].filter((column) => {
+    return !(PROCEDIMENTO_COLUNA_ALIASES[column] || [column]).some((alias) => availableColumns.has(alias));
   });
   if (missingColumns.length) {
     return { items, errors: [`Colunas obrigatórias ausentes: ${missingColumns.join(", ")}.`] };
@@ -148,9 +168,9 @@ export function normalizarProcedimentos(
   rows.forEach((rawRow, index) => {
     const row = normalizarLinha(rawRow);
     const linha = index + 2;
-    const codigo = normalizarCodigo(row.codigo ?? row.cod, fonte);
+    const codigo = normalizarCodigo(row.codigo ?? row.cod ?? row.codigo_procedimento, fonte);
     const descricao = asText(row.descricao ?? row.nome ?? row.desc);
-    const tipoBeneficiario = asText(row.tipo_de_beneficiario ?? row.tipo_beneficiario);
+    const tipoBeneficiario = asText(row.tipo_de_beneficiario ?? row.tipo_beneficiario ?? row.beneficiario);
     const porte = asText(row.porte);
 
     const valorRaw = row.valor ?? row.preco ?? row.price ?? row.vl;
