@@ -1,6 +1,7 @@
 import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, Pool } from "mysql2/promise";
+import type { ProcedimentoFonte } from "./procedimentosTabela";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
 import {
   InsertUser,
@@ -4960,10 +4961,11 @@ export async function atualizarStatusProcedimentosPorRecurso(
  * Lista tabelas de preços por convênio e tipo
  */
 export async function getTabelasPreco(filtros: {
-  convenioId?: number;
-  estabelecimentoId?: number;
-  tipo?: "diarias" | "mat_med" | "taxas" | "procedimentos";
-  codigo?: string;
+    convenioId?: number;
+    estabelecimentoId?: number;
+    tipo?: "diarias" | "mat_med" | "taxas" | "procedimentos";
+    procedimentoFonte?: ProcedimentoFonte;
+    codigo?: string;
   nome?: string;
   apenasVigentes?: boolean;
   page?: number;
@@ -4989,6 +4991,13 @@ export async function getTabelasPreco(filtros: {
     }
     if (filtros.tipo) {
       conditions.push(eq(tabelasPreco.tipo, filtros.tipo));
+    }
+    if (filtros.procedimentoFonte) {
+      conditions.push(
+        filtros.procedimentoFonte === "site"
+          ? or(eq(tabelasPreco.procedimentoFonte, "site"), isNull(tabelasPreco.procedimentoFonte))
+          : eq(tabelasPreco.procedimentoFonte, filtros.procedimentoFonte),
+      );
     }
     if (filtros.codigo) {
       conditions.push(like(tabelasPreco.codigo, `%${filtros.codigo}%`));
@@ -5134,17 +5143,25 @@ export async function deleteTabelaPreco(id: number): Promise<boolean> {
 /**
  * Desativa todos os itens de uma tabela de preços por convênio e tipo
  */
-export async function desativarTabelasPreco(convenioId: number, tipo: string): Promise<boolean> {
+export async function desativarTabelasPreco(convenioId: number, tipo: string, procedimentoFonte?: ProcedimentoFonte): Promise<boolean> {
   const dbConn = await getDb();
   if (!dbConn) return false;
 
   try {
+    const conditions = [
+      eq(tabelasPreco.convenioId, convenioId),
+      eq(tabelasPreco.tipo, tipo as any),
+    ];
+    if (procedimentoFonte) {
+      conditions.push(
+        procedimentoFonte === "site"
+          ? or(eq(tabelasPreco.procedimentoFonte, "site"), isNull(tabelasPreco.procedimentoFonte))
+          : eq(tabelasPreco.procedimentoFonte, procedimentoFonte),
+      );
+    }
     await dbConn.update(tabelasPreco)
       .set({ ativo: "nao" })
-      .where(and(
-        eq(tabelasPreco.convenioId, convenioId),
-        eq(tabelasPreco.tipo, tipo as any)
-      ));
+      .where(and(...conditions));
     return true;
   } catch (error) {
     console.error("[Database] Erro ao desativar tabelas de preço:", error);
