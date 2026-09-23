@@ -30,6 +30,14 @@ import {
 } from "lucide-react";
 
 type TipoTabela = "diarias" | "mat_med" | "taxas" | "procedimentos";
+type ProcedimentoFonte = "porte_anestesico" | "preco_portes" | "dados_completo" | "site";
+
+const procedimentoFontes: Array<{ value: ProcedimentoFonte; label: string; description: string }> = [
+  { value: "site", label: "Tabela Unimed (Site)", description: "Código, descrição, valor e beneficiário" },
+  { value: "dados_completo", label: "Dados Completos", description: "Código, descrição, porte e auxiliares" },
+  { value: "preco_portes", label: "Preço de Portes", description: "Código e valor de referência do porte" },
+  { value: "porte_anestesico", label: "Porte Anestésico", description: "Código, valor e beneficiário" },
+];
 
 const tiposTabela = [
   { value: "diarias", label: "Diárias", icon: Bed, description: "Diárias de apartamento, UTI, etc." },
@@ -41,6 +49,7 @@ const tiposTabela = [
 export default function TabelasPreco() {
   const [convenioId, setConvenioId] = useState<number | undefined>();
   const [tipoSelecionado, setTipoSelecionado] = useState<TipoTabela>("diarias");
+  const [procedimentoFonte, setProcedimentoFonte] = useState<ProcedimentoFonte>("site");
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -73,6 +82,7 @@ export default function TabelasPreco() {
       convenioId,
       estabelecimentoId: estabelecimentoAtual?.id, // Filtrar por estabelecimento selecionado
       tipo: tipoSelecionado,
+      procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
       codigo: searchTerm || undefined,
       nome: searchTerm || undefined,
       apenasVigentes: false, // Mostrar todos os itens, não apenas os vigentes
@@ -162,6 +172,7 @@ export default function TabelasPreco() {
     setFormUnidade(item.unidade || "");
     setFormObservacao(item.observacao || "");
     setFormEstabelecimentoId(item.estabelecimentoId || undefined);
+    if (item.procedimentoFonte) setProcedimentoFonte(item.procedimentoFonte as ProcedimentoFonte);
     setDialogOpen(true);
   };
 
@@ -192,6 +203,7 @@ export default function TabelasPreco() {
         nome: formNome,
         valor: formValor,
         vigenciaInicio: vigenciaInicioISO,
+        procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
         unidade: formUnidade || undefined,
         observacao: formObservacao || undefined,
       });
@@ -200,6 +212,7 @@ export default function TabelasPreco() {
         convenioId,
         estabelecimentoId: formEstabelecimentoId,
         tipo: tipoSelecionado,
+        procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
         codigo: formCodigo,
         nome: formNome,
         valor: formValor,
@@ -228,6 +241,7 @@ export default function TabelasPreco() {
         convenioId,
         estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
         tipo: tipoSelecionado,
+        procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
         nomeArquivo: importFile.name,
         formatoArquivo: formato,
         conteudo: base64,
@@ -390,6 +404,35 @@ export default function TabelasPreco() {
               })}
             </div>
 
+            {tipoSelecionado === "procedimentos" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Fonte da tabela de procedimentos</CardTitle>
+                  <CardDescription>
+                    Selecione o formato correspondente à planilha do repositório Danilochavesc/tabelaprocedimento.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Select value={procedimentoFonte} onValueChange={(value) => {
+                    setProcedimentoFonte(value as ProcedimentoFonte);
+                    setPage(1);
+                  }}>
+                    <SelectTrigger className="w-full max-w-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {procedimentoFontes.map((fonte) => (
+                        <SelectItem key={fonte.value} value={fonte.value}>
+                          <span className="font-medium">{fonte.label}</span>
+                          <span className="ml-2 text-muted-foreground">— {fonte.description}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Tabela de Itens */}
             <Card>
               <CardHeader>
@@ -444,6 +487,7 @@ export default function TabelasPreco() {
                         <TableRow>
                           <TableHead>Código</TableHead>
                           <TableHead>Nome</TableHead>
+                          {tipoSelecionado === "procedimentos" && <TableHead>Fonte</TableHead>}
                           <TableHead className="text-right">Valor</TableHead>
                           <TableHead>Unidade</TableHead>
                           <TableHead>Vigência Início</TableHead>
@@ -455,6 +499,20 @@ export default function TabelasPreco() {
                           <TableRow key={item.id}>
                             <TableCell className="font-mono">{item.codigo}</TableCell>
                             <TableCell>{item.nome}</TableCell>
+                            {tipoSelecionado === "procedimentos" && (
+                              <TableCell>
+                                <Badge variant="outline">
+                                  {procedimentoFontes.find((fonte) => fonte.value === item.procedimentoFonte)?.label || "Manual"}
+                                </Badge>
+                                {(item.porte || item.numeroAuxiliares) && (
+                                  <div className="mt-1 text-xs text-muted-foreground">
+                                    {item.porte ? `Porte: ${item.porte}` : ""}
+                                    {item.porte && item.numeroAuxiliares ? " · " : ""}
+                                    {item.numeroAuxiliares ? `Auxiliares: ${item.numeroAuxiliares}` : ""}
+                                  </div>
+                                )}
+                              </TableCell>
+                            )}
                             <TableCell className="text-right font-medium">
                               {formatCurrency(item.valor)}
                             </TableCell>
@@ -647,6 +705,7 @@ export default function TabelasPreco() {
               <DialogTitle>Importar Tabela de Preços</DialogTitle>
               <DialogDescription>
                 Importe uma planilha com os itens da tabela de {tipoAtual?.label.toLowerCase()}
+                {tipoSelecionado === "procedimentos" && ` — ${procedimentoFontes.find((fonte) => fonte.value === procedimentoFonte)?.label}`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -669,14 +728,24 @@ export default function TabelasPreco() {
 
               <div className="bg-muted p-4 rounded-lg space-y-2">
                 <p className="font-medium text-sm">Formato esperado das colunas:</p>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>• <strong>codigo</strong> - Código do item (obrigatório)</li>
-                  <li>• <strong>nome</strong> ou <strong>descricao</strong> - Nome do item (obrigatório)</li>
-                  <li>• <strong>valor</strong> ou <strong>preco</strong> - Valor em reais (obrigatório)</li>
-                  <li>• <strong>vigencia_inicio</strong> - Data de início da vigência</li>
-                  <li>• <strong>vigencia_fim</strong> - Data de fim da vigência</li>
-                  <li>• <strong>unidade</strong> - Unidade de medida (opcional)</li>
-                </ul>
+                {tipoSelecionado === "procedimentos" ? (
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>• <strong>site</strong>: codigo, descricao, valor, tipo_de_beneficiario</li>
+                    <li>• <strong>dados_completo</strong>: codigo, descricao, porte, numero_auxiliares, valor, tipo_de_beneficiario</li>
+                    <li>• <strong>preco_portes</strong>: codigo, valor, tipo_de_beneficiario</li>
+                    <li>• <strong>porte_anestesico</strong>: codigo, valor, tipo_de_beneficiario</li>
+                    <li>• Valores como <strong>3C</strong> em Dados Completos são resolvidos pelo Preço de Portes importado no Safatle.</li>
+                  </ul>
+                ) : (
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>• <strong>codigo</strong> - Código do item (obrigatório)</li>
+                    <li>• <strong>nome</strong> ou <strong>descricao</strong> - Nome do item (obrigatório)</li>
+                    <li>• <strong>valor</strong> ou <strong>preco</strong> - Valor em reais (obrigatório)</li>
+                    <li>• <strong>vigencia_inicio</strong> - Data de início da vigência</li>
+                    <li>• <strong>vigencia_fim</strong> - Data de fim da vigência</li>
+                    <li>• <strong>unidade</strong> - Unidade de medida (opcional)</li>
+                  </ul>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

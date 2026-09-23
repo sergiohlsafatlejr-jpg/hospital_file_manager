@@ -626,6 +626,12 @@ export const tabelasPreco = mysqlTable("tabelasPreco", {
     "procedimentos"  // Procedimentos médicos
   ]).notNull(),
   
+  // Metadados preservados da tabela de procedimentos Unimed
+  procedimentoFonte: varchar("procedimentoFonte", { length: 32 }),
+  porte: varchar("porte", { length: 100 }),
+  numeroAuxiliares: int("numeroAuxiliares"),
+  tipoBeneficiario: varchar("tipoBeneficiario", { length: 150 }),
+
   // Dados do item
   codigo: varchar("codigo", { length: 50 }).notNull(),
   nome: varchar("nome", { length: 255 }).notNull(),
