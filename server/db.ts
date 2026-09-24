@@ -2,6 +2,7 @@ import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull,
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, Pool } from "mysql2/promise";
 import type { ProcedimentoFonte } from "./procedimentosTabela";
+import type { LoteUnimedPreparado } from "./tabelasPrecoLoteUnimed";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
 import {
   InsertUser,
@@ -4957,12 +4958,37 @@ export async function atualizarStatusProcedimentosPorRecurso(
 
 // ============ TABELAS DE PREÇOS FUNCTIONS ============
 
+function escopoTabelaPrecoComFallbackGlobal(estabelecimentoId: number, apenasVigentes = false) {
+  const vigenciaEspecifica = apenasVigentes
+    ? sql`AND tp_especifica.vigenciaInicio <= NOW()`
+    : sql``;
+
+  return sql`(
+    ${tabelasPreco.estabelecimentoId} = ${estabelecimentoId}
+    OR (
+      ${tabelasPreco.estabelecimentoId} IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM tabelasPreco tp_especifica
+         WHERE tp_especifica.estabelecimentoId = ${estabelecimentoId}
+           AND tp_especifica.convenioId = ${tabelasPreco.convenioId}
+           AND tp_especifica.tipo = ${tabelasPreco.tipo}
+           AND tp_especifica.codigo = ${tabelasPreco.codigo}
+           AND COALESCE(tp_especifica.procedimentoFonte, '') = COALESCE(${tabelasPreco.procedimentoFonte}, '')
+           AND COALESCE(tp_especifica.tipoBeneficiario, '') = COALESCE(${tabelasPreco.tipoBeneficiario}, '')
+           AND tp_especifica.ativo = 'sim'
+           ${vigenciaEspecifica}
+      )
+    )
+  )`;
+}
+
 /**
  * Lista tabelas de preços por convênio e tipo
  */
 export async function getTabelasPreco(filtros: {
     convenioId?: number;
-    estabelecimentoId?: number;
+    estabelecimentoId: number;
     tipo?: "diarias" | "mat_med" | "taxas" | "procedimentos";
     procedimentoFonte?: ProcedimentoFonte;
     codigo?: string;
@@ -4980,15 +5006,11 @@ export async function getTabelasPreco(filtros: {
     if (filtros.convenioId) {
       conditions.push(eq(tabelasPreco.convenioId, filtros.convenioId));
     }
-    // Filtrar por estabelecimento: mostrar tabelas do estabelecimento ou tabelas globais (estabelecimentoId = null)
-    if (filtros.estabelecimentoId) {
-      conditions.push(
-        or(
-          eq(tabelasPreco.estabelecimentoId, filtros.estabelecimentoId),
-          isNull(tabelasPreco.estabelecimentoId)
-        )
-      );
-    }
+    // A unidade prevalece; uma linha global só aparece quando não há equivalente específico.
+    conditions.push(escopoTabelaPrecoComFallbackGlobal(
+      filtros.estabelecimentoId,
+      filtros.apenasVigentes,
+    ));
     if (filtros.tipo) {
       conditions.push(eq(tabelasPreco.tipo, filtros.tipo));
     }
@@ -5153,21 +5175,31 @@ export async function deleteTabelaPreco(id: number): Promise<boolean> {
 /**
  * Desativa todos os itens de uma tabela de preços por convênio e tipo
  */
-export async function desativarTabelasPreco(convenioId: number, tipo: string, procedimentoFonte?: ProcedimentoFonte): Promise<boolean> {
+export async function desativarTabelasPreco(
+  convenioId: number,
+  estabelecimentoId: number,
+  tipo: string,
+  procedimentoFonte?: ProcedimentoFonte,
+): Promise<boolean> {
   const dbConn = await getDb();
   if (!dbConn) return false;
 
   try {
     const conditions = [
       eq(tabelasPreco.convenioId, convenioId),
+      eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
       eq(tabelasPreco.tipo, tipo as any),
     ];
     if (procedimentoFonte) {
-      conditions.push(
-        procedimentoFonte === "site"
-          ? or(eq(tabelasPreco.procedimentoFonte, "site"), isNull(tabelasPreco.procedimentoFonte))
-          : eq(tabelasPreco.procedimentoFonte, procedimentoFonte),
-      );
+      if (procedimentoFonte === "site") {
+        const sourceCondition = or(
+          eq(tabelasPreco.procedimentoFonte, "site"),
+          isNull(tabelasPreco.procedimentoFonte),
+        );
+        if (sourceCondition) conditions.push(sourceCondition);
+      } else {
+        conditions.push(eq(tabelasPreco.procedimentoFonte, procedimentoFonte));
+      }
     }
     await dbConn.update(tabelasPreco)
       .set({ ativo: "nao" })
@@ -5176,6 +5208,204 @@ export async function desativarTabelasPreco(convenioId: number, tipo: string, pr
   } catch (error) {
     console.error("[Database] Erro ao desativar tabelas de preço:", error);
     return false;
+  }
+}
+
+export type SalvarLoteUnimedInput = {
+  convenioId: number;
+  estabelecimentoId: number;
+  userId: number;
+  loteId: string;
+  substituirExistentes: boolean;
+  momentoLote: Date;
+  lote: LoteUnimedPreparado;
+};
+
+export class LoteUnimedDuplicadoError extends Error {
+  constructor() {
+    super("Este mesmo conjunto de quatro planilhas já foi importado para o convênio e estabelecimento selecionados.");
+    this.name = "LoteUnimedDuplicadoError";
+  }
+}
+
+/**
+ * Publica as quatro tabelas Unimed como uma única unidade transacional.
+ * Todas as linhas e os quatro registros de histórico recebem o mesmo horário.
+ */
+export async function salvarLoteUnimed({
+  convenioId,
+  estabelecimentoId,
+  userId,
+  loteId,
+  substituirExistentes,
+  momentoLote,
+  lote,
+}: SalvarLoteUnimedInput) {
+  const pool = await getRawPool();
+  if (!pool) throw new Error("Banco de dados indisponível para publicar o lote Unimed.");
+
+  return salvarLoteUnimedComPool(pool, {
+    convenioId,
+    estabelecimentoId,
+    userId,
+    loteId,
+    substituirExistentes,
+    momentoLote,
+    lote,
+  });
+}
+
+export async function salvarLoteUnimedComPool(
+  pool: Pick<Pool, "getConnection">,
+  {
+    convenioId,
+    estabelecimentoId,
+    userId,
+    loteId,
+    substituirExistentes,
+    momentoLote,
+    lote,
+  }: SalvarLoteUnimedInput,
+) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [estabelecimentosEncontrados] = await connection.execute<any[]>(
+      "SELECT id FROM estabelecimentos WHERE id = ? LIMIT 1 FOR UPDATE",
+      [estabelecimentoId],
+    );
+    if (estabelecimentosEncontrados.length !== 1) {
+      throw new Error("Estabelecimento informado não existe.");
+    }
+
+    const [conveniosEncontrados] = await connection.execute<any[]>(
+      `SELECT id
+         FROM convenios
+        WHERE id = ?
+          AND ativo = 'sim'
+          AND (estabelecimentoId = ? OR estabelecimentoId IS NULL)
+        LIMIT 1
+        FOR UPDATE`,
+      [convenioId, estabelecimentoId],
+    );
+    if (conveniosEncontrados.length !== 1) {
+      throw new Error("Convênio informado não está disponível para este estabelecimento.");
+    }
+
+    const [lotesExistentes] = await connection.execute<any[]>(
+      `SELECT loteId
+         FROM importacoesTabela
+        WHERE estabelecimentoId = ?
+          AND convenioId = ?
+          AND loteHash = ?
+        LIMIT 1
+        FOR UPDATE`,
+      [estabelecimentoId, convenioId, lote.loteHash],
+    );
+    if (lotesExistentes.length > 0) {
+      throw new LoteUnimedDuplicadoError();
+    }
+
+    const resultados: Array<{
+      fonte: ProcedimentoFonte;
+      nomeArquivo: string;
+      totalItens: number;
+      itensImportados: number;
+    }> = [];
+
+    for (const etapa of lote.etapas) {
+      if (substituirExistentes) {
+        await connection.execute(
+          `UPDATE tabelasPreco
+             SET ativo = 'nao', updatedAt = ?
+           WHERE convenioId = ?
+             AND estabelecimentoId = ?
+             AND tipo = 'procedimentos'
+             AND (procedimentoFonte = ? OR (? = 'site' AND procedimentoFonte IS NULL))`,
+          [momentoLote, convenioId, estabelecimentoId, etapa.fonte, etapa.fonte],
+        );
+      }
+
+      const batchSize = 500;
+      let itensImportados = 0;
+      for (let index = 0; index < etapa.itens.length; index += batchSize) {
+        const batch = etapa.itens.slice(index, index + batchSize);
+        const values = batch.map((item) => [
+          convenioId,
+          estabelecimentoId,
+          "procedimentos",
+          etapa.fonte,
+          item.codigo,
+          item.nome,
+          item.valor,
+          momentoLote,
+          item.porte ?? null,
+          item.numeroAuxiliares ?? null,
+          item.tipoBeneficiario ?? null,
+          item.valorPorteAnestesico ?? null,
+          null,
+          null,
+          "sim",
+          momentoLote,
+          momentoLote,
+        ]);
+        const placeholders = batch
+          .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .join(", ");
+        await connection.query(
+          `INSERT INTO tabelasPreco
+            (convenioId, estabelecimentoId, tipo, procedimentoFonte, codigo, nome, valor,
+             vigenciaInicio, porte, numeroAuxiliares, tipoBeneficiario, valorPorteAnestesico,
+             unidade, observacao, ativo, createdAt, updatedAt)
+           VALUES ${placeholders}`,
+          values.flat(),
+        );
+        itensImportados += batch.length;
+      }
+
+      await connection.execute(
+        `INSERT INTO importacoesTabela
+          (convenioId, estabelecimentoId, userId, loteId, loteHash, procedimentoFonte,
+           tipo, nomeArquivo, formatoArquivo, totalItens, itensImportados, itensAtualizados,
+           itensErro, status, mensagemErro, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, 'procedimentos', ?, ?, ?, ?, 0, 0, 'concluido', NULL, ?)`,
+        [
+          convenioId,
+          estabelecimentoId,
+          userId,
+          loteId,
+          lote.loteHash,
+          etapa.fonte,
+          etapa.nomeArquivo,
+          etapa.formatoArquivo,
+          etapa.totalItens,
+          itensImportados,
+          momentoLote,
+        ],
+      );
+
+      resultados.push({
+        fonte: etapa.fonte,
+        nomeArquivo: etapa.nomeArquivo,
+        totalItens: etapa.totalItens,
+        itensImportados,
+      });
+    }
+
+    await connection.commit();
+    return {
+      loteId,
+      momentoLote,
+      totalItens: resultados.reduce((total, etapa) => total + etapa.totalItens, 0),
+      itensImportados: resultados.reduce((total, etapa) => total + etapa.itensImportados, 0),
+      etapas: resultados,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
 }
 
@@ -5264,6 +5494,7 @@ export async function getHistoricoPreco(tabelaPrecoId: number): Promise<any[]> {
  */
 export async function getHistoricoPrecosPorConvenio(
   convenioId: number,
+  estabelecimentoId: number,
   filtros?: {
     tipo?: string;
     dataInicio?: Date;
@@ -5281,7 +5512,13 @@ export async function getHistoricoPrecosPorConvenio(
     // Primeiro, buscar os IDs das tabelas de preço deste convênio
     const tabelasIds = await dbConn.select({ id: tabelasPreco.id })
       .from(tabelasPreco)
-      .where(eq(tabelasPreco.convenioId, convenioId));
+      .where(and(
+        eq(tabelasPreco.convenioId, convenioId),
+        or(
+          eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
+          isNull(tabelasPreco.estabelecimentoId),
+        ),
+      ));
     
     if (tabelasIds.length === 0) {
       return { items: [], total: 0 };
@@ -5356,9 +5593,15 @@ export async function getHistoricoPrecosPorConvenio(
 }
 
 /**
- * Busca preço de um item por código e convênio (para uso na conciliação)
+ * Busca preço por código, convênio e estabelecimento.
+ * A linha específica da unidade sempre precede o fallback global.
  */
-export async function getPrecoItem(convenioId: number, codigo: string, tipo?: string): Promise<number | null> {
+export async function getPrecoItem(
+  convenioId: number,
+  estabelecimentoId: number,
+  codigo: string,
+  tipo?: string,
+): Promise<number | null> {
   const dbConn = await getDb();
   if (!dbConn) return null;
 
@@ -5369,6 +5612,10 @@ export async function getPrecoItem(convenioId: number, codigo: string, tipo?: st
       eq(tabelasPreco.codigo, codigo),
       eq(tabelasPreco.ativo, "sim"),
       lte(tabelasPreco.vigenciaInicio, hoje),
+      or(
+        eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
+        isNull(tabelasPreco.estabelecimentoId),
+      ),
     ];
 
     if (tipo) {
@@ -5378,6 +5625,12 @@ export async function getPrecoItem(convenioId: number, codigo: string, tipo?: st
     const result = await dbConn.select({ valor: tabelasPreco.valor })
       .from(tabelasPreco)
       .where(and(...conditions))
+      .orderBy(
+        sql`CASE WHEN ${tabelasPreco.estabelecimentoId} = ${estabelecimentoId} THEN 0 ELSE 1 END`,
+        desc(tabelasPreco.vigenciaInicio),
+        desc(tabelasPreco.updatedAt),
+        desc(tabelasPreco.id),
+      )
       .limit(1);
 
     return result[0]?.valor ? parseFloat(result[0].valor) : null;
@@ -5424,16 +5677,17 @@ export async function updateImportacaoTabela(id: number, data: Partial<InsertImp
 /**
  * Lista histórico de importações de tabelas
  */
-export async function getImportacoesTabela(convenioId?: number) {
+export async function getImportacoesTabela(estabelecimentoId: number, convenioId?: number) {
   const dbConn = await getDb();
   if (!dbConn) return [];
 
   try {
-    const conditions = convenioId ? [eq(importacoesTabela.convenioId, convenioId)] : [];
+    const conditions = [eq(importacoesTabela.estabelecimentoId, estabelecimentoId)];
+    if (convenioId) conditions.push(eq(importacoesTabela.convenioId, convenioId));
     
     const result = await dbConn.select()
       .from(importacoesTabela)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(importacoesTabela.createdAt))
       .limit(100);
 
@@ -5447,20 +5701,16 @@ export async function getImportacoesTabela(convenioId?: number) {
 /**
  * Conta itens por tipo de tabela e convênio
  */
-export async function contarItensTabelaPreco(convenioId: number, estabelecimentoId?: number) {
+export async function contarItensTabelaPreco(convenioId: number, estabelecimentoId: number) {
   const dbConn = await getDb();
   if (!dbConn) return { diarias: 0, mat_med: 0, taxas: 0, procedimentos: 0 };
 
   try {
     const conditions = [
       eq(tabelasPreco.convenioId, convenioId),
-      eq(tabelasPreco.ativo, "sim")
+      eq(tabelasPreco.ativo, "sim"),
+      escopoTabelaPrecoComFallbackGlobal(estabelecimentoId, true),
     ];
-    
-    // Filtrar por estabelecimento se especificado
-    if (estabelecimentoId) {
-      conditions.push(eq(tabelasPreco.estabelecimentoId, estabelecimentoId));
-    }
     
     const result = await dbConn.select({
       tipo: tabelasPreco.tipo,
@@ -5872,12 +6122,15 @@ export async function updateAlertaStatus(
 // ==================== COMPARAÇÃO AUTOMÁTICA ====================
 
 // Comparar procedimentos com tabela de preços
-export async function compararComTabelaPrecos(arquivoId: number) {
+export async function compararComTabelaPrecos(arquivoId: number, estabelecimentoId: number) {
   const db = await getDb();
   if (!db) return { alertas: [], resumo: { total: 0, divergencias: 0, valorDiferenca: 0 } };
   
-  // Buscar arquivo e convênio
-  const arquivo = await db.select().from(arquivos).where(eq(arquivos.id, arquivoId)).limit(1);
+  // Buscar arquivo e convênio somente dentro da unidade autorizada.
+  const arquivo = await db.select().from(arquivos).where(and(
+    eq(arquivos.id, arquivoId),
+    eq(arquivos.estabelecimentoId, estabelecimentoId),
+  )).limit(1);
   if (arquivo.length === 0) return { alertas: [], resumo: { total: 0, divergencias: 0, valorDiferenca: 0 } };
   
   const convenioId = arquivo[0].convenioId;
@@ -5896,23 +6149,31 @@ export async function compararComTabelaPrecos(arquivoId: number) {
   // Buscar procedimentos do arquivo
   const procs = await db.select().from(faturamentoTiss).where(eq(faturamentoTiss.arquivoId, arquivoId));
   
-  // Buscar tabela de preços do convênio (sem filtro de vigência para incluir todas as tabelas ativas)
-  // O filtro de vigência pode ser aplicado posteriormente se necessário
+  // Buscar a tabela da unidade; item global é fallback apenas quando não existe equivalente específico.
   const tabela = await db.select()
     .from(tabelasPreco)
     .where(and(
       eq(tabelasPreco.convenioId, convenioId),
-      eq(tabelasPreco.ativo, "sim")
-    ));
+      eq(tabelasPreco.ativo, "sim"),
+      escopoTabelaPrecoComFallbackGlobal(estabelecimentoId, false),
+    ))
+    .orderBy(
+      sql`CASE WHEN ${tabelasPreco.estabelecimentoId} = ${estabelecimentoId} THEN 0 ELSE 1 END`,
+      desc(tabelasPreco.vigenciaInicio),
+      desc(tabelasPreco.updatedAt),
+      desc(tabelasPreco.id),
+    );
   
   // Criar mapa de preços por código
   const precoMap = new Map<string, { valor: number; nome: string; tipo: string }>();
   for (const item of tabela) {
-    precoMap.set(item.codigo, {
-      valor: parseFloat(item.valor),
-      nome: item.nome,
-      tipo: item.tipo
-    });
+    if (!precoMap.has(item.codigo)) {
+      precoMap.set(item.codigo, {
+        valor: parseFloat(item.valor),
+        nome: item.nome,
+        tipo: item.tipo,
+      });
+    }
   }
   
   const alertasParaCriar: InsertAlertaDivergencia[] = [];

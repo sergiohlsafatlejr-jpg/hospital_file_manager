@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { 
@@ -90,14 +91,18 @@ export default function TabelasPreco() {
   const [formVigenciaInicio, setFormVigenciaInicio] = useState("");
   const [formUnidade, setFormUnidade] = useState("");
   const [formObservacao, setFormObservacao] = useState("");
-  const [formEstabelecimentoId, setFormEstabelecimentoId] = useState<number | undefined>();
   
   // Contexto de estabelecimento
-  const { estabelecimentoAtual, estabelecimentos } = useEstabelecimento();
+  const { estabelecimentoAtual } = useEstabelecimento();
 
   // Import states
   const [importFiles, setImportFiles] = useState<File[]>([]);
-  const [importProgress, setImportProgress] = useState<{ current: number; total: number; name: string } | null>(null);
+  const [importProgress, setImportProgress] = useState<{
+    current: number;
+    total: number;
+    name: string;
+    fase: "preparando" | "publicando";
+  } | null>(null);
   const [importSubstituir, setImportSubstituir] = useState(false);
 
   const handleImportFileChange = (files: File[]) => {
@@ -122,7 +127,7 @@ export default function TabelasPreco() {
   const { data: tabelasData, isLoading, refetch } = trpc.tabelasPreco.list.useQuery(
     {
       convenioId,
-      estabelecimentoId: estabelecimentoAtual?.id, // Filtrar por estabelecimento selecionado
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
       tipo: tipoSelecionado,
       procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
       codigo: searchTerm || undefined,
@@ -134,16 +139,19 @@ export default function TabelasPreco() {
     { enabled: !!convenioId && !!estabelecimentoAtual?.id }
   );
   const { data: contagem } = trpc.tabelasPreco.contarPorTipo.useQuery(
-    { convenioId: convenioId!, estabelecimentoId: estabelecimentoAtual?.id },
+    { convenioId: convenioId!, estabelecimentoId: estabelecimentoAtual?.id || 0 },
     { enabled: !!convenioId && !!estabelecimentoAtual?.id }
   );
   const { data: historicoImportacoes } = trpc.tabelasPreco.historicoImportacoes.useQuery(
-    { convenioId },
-    { enabled: !!convenioId }
+    { estabelecimentoId: estabelecimentoAtual?.id || 0, convenioId },
+    { enabled: !!convenioId && !!estabelecimentoAtual?.id }
   );
   const { data: historicoItem, isLoading: isLoadingHistorico } = trpc.tabelasPreco.getHistorico.useQuery(
-    { tabelaPrecoId: selectedItemForHistory! },
-    { enabled: !!selectedItemForHistory && historyDialogOpen }
+    {
+      tabelaPrecoId: selectedItemForHistory!,
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+    },
+    { enabled: !!selectedItemForHistory && historyDialogOpen && !!estabelecimentoAtual?.id }
   );
 
   // Mutations
@@ -188,6 +196,13 @@ export default function TabelasPreco() {
     onError: () => undefined,
   });
 
+  const importLoteMutation = trpc.tabelasPreco.importarProcedimentosLote.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: () => undefined,
+  });
+
   const resetForm = () => {
     setFormCodigo("");
     setFormNome("");
@@ -195,7 +210,6 @@ export default function TabelasPreco() {
     setFormVigenciaInicio("");
     setFormUnidade("");
     setFormObservacao("");
-    setFormEstabelecimentoId(estabelecimentoAtual?.id); // Pré-seleciona o estabelecimento atual
     setEditingItem(null);
   };
 
@@ -208,12 +222,15 @@ export default function TabelasPreco() {
     setFormVigenciaInicio(item.vigenciaInicio ? formatDateBR(item.vigenciaInicio) : "");
     setFormUnidade(item.unidade || "");
     setFormObservacao(item.observacao || "");
-    setFormEstabelecimentoId(item.estabelecimentoId || undefined);
     if (item.procedimentoFonte) setProcedimentoFonte(item.procedimentoFonte as ProcedimentoFonte);
     setDialogOpen(true);
   };
 
   const handleSubmit = () => {
+    if (!estabelecimentoAtual?.id) {
+      toast.error("Selecione um estabelecimento antes de salvar.");
+      return;
+    }
     if (!convenioId) {
       toast.error("Selecione um convênio");
       return;
@@ -236,6 +253,7 @@ export default function TabelasPreco() {
     if (editingItem) {
       updateMutation.mutate({
         id: editingItem.id,
+        estabelecimentoId: estabelecimentoAtual.id,
         codigo: formCodigo,
         nome: formNome,
         valor: formValor,
@@ -247,7 +265,7 @@ export default function TabelasPreco() {
     } else {
       createMutation.mutate({
         convenioId,
-        estabelecimentoId: formEstabelecimentoId,
+        estabelecimentoId: estabelecimentoAtual.id,
         tipo: tipoSelecionado,
         procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
         codigo: formCodigo,
@@ -261,8 +279,12 @@ export default function TabelasPreco() {
   };
 
   const handleImport = async () => {
+    if (!estabelecimentoAtual?.id || estabelecimentoAtual.id <= 0) {
+      toast.error("Selecione um estabelecimento antes de importar.");
+      return;
+    }
     if (!convenioId || !importFiles.length) {
-      toast.error("Selecione um convênio e pelo menos um arquivo");
+      toast.error("Selecione um convênio e os arquivos da importação.");
       return;
     }
 
@@ -278,6 +300,15 @@ export default function TabelasPreco() {
     );
 
     if (tipoSelecionado === "procedimentos") {
+      if (importFiles.length !== ordemImportacaoUnimed.length) {
+        toast.error("Selecione exatamente as quatro planilhas da Unimed para criar um único lote.");
+        return;
+      }
+      const tamanhoTotal = importFiles.reduce((total, file) => total + file.size, 0);
+      if (tamanhoTotal > 30 * 1024 * 1024) {
+        toast.error("O conjunto das quatro planilhas não pode ultrapassar 30 MB.");
+        return;
+      }
       const arquivosNaoReconhecidos = arquivosComFonte.filter((item) => !item.fonte);
       if (arquivosNaoReconhecidos.length) {
         toast.error(`Não reconheci o formato de: ${arquivosNaoReconhecidos.map((item) => item.file.name).join(", ")}. Use os nomes padrão da Unimed.`);
@@ -313,16 +344,63 @@ export default function TabelasPreco() {
     let totalImportados = 0;
     let totalErros = 0;
     try {
+      if (tipoSelecionado === "procedimentos") {
+        const arquivosLote: Array<{
+          nomeArquivo: string;
+          formatoArquivo: "excel";
+          conteudo: string;
+        }> = [];
+        for (let index = 0; index < arquivosParaImportar.length; index += 1) {
+          const file = arquivosParaImportar[index];
+          setImportProgress({
+            current: index + 1,
+            total: arquivosParaImportar.length,
+            name: file.name,
+            fase: "preparando",
+          });
+          arquivosLote.push({
+            nomeArquivo: file.name,
+            formatoArquivo: "excel",
+            conteudo: await lerArquivo(file),
+          });
+        }
+
+        setImportProgress({
+          current: arquivosParaImportar.length,
+          total: arquivosParaImportar.length,
+          name: "Validando e publicando o lote completo",
+          fase: "publicando",
+        });
+        const resultado = await importLoteMutation.mutateAsync({
+          convenioId,
+          estabelecimentoId: estabelecimentoAtual.id,
+          arquivos: arquivosLote,
+          substituirExistentes: true,
+        });
+
+        setImportProgress(null);
+        setImportFiles([]);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setImportDialogOpen(false);
+        toast.success(
+          `Lote concluído em ${formatDateTimeBR(resultado.momentoLote)}: ${resultado.itensImportados} de ${resultado.totalItens} itens gravados nas 4 etapas.`,
+        );
+        return;
+      }
+
       for (let index = 0; index < arquivosParaImportar.length; index += 1) {
         const file = arquivosParaImportar[index];
-        const fonte = detectarFontePorNome(file.name);
-        setImportProgress({ current: index + 1, total: arquivosParaImportar.length, name: file.name });
+        setImportProgress({
+          current: index + 1,
+          total: arquivosParaImportar.length,
+          name: file.name,
+          fase: "publicando",
+        });
         const conteudo = await lerArquivo(file);
         const resultado = await importMutation.mutateAsync({
           convenioId,
-          estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
+          estabelecimentoId: estabelecimentoAtual.id,
           tipo: tipoSelecionado,
-          procedimentoFonte: tipoSelecionado === "procedimentos" ? fonte : undefined,
           nomeArquivo: file.name,
           formatoArquivo: formatoDoArquivo(file),
           conteudo,
@@ -668,14 +746,16 @@ export default function TabelasPreco() {
                             <TableCell>{formatDateBR(item.vigenciaInicio)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEdit(item)}
-                                  title="Editar"
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
+                                {item.estabelecimentoId === estabelecimentoAtual?.id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEdit(item)}
+                                    title="Editar"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -687,18 +767,23 @@ export default function TabelasPreco() {
                                 >
                                   <History className="h-4 w-4 text-blue-500" />
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    if (confirm("Deseja excluir este item?")) {
-                                      deleteMutation.mutate({ id: item.id });
-                                    }
-                                  }}
-                                  title="Excluir"
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                {item.estabelecimentoId === estabelecimentoAtual?.id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (confirm("Deseja excluir este item?")) {
+                                        deleteMutation.mutate({
+                                          id: item.id,
+                                          estabelecimentoId: estabelecimentoAtual.id,
+                                        });
+                                      }
+                                    }}
+                                    title="Excluir"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -812,25 +897,14 @@ export default function TabelasPreco() {
               </div>
               {!editingItem && (
                 <div className="space-y-2">
-                  <Label htmlFor="estabelecimento">Estabelecimento (opcional)</Label>
-                  <Select
-                    value={formEstabelecimentoId?.toString() || "global"}
-                    onValueChange={(value) => setFormEstabelecimentoId(value === "global" ? undefined : parseInt(value))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um estabelecimento" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="global">Global (todos os estabelecimentos)</SelectItem>
-                      {estabelecimentos?.map((est) => (
-                        <SelectItem key={est.id} value={est.id.toString()}>
-                          {est.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="estabelecimento">Estabelecimento obrigatório</Label>
+                  <Input
+                    id="estabelecimento"
+                    value={estabelecimentoAtual?.nome || "Nenhum estabelecimento selecionado"}
+                    disabled
+                  />
                   <p className="text-xs text-muted-foreground">
-                    Deixe como "Global" para que a tabela seja visível em todos os estabelecimentos
+                    O item será salvo somente na unidade visualizada no cabeçalho.
                   </p>
                 </div>
               )}
@@ -866,10 +940,14 @@ export default function TabelasPreco() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>{tipoSelecionado === "procedimentos" ? "Arquivos da Unimed (selecione os 4 de uma vez)" : "Arquivo (Excel, CSV ou DBF)"}</Label>
+                <p className="text-xs text-muted-foreground">
+                  Estabelecimento obrigatório: <strong>{estabelecimentoAtual?.nome || "nenhum selecionado"}</strong>
+                  {tipoSelecionado === "procedimentos" && ". As quatro etapas receberão o mesmo horário de lote."}
+                </p>
                 <div className="flex gap-2">
                   <Input
                     type="file"
-                    accept=".xlsx,.xls,.csv,.dbf"
+                    accept={tipoSelecionado === "procedimentos" ? ".xlsx,.xls" : ".xlsx,.xls,.csv,.dbf"}
                     multiple={tipoSelecionado === "procedimentos"}
                     ref={fileInputRef}
                     onChange={(e) => handleImportFileChange(Array.from(e.target.files || []))}
@@ -902,9 +980,12 @@ export default function TabelasPreco() {
                   </p>
                 ) : null}
                 {importProgress && (
-                  <p className="text-sm font-medium text-primary">
-                    Importando etapa {importProgress.current} de {importProgress.total}: {importProgress.name}
-                  </p>
+                  <div className="space-y-2" aria-live="polite">
+                    <Progress value={(importProgress.current / importProgress.total) * 100} />
+                    <p className="text-sm font-medium text-primary">
+                      {importProgress.fase === "preparando" ? "Preparando" : "Publicando"} etapa {importProgress.current} de {importProgress.total}: {importProgress.name}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -916,8 +997,9 @@ export default function TabelasPreco() {
                     <li>• <strong>dados_completo</strong>: codigo, descricao, porte, numero_auxiliares, valor, tipo_de_beneficiario</li>
                     <li>• <strong>preco_portes</strong>: codigo, valor, tipo_de_beneficiario</li>
                     <li>• <strong>porte_anestesico</strong>: codigo, valor, tipo_de_beneficiario</li>
-                    <li>• <strong>Importe primeiro o Preço de Portes e o Porte Anestésico</strong> para este convênio e estabelecimento.</li>
-                    <li>• Valores como <strong>3C</strong> e portes como <strong>5 → AN5</strong> são resolvidos pelas tabelas de referência.</li>
+                    <li>• Selecione as <strong>quatro planilhas de uma vez</strong>; o servidor valida todas antes de gravar.</li>
+                    <li>• O novo lote substitui somente os procedimentos ativos deste convênio e estabelecimento.</li>
+                    <li>• Reenvios do mesmo conjunto são bloqueados para evitar duplicidade.</li>
                   </ul>
                 ) : (
                   <ul className="text-sm text-muted-foreground space-y-1">
@@ -931,24 +1013,35 @@ export default function TabelasPreco() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="substituir"
-                  checked={importSubstituir}
-                  onChange={(e) => setImportSubstituir(e.target.checked)}
-                  className="rounded"
-                />
-                <Label htmlFor="substituir" className="text-sm">
-                  Substituir itens existentes (desativa os anteriores)
-                </Label>
-              </div>
+              {tipoSelecionado !== "procedimentos" && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="substituir"
+                    checked={importSubstituir}
+                    onChange={(e) => setImportSubstituir(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="substituir" className="text-sm">
+                    Substituir itens existentes (desativa os anteriores)
+                  </Label>
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={!!importProgress}>
                 Cancelar
               </Button>
-              <Button onClick={handleImport} disabled={!importFiles.length || importMutation.isPending || !!importProgress}>
+              <Button
+                onClick={handleImport}
+                disabled={
+                  !estabelecimentoAtual?.id
+                  || !importFiles.length
+                  || importMutation.isPending
+                  || importLoteMutation.isPending
+                  || !!importProgress
+                }
+              >
                 {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : "Importar"}
               </Button>
             </DialogFooter>

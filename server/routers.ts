@@ -67,9 +67,11 @@ import {
   encontrarLinhaCabecalhoProcedimentos,
   detectarFonteProcedimentoPorNome,
   normalizarCodigo,
+  parseValor,
   normalizarProcedimentos,
   PROCEDIMENTO_FONTES,
 } from "./procedimentosTabela";
+import { MAX_LOTE_UNIMED_BASE64, prepararLoteUnimed } from "./tabelasPrecoLoteUnimed";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -3684,11 +3686,11 @@ export const appRouter = router({
   // ============ TABELAS DE PREÇOS ============
   tabelasPreco: router({
     // Listar tabelas de preços
-    list: protectedProcedure
+    list: reportProcedure("tabelasPreco")
       .input(
         z.object({
           convenioId: z.number().optional(),
-          estabelecimentoId: z.number().optional(),
+          estabelecimentoId: z.number().int().positive(),
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]).optional(),
           procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
           codigo: z.string().optional(),
@@ -3696,35 +3698,54 @@ export const appRouter = router({
           apenasVigentes: z.boolean().optional().default(true),
           page: z.number().optional().default(1),
           limit: z.number().optional().default(50),
-        }).optional()
+        })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar",
+          );
+        }
         return db.getTabelasPreco({
-          convenioId: input?.convenioId,
-          estabelecimentoId: input?.estabelecimentoId,
-          tipo: input?.tipo,
-          procedimentoFonte: input?.procedimentoFonte,
-          codigo: input?.codigo,
-          nome: input?.nome,
-          apenasVigentes: input?.apenasVigentes,
-          page: input?.page,
-          limit: input?.limit,
+          convenioId: input.convenioId,
+          estabelecimentoId: input.estabelecimentoId,
+          tipo: input.tipo,
+          procedimentoFonte: input.procedimentoFonte,
+          codigo: input.codigo,
+          nome: input.nome,
+          apenasVigentes: input.apenasVigentes,
+          page: input.page,
+          limit: input.limit,
         });
       }),
 
     // Buscar item por ID
-    getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return db.getTabelaPrecoById(input.id);
+    getById: reportProcedure("tabelasPreco")
+      .input(z.object({ id: z.number(), estabelecimentoId: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const item = await db.getTabelaPrecoById(input.id);
+        if (!item) return null;
+        if (item.estabelecimentoId !== null && item.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Item pertence a outro estabelecimento" });
+        }
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          item.convenioId,
+          input.estabelecimentoId,
+          "visualizar",
+        );
+        return item;
       }),
 
     // Criar novo item
-    create: trackedProtectedProcedure
+    create: reportProcedure("tabelasPreco")
       .input(
         z.object({
           convenioId: z.number(),
-          estabelecimentoId: z.number().optional(), // Estabelecimento específico ou null para global
+          estabelecimentoId: z.number().int().positive(),
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]),
           codigo: z.string(),
           nome: z.string(),
@@ -3739,11 +3760,17 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "editar",
+        );
         const vigenciaInicio = new Date(input.vigenciaInicio);
         
         const id = await db.createTabelaPreco({
           convenioId: input.convenioId,
-          estabelecimentoId: input.estabelecimentoId || null,
+          estabelecimentoId: input.estabelecimentoId,
           tipo: input.tipo,
           codigo: input.codigo,
           nome: input.nome,
@@ -3774,10 +3801,11 @@ export const appRouter = router({
       }),
 
     // Atualizar item
-    update: trackedProtectedProcedure
+    update: reportProcedure("tabelasPreco")
       .input(
         z.object({
           id: z.number(),
+          estabelecimentoId: z.number().int().positive(),
           codigo: z.string().optional(),
           nome: z.string().optional(),
           valor: z.string().optional(),
@@ -3791,10 +3819,20 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { id, ...data } = input;
+        const { id, estabelecimentoId, ...data } = input;
         
         // Buscar dados anteriores para o histórico
         const itemAnterior = await db.getTabelaPrecoById(id);
+        if (!itemAnterior) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+        if (itemAnterior.estabelecimentoId !== estabelecimentoId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Item não pode ser alterado por este estabelecimento" });
+        }
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          itemAnterior.convenioId,
+          estabelecimentoId,
+          "editar",
+        );
         
         const updateData: any = {};
         if (data.codigo) updateData.codigo = data.codigo;
@@ -3833,11 +3871,21 @@ export const appRouter = router({
       }),
 
     // Excluir item (soft delete)
-    delete: trackedProtectedProcedure
-      .input(z.object({ id: z.number() }))
+    delete: reportProcedure("tabelasPreco")
+      .input(z.object({ id: z.number(), estabelecimentoId: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
         // Buscar dados anteriores para o histórico
         const itemAnterior = await db.getTabelaPrecoById(input.id);
+        if (!itemAnterior) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+        if (itemAnterior.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Item não pode ser excluído por este estabelecimento" });
+        }
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          itemAnterior.convenioId,
+          input.estabelecimentoId,
+          "excluir",
+        );
         
         const success = await db.deleteTabelaPreco(input.id);
         
@@ -3858,24 +3906,48 @@ export const appRouter = router({
       }),
 
     // Contar itens por tipo
-    contarPorTipo: protectedProcedure
-      .input(z.object({ convenioId: z.number(), estabelecimentoId: z.number().optional() }))
-      .query(async ({ input }) => {
+    contarPorTipo: reportProcedure("tabelasPreco")
+      .input(z.object({
+        convenioId: z.number(),
+        estabelecimentoId: z.number().int().positive(),
+      }))
+      .query(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "visualizar",
+        );
         return db.contarItensTabelaPreco(input.convenioId, input.estabelecimentoId);
       }),
 
     // Buscar histórico de alterações de um item
-    getHistorico: protectedProcedure
-      .input(z.object({ tabelaPrecoId: z.number() }))
-      .query(async ({ input }) => {
+    getHistorico: reportProcedure("tabelasPreco")
+      .input(z.object({
+        tabelaPrecoId: z.number(),
+        estabelecimentoId: z.number().int().positive(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const item = await db.getTabelaPrecoById(input.tabelaPrecoId);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+        if (item.estabelecimentoId !== null && item.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Item pertence a outro estabelecimento" });
+        }
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          item.convenioId,
+          input.estabelecimentoId,
+          "visualizar",
+        );
         return db.getHistoricoPreco(input.tabelaPrecoId);
       }),
 
     // Buscar histórico de alterações por convênio (relatório)
-    getHistoricoConvenio: protectedProcedure
+    getHistoricoConvenio: reportProcedure("tabelasPreco")
       .input(
         z.object({
           convenioId: z.number(),
+          estabelecimentoId: z.number().int().positive(),
           tipo: z.string().optional(),
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
@@ -3885,8 +3957,14 @@ export const appRouter = router({
           limit: z.number().optional().default(50),
         })
       )
-      .query(async ({ input }) => {
-        return db.getHistoricoPrecosPorConvenio(input.convenioId, {
+      .query(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "visualizar",
+        );
+        return db.getHistoricoPrecosPorConvenio(input.convenioId, input.estabelecimentoId, {
           tipo: input.tipo,
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
           dataFim: input.dataFim ? new Date(input.dataFim) : undefined,
@@ -3897,12 +3975,73 @@ export const appRouter = router({
         });
       }),
 
+    importarProcedimentosLote: reportProcedure("tabelasPreco")
+      .input(
+        z.object({
+          convenioId: z.number().int().positive(),
+          estabelecimentoId: z.number().int().positive(),
+          arquivos: z.array(z.object({
+            nomeArquivo: z.string().min(1),
+            formatoArquivo: z.literal("excel"),
+            conteudo: z.string().min(1).max(MAX_LOTE_UNIMED_BASE64),
+          })).length(4).superRefine((arquivos, ctx) => {
+            const tamanhoTotal = arquivos.reduce((total, arquivo) => total + arquivo.conteudo.length, 0);
+            if (tamanhoTotal > MAX_LOTE_UNIMED_BASE64) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "O conjunto das quatro planilhas excede o limite seguro de 30 MB.",
+              });
+            }
+          }),
+          substituirExistentes: z.literal(true),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "gerenciar",
+        );
+
+        let lote;
+        try {
+          lote = prepararLoteUnimed(input.arquivos);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "As quatro planilhas Unimed são inválidas.",
+          });
+        }
+
+        try {
+          return await db.salvarLoteUnimed({
+            convenioId: input.convenioId,
+            estabelecimentoId: input.estabelecimentoId,
+            userId: ctx.user.id,
+            loteId: nanoid(16),
+            substituirExistentes: input.substituirExistentes,
+            momentoLote: new Date(),
+            lote,
+          });
+        } catch (error) {
+          if (error instanceof db.LoteUnimedDuplicadoError) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message });
+          }
+          console.error("[TabelasPreco] Falha ao publicar lote Unimed; transação revertida.");
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Não foi possível publicar o lote Unimed. Nenhuma das quatro etapas foi alterada.",
+          });
+        }
+      }),
+
     // Importar tabela de preços (Excel, CSV, DBF)
-    importar: protectedProcedure
+    importar: reportProcedure("tabelasPreco")
       .input(
         z.object({
           convenioId: z.number(),
-          estabelecimentoId: z.number().optional(), // Estabelecimento específico ou null para global
+          estabelecimentoId: z.number().int().positive(),
           tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]),
           nomeArquivo: z.string(),
           formatoArquivo: z.enum(["excel", "csv", "dbf"]),
@@ -3912,9 +4051,23 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "gerenciar",
+        );
+        if (String(input.tipo) === "procedimentos") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Procedimentos Unimed devem ser importados exclusivamente pelo lote completo de quatro planilhas.",
+          });
+        }
+
         // Registrar importação
         const importacaoId = await db.createImportacaoTabela({
           convenioId: input.convenioId,
+          estabelecimentoId: input.estabelecimentoId,
           userId: ctx.user.id,
           tipo: input.tipo,
           nomeArquivo: input.nomeArquivo,
@@ -4080,7 +4233,7 @@ export const appRouter = router({
 
             tabelaItems = normalized.items.map((item) => ({
               convenioId: input.convenioId,
-              estabelecimentoId: input.estabelecimentoId || null,
+              estabelecimentoId: input.estabelecimentoId,
               tipo: "procedimentos" as const,
               procedimentoFonte: fonte,
               codigo: item.codigo,
@@ -4150,8 +4303,9 @@ export const appRouter = router({
           if (input.substituirExistentes) {
             await db.desativarTabelasPreco(
               input.convenioId,
+              input.estabelecimentoId,
               input.tipo,
-              input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined,
+              input.tipo === "procedimentos" ? procedimentoFonte || "site" : undefined,
             );
           }
 
@@ -4189,10 +4343,21 @@ export const appRouter = router({
       }),
 
     // Listar histórico de importações
-    historicoImportacoes: protectedProcedure
-      .input(z.object({ convenioId: z.number().optional() }).optional())
-      .query(async ({ input }) => {
-        return db.getImportacoesTabela(input?.convenioId);
+    historicoImportacoes: reportProcedure("tabelasPreco")
+      .input(z.object({
+        estabelecimentoId: z.number().int().positive(),
+        convenioId: z.number().int().positive().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar",
+          );
+        }
+        return db.getImportacoesTabela(input.estabelecimentoId, input.convenioId);
       }),
   }),
 
@@ -4485,10 +4650,24 @@ export const appRouter = router({
       }),
 
     // Executar comparação com tabela de preços
-    compararComTabela: protectedProcedure
-      .input(z.object({ arquivoId: z.number() }))
-      .mutation(async ({ input }) => {
-        return db.compararComTabelaPrecos(input.arquivoId);
+    compararComTabela: reportProcedure("tabelasPreco")
+      .input(z.object({
+        arquivoId: z.number(),
+        estabelecimentoId: z.number().int().positive(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const arquivo = await db.getArquivoById(input.arquivoId);
+        if (!arquivo) throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado" });
+        if (arquivo.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Arquivo pertence a outro estabelecimento" });
+        }
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          arquivo.convenioId,
+          input.estabelecimentoId,
+          "editar",
+        );
+        return db.compararComTabelaPrecos(input.arquivoId, input.estabelecimentoId);
       }),
 
     // Verificar regras de negócio

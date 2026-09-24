@@ -330,6 +330,13 @@
       "when": 1790173200000,
       "tag": "0128_valor_porte_anestesico",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "5",
+      "when": 1790261199247,
+      "tag": "0129_glamorous_black_bolt",
+      "breakpoints": true
     }
   ]
 }

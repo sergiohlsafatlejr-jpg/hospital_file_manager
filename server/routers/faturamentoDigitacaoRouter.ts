@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, reportProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
 import { guiasFaturamento, itensGuiaFaturamento, lotesFaturamento, pacientes } from "../../drizzle/schema";
 import { eq, and, sql, desc, like, or } from "drizzle-orm";
 
@@ -700,15 +701,21 @@ export const faturamentoDigitacaoRouter = router({
     }),
 
   // ========== BUSCA TABELAS DE PREÇO ==========
-  buscarItemTabelaPreco: protectedProcedure
+  buscarItemTabelaPreco: reportProcedure("tabelasPreco")
     .input(z.object({
       convenioId: z.number(),
-      estabelecimentoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(),
       tipo: z.enum(["procedimentos", "mat_med", "taxas", "diarias"]).optional(),
       busca: z.string().min(2),
       limit: z.number().optional().default(20),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirConvenioDoEstabelecimento(
+        ctx.user.id,
+        input.convenioId,
+        input.estabelecimentoId,
+        "visualizar",
+      );
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       
@@ -719,9 +726,24 @@ export const faturamentoDigitacaoRouter = router({
         sql`(LOWER(codigo) LIKE ${`%${input.busca.toLowerCase()}%`} OR LOWER(nome) LIKE ${`%${input.busca.toLowerCase()}%`})`,
       ];
       
-      if (input.estabelecimentoId) {
-        conditions.push(sql`(estabelecimentoId = ${input.estabelecimentoId} OR estabelecimentoId IS NULL)`);
-      }
+      conditions.push(sql`(
+        tabelasPreco.estabelecimentoId = ${input.estabelecimentoId}
+        OR (
+          tabelasPreco.estabelecimentoId IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM tabelasPreco tp_especifica
+             WHERE tp_especifica.estabelecimentoId = ${input.estabelecimentoId}
+               AND tp_especifica.convenioId = tabelasPreco.convenioId
+               AND tp_especifica.tipo = tabelasPreco.tipo
+               AND tp_especifica.codigo = tabelasPreco.codigo
+               AND COALESCE(tp_especifica.procedimentoFonte, '') = COALESCE(tabelasPreco.procedimentoFonte, '')
+               AND COALESCE(tp_especifica.tipoBeneficiario, '') = COALESCE(tabelasPreco.tipoBeneficiario, '')
+               AND tp_especifica.ativo = 'sim'
+               AND tp_especifica.vigenciaInicio <= NOW()
+          )
+        )
+      )`);
       
       if (input.tipo) {
         conditions.push(sql`tipo = ${input.tipo}`);
@@ -733,22 +755,35 @@ export const faturamentoDigitacaoRouter = router({
         SELECT id, codigo, nome, valor, tipo, unidade
         FROM tabelasPreco
         WHERE ${whereClause}
-        ORDER BY nome ASC
+        ORDER BY CASE WHEN estabelecimentoId = ${input.estabelecimentoId} THEN 0 ELSE 1 END,
+                 nome ASC
         LIMIT ${input.limit}
       `);
       
       return (results as any)[0] || [];
     }),
 
-  obterPrecoItem: protectedProcedure
+  obterPrecoItem: reportProcedure("tabelasPreco")
     .input(z.object({
       convenioId: z.number(),
+      estabelecimentoId: z.number().int().positive(),
       codigo: z.string(),
       tipo: z.enum(["procedimentos", "mat_med", "taxas", "diarias"]).optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirConvenioDoEstabelecimento(
+        ctx.user.id,
+        input.convenioId,
+        input.estabelecimentoId,
+        "visualizar",
+      );
       const { getPrecoItem } = await import("../db");
-      const valor = await getPrecoItem(input.convenioId, input.codigo, input.tipo);
+      const valor = await getPrecoItem(
+        input.convenioId,
+        input.estabelecimentoId,
+        input.codigo,
+        input.tipo,
+      );
       return { valor };
     }),
 });

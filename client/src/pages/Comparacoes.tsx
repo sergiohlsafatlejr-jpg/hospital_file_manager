@@ -197,8 +197,8 @@ export default function Comparacoes() {
 
   // Executar validação completa de um arquivo
   const handleValidarArquivo = async () => {
-    if (!arquivoSelecionadoId) {
-      toast.error("Selecione um arquivo XML para validar");
+    if (!arquivoSelecionadoId || !estabelecimentoId) {
+      toast.error("Selecione um estabelecimento e um arquivo XML para validar");
       return;
     }
 
@@ -209,7 +209,10 @@ export default function Comparacoes() {
       const arquivoId = parseInt(arquivoSelecionadoId);
       
       // Executar comparação com tabela de preços
-      const resultadoPrecos = await compararComTabelaMutation.mutateAsync({ arquivoId });
+      const resultadoPrecos = await compararComTabelaMutation.mutateAsync({
+        arquivoId,
+        estabelecimentoId,
+      });
       
       // Executar verificação de regras de negócio
       const resultadoRegras = await verificarRegrasMutation.mutateAsync({ arquivoId });

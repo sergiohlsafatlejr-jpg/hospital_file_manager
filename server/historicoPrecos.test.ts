@@ -25,7 +25,7 @@ describe("Histórico de Preços", () => {
 
   describe("getHistoricoPrecosPorConvenio", () => {
     it("deve retornar objeto com items e total para convênio inexistente", async () => {
-      const result = await db.getHistoricoPrecosPorConvenio(999999);
+      const result = await db.getHistoricoPrecosPorConvenio(999999, 999999);
       expect(result).toHaveProperty("items");
       expect(result).toHaveProperty("total");
       expect(Array.isArray(result.items)).toBe(true);
@@ -33,7 +33,7 @@ describe("Histórico de Preços", () => {
     });
 
     it("deve aceitar filtros opcionais", async () => {
-      const result = await db.getHistoricoPrecosPorConvenio(1, {
+      const result = await db.getHistoricoPrecosPorConvenio(1, 1, {
         tipoAlteracao: "criacao",
         page: 1,
         limit: 10,

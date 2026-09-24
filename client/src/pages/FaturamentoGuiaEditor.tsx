@@ -123,11 +123,11 @@ export default function FaturamentoGuiaEditor() {
   const { data: resultadosTabPreco } = trpc.faturamentoDigitacao.buscarItemTabelaPreco.useQuery(
     {
       convenioId: convenioId!,
-      estabelecimentoId,
+      estabelecimentoId: estabelecimentoId || 0,
       tipo: mapTipoParaTabela(itemTipo),
       busca: buscaTabPreco,
     },
-    { enabled: fonteBusca === "tabela_preco" && buscaTabPreco.length >= 2 && !!convenioId }
+    { enabled: fonteBusca === "tabela_preco" && buscaTabPreco.length >= 2 && !!convenioId && !!estabelecimentoId }
   );
 
   // Load guia data when editing

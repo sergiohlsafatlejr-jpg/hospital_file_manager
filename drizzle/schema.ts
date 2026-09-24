@@ -663,7 +663,11 @@ export const importacoesTabela = mysqlTable("importacoesTabela", {
   id: int("id").autoincrement().primaryKey(),
   
   convenioId: int("convenioId").notNull(),
+  estabelecimentoId: int("estabelecimentoId"), // Legado pode ser null; novas importações exigem unidade
   userId: int("userId").notNull(),
+  loteId: varchar("loteId", { length: 32 }),
+  loteHash: varchar("loteHash", { length: 64 }),
+  procedimentoFonte: varchar("procedimentoFonte", { length: 32 }),
   
   // Tipo da tabela importada
   tipo: mysqlEnum("tipo", [
@@ -688,7 +692,19 @@ export const importacoesTabela = mysqlTable("importacoesTabela", {
   mensagemErro: text("mensagemErro"),
   
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  estabelecimentoIdx: index("idx_importacoes_tabela_estabelecimento").on(
+    table.estabelecimentoId,
+    table.convenioId,
+    table.createdAt,
+  ),
+  loteFonteUnique: uniqueIndex("uq_importacoes_tabela_lote_fonte").on(
+    table.estabelecimentoId,
+    table.convenioId,
+    table.loteHash,
+    table.procedimentoFonte,
+  ),
+}));
 
 export type ImportacaoTabela = typeof importacoesTabela.$inferSelect;
 export type InsertImportacaoTabela = typeof importacoesTabela.$inferInsert;
