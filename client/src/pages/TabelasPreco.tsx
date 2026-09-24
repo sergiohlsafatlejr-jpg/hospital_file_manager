@@ -96,15 +96,18 @@ export default function TabelasPreco() {
   const { estabelecimentoAtual, estabelecimentos } = useEstabelecimento();
 
   // Import states
-  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importFiles, setImportFiles] = useState<File[]>([]);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; name: string } | null>(null);
   const [importSubstituir, setImportSubstituir] = useState(false);
 
-  const handleImportFileChange = (file: File | null) => {
-    setImportFile(file);
-    if (file && tipoSelecionado === "procedimentos") {
-      const fonteDetectada = detectarFontePorNome(file.name);
-      if (fonteDetectada) {
-        setProcedimentoFonte(fonteDetectada);
+  const handleImportFileChange = (files: File[]) => {
+    setImportFiles(files);
+    if (files.length && tipoSelecionado === "procedimentos") {
+      const primeiraFonte = ordemImportacaoUnimed.find((etapa) =>
+        files.some((file) => detectarFontePorNome(file.name) === etapa.fonte),
+      );
+      if (primeiraFonte) {
+        setProcedimentoFonte(primeiraFonte.fonte);
         setPage(1);
       }
     }
@@ -179,15 +182,10 @@ export default function TabelasPreco() {
   });
 
   const importMutation = trpc.tabelasPreco.importar.useMutation({
-    onSuccess: (result) => {
-      toast.success(`Importação concluída! ${result.itensImportados} itens importados.`);
+    onSuccess: () => {
       refetch();
-      setImportDialogOpen(false);
-      setImportFile(null);
     },
-    onError: (error) => {
-      toast.error(`Erro na importação: ${error.message}`);
-    },
+    onError: () => undefined,
   });
 
   const resetForm = () => {
@@ -263,31 +261,86 @@ export default function TabelasPreco() {
   };
 
   const handleImport = async () => {
-    if (!convenioId || !importFile) {
-      toast.error("Selecione um convênio e um arquivo");
+    if (!convenioId || !importFiles.length) {
+      toast.error("Selecione um convênio e pelo menos um arquivo");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = (e.target?.result as string).split(",")[1];
-      const ext = importFile.name.split(".").pop()?.toLowerCase();
-      let formato: "excel" | "csv" | "dbf" = "excel";
-      if (ext === "csv") formato = "csv";
-      else if (ext === "dbf") formato = "dbf";
+    const arquivosComFonte = importFiles.map((file) => ({
+      file,
+      fonte: detectarFontePorNome(file.name),
+    }));
+    const fontesSelecionadas = arquivosComFonte.filter((item) => item.fonte);
+    const fontesDuplicadas = new Set(
+      fontesSelecionadas
+        .map((item) => item.fonte)
+        .filter((fonte, index, fontes) => fontes.indexOf(fonte) !== index),
+    );
 
-      importMutation.mutate({
-        convenioId,
-        estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
-        tipo: tipoSelecionado,
-        procedimentoFonte: tipoSelecionado === "procedimentos" ? procedimentoFonte : undefined,
-        nomeArquivo: importFile.name,
-        formatoArquivo: formato,
-        conteudo: base64,
-        substituirExistentes: importSubstituir,
-      });
+    if (tipoSelecionado === "procedimentos") {
+      const arquivosNaoReconhecidos = arquivosComFonte.filter((item) => !item.fonte);
+      if (arquivosNaoReconhecidos.length) {
+        toast.error(`Não reconheci o formato de: ${arquivosNaoReconhecidos.map((item) => item.file.name).join(", ")}. Use os nomes padrão da Unimed.`);
+        return;
+      }
+      if (fontesDuplicadas.size) {
+        toast.error("Selecione apenas um arquivo de cada etapa da importação Unimed.");
+        return;
+      }
+    }
+
+    const arquivosParaImportar = tipoSelecionado === "procedimentos"
+      ? ordemImportacaoUnimed
+          .map((etapa) => arquivosComFonte.find((item) => item.fonte === etapa.fonte)?.file)
+          .filter((file): file is File => !!file)
+      : [importFiles[0]];
+
+    const lerArquivo = (file: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => resolve((event.target?.result as string).split(",")[1]);
+      reader.onerror = () => reject(new Error(`Não foi possível ler o arquivo ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+
+    const formatoDoArquivo = (file: File): "excel" | "csv" | "dbf" => {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext === "csv") return "csv";
+      if (ext === "dbf") return "dbf";
+      return "excel";
     };
-    reader.readAsDataURL(importFile);
+
+    let totalItens = 0;
+    let totalImportados = 0;
+    let totalErros = 0;
+    try {
+      for (let index = 0; index < arquivosParaImportar.length; index += 1) {
+        const file = arquivosParaImportar[index];
+        const fonte = detectarFontePorNome(file.name);
+        setImportProgress({ current: index + 1, total: arquivosParaImportar.length, name: file.name });
+        const conteudo = await lerArquivo(file);
+        const resultado = await importMutation.mutateAsync({
+          convenioId,
+          estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
+          tipo: tipoSelecionado,
+          procedimentoFonte: tipoSelecionado === "procedimentos" ? fonte : undefined,
+          nomeArquivo: file.name,
+          formatoArquivo: formatoDoArquivo(file),
+          conteudo,
+          substituirExistentes: importSubstituir,
+        });
+        totalItens += resultado.totalItens;
+        totalImportados += resultado.itensImportados;
+        totalErros += resultado.itensErro;
+      }
+      setImportProgress(null);
+      setImportFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setImportDialogOpen(false);
+      toast.success(`${arquivosParaImportar.length} arquivo(s) importado(s): ${totalImportados} de ${totalItens} itens gravados${totalErros ? ` e ${totalErros} com erro` : ""}.`);
+    } catch (error) {
+      setImportProgress(null);
+      toast.error(`Erro na importação${totalImportados ? ` após ${totalImportados} itens gravados` : ""}: ${error instanceof Error ? error.message : "erro desconhecido"}`);
+    }
   };
 
   const formatCurrency = (value: string | number) => {
@@ -794,7 +847,14 @@ export default function TabelasPreco() {
         </Dialog>
 
         {/* Dialog de Importação */}
-        <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <Dialog open={importDialogOpen} onOpenChange={(open) => {
+          if (!open && importProgress) return;
+          setImportDialogOpen(open);
+          if (!open) {
+            setImportFiles([]);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Importar Tabela de Preços</DialogTitle>
@@ -805,18 +865,45 @@ export default function TabelasPreco() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Arquivo (Excel, CSV ou DBF)</Label>
+                <Label>{tipoSelecionado === "procedimentos" ? "Arquivos da Unimed (selecione os 4 de uma vez)" : "Arquivo (Excel, CSV ou DBF)"}</Label>
                 <div className="flex gap-2">
                   <Input
                     type="file"
                     accept=".xlsx,.xls,.csv,.dbf"
+                    multiple={tipoSelecionado === "procedimentos"}
                     ref={fileInputRef}
-                    onChange={(e) => handleImportFileChange(e.target.files?.[0] || null)}
+                    onChange={(e) => handleImportFileChange(Array.from(e.target.files || []))}
                   />
                 </div>
-                {importFile && (
+                {tipoSelecionado === "procedimentos" ? (
+                  <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
+                    {ordemImportacaoUnimed.map((etapa) => {
+                      const arquivo = importFiles.find((file) => detectarFontePorNome(file.name) === etapa.fonte);
+                      return (
+                        <div key={etapa.fonte} className="flex items-center gap-2 text-xs">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-semibold">
+                            {etapa.etapa}
+                          </span>
+                          <span className={arquivo ? "text-foreground" : "text-muted-foreground"}>
+                            {arquivo ? arquivo.name : `${etapa.arquivo} — não selecionado`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {importFiles.some((file) => !detectarFontePorNome(file.name)) && (
+                      <p className="text-xs text-destructive">
+                        Há arquivo(s) com nome não reconhecido. Use os nomes padrão das planilhas Unimed.
+                      </p>
+                    )}
+                  </div>
+                ) : importFiles[0] ? (
                   <p className="text-sm text-muted-foreground">
-                    Arquivo selecionado: {importFile.name}
+                    Arquivo selecionado: {importFiles[0].name}
+                  </p>
+                ) : null}
+                {importProgress && (
+                  <p className="text-sm font-medium text-primary">
+                    Importando etapa {importProgress.current} de {importProgress.total}: {importProgress.name}
                   </p>
                 )}
               </div>
@@ -861,8 +948,8 @@ export default function TabelasPreco() {
               <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleImport} disabled={!importFile || importMutation.isPending}>
-                {importMutation.isPending ? "Importando..." : "Importar"}
+              <Button onClick={handleImport} disabled={!importFiles.length || importMutation.isPending || !!importProgress}>
+                {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : "Importar"}
               </Button>
             </DialogFooter>
           </DialogContent>
