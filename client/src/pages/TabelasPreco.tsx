@@ -101,7 +101,19 @@ export default function TabelasPreco() {
   const [importSubstituir, setImportSubstituir] = useState(false);
 
   const handleImportFileChange = (files: File[]) => {
-    setImportFiles(files);
+    setImportFiles((previousFiles) => {
+      const mergedFiles = [...previousFiles];
+      for (const file of files) {
+        const fonte = detectarFontePorNome(file.name);
+        const existingIndex = mergedFiles.findIndex((previousFile) => {
+          const previousFonte = detectarFontePorNome(previousFile.name);
+          return fonte ? previousFonte === fonte : previousFile.name === file.name;
+        });
+        if (existingIndex >= 0) mergedFiles[existingIndex] = file;
+        else mergedFiles.push(file);
+      }
+      return mergedFiles;
+    });
     if (files.length && tipoSelecionado === "procedimentos") {
       const primeiraFonte = ordemImportacaoUnimed.find((etapa) =>
         files.some((file) => detectarFontePorNome(file.name) === etapa.fonte),
@@ -116,6 +128,13 @@ export default function TabelasPreco() {
   const etapaImportacaoAtual = ordemImportacaoUnimed.find(
     (etapa) => etapa.fonte === procedimentoFonte,
   );
+  const fontesSelecionadas = importFiles
+    .map((file) => detectarFontePorNome(file.name))
+    .filter((fonte): fonte is ProcedimentoFonte => !!fonte);
+  const etapasUnimedCompletas = tipoSelecionado !== "procedimentos"
+    || ordemImportacaoUnimed.every((etapa) => fontesSelecionadas.includes(etapa.fonte));
+  const etapasUnimedFaltantes = ordemImportacaoUnimed
+    .filter((etapa) => !fontesSelecionadas.includes(etapa.fonte));
 
   // Queries
   const { data: convenios } = trpc.convenios.list.useQuery();
@@ -263,6 +282,10 @@ export default function TabelasPreco() {
   const handleImport = async () => {
     if (!convenioId || !importFiles.length) {
       toast.error("Selecione um convênio e pelo menos um arquivo");
+      return;
+    }
+    if (!etapasUnimedCompletas) {
+      toast.error(`Selecione as quatro etapas antes de importar. Faltam: ${etapasUnimedFaltantes.map((etapa) => etapa.arquivo).join(", ")}.`);
       return;
     }
 
@@ -865,18 +888,26 @@ export default function TabelasPreco() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>{tipoSelecionado === "procedimentos" ? "Arquivos da Unimed (selecione os 4 de uma vez)" : "Arquivo (Excel, CSV ou DBF)"}</Label>
+                <Label>{tipoSelecionado === "procedimentos" ? "Arquivos da Unimed (selecione os 4 de uma vez ou em etapas)" : "Arquivo (Excel, CSV ou DBF)"}</Label>
                 <div className="flex gap-2">
                   <Input
                     type="file"
                     accept=".xlsx,.xls,.csv,.dbf"
                     multiple={tipoSelecionado === "procedimentos"}
                     ref={fileInputRef}
-                    onChange={(e) => handleImportFileChange(Array.from(e.target.files || []))}
+                    onChange={(e) => {
+                      handleImportFileChange(Array.from(e.target.files || []));
+                      // Limpa o input sem apagar o estado React, permitindo escolher
+                      // os demais arquivos em uma nova seleção.
+                      e.currentTarget.value = "";
+                    }}
                   />
                 </div>
                 {tipoSelecionado === "procedimentos" ? (
                   <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
+                    <p className="mb-2 text-xs font-semibold">
+                      {fontesSelecionadas.length} de 4 etapas selecionadas
+                    </p>
                     {ordemImportacaoUnimed.map((etapa) => {
                       const arquivo = importFiles.find((file) => detectarFontePorNome(file.name) === etapa.fonte);
                       return (
@@ -893,6 +924,11 @@ export default function TabelasPreco() {
                     {importFiles.some((file) => !detectarFontePorNome(file.name)) && (
                       <p className="text-xs text-destructive">
                         Há arquivo(s) com nome não reconhecido. Use os nomes padrão das planilhas Unimed.
+                      </p>
+                    )}
+                    {!etapasUnimedCompletas && !importFiles.some((file) => !detectarFontePorNome(file.name)) && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Faltam: {etapasUnimedFaltantes.map((etapa) => etapa.arquivo).join(", ")}
                       </p>
                     )}
                   </div>
@@ -948,8 +984,8 @@ export default function TabelasPreco() {
               <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleImport} disabled={!importFiles.length || importMutation.isPending || !!importProgress}>
-                {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : "Importar"}
+              <Button onClick={handleImport} disabled={!importFiles.length || !etapasUnimedCompletas || importMutation.isPending || !!importProgress}>
+                {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : etapasUnimedCompletas ? "Importar 4 etapas" : "Selecione as 4 etapas"}
               </Button>
             </DialogFooter>
           </DialogContent>
