@@ -10,6 +10,7 @@ describe("criarTooltipFinanceiro", () => {
       totalGlosado: 100,
       totalSaldo: 100,
       glosaARecursar: 25,
+      glosaRecursada: 75,
       glosaEmRecurso: 50,
       glosaRecuperada: 20,
       glosaAceita: 25,
@@ -20,6 +21,7 @@ describe("criarTooltipFinanceiro", () => {
 
     expect(model.title).toBe("08/2026");
     expect(model.metrics.find((item) => item.label === "% glosa")?.value).toBe(10);
+    expect(model.resourceMetrics.find((item) => item.label === "Recursada")?.value).toBe(75);
     expect(model.resourceMetrics.find((item) => item.label === "Em recurso")?.value).toBe(50);
   });
 

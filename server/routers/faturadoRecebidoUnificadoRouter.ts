@@ -12,6 +12,7 @@ import {
 
 const inputSchema = z.object({
   estabelecimentoId: z.number().int().positive(),
+  criterioPeriodo: z.enum(["PAGAMENTO", "FATURAMENTO"]).default("PAGAMENTO"),
   competencia: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
   convenio: z.string().min(1).max(255).optional(),
   limite: z.number().int().min(5).max(30).default(10),
@@ -34,12 +35,21 @@ export const faturadoRecebidoUnificadoRouter = router({
     const mysql2 = await import("mysql2/promise");
     const conn = await mysql2.createConnection(databaseUrl);
     try {
+      const porMesPagamento = input.criterioPeriodo === "PAGAMENTO";
       const [estabelecimentos] = await conn.execute<any[]>("SELECT id, nome FROM estabelecimentos WHERE id=? LIMIT 1", [input.estabelecimentoId]);
       const estabelecimento = estabelecimentos[0];
       if (!estabelecimento) throw new TRPCError({ code: "NOT_FOUND", message: "Estabelecimento não encontrado" });
 
       const fatParams: Array<string | number> = [input.estabelecimentoId];
       let fatWhere = `WHERE ci.estabelecimentoId = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM convenioEstabelecimentoPrestador cep_terceiro
+          WHERE cep_terceiro.estabelecimentoId = ci.estabelecimentoId
+            AND cep_terceiro.convenioId = ci.convenioId
+            AND cep_terceiro.tipoPrestador = 'terceiro'
+            AND TRIM(cep_terceiro.codigoPrestador) = TRIM(COALESCE(ci.codigoPrestadorExecutante,''))
+        )
         AND (
           NOT EXISTS (
             SELECT 1
@@ -69,12 +79,17 @@ export const faturadoRecebidoUnificadoRouter = router({
         input.estabelecimentoId,
       ];
       const retornoVinculadoCte = `
-        WITH prestadores_proprios AS (
-          SELECT convenioId, TRIM(codigoPrestador) AS codigoPrestador
+        WITH prestadores_configurados AS (
+          SELECT convenioId, TRIM(codigoPrestador) AS codigoPrestador, tipoPrestador, ativo
           FROM convenioEstabelecimentoPrestador
-          WHERE estabelecimentoId = ? AND tipoPrestador = 'proprio' AND ativo = 'sim'
+          WHERE estabelecimentoId = ?
+        ), prestadores_proprios AS (
+          SELECT convenioId, codigoPrestador FROM prestadores_configurados WHERE tipoPrestador='proprio' AND ativo='sim'
+        ), prestadores_terceiros AS (
+          SELECT convenioId, codigoPrestador FROM prestadores_configurados WHERE tipoPrestador='terceiro'
         ), faturado_base AS (
           SELECT ci.competencia, ci.convenioId,
+            CONCAT_WS('|',ci.competencia,COALESCE(NULLIF(TRIM(ci.numeroConta),''),CONCAT('ID:',ci.id))) AS conta_chave,
             TRIM(COALESCE(ci.numeroGuia,'')) AS guia_prestador,
             TRIM(COALESCE(ci.numeroGuiaOperadora,'')) AS guia_operadora,
             TRIM(COALESCE(ci.codigoItem,'')) AS codigo_item,
@@ -83,6 +98,11 @@ export const faturadoRecebidoUnificadoRouter = router({
           FROM contas_convenio_itens ci
           WHERE ci.estabelecimentoId = ?
             AND ci.competencia IS NOT NULL AND ci.competencia <> ''
+            AND NOT EXISTS (
+              SELECT 1 FROM prestadores_terceiros pt
+              WHERE pt.convenioId=ci.convenioId
+                AND pt.codigoPrestador=TRIM(COALESCE(ci.codigoPrestadorExecutante,''))
+            )
             AND (
               NOT EXISTS (SELECT 1 FROM prestadores_proprios pp_cfg WHERE pp_cfg.convenioId = ci.convenioId)
               OR EXISTS (
@@ -92,21 +112,21 @@ export const faturadoRecebidoUnificadoRouter = router({
               )
             )
         ), faturado_guias AS (
-          SELECT competencia, convenioId, guia_prestador AS guia, codigo_item, codigo_item_tuss, data_execucao
+          SELECT competencia, convenioId, conta_chave, guia_prestador AS guia, codigo_item, codigo_item_tuss, data_execucao
           FROM faturado_base WHERE guia_prestador <> ''
           UNION
-          SELECT competencia, convenioId, guia_operadora, codigo_item, codigo_item_tuss, data_execucao
+          SELECT competencia, convenioId, conta_chave, guia_operadora, codigo_item, codigo_item_tuss, data_execucao
           FROM faturado_base WHERE guia_operadora <> ''
         ), faturado_chaves AS (
-          SELECT competencia, convenioId, guia, codigo_item AS codigo_item, data_execucao
+          SELECT competencia, convenioId, conta_chave, guia, codigo_item AS codigo_item, data_execucao
           FROM faturado_guias WHERE codigo_item <> ''
           UNION
-          SELECT competencia, convenioId, guia, codigo_item_tuss, data_execucao
+          SELECT competencia, convenioId, conta_chave, guia, codigo_item_tuss, data_execucao
           FROM faturado_guias WHERE codigo_item_tuss <> ''
         ), atribuicoes AS (
           SELECT d.id AS demonstrativo_id,
             MIN(f.competencia) AS competencia_faturada,
-            COUNT(DISTINCT f.competencia) AS quantidade_competencias
+            COUNT(DISTINCT f.conta_chave) AS quantidade_contas
           FROM demonstrativo d
           JOIN faturado_chaves f
             ON f.convenioId = d.convenio_id
@@ -115,50 +135,100 @@ export const faturadoRecebidoUnificadoRouter = router({
             AND (f.data_execucao IS NULL OR d.data_execucao IS NULL OR f.data_execucao = d.data_execucao)
           WHERE d.estabelecimentoId = ?
           GROUP BY d.id
-        ), pares_faturados AS (
-          SELECT DISTINCT competencia, convenioId FROM faturado_base
+        ), vinculos_elegiveis AS (
+          SELECT d.id AS demonstrativo_id, d.convenio_id,
+            d.codigo_prestador, d.prestador_executante, d.codigo_prestador_pagamento,
+            a.competencia_faturada
+          FROM demonstrativo d
+          JOIN atribuicoes a ON a.demonstrativo_id=d.id AND a.quantidade_contas=1
+          WHERE NOT EXISTS (
+            SELECT 1 FROM prestadores_terceiros pt
+            WHERE pt.convenioId=d.convenio_id
+              AND pt.codigoPrestador IN (
+                TRIM(COALESCE(d.codigo_prestador,'')),
+                TRIM(COALESCE(d.prestador_executante,'')),
+                TRIM(COALESCE(d.codigo_prestador_pagamento,''))
+              )
+          )
+        ), aliases_prestador_vinculados AS (
+          SELECT v.convenio_id AS convenioId, TRIM(v.codigo_prestador) AS codigoPrestador
+          FROM vinculos_elegiveis v
+          WHERE TRIM(COALESCE(v.codigo_prestador,''))<>''
+          UNION
+          SELECT v.convenio_id, TRIM(v.prestador_executante)
+          FROM vinculos_elegiveis v
+          WHERE TRIM(COALESCE(v.prestador_executante,''))<>''
+          UNION
+          SELECT v.convenio_id, TRIM(v.codigo_prestador_pagamento)
+          FROM vinculos_elegiveis v
+          WHERE TRIM(COALESCE(v.codigo_prestador_pagamento,''))<>''
         ), retorno_final AS (
-          SELECT d.*, a.competencia_faturada
+          SELECT d.*,
+            v.competencia_faturada,
+            DATE_FORMAT(d.data_referencia,'%Y/%m') AS competencia_informada,
+            DATE_FORMAT(d.data_pagamento,'%Y/%m') AS mes_pagamento,
+            CASE WHEN v.demonstrativo_id IS NOT NULL THEN 'vinculado' ELSE 'sem_vinculo' END AS status_vinculo
           FROM demonstrativo d
-          JOIN atribuicoes a ON a.demonstrativo_id = d.id AND a.quantidade_competencias = 1
-          UNION ALL
-          SELECT d.*, DATE_FORMAT(d.data_referencia,'%Y/%m') AS competencia_faturada
-          FROM demonstrativo d
+          LEFT JOIN vinculos_elegiveis v ON v.demonstrativo_id = d.id
           WHERE d.estabelecimentoId = ?
-            AND d.data_referencia IS NOT NULL
             AND NOT EXISTS (
-              SELECT 1 FROM atribuicoes a
-              WHERE a.demonstrativo_id = d.id AND a.quantidade_competencias = 1
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM pares_faturados pf
-              WHERE pf.convenioId = d.convenio_id
-                AND pf.competencia = DATE_FORMAT(d.data_referencia,'%Y/%m')
+              SELECT 1 FROM prestadores_terceiros pt
+              WHERE pt.convenioId=d.convenio_id
+                AND pt.codigoPrestador IN (
+                  TRIM(COALESCE(d.codigo_prestador,'')),
+                  TRIM(COALESCE(d.prestador_executante,'')),
+                  TRIM(COALESCE(d.codigo_prestador_pagamento,''))
+                )
             )
             AND (
               NOT EXISTS (SELECT 1 FROM prestadores_proprios pp_cfg WHERE pp_cfg.convenioId = d.convenio_id)
               OR (
-                TRIM(COALESCE(d.codigo_prestador,'')) = ''
-                AND TRIM(COALESCE(d.prestador_executante,'')) = ''
-                AND TRIM(COALESCE(d.codigo_prestador_pagamento,'')) = ''
-              )
-              OR EXISTS (
-                SELECT 1 FROM prestadores_proprios pp_match
-                WHERE pp_match.convenioId = d.convenio_id
-                  AND pp_match.codigoPrestador IN (
-                    TRIM(COALESCE(d.codigo_prestador,'')),
-                    TRIM(COALESCE(d.prestador_executante,'')),
-                    TRIM(COALESCE(d.codigo_prestador_pagamento,''))
+                v.demonstrativo_id IS NOT NULL
+                  OR (
+                    TRIM(COALESCE(d.codigo_prestador,'')) = ''
+                    AND TRIM(COALESCE(d.prestador_executante,'')) = ''
+                    AND TRIM(COALESCE(d.codigo_prestador_pagamento,'')) = ''
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM prestadores_proprios pp_match
+                    WHERE pp_match.convenioId = d.convenio_id
+                      AND pp_match.codigoPrestador IN (
+                        TRIM(COALESCE(d.codigo_prestador,'')),
+                        TRIM(COALESCE(d.prestador_executante,'')),
+                        TRIM(COALESCE(d.codigo_prestador_pagamento,''))
+                      )
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM aliases_prestador_vinculados alias_match
+                    WHERE alias_match.convenioId = d.convenio_id
+                      AND alias_match.codigoPrestador IN (
+                        TRIM(COALESCE(d.codigo_prestador,'')),
+                        TRIM(COALESCE(d.prestador_executante,'')),
+                        TRIM(COALESCE(d.codigo_prestador_pagamento,''))
+                      )
                   )
               )
             )
         )`;
+      const periodoRetornoSql = porMesPagamento
+        ? "d.mes_pagamento"
+        : "COALESCE(d.competencia_faturada,d.competencia_informada)";
       let retWhere = "WHERE 1=1";
-      if (input.competencia) { retWhere += " AND d.competencia_faturada = ?"; retParams.push(input.competencia); }
+      if (input.competencia) { retWhere += ` AND ${periodoRetornoSql} = ?`; retParams.push(input.competencia); }
       if (input.convenio) { retWhere += " AND TRIM(c.nome) = TRIM(?)"; retParams.push(input.convenio); }
 
       const manualParams: Array<string | number> = [input.estabelecimentoId];
       let manualWhere = `WHERE fe.estabelecimento_id = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM convenios c_terceiro
+          JOIN convenioEstabelecimentoPrestador cep_terceiro
+            ON cep_terceiro.convenioId=c_terceiro.id
+          WHERE cep_terceiro.estabelecimentoId=fe.estabelecimento_id
+            AND cep_terceiro.tipoPrestador='terceiro'
+            AND TRIM(c_terceiro.nome)=TRIM(fe.convenio)
+            AND TRIM(cep_terceiro.codigoPrestador)=TRIM(COALESCE(fe.codigo_prestador,''))
+        )
         AND (
           LOWER(TRIM(COALESCE(fe.origem, ''))) = 'manual'
           OR (
@@ -172,7 +242,7 @@ export const faturadoRecebidoUnificadoRouter = router({
               SELECT 1 FROM demonstrativo d_auto
               LEFT JOIN convenios c_auto ON c_auto.id = d_auto.convenio_id
               WHERE d_auto.estabelecimentoId = fe.estabelecimento_id
-                AND DATE_FORMAT(d_auto.data_referencia,'%Y/%m') = fe.mes_ano
+                AND ${porMesPagamento ? "DATE_FORMAT(d_auto.data_pagamento,'%Y/%m')" : "DATE_FORMAT(d_auto.data_referencia,'%Y/%m')"} = fe.mes_ano
                 AND UPPER(TRIM(COALESCE(c_auto.nome,''))) = UPPER(TRIM(fe.convenio))
             )
           )
@@ -180,10 +250,8 @@ export const faturadoRecebidoUnificadoRouter = router({
       if (input.competencia) { manualWhere += " AND fe.mes_ano = ?"; manualParams.push(input.competencia); }
       if (input.convenio) { manualWhere += " AND TRIM(fe.convenio) = TRIM(?)"; manualParams.push(input.convenio); }
 
-      const recParams: Array<string | number> = [input.estabelecimentoId, input.estabelecimentoId];
-      let recWhere = "WHERE rg.estabelecimentoId = ? AND rg.status <> 'cancelado' AND COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0) > 0";
-      if (input.competencia) { recWhere += " AND dm.competencia = ?"; recParams.push(input.competencia); }
-      if (input.convenio) { recWhere += " AND TRIM(c.nome) = TRIM(?)"; recParams.push(input.convenio); }
+      const recParams: Array<string | number> = [...retParams, input.estabelecimentoId];
+      const exigirVinculoLegadoNoRecorte = input.competencia || input.convenio ? "AND d.id IS NOT NULL" : "";
 
       const [fatRows] = await conn.execute<any[]>(`
         SELECT ci.competencia, COALESCE(NULLIF(TRIM(ci.convenio),''),'Sem convênio') AS convenio,
@@ -194,16 +262,18 @@ export const faturadoRecebidoUnificadoRouter = router({
 
       const [retRows] = await conn.execute<any[]>(`
         ${retornoVinculadoCte}
-        SELECT d.competencia_faturada AS competencia,
+        SELECT ${periodoRetornoSql} AS competencia,
           COALESCE(NULLIF(TRIM(c.nome),''),'Sem convênio') AS convenio,
           SUM(COALESCE(d.valor_pago,0)) AS recebido,
+          SUM(CASE WHEN d.status_vinculo='vinculado' THEN COALESCE(d.valor_pago,0) ELSE 0 END) AS recebido_vinculado,
+          SUM(CASE WHEN d.status_vinculo='sem_vinculo' THEN COALESCE(d.valor_pago,0) ELSE 0 END) AS recebido_sem_vinculo,
           SUM(COALESCE(d.valor_glosa,0)) AS glosado,
           SUM(CASE WHEN COALESCE(d.glosa_aceita,0)=1 OR d.classificacao_glosa IN ('aceitar','auto_aceitar') THEN COALESCE(d.valor_glosa,0) ELSE 0 END) AS glosa_aceita,
           COUNT(*) AS quantidade
         FROM retorno_final d
         LEFT JOIN convenios c ON c.id = d.convenio_id
         ${retWhere}
-        GROUP BY d.competencia_faturada, COALESCE(NULLIF(TRIM(c.nome),''),'Sem convênio')
+        GROUP BY ${periodoRetornoSql}, COALESCE(NULLIF(TRIM(c.nome),''),'Sem convênio')
       `, retParams);
 
       const [manualRows] = await conn.execute<any[]>(`
@@ -220,28 +290,55 @@ export const faturadoRecebidoUnificadoRouter = router({
       `, manualParams);
 
       const [recRows] = await conn.execute<any[]>(`
-        SELECT dm.competencia,
-          COALESCE(NULLIF(TRIM(c.nome),''),CONCAT('Convênio ',rg.convenioId)) AS convenio,
-          SUM(COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0)) AS glosa_recursada,
-          SUM(CASE WHEN rg.status IN ('rascunho','pendente_envio','enviado','em_analise') THEN COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0) ELSE 0 END) AS glosa_em_recurso,
-          SUM(GREATEST(COALESCE(rg.valorRecebido,0),COALESCE(rg.valorRecuperado,0))) AS glosa_recuperada,
+        ${retornoVinculadoCte}
+        , retornos_glosados_periodo AS (
+          SELECT d.*, ${periodoRetornoSql} AS competencia_recurso,
+            COALESCE(NULLIF(TRIM(c.nome),''),CONCAT('Convênio ',d.convenio_id)) AS convenio_recurso
+          FROM retorno_final d
+          LEFT JOIN convenios c ON c.id=d.convenio_id
+          ${retWhere}
+            AND COALESCE(d.valor_glosa,0)>0
+        ), vinculos_legados AS (
+          SELECT rg.id AS recurso_id,
+            MIN(d.competencia_recurso) AS competencia,
+            MIN(d.convenio_recurso) AS convenio,
+            MAX(CASE WHEN d.recurso_status IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido') THEN 1 ELSE 0 END) AS possui_recurso_novo
+          FROM recursosGlosa rg
+          LEFT JOIN retornos_glosados_periodo d
+            ON d.estabelecimentoId=rg.estabelecimentoId
+            AND d.numero_guia=rg.guiaNumero
+            AND TRIM(COALESCE(d.codigo_item,''))=TRIM(COALESCE(rg.codigoProcedimento,''))
+            AND ROUND(COALESCE(d.valor_glosa,0),2)=ROUND(COALESCE(rg.valorGlosado,0),2)
+          WHERE rg.estabelecimentoId=?
+            AND rg.status<>'cancelado'
+            AND COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0)>0
+            ${exigirVinculoLegadoNoRecorte}
+          GROUP BY rg.id
+        ), recursos_unificados AS (
+          SELECT d.competencia_recurso AS competencia, d.convenio_recurso AS convenio,
+            COALESCE(NULLIF(d.valor_recurso,0),d.valor_glosa,0) AS glosa_recursada,
+            CASE WHEN d.recurso_status IN ('recurso_criado','recurso_enviado') THEN COALESCE(NULLIF(d.valor_recurso,0),d.valor_glosa,0) ELSE 0 END AS glosa_em_recurso,
+            0 AS glosa_recuperada
+          FROM retornos_glosados_periodo d
+          WHERE d.recurso_status IN ('recurso_criado','recurso_enviado','recurso_deferido','recurso_indeferido')
+          UNION ALL
+          SELECT vl.competencia,
+            COALESCE(vl.convenio,NULLIF(TRIM(c.nome),''),CONCAT('Convênio ',rg.convenioId)) AS convenio,
+            COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0) AS glosa_recursada,
+            CASE WHEN rg.status IN ('rascunho','pendente_envio','enviado','em_analise') THEN COALESCE(NULLIF(rg.valorGlosado,0),rg.valorCobrado,0) ELSE 0 END AS glosa_em_recurso,
+            GREATEST(COALESCE(rg.valorRecebido,0),COALESCE(rg.valorRecuperado,0)) AS glosa_recuperada
+          FROM vinculos_legados vl
+          JOIN recursosGlosa rg ON rg.id=vl.recurso_id
+          LEFT JOIN convenios c ON c.id=rg.convenioId
+          WHERE COALESCE(vl.possui_recurso_novo,0)=0
+        )
+        SELECT competencia, convenio,
+          SUM(glosa_recursada) AS glosa_recursada,
+          SUM(glosa_em_recurso) AS glosa_em_recurso,
+          SUM(glosa_recuperada) AS glosa_recuperada,
           COUNT(*) AS quantidade
-        FROM recursosGlosa rg
-        LEFT JOIN (
-          SELECT d.estabelecimentoId, d.numero_guia,
-            TRIM(COALESCE(d.codigo_item,'')) AS codigo_item,
-            ROUND(COALESCE(d.valor_glosa,0),2) AS valor_glosa,
-            MIN(DATE_FORMAT(d.data_referencia,'%Y/%m')) AS competencia
-          FROM demonstrativo d
-          WHERE d.estabelecimentoId = ? AND COALESCE(d.valor_glosa,0) > 0
-          GROUP BY d.estabelecimentoId,d.numero_guia,TRIM(COALESCE(d.codigo_item,'')),ROUND(COALESCE(d.valor_glosa,0),2)
-        ) dm ON dm.estabelecimentoId=rg.estabelecimentoId
-          AND dm.numero_guia=rg.guiaNumero
-          AND dm.codigo_item=TRIM(COALESCE(rg.codigoProcedimento,''))
-          AND dm.valor_glosa=ROUND(COALESCE(rg.valorGlosado,0),2)
-        LEFT JOIN convenios c ON c.id=rg.convenioId
-        ${recWhere}
-        GROUP BY dm.competencia, COALESCE(NULLIF(TRIM(c.nome),''),CONCAT('Convênio ',rg.convenioId))
+        FROM recursos_unificados
+        GROUP BY competencia, convenio
       `, recParams);
 
       let aceiteHistoricoRows: any[] = [];
@@ -299,12 +396,12 @@ export const faturadoRecebidoUnificadoRouter = router({
         return nomes.get(chave)!;
       };
       for (const row of fatRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "faturado", origem: "automatica", faturado: Number(row.faturado || 0), quantidade: Number(row.quantidade || 0) });
-      for (const row of retRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", origem: "automatica", recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), glosaAceita: Number(row.glosa_aceita || 0), quantidade: Number(row.quantidade || 0) });
+      for (const row of retRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", origem: "automatica", recebido: Number(row.recebido || 0), recebidoVinculado: Number(row.recebido_vinculado || 0), recebidoSemVinculo: Number(row.recebido_sem_vinculo || 0), glosado: Number(row.glosado || 0), glosaAceita: Number(row.glosa_aceita || 0), quantidade: Number(row.quantidade || 0) });
       for (const row of manualRows) {
         const convenioManual = nomeCanonico(String(row.convenio));
         const origem = String(row.origem).trim().toLowerCase() === "manual" ? "manual" : "planilha";
         registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "faturado", origem, faturado: Number(row.faturado || 0), quantidade: 1 });
-        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "retorno", origem, recebido: Number(row.recebido || 0), glosado: Number(row.glosado || 0), quantidade: 1 });
+        registros.push({ competencia: row.competencia || null, convenio: convenioManual, fonte: "retorno", origem, recebido: Number(row.recebido || 0), recebidoSemVinculo: Number(row.recebido || 0), glosado: Number(row.glosado || 0), quantidade: 1 });
       }
       for (const row of aceiteHistoricoRows) registros.push({ competencia: null, convenio: nomeCanonico(String(row.convenio)), fonte: "retorno", glosaAceita: Number(row.glosa_aceita || 0), quantidade: 0 });
       for (const row of recRows) registros.push({ competencia: row.competencia || null, convenio: nomeCanonico(String(row.convenio)), fonte: "recurso", glosaRecursada: Number(row.glosa_recursada || 0), glosaEmRecurso: Number(row.glosa_em_recurso || 0), glosaRecuperada: Number(row.glosa_recuperada || 0), quantidade: Number(row.quantidade || 0) });
@@ -335,10 +432,13 @@ export const faturadoRecebidoUnificadoRouter = router({
         ORDER BY valor_glosado DESC LIMIT ${input.limite}
       `, retParams);
 
+      const periodoDisponivelSql = porMesPagamento
+        ? "DATE_FORMAT(data_pagamento,'%Y/%m')"
+        : "DATE_FORMAT(data_referencia,'%Y/%m')";
       const [competenciaRows] = await conn.execute<any[]>(`
         SELECT competencia FROM (
           SELECT DISTINCT competencia FROM contas_convenio_itens WHERE estabelecimentoId=? AND competencia IS NOT NULL AND competencia<>''
-          UNION SELECT DISTINCT DATE_FORMAT(data_referencia,'%Y/%m') FROM demonstrativo WHERE estabelecimentoId=? AND data_referencia IS NOT NULL
+          UNION SELECT DISTINCT ${periodoDisponivelSql} FROM demonstrativo WHERE estabelecimentoId=? AND ${porMesPagamento ? "data_pagamento" : "data_referencia"} IS NOT NULL
           UNION SELECT DISTINCT mes_ano FROM faturamento_externo WHERE estabelecimento_id=? AND mes_ano IS NOT NULL AND mes_ano<>''
         ) periodos ORDER BY competencia DESC
       `, [input.estabelecimentoId, input.estabelecimentoId, input.estabelecimentoId]);
@@ -357,7 +457,7 @@ export const faturadoRecebidoUnificadoRouter = router({
 
       return {
         estabelecimento: { id: Number(estabelecimento.id), nome: String(estabelecimento.nome) },
-        filtrosAplicados: { competencia: input.competencia || null, convenio: input.convenio || null },
+        filtrosAplicados: { criterioPeriodo: input.criterioPeriodo, competencia: input.competencia || null, convenio: input.convenio || null },
         resumo,
         porConvenio,
         porMes,
@@ -376,9 +476,12 @@ export const faturadoRecebidoUnificadoRouter = router({
           convenios: convenioRows.map((row) => String(row.convenio)),
         },
         metodologia: {
+          criterioPeriodo: porMesPagamento
+            ? "recebido e glosado pela data efetiva de pagamento; faturado permanece no mês de competência da conta"
+            : "recebido e glosado pela competência da conta faturada quando há vínculo único; sem vínculo usa a competência informada pelo retorno",
           faturado: "contas_convenio_itens por competência, limitado ao prestador próprio ativo cadastrado em /convenios; quando não há prestador próprio cadastrado, preserva os itens do estabelecimento",
-          recebidoGlosado: "demonstrativo associado aos itens faturados do prestador próprio por convênio, guia, procedimento e data; usa o mês de referência somente quando não existe fonte faturada para o mesmo convênio e competência",
-          recursos: "recursosGlosa vinculado ao demonstrativo por estabelecimento, guia, código e valor",
+          recebidoGlosado: "preserva no período escolhido os retornos vinculados ao faturamento próprio, sem código de prestador ou com identificador confirmado por vínculo anterior; valores sem correspondência única ficam visíveis como sem vínculo, enquanto identificadores de outro prestador permanecem excluídos",
+          recursos: "itens do demonstrativo vinculados ao lote novo são a fonte principal; recursosGlosa é usado somente como fallback por estabelecimento, guia, código e valor, sem dupla contagem",
           glosaAceita: "decisões atuais e histórico associado somente quando convênio, código, valor e estabelecimento são inequívocos; histórico sem data não é atribuído a Mês/Ano",
           manual: "cadastros manuais complementam as fontes automáticas; importações por planilha são usadas somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
         },

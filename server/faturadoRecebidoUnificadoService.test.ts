@@ -52,15 +52,28 @@ describe("faturadoRecebidoUnificadoService", () => {
     expect(calcularFaturadoReconhecido(100, 180, 20)).toBe(100);
   });
 
+  it("preserva e mede separadamente o recebido vinculado e sem vínculo", () => {
+    const consolidado = consolidarRegistrosFinanceiros([
+      { competencia: "2026/08", convenio: "Ipasgo", fonte: "retorno", recebido: 715740, recebidoVinculado: 405325.16, recebidoSemVinculo: 310414.84 },
+    ]);
+    const resumo = calcularIndicadoresFinanceiros(consolidado);
+
+    expect(resumo.totalRecebido).toBe(715740);
+    expect(resumo.totalRecebidoVinculado).toBe(405325.16);
+    expect(resumo.totalRecebidoSemVinculo).toBe(310414.84);
+    expect(resumo.percentualRecebidoSemVinculo).toBe(43.37);
+  });
+
   it("soma o cadastro manual como complemento da fonte automática na mesma competência", () => {
     const consolidado = consolidarRegistrosFinanceiros([
-      { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "automatica", recebido: 58086.20, glosado: 1912.22, quantidade: 698 },
+      { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "automatica", recebido: 58086.20, recebidoVinculado: 58086.20, glosado: 1912.22, quantidade: 698 },
       { competencia: "2026/08", convenio: "Unimed", fonte: "faturado", origem: "manual", faturado: 18034.84, quantidade: 1 },
-      { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "manual", recebido: 19356.48, glosado: 0, quantidade: 1 },
+      { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "manual", recebido: 19356.48, recebidoSemVinculo: 19356.48, glosado: 0, quantidade: 1 },
     ]);
     const resumo = calcularIndicadoresFinanceiros(consolidado);
     expect(resumo.totalFaturado).toBe(78033.26);
     expect(resumo.totalRecebido).toBe(77442.68);
+    expect(resumo.totalRecebidoVinculado + resumo.totalRecebidoSemVinculo).toBe(resumo.totalRecebido);
     expect(resumo.totalGlosado).toBe(1912.22);
     expect(resumo.totalAcrescimo).toBe(1321.64);
   });

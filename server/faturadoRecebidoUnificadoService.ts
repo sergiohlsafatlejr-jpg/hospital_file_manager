@@ -5,6 +5,8 @@ export type RegistroFinanceiroUnificado = {
   origem?: "automatica" | "manual" | "planilha";
   faturado?: number;
   recebido?: number;
+  recebidoVinculado?: number;
+  recebidoSemVinculo?: number;
   glosado?: number;
   glosaAceita?: number;
   glosaRecursada?: number;
@@ -17,6 +19,8 @@ export type RegistroFinanceiroUnificado = {
 export type IndicadoresFinanceirosUnificado = {
   totalFaturado: number;
   totalRecebido: number;
+  totalRecebidoVinculado: number;
+  totalRecebidoSemVinculo: number;
   totalGlosado: number;
   totalSaldo: number;
   totalAcrescimo: number;
@@ -28,6 +32,7 @@ export type IndicadoresFinanceirosUnificado = {
   quantidade: number;
   percentualGlosa: number;
   percentualRecebido: number;
+  percentualRecebidoSemVinculo: number;
   percentualRecurso: number;
 };
 
@@ -61,6 +66,8 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     recebidoBase: number;
     glosadoBase: number;
     recebido: number;
+    recebidoVinculado: number;
+    recebidoSemVinculo: number;
     glosado: number;
     glosaAceita: number;
     glosaRecursada: number;
@@ -80,6 +87,8 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       recebidoBase: 0,
       glosadoBase: 0,
       recebido: 0,
+      recebidoVinculado: 0,
+      recebidoSemVinculo: 0,
       glosado: 0,
       glosaAceita: 0,
       glosaRecursada: 0,
@@ -97,6 +106,8 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       atual.glosadoBase += Number(item.glosado || 0);
     }
     atual.recebido += Number(item.recebido || 0);
+    atual.recebidoVinculado += Number(item.recebidoVinculado || 0);
+    atual.recebidoSemVinculo += Number(item.recebidoSemVinculo || 0);
     atual.glosado += Number(item.glosado || 0);
     atual.glosaAceita += Number(item.glosaAceita || 0);
     atual.glosaRecursada += Number(item.glosaRecursada || 0);
@@ -116,6 +127,8 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
         + item.faturadoManual
       ),
       recebido: arredondar(item.recebido),
+      recebidoVinculado: arredondar(item.recebidoVinculado),
+      recebidoSemVinculo: arredondar(item.recebidoSemVinculo),
       glosado: arredondar(item.glosado),
       glosaAceita: arredondar(item.glosaAceita),
       glosaRecursada: arredondar(item.glosaRecursada),
@@ -130,6 +143,8 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
   const bruto = registros.reduce((total, item) => ({
     totalFaturado: total.totalFaturado + Number(item.faturado || 0),
     totalRecebido: total.totalRecebido + Number(item.recebido || 0),
+    totalRecebidoVinculado: total.totalRecebidoVinculado + Number(item.recebidoVinculado || 0),
+    totalRecebidoSemVinculo: total.totalRecebidoSemVinculo + Number(item.recebidoSemVinculo || 0),
     totalGlosado: total.totalGlosado + Number(item.glosado || 0),
     glosaAceita: total.glosaAceita + Number(item.glosaAceita || 0),
     glosaRecursada: total.glosaRecursada + Number(item.glosaRecursada || 0),
@@ -139,6 +154,8 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
   }), {
     totalFaturado: 0,
     totalRecebido: 0,
+    totalRecebidoVinculado: 0,
+    totalRecebidoSemVinculo: 0,
     totalGlosado: 0,
     glosaAceita: 0,
     glosaRecursada: 0,
@@ -149,6 +166,8 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
 
   const totalFaturado = arredondar(bruto.totalFaturado);
   const totalRecebido = arredondar(bruto.totalRecebido);
+  const totalRecebidoVinculado = arredondar(bruto.totalRecebidoVinculado);
+  const totalRecebidoSemVinculo = arredondar(bruto.totalRecebidoSemVinculo);
   const totalGlosado = arredondar(bruto.totalGlosado);
   const glosaAceita = arredondar(bruto.glosaAceita);
   const glosaRecursada = arredondar(bruto.glosaRecursada);
@@ -161,6 +180,8 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
   return {
     totalFaturado,
     totalRecebido,
+    totalRecebidoVinculado,
+    totalRecebidoSemVinculo,
     totalGlosado,
     totalSaldo,
     totalAcrescimo,
@@ -172,6 +193,7 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
     quantidade: bruto.quantidade,
     percentualGlosa: percentual(totalGlosado, totalFaturado),
     percentualRecebido: percentual(totalRecebido, totalFaturado),
+    percentualRecebidoSemVinculo: percentual(totalRecebidoSemVinculo, totalRecebido),
     percentualRecurso: percentual(glosaRecursada, totalGlosado),
   };
 }
