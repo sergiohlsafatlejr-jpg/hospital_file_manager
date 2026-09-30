@@ -45,12 +45,16 @@ describe("período do Faturado x Recebido", () => {
     expect(router).toContain("MIN(d.competencia_recurso) AS competencia");
   });
 
-  it("mostra o seletor e o indicador sem afetar a visão Warleine", () => {
+  it("mostra o seletor sem expor o diagnóstico técnico de vínculo na visão financeira", () => {
     expect(tela).toContain("Organizar recebido por");
     expect(tela).toContain("Mês do pagamento");
     expect(tela).toContain("Competência do faturamento");
-    expect(tela).toContain('label="Sem vínculo"');
-    expect(tela).toContain("!isWarleine &&");
+    expect(tela).not.toContain('label="Sem vínculo"');
+    expect(tela).not.toContain(">Sem vínculo</th>");
+    expect(tela).not.toContain('"Recebido sem vínculo"');
+    expect(router).not.toContain("sem vínculo");
+    expect(tela).toContain("O recebido inclui todos os valores informados pela operadora para a unidade");
+    expect(router).toContain("a correspondência técnica com uma conta é mantida somente para auditoria interna e não altera o total recebido");
   });
 
   it("mostra e exporta separadamente a glosa recursada", () => {

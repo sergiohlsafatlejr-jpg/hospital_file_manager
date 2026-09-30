@@ -478,9 +478,9 @@ export const faturadoRecebidoUnificadoRouter = router({
         metodologia: {
           criterioPeriodo: porMesPagamento
             ? "recebido e glosado pela data efetiva de pagamento; faturado permanece no mês de competência da conta"
-            : "recebido e glosado pela competência da conta faturada quando há vínculo único; sem vínculo usa a competência informada pelo retorno",
+            : "recebido e glosado pela competência da conta quando ela é identificada; nos demais retornos usa a competência informada pela operadora",
           faturado: "contas_convenio_itens por competência, limitado ao prestador próprio ativo cadastrado em /convenios; quando não há prestador próprio cadastrado, preserva os itens do estabelecimento",
-          recebidoGlosado: "preserva no período escolhido os retornos vinculados ao faturamento próprio, sem código de prestador ou com identificador confirmado por vínculo anterior; valores sem correspondência única ficam visíveis como sem vínculo, enquanto identificadores de outro prestador permanecem excluídos",
+          recebidoGlosado: "preserva no período escolhido todos os retornos válidos da unidade; a correspondência técnica com uma conta é mantida somente para auditoria interna e não altera o total recebido, enquanto identificadores de outro prestador permanecem excluídos",
           recursos: "itens do demonstrativo vinculados ao lote novo são a fonte principal; recursosGlosa é usado somente como fallback por estabelecimento, guia, código e valor, sem dupla contagem",
           glosaAceita: "decisões atuais e histórico associado somente quando convênio, código, valor e estabelecimento são inequívocos; histórico sem data não é atribuído a Mês/Ano",
           manual: "cadastros manuais complementam as fontes automáticas; importações por planilha são usadas somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
