@@ -11,6 +11,7 @@ export type FinanceiroTooltipRow = {
   totalSaldo?: number;
   totalAcrescimo?: number;
   glosaARecursar?: number;
+  glosaRecursada?: number;
   glosaEmRecurso?: number;
   glosaRecuperada?: number;
   glosaAceita?: number;
@@ -81,6 +82,7 @@ export function criarTooltipFinanceiro(
     ],
     resourceMetrics: [
       { label: "A recursar", value: number(row.glosaARecursar), format: "money", tone: "warning" },
+      { label: "Recursada", value: number(row.glosaRecursada), format: "money", tone: "info" },
       { label: "Em recurso", value: number(row.glosaEmRecurso), format: "money", tone: "info" },
       { label: "Recuperada", value: number(row.glosaRecuperada), format: "money", tone: "positive" },
       { label: "Aceita", value: number(row.glosaAceita), format: "money", tone: "violet" },
