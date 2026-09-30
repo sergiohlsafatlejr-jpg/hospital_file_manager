@@ -21,6 +21,7 @@ import { enviarEmail, gerarHtmlNotificacaoAtendimentos, verificarConexaoSMTP } f
 import { padroesProcedimentosRouter } from "./routers/padroesProcedimentosRouter";
 import { padroesCobrancaRouter } from "./routers/padroesCobrancaRouter";
 import { integradorDadosRouter } from "./routers/integradorDadosRouter";
+import { easyLocalRouter } from "./routers/easyLocalRouter";
 import { faturamentoUnificadoRouter } from "./routers/faturamentoUnificadoRouter";
 import { contasConvenioRouter } from "./routers/contasConvenioRouter";
 import { cbhpmRouter } from "./routers/cbhpmRouter";
@@ -8711,6 +8712,9 @@ export const appRouter = router({
 
   // ============ INTEGRADOR DE DADOS ============
   integradorDados: integradorDadosRouter,
+
+  // ============ EASYLOCAL: CONECTIVIDADE SOMENTE LEITURA ============
+  easyLocal: easyLocalRouter,
 
   // ============ CONTAS CONVÊNIO (OPERACIONAL) ============
   contasConvenio: contasConvenioRouter,
