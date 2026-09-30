@@ -63,6 +63,7 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     convenio: string;
     faturadoBase: number;
     faturadoManual: number;
+    faturadoPlanilha: number;
     recebidoBase: number;
     glosadoBase: number;
     recebido: number;
@@ -73,7 +74,9 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     glosaRecursada: number;
     glosaEmRecurso: number;
     glosaRecuperada: number;
-    quantidadeFaturada: number;
+    quantidadeFaturadaBase: number;
+    quantidadeFaturadaManual: number;
+    quantidadeFaturadaPlanilha: number;
     quantidadeRetorno: number;
   }>();
 
@@ -84,6 +87,7 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       convenio: item.convenio,
       faturadoBase: 0,
       faturadoManual: 0,
+      faturadoPlanilha: 0,
       recebidoBase: 0,
       glosadoBase: 0,
       recebido: 0,
@@ -94,12 +98,22 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       glosaRecursada: 0,
       glosaEmRecurso: 0,
       glosaRecuperada: 0,
-      quantidadeFaturada: 0,
+      quantidadeFaturadaBase: 0,
+      quantidadeFaturadaManual: 0,
+      quantidadeFaturadaPlanilha: 0,
       quantidadeRetorno: 0,
     };
     if (item.fonte === "faturado") {
-      if (item.origem === "manual") atual.faturadoManual += Number(item.faturado || 0);
-      else atual.faturadoBase += Number(item.faturado || 0);
+      if (item.origem === "manual") {
+        atual.faturadoManual += Number(item.faturado || 0);
+        atual.quantidadeFaturadaManual += Number(item.quantidade || 0);
+      } else if (item.origem === "planilha") {
+        atual.faturadoPlanilha += Number(item.faturado || 0);
+        atual.quantidadeFaturadaPlanilha += Number(item.quantidade || 0);
+      } else {
+        atual.faturadoBase += Number(item.faturado || 0);
+        atual.quantidadeFaturadaBase += Number(item.quantidade || 0);
+      }
     }
     if (item.fonte === "retorno" && item.origem !== "manual") {
       atual.recebidoBase += Number(item.recebido || 0);
@@ -113,19 +127,23 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
     atual.glosaRecursada += Number(item.glosaRecursada || 0);
     atual.glosaEmRecurso += Number(item.glosaEmRecurso || 0);
     atual.glosaRecuperada += Number(item.glosaRecuperada || 0);
-    if (item.fonte === "faturado") atual.quantidadeFaturada += Number(item.quantidade || 0);
     if (item.fonte === "retorno") atual.quantidadeRetorno += Number(item.quantidade || 0);
     grupos.set(chave, atual);
   }
 
   return [...grupos.values()].map((item): RegistroFinanceiroUnificado => {
+    // O faturado é uma única medida por período e convênio: XML > manual >
+    // planilha externa > estimativa do demonstrativo, sem somar fontes.
+    // Recebido e glosa manuais permanecem complementares até haver distinção
+    // explícita entre complemento e lançamento provisório no cadastro.
+    const faturadoFonte = item.faturadoBase > 0 ? item.faturadoBase
+      : item.faturadoManual > 0 ? item.faturadoManual : item.faturadoPlanilha;
+    const quantidadeFaturada = item.faturadoBase > 0 ? item.quantidadeFaturadaBase
+      : item.faturadoManual > 0 ? item.quantidadeFaturadaManual : item.faturadoPlanilha > 0 ? item.quantidadeFaturadaPlanilha : 0;
     return {
       competencia: item.competencia,
       convenio: item.convenio,
-      faturado: arredondar(
-        calcularFaturadoReconhecido(item.faturadoBase, item.recebidoBase, item.glosadoBase)
-        + item.faturadoManual
-      ),
+      faturado: calcularFaturadoReconhecido(faturadoFonte, item.recebidoBase, item.glosadoBase),
       recebido: arredondar(item.recebido),
       recebidoVinculado: arredondar(item.recebidoVinculado),
       recebidoSemVinculo: arredondar(item.recebidoSemVinculo),
@@ -134,7 +152,7 @@ export function consolidarRegistrosFinanceiros(registros: RegistroFinanceiroUnif
       glosaRecursada: arredondar(item.glosaRecursada),
       glosaEmRecurso: arredondar(item.glosaEmRecurso),
       glosaRecuperada: arredondar(item.glosaRecuperada),
-      quantidade: Math.max(item.quantidadeFaturada, item.quantidadeRetorno),
+      quantidade: Math.max(quantidadeFaturada, item.quantidadeRetorno),
     };
   });
 }

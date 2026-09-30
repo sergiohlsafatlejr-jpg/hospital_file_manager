@@ -483,7 +483,7 @@ export const faturadoRecebidoUnificadoRouter = router({
           recebidoGlosado: "preserva no período escolhido todos os retornos válidos da unidade; a correspondência técnica com uma conta é mantida somente para auditoria interna e não altera o total recebido, enquanto identificadores de outro prestador permanecem excluídos",
           recursos: "itens do demonstrativo vinculados ao lote novo são a fonte principal; recursosGlosa é usado somente como fallback por estabelecimento, guia, código e valor, sem dupla contagem",
           glosaAceita: "decisões atuais e histórico associado somente quando convênio, código, valor e estabelecimento são inequívocos; histórico sem data não é atribuído a Mês/Ano",
-          manual: "cadastros manuais complementam as fontes automáticas; importações por planilha são usadas somente quando não existe conta faturada nem demonstrativo para o mesmo estabelecimento, convênio e competência",
+          manual: "no mesmo período e convênio, o faturamento XML prevalece sobre o manual, que prevalece sobre planilha externa e estimativa do retorno. Recebido e glosa manuais continuam complementares aos demonstrativos até existir identificação explícita de lançamentos provisórios; planilhas externas preenchem apenas fontes ausentes",
         },
       };
     } finally {

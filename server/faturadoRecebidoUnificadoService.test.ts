@@ -64,17 +64,69 @@ describe("faturadoRecebidoUnificadoService", () => {
     expect(resumo.percentualRecebidoSemVinculo).toBe(43.37);
   });
 
-  it("soma o cadastro manual como complemento da fonte automática na mesma competência", () => {
+  it("não soma faturado manual com processado automático, preservando recebido manual complementar", () => {
     const consolidado = consolidarRegistrosFinanceiros([
       { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "automatica", recebido: 58086.20, recebidoVinculado: 58086.20, glosado: 1912.22, quantidade: 698 },
       { competencia: "2026/08", convenio: "Unimed", fonte: "faturado", origem: "manual", faturado: 18034.84, quantidade: 1 },
       { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", origem: "manual", recebido: 19356.48, recebidoSemVinculo: 19356.48, glosado: 0, quantidade: 1 },
     ]);
     const resumo = calcularIndicadoresFinanceiros(consolidado);
-    expect(resumo.totalFaturado).toBe(78033.26);
+    expect(resumo.totalFaturado).toBe(18034.84);
     expect(resumo.totalRecebido).toBe(77442.68);
     expect(resumo.totalRecebidoVinculado + resumo.totalRecebidoSemVinculo).toBe(resumo.totalRecebido);
     expect(resumo.totalGlosado).toBe(1912.22);
-    expect(resumo.totalAcrescimo).toBe(1321.64);
+    expect(resumo.totalAcrescimo).toBe(61320.06);
+  });
+
+  it("usa o faturado manual do HF Visão/Senaprev sem duplicá-lo pelo retorno importado", () => {
+    const consolidado = consolidarRegistrosFinanceiros([
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado", origem: "manual", faturado: 22184.16 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "retorno", origem: "automatica", recebido: 22132.50, glosado: 331.76, quantidade: 505 },
+    ]);
+    const resumo = calcularIndicadoresFinanceiros(consolidado);
+    expect(resumo.totalFaturado).toBe(22184.16);
+    expect(resumo.totalRecebido).toBe(22132.50);
+    expect(resumo.totalGlosado).toBe(331.76);
+    expect(resumo.totalSaldo).toBe(0);
+    expect(resumo.totalAcrescimo).toBe(280.10);
+  });
+
+  it("preserva apenas o cadastro manual quando não há fonte automática no mesmo período", () => {
+    const consolidado = consolidarRegistrosFinanceiros([
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado", origem: "manual", faturado: 22184.16 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "retorno", origem: "manual", recebido: 21000, recebidoSemVinculo: 21000, glosado: 100 },
+    ]);
+    const resumo = calcularIndicadoresFinanceiros(consolidado);
+    expect(resumo.totalFaturado).toBe(22184.16);
+    expect(resumo.totalRecebido).toBe(21000);
+    expect(resumo.totalGlosado).toBe(100);
+    expect(resumo.totalRecebidoSemVinculo).toBe(21000);
+    expect(resumo.totalSaldo).toBe(1084.16);
+  });
+
+  it("prioriza o faturamento XML quando ele chega após o cadastro manual, sem afetar outro convênio", () => {
+    const consolidado = consolidarRegistrosFinanceiros([
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado", origem: "manual", faturado: 22184.16, quantidade: 9 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado", origem: "automatica", faturado: 22000, quantidade: 2 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "retorno", origem: "automatica", recebido: 21000, glosado: 100, quantidade: 1 },
+      { competencia: "2026/08", convenio: "Outro convênio", fonte: "faturado", origem: "manual", faturado: 300 },
+    ]);
+    const porConvenio = agruparFinanceiro(consolidado, "convenio") as Array<{ convenio: string; totalFaturado: number; quantidade: number }>;
+    expect(porConvenio.find((row) => row.convenio === "Senaprev - Iamesc")?.totalFaturado).toBe(22000);
+    expect(porConvenio.find((row) => row.convenio === "Senaprev - Iamesc")?.quantidade).toBe(2);
+    expect(porConvenio.find((row) => row.convenio === "Outro convênio")?.totalFaturado).toBe(300);
+  });
+
+  it("usa manual antes de planilha externa e seleciona a quantidade correspondente", () => {
+    const registros = [
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado" as const, origem: "planilha" as const, faturado: 200, quantidade: 30 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "faturado" as const, origem: "manual" as const, faturado: 100, quantidade: 1 },
+      { competencia: "2026/08", convenio: "Senaprev - Iamesc", fonte: "retorno" as const, origem: "planilha" as const, recebido: 75, quantidade: 1 },
+    ];
+    const manualPrioritario = consolidarRegistrosFinanceiros(registros)[0];
+    expect(manualPrioritario).toMatchObject({ faturado: 100, recebido: 75, quantidade: 1 });
+
+    const apenasPlanilha = consolidarRegistrosFinanceiros(registros.filter((r) => r.origem !== "manual"))[0];
+    expect(apenasPlanilha).toMatchObject({ faturado: 200, recebido: 75, quantidade: 30 });
   });
 });
