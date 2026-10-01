@@ -168,8 +168,8 @@ export default function TabelasPreco() {
     { enabled: !!selectedItemForHistory && historyDialogOpen }
   );
   const { data: exportDbfOpcoes, isLoading: isLoadingExportDbfOpcoes } = trpc.tabelasPreco.exportarUnimedOpcoes.useQuery(
-    undefined,
-    { enabled: tipoSelecionado === "procedimentos" },
+    { convenioId: convenioId!, estabelecimentoId: estabelecimentoAtual?.id! },
+    { enabled: !!convenioId && !!estabelecimentoAtual?.id && tipoSelecionado === "procedimentos" },
   );
 
   // Mutations
@@ -684,7 +684,7 @@ export default function TabelasPreco() {
                       <Button
                         variant="outline"
                         onClick={() => setExportDbfDialogOpen(true)}
-                        disabled={!convenioId || isLoadingExportDbfOpcoes || exportarUnimedDbfMutation.isPending}
+                        disabled={!convenioId || !estabelecimentoAtual?.id || isLoadingExportDbfOpcoes || exportarUnimedDbfMutation.isPending}
                       >
                         <Download className="h-4 w-4 mr-2" />
                         Exportar DBF
@@ -1116,17 +1116,19 @@ export default function TabelasPreco() {
               </Button>
               <Button
                 onClick={() => {
-                  if (!convenioId || !exportDbfVigencia || !exportDbfTipoBeneficiario) {
-                    toast.error("Selecione a vigência e o tipo de beneficiário.");
+                  if (!convenioId || !estabelecimentoAtual?.id || !exportDbfVigencia || !exportDbfTipoBeneficiario) {
+                    toast.error("Selecione estabelecimento, vigência e tipo de beneficiário.");
                     return;
                   }
                   exportarUnimedDbfMutation.mutate({
                     convenioId,
+                    estabelecimentoId: estabelecimentoAtual.id,
                     vigencia: exportDbfVigencia,
                     tipoBeneficiario: exportDbfTipoBeneficiario,
                   });
                 }}
                 disabled={
+                  !estabelecimentoAtual?.id ||
                   !exportDbfVigencia ||
                   !exportDbfTipoBeneficiario ||
                   isLoadingExportDbfOpcoes ||

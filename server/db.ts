@@ -19854,12 +19854,44 @@ export async function publicarProcedimentosConsolidados(
 
 export type UnimedExportFilters = {
   convenioId: number;
+  estabelecimentoId: number;
   vigencia: string;
   tipoBeneficiario: string;
 };
 
-/** Retorna as opções existentes no banco para os filtros do exportador Unimed. */
-export async function getOpcoesExportacaoUnimed() {
+/** Escopo da tela: tabela específica da unidade ou tabela global (NULL). */
+export function escopoExportacaoUnimed(convenioId: number, estabelecimentoId: number) {
+  return and(
+    eq(tabelasPreco.convenioId, convenioId),
+    eq(tabelasPreco.tipo, "procedimentos" as const),
+    eq(tabelasPreco.ativo, "sim"),
+    or(eq(tabelasPreco.estabelecimentoId, estabelecimentoId), isNull(tabelasPreco.estabelecimentoId)),
+  );
+}
+
+/** Um código por DBF: preço da unidade prevalece ao global; colisão no mesmo escopo exige revisão. */
+export function selecionarLinhasUnimedPorUnidade<T extends { codigo: string; estabelecimentoId: number | null }>(
+  rows: T[], estabelecimentoId: number,
+): T[] {
+  const porCodigo = new Map<string, T>();
+  for (const row of rows) {
+    if (row.estabelecimentoId !== null && row.estabelecimentoId !== estabelecimentoId) {
+      throw new Error("Há procedimentos de outra unidade na exportação; operação cancelada.");
+    }
+    const anterior = porCodigo.get(row.codigo);
+    if (!anterior) {
+      porCodigo.set(row.codigo, row);
+    } else if (anterior.estabelecimentoId === null && row.estabelecimentoId === estabelecimentoId) {
+      porCodigo.set(row.codigo, row);
+    } else if (anterior.estabelecimentoId === row.estabelecimentoId) {
+      throw new Error("Há procedimentos repetidos na mesma tabela de preços; revise o cadastro antes de exportar o DBF.");
+    }
+  }
+  return [...porCodigo.values()].sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+/** Retorna as opções existentes no escopo do convênio e da unidade selecionados. */
+export async function getOpcoesExportacaoUnimed(convenioId: number, estabelecimentoId: number) {
   const dbConn = await getDb();
   if (!dbConn) return { vigencias: [], tiposBeneficiarios: [] };
 
@@ -19867,7 +19899,7 @@ export async function getOpcoesExportacaoUnimed() {
     vigencia: sql<string>`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s')`,
   })
     .from(tabelasPreco)
-    .where(eq(tabelasPreco.tipo, "procedimentos" as const))
+    .where(escopoExportacaoUnimed(convenioId, estabelecimentoId))
     .orderBy(sql`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s') DESC`);
 
   const tiposBeneficiarios = await dbConn.selectDistinct({
@@ -19875,7 +19907,7 @@ export async function getOpcoesExportacaoUnimed() {
   })
     .from(tabelasPreco)
     .where(and(
-      eq(tabelasPreco.tipo, "procedimentos" as const),
+      escopoExportacaoUnimed(convenioId, estabelecimentoId),
       isNotNull(tabelasPreco.tipoBeneficiario),
       sql`${tabelasPreco.tipoBeneficiario} <> ''`,
     ))
@@ -19895,6 +19927,7 @@ export async function getLinhasExportacaoUnimed(filtros: UnimedExportFilters) {
   if (!dbConn) return [];
 
   const rows = await dbConn.select({
+    estabelecimentoId: tabelasPreco.estabelecimentoId,
     codigo: tabelasPreco.codigo,
     nome: tabelasPreco.nome,
     valor: tabelasPreco.valor,
@@ -19904,12 +19937,11 @@ export async function getLinhasExportacaoUnimed(filtros: UnimedExportFilters) {
   })
     .from(tabelasPreco)
     .where(and(
-      eq(tabelasPreco.convenioId, filtros.convenioId),
-      eq(tabelasPreco.tipo, "procedimentos" as const),
+      escopoExportacaoUnimed(filtros.convenioId, filtros.estabelecimentoId),
       sql`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s') = ${filtros.vigencia}`,
       eq(tabelasPreco.tipoBeneficiario, filtros.tipoBeneficiario),
     ))
     .orderBy(tabelasPreco.codigo);
 
-  return rows;
+  return selecionarLinhasUnimedPorUnidade(rows, filtros.estabelecimentoId);
 }
