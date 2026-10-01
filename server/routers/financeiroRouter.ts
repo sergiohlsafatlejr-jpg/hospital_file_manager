@@ -2,7 +2,7 @@ import { z } from "zod";
 import pdfParse from "pdf-parse";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos } from "../bancoInter";
 import {
   finEmpresas, finClientes, finCategorias, finTiposPagamento,
@@ -10,6 +10,8 @@ import {
   finRecebiveis, finExtratos, finPrevisaoReceita, finCentrosCusto,
 } from "../../drizzle/schema";
 import { eq, desc, and, sql, like, gte, lte, asc, inArray } from "drizzle-orm";
+import { isNull, or } from "drizzle-orm";
+import { chaveContaPagar, contasPagarImportSchema, normalizarNome } from "../../shared/contasPagarImport";
 
 // ============================================================
 // EMPRESAS
@@ -245,6 +247,7 @@ const custosRouter = router({
 const transacoesRouter = router({
   listar: protectedProcedure
     .input(z.object({
+      estabelecimentoId: z.number().int().positive(),
       empresaId: z.number().optional(),
       categoriaId: z.number().optional(),
       bancoId: z.number().optional(),
@@ -255,11 +258,14 @@ const transacoesRouter = router({
       busca: z.string().optional(),
       page: z.number().default(1),
       limit: z.number().default(50),
-    }).optional())
-    .query(async ({ input }) => {
+    }))
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso ao estabelecimento" });
+      }
       const db = (await getDb())!;
-      const p = input || { page: 1, limit: 50 };
-      const conditions = [];
+      const p = input;
+      const conditions = [eq(finEmpresas.estabelecimentoId, p.estabelecimentoId)];
       if (p.empresaId) conditions.push(eq(finTransacoes.empresaId, p.empresaId));
       if (p.categoriaId) conditions.push(eq(finTransacoes.categoriaId, p.categoriaId));
       if (p.bancoId) conditions.push(eq(finTransacoes.bancoId, p.bancoId));
@@ -290,28 +296,36 @@ const transacoesRouter = router({
           centroCustoNome: finCentrosCusto.nome,
         })
           .from(finTransacoes)
+          .innerJoin(finEmpresas, eq(finTransacoes.empresaId, finEmpresas.id))
           .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
           .leftJoin(finCentrosCusto, eq(finTransacoes.centroCustoId, finCentrosCusto.id))
           .where(where)
           .orderBy(desc(finTransacoes.dataVencimento))
           .limit(p.limit)
           .offset((p.page - 1) * p.limit),
-        db.select({ count: sql<number>`count(*)` }).from(finTransacoes).where(where),
+        db.select({ count: sql<number>`count(*)` }).from(finTransacoes)
+          .innerJoin(finEmpresas, eq(finTransacoes.empresaId, finEmpresas.id)).where(where),
       ]);
       return { items, total: countResult.count, page: p.page, limit: p.limit };
     }),
   criar: protectedProcedure
     .input(z.object({
-      empresaId: z.number().optional(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
       custoId: z.number().optional(), bancoId: z.number().optional(), centroCustoId: z.number().optional(),
       descricao: z.string().min(1),
       valor: z.string(), dataVencimento: z.string(), dataPagamento: z.string().optional(),
       pago: z.enum(["sim", "nao"]).optional(), observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão de edição neste estabelecimento" });
+      }
       const db = (await getDb())!;
+      const [empresa] = await db.select({ id: finEmpresas.id }).from(finEmpresas)
+        .where(and(eq(finEmpresas.id, input.empresaId), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId))).limit(1);
+      if (!empresa) throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa não vinculada ao estabelecimento selecionado" });
       const [result] = await db.insert(finTransacoes).values({
-        empresaId: input.empresaId || null, categoriaId: input.categoriaId || null, tipoId: input.tipoId || null,
+        empresaId: input.empresaId, categoriaId: input.categoriaId || null, tipoId: input.tipoId || null,
         custoId: input.custoId || null, bancoId: input.bancoId || null, centroCustoId: input.centroCustoId || null, descricao: input.descricao,
         valor: input.valor, dataVencimento: new Date(input.dataVencimento), dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
         pago: input.pago || "nao", observacoes: input.observacoes || null, userId: ctx.user.id,
@@ -1501,45 +1515,79 @@ const centrosCustoRouter = router({
 // ============================================================
 const importadorRouter = router({
   importarContasPagar: protectedProcedure
-    .input(z.object({
-      items: z.array(z.object({
-        descricao: z.string(),
-        valor: z.string(),
-        dataVencimento: z.string(),
-        dataPagamento: z.string().optional(),
-        pago: z.enum(["sim", "nao"]).optional(),
-        empresaId: z.number().optional(),
-        categoriaId: z.number().optional(),
-        centroCustoId: z.number().optional(),
-        bancoId: z.number().optional(),
-        observacoes: z.string().optional(),
-      })),
-    }))
+    .input(contasPagarImportSchema)
     .mutation(async ({ input, ctx }) => {
-      const db = (await getDb())!;
-      let imported = 0;
-      let errors = 0;
+      const jaVistas = new Map<string, number>();
       for (const item of input.items) {
-        try {
-          await db.insert(finTransacoes).values({
-            descricao: item.descricao,
-            valor: item.valor,
-            dataVencimento: new Date(item.dataVencimento),
-            dataPagamento: item.dataPagamento ? new Date(item.dataPagamento) : null,
-            pago: item.pago || "nao",
-            empresaId: item.empresaId || null,
-            categoriaId: item.categoriaId || null,
-            centroCustoId: item.centroCustoId || null,
-            bancoId: item.bancoId || null,
-            observacoes: item.observacoes || null,
-            userId: ctx.user.id,
-          });
-          imported++;
-        } catch {
-          errors++;
-        }
+        const chave = chaveContaPagar(item);
+        const anterior = jaVistas.get(chave);
+        if (anterior !== undefined) throw new TRPCError({ code: "BAD_REQUEST", message: `Linha ${item.linha}: lançamento repetido em relação à linha ${anterior}; nenhuma conta importada` });
+        jaVistas.set(chave, item.linha);
       }
-      return { imported, errors, total: input.items.length };
+      if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão de edição neste estabelecimento" });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível" });
+      // Toda verificação ocorre antes do primeiro INSERT. O bloqueio da empresa
+      // serializa importações simultâneas da mesma unidade na mesma transação.
+      return db.transaction(async tx => {
+        const [empresa] = await tx.select({ id: finEmpresas.id, estabelecimentoId: finEmpresas.estabelecimentoId })
+          .from(finEmpresas).where(eq(finEmpresas.id, input.empresaId)).for("update").limit(1);
+        if (!empresa || empresa.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa não vinculada ao estabelecimento selecionado" });
+        }
+        const [categorias, centros] = await Promise.all([
+          tx.select({ id: finCategorias.id, nome: finCategorias.nome }).from(finCategorias),
+          tx.select({ id: finCentrosCusto.id, nome: finCentrosCusto.nome }).from(finCentrosCusto),
+        ]);
+        const indexar = (values: { id: number; nome: string }[]) => {
+          const map = new Map<string, number[]>();
+          for (const row of values) {
+            const key = normalizarNome(row.nome);
+            map.set(key, [...(map.get(key) || []), row.id]);
+          }
+          return map;
+        };
+        const categoriasPorNome = indexar(categorias);
+        const centrosPorNome = indexar(centros);
+        const resolver = (nome: string | undefined, mapa: Map<string, number[]>, linha: number, campo: string) => {
+          if (!nome) return null;
+          const ids = mapa.get(normalizarNome(nome));
+          if (!ids || ids.length !== 1) throw new TRPCError({ code: "BAD_REQUEST", message: `Linha ${linha}: ${campo} inexistente ou ambíguo; nenhuma conta importada` });
+          return ids[0];
+        };
+        const rows = input.items.map(item => ({
+          empresaId: input.empresaId,
+          descricao: item.descricao,
+          valor: item.valor,
+          dataVencimento: new Date(`${item.dataVencimento}T12:00:00Z`),
+          dataPagamento: item.dataPagamento ? new Date(`${item.dataPagamento}T12:00:00Z`) : null,
+          pago: item.pago,
+          categoriaId: resolver(item.categoriaNome, categoriasPorNome, item.linha, "Categoria"),
+          centroCustoId: resolver(item.centroCustoNome, centrosPorNome, item.linha, "Centro de Custo"),
+          observacoes: item.observacoes || null,
+          userId: ctx.user.id,
+        }));
+        const datas = [...new Set(input.items.map(item => item.dataVencimento))].map(date => new Date(`${date}T12:00:00Z`));
+        const descricoes = [...new Set(input.items.map(item => item.descricao))];
+        // Inclui linhas legadas sem empresa: uma tentativa anterior poderia ter
+        // gravado parcialmente sem vínculo e com dia/mês invertidos.
+        const existentes = await tx.select({
+          empresaId: finTransacoes.empresaId, descricao: finTransacoes.descricao, valor: finTransacoes.valor,
+          dataVencimento: finTransacoes.dataVencimento,
+        }).from(finTransacoes).where(or(
+          and(eq(finTransacoes.empresaId, input.empresaId), inArray(finTransacoes.dataVencimento, datas)),
+          and(isNull(finTransacoes.empresaId), inArray(finTransacoes.descricao, descricoes)),
+        )).for("update");
+        const chave = (descricao: string, valor: string, data: Date) => `${descricao}\u0000${Number(valor).toFixed(2)}\u0000${data.toISOString().slice(0, 10)}`;
+        const chavesExistentes = new Set(existentes.filter(row => row.empresaId !== null).map(row => chave(row.descricao, row.valor, row.dataVencimento)));
+        const chavesLegadas = new Set(existentes.filter(row => row.empresaId === null).map(row => `${row.descricao}\u0000${Number(row.valor).toFixed(2)}`));
+        const repetida = input.items.find((item, index) => chavesExistentes.has(chave(rows[index].descricao, rows[index].valor, rows[index].dataVencimento)) || chavesLegadas.has(`${item.descricao}\u0000${item.valor}`));
+        if (repetida) throw new TRPCError({ code: "CONFLICT", message: `Linha ${repetida.linha}: já há lançamento coincidente; nenhuma conta importada. Conciliar tentativas anteriores antes de reenviar.` });
+        await tx.insert(finTransacoes).values(rows);
+        return { imported: rows.length, errors: 0, total: rows.length };
+      });
     }),
   importarContasReceber: protectedProcedure
     .input(z.object({

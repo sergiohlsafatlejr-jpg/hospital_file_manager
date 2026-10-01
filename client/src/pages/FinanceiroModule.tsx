@@ -23,6 +23,8 @@ import {
 import * as XLSX from "xlsx";
 import { CustoReceitaUnidade } from "./financeiro/CustoReceitaUnidade";
 import { formatDateBR, safeParseDate, toInputDateValue } from "@/lib/dateUtils";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { parseContasPagarRows, normalizarNome, type ContaPagarImportItem, type ImportIssue } from "@shared/contasPagarImport";
 
 // ==================== HELPERS ====================
 function formatCurrency(value: string | number | null | undefined) {
@@ -522,6 +524,12 @@ function FinDashboard() {
 
 // ==================== CONTAS A PAGAR ====================
 function ContasPagar() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importItems, setImportItems] = useState<ContaPagarImportItem[]>([]);
+  const [importIssues, setImportIssues] = useState<ImportIssue[]>([]);
+  const [importEmpresaId, setImportEmpresaId] = useState("");
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
@@ -558,6 +566,7 @@ function ContasPagar() {
   }, [filtroPeriodo, dataInicioPers, dataFimPers]);
 
   const lista = trpc.financeiro.transacoes.listar.useQuery({
+    estabelecimentoId: estabelecimentoId || 0,
     busca: busca || undefined,
     pago: filtroStatus === "todos" ? undefined : filtroStatus as any,
     empresaId: filtroEmpresa !== "todas" ? Number(filtroEmpresa) : undefined,
@@ -566,7 +575,7 @@ function ContasPagar() {
     dataInicio: periodoFiltro.dataInicio,
     dataFim: periodoFiltro.dataFim,
     limit: 500,
-  });
+  }, { enabled: Boolean(estabelecimentoId) });
   const empresas = trpc.financeiro.empresas.listar.useQuery();
   const categorias = trpc.financeiro.categorias.listar.useQuery();
   const bancos = trpc.financeiro.bancos.listar.useQuery();
@@ -575,6 +584,15 @@ function ContasPagar() {
   const criar = trpc.financeiro.transacoes.criar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta criada!"); setDialogOpen(false); },
     onError: (e) => toast.error(e.message),
+  });
+  const importarContas = trpc.financeiro.importador.importarContasPagar.useMutation({
+    onSuccess: data => {
+      toast.success(`${data.imported} contas importadas em lote.`);
+      setImportDialogOpen(false);
+      setImportItems([]);
+      utils.financeiro.transacoes.invalidate();
+    },
+    onError: err => toast.error(err.message),
   });
   const marcarPago = trpc.financeiro.transacoes.marcarPago.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Marcado como pago!"); },
@@ -638,34 +656,48 @@ function ContasPagar() {
 
   // Importar Excel
   const handleImportExcel = () => {
+    if (!estabelecimentoId) { toast.error("Selecione um estabelecimento antes de importar."); return; }
     const input = document.createElement("input");
-    input.type = "file"; input.accept = ".xlsx,.xls,.csv";
+    input.type = "file"; input.accept = ".xlsx,.xls";
     input.onchange = async (ev: any) => {
       const file = ev.target.files?.[0];
       if (!file) return;
+      if (file.size > 4 * 1024 * 1024) { toast.error("Arquivo excede 4 MB."); return; }
       const reader = new FileReader();
       reader.onload = async (evt) => {
         try {
-          const wb = XLSX.read(evt.target?.result, { type: "binary" });
+          const wb = XLSX.read(evt.target?.result, { type: "array" });
           const ws = wb.Sheets[wb.SheetNames[0]];
+          if (!ws) throw new Error("A planilha não contém aba de dados.");
           const data = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
-          let importados = 0;
-          for (const row of data) {
-            const descricao = row["Descrição"] || row["descricao"] || row["DESCRICAO"] || "";
-            const valor = String(row["Valor"] || row["valor"] || row["VALOR"] || "0").replace(",", ".");
-            const venc = row["Vencimento"] || row["vencimento"] || row["DATA_VENCIMENTO"] || row["dataVencimento"] || "";
-            if (descricao && valor) {
-              await criar.mutateAsync({ descricao, valor, dataVencimento: venc || new Date().toISOString().slice(0, 10) });
-              importados++;
-            }
-          }
-          toast.success(`${importados} contas importadas com sucesso!`);
-          utils.financeiro.invalidate();
-        } catch (err) { toast.error("Erro ao importar arquivo"); }
+          const expected = ["Descrição", "Valor", "Vencimento", "Data Pagamento", "Status", "Categoria", "Centro de Custo", "Observações"];
+          if (!expected.every(h => Object.keys(data[0] || {}).includes(h))) throw new Error("Cabeçalhos diferentes do modelo exportado por Contas a Pagar.");
+          const parsed = parseContasPagarRows(data, Boolean(wb.Workbook?.WBProps?.date1904));
+          setImportItems(parsed.items);
+          setImportIssues(parsed.issues);
+          setImportEmpresaId("");
+          setImportDialogOpen(true);
+        } catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao ler arquivo"); }
       };
-      reader.readAsBinaryString(file);
+      reader.readAsArrayBuffer(file);
     };
     input.click();
+  };
+  const importEmpresas = (empresas.data || []).filter((e: any) => e.estabelecimentoId === estabelecimentoId);
+  const referenciaIssues: ImportIssue[] = [...importIssues];
+  for (const item of importItems) {
+    for (const [campo, nome, lista] of [
+      ["Categoria", item.categoriaNome, categorias.data || []],
+      ["Centro de Custo", item.centroCustoNome, centrosCusto.data || []],
+    ] as const) {
+      if (nome && lista.filter((v: any) => normalizarNome(v.nome) === normalizarNome(nome)).length !== 1) {
+        referenciaIssues.push({ linha: item.linha, campo: `${campo} não cadastrado ou ambíguo` });
+      }
+    }
+  }
+  const confirmarImportacao = () => {
+    if (!estabelecimentoId || !importEmpresaId || referenciaIssues.length || !importItems.length || importarContas.isPending) return;
+    importarContas.mutate({ estabelecimentoId, empresaId: Number(importEmpresaId), items: importItems });
   };
 
   // Exportar Excel
@@ -690,11 +722,17 @@ function ContasPagar() {
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const empresaId = Number(fd.get("empresaId"));
+    if (!estabelecimentoId || !importEmpresas.some((empresa: any) => empresa.id === empresaId)) {
+      toast.error("Selecione uma empresa vinculada ao estabelecimento atual.");
+      return;
+    }
     criar.mutate({
+      estabelecimentoId,
       descricao: fd.get("descricao") as string,
       valor: fd.get("valor") as string,
       dataVencimento: fd.get("dataVencimento") as string,
-      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
+      empresaId,
       categoriaId: fd.get("categoriaId") ? Number(fd.get("categoriaId")) : undefined,
       bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
       centroCustoId: fd.get("centroCustoId") ? Number(fd.get("centroCustoId")) : undefined,
@@ -755,7 +793,7 @@ function ContasPagar() {
                 <div><Label>Centro de Custo</Label><select name="centroCustoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(centrosCusto.data || []).map((cc: any) => <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>)}</select></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div><Label>Empresa</Label><select name="empresaId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Empresa *</Label><select name="empresaId" required className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione</option>{importEmpresas.map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
                 <div><Label>Categoria</Label><select name="categoriaId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(categorias.data || []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
                 <div><Label>Banco</Label><select name="bancoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
               </div>
@@ -766,6 +804,28 @@ function ContasPagar() {
         </Dialog>
       </div>
 
+      <Dialog open={importDialogOpen} onOpenChange={open => { if (!importarContas.isPending) setImportDialogOpen(open); }}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Conferir importação de Contas a Pagar</DialogTitle><DialogDescription>Nenhum dado é gravado antes da confirmação. O lote é integral: em caso de erro, não importa nenhuma linha.</DialogDescription></DialogHeader>
+          <p className="text-sm">Estabelecimento: <strong>{estabelecimentoAtual?.nome || "Não selecionado"}</strong></p>
+          <p className="text-sm">{importItems.length} linhas válidas · {importItems.filter(i => i.pago === "sim").length} pagas · {importItems.filter(i => i.pago === "nao").length} pendentes</p>
+          <div><Label>Empresa financeira vinculada ao estabelecimento *</Label>
+            <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={importEmpresaId} onChange={e => setImportEmpresaId(e.target.value)}>
+              <option value="">Selecione a empresa</option>
+              {importEmpresas.map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            </select>
+            {importEmpresas.length === 0 && <p className="text-sm text-destructive mt-2">Nenhuma empresa financeira vinculada a esta unidade. Ajuste o cadastro antes de importar.</p>}
+          </div>
+          {referenciaIssues.length > 0 && <div className="text-sm text-destructive" role="alert">
+            <p>Importação bloqueada: {referenciaIssues.length} inconsistência(s). Nenhuma linha foi gravada.</p>
+            <ul className="list-disc pl-5 max-h-36 overflow-y-auto">{referenciaIssues.slice(0, 30).map((e, n) => <li key={n}>{e.linha ? `Linha ${e.linha}: ` : ""}{e.campo}</li>)}</ul>
+            {referenciaIssues.length > 30 && <p>Mais {referenciaIssues.length - 30} inconsistência(s).</p>}
+          </div>}
+          <p className="text-xs text-muted-foreground">Se houve tentativa anterior, lançamentos coincidentes bloquearão o lote. Concilie os já gravados antes de reenviar.</p>
+          <DialogFooter><Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importarContas.isPending}>Cancelar</Button>
+            <Button onClick={confirmarImportacao} disabled={importarContas.isPending || !importEmpresaId || !importItems.length || referenciaIssues.length > 0}>{importarContas.isPending ? "Importando..." : "Confirmar lote"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Barra de Filtros */}
       <div className="rounded-lg border border-border bg-card/50 p-3 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -784,7 +844,7 @@ function ContasPagar() {
           )}
           <Select value={filtroEmpresa} onValueChange={setFiltroEmpresa}>
             <SelectTrigger className="w-36 h-8 text-xs"><Building2 className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="todas">Safatle</SelectItem>{(empresas.data || []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.nome}</SelectItem>)}</SelectContent>
+            <SelectContent><SelectItem value="todas">Todas da unidade</SelectItem>{importEmpresas.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.nome}</SelectItem>)}</SelectContent>
           </Select>
           <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
             <SelectTrigger className="w-36 h-8 text-xs"><Target className="h-3 w-3 mr-1" /><SelectValue /></SelectTrigger>
@@ -1644,10 +1704,6 @@ function ImportadorExcel() {
   const [defaultBancoId, setDefaultBancoId] = useState<string>("");
   const [defaultClienteId, setDefaultClienteId] = useState<string>("");
 
-  const importarPagar = trpc.financeiro.importador.importarContasPagar.useMutation({
-    onSuccess: (data) => { setResult(data); utils.financeiro.transacoes.invalidate(); toast.success(`${data.imported} contas importadas!`); },
-    onError: (err) => toast.error(err.message),
-  });
   const importarReceber = trpc.financeiro.importador.importarContasReceber.useMutation({
     onSuccess: (data) => { setResult(data); utils.financeiro.recebiveis.invalidate(); toast.success(`${data.imported} contas importadas!`); },
     onError: (err) => toast.error(err.message),
@@ -1720,6 +1776,10 @@ function ImportadorExcel() {
   };
 
   const handleImport = () => {
+    if (tipo === "pagar") {
+      toast.error("Para Contas a Pagar, utilize Importar Excel na aba Contas a Pagar; lá é obrigatório conferir estabelecimento e empresa.");
+      return;
+    }
     if (!mapping.descricao || !mapping.valor || !mapping.dataVencimento) {
       toast.error("Mapeie pelo menos: Descrição, Valor e Data Vencimento");
       return;
@@ -1735,21 +1795,7 @@ function ImportadorExcel() {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const allData = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
 
-      if (tipo === "pagar") {
-        const items = allData.map(row => ({
-          descricao: String(row[mapping.descricao] || "").trim(),
-          valor: String(row[mapping.valor] || "0").replace(/[^\d.,-]/g, "").replace(",", "."),
-          dataVencimento: parseDate(row[mapping.dataVencimento]) || new Date().toISOString().slice(0, 10),
-          dataPagamento: mapping.dataPagamento ? parseDate(row[mapping.dataPagamento]) : undefined,
-          pago: mapping.pago ? parseStatus(row[mapping.pago]) : undefined,
-          empresaId: defaultEmpresaId ? Number(defaultEmpresaId) : undefined,
-          categoriaId: defaultCategoriaId ? Number(defaultCategoriaId) : undefined,
-          centroCustoId: defaultCentroCustoId ? Number(defaultCentroCustoId) : undefined,
-          bancoId: defaultBancoId ? Number(defaultBancoId) : undefined,
-          observacoes: mapping.observacoes ? String(row[mapping.observacoes] || "") : undefined,
-        })).filter(i => i.descricao && i.valor !== "0");
-        importarPagar.mutate({ items }, { onSettled: () => setImporting(false) });
-      } else {
+      if (tipo === "receber") {
         const items = allData.map(row => ({
           descricao: String(row[mapping.descricao] || "").trim(),
           valor: String(row[mapping.valor] || "0").replace(/[^\d.,-]/g, "").replace(",", "."),
@@ -1917,9 +1963,10 @@ function ImportadorExcel() {
 
           {/* Botão Importar */}
           <div className="flex items-center gap-4">
-            <Button onClick={handleImport} disabled={importing} size="lg">
+            <Button onClick={handleImport} disabled={importing || tipo === "pagar"} size="lg">
               {importing ? "Importando..." : `Importar ${tipo === "pagar" ? "Contas a Pagar" : "Contas a Receber"}`}
             </Button>
+            {tipo === "pagar" && <p className="text-sm text-muted-foreground">Para importar contas a pagar, use o botão Importar Excel na aba Contas a Pagar; o fluxo antigo foi bloqueado para evitar dados parciais.</p>}
             {result && (
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-green-600 font-medium flex items-center gap-1"><CheckCircle className="h-4 w-4" /> {result.imported} importadas</span>
