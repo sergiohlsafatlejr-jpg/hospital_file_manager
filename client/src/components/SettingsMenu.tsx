@@ -32,6 +32,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import type { ModuloPermissao } from "@/contexts/EstabelecimentoContext";
 
 type SettingsMenuItem = {
@@ -41,6 +42,7 @@ type SettingsMenuItem = {
   description?: string;
   section?: string;
   adminOnly?: boolean;
+  globalAdminOnly?: boolean;
   modulo?: ModuloPermissao; // Permissão de módulo necessária
 };
 
@@ -82,11 +84,19 @@ const settingsMenuItems: SettingsMenuItem[] = [
   // Integrações
   {
     icon: Database,
-    label: "Integrador de Dados",
+    label: "Integrador EASYLocal",
     path: "/integracao",
-    description: "WARLEINE, TASY, OMNI, GESTHOR",
+    description: "Conexão em preparação",
     section: "Integrações",
-    adminOnly: true,
+    globalAdminOnly: true,
+  },
+  {
+    icon: Database,
+    label: "Integrador legado",
+    path: "/integracao-legado",
+    description: "Conexões e rotinas anteriores",
+    section: "Integrações",
+    globalAdminOnly: true,
   },
   {
     icon: ArrowLeftRight,
@@ -154,12 +164,14 @@ const sectionNames = ["Cadastros", "Acesso", "Integrações", "IA e Regras", "Co
 
 export function SettingsMenu() {
   const [location, setLocation] = useLocation();
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const { isGestor, temAcessoModulo } = useEstabelecimento();
   const { isMobile: isMobileSidebar, setOpenMobile } = useSidebar();
 
   // Filtrar itens por permissão
   const filteredItems = settingsMenuItems.filter(item => {
+    if (item.globalAdminOnly) return user?.role === "admin";
     // Se é adminOnly, verificar se é gestor
     if (item.adminOnly) return isGestor;
     // Se tem módulo, verificar permissão

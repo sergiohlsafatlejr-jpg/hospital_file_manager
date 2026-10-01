@@ -60,6 +60,7 @@ const CacheDashboard = lazy(() => import("./pages/CacheDashboard"));
 const HistoricoValidacaoXml = lazy(() => import("./pages/HistoricoValidacaoXml").then(m => ({ default: m.HistoricoValidacaoXml })));
 const PopularHistoricoXml = lazy(() => import("./pages/PopularHistoricoXml").then(m => ({ default: m.PopularHistoricoXml })));
 const IntegradorDados = lazy(() => import("./pages/IntegradorDados").then(m => ({ default: m.IntegradorDados })));
+const IntegradorEasyLocal = lazy(() => import("./pages/IntegradorEasyLocal").then(m => ({ default: m.IntegradorEasyLocal })));
 const MapeamentoConvenios = lazy(() => import("./pages/MapeamentoConvenios"));
 const PadroesCobranca = lazy(() => import("./pages/PadroesCobranca"));
 const CriarGabarito = lazy(() => import("./pages/CriarGabarito"));
@@ -206,7 +207,8 @@ function Router() {
         <Route path={"/cache-dashboard"} component={CacheDashboard} />
         <Route path={"/historico-validacao-xml"} component={HistoricoValidacaoXml} />
         <Route path={"/popular-historico-xml"} component={PopularHistoricoXml} />
-        <Route path={"/integracao"} component={IntegradorDados} />
+        <Route path={"/integracao"} component={IntegradorEasyLocal} />
+        <Route path={"/integracao-legado"} component={IntegradorDados} />
         <Route path={"/mapeamento-convenios"} component={MapeamentoConvenios} />
         <Route path={"/padroes-cobranca"} component={PadroesCobranca} />
         <Route path={"/criar-gabarito"} component={CriarGabarito} />

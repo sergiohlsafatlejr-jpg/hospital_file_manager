@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,15 @@ const FREQUENCIA_LABELS: Record<string, string> = {
 };
 
 export function IntegradorDados() {
+  const { user, loading } = useAuth();
+  if (loading) return <p className="text-muted-foreground">Carregando integrador…</p>;
+  if (user?.role !== "admin") {
+    return <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>O Integrador legado é restrito a administradores.</AlertDescription></Alert>;
+  }
+  return <IntegradorDadosLegado />;
+}
+
+function IntegradorDadosLegado() {
   const [showForm, setShowForm] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<number | null>(null);
   const [editingConfig, setEditingConfig] = useState<any | null>(null);
@@ -104,7 +114,7 @@ export function IntegradorDados() {
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id || 1;
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : 0;
 
   const listarConfiguracoes = trpc.integradorDados.listarConfiguracoes.useQuery(
     { estabelecimentoId },
@@ -401,9 +411,9 @@ export function IntegradorDados() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Integrador de Dados</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Integrador de Dados · Legado</h1>
           <p className="text-muted-foreground mt-2">
-            Gerencie integrações de dados de múltiplos sistemas
+            Integrações anteriores; esta tela não configura nem testa o EASYLocal.
           </p>
         </div>
         <Button onClick={() => setShowForm(!showForm)} size="lg">
@@ -622,9 +632,7 @@ export function IntegradorDados() {
                 <p className="text-muted-foreground mb-4">
                   Os dados sincronizados aparecerao aqui apos a sincronizacao.
                 </p>
-                <p className="text-sm font-medium text-green-600">
-                  ✓ 508 registros sincronizados com sucesso!
-                </p>
+                <p className="text-sm text-muted-foreground">Contagem indisponível sem consulta verificada.</p>
               </div>
             </CardContent>
           </Card>

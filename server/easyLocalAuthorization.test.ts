@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./easyLocalConnection", () => ({ testarConexaoEasyLocal: vi.fn() }));
+vi.mock("./easyLocalConnection", () => ({ testarConexaoEasyLocal: vi.fn(), readEasyLocalConfig: vi.fn() }));
 
-import { testarConexaoEasyLocal } from "./easyLocalConnection";
+import { readEasyLocalConfig, testarConexaoEasyLocal } from "./easyLocalConnection";
 import { easyLocalRouter } from "./routers/easyLocalRouter";
 
 function context(role: "admin" | "user" | null) {
@@ -17,6 +17,7 @@ describe("autorização da sonda global EASYLocal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(testarConexaoEasyLocal).mockResolvedValue({ status: "conectado" });
+    vi.mocked(readEasyLocalConfig).mockReturnValue(null);
   });
 
   it("nega acesso a usuário comum e sem sessão antes de conectar", async () => {
@@ -44,5 +45,31 @@ describe("autorização da sonda global EASYLocal", () => {
     const response = await easyLocalRouter.createCaller(context("admin")).testarConexao({});
     expect(response).toEqual({ status: "conectado" });
     expect(testarConexaoEasyLocal).toHaveBeenCalledOnce();
+  });
+
+  it("nega preparação a usuários comuns e não aciona a conexão ao abrir a tela", async () => {
+    await expect(easyLocalRouter.createCaller(context("user")).obterPreparacao({}))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(easyLocalRouter.createCaller(context(null)).obterPreparacao({}))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    const state = await easyLocalRouter.createCaller(context("admin")).obterPreparacao({});
+    expect(state).toEqual({
+      configuracaoDisponivel: false,
+      piloto: { estabelecimentoId: 1260036, nome: "Hospital Urológico" },
+      ingestaoAtiva: false,
+    });
+    expect(testarConexaoEasyLocal).not.toHaveBeenCalled();
+  });
+
+  it("aceita apenas entrada vazia e nunca retorna segredo, host ou usuário", async () => {
+    const caller = easyLocalRouter.createCaller(context("admin"));
+    await expect(caller.obterPreparacao({ estabelecimentoId: 1 } as any))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" });
+    vi.mocked(readEasyLocalConfig).mockReturnValue({
+      host: "example.invalid", port: 5432, database: "database", user: "role", password: "segredo",
+    } as any);
+    const state = await caller.obterPreparacao({});
+    expect(state.configuracaoDisponivel).toBe(true);
+    expect(JSON.stringify(state)).not.toMatch(/example\.invalid|segredo|database|role/);
   });
 });

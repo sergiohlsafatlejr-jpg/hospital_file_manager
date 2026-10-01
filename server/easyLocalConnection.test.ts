@@ -28,7 +28,9 @@ describe("EASYLocal: conexão mínima e protegida", () => {
       process.env[key] = value;
     }
     pgMock.Client.mockImplementation(() => ({ connect: pgMock.connect, query: pgMock.query, end: pgMock.end }));
-    pgMock.query.mockResolvedValue({ rows: [{ conectividade: 1 }] });
+    pgMock.query.mockImplementation(async (query: string) => query.includes("pg_catalog.pg_roles")
+      ? { rows: [{ privilegiada: false }] }
+      : { rows: [{ conectividade: 1 }] });
     pgMock.connect.mockResolvedValue(undefined);
     pgMock.end.mockResolvedValue(undefined);
   });
@@ -57,7 +59,7 @@ describe("EASYLocal: conexão mínima e protegida", () => {
     expect(pgMock.Client).not.toHaveBeenCalled();
   });
 
-  it("verifica CA e hostname, executa somente SELECT 1 e fecha a conexão", async () => {
+  it("verifica CA, hostname e privilégios antes de SELECT 1 e fecha a conexão", async () => {
     expect(await testarConexaoEasyLocal()).toEqual({ status: "conectado" });
     expect(pgMock.Client).toHaveBeenCalledWith(expect.objectContaining({
       host: env.EASYLOCAL_PG_HOST,
@@ -65,9 +67,34 @@ describe("EASYLocal: conexão mínima e protegida", () => {
       connectionTimeoutMillis: 5000,
       statement_timeout: 5000,
     }));
-    expect(pgMock.query).toHaveBeenCalledOnce();
-    expect(pgMock.query).toHaveBeenCalledWith("SELECT 1 AS conectividade");
+    expect(pgMock.query).toHaveBeenCalledTimes(2);
+    expect(pgMock.query.mock.calls[0][0]).toContain("pg_catalog.pg_roles");
+    expect(pgMock.query.mock.calls[0][0]).toContain("rolbypassrls");
+    expect(pgMock.query.mock.calls[0][0]).toContain("pg_has_role(session_user, r.oid, 'MEMBER')");
+    expect(pgMock.query.mock.calls[1][0]).toBe("SELECT 1 AS conectividade");
     expect(pgMock.end).toHaveBeenCalledOnce();
+  });
+
+  it("rejeita a role administrativa antes de SELECT 1 e nunca consulta tabelas de dados", async () => {
+    pgMock.query.mockResolvedValueOnce({ rows: [{ privilegiada: true }] });
+    expect(await testarConexaoEasyLocal()).toEqual({ status: "credencial_privilegiada" });
+    expect(pgMock.query).toHaveBeenCalledOnce();
+    expect(pgMock.query.mock.calls[0][0]).toContain("pg_catalog.pg_roles");
+    expect(pgMock.end).toHaveBeenCalledOnce();
+  });
+
+  it("rejeita privilégios administrativos assumíveis via associação aninhada", async () => {
+    // O catálogo representa o resultado do EXISTS para qualquer caminho de MEMBER.
+    pgMock.query.mockResolvedValueOnce({ rows: [{ privilegiada: true }] });
+    expect(await testarConexaoEasyLocal()).toEqual({ status: "credencial_privilegiada" });
+    expect(pgMock.query.mock.calls[0][0]).toContain("pg_has_role(session_user, r.oid, 'MEMBER')");
+    expect(pgMock.query).toHaveBeenCalledOnce();
+  });
+
+  it("falha fechado quando a consulta ao catálogo não identifica exatamente uma role", async () => {
+    pgMock.query.mockResolvedValueOnce({ rows: [] });
+    expect(await testarConexaoEasyLocal()).toEqual({ status: "falha_conexao" });
+    expect(pgMock.query).toHaveBeenCalledOnce();
   });
 
   it("usa a CA pública do sistema somente quando SYSTEM é configurado explicitamente", async () => {

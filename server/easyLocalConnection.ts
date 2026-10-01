@@ -4,6 +4,7 @@ import pg from "pg";
 export type EasyLocalConnectionResult =
   | { status: "configuracao_pendente" }
   | { status: "conectado" }
+  | { status: "credencial_privilegiada" }
   | { status: "falha_conexao" };
 
 type EasyLocalConnectionConfig = {
@@ -63,7 +64,8 @@ export function readEasyLocalConfig(env: NodeJS.ProcessEnv = process.env): EasyL
 }
 
 /**
- * Prova restrita de conectividade: sem parâmetros SQL, sem acesso a tabelas,
+ * Prova restrita de conectividade: consulta apenas privilégios da role no catálogo
+ * e SELECT 1; sem parâmetros SQL do navegador e sem acesso a tabelas hospitalares,
  * sem log de URL, hostname, credencial, certificado ou erro bruto do driver.
  */
 export async function testarConexaoEasyLocal(): Promise<EasyLocalConnectionResult> {
@@ -89,6 +91,19 @@ export async function testarConexaoEasyLocal(): Promise<EasyLocalConnectionResul
       application_name: "safatle-easylocal-connectivity",
     });
     await client.connect();
+    const privileges = await client.query<{ privilegiada: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_roles r
+         WHERE (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls OR r.rolreplication
+           OR has_database_privilege(r.oid, current_database(), 'CREATE'))
+           AND (r.rolname = current_user OR pg_has_role(session_user, r.oid, 'MEMBER'))
+       ) AS privilegiada`,
+    );
+    // MEMBER cobre associações diretas/indiretas, inclusive as que permitiriam SET ROLE.
+    // Rejeitar associações não assumíveis é deliberadamente conservador.
+    // A ausência de metadados não pode aprovar uma credencial desconhecida.
+    if (privileges.rows.length !== 1) return { status: "falha_conexao" };
+    if (privileges.rows[0].privilegiada !== false) return { status: "credencial_privilegiada" };
     const result = await client.query("SELECT 1 AS conectividade");
     return result.rows[0]?.conectividade === 1
       ? { status: "conectado" }
