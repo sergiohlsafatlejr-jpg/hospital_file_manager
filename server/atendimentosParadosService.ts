@@ -1,30 +1,40 @@
 /**
- * Staging genérico e publicação de atendimentos parados.
+ * Staging e publicação de atendimentos parados — uma tabela de staging por unidade.
  *
  * DESENHO
  * -------
- * Fluxo: banco de origem -> `atendimentos_parados_staging` -> `atendimentos_unificados`.
+ * Fluxo: banco de origem -> `stagion_atendimentos_parados_<unidade>` -> `atendimentos_unificados`.
  *
- * A staging é a zona de pouso normalizada por estabelecimento. A publicação faz upsert em
- * `atendimentos_unificados` pelo índice único `uq_atend_estab_origem`
- * (`estabelecimentoId`, `origemSistema`, `origemId`) e desativa com `ativoNaFonte = 0` o que
- * não veio no lote atual.
+ * Cada unidade tem a sua própria tabela de pouso, porque cada uma tem a sua rotina de extração.
+ * A recarga de uma unidade nunca alcança o dado de outra, e o escopo do que é desativado fica
+ * fechado em estabelecimento + origem.
+ *
+ * A publicação faz upsert em `atendimentos_unificados` pelo índice único `uq_atend_estab_origem`
+ * (`estabelecimentoId`, `origemSistema`, `origemId`) e desativa com `ativoNaFonte = 0` o que não
+ * veio no lote atual.
  *
  * Não há `DELETE` nem `TRUNCATE` em nenhuma etapa:
- * - a carga é idempotente porque a staging também tem índice único na chave de origem;
- * - "saiu da origem" é representado por `ativoNaFonte = 0`, não por exclusão;
+ * - a carga é idempotente porque cada staging tem índice único na chave de origem;
+ * - "saiu da origem" é `ativoNaFonte = 0`, não exclusão;
  * - `loteRef` identifica a carga, então a staging acumula histórico em vez de ser limpa.
  *
  * REGRA DE OURO
  * -------------
- * `origemId` precisa ser derivado de uma chave natural estável da origem. Usar id de tabela de
- * staging, contador, timestamp ou qualquer valor que mude entre cargas faz o banco concluir que
- * é outro atendimento e duplicar. Ver `GUIA-LEITURA-E-IMPORTACAO-ATENDIMENTOS.md`.
+ * `origemId` precisa vir de uma chave natural estável da origem. Usar id de tabela de staging,
+ * contador ou timestamp faz o banco concluir que é outro atendimento e duplicar.
  */
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, ne, notExists, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { atendimentos, atendimentosParadosStaging, type InsertAtendimentoParadoStaging } from "../drizzle/schema-integracao";
+import {
+  atendimentos,
+  stagingAtendimentosParadosHemolabor,
+  stagingAtendimentosParadosIad,
+  stagingAtendimentosParadosIrg,
+  stagingAtendimentosParadosMaternidade,
+  stagingAtendimentosParadosUrologico,
+  type TabelaStagingAtendimentosParados,
+} from "../drizzle/schema-integracao";
 import { isTasySnapshotCoverageSafe } from "./tasyCsvImportService";
 
 /** Origens gravadas em minúsculo — contrato já usado pelas telas (`origemSistema === 'tasy'`). */
@@ -32,6 +42,43 @@ const ORIGENS_MINUSCULAS = new Set(["tasy", "tasy_hemolabor"]);
 
 /** Tamanho do lote de escrita no banco. */
 const TAMANHO_LOTE = 500;
+
+/** Unidades com tabela de staging de atendimentos parados. */
+export const UNIDADES_STAGING_ATENDIMENTOS_PARADOS = [
+  "urologico",
+  "iad",
+  "irg",
+  "hemolabor",
+  "maternidade",
+] as const;
+
+export type UnidadeStagingAtendimentosParados =
+  (typeof UNIDADES_STAGING_ATENDIMENTOS_PARADOS)[number];
+
+/**
+ * Mapa unidade -> tabela física.
+ * O nome da tabela da maternidade é o informado pela equipe e é preservado literalmente.
+ */
+const TABELAS_STAGING: Record<UnidadeStagingAtendimentosParados, TabelaStagingAtendimentosParados> = {
+  urologico: stagingAtendimentosParadosUrologico,
+  iad: stagingAtendimentosParadosIad,
+  irg: stagingAtendimentosParadosIrg,
+  hemolabor: stagingAtendimentosParadosHemolabor,
+  maternidade: stagingAtendimentosParadosMaternidade,
+};
+
+/** Resolve a tabela de staging da unidade, falhando fechado em unidade desconhecida. */
+export function resolverTabelaStaging(unidade: string): TabelaStagingAtendimentosParados {
+  const chave = String(unidade ?? "").trim().toLowerCase();
+  const tabela = TABELAS_STAGING[chave as UnidadeStagingAtendimentosParados];
+  if (!tabela) {
+    throw new Error(
+      `Unidade "${unidade}" não possui tabela de staging de atendimentos parados. `
+        + `Unidades conhecidas: ${UNIDADES_STAGING_ATENDIMENTOS_PARADOS.join(", ")}.`,
+    );
+  }
+  return tabela;
+}
 
 /** Linha normalizada que chega do banco de origem. */
 export interface LinhaAtendimentoParado {
@@ -61,6 +108,7 @@ export interface LinhaAtendimentoParado {
 }
 
 export interface EscopoPublicacao {
+  unidade: UnidadeStagingAtendimentosParados | string;
   estabelecimentoId: number;
   origemSistema: string;
   loteRef: string;
@@ -105,7 +153,7 @@ export function validarOrigemId(valor: unknown): string {
  */
 export function montarLoteRef(agora: Date, estabelecimentoId: number, origemSistema: string): string {
   const origem = normalizarOrigemSistema(origemSistema);
-  const iso = agora.toISOString(); // 2026-10-01T13:45:00.000Z
+  const iso = agora.toISOString();
   const carimbo = `${iso.slice(0, 10).replace(/-/g, "")}T${iso.slice(11, 19).replace(/:/g, "")}Z`;
   return `${carimbo}-E${estabelecimentoId}-${origem}`;
 }
@@ -127,19 +175,6 @@ function serializarCanonico(valor: unknown): string {
 /** SHA-256 do conteúdo da linha, para detectar registro inalterado entre lotes. */
 export function calcularHashConteudo(registro: Record<string, unknown>): string {
   return createHash("sha256").update(serializarCanonico(registro)).digest("hex");
-}
-
-/**
- * Extrai apenas o conteúdo do atendimento, descartando campos voláteis de sincronização.
- * Sem isso o hash mudaria a cada carga e nunca detectaria uma linha inalterada.
- */
-export function extrairConteudoParaHash(
-  registro: ReturnType<typeof mapearStagingParaUnificado>,
-): Record<string, unknown> {
-  const conteudo: Record<string, unknown> = { ...registro };
-  delete conteudo.dataSincronizacao;
-  delete conteudo.ativoNaFonte;
-  return conteudo;
 }
 
 /** Converte valor de data vindo do conector em `Date`, ou `null`. */
@@ -213,6 +248,19 @@ export function mapearStagingParaUnificado(linha: LinhaAtendimentoParado & {
 }
 
 /**
+ * Extrai apenas o conteúdo do atendimento, descartando campos voláteis de sincronização.
+ * Sem isso o hash mudaria a cada carga e nunca detectaria uma linha inalterada.
+ */
+export function extrairConteudoParaHash(
+  registro: ReturnType<typeof mapearStagingParaUnificado>,
+): Record<string, unknown> {
+  const conteudo: Record<string, unknown> = { ...registro };
+  delete conteudo.dataSincronizacao;
+  delete conteudo.ativoNaFonte;
+  return conteudo;
+}
+
+/**
  * Avalia se o lote pode substituir o snapshot ativo.
  * Reaproveita a regra já validada do pipeline TASY: com 100 ou mais contas ativas, o lote
  * precisa cobrir ao menos 80% delas. Abaixo disso, um arquivo parcial zeraria a tela.
@@ -225,36 +273,8 @@ export function avaliarCoberturaPublicacao(ativosAntes: number, publicaveis: num
   return { seguro: isTasySnapshotCoverageSafe(ativosAntes, publicaveis), cobertura };
 }
 
-// ============================================================
-// Funções com banco
-// ============================================================
-
-/**
- * Lê `affectedRows` de um resultado cru do driver, que pode vir como cabeçalho direto
- * ou embrulhado em `[cabeçalho, campos]`.
- */
-function extrairLinhasAfetadas(resultado: unknown): number {
-  if (!Array.isArray(resultado)) {
-    const direto = resultado as { affectedRows?: number } | null;
-    return Number(direto?.affectedRows ?? 0);
-  }
-  const primeiro = resultado[0] as { affectedRows?: number } | null;
-  return Number(primeiro?.affectedRows ?? 0);
-}
-
-/** Lê a primeira linha de um resultado cru do driver em qualquer um dos formatos conhecidos. */
-function extrairPrimeiraLinha(resultado: unknown): Record<string, unknown> {
-  if (!Array.isArray(resultado)) return {};
-  const linhas = Array.isArray(resultado[0]) ? (resultado[0] as unknown[]) : (resultado as unknown[]);
-  const primeira = linhas[0];
-  return primeira && typeof primeira === "object" ? (primeira as Record<string, unknown>) : {};
-}
-
-/** Monta o registro da staging com hash e classificação. */
-export function montarRegistroStaging(
-  linha: LinhaAtendimentoParado,
-  escopo: EscopoPublicacao,
-): InsertAtendimentoParadoStaging {
+/** Monta a linha da staging com hash e classificação. */
+export function montarLinhaStaging(linha: LinhaAtendimentoParado, escopo: EscopoPublicacao) {
   const origemSistema = normalizarOrigemSistema(escopo.origemSistema);
   const classificacao = classificarLinha(linha);
   const registro = mapearStagingParaUnificado({
@@ -262,6 +282,7 @@ export function montarRegistroStaging(
     estabelecimentoId: escopo.estabelecimentoId,
     origemSistema,
   });
+  const valor = linha.valorConta;
 
   return {
     estabelecimentoId: escopo.estabelecimentoId,
@@ -292,37 +313,38 @@ export function montarRegistroStaging(
     protocolo: linha.protocolo ?? null,
     titulo: linha.titulo ?? null,
     medicoResponsavel: linha.medicoResponsavel ?? null,
-    valorConta:
-      linha.valorConta === null || linha.valorConta === undefined || linha.valorConta === ""
-        ? null
-        : String(linha.valorConta),
+    valorConta: valor === null || valor === undefined || valor === "" ? null : String(valor),
   };
 }
 
+// ============================================================
+// Funções com banco
+// ============================================================
+
 /**
- * Grava (ou atualiza) as linhas do lote na staging.
+ * Grava (ou atualiza) as linhas do lote na staging da unidade.
  * Idempotente: repetir o mesmo lote atualiza as linhas em vez de duplicá-las.
  */
-export async function carregarStagingParados(params: {
-  estabelecimentoId: number;
-  origemSistema: string;
-  loteRef: string;
+export async function carregarStagingParados(params: EscopoPublicacao & {
   linhas: LinhaAtendimentoParado[];
 }): Promise<{ gravados: number; rejeitados: number }> {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 
+  const tabela = resolverTabelaStaging(params.unidade);
   const origemSistema = normalizarOrigemSistema(params.origemSistema);
   const escopo: EscopoPublicacao = {
+    unidade: params.unidade,
     estabelecimentoId: params.estabelecimentoId,
     origemSistema,
     loteRef: params.loteRef,
   };
 
-  const registros = params.linhas.map((linha) => montarRegistroStaging(linha, escopo));
-  const rejeitados = registros.filter((r) => r.statusValidacao === "rejeitado").length;
+  const linhas = params.linhas.map((linha) => montarLinhaStaging(linha, escopo));
+  const rejeitados = linhas.filter((linha) => linha.statusValidacao === "rejeitado").length;
+  const agora = new Date();
 
-  const colunasAtualizaveis: Array<keyof InsertAtendimentoParadoStaging> = [
+  const colunasAtualizaveis = [
     "loteRef",
     "hashConteudo",
     "statusValidacao",
@@ -351,34 +373,34 @@ export async function carregarStagingParados(params: {
     "valorConta",
     "dataSincronizacao",
     "atualizadoEm",
-  ];
+  ] as const;
   const conjuntoAtualizacao = Object.fromEntries(
-    colunasAtualizaveis.map((coluna) => [coluna, sql.raw(`VALUES(\`${String(coluna)}\`)`)]),
-  ) as Partial<Record<keyof InsertAtendimentoParadoStaging, unknown>>;
+    colunasAtualizaveis.map((coluna) => [coluna, sql.raw(`VALUES(\`${coluna}\`)`)]),
+  );
 
-  const agora = new Date();
-  for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
-    const lote = registros.slice(i, i + TAMANHO_LOTE).map((registro) => ({
-      ...registro,
+  for (let i = 0; i < linhas.length; i += TAMANHO_LOTE) {
+    const lote = linhas.slice(i, i + TAMANHO_LOTE).map((linha) => ({
+      ...linha,
       dataSincronizacao: agora,
       atualizadoEm: agora,
     }));
-    await db.insert(atendimentosParadosStaging).values(lote).onDuplicateKeyUpdate({
+    await db.insert(tabela).values(lote).onDuplicateKeyUpdate({
       set: conjuntoAtualizacao as never,
     });
   }
 
-  return { gravados: registros.length, rejeitados };
+  return { gravados: linhas.length, rejeitados };
 }
 
 /**
- * Publica o lote da staging em `atendimentos_unificados`.
+ * Publica o lote da staging na tabela que as telas apresentam.
  *
  * Dentro de uma transação:
- * 1. conta as linhas publicáveis do lote;
- * 2. valida a cobertura contra o que está ativo hoje (evita zerar a tela com arquivo parcial);
- * 3. faz upsert pela chave única;
- * 4. desativa (`ativoNaFonte = 0`) o que está ativo mas não veio neste lote.
+ * 1. confere que o lote não mistura unidades;
+ * 2. conta as linhas publicáveis;
+ * 3. valida a cobertura contra o que está ativo hoje (evita zerar a tela com arquivo parcial);
+ * 4. faz upsert pela chave única;
+ * 5. desativa (`ativoNaFonte = 0`) o que está ativo mas não veio neste lote.
  */
 export async function publicarAtendimentosParados(params: EscopoPublicacao & {
   permitirReducaoGrande?: boolean;
@@ -392,38 +414,63 @@ export async function publicarAtendimentosParados(params: EscopoPublicacao & {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 
+  const tabela = resolverTabelaStaging(params.unidade);
   const estabelecimentoId = params.estabelecimentoId;
   const origemSistema = normalizarOrigemSistema(params.origemSistema);
   const loteRef = String(params.loteRef ?? "").trim();
   if (!loteRef) throw new Error("loteRef é obrigatório para publicar.");
 
-  const escopoStaging = and(
-    eq(atendimentosParadosStaging.estabelecimentoId, estabelecimentoId),
-    eq(atendimentosParadosStaging.origemSistema, origemSistema),
-    eq(atendimentosParadosStaging.loteRef, loteRef),
-    sql`${atendimentosParadosStaging.statusValidacao} <> 'rejeitado'`,
-  );
   const escopoDestino = and(
     eq(atendimentos.estabelecimentoId, estabelecimentoId),
     eq(atendimentos.origemSistema, origemSistema),
   );
+  const lotePublicavel = and(
+    eq(tabela.loteRef, loteRef),
+    ne(tabela.statusValidacao, "rejeitado"),
+  );
 
   return db.transaction(async (tx) => {
-    const linhas = await tx
-      .select()
-      .from(atendimentosParadosStaging)
-      .where(escopoStaging);
-
-    const publicaveis = linhas.length;
-    if (publicaveis === 0) {
-      throw new Error(`Lote ${loteRef} não contém linhas publicáveis.`);
+    // Guarda: o lote precisa pertencer a uma única unidade e ser a unidade esperada.
+    const unidadesNoLote = await tx
+      .selectDistinct({ estabelecimentoId: tabela.estabelecimentoId })
+      .from(tabela)
+      .where(lotePublicavel);
+    const idsNoLote = unidadesNoLote.map((linha) => Number(linha.estabelecimentoId));
+    if (idsNoLote.length > 1) {
+      throw new Error(
+        `Lote ${loteRef} mistura estabelecimentos (${idsNoLote.join(", ")}). `
+          + "A carga deve ser separada por unidade.",
+      );
+    }
+    if (idsNoLote.length === 1 && idsNoLote[0] !== estabelecimentoId) {
+      throw new Error(
+        `Lote ${loteRef} pertence ao estabelecimento ${idsNoLote[0]}, `
+          + `e não ao ${estabelecimentoId} informado.`,
+      );
     }
 
-    const ativos = await tx
-      .select({ id: atendimentos.id })
-      .from(atendimentos)
-      .where(and(escopoDestino, eq(atendimentos.ativoNaFonte, true)));
-    const ativosAntes = ativos.length;
+    const publicaveis = idsNoLote.length === 0
+      ? 0
+      : Number(
+          (
+            await tx
+              .select({ total: count() })
+              .from(tabela)
+              .where(and(lotePublicavel, eq(tabela.estabelecimentoId, estabelecimentoId)))
+          )[0]?.total ?? 0,
+        );
+    if (publicaveis === 0) {
+      throw new Error(`Lote ${loteRef} não contém linhas publicáveis para esta unidade.`);
+    }
+
+    const ativosAntes = Number(
+      (
+        await tx
+          .select({ total: count() })
+          .from(atendimentos)
+          .where(and(escopoDestino, eq(atendimentos.ativoNaFonte, true)))
+      )[0]?.total ?? 0,
+    );
 
     const { seguro, cobertura } = avaliarCoberturaPublicacao(ativosAntes, publicaveis);
     if (!seguro && !params.permitirReducaoGrande) {
@@ -433,6 +480,11 @@ export async function publicarAtendimentosParados(params: EscopoPublicacao & {
           + `se o snapshot completo foi reduzido de propósito, confirme explicitamente.`,
       );
     }
+
+    const linhas = await tx
+      .select()
+      .from(tabela)
+      .where(and(lotePublicavel, eq(tabela.estabelecimentoId, estabelecimentoId)));
 
     const registros = linhas.map((linha) =>
       mapearStagingParaUnificado({
@@ -490,41 +542,56 @@ export async function publicarAtendimentosParados(params: EscopoPublicacao & {
       "ativoNaFonte",
       "dataSincronizacao",
       "atualizadoEm",
-    ];
+    ] as const;
     const conjuntoAtualizacao = Object.fromEntries(
-      colunasDestino.map((coluna) => [coluna, sql.raw(`VALUES(\`${coluna}\`)`)]),
+      colunasDestino
+        .filter((coluna) => coluna !== "atualizadoEm")
+        .map((coluna) => [coluna, sql.raw(`VALUES(\`${coluna}\`)`)]),
     );
 
     let publicados = 0;
     for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
       const lote = registros.slice(i, i + TAMANHO_LOTE);
-      await tx.insert(atendimentos).values(lote).onDuplicateKeyUpdate({
-        set: { ...conjuntoAtualizacao, atualizadoEm: sql`NOW()` } as never,
-      });
+      await tx
+        .insert(atendimentos)
+        .values(lote)
+        .onDuplicateKeyUpdate({
+          set: { ...conjuntoAtualizacao, atualizadoEm: sql`NOW()` } as never,
+        });
       publicados += lote.length;
     }
 
-    // "Saiu da origem" vira desativação, não exclusão. Escopo fechado em estabelecimento + origem,
-    // então publicar Warleine nunca toca linhas de TASY.
-    const resultadoDesativacao: unknown = await tx.execute(sql`
-      UPDATE atendimentos_unificados AS destino
-      SET destino.ativoNaFonte = 0, destino.atualizadoEm = NOW()
-      WHERE destino.estabelecimentoId = ${estabelecimentoId}
-        AND destino.origemSistema = ${origemSistema}
-        AND destino.ativoNaFonte = 1
-        AND NOT EXISTS (
-          SELECT 1
-          FROM atendimentos_parados_staging AS origem
-          WHERE origem.estabelecimentoId = destino.estabelecimentoId
-            AND origem.origemSistema = destino.origemSistema
-            AND origem.origemId = destino.origemId
-            AND origem.loteRef = ${loteRef}
-            AND origem.statusValidacao <> 'rejeitado'
-        )
-    `);
-    const desativados = extrairLinhasAfetadas(resultadoDesativacao);
+    // "Saiu da origem" vira desativação, não exclusão. A subconsulta olha apenas a staging
+    // desta unidade, e o escopo de destino fecha em estabelecimento + origem, então publicar
+    // a Urologia nunca toca linhas de outra unidade ou de outra origem.
+    const presenteNoLote = tx
+      .select({ um: sql`1` })
+      .from(tabela)
+      .where(
+        and(
+          eq(tabela.estabelecimentoId, estabelecimentoId),
+          eq(tabela.origemSistema, origemSistema),
+          eq(tabela.origemId, atendimentos.origemId),
+          eq(tabela.loteRef, loteRef),
+          ne(tabela.statusValidacao, "rejeitado"),
+        ),
+      );
 
-    return { publicaveis, ativosAntes, cobertura, publicados, desativados };
+    const ausentes = await tx
+      .select({ id: atendimentos.id })
+      .from(atendimentos)
+      .where(and(escopoDestino, eq(atendimentos.ativoNaFonte, true), notExists(presenteNoLote)));
+
+    const agora = new Date();
+    for (let i = 0; i < ausentes.length; i += TAMANHO_LOTE) {
+      const ids = ausentes.slice(i, i + TAMANHO_LOTE).map((linha) => linha.id);
+      await tx
+        .update(atendimentos)
+        .set({ ativoNaFonte: false, atualizadoEm: agora })
+        .where(inArray(atendimentos.id, ids));
+    }
+
+    return { publicaveis, ativosAntes, cobertura, publicados, desativados: ausentes.length };
   });
 }
 
@@ -538,25 +605,29 @@ export async function obterResumoStaging(params: EscopoPublicacao): Promise<{
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 
+  const tabela = resolverTabelaStaging(params.unidade);
   const origemSistema = normalizarOrigemSistema(params.origemSistema);
-  const resultado: unknown = await db.execute(sql`
-    SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN statusValidacao <> 'rejeitado' THEN 1 ELSE 0 END) AS publicaveis,
-      SUM(CASE WHEN statusValidacao = 'rejeitado' THEN 1 ELSE 0 END) AS rejeitados,
-      COALESCE(SUM(CASE WHEN statusValidacao <> 'rejeitado' THEN valorConta ELSE 0 END), 0) AS valorTotal
-    FROM atendimentos_parados_staging
-    WHERE estabelecimentoId = ${params.estabelecimentoId}
-      AND origemSistema = ${origemSistema}
-      AND loteRef = ${params.loteRef}
-  `);
 
-  const linha = extrairPrimeiraLinha(resultado);
+  const [resumo] = await db
+    .select({
+      total: count(),
+      publicaveis: sql<string>`SUM(CASE WHEN ${tabela.statusValidacao} <> 'rejeitado' THEN 1 ELSE 0 END)`,
+      rejeitados: sql<string>`SUM(CASE WHEN ${tabela.statusValidacao} = 'rejeitado' THEN 1 ELSE 0 END)`,
+      valorTotal: sql<string>`COALESCE(SUM(CASE WHEN ${tabela.statusValidacao} <> 'rejeitado' THEN ${tabela.valorConta} ELSE 0 END), 0)`,
+    })
+    .from(tabela)
+    .where(
+      and(
+        eq(tabela.estabelecimentoId, params.estabelecimentoId),
+        eq(tabela.origemSistema, origemSistema),
+        eq(tabela.loteRef, params.loteRef),
+      ),
+    );
 
   return {
-    total: Number(linha.total ?? 0),
-    publicaveis: Number(linha.publicaveis ?? 0),
-    rejeitados: Number(linha.rejeitados ?? 0),
-    valorTotal: Number(linha.valorTotal ?? 0),
+    total: Number(resumo?.total ?? 0),
+    publicaveis: Number(resumo?.publicaveis ?? 0),
+    rejeitados: Number(resumo?.rejeitados ?? 0),
+    valorTotal: Number(resumo?.valorTotal ?? 0),
   };
 }

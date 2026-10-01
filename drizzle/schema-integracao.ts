@@ -889,6 +889,127 @@ export type AtendimentoParadoStaging = typeof atendimentosParadosStaging.$inferS
 export type InsertAtendimentoParadoStaging = typeof atendimentosParadosStaging.$inferInsert;
 
 /**
+ * CAMADA 3 (v2): STAGING DE ATENDIMENTOS PARADOS - UMA TABELA POR UNIDADE
+ *
+ * Decisão de desenho: cada unidade passa a ter a sua própria tabela de pouso, em vez de uma
+ * tabela única com coluna de estabelecimento. Cada unidade tem a sua rotina de extração, e
+ * assim a recarga de uma unidade nunca alcança o dado de outra.
+ *
+ * Custo aceito: unidade nova significa tabela nova + migração nova.
+ *
+ * Todas as tabelas compartilham exatamente as mesmas colunas, geradas pela mesma fábrica.
+ * O nome físico é o informado pela equipe e é preservado literalmente.
+ *
+ * A publicação (`server/atendimentosParadosService.ts`) faz upsert em
+ * `atendimentos_unificados` pelo índice único `uq_atend_estab_origem` e desativa
+ * (`ativoNaFonte = 0`) o que não veio no lote atual — sem DELETE e sem TRUNCATE.
+ */
+function colunasStagingAtendimentosParados() {
+  return {
+    id: int().primaryKey().autoincrement(),
+
+    // ===== Rastreamento da origem =====
+    estabelecimentoId: int().notNull(),
+    origemSistema: varchar({ length: 50 }).notNull(), // tasy/tasy_hemolabor em minúsculo
+    origemId: varchar({ length: 255 }).notNull(), // CHAVE ESTÁVEL na origem
+    loteRef: varchar({ length: 50 }).notNull(), // carga que trouxe esta linha
+    hashConteudo: varchar({ length: 64 }), // SHA-256 do conteúdo, para detectar linha inalterada
+    statusValidacao: varchar({ length: 20 }).notNull().default("valido"), // valido | aviso | rejeitado
+    motivoRejeicao: text(),
+
+    // ===== Identificação do atendimento =====
+    numeroAtendimento: varchar({ length: 100 }).notNull(),
+    paciente: varchar({ length: 255 }),
+    convenio: varchar({ length: 255 }),
+    matricula: varchar({ length: 100 }),
+    conta: varchar({ length: 50 }),
+    autorizacao: varchar({ length: 100 }),
+
+    // ===== Datas =====
+    dataEntrada: timestamp(),
+    dataSaida: timestamp(),
+    dataEtapa: timestamp(),
+
+    // ===== Classificação =====
+    tipoAtendimento: varchar({ length: 50 }),
+    descricaoAtendimento: varchar({ length: 255 }),
+    codigoServico: varchar({ length: 100 }),
+    codigoProcedimento: varchar({ length: 500 }),
+    setorEntrada: varchar({ length: 255 }),
+
+    // ===== Situação da conta =====
+    etapaConta: varchar({ length: 255 }),
+    setorEtapa: varchar({ length: 255 }),
+    usuarioEtapa: varchar({ length: 100 }),
+    competencia: varchar({ length: 20 }),
+    protocolo: varchar({ length: 255 }),
+    titulo: varchar({ length: 100 }),
+
+    // ===== Dados clínicos / financeiros =====
+    medicoResponsavel: varchar({ length: 255 }),
+    valorConta: decimal({ precision: 15, scale: 2 }),
+
+    // ===== Metadados =====
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
+    atualizadoEm: timestamp().defaultNow(),
+  };
+}
+
+/**
+ * Cria uma tabela de staging de atendimentos parados.
+ * `nomeFisico` é o nome da tabela no banco; `sufixoIndice` compõe nomes de índice únicos,
+ * exigência do MySQL, que exige nome de índice único por base.
+ */
+function criarTabelaStagingAtendimentosParados(nomeFisico: string, sufixoIndice: string) {
+  return mysqlTable(nomeFisico, colunasStagingAtendimentosParados(), (table) => ({
+    estabelecimentoOrigemIdx: index(`idx_${sufixoIndice}_estab_origem`).on(table.estabelecimentoId, table.origemSistema),
+    loteIdx: index(`idx_${sufixoIndice}_lote`).on(table.loteRef),
+    numeroAtendimentoIdx: index(`idx_${sufixoIndice}_numatend`).on(table.numeroAtendimento),
+    statusIdx: index(`idx_${sufixoIndice}_status`).on(table.statusValidacao),
+    // Torna a carga idempotente: recarregar o mesmo atendimento atualiza, não duplica.
+    origemUnica: uniqueIndex(`uq_${sufixoIndice}_origem`).on(
+      table.estabelecimentoId,
+      table.origemSistema,
+      table.origemId,
+    ),
+  }));
+}
+
+/** Staging de atendimentos parados — UROLÓGICO. */
+export const stagingAtendimentosParadosUrologico = criarTabelaStagingAtendimentosParados(
+  "stagion_atendimentos_parados_urologico",
+  "atend_parados_urologico",
+);
+
+/** Staging de atendimentos parados — IAD. */
+export const stagingAtendimentosParadosIad = criarTabelaStagingAtendimentosParados(
+  "stagion_atendimentos_parados_iad",
+  "atend_parados_iad",
+);
+
+/** Staging de atendimentos parados — IRG. */
+export const stagingAtendimentosParadosIrg = criarTabelaStagingAtendimentosParados(
+  "stagion_atendimentos_parados_irg",
+  "atend_parados_irg",
+);
+
+/** Staging de atendimentos parados — HEMOLABOR. */
+export const stagingAtendimentosParadosHemolabor = criarTabelaStagingAtendimentosParados(
+  "stagion_atendimentos_parados_hemolabor",
+  "atend_parados_hemolabor",
+);
+
+/** Staging de atendimentos parados — MATERNIDADE. */
+export const stagingAtendimentosParadosMaternidade = criarTabelaStagingAtendimentosParados(
+  "stagion_atendimentos_parados_materniadeela",
+  "atend_parados_materniadeela",
+);
+
+/** Tipo comum às tabelas de staging por unidade (todas têm as mesmas colunas). */
+export type TabelaStagingAtendimentosParados = ReturnType<typeof criarTabelaStagingAtendimentosParados>;
+
+/**
  * CAMADA 4: AUDITORIA E HISTÓRICO
  */
 

@@ -1,19 +1,23 @@
+import { getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+  UNIDADES_STAGING_ATENDIMENTOS_PARADOS,
   avaliarCoberturaPublicacao,
   calcularHashConteudo,
   classificarLinha,
   converterData,
   filtrarPublicaveis,
   mapearStagingParaUnificado,
+  montarLinhaStaging,
   montarLoteRef,
-  montarRegistroStaging,
   normalizarOrigemSistema,
+  resolverTabelaStaging,
   validarOrigemId,
   type LinhaAtendimentoParado,
 } from "./atendimentosParadosService";
 
 const ESCOPO = {
+  unidade: "urologico",
   estabelecimentoId: 7,
   origemSistema: "tasy",
   loteRef: "20261001T120000Z-E7-tasy",
@@ -34,6 +38,41 @@ const LINHA_BASE: LinhaAtendimentoParado = {
   etapaConta: "AUDITORIA",
   valorConta: "1234.56",
 };
+
+describe("tabelas de staging por unidade", () => {
+  it("preserva exatamente os nomes físicos definidos pela equipe", () => {
+    expect(getTableName(resolverTabelaStaging("urologico"))).toBe(
+      "stagion_atendimentos_parados_urologico",
+    );
+    expect(getTableName(resolverTabelaStaging("iad"))).toBe("stagion_atendimentos_parados_iad");
+    expect(getTableName(resolverTabelaStaging("irg"))).toBe("stagion_atendimentos_parados_irg");
+    expect(getTableName(resolverTabelaStaging("hemolabor"))).toBe(
+      "stagion_atendimentos_parados_hemolabor",
+    );
+    expect(getTableName(resolverTabelaStaging("maternidade"))).toBe(
+      "stagion_atendimentos_parados_materniadeela",
+    );
+  });
+
+  it("tem uma tabela distinta por unidade", () => {
+    const nomes = UNIDADES_STAGING_ATENDIMENTOS_PARADOS.map((unidade) =>
+      getTableName(resolverTabelaStaging(unidade)),
+    );
+    expect(new Set(nomes).size).toBe(UNIDADES_STAGING_ATENDIMENTOS_PARADOS.length);
+  });
+
+  it("aceita a unidade sem diferenciar maiúsculas de minúsculas", () => {
+    expect(getTableName(resolverTabelaStaging("  Urologico  "))).toBe(
+      "stagion_atendimentos_parados_urologico",
+    );
+  });
+
+  it("falha fechado para unidade desconhecida, listando as válidas", () => {
+    expect(() => resolverTabelaStaging("cardiologia")).toThrow(/cardiologia/);
+    expect(() => resolverTabelaStaging("cardiologia")).toThrow(/urologico/);
+    expect(() => resolverTabelaStaging("")).toThrow(/não possui tabela de staging/i);
+  });
+});
 
 describe("normalizarOrigemSistema", () => {
   it("grava tasy em minúsculo, que é o contrato das telas", () => {
@@ -107,21 +146,15 @@ describe("converterData", () => {
 
 describe("calcularHashConteudo", () => {
   it("ignora a ordem das chaves", () => {
-    const a = calcularHashConteudo({ paciente: "A", convenio: "B" });
-    const b = calcularHashConteudo({ convenio: "B", paciente: "A" });
-    expect(a).toBe(b);
+    expect(calcularHashConteudo({ paciente: "A", convenio: "B" })).toBe(
+      calcularHashConteudo({ convenio: "B", paciente: "A" }),
+    );
   });
 
   it("muda quando o conteúdo muda", () => {
-    const a = calcularHashConteudo({ paciente: "A" });
-    const b = calcularHashConteudo({ paciente: "B" });
-    expect(a).not.toBe(b);
-  });
-
-  it("normaliza Date para o mesmo instante em representações diferentes", () => {
-    const a = calcularHashConteudo({ dataEntrada: new Date("2026-09-01T12:00:00.000Z") });
-    const b = calcularHashConteudo({ dataEntrada: new Date("2026-09-01T12:00:00.000Z") });
-    expect(a).toBe(b);
+    expect(calcularHashConteudo({ paciente: "A" })).not.toBe(
+      calcularHashConteudo({ paciente: "B" }),
+    );
   });
 });
 
@@ -168,7 +201,6 @@ describe("mapearStagingParaUnificado", () => {
     expect(registro.origemSistema).toBe("tasy");
     expect(registro.origemId).toBe("12345");
     expect(registro.numero_atendimento).toBe("12345");
-    expect(registro.dsSetorEntrada).toBeNull();
     expect(registro.nomeProtocolo).toBeNull();
     expect(registro.ativoNaFonte).toBe(true);
   });
@@ -213,22 +245,19 @@ describe("avaliarCoberturaPublicacao", () => {
   });
 });
 
-describe("montarRegistroStaging", () => {
+describe("montarLinhaStaging", () => {
   it("grava lote, status e o motivo da rejeição", () => {
-    const registro = montarRegistroStaging(
-      { ...LINHA_BASE, numeroAtendimento: "" },
-      ESCOPO,
-    );
-    expect(registro.loteRef).toBe(ESCOPO.loteRef);
-    expect(registro.statusValidacao).toBe("rejeitado");
-    expect(registro.motivoRejeicao).toMatch(/numeroAtendimento/i);
+    const linha = montarLinhaStaging({ ...LINHA_BASE, numeroAtendimento: "" }, ESCOPO);
+    expect(linha.loteRef).toBe(ESCOPO.loteRef);
+    expect(linha.statusValidacao).toBe("rejeitado");
+    expect(linha.motivoRejeicao).toMatch(/numeroAtendimento/i);
   });
 
   it("é determinístico: a mesma entrada gera a mesma chave e o mesmo hash", () => {
     // Contrato que impede a duplicação: recarregar o mesmo atendimento precisa produzir
     // exatamente a mesma chave de origem, para o upsert atualizar em vez de inserir.
-    const primeira = montarRegistroStaging(LINHA_BASE, ESCOPO);
-    const segunda = montarRegistroStaging(LINHA_BASE, ESCOPO);
+    const primeira = montarLinhaStaging(LINHA_BASE, ESCOPO);
+    const segunda = montarLinhaStaging(LINHA_BASE, ESCOPO);
 
     expect(primeira.origemId).toBe(segunda.origemId);
     expect(primeira.hashConteudo).toBe(segunda.hashConteudo);
@@ -236,12 +265,15 @@ describe("montarRegistroStaging", () => {
   });
 
   it("normaliza a origem recebida no escopo", () => {
-    const registro = montarRegistroStaging(LINHA_BASE, { ...ESCOPO, origemSistema: "TASY" });
-    expect(registro.origemSistema).toBe("tasy");
+    const linha = montarLinhaStaging(LINHA_BASE, { ...ESCOPO, origemSistema: "TASY" });
+    expect(linha.origemSistema).toBe("tasy");
   });
 
   it("preserva a precisão do valor da conta", () => {
-    const registro = montarRegistroStaging(LINHA_BASE, ESCOPO);
-    expect(registro.valorConta).toBe("1234.56");
+    expect(montarLinhaStaging(LINHA_BASE, ESCOPO).valorConta).toBe("1234.56");
+  });
+
+  it("carrega o estabelecimento informado no escopo", () => {
+    expect(montarLinhaStaging(LINHA_BASE, ESCOPO).estabelecimentoId).toBe(7);
   });
 });

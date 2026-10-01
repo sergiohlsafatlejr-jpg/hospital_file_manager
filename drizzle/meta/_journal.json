@@ -337,6 +337,13 @@
       "when": 1790873477869,
       "tag": "0129_chief_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "5",
+      "when": 1790874573874,
+      "tag": "0130_dapper_moon_knight",
+      "breakpoints": true
     }
   ]
 }
