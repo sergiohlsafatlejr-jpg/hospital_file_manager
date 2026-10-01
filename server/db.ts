@@ -19850,3 +19850,85 @@ export async function publicarProcedimentosConsolidados(
     };
   });
 }
+
+
+export type UnimedExportFilters = {
+  convenioId: number;
+  estabelecimentoId?: number;
+  vigencia: string;
+  tipoBeneficiario: string;
+};
+
+function escopoTabelasProcedimentos(convenioId: number, estabelecimentoId?: number) {
+  const conditions = [
+    eq(tabelasPreco.convenioId, convenioId),
+    eq(tabelasPreco.tipo, "procedimentos" as const),
+  ];
+  if (estabelecimentoId) {
+    conditions.push(
+      or(
+        eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
+        isNull(tabelasPreco.estabelecimentoId),
+      ) as any,
+    );
+  }
+  return conditions;
+}
+
+/** Retorna as opções existentes no banco para os filtros do exportador Unimed. */
+export async function getOpcoesExportacaoUnimed(convenioId: number, estabelecimentoId?: number) {
+  const dbConn = await getDb();
+  if (!dbConn) return { vigencias: [], tiposBeneficiarios: [] };
+
+  const escopo = escopoTabelasProcedimentos(convenioId, estabelecimentoId);
+  const vigencias = await dbConn.select({
+    vigencia: sql<string>`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d')`,
+  })
+    .from(tabelasPreco)
+    .where(and(...escopo))
+    .groupBy(sql`DATE(${tabelasPreco.vigenciaInicio})`)
+    .orderBy(sql`DATE(${tabelasPreco.vigenciaInicio}) DESC`);
+
+  const tiposBeneficiarios = await dbConn.select({
+    tipoBeneficiario: tabelasPreco.tipoBeneficiario,
+  })
+    .from(tabelasPreco)
+    .where(and(
+      ...escopo,
+      isNotNull(tabelasPreco.tipoBeneficiario),
+      sql`${tabelasPreco.tipoBeneficiario} <> ''`,
+    ))
+    .groupBy(tabelasPreco.tipoBeneficiario)
+    .orderBy(sql`${tabelasPreco.tipoBeneficiario}`);
+
+  return {
+    vigencias: vigencias.map((item) => item.vigencia),
+    tiposBeneficiarios: tiposBeneficiarios
+      .map((item) => item.tipoBeneficiario)
+      .filter((item): item is string => !!item),
+  };
+}
+
+/** Busca as colunas necessárias para montar o DBF no mesmo escopo da tela. */
+export async function getLinhasExportacaoUnimed(filtros: UnimedExportFilters) {
+  const dbConn = await getDb();
+  if (!dbConn) return [];
+
+  const rows = await dbConn.select({
+    codigo: tabelasPreco.codigo,
+    nome: tabelasPreco.nome,
+    valor: tabelasPreco.valor,
+    valorPorteAnestesico: tabelasPreco.valorPorteAnestesico,
+    porte: tabelasPreco.porte,
+    numeroAuxiliares: tabelasPreco.numeroAuxiliares,
+  })
+    .from(tabelasPreco)
+    .where(and(
+      ...escopoTabelasProcedimentos(filtros.convenioId, filtros.estabelecimentoId),
+      sql`DATE(${tabelasPreco.vigenciaInicio}) = ${filtros.vigencia}`,
+      eq(tabelasPreco.tipoBeneficiario, filtros.tipoBeneficiario),
+    ))
+    .orderBy(tabelasPreco.codigo);
+
+  return rows;
+}

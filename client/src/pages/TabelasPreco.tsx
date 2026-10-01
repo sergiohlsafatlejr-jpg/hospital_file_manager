@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -78,6 +78,7 @@ export default function TabelasPreco() {
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [exportDbfDialogOpen, setExportDbfDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [selectedItemForHistory, setSelectedItemForHistory] = useState<number | null>(null);
@@ -99,6 +100,8 @@ export default function TabelasPreco() {
   const [importFiles, setImportFiles] = useState<File[]>([]);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; name: string } | null>(null);
   const [importSubstituir, setImportSubstituir] = useState(false);
+  const [exportDbfVigencia, setExportDbfVigencia] = useState("");
+  const [exportDbfTipoBeneficiario, setExportDbfTipoBeneficiario] = useState("");
 
   const handleImportFileChange = (files: File[]) => {
     setImportFiles((previousFiles) => {
@@ -164,6 +167,13 @@ export default function TabelasPreco() {
     { tabelaPrecoId: selectedItemForHistory! },
     { enabled: !!selectedItemForHistory && historyDialogOpen }
   );
+  const { data: exportDbfOpcoes, isLoading: isLoadingExportDbfOpcoes } = trpc.tabelasPreco.exportarUnimedOpcoes.useQuery(
+    {
+      convenioId: convenioId!,
+      estabelecimentoId: estabelecimentoAtual?.id,
+    },
+    { enabled: !!convenioId && tipoSelecionado === "procedimentos" },
+  );
 
   // Mutations
   const createMutation = trpc.tabelasPreco.create.useMutation({
@@ -213,6 +223,38 @@ export default function TabelasPreco() {
     },
     onError: () => undefined,
   });
+
+  const exportarUnimedDbfMutation = trpc.tabelasPreco.exportarUnimedDbf.useMutation({
+    onSuccess: (resultado) => {
+      const bytes = Uint8Array.from(atob(resultado.conteudo), (char) => char.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/octet-stream" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = resultado.nomeArquivo;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      setExportDbfDialogOpen(false);
+      toast.success(`${resultado.totalItens} procedimentos exportados para ${resultado.nomeArquivo}.`);
+    },
+    onError: (error) => {
+      toast.error(`Erro ao exportar DBF: ${error.message}`);
+    },
+  });
+
+  useEffect(() => {
+    if (tipoSelecionado !== "procedimentos") return;
+    setExportDbfVigencia((current) =>
+      current && exportDbfOpcoes?.vigencias.includes(current)
+        ? current
+        : exportDbfOpcoes?.vigencias[0] || "",
+    );
+    setExportDbfTipoBeneficiario((current) =>
+      current && exportDbfOpcoes?.tiposBeneficiarios.includes(current)
+        ? current
+        : exportDbfOpcoes?.tiposBeneficiarios[0] || "",
+    );
+  }, [exportDbfOpcoes, tipoSelecionado]);
 
   const resetForm = () => {
     setFormCodigo("");
@@ -641,6 +683,16 @@ export default function TabelasPreco() {
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    {tipoSelecionado === "procedimentos" && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setExportDbfDialogOpen(true)}
+                        disabled={!convenioId || isLoadingExportDbfOpcoes || exportarUnimedDbfMutation.isPending}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Exportar DBF
+                      </Button>
+                    )}
                     <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
                       <Upload className="h-4 w-4 mr-2" />
                       Importar
@@ -1014,6 +1066,78 @@ export default function TabelasPreco() {
               </Button>
               <Button onClick={handleImport} disabled={!importFiles.length || !etapasUnimedCompletas || importMutation.isPending || importLoteMutation.isPending || !!importProgress}>
                 {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : etapasUnimedCompletas ? "Importar 4 etapas" : "Selecione as 4 etapas"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog de Exportação DBF Unimed */}
+        <Dialog open={exportDbfDialogOpen} onOpenChange={setExportDbfDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Exportar DBF Unimed</DialogTitle>
+              <DialogDescription>
+                Selecione a vigência e o tipo de beneficiário para gerar o arquivo no layout UnimedRedePadrao.DBF.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Vigência</Label>
+                <Select value={exportDbfVigencia} onValueChange={setExportDbfVigencia}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={isLoadingExportDbfOpcoes ? "Carregando vigências..." : "Selecione a vigência"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {exportDbfOpcoes?.vigencias.map((vigencia) => (
+                      <SelectItem key={vigencia} value={vigencia}>{vigencia}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo de Beneficiário</Label>
+                <Select value={exportDbfTipoBeneficiario} onValueChange={setExportDbfTipoBeneficiario}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={isLoadingExportDbfOpcoes ? "Carregando beneficiários..." : "Selecione o beneficiário"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {exportDbfOpcoes?.tiposBeneficiarios.map((tipoBeneficiario) => (
+                      <SelectItem key={tipoBeneficiario} value={tipoBeneficiario}>{tipoBeneficiario}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {!isLoadingExportDbfOpcoes && (!exportDbfOpcoes?.vigencias.length || !exportDbfOpcoes?.tiposBeneficiarios.length) && (
+                <p className="text-sm text-muted-foreground">
+                  Não há opções de procedimentos cadastradas para este convênio e estabelecimento.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setExportDbfDialogOpen(false)} disabled={exportarUnimedDbfMutation.isPending}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!convenioId || !exportDbfVigencia || !exportDbfTipoBeneficiario) {
+                    toast.error("Selecione a vigência e o tipo de beneficiário.");
+                    return;
+                  }
+                  exportarUnimedDbfMutation.mutate({
+                    convenioId,
+                    estabelecimentoId: estabelecimentoAtual?.id,
+                    vigencia: exportDbfVigencia,
+                    tipoBeneficiario: exportDbfTipoBeneficiario,
+                  });
+                }}
+                disabled={
+                  !exportDbfVigencia ||
+                  !exportDbfTipoBeneficiario ||
+                  isLoadingExportDbfOpcoes ||
+                  exportarUnimedDbfMutation.isPending
+                }
+              >
+                {exportarUnimedDbfMutation.isPending ? "Gerando DBF..." : "Exportar DBF"}
               </Button>
             </DialogFooter>
           </DialogContent>

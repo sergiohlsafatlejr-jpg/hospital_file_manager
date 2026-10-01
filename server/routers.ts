@@ -71,6 +71,7 @@ import {
   normalizarProcedimentos,
   PROCEDIMENTO_FONTES,
 } from "./procedimentosTabela";
+import { gerarUnimedDbf } from "./unimedDbfExporter";
 import { lerEConsolidarArquivosProcedimentos } from "./procedimentosImportacaoLote";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -3712,6 +3713,48 @@ export const appRouter = router({
           page: input?.page,
           limit: input?.limit,
         });
+      }),
+
+    exportarUnimedOpcoes: protectedProcedure
+      .input(z.object({
+        convenioId: z.number(),
+        estabelecimentoId: z.number().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getOpcoesExportacaoUnimed(input.convenioId, input.estabelecimentoId);
+      }),
+
+    exportarUnimedDbf: protectedProcedure
+      .input(z.object({
+        convenioId: z.number(),
+        estabelecimentoId: z.number().optional(),
+        vigencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Vigência inválida."),
+        tipoBeneficiario: z.string().min(1, "Selecione o tipo de beneficiário."),
+      }))
+      .mutation(async ({ input }) => {
+        const rows = await db.getLinhasExportacaoUnimed(input);
+        if (!rows.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Nenhum procedimento encontrado para os filtros selecionados.",
+          });
+        }
+
+        const conteudo = await gerarUnimedDbf(rows);
+        const beneficiarioSlug = input.tipoBeneficiario
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9]+/g, "")
+          .replace(/^\s+|\s+$/g, "");
+        const nomeArquivo = beneficiarioSlug.toUpperCase() === "REDEPADRAO"
+          ? "UnimedRedePadrao.DBF"
+          : `Unimed${beneficiarioSlug || "Procedimentos"}.DBF`;
+
+        return {
+          nomeArquivo,
+          conteudo: conteudo.toString("base64"),
+          totalItens: rows.length,
+        };
       }),
 
     // Buscar item por ID
