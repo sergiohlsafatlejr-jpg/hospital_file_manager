@@ -207,6 +207,13 @@ export default function TabelasPreco() {
     onError: () => undefined,
   });
 
+  const importLoteMutation = trpc.tabelasPreco.importarLoteProcedimentos.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: () => undefined,
+  });
+
   const resetForm = () => {
     setFormCodigo("");
     setFormNome("");
@@ -335,31 +342,50 @@ export default function TabelasPreco() {
     let totalItens = 0;
     let totalImportados = 0;
     let totalErros = 0;
+    let totalDuplicadosSite = 0;
     try {
-      for (let index = 0; index < arquivosParaImportar.length; index += 1) {
-        const file = arquivosParaImportar[index];
-        const fonte = detectarFontePorNome(file.name);
-        setImportProgress({ current: index + 1, total: arquivosParaImportar.length, name: file.name });
+      if (tipoSelecionado === "procedimentos") {
+        setImportProgress({ current: 1, total: 4, name: "Validando e consolidando os quatro arquivos" });
+        const arquivos = await Promise.all(arquivosParaImportar.map(async (file) => ({
+          nomeArquivo: file.name,
+          formatoArquivo: formatoDoArquivo(file),
+          conteudo: await lerArquivo(file),
+        })));
+        const resultado = await importLoteMutation.mutateAsync({
+          convenioId,
+          estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
+          arquivos,
+          substituirExistentes: importSubstituir,
+        });
+        setImportProgress({ current: 4, total: 4, name: "Publicação consolidada concluída" });
+        totalItens = resultado.totalItens;
+        totalImportados = resultado.itensImportados;
+        totalErros = resultado.itensErro;
+        totalDuplicadosSite = resultado.itensDuplicadosSite;
+      } else {
+        const file = arquivosParaImportar[0];
+        setImportProgress({ current: 1, total: 1, name: file.name });
         const conteudo = await lerArquivo(file);
         const resultado = await importMutation.mutateAsync({
           convenioId,
           estabelecimentoId: estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : undefined,
           tipo: tipoSelecionado,
-          procedimentoFonte: tipoSelecionado === "procedimentos" ? fonte : undefined,
           nomeArquivo: file.name,
           formatoArquivo: formatoDoArquivo(file),
           conteudo,
           substituirExistentes: importSubstituir,
         });
-        totalItens += resultado.totalItens;
-        totalImportados += resultado.itensImportados;
-        totalErros += resultado.itensErro;
+        totalItens = resultado.totalItens;
+        totalImportados = resultado.itensImportados;
+        totalErros = resultado.itensErro;
       }
       setImportProgress(null);
       setImportFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setImportDialogOpen(false);
-      toast.success(`${arquivosParaImportar.length} arquivo(s) importado(s): ${totalImportados} de ${totalItens} itens gravados${totalErros ? ` e ${totalErros} com erro` : ""}.`);
+      toast.success(tipoSelecionado === "procedimentos"
+        ? `Lote consolidado: ${totalImportados} procedimentos gravados. ${totalDuplicadosSite} duplicado(s) do Site desconsiderado(s).`
+        : `${arquivosParaImportar.length} arquivo(s) importado(s): ${totalImportados} de ${totalItens} itens gravados${totalErros ? ` e ${totalErros} com erro` : ""}.`);
     } catch (error) {
       setImportProgress(null);
       toast.error(`Erro na importação${totalImportados ? ` após ${totalImportados} itens gravados` : ""}: ${error instanceof Error ? error.message : "erro desconhecido"}`);
@@ -952,8 +978,10 @@ export default function TabelasPreco() {
                     <li>• <strong>dados_completo</strong>: codigo, descricao, porte, numero_auxiliares, valor, tipo_de_beneficiario</li>
                     <li>• <strong>preco_portes</strong>: codigo, valor, tipo_de_beneficiario</li>
                     <li>• <strong>porte_anestesico</strong>: codigo, valor, tipo_de_beneficiario</li>
-                    <li>• <strong>Importe primeiro o Preço de Portes e o Porte Anestésico</strong> para este convênio e estabelecimento.</li>
-                    <li>• Valores como <strong>3C</strong> e portes como <strong>5 → AN5</strong> são resolvidos pelas tabelas de referência.</li>
+                    <li>• As <strong>quatro planilhas</strong> são validadas e consolidadas antes de qualquer gravação.</li>
+                    <li>• <strong>Preço de Portes</strong> e <strong>Porte Anestésico</strong> servem apenas como lookup e não geram registros no banco.</li>
+                    <li>• Valores como <strong>3C</strong> e portes como <strong>5 → AN5</strong> são resolvidos durante a consolidação.</li>
+                    <li>• Em duplicidades, o registro de <strong>Dados Completos</strong> tem prioridade sobre o Site.</li>
                   </ul>
                 ) : (
                   <ul className="text-sm text-muted-foreground space-y-1">
@@ -984,7 +1012,7 @@ export default function TabelasPreco() {
               <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleImport} disabled={!importFiles.length || !etapasUnimedCompletas || importMutation.isPending || !!importProgress}>
+              <Button onClick={handleImport} disabled={!importFiles.length || !etapasUnimedCompletas || importMutation.isPending || importLoteMutation.isPending || !!importProgress}>
                 {importProgress ? `Importando ${importProgress.current}/${importProgress.total}...` : etapasUnimedCompletas ? "Importar 4 etapas" : "Selecione as 4 etapas"}
               </Button>
             </DialogFooter>

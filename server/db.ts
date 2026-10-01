@@ -19781,3 +19781,72 @@ export async function salvarPadroesCobrancaTasy(params: {
 
   return { salvos: atualizados + novos, atualizados, novos };
 }
+
+
+/**
+ * Publica o resultado consolidado das quatro planilhas de procedimentos em
+ * uma única transação. As fontes de lookup nunca são inseridas em tabelasPreco.
+ */
+export async function publicarProcedimentosConsolidados(
+  items: InsertTabelaPreco[],
+  convenioId: number,
+  estabelecimentoId: number | undefined,
+  substituirExistentes: boolean,
+): Promise<{ inseridos: number; desativados: number; auxiliaresRemovidos: number }> {
+  const dbConn = await getDb();
+  if (!dbConn) throw new Error("Banco de dados indisponível.");
+
+  const escopoConvenio = [
+    eq(tabelasPreco.convenioId, convenioId),
+    eq(tabelasPreco.tipo, "procedimentos"),
+  ];
+  const escopoProcedimentos = [
+    ...escopoConvenio,
+    estabelecimentoId === undefined
+      ? isNull(tabelasPreco.estabelecimentoId)
+      : eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
+  ];
+
+  return dbConn.transaction(async (tx) => {
+    const filtroAuxiliares = and(
+      ...escopoConvenio,
+      or(
+        eq(tabelasPreco.procedimentoFonte, "preco_portes"),
+        eq(tabelasPreco.procedimentoFonte, "porte_anestesico"),
+      ),
+    );
+    const auxiliares = await tx.select({ id: tabelasPreco.id })
+      .from(tabelasPreco)
+      .where(filtroAuxiliares);
+
+    if (auxiliares.length > 0) {
+      await tx.delete(tabelasPreco).where(filtroAuxiliares);
+    }
+
+    let desativados = 0;
+    if (substituirExistentes) {
+      const filtroAtivos = and(...escopoProcedimentos, eq(tabelasPreco.ativo, "sim"));
+      const ativos = await tx.select({ id: tabelasPreco.id })
+        .from(tabelasPreco)
+        .where(filtroAtivos);
+      if (ativos.length > 0) {
+        await tx.update(tabelasPreco)
+          .set({ ativo: "nao" })
+          .where(filtroAtivos);
+        desativados = ativos.length;
+      }
+    }
+
+    const batchSize = 500;
+    for (let index = 0; index < items.length; index += batchSize) {
+      // Sem fallback por item: qualquer falha faz rollback do lote inteiro.
+      await tx.insert(tabelasPreco).values(items.slice(index, index + batchSize));
+    }
+
+    return {
+      inseridos: items.length,
+      desativados,
+      auxiliaresRemovidos: auxiliares.length,
+    };
+  });
+}

@@ -71,6 +71,7 @@ import {
   normalizarProcedimentos,
   PROCEDIMENTO_FONTES,
 } from "./procedimentosTabela";
+import { lerEConsolidarArquivosProcedimentos } from "./procedimentosImportacaoLote";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -4018,6 +4019,11 @@ export const appRouter = router({
 
           if (input.tipo === "procedimentos") {
             const fonte = procedimentoFonte || "site";
+            if (fonte === "preco_portes" || fonte === "porte_anestesico") {
+              throw new Error(
+                "As planilhas Preço de Portes e Porte Anestésico são apenas tabelas de lookup. Importe os quatro arquivos pelo lote consolidado; nenhum registro auxiliar será salvo.",
+              );
+            }
             let precoPortes = new Map<string, number>();
             let portesAnestesicos = new Map<string, number>();
 
@@ -4185,6 +4191,106 @@ export const appRouter = router({
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Erro ao processar arquivo: ${error.message}`,
+          });
+        }
+      }),
+
+    /**
+     * Importa os quatro arquivos Unimed em memória e só então publica o
+     * resultado consolidado. Preço de Portes e Porte Anestésico são lookup;
+     * nunca são persistidos como registros independentes.
+     */
+    importarLoteProcedimentos: protectedProcedure
+      .input(z.object({
+        convenioId: z.number(),
+        estabelecimentoId: z.number().optional(),
+        arquivos: z.array(z.object({
+          nomeArquivo: z.string().min(1),
+          formatoArquivo: z.enum(["excel", "csv", "dbf"]),
+          conteudo: z.string().min(1),
+        })).length(4),
+        substituirExistentes: z.boolean().default(false),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const importacaoId = await db.createImportacaoTabela({
+          convenioId: input.convenioId,
+          userId: ctx.user.id,
+          tipo: "procedimentos",
+          nomeArquivo: `Lote Unimed: ${input.arquivos.map((arquivo) => arquivo.nomeArquivo).join(" + ")}`.slice(0, 255),
+          formatoArquivo: "excel",
+          status: "processando",
+        });
+
+        if (!importacaoId) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao registrar o lote de importação." });
+        }
+
+        try {
+          const fontes = input.arquivos.map((arquivo) => detectarFonteProcedimentoPorNome(arquivo.nomeArquivo));
+          if (fontes.some((fonte) => !fonte)) {
+            throw new Error("Um ou mais arquivos não têm nome reconhecido. Use os quatro nomes padrão da Unimed.");
+          }
+          const fontesValidas = fontes.filter((fonte): fonte is typeof PROCEDIMENTO_FONTES[number] => !!fonte);
+          const duplicadas = fontesValidas.filter((fonte, index) => fontesValidas.indexOf(fonte) !== index);
+          if (duplicadas.length > 0 || new Set(fontesValidas).size !== PROCEDIMENTO_FONTES.length) {
+            throw new Error("O lote deve conter exatamente um arquivo de Preço de Portes, um de Porte Anestésico, um de Dados Completos e um da Tabela Unimed Site.");
+          }
+
+          const consolidado = await lerEConsolidarArquivosProcedimentos(input.arquivos);
+          if (consolidado.items.length === 0) {
+            throw new Error("Nenhum procedimento válido foi encontrado após a consolidação dos quatro arquivos.");
+          }
+
+          const vigenciaInicio = new Date();
+          const tabelaItems = consolidado.items.map((item) => ({
+            convenioId: input.convenioId,
+            estabelecimentoId: input.estabelecimentoId || null,
+            tipo: "procedimentos" as const,
+            procedimentoFonte: item.procedimentoFonte,
+            codigo: item.codigo,
+            nome: item.nome,
+            valor: item.valor,
+            vigenciaInicio,
+            porte: item.porte || null,
+            numeroAuxiliares: item.numeroAuxiliares ?? null,
+            tipoBeneficiario: item.tipoBeneficiario || null,
+            valorPorteAnestesico: item.valorPorteAnestesico || null,
+            unidade: null,
+            observacao: null,
+          }));
+
+          const persistido = await db.publicarProcedimentosConsolidados(
+            tabelaItems,
+            input.convenioId,
+            input.estabelecimentoId,
+            input.substituirExistentes,
+          );
+
+          await db.updateImportacaoTabela(importacaoId, {
+            status: "concluido",
+            totalItens: consolidado.totalEntrada,
+            itensImportados: persistido.inseridos,
+            itensErro: 0,
+            mensagemErro: null,
+          });
+
+          return {
+            success: true,
+            importacaoId,
+            totalItens: consolidado.totalEntrada,
+            itensImportados: persistido.inseridos,
+            itensErro: 0,
+            itensDuplicadosSite: consolidado.totalDuplicadosSite,
+            auxiliaresRemovidos: persistido.auxiliaresRemovidos,
+          };
+        } catch (error: any) {
+          await db.updateImportacaoTabela(importacaoId, {
+            status: "erro",
+            mensagemErro: error.message,
+          });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao consolidar os quatro arquivos: ${error.message}`,
           });
         }
       }),
