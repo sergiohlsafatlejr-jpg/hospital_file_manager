@@ -19854,52 +19854,32 @@ export async function publicarProcedimentosConsolidados(
 
 export type UnimedExportFilters = {
   convenioId: number;
-  estabelecimentoId?: number;
   vigencia: string;
   tipoBeneficiario: string;
 };
 
-function escopoTabelasProcedimentos(convenioId: number, estabelecimentoId?: number) {
-  const conditions = [
-    eq(tabelasPreco.convenioId, convenioId),
-    eq(tabelasPreco.tipo, "procedimentos" as const),
-  ];
-  if (estabelecimentoId) {
-    conditions.push(
-      or(
-        eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
-        isNull(tabelasPreco.estabelecimentoId),
-      ) as any,
-    );
-  }
-  return conditions;
-}
-
 /** Retorna as opções existentes no banco para os filtros do exportador Unimed. */
-export async function getOpcoesExportacaoUnimed(convenioId: number, estabelecimentoId?: number) {
+export async function getOpcoesExportacaoUnimed() {
   const dbConn = await getDb();
   if (!dbConn) return { vigencias: [], tiposBeneficiarios: [] };
 
-  const escopo = escopoTabelasProcedimentos(convenioId, estabelecimentoId);
-  const vigencias = await dbConn.select({
-    vigencia: sql<string>`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d')`,
+  const vigencias = await dbConn.selectDistinct({
+    vigencia: sql<string>`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s')`,
   })
     .from(tabelasPreco)
-    .where(and(...escopo))
-    .groupBy(sql`DATE(${tabelasPreco.vigenciaInicio})`)
-    .orderBy(sql`DATE(${tabelasPreco.vigenciaInicio}) DESC`);
+    .where(eq(tabelasPreco.tipo, "procedimentos" as const))
+    .orderBy(sql`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s') DESC`);
 
-  const tiposBeneficiarios = await dbConn.select({
+  const tiposBeneficiarios = await dbConn.selectDistinct({
     tipoBeneficiario: tabelasPreco.tipoBeneficiario,
   })
     .from(tabelasPreco)
     .where(and(
-      ...escopo,
+      eq(tabelasPreco.tipo, "procedimentos" as const),
       isNotNull(tabelasPreco.tipoBeneficiario),
       sql`${tabelasPreco.tipoBeneficiario} <> ''`,
     ))
-    .groupBy(tabelasPreco.tipoBeneficiario)
-    .orderBy(sql`${tabelasPreco.tipoBeneficiario}`);
+    .orderBy(sql`${tabelasPreco.tipoBeneficiario} DESC`);
 
   return {
     vigencias: vigencias.map((item) => item.vigencia),
@@ -19924,8 +19904,9 @@ export async function getLinhasExportacaoUnimed(filtros: UnimedExportFilters) {
   })
     .from(tabelasPreco)
     .where(and(
-      ...escopoTabelasProcedimentos(filtros.convenioId, filtros.estabelecimentoId),
-      sql`DATE(${tabelasPreco.vigenciaInicio}) = ${filtros.vigencia}`,
+      eq(tabelasPreco.convenioId, filtros.convenioId),
+      eq(tabelasPreco.tipo, "procedimentos" as const),
+      sql`DATE_FORMAT(${tabelasPreco.vigenciaInicio}, '%Y-%m-%d %H:%i:%s') = ${filtros.vigencia}`,
       eq(tabelasPreco.tipoBeneficiario, filtros.tipoBeneficiario),
     ))
     .orderBy(tabelasPreco.codigo);

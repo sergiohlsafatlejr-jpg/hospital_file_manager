@@ -168,11 +168,8 @@ export default function TabelasPreco() {
     { enabled: !!selectedItemForHistory && historyDialogOpen }
   );
   const { data: exportDbfOpcoes, isLoading: isLoadingExportDbfOpcoes } = trpc.tabelasPreco.exportarUnimedOpcoes.useQuery(
-    {
-      convenioId: convenioId!,
-      estabelecimentoId: estabelecimentoAtual?.id,
-    },
-    { enabled: !!convenioId && tipoSelecionado === "procedimentos" },
+    undefined,
+    { enabled: tipoSelecionado === "procedimentos" },
   );
 
   // Mutations
@@ -1125,7 +1122,6 @@ export default function TabelasPreco() {
                   }
                   exportarUnimedDbfMutation.mutate({
                     convenioId,
-                    estabelecimentoId: estabelecimentoAtual?.id,
                     vigencia: exportDbfVigencia,
                     tipoBeneficiario: exportDbfTipoBeneficiario,
                   });
