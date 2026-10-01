@@ -330,6 +330,13 @@
       "when": 1790173200000,
       "tag": "0128_valor_porte_anestesico",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "5",
+      "when": 1790873477869,
+      "tag": "0129_chief_zaran",
+      "breakpoints": true
     }
   ]
 }

@@ -800,6 +800,95 @@ export const atendimentosAFaturar = mysqlTable(
 );
 
 /**
+ * CAMADA 3: STAGING GENÉRICO - ATENDIMENTOS PARADOS
+ *
+ * Zona de pouso normalizada para atendimentos parados de QUALQUER sistema de origem
+ * (tasy, tasy_hemolabor, WARLEINE, EASYVISION, ...), por estabelecimento.
+ *
+ * Substitui os caminhos de transformação bespoke, um por origem, que geravam `origemId`
+ * instável e obrigavam a limpar a tabela antes de cada carga. Aqui:
+ *
+ *   - `origemId` é a chave estável na origem e NUNCA deriva de `id` de staging;
+ *   - o índice único torna a carga idempotente: recarregar o mesmo lote não duplica;
+ *   - `loteRef` identifica a carga, permitindo publicar sem apagar staging;
+ *   - `statusValidacao` permite reter a linha na staging sem publicá-la.
+ *
+ * A publicação (`server/atendimentosParadosService.ts`) faz upsert em
+ * `atendimentos_unificados` pelo índice único `uq_atend_estab_origem` e desativa
+ * (`ativoNaFonte = 0`) o que não veio no lote atual — sem DELETE e sem TRUNCATE.
+ *
+ * Nenhuma coluna de `atendimentos_unificados` é alterada por esta camada.
+ */
+export const atendimentosParadosStaging = mysqlTable(
+  "atendimentos_parados_staging",
+  {
+    id: int().primaryKey().autoincrement(),
+
+    // ===== Rastreamento da origem =====
+    estabelecimentoId: int().notNull(),
+    origemSistema: varchar({ length: 50 }).notNull(), // gravar em minúsculo para tasy/tasy_hemolabor
+    origemId: varchar({ length: 255 }).notNull(), // CHAVE ESTÁVEL na origem (não usar id de staging)
+    loteRef: varchar({ length: 50 }).notNull(), // referência do lote/carga que trouxe esta linha
+    hashConteudo: varchar({ length: 64 }), // SHA-256 do conteúdo, para detectar linha inalterada
+    statusValidacao: varchar({ length: 20 }).notNull().default("valido"), // valido | aviso | rejeitado
+    motivoRejeicao: text(), // motivo quando statusValidacao = rejeitado
+
+    // ===== Identificação do atendimento =====
+    numeroAtendimento: varchar({ length: 100 }).notNull(),
+    paciente: varchar({ length: 255 }),
+    convenio: varchar({ length: 255 }),
+    matricula: varchar({ length: 100 }),
+    conta: varchar({ length: 50 }),
+    autorizacao: varchar({ length: 100 }),
+
+    // ===== Datas =====
+    dataEntrada: timestamp(),
+    dataSaida: timestamp(),
+    dataEtapa: timestamp(),
+
+    // ===== Classificação =====
+    tipoAtendimento: varchar({ length: 50 }),
+    descricaoAtendimento: varchar({ length: 255 }),
+    codigoServico: varchar({ length: 100 }),
+    codigoProcedimento: varchar({ length: 500 }),
+    setorEntrada: varchar({ length: 255 }),
+
+    // ===== Situação da conta =====
+    etapaConta: varchar({ length: 255 }),
+    setorEtapa: varchar({ length: 255 }),
+    usuarioEtapa: varchar({ length: 100 }),
+    competencia: varchar({ length: 20 }),
+    protocolo: varchar({ length: 255 }),
+    titulo: varchar({ length: 100 }),
+
+    // ===== Dados clínicos / financeiros =====
+    medicoResponsavel: varchar({ length: 255 }),
+    valorConta: decimal({ precision: 15, scale: 2 }),
+
+    // ===== Metadados =====
+    dataSincronizacao: timestamp().defaultNow(),
+    criadoEm: timestamp().defaultNow(),
+    atualizadoEm: timestamp().defaultNow(),
+  },
+  (table) => ({
+    estabelecimentoOrigemIdx: index("idx_atend_parados_estab_origem").on(table.estabelecimentoId, table.origemSistema),
+    loteIdx: index("idx_atend_parados_lote").on(table.estabelecimentoId, table.origemSistema, table.loteRef),
+    numeroAtendimentoIdx: index("idx_atend_parados_numatend").on(table.numeroAtendimento),
+    origemIdIdx: index("idx_atend_parados_origem_id").on(table.origemId),
+    statusValidacaoIdx: index("idx_atend_parados_status").on(table.statusValidacao),
+    // Torna a carga idempotente: recarregar o mesmo atendimento atualiza, não duplica.
+    origemUnica: uniqueIndex("uq_atend_parados_estab_origem_id").on(
+      table.estabelecimentoId,
+      table.origemSistema,
+      table.origemId,
+    ),
+  })
+);
+
+export type AtendimentoParadoStaging = typeof atendimentosParadosStaging.$inferSelect;
+export type InsertAtendimentoParadoStaging = typeof atendimentosParadosStaging.$inferInsert;
+
+/**
  * CAMADA 4: AUDITORIA E HISTÓRICO
  */
 
