@@ -3716,12 +3716,18 @@ export const appRouter = router({
       }),
 
     exportarUnimedOpcoes: protectedProcedure
-      .query(async () => {
-        return db.getOpcoesExportacaoUnimed();
+      .input(z.object({
+        convenioId: z.number().int().positive(),
+        estabelecimentoId: z.number().int().positive(),
+      }))
+      .query(async ({ input }) => {
+        return db.getOpcoesExportacaoUnimed(input.convenioId, input.estabelecimentoId);
       }),
 
     exportarUnimedDbf: protectedProcedure
       .input(z.object({
+        convenioId: z.number().int().positive(),
+        estabelecimentoId: z.number().int().positive(),
         vigencia: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, "Vigência inválida."),
         tipoBeneficiario: z.string().min(1, "Selecione o tipo de beneficiário."),
       }))
