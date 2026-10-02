@@ -1,0 +1,26 @@
+# Procedimento excepcional — cinco stagings da 0130
+
+**Preparado para revisão; não executado.** Arquivos de referência: `main` `6cf2033`, `drizzle/0130_dapper_moon_knight.sql` e `drizzle/meta/_journal.json`. O [script SQL por fases](reconciliacao-manual-0130.sql) copia o DDL das cinco tabelas e dos 20 índices da `0130`, retirando somente os separadores próprios do Drizzle. Ele **não** executa a `0129` nem altera migrações integradas ao Git.
+
+## A exceção aprovada para elaboração — não é autorização de execução
+
+Sergio autorizou **preparar** o procedimento manual e submetê-lo a branch e Pull Request. A execução depende de revisão independente, janela exclusiva, backup externo atual com chave separada e restauração testada em homologação. É obrigatório registrar `MIGRAÇÃO RESERVADA` na tarefa Collab da equipe antes de executar; a tarefa ainda não está identificada no conjunto acessível desta sessão. A própria PR não substitui a revisão, a prova em homologação nem a decisão final de produção.
+
+### Efeito real de registrar a 0130 no histórico
+
+A implementação MySQL do Drizzle consulta **somente o último `created_at`** em `__drizzle_migrations`. Hoje existem 91 linhas e o maior timestamp registrado é `1782841349000` (entre 0104 e 0105). Se o SQL excepcional registrar **somente a 0130** com timestamp `1790874573874`, chamadas futuras a `db:migrate` **pularão 0105–0129**, mesmo que não haja linhas individuais dessas migrações no histórico. **Isso não certifica que seus DMLs/índices foram aplicados.** A tabela genérica da `0129` permanecerá ausente por decisão expressa de Sergio.
+
+Há evidências de schema antigo materializado, mas um índice da 0105 continua ausente, há diferenças atuais de tipos e uma divergência de permissão na regra original da 0110. Não executar SQL de correção desses pontos sem investigação específica e revisão: podem refletir alterações posteriores legítimas. Esses débitos devem permanecer visíveis na auditoria/PR e não podem ser eliminados por um marcador no Drizzle.
+
+## Como revisar e ensaiar
+
+1. **Antes de rodar qualquer trecho:** obter restauração isolada de backup recente (o backup local provisório de 01/10 não foi restaurado), comparar schema/hash com o commit usado e confirmar que o banco apontado é homologação. Não copiar credenciais/dump para PR, tarefas ou arquivos públicos. Rodar `pnpm db:check` no código versionado; esta exceção não usa `db:generate`, pois a `0130` já foi gerada/integrada.
+2. **FASE 0 — somente leitura:** conferir `DATABASE()` por canal seguro, total de 91 registros, watermark `1782841349000` **e ID/hash da última linha histórica**; cinco tabelas da 0130 ausentes e tabela da 0129 ausente. Se divergir, **parar**. Pausar escritores Hop/ETL que poderiam carregar uma staging parcialmente criada.
+3. **FASE 1 — DDL:** executar somente o trecho de cinco `CREATE TABLE` e 20 `CREATE INDEX`, na ordem versionada. TiDB pode persistir DDLs anteriores mesmo que um posterior falhe; **não reexecutar o arquivo inteiro após falha**. Investigar esquema parcial sem `DROP`, `TRUNCATE` ou limpeza automática.
+4. **FASE 2 — verificação:** exigir contagens de cinco tabelas, 20 índices secundários, cinco índices únicos de origem e cinco PKs, e ausência da tabela da 0129. As contagens são guardas mínimas, **não provam a forma completa**: revisar `SHOW CREATE TABLE`/metadados de todas as colunas, tipos, nulabilidade, defaults, colunas e **ordem** dos 30 índices contra a `0130` original antes da próxima fase; arquivar evidência assinada por outro revisor. O token de sessão indicado em comentário na Fase 3 deve ser digitado manualmente **depois** dessa revisão, sem colocá-lo no arquivo executável.
+5. **FASE 3 — marcador excepcional:** **só após conferência e aprovação**, executar na **mesma sessão SQL** o `INSERT … SELECT … WHERE` protegido por total/ID/hash/último timestamp, ausência de registro 0130 e estrutura mínima. Deve afetar **exatamente uma linha**. Resultado 0 ou erro = parar e investigar, jamais forçar `INSERT`. Confirmar 92 registros, watermark `1790874573874`, hash exato e ausência de tabela 0129. Não registrar linhas falsas para 0105–0129. A guarda de leitura **não é mutex**: reservar janela com um único executor e impedir migração concorrente.
+6. **Repetir em produção só após homologação aprovada:** reavaliar watermark, alvo, PR/revisão, backup externo e reserva Collab imediatamente antes da janela. Sergio ou delegado formal registra executor, data, commit, contagens e resultado. Não acionar `db:migrate` junto com o runbook.
+
+**Não há rollback automático do DDL.** Em estado parcial, o caminho é identificar objetos já criados, preservar quaisquer dados que surgirem, preparar reparo mínimo e revisão nova. Não considerar a gravação no journal uma prova histórica. Uma PR futura deverá tratar a definição obsoleta da tabela genérica da 0129 no schema e os demais débitos, sem editar a migração já integrada.
+
+**Nota de segurança:** a coluna `estabelecimentoId` faz parte da chave de origem, mas a DDL, isoladamente, **não garante** que uma conexão Hop só possa gravar dados do estabelecimento do nome da tabela. Essa autorização deve ser restringida por credencial/serviço e testada separadamente antes de conectar o ETL.
