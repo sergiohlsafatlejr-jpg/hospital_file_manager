@@ -3,12 +3,12 @@ import { dataCivilFinanceiraSchema, dataCivilParaBanco, formatarDataCivilBR, hoj
 import { financeiroRouter } from "./routers/financeiroRouter";
 
 vi.mock("./db", async importOriginal => ({ ...await importOriginal<typeof import("./db")>(), getDb: vi.fn(), verificarPermissaoEstabelecimento: vi.fn() }));
-import { getDb } from "./db";
+import { getDb, verificarPermissaoEstabelecimento } from "./db";
 
 const caller = () => financeiroRouter.createCaller({ user: { id: 11, role: "admin" }, req: {}, res: {} } as any);
 
 describe("datas civis no financeiro", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(true); });
 
   it("mantém 25/10 na tela, no campo de edição e no Excel mesmo com payload UTC", () => {
     for (const value of ["2026-10-25", "2026-10-25T00:00:00.000Z", new Date("2026-10-25T00:00:00.000Z")]) {
@@ -36,7 +36,7 @@ describe("datas civis no financeiro", () => {
   });
 
   it("não abre conexão nem insere recebível quando vencimento está incompleto", async () => {
-    await expect(caller().recebiveis.criar({ descricao: "Teste sintético", valor: "49.00", dataVencimento: "25/10" })).rejects.toThrow();
+    await expect(caller().recebiveis.criar({ estabelecimentoId: 7, empresaId: 12, descricao: "Teste sintético", valor: "49.00", dataVencimento: "25/10" })).rejects.toThrow();
     expect(getDb).not.toHaveBeenCalled();
   });
 
@@ -49,8 +49,8 @@ describe("datas civis no financeiro", () => {
 
   it("aceita 25/10/2026 e salva vencimento e recebimento na mesma data civil", async () => {
     const values = vi.fn(async (_row: unknown) => [{ insertId: 8 }]);
-    vi.mocked(getDb).mockResolvedValue({ insert: () => ({ values }) } as any);
-    await expect(caller().recebiveis.criar({ descricao: "Teste sintético", valor: "49.00", dataVencimento: "25/10/2026", dataRecebimento: "2026-10-25" })).resolves.toEqual({ id: 8 });
+    vi.mocked(getDb).mockResolvedValue({ insert: () => ({ values }), select:()=>({ from:()=>({ where:()=>({ limit:async()=>[{id:12}] }) }) }) } as any);
+    await expect(caller().recebiveis.criar({ estabelecimentoId: 7, empresaId: 12, descricao: "Teste sintético", valor: "49.00", dataVencimento: "25/10/2026", dataRecebimento: "2026-10-25" })).resolves.toEqual({ id: 8 });
     expect(values).toHaveBeenCalledTimes(1);
     const row = values.mock.calls[0][0] as any;
     expect(row.dataVencimento.toISOString()).toBe("2026-10-25T12:00:00.000Z");
@@ -58,7 +58,7 @@ describe("datas civis no financeiro", () => {
   });
 
   it("rejeita lote de recebíveis com data inválida antes de qualquer inserção", async () => {
-    await expect(caller().importador.importarContasReceber({ items: [
+    await expect(caller().importador.importarContasReceber({ estabelecimentoId: 7, empresaId: 12, items: [
       { descricao: "Primeira", valor: "10.00", dataVencimento: "2026-10-25" },
       { descricao: "Segunda", valor: "10.00", dataVencimento: "Invalid Date" },
     ] })).rejects.toThrow();

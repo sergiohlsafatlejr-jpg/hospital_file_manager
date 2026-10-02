@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { rhFolhaPagamento, rhCargosSalarios } from "../../drizzle/schema";
 import { eq, desc, and } from "drizzle-orm";
+import { exigirUnidadeFinanceira } from "../financeiroEscopo";
 
 export const rhRouter = router({
   listFolha: protectedProcedure
@@ -183,16 +184,17 @@ export const rhRouter = router({
 
   custoReceitaUnidade: protectedProcedure
     .input(z.object({
-      estabelecimentoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(),
       mes: z.string() // Format 'YYYY-MM'
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
       const db = await getDb();
       // 1. Puxa os custos do RH do mês
       const folha = await db.select().from(rhFolhaPagamento)
         .where(
           and(
-            input.estabelecimentoId ? eq(rhFolhaPagamento.estabelecimentoId, input.estabelecimentoId) : undefined,
+            eq(rhFolhaPagamento.estabelecimentoId, input.estabelecimentoId),
             eq(rhFolhaPagamento.competencia, input.mes)
           )
         );
@@ -216,9 +218,10 @@ export const rhRouter = router({
         SELECT c.nome as unidade, SUM(r.valor) as receita 
         FROM fin_recebiveis r 
         JOIN fin_clientes c ON r.clienteId = c.id 
-        WHERE DATE_FORMAT(r.dataVencimento, '%Y-%m') = ?
+        JOIN fin_empresas e ON e.id = r.empresaId AND c.empresaId = e.id
+        WHERE DATE_FORMAT(r.dataVencimento, '%Y-%m') = ? AND e.estabelecimentoId = ?
         GROUP BY c.nome
-      `, [input.mes]);
+      `, [input.mes, input.estabelecimentoId]);
 
       // Associa a receita à unidade (com fuzzy match simples se necessário)
       if (Array.isArray(receitasRows)) {

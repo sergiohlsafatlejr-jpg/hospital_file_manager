@@ -13,6 +13,7 @@ import { eq, desc, and, sql, like, gte, lte, asc, inArray } from "drizzle-orm";
 import { isNull, or } from "drizzle-orm";
 import { chaveContaPagar, contasPagarImportSchema, normalizarNome } from "../../shared/contasPagarImport";
 import { dataCivilFinanceiraSchema, dataCivilParaBanco, hojeCivilBrasil, somarDiasCivis, valorDataCivil } from "../../shared/financeiroCivilDate";
+import { clienteDaUnidade, exigirClienteDaEmpresa, exigirEmpresaDaUnidade, exigirRecebiveisDaUnidade, exigirTransacoesDaUnidade, exigirUnidadeFinanceira, recebivelDaUnidade, transacaoDaUnidade } from "../financeiroEscopo";
 
 // Para filtrar DATE, compare DATE com DATE: usar Date (meio-dia) excluiria o dia inicial.
 const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
@@ -21,22 +22,24 @@ const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
 // EMPRESAS
 // ============================================================
 const empresasRouter = router({
-  listar: protectedProcedure.query(async () => {
+  listar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
     const db = (await getDb())!;
-    return db.select().from(finEmpresas).orderBy(finEmpresas.nome);
+    return db.select().from(finEmpresas).where(eq(finEmpresas.estabelecimentoId, input.estabelecimentoId)).orderBy(finEmpresas.nome);
   }),
   criar: protectedProcedure
     .input(z.object({
       nome: z.string().min(1),
       cnpj: z.string().optional(),
-      estabelecimentoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
       const db = (await getDb())!;
       const [result] = await db.insert(finEmpresas).values({
         ...input,
         cnpj: input.cnpj || null,
-        estabelecimentoId: input.estabelecimentoId || null,
+        estabelecimentoId: input.estabelecimentoId,
         userId: ctx.user.id
       });
       return { id: result.insertId };
@@ -46,25 +49,38 @@ const empresasRouter = router({
       id: z.number(),
       nome: z.string().min(1),
       cnpj: z.string().optional(),
-      estabelecimentoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
       const db = (await getDb())!;
+      await exigirEmpresaDaUnidade(input.id, input.estabelecimentoId);
       const { id, ...updateData } = input;
       await db.update(finEmpresas)
         .set({
           ...updateData,
           cnpj: input.cnpj || null,
-          estabelecimentoId: input.estabelecimentoId || null
+          estabelecimentoId: input.estabelecimentoId
         })
-        .where(eq(finEmpresas.id, id));
+        .where(and(eq(finEmpresas.id, id), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId)));
       return { success: true };
     }),
   excluir: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
       const db = (await getDb())!;
-      await db.delete(finEmpresas).where(eq(finEmpresas.id, input.id));
+      await exigirEmpresaDaUnidade(input.id, input.estabelecimentoId);
+      await db.transaction(async tx => {
+        const [empresa] = await tx.select({ id: finEmpresas.id }).from(finEmpresas)
+          .where(and(eq(finEmpresas.id, input.id), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId))).for("update");
+        if (!empresa) throw new TRPCError({ code: "FORBIDDEN" });
+        const [cliente] = await tx.select({ id: finClientes.id }).from(finClientes).where(eq(finClientes.empresaId, input.id)).limit(1);
+        const [recebivel] = await tx.select({ id: finRecebiveis.id }).from(finRecebiveis).where(eq(finRecebiveis.empresaId, input.id)).limit(1);
+        const [transacao] = await tx.select({ id: finTransacoes.id }).from(finTransacoes).where(eq(finTransacoes.empresaId, input.id)).limit(1);
+        if (cliente || recebivel || transacao) throw new TRPCError({ code: "CONFLICT", message: "Empresa possui registros financeiros; não pode ser excluída" });
+        await tx.delete(finEmpresas).where(and(eq(finEmpresas.id, input.id), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId)));
+      });
       return { success: true };
     }),
 });
@@ -74,25 +90,29 @@ const empresasRouter = router({
 // ============================================================
 const clientesRouter = router({
   listar: protectedProcedure
-    .input(z.object({ empresaId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive().optional() }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
-      const conditions = [];
+      const conditions = [clienteDaUnidade(input.estabelecimentoId)];
       if (input?.empresaId) conditions.push(eq(finClientes.empresaId, input.empresaId));
-      return db.select().from(finClientes).where(conditions.length ? and(...conditions) : undefined).orderBy(finClientes.nome);
+      return db.select().from(finClientes).where(and(...conditions)).orderBy(finClientes.nome);
     }),
   criar: protectedProcedure
     .input(z.object({
-      empresaId: z.number().optional(), nome: z.string().min(1), cnpj: z.string().optional(),
+      estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), nome: z.string().min(1), cnpj: z.string().optional(),
       email: z.string().optional(), telefone: z.string().optional(), valorContrato: z.string().optional(),
       cep: z.string().optional(), endereco: z.string().optional(), numero: z.string().optional(),
       complemento: z.string().optional(), bairro: z.string().optional(),
       cidade: z.string().optional(), uf: z.string().optional(), cnpjSafatle: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const [result] = await db.insert(finClientes).values({
-        empresaId: input.empresaId || null, nome: input.nome, cnpj: input.cnpj || null,
+        empresaId: input.empresaId, nome: input.nome, cnpj: input.cnpj || null,
         email: input.email || null, telefone: input.telefone || null, valorContrato: input.valorContrato || null,
         cep: input.cep || null, endereco: input.endereco || null, numero: input.numero || null,
         complemento: input.complemento || null, bairro: input.bairro || null,
@@ -104,28 +124,37 @@ const clientesRouter = router({
     }),
   atualizar: protectedProcedure
     .input(z.object({
-      id: z.number(), empresaId: z.number().optional(), nome: z.string().min(1), cnpj: z.string().optional(),
+      id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), nome: z.string().min(1), cnpj: z.string().optional(),
       email: z.string().optional(), telefone: z.string().optional(), valorContrato: z.string().optional(),
       cep: z.string().optional(), endereco: z.string().optional(), numero: z.string().optional(),
       complemento: z.string().optional(), bairro: z.string().optional(),
       cidade: z.string().optional(), uf: z.string().optional(), cnpjSafatle: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
-      const { id, ...data } = input;
+      const [original] = await db.select({ id: finClientes.id, empresaId: finClientes.empresaId }).from(finClientes)
+        .where(and(eq(finClientes.id, input.id), clienteDaUnidade(input.estabelecimentoId))).limit(1);
+      if (!original) throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence ao estabelecimento" });
+      if (original.empresaId !== input.empresaId) throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa do cliente não pode ser trocada em um cadastro existente" });
+      const { id, estabelecimentoId, ...data } = input;
       await db.update(finClientes).set({
-        ...data, empresaId: data.empresaId || null, cnpj: data.cnpj || null,
+        ...data, empresaId: data.empresaId, cnpj: data.cnpj || null,
         email: data.email || null, telefone: data.telefone || null, valorContrato: data.valorContrato || null,
         cep: data.cep || null, endereco: data.endereco || null, numero: data.numero || null,
         complemento: data.complemento || null, bairro: data.bairro || null,
         cidade: data.cidade || null, uf: data.uf || null,
         cnpjSafatle: data.cnpjSafatle || "24.785.393/0001-54",
-      }).where(eq(finClientes.id, id));
+      }).where(and(eq(finClientes.id, id), clienteDaUnidade(estabelecimentoId)));
       return { success: true };
     }),
-  excluir: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
     const db = (await getDb())!;
-    await db.delete(finClientes).where(eq(finClientes.id, input.id));
+    const [original] = await db.select({ id: finClientes.id }).from(finClientes).where(and(eq(finClientes.id, input.id), clienteDaUnidade(input.estabelecimentoId))).limit(1);
+    if (!original) throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence ao estabelecimento" });
+    await db.delete(finClientes).where(and(eq(finClientes.id, input.id), clienteDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
 });
@@ -338,36 +367,45 @@ const transacoesRouter = router({
     }),
   atualizar: protectedProcedure
     .input(z.object({
-      id: z.number(), empresaId: z.number().optional(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
+      id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
       custoId: z.number().optional(), bancoId: z.number().optional(), centroCustoId: z.number().optional(),
       descricao: z.string().min(1),
       valor: z.string(), dataVencimento: dataCivilFinanceiraSchema, dataPagamento: dataCivilFinanceiraSchema.optional(),
       pago: z.enum(["sim", "nao"]).optional(), observacoes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirTransacoesDaUnidade([input.id], input.estabelecimentoId);
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
-      const { id, ...data } = input;
+      const { id, estabelecimentoId, ...data } = input;
       await db.update(finTransacoes).set({
         empresaId: data.empresaId || null, categoriaId: data.categoriaId || null, tipoId: data.tipoId || null,
         custoId: data.custoId || null, bancoId: data.bancoId || null, centroCustoId: data.centroCustoId || null, descricao: data.descricao,
         valor: data.valor, dataVencimento: dataCivilParaBanco(data.dataVencimento), dataPagamento: data.dataPagamento ? dataCivilParaBanco(data.dataPagamento) : null,
         pago: data.pago || "nao", observacoes: data.observacoes || null,
-      }).where(eq(finTransacoes.id, id));
+      }).where(and(eq(finTransacoes.id, id), transacaoDaUnidade(estabelecimentoId)));
       return { success: true };
     }),
-  excluir: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await exigirTransacoesDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.delete(finTransacoes).where(eq(finTransacoes.id, input.id));
+    await db.delete(finTransacoes).where(and(eq(finTransacoes.id, input.id), transacaoDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
-  excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input }) => {
+  excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await exigirTransacoesDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
-    if (input.ids.length > 0) await db.delete(finTransacoes).where(inArray(finTransacoes.id, input.ids));
+    await db.delete(finTransacoes).where(and(inArray(finTransacoes.id, input.ids), transacaoDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
-  duplicar: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+  duplicar: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirTransacoesDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    const [original] = await db.select().from(finTransacoes).where(eq(finTransacoes.id, input.id)).limit(1);
+    const [original] = await db.select().from(finTransacoes).where(and(eq(finTransacoes.id, input.id), transacaoDaUnidade(input.estabelecimentoId))).limit(1);
     if (!original) throw new Error("Registro não encontrado");
     const [result] = await db.insert(finTransacoes).values({
       empresaId: original.empresaId, categoriaId: original.categoriaId, tipoId: original.tipoId,
@@ -378,39 +416,47 @@ const transacoesRouter = router({
     });
     return { id: result.insertId };
   }),
-  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input, ctx }) => {
+  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirTransacoesDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
-    const originais = await db.select().from(finTransacoes).where(inArray(finTransacoes.id, input.ids));
-    if (originais.length === 0) throw new Error("Nenhum registro encontrado");
-    for (const original of originais) {
-      await db.insert(finTransacoes).values({
+    await db.transaction(async tx => {
+      const originais = await tx.select().from(finTransacoes).where(and(inArray(finTransacoes.id, input.ids), transacaoDaUnidade(input.estabelecimentoId))).for("update");
+      if (originais.length !== input.ids.length) throw new TRPCError({ code: "FORBIDDEN" });
+      for (const original of originais) {
+        await tx.insert(finTransacoes).values({
         empresaId: original.empresaId, categoriaId: original.categoriaId, tipoId: original.tipoId,
         custoId: original.custoId, bancoId: original.bancoId, centroCustoId: original.centroCustoId,
         descricao: `${original.descricao} (cópia)`, valor: original.valor,
         dataVencimento: original.dataVencimento, dataPagamento: null,
         pago: "nao", observacoes: original.observacoes, userId: ctx.user.id,
-      });
-    }
-    return { count: originais.length };
+        });
+      }
+    });
+    return { count: input.ids.length };
   }),
-  marcarPago: protectedProcedure.input(z.object({ id: z.number(), dataPagamento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input }) => {
+  marcarPago: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), dataPagamento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirTransacoesDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.update(finTransacoes).set({ pago: "sim", dataPagamento: dataCivilParaBanco(input.dataPagamento ?? hojeCivilBrasil()) }).where(eq(finTransacoes.id, input.id));
+    await db.update(finTransacoes).set({ pago: "sim", dataPagamento: dataCivilParaBanco(input.dataPagamento ?? hojeCivilBrasil()) }).where(and(eq(finTransacoes.id, input.id), transacaoDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
   dashboard: protectedProcedure
-    .input(z.object({ empresaId: z.number().optional(), mes: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive().optional(), mes: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const hoje = hojeCivilBrasil();
-      const mesRef = input?.mes || hoje.slice(0, 7);
+      const mesRef = input.mes || hoje.slice(0, 7);
       const [ano, mesNum] = mesRef.split("-").map(Number);
       const inicio = `${ano}-${String(mesNum).padStart(2, "0")}-01`;
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
 
-      const conditions = [gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
-      if (input?.empresaId) conditions.push(eq(finTransacoes.empresaId, input.empresaId));
+      const conditions = [transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
+      if (input.empresaId) conditions.push(eq(finTransacoes.empresaId, input.empresaId));
 
       const [totalPago] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "sim")));
       const [totalPendente] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "nao")));
@@ -439,6 +485,7 @@ const transacoesRouter = router({
 const recebiveisRouter = router({
   listar: protectedProcedure
     .input(z.object({
+      estabelecimentoId: z.number().int().positive(),
       empresaId: z.number().optional(),
       clienteId: z.number().optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
@@ -448,11 +495,13 @@ const recebiveisRouter = router({
       busca: z.string().optional(),
       page: z.number().default(1),
       limit: z.number().default(50),
-    }).optional())
-    .query(async ({ input }) => {
+    }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
-      const p = input || { page: 1, limit: 50 };
-      const conditions = [];
+      const p = input;
+      const conditions = [recebivelDaUnidade(input.estabelecimentoId)];
       if (p.empresaId) conditions.push(eq(finRecebiveis.empresaId, p.empresaId));
       if (p.clienteId) conditions.push(eq(finRecebiveis.clienteId, p.clienteId));
       if (p.recebido) conditions.push(eq(finRecebiveis.recebido, p.recebido));
@@ -496,14 +545,15 @@ const recebiveisRouter = router({
       ]);
       return { items, total: countResult.count, page: p.page, limit: p.limit };
     }),
-  tiposServicoDistintos: protectedProcedure.query(async () => {
+  tiposServicoDistintos: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
     const db = (await getDb())!;
-    const result = await db.selectDistinct({ tipoServico: finRecebiveis.tipoServico }).from(finRecebiveis).where(sql`${finRecebiveis.tipoServico} IS NOT NULL AND ${finRecebiveis.tipoServico} != ''`).orderBy(finRecebiveis.tipoServico);
+    const result = await db.selectDistinct({ tipoServico: finRecebiveis.tipoServico }).from(finRecebiveis).where(and(recebivelDaUnidade(input.estabelecimentoId), sql`${finRecebiveis.tipoServico} IS NOT NULL AND ${finRecebiveis.tipoServico} != ''`)).orderBy(finRecebiveis.tipoServico);
     return result.map(r => r.tipoServico).filter(Boolean) as string[];
   }),
   criar: protectedProcedure
     .input(z.object({
-      empresaId: z.number().optional(), clienteId: z.number().optional(), tipoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), clienteId: z.number().optional(), tipoId: z.number().optional(),
       bancoId: z.number().optional(), descricao: z.string().min(1), valor: z.string(),
       dataVencimento: dataCivilFinanceiraSchema, dataRecebimento: dataCivilFinanceiraSchema.optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
@@ -511,9 +561,13 @@ const recebiveisRouter = router({
       observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
+      if (input.clienteId) await exigirClienteDaEmpresa(input.clienteId, input.empresaId);
+      if (input.bancoId) throw new TRPCError({ code: "BAD_REQUEST", message: "Banco sem vínculo de estabelecimento não pode ser associado a recebível" });
       const db = (await getDb())!;
       const [result] = await db.insert(finRecebiveis).values({
-        empresaId: input.empresaId || null, clienteId: input.clienteId || null, tipoId: input.tipoId || null,
+        empresaId: input.empresaId, clienteId: input.clienteId || null, tipoId: input.tipoId || null,
         bancoId: input.bancoId || null, descricao: input.descricao, valor: input.valor,
         dataVencimento: dataCivilParaBanco(input.dataVencimento), dataRecebimento: input.dataRecebimento ? dataCivilParaBanco(input.dataRecebimento) : null,
         recebido: input.recebido || "nao", tipoServico: input.tipoServico || null, descricaoServico: input.descricaoServico || null,
@@ -523,38 +577,49 @@ const recebiveisRouter = router({
     }),
   atualizar: protectedProcedure
     .input(z.object({
-      id: z.number(), empresaId: z.number().optional(), clienteId: z.number().optional(), tipoId: z.number().optional(),
+      id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), clienteId: z.number().optional(), tipoId: z.number().optional(),
       bancoId: z.number().optional(), descricao: z.string().min(1), valor: z.string(),
       dataVencimento: dataCivilFinanceiraSchema, dataRecebimento: dataCivilFinanceiraSchema.optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
       tipoServico: z.string().optional(), descricaoServico: z.string().optional(),
       observacoes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
+      if (input.clienteId) await exigirClienteDaEmpresa(input.clienteId, input.empresaId);
+      if (input.bancoId) throw new TRPCError({ code: "BAD_REQUEST", message: "Banco sem vínculo de estabelecimento não pode ser associado a recebível" });
       const db = (await getDb())!;
-      const { id, ...data } = input;
+      const { id, estabelecimentoId, ...data } = input;
       await db.update(finRecebiveis).set({
-        empresaId: data.empresaId || null, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
+        empresaId: data.empresaId, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
         bancoId: data.bancoId || null, descricao: data.descricao, valor: data.valor,
         dataVencimento: dataCivilParaBanco(data.dataVencimento), dataRecebimento: data.dataRecebimento ? dataCivilParaBanco(data.dataRecebimento) : null,
         recebido: data.recebido || "nao", tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
         observacoes: data.observacoes || null,
-      }).where(eq(finRecebiveis.id, id));
+      }).where(and(eq(finRecebiveis.id, id), recebivelDaUnidade(estabelecimentoId)));
       return { success: true };
     }),
-  excluir: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.delete(finRecebiveis).where(eq(finRecebiveis.id, input.id));
+    await db.delete(finRecebiveis).where(and(eq(finRecebiveis.id, input.id), recebivelDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
-  marcarRecebido: protectedProcedure.input(z.object({ id: z.number(), dataRecebimento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input }) => {
+  marcarRecebido: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), dataRecebimento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.update(finRecebiveis).set({ recebido: "sim", dataRecebimento: dataCivilParaBanco(input.dataRecebimento ?? hojeCivilBrasil()) }).where(eq(finRecebiveis.id, input.id));
+    await db.update(finRecebiveis).set({ recebido: "sim", dataRecebimento: dataCivilParaBanco(input.dataRecebimento ?? hojeCivilBrasil()) }).where(and(eq(finRecebiveis.id, input.id), recebivelDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
-  duplicar: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+  duplicar: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
     const db = (await getDb())!;
-    const [original] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.id)).limit(1);
+    const [original] = await db.select().from(finRecebiveis).where(and(eq(finRecebiveis.id, input.id), recebivelDaUnidade(input.estabelecimentoId))).limit(1);
     if (!original) throw new Error("Registro não encontrado");
     const [result] = await db.insert(finRecebiveis).values({
       empresaId: original.empresaId, clienteId: original.clienteId, tipoId: original.tipoId,
@@ -565,29 +630,35 @@ const recebiveisRouter = router({
     });
     return { id: result.insertId };
   }),
-  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input, ctx }) => {
+  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirRecebiveisDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
-    const originais = await db.select().from(finRecebiveis).where(inArray(finRecebiveis.id, input.ids));
+    const originais = await db.select().from(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId)));
     if (originais.length === 0) throw new Error("Nenhum registro encontrado");
-    for (const original of originais) {
-      await db.insert(finRecebiveis).values({
+    await db.transaction(async (tx) => { for (const original of originais) {
+      await tx.insert(finRecebiveis).values({
         empresaId: original.empresaId, clienteId: original.clienteId, tipoId: original.tipoId,
         bancoId: original.bancoId, descricao: `${original.descricao} (cópia)`, valor: original.valor,
         dataVencimento: original.dataVencimento, dataRecebimento: null,
         recebido: "nao", tipoServico: original.tipoServico, descricaoServico: original.descricaoServico,
         observacoes: original.observacoes, userId: ctx.user.id,
       });
-    }
+    } });
     return { count: originais.length };
   }),
-  excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number()) })).mutation(async ({ input }) => {
+  excluirEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await exigirRecebiveisDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
-    if (input.ids.length > 0) await db.delete(finRecebiveis).where(inArray(finRecebiveis.id, input.ids));
+    await db.delete(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId)));
     return { success: true };
   }),
   dashboard: protectedProcedure
-    .input(z.object({ empresaId: z.number().optional(), mes: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().optional(), mes: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const now = new Date();
       const mesRef = input?.mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -596,7 +667,7 @@ const recebiveisRouter = router({
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
 
-      const conditions = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
+      const conditions = [recebivelDaUnidade(input.estabelecimentoId), gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
       if (input?.empresaId) conditions.push(eq(finRecebiveis.empresaId, input.empresaId));
 
       const [totalRecebido] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...conditions, eq(finRecebiveis.recebido, "sim")));
@@ -956,11 +1027,13 @@ const extratosRouter = router({
   conciliar: protectedProcedure
     .input(z.object({ id: z.number(), transacaoId: z.number().optional(), recebivelId: z.number().optional() }))
     .mutation(async ({ input }) => {
+      // Extratos/bancos ainda não têm vínculo de unidade. Não é seguro baixar uma
+      // conta por ID até existir uma conciliação que valide ambas as origens.
+      if (input.recebivelId) throw new TRPCError({ code: "FORBIDDEN", message: "Conciliação de recebíveis indisponível sem vínculo do banco ao estabelecimento" });
       const db = (await getDb())!;
       await db.update(finExtratos).set({ conciliado: "sim", transacaoId: input.transacaoId || null, recebivelId: input.recebivelId || null }).where(eq(finExtratos.id, input.id));
       // Marcar transação/recebível como pago/recebido
       if (input.transacaoId) await db.update(finTransacoes).set({ pago: "sim" }).where(eq(finTransacoes.id, input.transacaoId));
-      if (input.recebivelId) await db.update(finRecebiveis).set({ recebido: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
       return { success: true };
     }),
   excluir: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
@@ -1023,8 +1096,10 @@ const previsaoRouter = router({
 // ============================================================
 const dashboardRouter = router({
   resumo: protectedProcedure
-    .input(z.object({ empresaId: z.number().optional(), mes: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().optional(), mes: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const hoje = hojeCivilBrasil();
       const mesRef = input?.mes || hoje.slice(0, 7);
@@ -1033,18 +1108,20 @@ const dashboardRouter = router({
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
 
-      const condPagar = [gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
-      const condReceber = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
+      const condPagar = [transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
+      const condReceber = [recebivelDaUnidade(input.estabelecimentoId), gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
+      const escopoPagar = [transacaoDaUnidade(input.estabelecimentoId)];
+      const escopoReceber = [recebivelDaUnidade(input.estabelecimentoId)];
       if (input?.empresaId) {
         condPagar.push(eq(finTransacoes.empresaId, input.empresaId));
         condReceber.push(eq(finRecebiveis.empresaId, input.empresaId));
+        escopoPagar.push(eq(finTransacoes.empresaId, input.empresaId));
+        escopoReceber.push(eq(finRecebiveis.empresaId, input.empresaId));
       }
 
       // Saldo bancário
-      const saldoBancario = await db.select({
-        total: sql<string>`COALESCE(SUM(saldoInicial), 0)`,
-        qtdBancos: sql<number>`COUNT(*)`
-      }).from(finBancos);
+      // Bancos e custos fixos ainda não possuem estabelecimentoId: não somar dados globais à unidade.
+      const saldoBancario = [{ total: "0", qtdBancos: 0 }];
 
       const [[despPago], [despPendente], [despVencido], [despVencidoCount], [recRecebido], [recPendente], [recPendenteCount], [despPendenteCount],
         [pagDia], [pagDiaCount], [pagDiaTotal],
@@ -1052,21 +1129,21 @@ const dashboardRouter = router({
         [custosFixos]] = await Promise.all([
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "sim"))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "nao"))),
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "sim"))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "nao"))),
         db.select({ count: sql<number>`COUNT(*)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "nao"))),
         db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "nao"))),
         // Pagamentos do dia
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
         // Total pago geral (todos os meses)
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(eq(finTransacoes.pago, "sim")),
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(eq(finRecebiveis.recebido, "sim")),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...escopoPagar, eq(finTransacoes.pago, "sim"))),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...escopoReceber, eq(finRecebiveis.recebido, "sim"))),
         // Custos fixos
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)`, count: sql<number>`COUNT(*)` }).from(finCustos).where(eq(finCustos.tipo, "fixo")),
+        Promise.resolve([{ total: "0", count: 0 }]),
       ]);
 
       // Próximos vencimentos (7 dias)
@@ -1079,6 +1156,7 @@ const dashboardRouter = router({
       }).from(finTransacoes)
         .leftJoin(finEmpresas, eq(finTransacoes.empresaId, finEmpresas.id))
         .where(and(
+          ...escopoPagar,
           eq(finTransacoes.pago, "nao"),
           gte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)),
           lte(finTransacoes.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
@@ -1090,6 +1168,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(valor), 0)`,
         count: sql<number>`COUNT(*)`
       }).from(finTransacoes).where(and(
+        ...escopoPagar,
         eq(finTransacoes.pago, "nao"),
         gte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)),
         lte(finTransacoes.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
@@ -1105,6 +1184,7 @@ const dashboardRouter = router({
       }).from(finRecebiveis)
         .leftJoin(finClientes, eq(finRecebiveis.clienteId, finClientes.id))
         .where(and(
+          ...escopoReceber,
           eq(finRecebiveis.recebido, "nao"),
           gte(finRecebiveis.dataVencimento, limiteDiaCivil(hoje)),
           lte(finRecebiveis.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
@@ -1116,6 +1196,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(valor), 0)`,
         count: sql<number>`COUNT(*)`
       }).from(finRecebiveis).where(and(
+        ...escopoReceber,
         eq(finRecebiveis.recebido, "nao"),
         gte(finRecebiveis.dataVencimento, limiteDiaCivil(hoje)),
         lte(finRecebiveis.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
@@ -1151,7 +1232,7 @@ const dashboardRouter = router({
         totalGeral: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
+        .where(and(...escopoPagar, gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finTransacoes.categoriaId, finCategorias.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1160,7 +1241,7 @@ const dashboardRouter = router({
         totalGeral: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
         totalPendente: sql<string>`COALESCE(SUM(CASE WHEN ${finTransacoes.pago} = 'nao' THEN ${finTransacoes.valor} ELSE 0 END), 0)`,
       }).from(finTransacoes)
-        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(maIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(maFim))))
+        .where(and(...escopoPagar, gte(finTransacoes.dataVencimento, limiteDiaCivil(maIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(maFim))))
         .groupBy(finTransacoes.categoriaId);
 
       const catAnteriorMap = new Map(catAnterior.map(c => [c.categoriaId, c]));
@@ -1190,8 +1271,8 @@ const dashboardRouter = router({
         const mFim = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${mLastDay}`;
         const mLabel = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 
-        const cP = [gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim))];
-        const cR = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim))];
+        const cP = [...escopoPagar, gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim))];
+        const cR = [...escopoReceber, gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim))];
 
         const [[despT], [despPagoM], [recT], [recRecM]] = await Promise.all([
           db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...cP)),
@@ -1204,6 +1285,7 @@ const dashboardRouter = router({
 
       return {
         mesRef,
+        bancosSemSegregacao: true,
         saldoBancario: saldoBancario[0]?.total || "0",
         qtdBancos: saldoBancario[0]?.qtdBancos || 0,
         despesasPago: despPago.total,
@@ -1235,8 +1317,9 @@ const dashboardRouter = router({
 
   // Fluxo de caixa projetado
   fluxoCaixa: protectedProcedure
-    .input(z.object({ dias: z.number().default(30) }))
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), dias: z.number().int().min(1).max(365).default(30) }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
       const db = (await getDb())!;
       const hojeStr = hojeCivilBrasil();
       const fimStr = somarDiasCivis(hojeStr, input.dias);
@@ -1248,6 +1331,8 @@ const dashboardRouter = router({
         pago: finTransacoes.pago,
       }).from(finTransacoes)
         .where(and(
+          transacaoDaUnidade(input.estabelecimentoId),
+          eq(finTransacoes.pago, "nao"),
           gte(finTransacoes.dataVencimento, limiteDiaCivil(hojeStr)),
           lte(finTransacoes.dataVencimento, limiteDiaCivil(fimStr)),
         ));
@@ -1258,6 +1343,8 @@ const dashboardRouter = router({
         recebido: finRecebiveis.recebido,
       }).from(finRecebiveis)
         .where(and(
+          recebivelDaUnidade(input.estabelecimentoId),
+          eq(finRecebiveis.recebido, "nao"),
           gte(finRecebiveis.dataVencimento, limiteDiaCivil(hojeStr)),
           lte(finRecebiveis.dataVencimento, limiteDiaCivil(fimStr)),
         ));
@@ -1297,8 +1384,9 @@ const dashboardRouter = router({
 
   // Comparativo mensal
   comparativoMensal: protectedProcedure
-    .input(z.object({ mes1: z.string(), mes2: z.string(), tipo: z.enum(["categoria", "descricao"]).default("categoria") }))
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), mes1: z.string(), mes2: z.string(), tipo: z.enum(["categoria", "descricao"]).default("categoria") }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
       const db = (await getDb())!;
       const parse = (m: string) => {
         const [a, n] = m.split("-").map(Number);
@@ -1319,7 +1407,7 @@ const dashboardRouter = router({
             total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
           }).from(finTransacoes)
             .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-            .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
+            .where(and(transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
             .groupBy(finCategorias.nome)
             .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
         } else {
@@ -1327,7 +1415,7 @@ const dashboardRouter = router({
             nome: finTransacoes.descricao,
             total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
           }).from(finTransacoes)
-            .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
+            .where(and(transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
             .groupBy(finTransacoes.descricao)
             .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
         }
@@ -1353,8 +1441,9 @@ const dashboardRouter = router({
 
   // DRE
   dre: protectedProcedure
-    .input(z.object({ mes: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), mes: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
       const db = (await getDb())!;
       const now = new Date();
       const mesRef = input?.mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -1370,7 +1459,7 @@ const dashboardRouter = router({
         pendente: sql<string>`COALESCE(SUM(CASE WHEN ${finRecebiveis.recebido} = 'nao' THEN ${finRecebiveis.valor} ELSE 0 END), 0)`,
         total: sql<string>`COALESCE(SUM(${finRecebiveis.valor}), 0)`,
       }).from(finRecebiveis)
-        .where(and(gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))))
+        .where(and(recebivelDaUnidade(input.estabelecimentoId), gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finRecebiveis.tipoServico)
         .orderBy(desc(sql`SUM(${finRecebiveis.valor})`));
 
@@ -1382,7 +1471,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
+        .where(and(transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finCategorias.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1392,7 +1481,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCentrosCusto, eq(finTransacoes.centroCustoId, finCentrosCusto.id))
-        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
+        .where(and(transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finCentrosCusto.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1410,8 +1499,8 @@ const dashboardRouter = router({
         const mLabel = `${MONTHS_SHORT[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
 
         const [[rec], [desp]] = await Promise.all([
-          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim)))),
-          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim)))),
+          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(recebivelDaUnidade(input.estabelecimentoId), gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim)))),
+          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(transacaoDaUnidade(input.estabelecimentoId), gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim)))),
         ]);
         evolucaoDre.push({ mes: mLabel, receitas: Number(rec.total), despesas: Number(desp.total), resultado: Number(rec.total) - Number(desp.total) });
       }
@@ -1594,42 +1683,76 @@ const importadorRouter = router({
     }),
   importarContasReceber: protectedProcedure
     .input(z.object({
+      estabelecimentoId: z.number().int().positive(),
+      empresaId: z.number().int().positive(),
       items: z.array(z.object({
-        descricao: z.string(),
-        valor: z.string(),
+        descricao: z.string().trim().min(1),
+        valor: z.string().regex(/^\d{1,13}\.\d{2}$/),
         dataVencimento: dataCivilFinanceiraSchema,
         dataRecebimento: dataCivilFinanceiraSchema.optional(),
         recebido: z.enum(["sim", "nao"]).optional(),
         empresaId: z.number().optional(),
         clienteId: z.number().optional(),
         bancoId: z.number().optional(),
+        tipoServico: z.string().max(255).optional(),
+        descricaoServico: z.string().optional(),
         observacoes: z.string().optional(),
-      })),
+      }).refine(row => (row.recebido === "sim") === Boolean(row.dataRecebimento), { message: "Status e data de recebimento divergentes" })).min(1).max(500),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
+      if (input.items.some(item => item.empresaId != null && item.empresaId !== input.empresaId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa divergente no lote" });
+      }
+      if (input.items.some(item => item.bancoId != null)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Banco sem vínculo de estabelecimento não pode ser associado ao lote" });
+      }
+      for (const clienteId of new Set(input.items.map(item => item.clienteId).filter((x): x is number => x != null))) {
+        await exigirClienteDaEmpresa(clienteId, input.empresaId);
+      }
+      const chave = (descricao: string, valor: string, data: string) => `${descricao.trim()}\u0000${valor.replace(/^0+(?=\d)/, "")}\u0000${data}`;
+      const entradas = input.items.map(item => chave(item.descricao, item.valor, item.dataVencimento));
+      if (new Set(entradas).size !== entradas.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Lote contém contas repetidas; nada foi importado" });
+      }
       const db = (await getDb())!;
-      let imported = 0;
-      let errors = 0;
-      for (const item of input.items) {
-        try {
-          await db.insert(finRecebiveis).values({
+      return db.transaction(async tx => {
+        const [empresa] = await tx.select({ id: finEmpresas.id }).from(finEmpresas)
+          .where(and(eq(finEmpresas.id, input.empresaId), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId))).for("update");
+        if (!empresa) throw new TRPCError({ code: "FORBIDDEN", message: "Empresa não vinculada à unidade" });
+        const clientesIds = [...new Set(input.items.map(item => item.clienteId).filter((id): id is number => id != null))];
+        if (clientesIds.length) {
+          const clientes = await tx.select({ id: finClientes.id }).from(finClientes)
+            .where(and(eq(finClientes.empresaId, input.empresaId), inArray(finClientes.id, clientesIds))).for("update");
+          if (clientes.length !== clientesIds.length) throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence à empresa; nada foi importado" });
+        }
+        const atuais = await tx.select({ descricao: finRecebiveis.descricao, valor: finRecebiveis.valor, dataVencimento: finRecebiveis.dataVencimento })
+          .from(finRecebiveis).where(eq(finRecebiveis.empresaId, input.empresaId)).for("update");
+        const existentes = new Set(atuais.map(row => {
+          const dia = valorDataCivil(row.dataVencimento);
+          if (!dia) throw new TRPCError({ code: "CONFLICT", message: "Data de lançamento existente inválida; nada foi importado" });
+          return chave(row.descricao, String(row.valor), dia);
+        }));
+        if (entradas.some(item => existentes.has(item))) {
+          throw new TRPCError({ code: "CONFLICT", message: "Já existem lançamentos coincidentes; nada foi importado" });
+        }
+        await tx.insert(finRecebiveis).values(input.items.map(item => ({
             descricao: item.descricao,
             valor: item.valor,
             dataVencimento: dataCivilParaBanco(item.dataVencimento),
             dataRecebimento: item.dataRecebimento ? dataCivilParaBanco(item.dataRecebimento) : null,
             recebido: item.recebido || "nao",
-            empresaId: item.empresaId || null,
+            empresaId: input.empresaId,
             clienteId: item.clienteId || null,
             bancoId: item.bancoId || null,
+            tipoServico: item.tipoServico || null,
+            descricaoServico: item.descricaoServico || null,
             observacoes: item.observacoes || null,
             userId: ctx.user.id,
-          });
-          imported++;
-        } catch {
-          errors++;
-        }
-      }
-      return { imported, errors, total: input.items.length };
+        })));
+        return { imported: input.items.length, errors: 0, total: input.items.length };
+      });
     }),
 });
 

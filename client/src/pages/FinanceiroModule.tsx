@@ -42,11 +42,13 @@ const MONTHS = [
 
 // ==================== DASHBOARD ====================
 function FinDashboard() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const now = new Date();
   const [mes, setMes] = useState(() => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [fluxoDias, setFluxoDias] = useState(30);
-  const dashboard = trpc.financeiro.dashboard.resumo.useQuery({ mes });
-  const fluxoCaixa = trpc.financeiro.dashboard.fluxoCaixa.useQuery({ dias: fluxoDias });
+  const dashboard = trpc.financeiro.dashboard.resumo.useQuery({ estabelecimentoId: estabelecimentoId || 0, mes }, { enabled: Boolean(estabelecimentoId) });
+  const fluxoCaixa = trpc.financeiro.dashboard.fluxoCaixa.useQuery({ estabelecimentoId: estabelecimentoId || 0, dias: fluxoDias }, { enabled: Boolean(estabelecimentoId) });
   const d = dashboard.data;
   const fc = fluxoCaixa.data;
 
@@ -60,7 +62,7 @@ function FinDashboard() {
     return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
   }, [mes]);
   const [compTipo, setCompTipo] = useState<"categoria" | "descricao">("categoria");
-  const comparativo = trpc.financeiro.dashboard.comparativoMensal.useQuery({ mes1: mesAnterior, mes2: mes, tipo: compTipo });
+  const comparativo = trpc.financeiro.dashboard.comparativoMensal.useQuery({ estabelecimentoId: estabelecimentoId || 0, mes1: mesAnterior, mes2: mes, tipo: compTipo }, { enabled: Boolean(estabelecimentoId) });
   const comp = comparativo.data;
 
   const saldoProjetado = d ? Number(d.receitasPendente) - Number(d.despesasPendente) : 0;
@@ -104,7 +106,7 @@ function FinDashboard() {
         </div>
       </div>
 
-      {dashboard.isLoading ? <div className="text-center py-12 text-muted-foreground">Carregando...</div> : d ? (
+      {!estabelecimentoId ? <div className="text-center py-12 text-muted-foreground">Selecione um estabelecimento para visualizar o dashboard financeiro.</div> : dashboard.isLoading ? <div className="text-center py-12 text-muted-foreground">Carregando...</div> : d ? (
         <>
           {/* Top KPI Cards - 5 cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -112,9 +114,9 @@ function FinDashboard() {
               <CardContent className="pt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-slate-300">Saldo Banc\u00e1rio</p>
-                    <p className="text-2xl font-bold mt-1">{formatCurrency(d.saldoBancario)}</p>
-                    <p className="text-xs text-slate-400 mt-1">{d.qtdBancos} banco(s)</p>
+                    <p className="text-xs text-slate-300">Saldo Bancário</p>
+                    <p className="text-2xl font-bold mt-1">-</p>
+                    <p className="text-xs text-slate-400 mt-1">Sem dados por unidade</p>
                   </div>
                   <Landmark className="h-8 w-8 text-blue-400 opacity-80" />
                 </div>
@@ -224,8 +226,8 @@ function FinDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">Custos Fixos</p>
-                    <p className="text-2xl font-bold mt-1">{formatCurrency(d.custosFixos)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{d.custosFixosCount} custos</p>
+                    <p className="text-2xl font-bold mt-1">-</p>
+                    <p className="text-xs text-muted-foreground mt-1">Sem dados por unidade</p>
                   </div>
                   <Clock className="h-6 w-6 text-purple-500" />
                 </div>
@@ -579,7 +581,7 @@ function ContasPagar() {
     dataFim: periodoFiltro.dataFim,
     limit: 500,
   }, { enabled: Boolean(estabelecimentoId) });
-  const empresas = trpc.financeiro.empresas.listar.useQuery();
+  const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
   const bancos = trpc.financeiro.bancos.listar.useQuery();
   const centrosCusto = trpc.financeiro.centrosCusto.listar.useQuery();
@@ -748,12 +750,18 @@ function ContasPagar() {
     e.preventDefault();
     if (!editItem) return;
     const fd = new FormData(e.currentTarget);
+    const empresaId = Number(fd.get("empresaId"));
+    if (!estabelecimentoId || !importEmpresas.some((empresa: any) => empresa.id === empresaId)) {
+      toast.error("Selecione uma empresa vinculada ao estabelecimento atual.");
+      return;
+    }
     atualizar.mutate({
       id: editItem.id,
+      estabelecimentoId,
       descricao: fd.get("descricao") as string,
       valor: fd.get("valor") as string,
       dataVencimento: fd.get("dataVencimento") as string,
-      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
+      empresaId,
       categoriaId: fd.get("categoriaId") ? Number(fd.get("categoriaId")) : undefined,
       bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
       centroCustoId: fd.get("centroCustoId") ? Number(fd.get("centroCustoId")) : undefined,
@@ -905,9 +913,9 @@ function ContasPagar() {
                     <td className="py-3 pl-2 pr-4 text-right">
                       <div className="flex gap-1 justify-end">
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicao(t)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicar.mutate({ id: t.id })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
-                        {t.pago === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarPago.mutate({ id: t.id })}><Check className="h-3 w-3 mr-1" /> Pagar</Button>}
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: t.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => { if (estabelecimentoId) duplicar.mutate({ id: t.id, estabelecimentoId }); }} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
+                        {t.pago === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { if (estabelecimentoId) marcarPago.mutate({ id: t.id, estabelecimentoId }); }}><Check className="h-3 w-3 mr-1" /> Pagar</Button>}
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (estabelecimentoId && confirm("Excluir?")) excluir.mutate({ id: t.id, estabelecimentoId }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </td>
                   </tr>
@@ -922,9 +930,9 @@ function ContasPagar() {
           <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} conta(s)?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLote.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} conta(s) para o próximo mês?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds), avancarMeses: 1 }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> Duplicar p/ prox. mês</Button>
-            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} conta(s)?`)) excluirEmLote.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (estabelecimentoId && confirm(`Duplicar ${selectedIds.size} conta(s)?`)) duplicarEmLote.mutate({ ids: Array.from(selectedIds), estabelecimentoId }); }} disabled={duplicarEmLote.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLote.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50" disabled title="Indisponível: duplicação para próximo mês exige regra de vencimento"><Copy className="h-3 w-3 mr-1" /> Duplicar p/ prox. mês</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (estabelecimentoId && confirm(`Excluir ${selectedIds.size} conta(s)?`)) excluirEmLote.mutate({ ids: Array.from(selectedIds), estabelecimentoId }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>
       )}
@@ -965,6 +973,8 @@ function ContasPagar() {
 
 // ==================== CONTAS A RECEBER ====================
 function ContasReceber() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
@@ -1003,6 +1013,7 @@ function ContasReceber() {
   }, [filtroPeriodo, dataInicioPers, dataFimPers]);
 
   const lista = trpc.financeiro.recebiveis.listar.useQuery({
+    estabelecimentoId: estabelecimentoId || 0,
     busca: busca || undefined,
     recebido: filtroStatus === "todos" ? undefined : filtroStatus as any,
     empresaId: filtroEmpresa !== "todas" ? Number(filtroEmpresa) : undefined,
@@ -1011,11 +1022,11 @@ function ContasReceber() {
     dataInicio: periodoFiltro.dataInicio,
     dataFim: periodoFiltro.dataFim,
     limit: 500,
-  });
-  const empresas = trpc.financeiro.empresas.listar.useQuery();
-  const clientes = trpc.financeiro.clientes.listar.useQuery();
+  }, { enabled: Boolean(estabelecimentoId) });
+  const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
+  const clientes = trpc.financeiro.clientes.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const bancos = trpc.financeiro.bancos.listar.useQuery();
-  const tiposServicoDistintos = trpc.financeiro.recebiveis.tiposServicoDistintos.useQuery();
+  const tiposServicoDistintos = trpc.financeiro.recebiveis.tiposServicoDistintos.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
 
   const criar = trpc.financeiro.recebiveis.criar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Recebível criado!"); setDialogOpen(false); },
@@ -1136,55 +1147,25 @@ function ContasReceber() {
 
   // Importar Excel
   const handleImportExcel = () => {
-    const input = document.createElement("input");
-    input.type = "file"; input.accept = ".xlsx,.xls,.csv";
-    input.onchange = async (ev: any) => {
-      const file = ev.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const wb = XLSX.read(evt.target?.result, { type: "binary" });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const data = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
-          const date1904 = Boolean(wb.Workbook?.WBProps?.date1904);
-          // Validar o arquivo inteiro antes de iniciar o primeiro INSERT. Datas inválidas
-          // nunca podem virar "hoje" silenciosamente nem gerar `Invalid Date` no SQL.
-          const preparados = data.map((row, index) => {
-            const descricao = row["Descrição"] || row["descricao"] || row["DESCRICAO"] || "";
-            const valor = String(row["Valor"] || row["valor"] || row["VALOR"] || "0").replace(",", ".");
-            const vencimento = parseDataCivil(row["Vencimento"] || row["vencimento"] || row["DATA_VENCIMENTO"] || row["dataVencimento"], date1904);
-            if (!descricao || !vencimento) throw new Error(`Linha ${index + 2}: descrição ou vencimento inválido. Nenhuma linha foi importada.`);
-            return {
-              descricao, valor, dataVencimento: vencimento,
-              tipoServico: row["Tipo de Serviço"] || row["tipoServico"] || row["TIPO_SERVICO"] || undefined,
-              descricaoServico: row["Descrição do Serviço"] || row["descricaoServico"] || row["DESCRICAO_SERVICO"] || undefined,
-            };
-          });
-          let importados = 0;
-          for (const item of preparados) {
-            await criar.mutateAsync(item);
-            importados++;
-          }
-          toast.success(`${importados} recebíveis importados com sucesso!`);
-          utils.financeiro.invalidate();
-        } catch (err) { toast.error(err instanceof Error && err.message.startsWith("Linha ") ? err.message : "Importação interrompida; verifique lançamentos anteriores antes de reenviar."); }
-      };
-      reader.readAsBinaryString(file);
-    };
-    input.click();
+    toast.error("A importação rápida de recebíveis foi bloqueada para evitar lançamentos parciais. Use o Importador em lote e selecione a empresa.");
   };
 
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const empresaId = Number(fd.get("empresaId"));
+    const clienteId = fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined;
+    if (!estabelecimentoId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId && cliente.empresaId === empresaId))) {
+      toast.error("Selecione uma empresa e, se informado, um cliente vinculado a ela no estabelecimento atual.");
+      return;
+    }
     criar.mutate({
+      estabelecimentoId,
       descricao: fd.get("descricao") as string,
       valor: fd.get("valor") as string,
       dataVencimento: fd.get("dataVencimento") as string,
-      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
-      clienteId: fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined,
-      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
+      empresaId,
+      clienteId,
       tipoServico: (fd.get("tipoServico") as string) || undefined,
       descricaoServico: (fd.get("descricaoServico") as string) || undefined,
       observacoes: (fd.get("observacoes") as string) || undefined,
@@ -1195,15 +1176,21 @@ function ContasReceber() {
     e.preventDefault();
     if (!editItem) return;
     const fd = new FormData(e.currentTarget);
+    const empresaId = Number(fd.get("empresaId"));
+    const clienteId = fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined;
+    if (!estabelecimentoId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId && cliente.empresaId === empresaId))) {
+      toast.error("Selecione uma empresa e, se informado, um cliente vinculado a ela no estabelecimento atual.");
+      return;
+    }
     atualizarRecebivel.mutate({
       id: editItem.id,
+      estabelecimentoId,
       descricao: fd.get("descricao") as string,
       valor: fd.get("valor") as string,
       dataVencimento: fd.get("dataVencimento") as string,
       dataRecebimento: (fd.get("dataRecebimento") as string) || undefined,
-      empresaId: fd.get("empresaId") ? Number(fd.get("empresaId")) : undefined,
-      clienteId: fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined,
-      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
+      empresaId,
+      clienteId,
       tipoServico: (fd.get("tipoServico") as string) || undefined,
       descricaoServico: (fd.get("descricaoServico") as string) || undefined,
       recebido: (fd.get("recebido") as string) as any || "nao",
@@ -1240,6 +1227,10 @@ function ContasReceber() {
     });
   };
 
+  if (!estabelecimentoId) {
+    return <div className="py-12 text-center text-muted-foreground">Selecione um estabelecimento para gerenciar contas a receber.</div>;
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -1268,8 +1259,8 @@ function ContasReceber() {
               </div>
               <div><Label>Descrição do Serviço</Label><Textarea name="descricaoServico" rows={2} placeholder="Descreva detalhes do serviço prestado..." /></div>
               <div className="grid grid-cols-3 gap-3">
-                <div><Label>Empresa</Label><select name="empresaId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
-                <div><Label>Banco</Label><select name="bancoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
+                <div><Label>Empresa *</Label><select name="empresaId" required className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><Input value="Indisponível até segregação por estabelecimento" disabled className="text-xs" /></div>
                 <div></div>
               </div>
               <div><Label>Observações</Label><Textarea name="observacoes" rows={2} /></div>
@@ -1355,8 +1346,8 @@ function ContasReceber() {
                   <td className="py-3 pl-2 pr-4 text-right">
                     <div className="flex gap-1 justify-end">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => abrirEdicaoRecebivel(r)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicarRecebivel.mutate({ id: r.id })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
-                      {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-500" onClick={() => duplicarRecebivel.mutate({ id: r.id, estabelecimentoId })} title="Duplicar"><Copy className="h-3.5 w-3.5" /></Button>
+                      {r.recebido === "nao" && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => marcarRecebido.mutate({ id: r.id, estabelecimentoId })}><Check className="h-3 w-3 mr-1" /> Receber</Button>}
                       {r.notaFiscalKey ? (
                          <>
                            <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 mr-1 cursor-pointer" onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/pdf'; input.onchange = (e: any) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (re) => { const base64Data = (re.target?.result as string).split(',')[1]; anexarNF.mutate({ recebivelId: r.id, base64File: base64Data, fileName: file.name }); }; reader.readAsDataURL(file); } }; input.click(); }} title="Clique para Substituir a NF atual por uma nova.">📄 Alterar NF</Button>
@@ -1375,7 +1366,7 @@ function ContasReceber() {
                       ) : (
                         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setBoletoItem(r); setBoletoDialogOpen(true); }} title="Gerar Boleto Inter" disabled={gerarBoleto.isPending}><Banknote className="h-3 w-3 mr-1" /> Gerar Boleto</Button>
                       )}
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: r.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: r.id, estabelecimentoId }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </td>
                 </tr>
@@ -1389,9 +1380,8 @@ function ContasReceber() {
           <span className="text-sm font-medium">{selectedIds.size} item(ns) selecionado(s) — Total: <span className="font-bold text-primary">{formatCurrency(totalSelecionado)}</span></span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}><X className="h-3 w-3 mr-1" /> Limpar</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is)?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLoteRecebivel.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is) para o próximo mês?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds), avancarMeses: 1 }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> Duplicar p/ prox. mês</Button>
-            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} recebível(is)?`)) excluirEmLoteRecebivel.mutate({ ids: Array.from(selectedIds) }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs text-violet-600 border-violet-300 hover:bg-violet-50" onClick={() => { if (confirm(`Duplicar ${selectedIds.size} recebível(is)?`)) duplicarEmLoteRecebivel.mutate({ ids: Array.from(selectedIds), estabelecimentoId }); }} disabled={duplicarEmLoteRecebivel.isPending}><Copy className="h-3 w-3 mr-1" /> {duplicarEmLoteRecebivel.isPending ? "Duplicando..." : "Duplicar selecionados"}</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { if (confirm(`Excluir ${selectedIds.size} recebível(is)?`)) excluirEmLoteRecebivel.mutate({ ids: Array.from(selectedIds), estabelecimentoId }); }}><Trash2 className="h-3 w-3 mr-1" /> Excluir selecionados</Button>
           </div>
         </div>
       )}
@@ -1418,8 +1408,8 @@ function ContasReceber() {
               </div>
               <div><Label>Descrição do Serviço</Label><Textarea name="descricaoServico" rows={2} defaultValue={editItem.descricaoServico || ""} placeholder="Descreva detalhes do serviço prestado..." /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Empresa</Label><select name="empresaId" defaultValue={editItem.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
-                <div><Label>Banco</Label><select name="bancoId" defaultValue={editItem.bancoId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
+                <div><Label>Empresa *</Label><select name="empresaId" required defaultValue={editItem.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><Input value="Indisponível até segregação por estabelecimento" disabled className="text-xs" /></div>
               </div>
               <div><Label>Observações</Label><Textarea name="observacoes" rows={2} defaultValue={editItem.observacoes || ""} /></div>
               <DialogFooter><Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button><Button type="submit" disabled={atualizarRecebivel.isPending}>{atualizarRecebivel.isPending ? "Salvando..." : "Salvar Alterações"}</Button></DialogFooter>
@@ -1691,16 +1681,19 @@ function CentrosCusto() {
 
 // ==================== IMPORTADOR EXCEL ====================
 function ImportadorExcel() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const utils = trpc.useUtils();
-  const empresas = trpc.financeiro.empresas.listar.useQuery();
+  const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
   const centrosCusto = trpc.financeiro.centrosCusto.listar.useQuery();
   const bancos = trpc.financeiro.bancos.listar.useQuery();
-  const clientes = trpc.financeiro.clientes.listar.useQuery();
+  const clientes = trpc.financeiro.clientes.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
 
   const [tipo, setTipo] = useState<"pagar" | "receber">("pagar");
   const [preview, setPreview] = useState<any[]>([]);
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [headers, setHeaders] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
@@ -1719,6 +1712,7 @@ function ImportadorExcel() {
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedFile(file);
     setFileName(file.name);
     setResult(null);
     const reader = new FileReader();
@@ -1771,49 +1765,7 @@ function ImportadorExcel() {
       toast.error("Para Contas a Pagar, utilize Importar Excel na aba Contas a Pagar; lá é obrigatório conferir estabelecimento e empresa.");
       return;
     }
-    if (!mapping.descricao || !mapping.valor || !mapping.dataVencimento) {
-      toast.error("Mapeie pelo menos: Descrição, Valor e Data Vencimento");
-      return;
-    }
-    setImporting(true);
-    // Re-read full data
-    const input = document.querySelector<HTMLInputElement>("input[type=file]");
-    const file = input?.files?.[0];
-    if (!file) { toast.error("Selecione o arquivo novamente"); setImporting(false); return; }
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: "binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        if (!ws) throw new Error("Planilha vazia; nada foi importado.");
-        const allData = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
-        const date1904 = Boolean(wb.Workbook?.WBProps?.date1904);
-        if (!allData.length) throw new Error("Planilha vazia; nada foi importado.");
-        const items = allData.map((row, index) => {
-          const descricao = String(row[mapping.descricao] || "").trim();
-          const valor = parseValorConta(row[mapping.valor]);
-          const dataVencimento = parseDataCivil(row[mapping.dataVencimento], date1904);
-          const rawRecebimento = mapping.dataRecebimento ? row[mapping.dataRecebimento] : undefined;
-          const dataRecebimento = rawRecebimento ? parseDataCivil(rawRecebimento, date1904) : undefined;
-          if (!descricao || !valor || !dataVencimento || (rawRecebimento && !dataRecebimento)) {
-            throw new Error(`Linha ${index + 2}: descrição, valor ou data inválida. Nenhuma linha foi importada.`);
-          }
-          return {
-            descricao, valor, dataVencimento, dataRecebimento,
-            recebido: mapping.recebido ? parseStatus(row[mapping.recebido]) : undefined,
-            empresaId: defaultEmpresaId ? Number(defaultEmpresaId) : undefined,
-            clienteId: defaultClienteId ? Number(defaultClienteId) : undefined,
-            bancoId: defaultBancoId ? Number(defaultBancoId) : undefined,
-            observacoes: mapping.observacoes ? String(row[mapping.observacoes] || "") : undefined,
-          };
-        });
-        if (tipo === "receber") importarReceber.mutate({ items }, { onSettled: () => setImporting(false) });
-      } catch (err) {
-        setImporting(false);
-        toast.error(err instanceof Error ? err.message : "Arquivo inválido; nada foi importado.");
-      }
-    };
-    reader.readAsBinaryString(file);
+    toast.error("Importação multi-cliente em preparação; não gravar via tela.");
   };
 
   const requiredFields = tipo === "pagar"
@@ -1966,10 +1918,11 @@ function ImportadorExcel() {
 
           {/* Botão Importar */}
           <div className="flex items-center gap-4">
-            <Button onClick={handleImport} disabled={importing || tipo === "pagar"} size="lg">
+            <Button onClick={handleImport} disabled={true} size="lg">
               {importing ? "Importando..." : `Importar ${tipo === "pagar" ? "Contas a Pagar" : "Contas a Receber"}`}
             </Button>
             {tipo === "pagar" && <p className="text-sm text-muted-foreground">Para importar contas a pagar, use o botão Importar Excel na aba Contas a Pagar; o fluxo antigo foi bloqueado para evitar dados parciais.</p>}
+            {tipo === "receber" && <p className="text-sm text-muted-foreground">Importação multi-cliente em preparação; não gravar via tela.</p>}
             {result && (
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-green-600 font-medium flex items-center gap-1"><CheckCircle className="h-4 w-4" /> {result.imported} importadas</span>
@@ -1985,10 +1938,12 @@ function ImportadorExcel() {
 
 // ==================== CADASTROS ====================
 function Cadastros() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const utils = trpc.useUtils();
-  const empresas = trpc.financeiro.empresas.listar.useQuery();
+  const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
-  const clientes = trpc.financeiro.clientes.listar.useQuery();
+  const clientes = trpc.financeiro.clientes.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
 
   const [empDialog, setEmpDialog] = useState(false);
   const [empEdicao, setEmpEdicao] = useState<any>(null);
@@ -2014,7 +1969,7 @@ function Cadastros() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between"><CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4" /> Empresas</CardTitle>
               <Dialog open={empDialog} onOpenChange={setEmpDialog}><Button size="sm" variant="outline" onClick={() => setEmpDialog(true)}><Plus className="h-3.5 w-3.5" /></Button>
-                <DialogContent><DialogHeader><DialogTitle>Nova Empresa</DialogTitle></DialogHeader><form onSubmit={e => { e.preventDefault(); const fd = new FormData(e.currentTarget); criarEmpresa.mutate({ nome: fd.get("nome") as string, cnpj: (fd.get("cnpj") as string) || undefined }); }} className="space-y-3"><div><Label>Nome *</Label><Input name="nome" required /></div><div><Label>CNPJ</Label><Input name="cnpj" /></div><DialogFooter><Button type="submit">Salvar</Button></DialogFooter></form></DialogContent>
+                <DialogContent><DialogHeader><DialogTitle>Nova Empresa</DialogTitle></DialogHeader><form onSubmit={e => { e.preventDefault(); if (!estabelecimentoId) { toast.error("Selecione um estabelecimento antes de cadastrar uma empresa."); return; } const fd = new FormData(e.currentTarget); criarEmpresa.mutate({ estabelecimentoId, nome: fd.get("nome") as string, cnpj: (fd.get("cnpj") as string) || undefined }); }} className="space-y-3"><div><Label>Nome *</Label><Input name="nome" required /></div><div><Label>CNPJ</Label><Input name="cnpj" /></div><DialogFooter><Button type="submit">Salvar</Button></DialogFooter></form></DialogContent>
               </Dialog>
             </div>
           </CardHeader>
@@ -2023,7 +1978,7 @@ function Cadastros() {
               {(empresas.data || []).map((e: any) => (
                 <div key={e.id} className="flex items-center justify-between px-4 py-2 border-b border-border hover:bg-muted/30">
                   <div><p className="text-sm font-medium">{e.nome}</p>{e.cnpj && <p className="text-xs text-muted-foreground">{e.cnpj}</p>}</div>
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => excluirEmpresa.mutate({ id: e.id })}><Trash2 className="h-3 w-3" /></Button>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => { if (estabelecimentoId) excluirEmpresa.mutate({ id: e.id, estabelecimentoId }); }}><Trash2 className="h-3 w-3" /></Button>
                 </div>
               ))}
               {(empresas.data || []).length === 0 && <p className="text-center py-4 text-xs text-muted-foreground">Nenhuma empresa</p>}
@@ -2087,7 +2042,7 @@ function Cadastros() {
                       <td className="py-2 px-3">
                         <div className="flex gap-1">
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditCliente(c); setCliDialog(true); }}><Edit className="h-3 w-3" /></Button>
-                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => excluirCliente.mutate({ id: c.id })}><Trash2 className="h-3 w-3" /></Button>
+                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => { if (estabelecimentoId) excluirCliente.mutate({ id: c.id, estabelecimentoId }); }}><Trash2 className="h-3 w-3" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -2107,8 +2062,13 @@ function Cadastros() {
             <DialogHeader><DialogTitle>{editCliente ? "Editar Cliente" : "Novo Cliente"}</DialogTitle></DialogHeader>
             <form onSubmit={e => {
               e.preventDefault();
+              if (!estabelecimentoId) { toast.error("Selecione um estabelecimento antes de salvar o cliente."); return; }
               const fd = new FormData(e.currentTarget);
+              const empresaId = Number(fd.get("empresaId"));
+              if (!empresas.data?.some((empresa: any) => empresa.id === empresaId)) { toast.error("Selecione uma empresa do estabelecimento atual."); return; }
               const payload = {
+                estabelecimentoId,
+                empresaId,
                 nome: fd.get("nome") as string,
                 cnpj: (fd.get("cnpj") as string) || undefined,
                 email: (fd.get("email") as string) || undefined,
@@ -2131,6 +2091,7 @@ function Cadastros() {
             }} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2"><Label>Nome *</Label><Input name="nome" required defaultValue={editCliente?.nome || ""} /></div>
+                <div className="col-span-2"><Label>Empresa *</Label><select name="empresaId" required defaultValue={editCliente?.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((empresa: any) => <option key={empresa.id} value={empresa.id}>{empresa.nome}</option>)}</select></div>
                 <div><Label>CNPJ/CPF</Label><Input name="cnpj" defaultValue={editCliente?.cnpj || ""} placeholder="00.000.000/0000-00" /></div>
                 <div><Label>Email</Label><Input name="email" type="email" defaultValue={editCliente?.email || ""} /></div>
                 <div><Label>Telefone</Label><Input name="telefone" defaultValue={editCliente?.telefone || ""} placeholder="(00) 00000-0000" /></div>
@@ -2679,10 +2640,12 @@ function BancoInterView() {
 
 // ==================== DRE ====================
 function DREView() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const now = new Date();
   const [mes, setMes] = useState(() => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [viewMode, setViewMode] = useState<"mensal" | "trimestral" | "anual">("mensal");
-  const dreData = trpc.financeiro.dashboard.dre.useQuery({ mes });
+  const dreData = trpc.financeiro.dashboard.dre.useQuery({ estabelecimentoId: estabelecimentoId || 0, mes }, { enabled: Boolean(estabelecimentoId) });
   const d = dreData.data;
 
   const [ano, mesNum] = mes.split("-");
@@ -2710,7 +2673,7 @@ function DREView() {
         </div>
       </div>
 
-      {dreData.isLoading ? <div className="text-center py-12 text-muted-foreground">Carregando...</div> : d ? (
+      {!estabelecimentoId ? <div className="text-center py-12 text-muted-foreground">Selecione um estabelecimento para visualizar a DRE.</div> : dreData.isLoading ? <div className="text-center py-12 text-muted-foreground">Carregando...</div> : d ? (
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
