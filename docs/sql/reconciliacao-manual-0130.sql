@@ -7,6 +7,8 @@
 -- 0129 foi dispensada por Sergio; NÃO criamos atendimentos_parados_staging.
 -- Exige janela exclusiva, revisão independente, ensaio em homologação restaurada,
 -- backup externo recente e verificação de banco/commit/estrutura pelo executor.
+-- A PR #32 foi mesclada sem revisão independente registrada. Revisão do SQL
+-- completo deve ser documentada na Issue privada #34 antes da execução.
 -- DDL no TiDB não é transacional em conjunto: após falha, parar e analisar estado parcial.
 -- Execute as FASES separadamente; NÃO selecione "executar tudo" no cliente SQL.
 
@@ -247,7 +249,7 @@ SELECT (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABA
 -- FASE 3: REGISTRO EXCEPCIONAL NO DRIZZLE, SOMENTE APÓS FASE 2 E APROVAÇÃO FORMAL.
 -- Isto não executa nem certifica 0105-0129; o salto no watermark fica documentado
 -- externamente como baseline dispensado/auditoria pendente. Não use em produção
--- enquanto houver bloqueios da PR de revisão (homologação, backups e Collab).
+-- enquanto houver bloqueios de revisão, validação do backup e reserva na Issue #34.
 -- Proteger contra reexecução e alteração concorrente do watermark.
 -- Na MESMA sessão, após comparar a estrutura completa e arquivar a aprovação
 -- independente, o executor deve digitar separadamente (NÃO incluído no SQL):
