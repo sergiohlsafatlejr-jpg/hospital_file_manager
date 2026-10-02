@@ -1126,7 +1126,6 @@ export default function TabelasPreco() {
                   });
                 }}
                 disabled={
-                  !estabelecimentoAtual?.id ||
                   !exportDbfVigencia ||
                   !exportDbfTipoBeneficiario ||
                   isLoadingExportDbfOpcoes ||
