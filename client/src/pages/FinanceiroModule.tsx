@@ -22,9 +22,10 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { CustoReceitaUnidade } from "./financeiro/CustoReceitaUnidade";
-import { formatDateBR, safeParseDate, toInputDateValue } from "@/lib/dateUtils";
+import { formatDateBR } from "@/lib/dateUtils";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
-import { parseContasPagarRows, normalizarNome, type ContaPagarImportItem, type ImportIssue } from "@shared/contasPagarImport";
+import { parseContasPagarRows, parseDataCivil, parseValorConta, normalizarNome, type ContaPagarImportItem, type ImportIssue } from "@shared/contasPagarImport";
+import { formatarDataCivilBR, paraInputDataCivil, hojeCivilBrasil } from "@shared/financeiroCivilDate";
 
 // ==================== HELPERS ====================
 function formatCurrency(value: string | number | null | undefined) {
@@ -71,7 +72,9 @@ function FinDashboard() {
   };
 
   const diasRelativo = (dateStr: string) => {
-    const diff = Math.ceil((new Date(dateStr).getTime() - now.getTime()) / 86400000);
+    const data = paraInputDataCivil(dateStr);
+    if (!data) return "Data inválida";
+    const diff = Math.round((Date.parse(`${data}T12:00:00Z`) - Date.parse(`${hojeCivilBrasil()}T12:00:00Z`)) / 86400000);
     if (diff === 0) return "Hoje";
     if (diff === 1) return "Amanh\u00e3";
     if (diff < 0) return `${Math.abs(diff)}d atr\u00e1s`;
@@ -246,7 +249,7 @@ function FinDashboard() {
                   <div key={v.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
                     <div>
                       <p className="font-medium text-sm">{v.descricao}</p>
-                      <p className="text-xs text-muted-foreground">{v.empresaNome} &bull; {formatDateBR(v.dataVencimento)}</p>
+                      <p className="text-xs text-muted-foreground">{v.empresaNome} &bull; {formatarDataCivilBR(v.dataVencimento)}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-red-600 text-sm">{formatCurrency(v.valor)}</p>
@@ -271,7 +274,7 @@ function FinDashboard() {
                   <div key={r.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
                     <div>
                       <p className="font-medium text-sm">{r.descricao}</p>
-                      <p className="text-xs text-muted-foreground">{r.clienteNome} &bull; {formatDateBR(r.dataVencimento)}</p>
+                      <p className="text-xs text-muted-foreground">{r.clienteNome} &bull; {formatarDataCivilBR(r.dataVencimento)}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-green-600 text-sm">{formatCurrency(r.valor)}</p>
@@ -403,7 +406,7 @@ function FinDashboard() {
                     <span className={cn("text-lg font-bold w-6 text-center", i === 0 ? "text-red-500" : i === 1 ? "text-orange-500" : "text-muted-foreground")}>{i + 1}\u00ba</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{t.descricao}</p>
-                      <p className="text-xs text-muted-foreground">{t.empresaNome} &bull; {t.categoriaNome} &bull; {formatDateBR(t.dataVencimento)}</p>
+                      <p className="text-xs text-muted-foreground">{t.empresaNome} &bull; {t.categoriaNome} &bull; {formatarDataCivilBR(t.dataVencimento)}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-semibold text-sm">{formatCurrency(t.valor)}</p>
@@ -617,7 +620,7 @@ function ContasPagar() {
   });
 
   const rawItems = lista.data?.items || [];
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeCivilBrasil();
 
   // Ordenação
   const items = useMemo(() => {
@@ -629,7 +632,7 @@ function ContasPagar() {
   }, [rawItems, ordenacao]);
 
   const totalPendente = items.filter((t: any) => t.pago === "nao").reduce((s: number, t: any) => s + Number(t.valor), 0);
-  const totalVencido = items.filter((t: any) => t.pago === "nao" && t.dataVencimento && (safeParseDate(t.dataVencimento)?.getTime() ?? 0) < new Date(hoje).getTime()).reduce((s: number, t: any) => s + Number(t.valor), 0);
+  const totalVencido = items.filter((t: any) => t.pago === "nao" && Boolean(paraInputDataCivil(t.dataVencimento)) && paraInputDataCivil(t.dataVencimento) < hoje).reduce((s: number, t: any) => s + Number(t.valor), 0);
   const totalPago = items.filter((t: any) => t.pago === "sim").reduce((s: number, t: any) => s + Number(t.valor), 0);
 
   const totalSelecionado = useMemo(() => {
@@ -705,8 +708,8 @@ function ContasPagar() {
     const data = items.map((t: any) => ({
       "Descrição": t.descricao,
       "Valor": Number(t.valor),
-      "Vencimento": t.dataVencimento ? formatDateBR(t.dataVencimento) : "",
-      "Data Pagamento": t.dataPagamento ? formatDateBR(t.dataPagamento) : "",
+      "Vencimento": t.dataVencimento ? formatarDataCivilBR(t.dataVencimento) : "",
+      "Data Pagamento": t.dataPagamento ? formatarDataCivilBR(t.dataPagamento) : "",
       "Status": t.pago === "sim" ? "Pago" : "Pendente",
       "Categoria": t.categoriaNome || "",
       "Centro de Custo": t.centroCustoNome || "",
@@ -786,10 +789,10 @@ function ContasPagar() {
               <div><Label>Descrição *</Label><Input name="descricao" required /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" required /></div>
-                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" required /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" /></div>
+                <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" lang="pt-BR" /></div>
                 <div><Label>Centro de Custo</Label><select name="centroCustoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(centrosCusto.data || []).map((cc: any) => <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>)}</select></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -888,16 +891,16 @@ function ContasPagar() {
                 <th className="py-3 pl-2 pr-4 text-xs font-semibold text-muted-foreground text-right">Ações</th>
               </tr></thead>
               <tbody>{items.map((t: any) => {
-                const vencido = t.pago === "nao" && t.dataVencimento && (safeParseDate(t.dataVencimento)?.getTime() ?? 0) < new Date(hoje).getTime();
+                const vencido = t.pago === "nao" && Boolean(paraInputDataCivil(t.dataVencimento)) && paraInputDataCivil(t.dataVencimento) < hoje;
                 return (
                   <tr key={t.id} className={cn("border-b border-border hover:bg-muted/30 transition-colors", vencido && "bg-red-50/50 dark:bg-red-900/10", selectedIds.has(t.id) && "bg-primary/5")}>
                     <td className="py-3 pl-3 pr-1 w-8"><Checkbox checked={selectedIds.has(t.id)} onCheckedChange={() => toggleSelect(t.id)} /></td>
                     <td className="py-3 pl-2 pr-2"><p className="font-medium">{t.descricao}</p>{t.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{t.observacoes}</p>}</td>
                     <td className="px-2 py-3 text-right font-semibold text-red-600 whitespace-nowrap">{formatCurrency(t.valor)}</td>
-                    <td className="px-2 py-3 whitespace-nowrap"><span className={cn(vencido && "text-red-500 font-medium")}>{formatDateBR(t.dataVencimento)}</span></td>
+                    <td className="px-2 py-3 whitespace-nowrap"><span className={cn(vencido && "text-red-500 font-medium")}>{formatarDataCivilBR(t.dataVencimento)}</span></td>
                     <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{t.categoriaNome || <span className="text-muted-foreground/50">—</span>}</td>
                     <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{t.centroCustoNome || <span className="text-muted-foreground/50">—</span>}</td>
-                    <td className="px-2 py-3 text-xs whitespace-nowrap">{t.dataPagamento ? <span className="text-green-600 font-medium">{formatDateBR(t.dataPagamento)}</span> : <span className="text-muted-foreground/50">—</span>}</td>
+                    <td className="px-2 py-3 text-xs whitespace-nowrap">{t.dataPagamento ? <span className="text-green-600 font-medium">{formatarDataCivilBR(t.dataPagamento)}</span> : <span className="text-muted-foreground/50">—</span>}</td>
                     <td className="px-2 py-3">{t.pago === "sim" ? <span className="inline-flex items-center gap-1 rounded-full bg-green-50 dark:bg-green-900/20 px-2 py-0.5 text-xs font-semibold text-green-600"><CheckCircle className="h-3 w-3" /> Pago</span> : vencido ? <span className="inline-flex items-center gap-1 rounded-full bg-red-50 dark:bg-red-900/20 px-2 py-0.5 text-xs font-semibold text-red-500"><AlertTriangle className="h-3 w-3" /> Vencido</span> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-xs font-semibold text-amber-600"><Clock className="h-3 w-3" /> Pendente</span>}</td>
                     <td className="py-3 pl-2 pr-4 text-right">
                       <div className="flex gap-1 justify-end">
@@ -936,10 +939,10 @@ function ContasPagar() {
               <div><Label>Descrição *</Label><Input name="descricao" defaultValue={editItem.descricao} required /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" defaultValue={Number(editItem.valor)} required /></div>
-                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" defaultValue={editItem.dataVencimento ? toInputDateValue(editItem.dataVencimento) : ""} required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" defaultValue={editItem.dataVencimento ? paraInputDataCivil(editItem.dataVencimento) : ""} required /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" defaultValue={editItem.dataPagamento ? toInputDateValue(editItem.dataPagamento) : ""} /></div>
+                <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" lang="pt-BR" defaultValue={editItem.dataPagamento ? paraInputDataCivil(editItem.dataPagamento) : ""} /></div>
                 <div><Label>Status</Label><select name="pago" defaultValue={editItem.pago || "nao"} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Pago</option></select></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1116,8 +1119,8 @@ function ContasReceber() {
     const data = items.map((r: any) => ({
       "Descrição": r.descricao,
       "Valor": Number(r.valor),
-      "Vencimento": r.dataVencimento ? formatDateBR(r.dataVencimento) : "",
-      "Dt. Recebimento": r.dataRecebimento ? formatDateBR(r.dataRecebimento) : "",
+      "Vencimento": r.dataVencimento ? formatarDataCivilBR(r.dataVencimento) : "",
+      "Dt. Recebimento": r.dataRecebimento ? formatarDataCivilBR(r.dataRecebimento) : "",
       "Status": r.recebido === "sim" ? "Recebido" : "Pendente",
       "Tipo de Serviço": r.tipoServico || "",
       "Descrição do Serviço": r.descricaoServico || "",
@@ -1144,24 +1147,28 @@ function ContasReceber() {
           const wb = XLSX.read(evt.target?.result, { type: "binary" });
           const ws = wb.Sheets[wb.SheetNames[0]];
           const data = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
-          let importados = 0;
-          for (const row of data) {
+          const date1904 = Boolean(wb.Workbook?.WBProps?.date1904);
+          // Validar o arquivo inteiro antes de iniciar o primeiro INSERT. Datas inválidas
+          // nunca podem virar "hoje" silenciosamente nem gerar `Invalid Date` no SQL.
+          const preparados = data.map((row, index) => {
             const descricao = row["Descrição"] || row["descricao"] || row["DESCRICAO"] || "";
             const valor = String(row["Valor"] || row["valor"] || row["VALOR"] || "0").replace(",", ".");
-            const venc = row["Vencimento"] || row["vencimento"] || row["DATA_VENCIMENTO"] || row["dataVencimento"] || "";
-            const tipoServ = row["Tipo de Serviço"] || row["tipoServico"] || row["TIPO_SERVICO"] || "";
-            const descServ = row["Descrição do Serviço"] || row["descricaoServico"] || row["DESCRICAO_SERVICO"] || "";
-            if (descricao && valor) {
-              await criar.mutateAsync({
-                descricao, valor, dataVencimento: venc || new Date().toISOString().slice(0, 10),
-                tipoServico: tipoServ || undefined, descricaoServico: descServ || undefined,
-              });
-              importados++;
-            }
+            const vencimento = parseDataCivil(row["Vencimento"] || row["vencimento"] || row["DATA_VENCIMENTO"] || row["dataVencimento"], date1904);
+            if (!descricao || !vencimento) throw new Error(`Linha ${index + 2}: descrição ou vencimento inválido. Nenhuma linha foi importada.`);
+            return {
+              descricao, valor, dataVencimento: vencimento,
+              tipoServico: row["Tipo de Serviço"] || row["tipoServico"] || row["TIPO_SERVICO"] || undefined,
+              descricaoServico: row["Descrição do Serviço"] || row["descricaoServico"] || row["DESCRICAO_SERVICO"] || undefined,
+            };
+          });
+          let importados = 0;
+          for (const item of preparados) {
+            await criar.mutateAsync(item);
+            importados++;
           }
           toast.success(`${importados} recebíveis importados com sucesso!`);
           utils.financeiro.invalidate();
-        } catch (err) { toast.error("Erro ao importar arquivo"); }
+        } catch (err) { toast.error(err instanceof Error && err.message.startsWith("Linha ") ? err.message : "Importação interrompida; verifique lançamentos anteriores antes de reenviar."); }
       };
       reader.readAsBinaryString(file);
     };
@@ -1253,7 +1260,7 @@ function ContasReceber() {
               <div><Label>Descrição *</Label><Input name="descricao" required /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" required /></div>
-                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" required /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Tipo de Serviço</Label><select name="tipoServico" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{tiposServicoPadrao.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
@@ -1339,11 +1346,11 @@ function ContasReceber() {
                   <td className="py-3 pl-3 pr-1 w-8"><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} /></td>
                   <td className="py-3 pl-2 pr-2"><p className="font-medium">{r.descricao}</p>{r.observacoes && <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{r.observacoes}</p>}</td>
                   <td className="px-2 py-3 text-right font-semibold text-green-600 whitespace-nowrap">{formatCurrency(r.valor)}</td>
-                  <td className="px-2 py-3 whitespace-nowrap">{formatDateBR(r.dataVencimento)}</td>
+                  <td className="px-2 py-3 whitespace-nowrap">{formatarDataCivilBR(r.dataVencimento)}</td>
                   <td className="px-2 py-3 text-xs whitespace-nowrap">{r.tipoServico ? <span className="inline-flex items-center rounded-full bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">{r.tipoServico}</span> : <span className="text-muted-foreground/50">—</span>}</td>
                   <td className="px-2 py-3 text-xs text-muted-foreground"><p className="truncate max-w-[200px]" title={r.descricaoServico || ""}>{r.descricaoServico || <span className="text-muted-foreground/50">—</span>}</p></td>
                   <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{r.clienteNome || <span className="text-muted-foreground/50">—</span>}</td>
-                  <td className="px-2 py-3 text-xs whitespace-nowrap">{r.dataRecebimento ? <span className="text-green-600 font-medium">{formatDateBR(r.dataRecebimento)}</span> : <span className="text-muted-foreground/50">—</span>}</td>
+                  <td className="px-2 py-3 text-xs whitespace-nowrap">{r.dataRecebimento ? <span className="text-green-600 font-medium">{formatarDataCivilBR(r.dataRecebimento)}</span> : <span className="text-muted-foreground/50">—</span>}</td>
                   <td className="px-2 py-3">{r.recebido === "sim" ? <span className="inline-flex items-center gap-1 rounded-full bg-green-50 dark:bg-green-900/20 px-2 py-0.5 text-xs font-semibold text-green-600"><CheckCircle className="h-3 w-3" /> Recebido</span> : <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 text-xs font-semibold text-blue-600"><Clock className="h-3 w-3" /> Pendente</span>}</td>
                   <td className="py-3 pl-2 pr-4 text-right">
                     <div className="flex gap-1 justify-end">
@@ -1399,10 +1406,10 @@ function ContasReceber() {
               <div><Label>Descrição *</Label><Input name="descricao" defaultValue={editItem.descricao} required /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" defaultValue={Number(editItem.valor)} required /></div>
-                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" defaultValue={editItem.dataVencimento ? toInputDateValue(editItem.dataVencimento) : ""} required /></div>
+                <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" defaultValue={editItem.dataVencimento ? paraInputDataCivil(editItem.dataVencimento) : ""} required /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Data de Recebimento</Label><Input name="dataRecebimento" type="date" defaultValue={editItem.dataRecebimento ? toInputDateValue(editItem.dataRecebimento) : ""} /></div>
+                <div><Label>Data de Recebimento</Label><Input name="dataRecebimento" type="date" lang="pt-BR" defaultValue={editItem.dataRecebimento ? paraInputDataCivil(editItem.dataRecebimento) : ""} /></div>
                 <div><Label>Status</Label><select name="recebido" defaultValue={editItem.recebido || "nao"} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Recebido</option></select></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1754,22 +1761,6 @@ function ImportadorExcel() {
     handleFile({ target: input } as any);
   };
 
-  const parseDate = (val: any): string | undefined => {
-    if (!val) return undefined;
-    if (typeof val === "number") {
-      // Excel serial date
-      const d = new Date((val - 25569) * 86400000);
-      return d.toISOString().slice(0, 10);
-    }
-    const str = String(val).trim();
-    // DD/MM/YYYY
-    const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-    // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-    return str;
-  };
-
   const parseStatus = (val: any): "sim" | "nao" => {
     const s = String(val).toLowerCase().trim();
     return ["sim", "s", "pago", "recebido", "yes", "1", "true"].includes(s) ? "sim" : "nao";
@@ -1791,23 +1782,35 @@ function ImportadorExcel() {
     if (!file) { toast.error("Selecione o arquivo novamente"); setImporting(false); return; }
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const wb = XLSX.read(evt.target?.result, { type: "binary" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const allData = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
-
-      if (tipo === "receber") {
-        const items = allData.map(row => ({
-          descricao: String(row[mapping.descricao] || "").trim(),
-          valor: String(row[mapping.valor] || "0").replace(/[^\d.,-]/g, "").replace(",", "."),
-          dataVencimento: parseDate(row[mapping.dataVencimento]) || new Date().toISOString().slice(0, 10),
-          dataRecebimento: mapping.dataRecebimento ? parseDate(row[mapping.dataRecebimento]) : undefined,
-          recebido: mapping.recebido ? parseStatus(row[mapping.recebido]) : undefined,
-          empresaId: defaultEmpresaId ? Number(defaultEmpresaId) : undefined,
-          clienteId: defaultClienteId ? Number(defaultClienteId) : undefined,
-          bancoId: defaultBancoId ? Number(defaultBancoId) : undefined,
-          observacoes: mapping.observacoes ? String(row[mapping.observacoes] || "") : undefined,
-        })).filter(i => i.descricao && i.valor !== "0");
-        importarReceber.mutate({ items }, { onSettled: () => setImporting(false) });
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) throw new Error("Planilha vazia; nada foi importado.");
+        const allData = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
+        const date1904 = Boolean(wb.Workbook?.WBProps?.date1904);
+        if (!allData.length) throw new Error("Planilha vazia; nada foi importado.");
+        const items = allData.map((row, index) => {
+          const descricao = String(row[mapping.descricao] || "").trim();
+          const valor = parseValorConta(row[mapping.valor]);
+          const dataVencimento = parseDataCivil(row[mapping.dataVencimento], date1904);
+          const rawRecebimento = mapping.dataRecebimento ? row[mapping.dataRecebimento] : undefined;
+          const dataRecebimento = rawRecebimento ? parseDataCivil(rawRecebimento, date1904) : undefined;
+          if (!descricao || !valor || !dataVencimento || (rawRecebimento && !dataRecebimento)) {
+            throw new Error(`Linha ${index + 2}: descrição, valor ou data inválida. Nenhuma linha foi importada.`);
+          }
+          return {
+            descricao, valor, dataVencimento, dataRecebimento,
+            recebido: mapping.recebido ? parseStatus(row[mapping.recebido]) : undefined,
+            empresaId: defaultEmpresaId ? Number(defaultEmpresaId) : undefined,
+            clienteId: defaultClienteId ? Number(defaultClienteId) : undefined,
+            bancoId: defaultBancoId ? Number(defaultBancoId) : undefined,
+            observacoes: mapping.observacoes ? String(row[mapping.observacoes] || "") : undefined,
+          };
+        });
+        if (tipo === "receber") importarReceber.mutate({ items }, { onSettled: () => setImporting(false) });
+      } catch (err) {
+        setImporting(false);
+        toast.error(err instanceof Error ? err.message : "Arquivo inválido; nada foi importado.");
       }
     };
     reader.readAsBinaryString(file);

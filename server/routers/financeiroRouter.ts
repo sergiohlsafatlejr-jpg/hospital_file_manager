@@ -12,6 +12,10 @@ import {
 import { eq, desc, and, sql, like, gte, lte, asc, inArray } from "drizzle-orm";
 import { isNull, or } from "drizzle-orm";
 import { chaveContaPagar, contasPagarImportSchema, normalizarNome } from "../../shared/contasPagarImport";
+import { dataCivilFinanceiraSchema, dataCivilParaBanco, hojeCivilBrasil, somarDiasCivis, valorDataCivil } from "../../shared/financeiroCivilDate";
+
+// Para filtrar DATE, compare DATE com DATE: usar Date (meio-dia) excluiria o dia inicial.
+const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
 
 // ============================================================
 // EMPRESAS
@@ -253,8 +257,8 @@ const transacoesRouter = router({
       bancoId: z.number().optional(),
       centroCustoId: z.number().optional(),
       pago: z.enum(["sim", "nao"]).optional(),
-      dataInicio: z.string().optional(),
-      dataFim: z.string().optional(),
+      dataInicio: dataCivilFinanceiraSchema.optional(),
+      dataFim: dataCivilFinanceiraSchema.optional(),
       busca: z.string().optional(),
       page: z.number().default(1),
       limit: z.number().default(50),
@@ -271,8 +275,8 @@ const transacoesRouter = router({
       if (p.bancoId) conditions.push(eq(finTransacoes.bancoId, p.bancoId));
       if (p.centroCustoId) conditions.push(eq(finTransacoes.centroCustoId, p.centroCustoId));
       if (p.pago) conditions.push(eq(finTransacoes.pago, p.pago));
-      if (p.dataInicio) conditions.push(gte(finTransacoes.dataVencimento, new Date(p.dataInicio)));
-      if (p.dataFim) conditions.push(lte(finTransacoes.dataVencimento, new Date(p.dataFim)));
+      if (p.dataInicio) conditions.push(gte(finTransacoes.dataVencimento, limiteDiaCivil(p.dataInicio)));
+      if (p.dataFim) conditions.push(lte(finTransacoes.dataVencimento, limiteDiaCivil(p.dataFim)));
       if (p.busca) conditions.push(like(finTransacoes.descricao, `%${p.busca}%`));
 
       const where = conditions.length ? and(...conditions) : undefined;
@@ -313,7 +317,7 @@ const transacoesRouter = router({
       estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
       custoId: z.number().optional(), bancoId: z.number().optional(), centroCustoId: z.number().optional(),
       descricao: z.string().min(1),
-      valor: z.string(), dataVencimento: z.string(), dataPagamento: z.string().optional(),
+      valor: z.string(), dataVencimento: dataCivilFinanceiraSchema, dataPagamento: dataCivilFinanceiraSchema.optional(),
       pago: z.enum(["sim", "nao"]).optional(), observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -327,7 +331,7 @@ const transacoesRouter = router({
       const [result] = await db.insert(finTransacoes).values({
         empresaId: input.empresaId, categoriaId: input.categoriaId || null, tipoId: input.tipoId || null,
         custoId: input.custoId || null, bancoId: input.bancoId || null, centroCustoId: input.centroCustoId || null, descricao: input.descricao,
-        valor: input.valor, dataVencimento: new Date(input.dataVencimento), dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
+        valor: input.valor, dataVencimento: dataCivilParaBanco(input.dataVencimento), dataPagamento: input.dataPagamento ? dataCivilParaBanco(input.dataPagamento) : null,
         pago: input.pago || "nao", observacoes: input.observacoes || null, userId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -337,7 +341,7 @@ const transacoesRouter = router({
       id: z.number(), empresaId: z.number().optional(), categoriaId: z.number().optional(), tipoId: z.number().optional(),
       custoId: z.number().optional(), bancoId: z.number().optional(), centroCustoId: z.number().optional(),
       descricao: z.string().min(1),
-      valor: z.string(), dataVencimento: z.string(), dataPagamento: z.string().optional(),
+      valor: z.string(), dataVencimento: dataCivilFinanceiraSchema, dataPagamento: dataCivilFinanceiraSchema.optional(),
       pago: z.enum(["sim", "nao"]).optional(), observacoes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -346,7 +350,7 @@ const transacoesRouter = router({
       await db.update(finTransacoes).set({
         empresaId: data.empresaId || null, categoriaId: data.categoriaId || null, tipoId: data.tipoId || null,
         custoId: data.custoId || null, bancoId: data.bancoId || null, centroCustoId: data.centroCustoId || null, descricao: data.descricao,
-        valor: data.valor, dataVencimento: new Date(data.dataVencimento), dataPagamento: data.dataPagamento ? new Date(data.dataPagamento) : null,
+        valor: data.valor, dataVencimento: dataCivilParaBanco(data.dataVencimento), dataPagamento: data.dataPagamento ? dataCivilParaBanco(data.dataPagamento) : null,
         pago: data.pago || "nao", observacoes: data.observacoes || null,
       }).where(eq(finTransacoes.id, id));
       return { success: true };
@@ -389,28 +393,28 @@ const transacoesRouter = router({
     }
     return { count: originais.length };
   }),
-  marcarPago: protectedProcedure.input(z.object({ id: z.number(), dataPagamento: z.string().optional() })).mutation(async ({ input }) => {
+  marcarPago: protectedProcedure.input(z.object({ id: z.number(), dataPagamento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(finTransacoes).set({ pago: "sim", dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : new Date() }).where(eq(finTransacoes.id, input.id));
+    await db.update(finTransacoes).set({ pago: "sim", dataPagamento: dataCivilParaBanco(input.dataPagamento ?? hojeCivilBrasil()) }).where(eq(finTransacoes.id, input.id));
     return { success: true };
   }),
   dashboard: protectedProcedure
     .input(z.object({ empresaId: z.number().optional(), mes: z.string().optional() }).optional())
     .query(async ({ input }) => {
       const db = (await getDb())!;
-      const now = new Date();
-      const mesRef = input?.mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const hoje = hojeCivilBrasil();
+      const mesRef = input?.mes || hoje.slice(0, 7);
       const [ano, mesNum] = mesRef.split("-").map(Number);
       const inicio = `${ano}-${String(mesNum).padStart(2, "0")}-01`;
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
 
-      const conditions = [gte(finTransacoes.dataVencimento, new Date(inicio)), lte(finTransacoes.dataVencimento, new Date(fim))];
+      const conditions = [gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
       if (input?.empresaId) conditions.push(eq(finTransacoes.empresaId, input.empresaId));
 
       const [totalPago] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "sim")));
       const [totalPendente] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "nao")));
-      const [totalVencido] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, new Date(now.toISOString().slice(0, 10)))));
+      const [totalVencido] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...conditions, eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje))));
 
       // Por categoria
       const porCategoria = await db.select({
@@ -439,8 +443,8 @@ const recebiveisRouter = router({
       clienteId: z.number().optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
       tipoServico: z.string().optional(),
-      dataInicio: z.string().optional(),
-      dataFim: z.string().optional(),
+      dataInicio: dataCivilFinanceiraSchema.optional(),
+      dataFim: dataCivilFinanceiraSchema.optional(),
       busca: z.string().optional(),
       page: z.number().default(1),
       limit: z.number().default(50),
@@ -453,8 +457,8 @@ const recebiveisRouter = router({
       if (p.clienteId) conditions.push(eq(finRecebiveis.clienteId, p.clienteId));
       if (p.recebido) conditions.push(eq(finRecebiveis.recebido, p.recebido));
       if (p.tipoServico) conditions.push(eq(finRecebiveis.tipoServico, p.tipoServico));
-      if (p.dataInicio) conditions.push(gte(finRecebiveis.dataVencimento, new Date(p.dataInicio)));
-      if (p.dataFim) conditions.push(lte(finRecebiveis.dataVencimento, new Date(p.dataFim)));
+      if (p.dataInicio) conditions.push(gte(finRecebiveis.dataVencimento, limiteDiaCivil(p.dataInicio)));
+      if (p.dataFim) conditions.push(lte(finRecebiveis.dataVencimento, limiteDiaCivil(p.dataFim)));
       if (p.busca) {
         conditions.push(
           sql`(${finRecebiveis.descricao} LIKE ${`%${p.busca}%`} OR ${finRecebiveis.tipoServico} LIKE ${`%${p.busca}%`} OR ${finRecebiveis.descricaoServico} LIKE ${`%${p.busca}%`})`
@@ -501,7 +505,7 @@ const recebiveisRouter = router({
     .input(z.object({
       empresaId: z.number().optional(), clienteId: z.number().optional(), tipoId: z.number().optional(),
       bancoId: z.number().optional(), descricao: z.string().min(1), valor: z.string(),
-      dataVencimento: z.string(), dataRecebimento: z.string().optional(),
+      dataVencimento: dataCivilFinanceiraSchema, dataRecebimento: dataCivilFinanceiraSchema.optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
       tipoServico: z.string().optional(), descricaoServico: z.string().optional(),
       observacoes: z.string().optional(),
@@ -511,7 +515,7 @@ const recebiveisRouter = router({
       const [result] = await db.insert(finRecebiveis).values({
         empresaId: input.empresaId || null, clienteId: input.clienteId || null, tipoId: input.tipoId || null,
         bancoId: input.bancoId || null, descricao: input.descricao, valor: input.valor,
-        dataVencimento: new Date(input.dataVencimento), dataRecebimento: input.dataRecebimento ? new Date(input.dataRecebimento) : null,
+        dataVencimento: dataCivilParaBanco(input.dataVencimento), dataRecebimento: input.dataRecebimento ? dataCivilParaBanco(input.dataRecebimento) : null,
         recebido: input.recebido || "nao", tipoServico: input.tipoServico || null, descricaoServico: input.descricaoServico || null,
         observacoes: input.observacoes || null, userId: ctx.user.id,
       });
@@ -521,7 +525,7 @@ const recebiveisRouter = router({
     .input(z.object({
       id: z.number(), empresaId: z.number().optional(), clienteId: z.number().optional(), tipoId: z.number().optional(),
       bancoId: z.number().optional(), descricao: z.string().min(1), valor: z.string(),
-      dataVencimento: z.string(), dataRecebimento: z.string().optional(),
+      dataVencimento: dataCivilFinanceiraSchema, dataRecebimento: dataCivilFinanceiraSchema.optional(),
       recebido: z.enum(["sim", "nao"]).optional(),
       tipoServico: z.string().optional(), descricaoServico: z.string().optional(),
       observacoes: z.string().optional(),
@@ -532,7 +536,7 @@ const recebiveisRouter = router({
       await db.update(finRecebiveis).set({
         empresaId: data.empresaId || null, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
         bancoId: data.bancoId || null, descricao: data.descricao, valor: data.valor,
-        dataVencimento: new Date(data.dataVencimento), dataRecebimento: data.dataRecebimento ? new Date(data.dataRecebimento) : null,
+        dataVencimento: dataCivilParaBanco(data.dataVencimento), dataRecebimento: data.dataRecebimento ? dataCivilParaBanco(data.dataRecebimento) : null,
         recebido: data.recebido || "nao", tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
         observacoes: data.observacoes || null,
       }).where(eq(finRecebiveis.id, id));
@@ -543,9 +547,9 @@ const recebiveisRouter = router({
     await db.delete(finRecebiveis).where(eq(finRecebiveis.id, input.id));
     return { success: true };
   }),
-  marcarRecebido: protectedProcedure.input(z.object({ id: z.number(), dataRecebimento: z.string().optional() })).mutation(async ({ input }) => {
+  marcarRecebido: protectedProcedure.input(z.object({ id: z.number(), dataRecebimento: dataCivilFinanceiraSchema.optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(finRecebiveis).set({ recebido: "sim", dataRecebimento: input.dataRecebimento ? new Date(input.dataRecebimento) : new Date() }).where(eq(finRecebiveis.id, input.id));
+    await db.update(finRecebiveis).set({ recebido: "sim", dataRecebimento: dataCivilParaBanco(input.dataRecebimento ?? hojeCivilBrasil()) }).where(eq(finRecebiveis.id, input.id));
     return { success: true };
   }),
   duplicar: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
@@ -592,7 +596,7 @@ const recebiveisRouter = router({
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
 
-      const conditions = [gte(finRecebiveis.dataVencimento, new Date(inicio)), lte(finRecebiveis.dataVencimento, new Date(fim))];
+      const conditions = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
       if (input?.empresaId) conditions.push(eq(finRecebiveis.empresaId, input.empresaId));
 
       const [totalRecebido] = await db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...conditions, eq(finRecebiveis.recebido, "sim")));
@@ -1022,16 +1026,15 @@ const dashboardRouter = router({
     .input(z.object({ empresaId: z.number().optional(), mes: z.string().optional() }).optional())
     .query(async ({ input }) => {
       const db = (await getDb())!;
-      const now = new Date();
-      const mesRef = input?.mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const hoje = hojeCivilBrasil();
+      const mesRef = input?.mes || hoje.slice(0, 7);
       const [ano, mesNum] = mesRef.split("-").map(Number);
       const inicio = `${ano}-${String(mesNum).padStart(2, "0")}-01`;
       const lastDay = new Date(ano, mesNum, 0).getDate();
       const fim = `${ano}-${String(mesNum).padStart(2, "0")}-${lastDay}`;
-      const hoje = now.toISOString().slice(0, 10);
 
-      const condPagar = [gte(finTransacoes.dataVencimento, new Date(inicio)), lte(finTransacoes.dataVencimento, new Date(fim))];
-      const condReceber = [gte(finRecebiveis.dataVencimento, new Date(inicio)), lte(finRecebiveis.dataVencimento, new Date(fim))];
+      const condPagar = [gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))];
+      const condReceber = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))];
       if (input?.empresaId) {
         condPagar.push(eq(finTransacoes.empresaId, input.empresaId));
         condReceber.push(eq(finRecebiveis.empresaId, input.empresaId));
@@ -1049,16 +1052,16 @@ const dashboardRouter = router({
         [custosFixos]] = await Promise.all([
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "sim"))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "nao"))),
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, new Date(hoje)))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, new Date(hoje)))),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.pago, "nao"), lte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "sim"))),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "nao"))),
         db.select({ count: sql<number>`COUNT(*)` }).from(finRecebiveis).where(and(...condReceber, eq(finRecebiveis.recebido, "nao"))),
         db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(...condPagar, eq(finTransacoes.pago, "nao"))),
         // Pagamentos do dia
-        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, new Date(hoje)), eq(finTransacoes.pago, "nao"))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(eq(finTransacoes.dataVencimento, new Date(hoje))),
-        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, new Date(hoje)), eq(finTransacoes.pago, "nao"))),
+        db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje))),
+        db.select({ count: sql<number>`COUNT(*)` }).from(finTransacoes).where(and(eq(finTransacoes.dataVencimento, limiteDiaCivil(hoje)), eq(finTransacoes.pago, "nao"))),
         // Total pago geral (todos os meses)
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(eq(finTransacoes.pago, "sim")),
         db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(eq(finRecebiveis.recebido, "sim")),
@@ -1077,8 +1080,8 @@ const dashboardRouter = router({
         .leftJoin(finEmpresas, eq(finTransacoes.empresaId, finEmpresas.id))
         .where(and(
           eq(finTransacoes.pago, "nao"),
-          gte(finTransacoes.dataVencimento, new Date(hoje)),
-          lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
+          gte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)),
+          lte(finTransacoes.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
         ))
         .orderBy(asc(finTransacoes.dataVencimento))
         .limit(10);
@@ -1088,8 +1091,8 @@ const dashboardRouter = router({
         count: sql<number>`COUNT(*)`
       }).from(finTransacoes).where(and(
         eq(finTransacoes.pago, "nao"),
-        gte(finTransacoes.dataVencimento, new Date(hoje)),
-        lte(finTransacoes.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
+        gte(finTransacoes.dataVencimento, limiteDiaCivil(hoje)),
+        lte(finTransacoes.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
       ));
 
       // Próximos recebimentos (7 dias)
@@ -1103,8 +1106,8 @@ const dashboardRouter = router({
         .leftJoin(finClientes, eq(finRecebiveis.clienteId, finClientes.id))
         .where(and(
           eq(finRecebiveis.recebido, "nao"),
-          gte(finRecebiveis.dataVencimento, new Date(hoje)),
-          lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
+          gte(finRecebiveis.dataVencimento, limiteDiaCivil(hoje)),
+          lte(finRecebiveis.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
         ))
         .orderBy(asc(finRecebiveis.dataVencimento))
         .limit(10);
@@ -1114,8 +1117,8 @@ const dashboardRouter = router({
         count: sql<number>`COUNT(*)`
       }).from(finRecebiveis).where(and(
         eq(finRecebiveis.recebido, "nao"),
-        gte(finRecebiveis.dataVencimento, new Date(hoje)),
-        lte(finRecebiveis.dataVencimento, new Date(new Date(hoje).getTime() + 7 * 86400000)),
+        gte(finRecebiveis.dataVencimento, limiteDiaCivil(hoje)),
+        lte(finRecebiveis.dataVencimento, limiteDiaCivil(somarDiasCivis(hoje, 7))),
       ));
 
       // Top 5 maiores pagamentos do mês
@@ -1148,7 +1151,7 @@ const dashboardRouter = router({
         totalGeral: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-        .where(and(gte(finTransacoes.dataVencimento, new Date(inicio)), lte(finTransacoes.dataVencimento, new Date(fim))))
+        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finTransacoes.categoriaId, finCategorias.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1157,7 +1160,7 @@ const dashboardRouter = router({
         totalGeral: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
         totalPendente: sql<string>`COALESCE(SUM(CASE WHEN ${finTransacoes.pago} = 'nao' THEN ${finTransacoes.valor} ELSE 0 END), 0)`,
       }).from(finTransacoes)
-        .where(and(gte(finTransacoes.dataVencimento, new Date(maIni)), lte(finTransacoes.dataVencimento, new Date(maFim))))
+        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(maIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(maFim))))
         .groupBy(finTransacoes.categoriaId);
 
       const catAnteriorMap = new Map(catAnterior.map(c => [c.categoriaId, c]));
@@ -1187,8 +1190,8 @@ const dashboardRouter = router({
         const mFim = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${mLastDay}`;
         const mLabel = `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 
-        const cP = [gte(finTransacoes.dataVencimento, new Date(mIni)), lte(finTransacoes.dataVencimento, new Date(mFim))];
-        const cR = [gte(finRecebiveis.dataVencimento, new Date(mIni)), lte(finRecebiveis.dataVencimento, new Date(mFim))];
+        const cP = [gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim))];
+        const cR = [gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim))];
 
         const [[despT], [despPagoM], [recT], [recRecM]] = await Promise.all([
           db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(...cP)),
@@ -1235,10 +1238,8 @@ const dashboardRouter = router({
     .input(z.object({ dias: z.number().default(30) }))
     .query(async ({ input }) => {
       const db = (await getDb())!;
-      const hoje = new Date();
-      const hojeStr = hoje.toISOString().slice(0, 10);
-      const fimDate = new Date(hoje.getTime() + input.dias * 86400000);
-      const fimStr = fimDate.toISOString().slice(0, 10);
+      const hojeStr = hojeCivilBrasil();
+      const fimStr = somarDiasCivis(hojeStr, input.dias);
 
       // Buscar todos os pagamentos e recebimentos no período
       const pagamentos = await db.select({
@@ -1247,8 +1248,8 @@ const dashboardRouter = router({
         pago: finTransacoes.pago,
       }).from(finTransacoes)
         .where(and(
-          gte(finTransacoes.dataVencimento, new Date(hojeStr)),
-          lte(finTransacoes.dataVencimento, new Date(fimStr)),
+          gte(finTransacoes.dataVencimento, limiteDiaCivil(hojeStr)),
+          lte(finTransacoes.dataVencimento, limiteDiaCivil(fimStr)),
         ));
 
       const recebimentos = await db.select({
@@ -1257,24 +1258,26 @@ const dashboardRouter = router({
         recebido: finRecebiveis.recebido,
       }).from(finRecebiveis)
         .where(and(
-          gte(finRecebiveis.dataVencimento, new Date(hojeStr)),
-          lte(finRecebiveis.dataVencimento, new Date(fimStr)),
+          gte(finRecebiveis.dataVencimento, limiteDiaCivil(hojeStr)),
+          lte(finRecebiveis.dataVencimento, limiteDiaCivil(fimStr)),
         ));
 
       // Agrupar por dia
       const diasMap = new Map<string, { receber: number; pagar: number }>();
       for (let i = 0; i <= input.dias; i++) {
-        const d = new Date(hoje.getTime() + i * 86400000).toISOString().slice(0, 10);
+        const d = somarDiasCivis(hojeStr, i);
         diasMap.set(d, { receber: 0, pagar: 0 });
       }
 
       for (const p of pagamentos) {
-        const d = new Date(p.dataVencimento).toISOString().slice(0, 10);
+        const d = valorDataCivil(p.dataVencimento);
+        if (!d) continue;
         const entry = diasMap.get(d);
         if (entry) entry.pagar += Number(p.valor);
       }
       for (const r of recebimentos) {
-        const d = new Date(r.dataVencimento).toISOString().slice(0, 10);
+        const d = valorDataCivil(r.dataVencimento);
+        if (!d) continue;
         const entry = diasMap.get(d);
         if (entry) entry.receber += Number(r.valor);
       }
@@ -1316,7 +1319,7 @@ const dashboardRouter = router({
             total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
           }).from(finTransacoes)
             .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-            .where(and(gte(finTransacoes.dataVencimento, new Date(ini)), lte(finTransacoes.dataVencimento, new Date(fim))))
+            .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
             .groupBy(finCategorias.nome)
             .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
         } else {
@@ -1324,7 +1327,7 @@ const dashboardRouter = router({
             nome: finTransacoes.descricao,
             total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
           }).from(finTransacoes)
-            .where(and(gte(finTransacoes.dataVencimento, new Date(ini)), lte(finTransacoes.dataVencimento, new Date(fim))))
+            .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(ini)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
             .groupBy(finTransacoes.descricao)
             .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
         }
@@ -1367,7 +1370,7 @@ const dashboardRouter = router({
         pendente: sql<string>`COALESCE(SUM(CASE WHEN ${finRecebiveis.recebido} = 'nao' THEN ${finRecebiveis.valor} ELSE 0 END), 0)`,
         total: sql<string>`COALESCE(SUM(${finRecebiveis.valor}), 0)`,
       }).from(finRecebiveis)
-        .where(and(gte(finRecebiveis.dataVencimento, new Date(inicio)), lte(finRecebiveis.dataVencimento, new Date(fim))))
+        .where(and(gte(finRecebiveis.dataVencimento, limiteDiaCivil(inicio)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finRecebiveis.tipoServico)
         .orderBy(desc(sql`SUM(${finRecebiveis.valor})`));
 
@@ -1379,7 +1382,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCategorias, eq(finTransacoes.categoriaId, finCategorias.id))
-        .where(and(gte(finTransacoes.dataVencimento, new Date(inicio)), lte(finTransacoes.dataVencimento, new Date(fim))))
+        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finCategorias.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1389,7 +1392,7 @@ const dashboardRouter = router({
         total: sql<string>`COALESCE(SUM(${finTransacoes.valor}), 0)`,
       }).from(finTransacoes)
         .leftJoin(finCentrosCusto, eq(finTransacoes.centroCustoId, finCentrosCusto.id))
-        .where(and(gte(finTransacoes.dataVencimento, new Date(inicio)), lte(finTransacoes.dataVencimento, new Date(fim))))
+        .where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)), lte(finTransacoes.dataVencimento, limiteDiaCivil(fim))))
         .groupBy(finCentrosCusto.nome)
         .orderBy(desc(sql`SUM(${finTransacoes.valor})`));
 
@@ -1407,8 +1410,8 @@ const dashboardRouter = router({
         const mLabel = `${MONTHS_SHORT[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
 
         const [[rec], [desp]] = await Promise.all([
-          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(gte(finRecebiveis.dataVencimento, new Date(mIni)), lte(finRecebiveis.dataVencimento, new Date(mFim)))),
-          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(gte(finTransacoes.dataVencimento, new Date(mIni)), lte(finTransacoes.dataVencimento, new Date(mFim)))),
+          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finRecebiveis).where(and(gte(finRecebiveis.dataVencimento, limiteDiaCivil(mIni)), lte(finRecebiveis.dataVencimento, limiteDiaCivil(mFim)))),
+          db.select({ total: sql<string>`COALESCE(SUM(valor), 0)` }).from(finTransacoes).where(and(gte(finTransacoes.dataVencimento, limiteDiaCivil(mIni)), lte(finTransacoes.dataVencimento, limiteDiaCivil(mFim)))),
         ]);
         evolucaoDre.push({ mes: mLabel, receitas: Number(rec.total), despesas: Number(desp.total), resultado: Number(rec.total) - Number(desp.total) });
       }
@@ -1500,8 +1503,8 @@ const centrosCustoRouter = router({
       .from(finTransacoes)
       .leftJoin(finCentrosCusto, eq(finTransacoes.centroCustoId, finCentrosCusto.id))
       .where(and(
-        gte(finTransacoes.dataVencimento, new Date(inicio)),
-        lte(finTransacoes.dataVencimento, new Date(fim)),
+        gte(finTransacoes.dataVencimento, limiteDiaCivil(inicio)),
+        lte(finTransacoes.dataVencimento, limiteDiaCivil(fim)),
         sql`${finTransacoes.centroCustoId} IS NOT NULL`,
       ))
       .groupBy(finTransacoes.centroCustoId, finCentrosCusto.nome, finCentrosCusto.codigo, finCentrosCusto.orcamentoMensal);
@@ -1594,8 +1597,8 @@ const importadorRouter = router({
       items: z.array(z.object({
         descricao: z.string(),
         valor: z.string(),
-        dataVencimento: z.string(),
-        dataRecebimento: z.string().optional(),
+        dataVencimento: dataCivilFinanceiraSchema,
+        dataRecebimento: dataCivilFinanceiraSchema.optional(),
         recebido: z.enum(["sim", "nao"]).optional(),
         empresaId: z.number().optional(),
         clienteId: z.number().optional(),
@@ -1612,8 +1615,8 @@ const importadorRouter = router({
           await db.insert(finRecebiveis).values({
             descricao: item.descricao,
             valor: item.valor,
-            dataVencimento: new Date(item.dataVencimento),
-            dataRecebimento: item.dataRecebimento ? new Date(item.dataRecebimento) : null,
+            dataVencimento: dataCivilParaBanco(item.dataVencimento),
+            dataRecebimento: item.dataRecebimento ? dataCivilParaBanco(item.dataRecebimento) : null,
             recebido: item.recebido || "nao",
             empresaId: item.empresaId || null,
             clienteId: item.clienteId || null,
