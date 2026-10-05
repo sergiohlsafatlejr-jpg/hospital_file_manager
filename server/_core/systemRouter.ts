@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
+import { ehIntegracaoLegadaHup, HUP_HOP_ESTABELECIMENTO_ID } from "../hupLegacyCutover";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -11,6 +12,8 @@ export const systemRouter = router({
     )
     .query(() => ({
       ok: true,
+      release: "hup-hop-cutover-2026-10-05-v1",
+      hupLegacyBlocked: ehIntegracaoLegadaHup({ estabelecimentoId: HUP_HOP_ESTABELECIMENTO_ID }),
     })),
 
   notifyOwner: adminProcedure
