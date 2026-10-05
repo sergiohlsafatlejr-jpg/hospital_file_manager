@@ -135,6 +135,70 @@ export const warleineFaturamentoStaging = mysqlTable(
   })
 );
 
+/** Pouso bruto do Hop para faturado/recebido do Urológico.
+ * Não alimenta relatórios nem substitui o pipeline Warleine existente.
+ * A rotina de publicação deverá validar lote completo e unidade 1260036.
+ * Datas e competência são texto nesta camada para preservar a representação
+ * civil da fonte; valores monetários são DECIMAL, nunca ponto flutuante.
+ */
+export const stagingFaturadoRecebidoUrologico = mysqlTable(
+  "stagion_faturado_recebido_urologico",
+  {
+    id: int().primaryKey().autoincrement(),
+    lote_ref: varchar({ length: 64 }),
+    capturado_em: timestamp().defaultNow().notNull(),
+
+    nomeconv: varchar({ length: 255 }),
+    codconv: varchar({ length: 100 }),
+    mesprod: varchar({ length: 20 }),
+    numfatura: varchar({ length: 100 }),
+    codrecur: varchar({ length: 100 }),
+    tipoproc: varchar({ length: 50 }),
+    protocolo: varchar({ length: 100 }),
+    numconta: varchar({ length: 100 }),
+    guiacobra: varchar({ length: 100 }),
+    aihguia: varchar({ length: 100 }),
+    descricao: varchar({ length: 255 }),
+    matricula: varchar({ length: 100 }),
+    data: varchar({ length: 40 }),
+    dataint: varchar({ length: 40 }),
+    datasai: varchar({ length: 40 }),
+    procdisco: varchar({ length: 100 }),
+    codproprio: varchar({ length: 100 }),
+    codgrufi: varchar({ length: 50 }),
+    descricao_1: text(),
+    funcaotiss: varchar({ length: 50 }),
+    receber: varchar({ length: 20 }),
+    codcc: varchar({ length: 50 }),
+    nomecc: varchar({ length: 255 }),
+    prestexe: varchar({ length: 100 }),
+    nomeprest: varchar({ length: 255 }),
+    codtiss: varchar({ length: 100 }),
+    descmotivo: text(),
+    codrecur_1: varchar({ length: 100 }),
+    complrecur: text(),
+    tipoatend: varchar({ length: 100 }),
+    quantidade: decimal({ precision: 18, scale: 4 }),
+    vl_faturado: decimal({ precision: 20, scale: 4 }),
+    vl_recebido: decimal({ precision: 20, scale: 4 }),
+    vl_receb_a_maior: decimal({ precision: 20, scale: 4 }),
+    vl_total_recebido: decimal({ precision: 20, scale: 4 }),
+    vl_aberto: decimal({ precision: 20, scale: 4 }),
+    vl_glosas: decimal({ precision: 20, scale: 4 }),
+    gl_recurso: decimal({ precision: 20, scale: 4 }),
+    gl_aceita: decimal({ precision: 20, scale: 4 }),
+    gl_analise: decimal({ precision: 20, scale: 4 }),
+    gl_recuperada: decimal({ precision: 20, scale: 4 }),
+    vl_unitario: decimal({ precision: 20, scale: 4 }),
+    estabelecimentos_id: int().notNull(),
+  },
+  (table) => ({
+    unidadeLoteIdx: index("idx_hup_fat_unidade_lote").on(table.estabelecimentos_id, table.lote_ref),
+    unidadeCompetenciaIdx: index("idx_hup_fat_unidade_mes").on(table.estabelecimentos_id, table.mesprod),
+    unidadeContaIdx: index("idx_hup_fat_unidade_conta").on(table.estabelecimentos_id, table.numconta),
+  }),
+);
+
 export const warleineFaturamentoQuarentena = mysqlTable(
   "warleine_faturamento_quarentena",
   {
