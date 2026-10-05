@@ -4,6 +4,7 @@ import { warleineAtendimentosStaging, atendimentos, queryConfiguracoes } from ".
 import { eq, and, sql, lt } from "drizzle-orm";
 import { arquivos } from "../../drizzle/schema";
 import { WarleineConnector } from "../connectors/WarleineConnector";
+import { ehIntegracaoLegadaHup } from "../hupLegacyCutover";
 
 const activeJobs: Map<number, ReturnType<typeof cron.schedule>> = new Map();
 const runningJobs: Set<number> = new Set();
@@ -276,6 +277,14 @@ async function executarSincronizacaoAutomatica(configId: number) {
       return;
     }
 
+    // Um cron carregado antes da desativação continua em memória até o processo
+    // reiniciar. A configuração persistida é a autoridade para cada disparo.
+    if (!config.ativo || ehIntegracaoLegadaHup(config)) {
+      stopJob(configId);
+      console.log(`[JobScheduler] Job ${configId} desativado para a transição Hop; execução ignorada`);
+      return;
+    }
+
     // 2. Extrair configuração de conexão
     const conexaoConfig = extrairConexaoConfig(config);
     if (!conexaoConfig) {
@@ -320,6 +329,19 @@ async function executarSincronizacaoAutomatica(configId: number) {
 
     console.log(`[JobScheduler] ${dados.length} registros extraídos do WARLEINE`);
 
+    // A desativação pode ocorrer enquanto a extração externa está em andamento.
+    // Nesse caso não tocar na staging nem nos atendimentos unificados.
+    const [configAtual] = await db.select({
+      ativo: queryConfiguracoes.ativo,
+      estabelecimentoId: queryConfiguracoes.estabelecimentoId,
+    })
+      .from(queryConfiguracoes).where(eq(queryConfiguracoes.id, configId)).limit(1);
+    if (!configAtual?.ativo || ehIntegracaoLegadaHup(configAtual)) {
+      stopJob(configId);
+      console.log(`[JobScheduler] Job ${configId} desativado durante a extração; escrita ignorada`);
+      return;
+    }
+
     // Limpar staging anterior para esta config
     await db.delete(warleineAtendimentosStaging).where(
       eq(warleineAtendimentosStaging.configId, configId)
@@ -342,6 +364,17 @@ async function executarSincronizacaoAutomatica(configId: number) {
     }
 
     console.log(`[JobScheduler] ${registrosSincronizados} registros sincronizados no staging`);
+
+    const [configAntesPublicar] = await db.select({
+      ativo: queryConfiguracoes.ativo,
+      estabelecimentoId: queryConfiguracoes.estabelecimentoId,
+    })
+      .from(queryConfiguracoes).where(eq(queryConfiguracoes.id, configId)).limit(1);
+    if (!configAntesPublicar?.ativo || ehIntegracaoLegadaHup(configAntesPublicar)) {
+      stopJob(configId);
+      console.log(`[JobScheduler] Job ${configId} desativado; destino preservado`);
+      return;
+    }
 
     // 4. TRANSFORMAR: Converter staging para tabela unificada
     console.log(`[JobScheduler] Transformando dados para tabela unificada...`);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { dataSyncEngine, SyncConfig } from "../dataSyncEngine";
 import { WarleineConnector } from "../connectors/WarleineConnector";
@@ -14,6 +14,7 @@ import { permissoesEstabelecimento, estabelecimentos } from "../../drizzle/schem
 import { queryConfiguracoes, warleineAtendimentosStaging, warleineFaturamentoStaging, faturamentoGeral, atendimentosSemConta, atendimentosAFaturar } from "../../drizzle/schema-integracao";
 import { atendimentos } from "../../drizzle/schema-integracao";
 import { ENV } from "../_core/env";
+import { ehIntegracaoLegadaHup, HUP_HOP_ESTABELECIMENTO_ID } from "../hupLegacyCutover";
 
 /**
  * Verifica se o usuário é admin global OU administrador do estabelecimento
@@ -188,6 +189,10 @@ export const integradorDadosRouter = router({
           };
         }
 
+        if (ehIntegracaoLegadaHup({ estabelecimentoId: input.estabelecimentoId })) {
+          return { sucesso: false, mensagem: "A extração legada do Urológico foi substituída pelo Hop", configId: null };
+        }
+
         const db = await getDb();
 
         if (!db) {
@@ -264,9 +269,13 @@ export const integradorDadosRouter = router({
       }
 
       const estabId = input?.estabelecimentoId;
-      const configs = estabId
+      const configsCarregadas = estabId
         ? await db.select().from(queryConfiguracoes).where(eq(queryConfiguracoes.estabelecimentoId, estabId))
         : await db.select().from(queryConfiguracoes);
+      const configs = ctx.user?.role === "admin" ? configsCarregadas :
+        (await Promise.all(configsCarregadas.map(async (c) =>
+          (await isAdminOrEstabAdmin(ctx, c.estabelecimentoId)) ? c : null
+        ))).filter((c): c is (typeof configsCarregadas)[number] => c !== null);
 
       return {
         configuracoes: configs.map((c) => ({
@@ -324,7 +333,13 @@ export const integradorDadosRouter = router({
           };
         }
 
-        const configs = await db.select().from(queryConfiguracoes);
+        const configsCarregadas = input.configId
+          ? await db.select().from(queryConfiguracoes).where(eq(queryConfiguracoes.id, input.configId))
+          : await db.select().from(queryConfiguracoes);
+        const configs = ctx.user?.role === "admin" ? configsCarregadas :
+          (await Promise.all(configsCarregadas.map(async (c) =>
+            (await isAdminOrEstabAdmin(ctx, c.estabelecimentoId)) ? c : null
+          ))).filter((c): c is (typeof configsCarregadas)[number] => c !== null);
         const ativas = configs.filter((c) => c.ativo).length;
 
         return {
@@ -430,6 +445,16 @@ export const integradorDadosRouter = router({
         }
 
         const config = configs[0];
+        if (!(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) {
+          return { sucesso: false, mensagem: "Acesso negado", registrosProcessados: 0 };
+        }
+        if (!config.ativo || ehIntegracaoLegadaHup(config)) {
+          return {
+            sucesso: false,
+            mensagem: "Configuração desativada para a transição Hop; sincronização não executada",
+            registrosProcessados: 0,
+          };
+        }
         let registrosProcessados = 0;
 
         logger.info({
@@ -610,6 +635,17 @@ export const integradorDadosRouter = router({
           };
         }
 
+        const [config] = await db.select({ id: queryConfiguracoes.id,
+          estabelecimentoId: queryConfiguracoes.estabelecimentoId,
+          sistema: queryConfiguracoes.sistema, tipoDados: queryConfiguracoes.tipoDados })
+          .from(queryConfiguracoes).where(eq(queryConfiguracoes.id, input.configId)).limit(1);
+        if (!config || !(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) {
+          return { sucesso: false, mensagem: "Configuração não encontrada ou acesso negado" };
+        }
+        if (ehIntegracaoLegadaHup(config)) {
+          return { sucesso: false, mensagem: "Configuração legada preservada; exclusão não permitida" };
+        }
+
         await db
           .delete(queryConfiguracoes)
           .where(eq(queryConfiguracoes.id, input.configId));
@@ -670,6 +706,12 @@ export const integradorDadosRouter = router({
             sucesso: false,
             mensagem: "Erro ao conectar ao banco de dados",
           };
+        }
+
+        const [config] = await db.select({ estabelecimentoId: queryConfiguracoes.estabelecimentoId })
+          .from(queryConfiguracoes).where(eq(queryConfiguracoes.id, input.configId)).limit(1);
+        if (!config || !(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) {
+          return { sucesso: false, mensagem: "Configuração não encontrada ou acesso negado" };
         }
 
         const updateData: any = { atualizadoEm: new Date() };
@@ -733,6 +775,7 @@ export const integradorDadosRouter = router({
 
         const [config] = await db.select().from(queryConfiguracoes).where(eq(queryConfiguracoes.id, input.configId));
         if (!config) return null;
+        if (!(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) return null;
 
         return {
           id: config.id,
@@ -780,7 +823,8 @@ export const integradorDadosRouter = router({
           };
         }
 
-        const configs = await db.select().from(queryConfiguracoes);
+        const configs = await db.select().from(queryConfiguracoes)
+          .where(eq(queryConfiguracoes.estabelecimentoId, input.estabelecimentoId));
 
         return {
           totalConfiguracoes: configs.length,
@@ -864,6 +908,10 @@ export const integradorDadosRouter = router({
           .limit(1)
           .then((rows) => rows[0]);
         if (!config) throw new Error("Configuracao nao encontrada");
+        if (!(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) throw new Error("Acesso negado");
+        if (!config.ativo || ehIntegracaoLegadaHup(config)) {
+          throw new Error("Configuracao desativada para a transicao Hop; transformacao nao executada");
+        }
 
         // Verificar o tipoDados para direcionar para a tabela correta
         const isFaturamento = config.tipoDados?.toLowerCase().includes('faturamento');
@@ -934,10 +982,24 @@ export const integradorDadosRouter = router({
         ativo: z.boolean(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const db = await getDb();
         if (!db) throw new Error("Database not available");
+
+        const [config] = await db.select({
+          id: queryConfiguracoes.id,
+          estabelecimentoId: queryConfiguracoes.estabelecimentoId,
+          sistema: queryConfiguracoes.sistema,
+          tipoDados: queryConfiguracoes.tipoDados,
+        })
+          .from(queryConfiguracoes).where(eq(queryConfiguracoes.id, input.configId)).limit(1);
+        if (!config || !(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) {
+          return { sucesso: false, mensagem: "Configuração não encontrada ou acesso negado" };
+        }
+        if (input.ativo && ehIntegracaoLegadaHup(config)) {
+          return { sucesso: false, mensagem: "Integração legada do Urológico desativada para o Hop" };
+        }
 
         await db
           .update(queryConfiguracoes)
@@ -979,8 +1041,11 @@ export const integradorDadosRouter = router({
     .input(z.object({ estabelecimentoId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        if (!(await isAdminOrEstabAdmin(ctx))) {
+        if (!(await isAdminOrEstabAdmin(ctx, input.estabelecimentoId))) {
           throw new Error("Acesso negado");
+        }
+        if (input.estabelecimentoId === HUP_HOP_ESTABELECIMENTO_ID) {
+          throw new Error("Urológico utiliza o piloto Hop; sincronização EASYVISION não permitida");
         }
 
         const db = await getDb();
@@ -1097,8 +1162,11 @@ export const integradorDadosRouter = router({
     .input(z.object({ estabelecimentoId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        if (!(await isAdminOrEstabAdmin(ctx))) {
+        if (!(await isAdminOrEstabAdmin(ctx, input.estabelecimentoId))) {
           throw new Error("Acesso negado");
+        }
+        if (input.estabelecimentoId === HUP_HOP_ESTABELECIMENTO_ID) {
+          throw new Error("Urológico utiliza o piloto Hop; sincronização EASYVISION não permitida");
         }
 
         const db = await getDb();
@@ -1170,8 +1238,9 @@ export const integradorDadosRouter = router({
    */
   listarAtendimentosSemConta: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
+        if (!(await isAdminOrEstabAdmin(ctx, input.estabelecimentoId))) return [];
         const db = await getDb();
         if (!db) return [];
         const dados = await db
@@ -1190,8 +1259,9 @@ export const integradorDadosRouter = router({
    */
   listarAtendimentosAFaturar: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
+        if (!(await isAdminOrEstabAdmin(ctx, input.estabelecimentoId))) return [];
         const db = await getDb();
         if (!db) return [];
         const dados = await db
@@ -1224,6 +1294,8 @@ export const integradorDadosRouter = router({
           .then((rows) => rows[0]);
 
         if (!config) throw new Error("Configuracao nao encontrada");
+        if (!(await isAdminOrEstabAdmin(ctx, config.estabelecimentoId))) throw new Error("Acesso negado");
+        if (ehIntegracaoLegadaHup(config)) throw new Error("Limpeza legada do Urológico desativada para o Hop");
 
         const isFaturamento = config.tipoDados?.toLowerCase().includes('faturamento');
 
@@ -1251,10 +1323,11 @@ export const integradorDadosRouter = router({
             const BATCH_SIZE = 100;
             for (let i = 0; i < origemIds.length; i += BATCH_SIZE) {
               const batch = origemIds.slice(i, i + BATCH_SIZE);
-              const values = batch.map((id) => `'${id}'`).join(",");
-              await db.execute(
-                sql.raw(`DELETE FROM atendimentos_unificados WHERE origemId IN (${values})`)
-              );
+              await db.delete(atendimentos).where(and(
+                eq(atendimentos.estabelecimentoId, config.estabelecimentoId),
+                eq(atendimentos.origemSistema, "WARLEINE"),
+                inArray(atendimentos.origemId, batch),
+              ));
               registrosRemovidosUnificados += batch.length;
             }
           }
