@@ -1,7 +1,9 @@
--- PLANO PARA REVISÃO; NÃO EXECUTAR SEM PARECER INDEPENDENTE E JANELA AUTORIZADA.
+-- PLANO PARA REVISÃO; NÃO EXECUTAR SEM PARECER INDEPENDENTE OU EXCEÇÃO FORMAL DE SERGIO E JANELA AUTORIZADA.
 -- Base GitHub main bb9bf91; SQL gerado: drizzle/0131_neat_johnny_storm.sql.
 -- SHA-256 do SQL ORIGINAL da 0131: 802ec518dcb031eaa3fd626463a89117fc7ef4e474af9f25d246769e4c61d98d.
 -- created_at exato da entrada 0131 no journal: 1791224176523.
+-- 06/10/2026: Sergio dispensou somente a revisão de outra pessoa da PR #49/0131.
+-- A exceção NÃO dispensa preflight, backup restaurável, homologação ou janela única.
 -- Banco de produção: confirmar alvo pelo executor; não rodar pnpm db:migrate geral.
 -- Fases separadas: TiDB DDL pode confirmar parcialmente, e não há rollback global.
 -- PR #46 prepara schema, não autoriza aplicação sozinha; coordenação pela Issue #34.
@@ -32,7 +34,7 @@ FROM information_schema.tables
 WHERE table_schema=DATABASE() AND table_type='BASE TABLE'
   AND table_name='stagion_faturado_recebido_urologico';
 -- PARE se qualquer valor divergir de 92 / 1790874573874 / 1 / 0 / 0.
--- Confirmar migração reservada, revisão SQL registrada, homologação, backup e janela.
+-- Confirmar migração reservada, revisão ou exceção registrada, homologação, backup e janela.
 -- Se o journal físico não oferecer unicidade de (hash,created_at), depende-se
 -- integralmente do congelamento operacional e de uma sessão única. PARE se houver
 -- outro executor ou serviço com permissão de DDL ativo durante a janela.
@@ -112,11 +114,11 @@ SELECT COUNT(*) AS linhas_apos_criacao FROM `stagion_faturado_recebido_urologico
 -- quantidades DECIMAL(18,4), valores DECIMAL(20,4), unidade NOT NULL e ZERO linhas.
 -- Nenhum dado financeiro deve ser importado nesta janela.
 -- O gate da fase 3 por contagens é NECESSÁRIO, não SUFICIENTE: revisor e executor
--- devem conferir nomes, ordem, tipos, nulabilidade, defaults, PK e todos os índices
+-- deve-se conferir nomes, ordem, tipos, nulabilidade, defaults, PK e todos os índices
 -- versus o SQL original, registrar o aceite estrutural na Issue #34 e confirmar
 -- uma última vez exclusividade da janela e banco correto imediatamente antes do SET.
 
--- FASE 3: SOMENTE após FASE 2 integralmente conferida e parecer revisado.
+-- FASE 3: SOMENTE após FASE 2 integralmente conferida e revisão ou exceção formal registrada.
 -- Em sessão única, após registro da aprovação na Issue #34, o executor informa:
 -- SET @safatle_0131_revisao = 'ESTRUTURA_0131_CONFERIDA';
 -- Sem esse ato explícito, o INSERT afeta zero linhas. Nunca forçar caso falhe.
