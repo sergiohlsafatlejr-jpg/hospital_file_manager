@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, timestamp, decimal, json, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { mysqlTable, int, varchar, text, timestamp, datetime, decimal, json, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -196,6 +196,38 @@ export const stagingFaturadoRecebidoUrologico = mysqlTable(
     unidadeLoteIdx: index("idx_hup_fat_unidade_lote").on(table.estabelecimentos_id, table.lote_ref),
     unidadeCompetenciaIdx: index("idx_hup_fat_unidade_mes").on(table.estabelecimentos_id, table.mesprod),
     unidadeContaIdx: index("idx_hup_fat_unidade_conta").on(table.estabelecimentos_id, table.numconta),
+  }),
+);
+
+/** Pouso de itens faturados do Hop para o Urológico, conforme o layout
+ * de staging_faturamento_warleine. Não publica nem concilia pagamentos;
+ * importacaoId deverá identificar um lote fechado antes da futura promoção.
+ * O mesmo número de conta pode conter diversos itens: não deduplicar por conta.
+ */
+export const stagionFaturadoUrologico = mysqlTable(
+  "stagion_faturado_urologico",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    importacaoId: int("importacaoId"),
+    estabelecimentoId: int("estabelecimentoId").notNull(),
+    numeroConta: varchar("numeroConta", { length: 100 }),
+    numeroGuia: varchar("numeroGuia", { length: 100 }),
+    convenioNome: varchar("convenioNome", { length: 255 }),
+    pacienteNome: varchar("pacienteNome", { length: 255 }),
+    codigoItem: varchar("codigoItem", { length: 100 }),
+    descricaoItem: text("descricaoItem"),
+    quantidade: decimal("quantidade", { precision: 12, scale: 4 }),
+    valorUnitario: decimal("valorUnitario", { precision: 12, scale: 4 }),
+    valorTotal: decimal("valorTotal", { precision: 12, scale: 4 }),
+    dataExecucao: datetime("dataExecucao"),
+    competencia: varchar("competencia", { length: 20 }),
+    rawData: json("rawData"),
+    processado: boolean("processado").default(false),
+    criadoEm: timestamp("criadoEm").defaultNow(),
+  },
+  (table) => ({
+    unidadeImportacaoIdx: index("idx_hup_faturado_estab_importacao").on(table.estabelecimentoId, table.importacaoId),
+    unidadeContaIdx: index("idx_hup_faturado_estab_conta").on(table.estabelecimentoId, table.numeroConta),
   }),
 );
 
