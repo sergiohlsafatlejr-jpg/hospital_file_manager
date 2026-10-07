@@ -41,6 +41,16 @@ describe("tasyCsvImportService", () => {
     expect(parseTasyDate("2026-09-21")?.toISOString()).toBe("2026-09-21T00:00:00.000Z");
   });
 
+  it("preserva data civil ISO com fração zero exportada pelo Hemolabor", () => {
+    expect(parseTasyDate("2026-10-07 14:30:45.000")?.toISOString()).toBe("2026-10-07T14:30:45.000Z");
+    expect(parseTasyDate("2026-10-07T14:30:45.000000")?.toISOString()).toBe("2026-10-07T14:30:45.000Z");
+  });
+
+  it("recusa perda silenciosa de milissegundos ou data impossível", () => {
+    expect(parseTasyDate("2026-10-07 14:30:45.001")).toBeNull();
+    expect(parseTasyDate("2026-02-30 14:30:45.000")).toBeNull();
+  });
+
   it("não corrige silenciosamente datas impossíveis", () => {
     expect(parseTasyDate("31/02/26")).toBeNull();
     expect(parseTasyDate("texto")).toBeNull();
