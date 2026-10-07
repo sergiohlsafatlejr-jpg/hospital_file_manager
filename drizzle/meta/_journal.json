@@ -358,6 +358,13 @@
       "when": 1791306776545,
       "tag": "0132_nostalgic_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "5",
+      "when": 1791394138906,
+      "tag": "0133_clammy_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }
