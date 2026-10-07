@@ -403,7 +403,7 @@ async function persistWarleineStageBatch(
   });
 }
 
-const FINAL_COLUMNS = [
+export const FINAL_COLUMNS = [
   "loteId", "estabelecimentoId", "numeroLinha", "origemRegistroId", "origemAtualizadoEm", "chaveNegocioHash", "linhaHash", "ativoParaRelatorio",
   "convenioFaturadoNome", "convenioFaturadoCodigo", "competencia", "remessaFaturamento", "codigoRecursoOrigem1", "tipoItem", "protocoloConvenio",
   "numeroConta", "guiaOperadora", "guiaPrestador", "pacienteNome", "carteiraBeneficiario", "dataAberturaConta", "dataEntrada", "dataAlta", "codigoTuss",
@@ -419,7 +419,7 @@ const MATERIALIZE_UPDATE_SQL = FINAL_COLUMNS
   .map((column) => `${column}=VALUES(${column})`)
   .join(",");
 
-function canonicalParams(loteId: number, estabelecimentoId: number, line: number, row: WarleineCanonicalRow): unknown[] {
+export function canonicalParams(loteId: number, estabelecimentoId: number, line: number, row: WarleineCanonicalRow): unknown[] {
   return [loteId, estabelecimentoId, line, row.origemRegistroId, row.origemAtualizadoEm, row.chaveNegocioHash, row.linhaHash, false,
     row.convenioFaturadoNome, row.convenioFaturadoCodigo, row.competencia, row.remessaFaturamento, row.codigoRecursoOrigem1, row.tipoItem,
     row.protocoloConvenio, row.numeroConta, row.guiaOperadora, row.guiaPrestador, row.pacienteNome, row.carteiraBeneficiario, row.dataAberturaConta,
