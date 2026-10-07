@@ -23,6 +23,7 @@ const money = [
 const table = getTableConfig(stagingFaturadoRecebidoUrologico);
 const columns = new Map(table.columns.map(column => [column.name, column]));
 const migrationSql = readFileSync(new URL('../drizzle/0131_neat_johnny_storm.sql', import.meta.url), 'utf8');
+const typeFixSql = readFileSync(new URL('../drizzle/0133_clammy_sebastian_shaw.sql', import.meta.url), 'utf8');
 
 describe('staging física de faturado/recebido HUP', () => {
   it('expõe exatamente os 43 campos informados, sem fundir cabeçalhos repetidos', () => {
@@ -36,8 +37,9 @@ describe('staging física de faturado/recebido HUP', () => {
     expect(columns.has('codrecur_1')).toBe(true);
   });
 
-  it('exige vínculo explícito com a unidade sem impor unicidade incorreta à conta', () => {
-    expect(columns.get('estabelecimentos_id')?.notNull).toBe(true);
+  it('mantém os índices declarados, sem impor unicidade incorreta à conta', () => {
+    expect(columns.get('estabelecimentos_id')?.notNull).toBe(false);
+    expect(columns.get('estabelecimentos_id')?.columnType).toBe('MySqlVarChar');
     expect(columns.get('id')?.primary).toBe(true);
     expect(columns.get('capturado_em')?.notNull).toBe(true);
     expect(table.indexes.map(index => ({
@@ -66,13 +68,36 @@ describe('staging física de faturado/recebido HUP', () => {
   it('preserva precisão dos valores para validação antes de qualquer relatório', () => {
     for (const name of money) {
       expect(columns.get(name)?.columnType, name).toBe('MySqlDecimal');
-      expect((columns.get(name) as { precision?: number })?.precision, name).toBe(20);
-      expect((columns.get(name) as { scale?: number })?.scale, name).toBe(4);
+      expect((columns.get(name) as { precision?: number })?.precision, name).toBe(15);
+      expect((columns.get(name) as { scale?: number })?.scale, name).toBe(name === 'vl_unitario' ? 4 : 2);
     }
-    expect((columns.get('quantidade') as { precision?: number })?.precision).toBe(18);
+    expect((columns.get('quantidade') as { precision?: number })?.precision).toBe(15);
     expect((columns.get('quantidade') as { scale?: number })?.scale).toBe(4);
+    expect((columns.get('aihguia') as { length?: number })?.length).toBe(50);
+    expect((columns.get('estabelecimentos_id') as { length?: number })?.length).toBe(100);
     for (const name of ['data', 'dataint', 'datasai', 'mesprod']) {
       expect(columns.get(name)?.columnType, name).toBe('MySqlVarChar');
     }
+  });
+
+  it('0133 altera exatamente os 15 campos enviados, sem mudar outras tabelas ou registros', () => {
+    const statements = typeFixSql.split('--> statement-breakpoint').map(x => x.trim()).filter(Boolean);
+    const changes = [...typeFixSql.matchAll(/ALTER TABLE `stagion_faturado_recebido_urologico` MODIFY COLUMN `([^`]+)` ([\w(),]+)/g)]
+      .map(x => [x[1], x[2]] as const);
+    const altered = changes.map(x => x[0]);
+    expect(altered).toEqual([
+      'aihguia', 'quantidade', 'vl_faturado', 'vl_recebido', 'vl_receb_a_maior',
+      'vl_total_recebido', 'vl_aberto', 'vl_glosas', 'gl_recurso', 'gl_aceita',
+      'gl_analise', 'gl_recuperada', 'vl_unitario', 'estabelecimentos_id', 'complrecur',
+    ]);
+    expect(statements).toHaveLength(15);
+    const expectedTypes: Record<string, string> = {
+      aihguia: 'varchar(50)', quantidade: 'decimal(15,4)',
+      vl_unitario: 'decimal(15,4)', estabelecimentos_id: 'varchar(100)',
+      complrecur: 'text',
+    };
+    for (const name of money.filter(x => x !== 'vl_unitario')) expectedTypes[name] = 'decimal(15,2)';
+    expect(Object.fromEntries(changes)).toEqual(expectedTypes);
+    expect(typeFixSql).not.toMatch(/\b(?:DROP|TRUNCATE|DELETE|UPDATE|INSERT|CREATE)\b\s+(?:TABLE|FROM|INTO|INDEX)/i);
   });
 });
