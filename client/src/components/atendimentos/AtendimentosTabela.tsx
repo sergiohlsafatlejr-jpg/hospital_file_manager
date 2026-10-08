@@ -75,6 +75,12 @@ function getServico(d: AtendimentoUnificado): string {
   return d.tipoServico || d.codigo_servico || d.codServico || d.codserv || d.dsSetorEntrada || d.descricao_atendimento || "-";
 }
 
+function getSaidaExibida(d: AtendimentoUnificado): { data: string | Date | null | undefined; inferida: boolean } {
+  if (d.data_saida || d.datasai) return { data: d.data_saida || d.datasai, inferida: false };
+  if (d.dataSaidaInferida && d.dataSaidaEfetiva) return { data: d.dataSaidaEfetiva, inferida: true };
+  return { data: null, inferida: false };
+}
+
 export function AtendimentosTabela({
   data, isTasyLayout,
   sortColumn, sortOrder, onSort,
@@ -212,7 +218,14 @@ export function AtendimentosTabela({
 
                     {/* Data Saída */}
                     <td className="px-3 py-2.5 whitespace-nowrap text-xs">
-                      {formatDate(d.data_saida || d.datasai)}
+                      {(() => {
+                        const saida = getSaidaExibida(d);
+                        return saida.inferida ? (
+                          <span title="Saída considerada na entrada">
+                            {formatDate(saida.data)} <span className="text-[10px] text-muted-foreground">(considerada)</span>
+                          </span>
+                        ) : formatDate(saida.data);
+                      })()}
                     </td>
 
                     {/* Dias Parado */}

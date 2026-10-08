@@ -71,6 +71,14 @@ function formatDate(date: string | Date | null | undefined): string {
   }
 }
 
+function formatSaida(d: AtendimentoUnificado): string {
+  if (d.data_saida || d.datasai) return formatDate(d.data_saida || d.datasai);
+  if (d.dataSaidaInferida && d.dataSaidaEfetiva) {
+    return `${formatDate(d.dataSaidaEfetiva)} (Saída considerada na entrada)`;
+  }
+  return "-";
+}
+
 interface PDFOptions {
   titulo?: string;
   isTasy?: boolean;
@@ -173,7 +181,7 @@ export async function gerarPDFAtendimentos(
         d.paciente || d.nomepac || "-",
         d.convenio || d.nomeplaco || "-",
         formatDate(d.data_entrada || d.datatend),
-        formatDate(d.data_saida || d.datasai),
+        formatSaida(d),
         String(d.diasParado || 0),
         d.tipo_atendimento || d.tipoatend || d.tipoatendimentodescricao || "-",
         d.codigo_servico || d.codserv || d.codServico || "-",
@@ -197,7 +205,7 @@ export async function gerarPDFAtendimentos(
         d.paciente || d.nomepac || "-",
         d.convenio || d.nomeplaco || "-",
         formatDate(d.data_entrada || d.datatend),
-        formatDate(d.data_saida || d.datasai),
+        formatSaida(d),
         String(d.diasParado || 0),
         d.tipo_atendimento || d.tipoatend || d.tipoatendimentodescricao || "-",
         d.descricao_atendimento || d.codigo_servico || d.codserv || "-",

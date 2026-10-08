@@ -390,7 +390,11 @@ function AtendimentosDaUnidade() {
       "Paciente": a.paciente,
       "Plano": a.convenio,
       "Data Entrada": a.data_entrada ? formatDateBR(a.data_entrada) : "-",
-      "Data Saída": a.data_saida ? formatDateBR(a.data_saida) : "-",
+      "Data Saída": a.data_saida
+        ? formatDateBR(a.data_saida)
+        : a.dataSaidaInferida && a.dataSaidaEfetiva
+          ? `${formatDateBR(a.dataSaidaEfetiva)} (Saída considerada na entrada)`
+          : "-",
       "Dias Parado": a.diasParado,
       "Categoria": a.categoriaAtendimento || a.tipo_atendimento,
       "Tipo de Serviço": a.tipoServico || a.codigo_servico || a.descricao_atendimento || "-",

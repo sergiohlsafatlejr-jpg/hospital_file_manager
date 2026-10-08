@@ -4,6 +4,7 @@ import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { readFileSync } from "node:fs";
 import {
   ATENDIMENTOS_VALOR_SQL,
+  escolherMetricaPainel,
   getAtendimentosPaineisValor,
   parsePainelValor,
 } from "./atendimentosPaineisValor";
@@ -57,6 +58,7 @@ describe("painéis de valor de atendimentos", () => {
       expect(query.sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|TRUNCATE)\b/i);
     }
     expect(paineis).toEqual({
+      metric: "valor",
       etapa: [{ chave: "SEM ETAPA", quantidade: 2, valor: -12.34 }],
       convenio: [{ chave: "SEM CONVÊNIO", quantidade: 3, valor: 0 }],
       setor: [{ chave: "SEM SETOR", quantidade: 4, valor: 100.01 }],
@@ -75,6 +77,26 @@ describe("painéis de valor de atendimentos", () => {
   it("mantém buckets sem valor e quantidade nulos serializáveis", () => {
     expect(parsePainelValor([{ chave: "SEM ETAPA", quantidade: null, valor: null }]))
       .toEqual([{ chave: "SEM ETAPA", quantidade: 0, valor: 0 }]);
+  });
+
+  it("usa quantidade sem valor informado e preserva a métrica valor para zero informado", () => {
+    expect(escolherMetricaPainel(0)).toBe("quantidade");
+    expect(escolherMetricaPainel(1)).toBe("valor");
+    const router = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(router).toContain("COUNT(valorConta) AS valoresInformados");
+    expect(router).toContain("escolherMetricaPainel(valoresInformados)");
+  });
+
+  it("ordena por quantidade sem mudar where e aceita referência Warleine compartilhada", async () => {
+    const execute = vi.fn(async (_statement: unknown) => [[{ chave: "Grupo", quantidade: "3", valor: "0.00" }]]);
+    const customExpression = sql`CASE WHEN data_saida IS NULL THEN 'REFERÊNCIA TESTE' ELSE 'OUTRA' END`;
+    const data = await getAtendimentosPaineisValor({ execute } as any, sameWhere, { metric: "quantidade", expressions: { permanencia: customExpression } });
+    const queries = execute.mock.calls.map(([statement]) => dialect.sqlToQuery(statement as any));
+    expect(data.metric).toBe("quantidade");
+    for (const index of [0, 1, 2]) expect(queries[index].sql).toContain("quantidade DESC, chave ASC");
+    expect(queries[3].sql).toContain("chave ASC");
+    expect(queries[4].sql).toContain("REFERÊNCIA TESTE");
+    for (const query of queries) expect(query.params).toEqual([42, true, "SEM CONVÊNIO"]);
   });
 
   it("usa a mesma precisão monetária no total da tabela e em seus painéis", () => {

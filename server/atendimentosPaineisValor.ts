@@ -16,9 +16,19 @@ export const ATENDIMENTOS_VALOR_SQL = {
     ELSE '90+ DIAS' END`,
 } as const;
 
+export type PainelMetric = "valor" | "quantidade";
 export type PainelValorRow = { chave: string; quantidade: number; valor: number };
-export type PaineisValor = Record<keyof typeof ATENDIMENTOS_VALOR_SQL, PainelValorRow[]>;
-export const PAINEIS_VALOR_VAZIOS: PaineisValor = { etapa: [], convenio: [], setor: [], mesEntrada: [], permanencia: [] };
+export type PaineisValor = Record<keyof typeof ATENDIMENTOS_VALOR_SQL, PainelValorRow[]> & { metric: PainelMetric };
+export const PAINEIS_VALOR_VAZIOS: PaineisValor = { metric: "valor", etapa: [], convenio: [], setor: [], mesEntrada: [], permanencia: [] };
+export type PaineisValorOptions = {
+  metric?: PainelMetric;
+  expressions?: Partial<typeof ATENDIMENTOS_VALOR_SQL>;
+};
+
+/** COUNT(valorConta), não SUM: valor zero informado é diferente de NULL. */
+export function escolherMetricaPainel(valoresInformados: number): PainelMetric {
+  return valoresInformados > 0 ? "valor" : "quantidade";
+}
 
 export function parsePainelValor(rows: unknown): PainelValorRow[] {
   const outer = rows as any[];
@@ -38,16 +48,20 @@ export function parsePainelValor(rows: unknown): PainelValorRow[] {
 }
 
 /** Só consultas agregadas. O where é o mesmo usado por total, tabela e valor total. */
-export async function getAtendimentosPaineisValor(db: { execute: (statement: SQL) => Promise<unknown> }, where: SQL): Promise<PaineisValor> {
-  const keys = Object.keys(ATENDIMENTOS_VALOR_SQL) as (keyof PaineisValor)[];
+export async function getAtendimentosPaineisValor(
+  db: { execute: (statement: SQL) => Promise<unknown> },
+  where: SQL,
+  { metric = "valor", expressions = {} }: PaineisValorOptions = {},
+): Promise<PaineisValor> {
+  const keys = Object.keys(ATENDIMENTOS_VALOR_SQL) as (keyof typeof ATENDIMENTOS_VALOR_SQL)[];
   const results = await Promise.all(keys.map(async (key) => {
-    const expression = ATENDIMENTOS_VALOR_SQL[key];
+    const expression = expressions[key] || ATENDIMENTOS_VALOR_SQL[key];
     const order = key === "mesEntrada" ? sql`chave ASC` : key === "permanencia"
       ? sql`FIELD(chave, '0-14 DIAS', '15-30 DIAS', '31-60 DIAS', '61-90 DIAS', '90+ DIAS', 'SEM REFERÊNCIA')`
-      : sql`valor DESC, chave ASC`;
+      : metric === "quantidade" ? sql`quantidade DESC, chave ASC` : sql`valor DESC, chave ASC`;
     return parsePainelValor(await db.execute(sql`SELECT ${expression} AS chave, COUNT(*) AS quantidade,
       COALESCE(SUM(CAST(valorConta AS DECIMAL(18,2))), 0) AS valor
       FROM atendimentos_unificados WHERE ${where} GROUP BY chave ORDER BY ${order}`));
   }));
-  return Object.fromEntries(keys.map((key, index) => [key, results[index]])) as PaineisValor;
+  return { metric, ...Object.fromEntries(keys.map((key, index) => [key, results[index]])) } as PaineisValor;
 }

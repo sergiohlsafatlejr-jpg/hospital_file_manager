@@ -39,7 +39,19 @@ describe("interface de painéis por valor", () => {
     expect(html).toContain("saldo negativo");
     expect(html).toContain("25,00");
     expect(render({ data: undefined })).toContain("Sem contas neste recorte.");
-    expect(render({ data: undefined, disabled: true })).toContain("Carregando valores...");
+    expect(render({ data: undefined, disabled: true })).toContain("Carregando agrupamentos...");
+  });
+
+  it("usa quantidades e conserva botões filtráveis quando a origem não informa valores", () => {
+    const html = render({ data: { ...data, metric: "quantidade" }, filtros: { ...filtros, convenio: "Convênio sintético" } });
+    expect(html).toContain("Explore as contas por quantidade");
+    expect(html).toContain("Quantidade por etapa do processo");
+    expect(html).not.toContain("Valores do recorte");
+    expect(html).not.toContain("100,25");
+    expect(html).not.toContain("R$");
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html.match(/Quantidade de contas/g)).toHaveLength(5);
+    expect(html).toContain("Remover filtro deste painel");
   });
 
   it("conecta os cinco filtros à consulta paginada e conserva tabela, abas e seleção segura por unidade", () => {
