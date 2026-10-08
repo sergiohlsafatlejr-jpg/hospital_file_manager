@@ -26,6 +26,9 @@ interface FiltrosState {
   situacao: "pendentes" | "finalizadas" | "todos";
   ano: string;
   mes: string;
+  mesEntrada: string;
+  setor: string;
+  permanencia: string;
 }
 
 interface Aggregations {
@@ -57,6 +60,9 @@ export function AtendimentosFiltros({
     filtros.convenio !== "" ||
     filtros.servico !== "" ||
     filtros.situacao !== "pendentes" ||
+    filtros.mesEntrada !== "" ||
+    filtros.setor !== "" ||
+    filtros.permanencia !== "" ||
     filtros.ano !== "" ||
     filtros.mes !== "" ||
     filtros.busca !== "";
@@ -262,6 +268,21 @@ export function AtendimentosFiltros({
           {filtros.mes && (
             <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("mes", "")}>
               Mês: {filtros.mes} <X className="w-3 h-3" />
+            </Badge>
+          )}
+          {filtros.mesEntrada && (
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("mesEntrada", "")}>
+              Entrada: {filtros.mesEntrada === "__SEM_ENTRADA__" ? "Sem data" : `${filtros.mesEntrada.slice(5)}/${filtros.mesEntrada.slice(0, 4)}`} <X className="w-3 h-3" />
+            </Badge>
+          )}
+          {filtros.setor && (
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("setor", "")}>
+              Setor: {filtros.setor} <X className="w-3 h-3" />
+            </Badge>
+          )}
+          {filtros.permanencia && (
+            <Badge variant="secondary" className="gap-1 cursor-pointer hover:bg-destructive/20" onClick={() => onFiltroChange("permanencia", "")}>
+              Permanência: {filtros.permanencia} <X className="w-3 h-3" />
             </Badge>
           )}
           <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={onLimparFiltros}>
