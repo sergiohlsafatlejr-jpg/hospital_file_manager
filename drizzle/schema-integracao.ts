@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, timestamp, datetime, decimal, json, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { mysqlTable, int, bigint, char, varchar, text, longtext, tinytext, timestamp, datetime, decimal, json, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -1078,9 +1078,9 @@ export const stagingAtendimentosParadosUrologico = criarTabelaStagingAtendimento
   "atend_parados_urologico",
 );
 
-/** Staging de atendimentos parados — IAD. */
+/** Staging normalizada IAD preservada pela 0134; o Hop usa a tabela bruta abaixo. */
 export const stagingAtendimentosParadosIad = criarTabelaStagingAtendimentosParados(
-  "stagion_atendimentos_parados_iad",
+  "stagion_atendimentos_parados_iad_normalizada",
   "atend_parados_iad",
 );
 
@@ -1550,4 +1550,80 @@ export const faturamentoExterno = mysqlTable(
     mesAnoIdx: index("idx_fat_ext_mes_ano").on(table.mesAno),
     uniqueIdx: uniqueIndex("idx_fat_ext_unique").on(table.estabelecimentoId, table.convenio, table.mesAno),
   })
+);
+
+/** Pouso bruto Hop IAD: mesmas 13 colunas físicas do Urológico. Não usa o publicador normalizado.
+ * ID da unidade deve vir do cadastro IAD, nunca copiar o valor da unidade Urológico.
+ * O layout bruto preserva linhas repetidas e não prova conclusão do lote.
+ */
+export const stagingAtendimentosParadosIadHop = mysqlTable(
+  "stagion_atendimentos_parados_iad",
+  {
+    numatend: int("numatend"),
+    codtipsai: varchar("codtipsai", { length: 2 }),
+    nomeplaco: varchar("nomeplaco", { length: 30 }),
+    nomepac: varchar("nomepac", { length: 50 }),
+    carater: varchar("carater", { length: 2 }),
+    datatend: datetime("datatend", { mode: "string" }),
+    datasai: datetime("datasai", { mode: "string" }),
+    tipoatend: char("tipoatend", { length: 1 }),
+    codserv: varchar("codserv", { length: 30 }),
+    procprin: varchar("procprin", { length: 10 }),
+    codcc_destino: varchar("codcc_destino", { length: 6 }),
+    tipoatendimentodescricao: longtext("tipoatendimentodescricao"),
+    Estabelecimentos_id: tinytext("Estabelecimentos_id"),
+  },
+);
+
+/** Pouso financeiro Hop IAD: mesmas 43 colunas físicas do Urológico após 0133. Sem publicação automática.
+ * ID da unidade deve vir do cadastro IAD, nunca copiar o valor da unidade Urológico.
+ * O layout bruto preserva linhas repetidas e não prova conclusão do lote.
+ */
+export const stagingFaturadoRecebidoIad = mysqlTable(
+  "stagion_faturado_recebido_iad",
+  {
+    nomeconv: varchar("nomeconv", { length: 30 }),
+    codconv: varchar("codconv", { length: 4 }),
+    mesprod: varchar("mesprod", { length: 7 }),
+    numfatura: int("numfatura"),
+    codrecur: varchar("codrecur", { length: 3 }),
+    tipoproc: char("tipoproc", { length: 1 }),
+    protocolo: varchar("protocolo", { length: 20 }),
+    numconta: bigint("numconta", { mode: "bigint" }),
+    guiacobra: varchar("guiacobra", { length: 20 }),
+    aihguia: varchar("aihguia", { length: 50 }),
+    descricao: varchar("descricao", { length: 60 }),
+    matricula: varchar("matricula", { length: 35 }),
+    data: datetime("data", { mode: "string" }),
+    dataint: datetime("dataint", { mode: "string" }),
+    datasai: datetime("datasai", { mode: "string" }),
+    procdisco: varchar("procdisco", { length: 10 }),
+    codproprio: varchar("codproprio", { length: 10 }),
+    codgrufi: varchar("codgrufi", { length: 3 }),
+    descricao_1: varchar("descricao_1", { length: 65 }),
+    funcaotiss: varchar("funcaotiss", { length: 2 }),
+    receber: char("receber", { length: 1 }),
+    codcc: varchar("codcc", { length: 6 }),
+    nomecc: varchar("nomecc", { length: 45 }),
+    prestexe: varchar("prestexe", { length: 6 }),
+    nomeprest: varchar("nomeprest", { length: 250 }),
+    quantidade: decimal("quantidade", { precision: 15, scale: 4 }),
+    vl_faturado: decimal("vl_faturado", { precision: 15, scale: 2 }),
+    vl_recebido: decimal("vl_recebido", { precision: 15, scale: 2 }),
+    vl_receb_a_maior: decimal("vl_receb_a_maior", { precision: 15, scale: 2 }),
+    vl_total_recebido: decimal("vl_total_recebido", { precision: 15, scale: 2 }),
+    vl_aberto: decimal("vl_aberto", { precision: 15, scale: 2 }),
+    vl_glosas: decimal("vl_glosas", { precision: 15, scale: 2 }),
+    gl_recurso: decimal("gl_recurso", { precision: 15, scale: 2 }),
+    gl_aceita: decimal("gl_aceita", { precision: 15, scale: 2 }),
+    gl_analise: decimal("gl_analise", { precision: 15, scale: 2 }),
+    gl_recuperada: decimal("gl_recuperada", { precision: 15, scale: 2 }),
+    codtiss: varchar("codtiss", { length: 4 }),
+    descmotivo: varchar("descmotivo", { length: 100 }),
+    codrecur_1: varchar("codrecur_1", { length: 3 }),
+    complrecur: text("complrecur"),
+    tipoatend: char("tipoatend", { length: 1 }),
+    vl_unitario: decimal("vl_unitario", { precision: 15, scale: 4 }),
+    estabelecimentos_id: varchar("estabelecimentos_id", { length: 100 }),
+  },
 );

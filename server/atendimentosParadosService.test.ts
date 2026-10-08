@@ -44,7 +44,7 @@ describe("tabelas de staging por unidade", () => {
     expect(getTableName(resolverTabelaStaging("urologico"))).toBe(
       "stagion_atendimentos_parados_urologico",
     );
-    expect(getTableName(resolverTabelaStaging("iad"))).toBe("stagion_atendimentos_parados_iad");
+    expect(getTableName(resolverTabelaStaging("iad"))).toBe("stagion_atendimentos_parados_iad_normalizada");
     expect(getTableName(resolverTabelaStaging("irg"))).toBe("stagion_atendimentos_parados_irg");
     expect(getTableName(resolverTabelaStaging("hemolabor"))).toBe(
       "stagion_atendimentos_parados_hemolabor",
