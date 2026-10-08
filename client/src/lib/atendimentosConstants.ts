@@ -152,6 +152,9 @@ export interface AtendimentoUnificado {
   caracter_atendimento?: string | null;
   data_entrada?: string | Date | null;
   data_saida?: string | Date | null;
+  /** Saída somente de apresentação/cálculo; não substitui a data clínica da fonte. */
+  dataSaidaEfetiva?: string | Date | null;
+  dataSaidaInferida?: boolean;
   tipo_atendimento?: string | null;
   categoriaAtendimento?: string | null;
   tipoAtendimentoOrigem?: string | null;

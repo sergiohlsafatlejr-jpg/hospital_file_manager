@@ -5,7 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, reportProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { storagePut, storageGet } from "./storage";
 import { parseFile } from "./parsers";
@@ -51,7 +51,8 @@ import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
 import { serializeTasyCivilDate } from "./tasyCivilDate";
 import { buildAtendimentoNormalizationSql, normalizeAtendimentoCategory, resolveAtendimentoServiceType } from "./atendimentoNormalization";
-import { ATENDIMENTOS_VALOR_SQL, getAtendimentosPaineisValor, PAINEIS_VALOR_VAZIOS } from "./atendimentosPaineisValor";
+import { ATENDIMENTOS_VALOR_SQL, escolherMetricaPainel, getAtendimentosPaineisValor, PAINEIS_VALOR_VAZIOS } from "./atendimentosPaineisValor";
+import { buildAtendimentoDiasParadoSql, buildAtendimentoPermanenciaSql, resolverSaidaEfetivaAtendimento } from "./atendimentosDiasParado";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -8330,6 +8331,15 @@ export const appRouter = router({
             codigoServico: atendimentosUnificados.codigo_servico,
             dsSetorEntrada: atendimentosUnificados.dsSetorEntrada,
           });
+          const { diasParadoSql, referenciaPermanenciaSql } = buildAtendimentoDiasParadoSql({
+            origemSistema: atendimentosUnificados.origemSistema,
+            dataEntrada: atendimentosUnificados.data_entrada,
+            dataSaida: atendimentosUnificados.data_saida,
+            categoriaAtendimento: normalizedCategorySql,
+            dtEntrega: atendimentosUnificados.dtEntrega,
+            dtEtapa: atendimentosUnificados.dtEtapa,
+          });
+          const permanenciaSql = buildAtendimentoPermanenciaSql(referenciaPermanenciaSql);
 
           // Condições base (mesmas da procedure listar)
           const baseConditions: any[] = [];
@@ -8442,7 +8452,7 @@ export const appRouter = router({
             filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.setor} = ${input.setor}`);
           }
           if (input.permanencia) {
-            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.permanencia} = ${input.permanencia}`);
+            filterConditions.push(sql`${permanenciaSql} = ${input.permanencia}`);
           }
 
           const aggregationWhereClause = and(...filterConditions);
@@ -8466,6 +8476,7 @@ export const appRouter = router({
             tipo_atendimento: normalizedCategorySql,
             numero_atendimento: atendimentosUnificados.numero_atendimento,
             valorConta: atendimentosUnificados.valorConta,
+            diasParado: diasParadoSql,
             etapaConta: atendimentosUnificados.etapaConta,
             setorEtapa: atendimentosUnificados.setorEtapa,
             origemSistema: atendimentosUnificados.origemSistema,
@@ -8482,16 +8493,24 @@ export const appRouter = router({
           const orderFn = input.sortOrder === 'asc' ? ascOrd : descOrd;
 
           // Queries em paralelo
-          const [totalResult, dataResult, valorResult, paineisValor] = await Promise.all([
+          const [totalResult, dataResult, valorResult, valoresInformadosResult] = await Promise.all([
             dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
-            dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
+            dbInstance.select({ ...getTableColumns(atendimentosUnificados), diasParadoCalculado: diasParadoSql.as("diasParadoCalculado") }).from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
             dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(18,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
-            input.paineisValor ? getAtendimentosPaineisValor(dbInstance, whereClause!) : Promise.resolve(undefined),
+            dbInstance.execute(sql`SELECT COUNT(valorConta) AS valoresInformados FROM atendimentos_unificados WHERE ${whereClause}`),
           ]);
 
           const total = (totalResult[0] as any)?.count || 0;
           const totalPages = Math.ceil(total / input.pageSize);
           const totalValor = parseFloat((valorResult as any)?.[0]?.[0]?.totalValor || (valorResult as any)?.[0]?.totalValor || '0');
+          const valoresInformados = parseInt((valoresInformadosResult as any)?.[0]?.[0]?.valoresInformados || (valoresInformadosResult as any)?.[0]?.valoresInformados || '0', 10) || 0;
+          const painelMetric = escolherMetricaPainel(valoresInformados);
+          const paineisValor = input.paineisValor
+            ? await getAtendimentosPaineisValor(dbInstance, whereClause!, {
+                metric: painelMetric,
+                expressions: { permanencia: permanenciaSql },
+              })
+            : undefined;
 
           // Agregações para filtros (sobre dados base, sem filtros de usuário)
           const [tiposR, servicosR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
@@ -8537,6 +8556,16 @@ export const appRouter = router({
               codigoServico: d.codigo_servico,
               dsSetorEntrada: d.dsSetorEntrada,
             });
+            const isWarleine = d.origemSistema?.trim().toLowerCase() === "warleine";
+            const isTasy = ["tasy", "tasy_hemolabor"].includes(d.origemSistema?.trim().toLowerCase() || "");
+            const saidaEfetiva = isWarleine
+              ? resolverSaidaEfetivaAtendimento({
+                  dataEntrada: d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
+                  dataSaida: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                  origemSistema: d.origemSistema,
+                  categoriaAtendimento,
+                })
+              : null;
             return ({
             id: d.id,
             origemSistema: d.origemSistema,
@@ -8548,12 +8577,12 @@ export const appRouter = router({
             paciente: d.paciente || "",
             caracter_atendimento: d.caracter_atendimento || "",
             data_entrada: d.data_entrada
-              ? ((d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+              ? (isTasy
                   ? (serializeTasyCivilDate(d.data_entrada) || "")
                   : new Date(d.data_entrada).toISOString())
               : "",
             data_saida: d.data_saida
-              ? ((d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+              ? (isTasy
                   ? serializeTasyCivilDate(d.data_saida)
                   : new Date(d.data_saida).toISOString())
               : null,
@@ -8567,15 +8596,9 @@ export const appRouter = router({
             procedimentoDescricao: d.procedimentoDescricao || "",
             destino_conta: d.destino_conta || "",
             motivo: motivosMap[d.numero_atendimento || ""] || null,
-            diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
-              ? calcularDiasParadoUnificado(
-                  d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
-                  d.data_saida ? new Date(d.data_saida).toISOString() : null,
-                  d.origemSistema || '',
-                  d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
-                  d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
-                )
-              : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+            // Mesmo DATEDIFF de ordenação/filtros; não recalcular no relógio do Node.
+            diasParado: Number(d.diasParadoCalculado ?? 0),
+            ...(saidaEfetiva ? saidaEfetiva : {}),
             dsCategoria: d.dsCategoria || "",
             dsPlano: d.dsPlano || "",
             competencia: d.competencia || "",
@@ -8597,7 +8620,7 @@ export const appRouter = router({
             motivoDevolucao: d.motivoDevolucao || "",
             conta: d.conta || "",
             autorizacao: d.autorizacao || "",
-            valorConta: d.valorConta ? String(d.valorConta) : "",
+            valorConta: d.valorConta === null || d.valorConta === undefined ? "" : String(d.valorConta),
             statusConta: d.statusConta || "",
             ativoNaFonte: d.ativoNaFonte,
             ultimoLoteId: d.ultimoLoteId,
@@ -8632,6 +8655,7 @@ export const appRouter = router({
               protocolos: parseAgg(protocolosR),
               anos: parseAgg(anosR),
               totalValor,
+              valoresInformados,
             },
           };
         } catch (err: any) {
