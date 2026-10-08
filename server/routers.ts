@@ -51,6 +51,7 @@ import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
 import { serializeTasyCivilDate } from "./tasyCivilDate";
 import { buildAtendimentoNormalizationSql, normalizeAtendimentoCategory, resolveAtendimentoServiceType } from "./atendimentoNormalization";
+import { ATENDIMENTOS_VALOR_SQL, getAtendimentosPaineisValor, PAINEIS_VALOR_VAZIOS } from "./atendimentosPaineisValor";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -8296,10 +8297,14 @@ export const appRouter = router({
         estabelecimentoId: z.number().int().positive(),
         page: z.number().min(1).default(1),
         pageSize: z.number().min(10).max(200).default(50),
+        paineisValor: z.boolean().default(false),
         origemSistema: z.string().optional(),
         tipo: z.string().optional(),
         convenio: z.string().optional(),
         etapa: z.string().optional(),
+        mesEntrada: z.string().regex(/^(?:\d{4}-(?:0[1-9]|1[0-2])|__SEM_ENTRADA__)$/).optional(),
+        setor: z.string().trim().min(1).max(255).optional(),
+        permanencia: z.enum(["0-14 DIAS", "15-30 DIAS", "31-60 DIAS", "61-90 DIAS", "90+ DIAS", "SEM REFERÊNCIA"]).optional(),
         protocolo: z.string().optional(),
         situacao: z.enum(["pendentes", "finalizadas", "todos"]).default("pendentes"),
         ano: z.string().optional(),
@@ -8313,7 +8318,7 @@ export const appRouter = router({
         try {
           const dbInstance = await getDb();
           if (!dbInstance) {
-            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, aggregations: { tipos: [], servicos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
+            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, paineisValor: input.paineisValor ? PAINEIS_VALOR_VAZIOS : undefined, aggregations: { tipos: [], servicos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
           }
           const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
           const { eq, and, notLike, or, isNull, like, sql, desc: descOrd, asc: ascOrd, count } = await import("drizzle-orm");
@@ -8346,10 +8351,10 @@ export const appRouter = router({
             filterConditions.push(eq(atendimentosUnificados.origemSistema, input.origemSistema));
           }
           if (input.convenio) {
-            filterConditions.push(eq(atendimentosUnificados.convenio, input.convenio));
+            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.convenio} = ${input.convenio}`);
           }
           if (input.etapa) {
-            filterConditions.push(eq(atendimentosUnificados.etapaConta, input.etapa));
+            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.etapa} = ${input.etapa}`);
           }
           if (input.situacao === "pendentes") {
             filterConditions.push(
@@ -8430,6 +8435,15 @@ export const appRouter = router({
               )!
             );
           }
+          if (input.mesEntrada) {
+            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.mesEntrada} = ${input.mesEntrada}`);
+          }
+          if (input.setor) {
+            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.setor} = ${input.setor}`);
+          }
+          if (input.permanencia) {
+            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.permanencia} = ${input.permanencia}`);
+          }
 
           const aggregationWhereClause = and(...filterConditions);
           if (input.tipo) {
@@ -8468,10 +8482,11 @@ export const appRouter = router({
           const orderFn = input.sortOrder === 'asc' ? ascOrd : descOrd;
 
           // Queries em paralelo
-          const [totalResult, dataResult, valorResult] = await Promise.all([
+          const [totalResult, dataResult, valorResult, paineisValor] = await Promise.all([
             dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
             dbInstance.select().from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
-            dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(15,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
+            dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(18,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
+            input.paineisValor ? getAtendimentosPaineisValor(dbInstance, whereClause!) : Promise.resolve(undefined),
           ]);
 
           const total = (totalResult[0] as any)?.count || 0;
@@ -8607,6 +8622,7 @@ export const appRouter = router({
             page: input.page,
             pageSize: input.pageSize,
             totalPages,
+            paineisValor,
             aggregations: {
               tipos: parseAgg(tiposR),
               servicos: parseAgg(servicosR),

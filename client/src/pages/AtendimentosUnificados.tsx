@@ -27,14 +27,13 @@ import {
 import {
   AtendimentosKPIs,
   AtendimentosFiltros,
-  AtendimentosDistribuicao,
-  AtendimentosPendenciasEtapa,
   AtendimentosTabela,
   NotificacaoModal,
   NotificacaoLoteModal,
   EmailSection,
   HistoricoNotificacoes,
 } from "@/components/atendimentos";
+import { AtendimentosPaineisValor } from "@/components/atendimentos/AtendimentosPaineisValor";
 import type { FiltrosState, Aggregations } from "@/components/atendimentos";
 
 // Constantes e tipos
@@ -58,9 +57,17 @@ const FILTROS_INICIAIS: FiltrosState = {
   situacao: "pendentes",
   ano: "",
   mes: "",
+  mesEntrada: "",
+  setor: "",
+  permanencia: "",
 };
 
 export default function AtendimentosUnificados() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  return <AtendimentosDaUnidade key={estabelecimentoAtual?.id || "sem-unidade"} />;
+}
+
+function AtendimentosDaUnidade() {
   const { estabelecimentoAtual, temAcessoModulo } = useEstabelecimento();
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -113,6 +120,10 @@ export default function AtendimentosUnificados() {
     situacao: filtros.situacao,
     ano: filtros.ano || undefined,
     mes: filtros.mes || undefined,
+    mesEntrada: filtros.mesEntrada || undefined,
+    setor: filtros.setor || undefined,
+    permanencia: (filtros.permanencia || undefined) as "0-14 DIAS" | "15-30 DIAS" | "31-60 DIAS" | "61-90 DIAS" | "90+ DIAS" | "SEM REFERÊNCIA" | undefined,
+    paineisValor: true,
     busca: debouncedBusca || undefined,
     descricao: filtros.servico || undefined,
     sortColumn,
@@ -121,9 +132,9 @@ export default function AtendimentosUnificados() {
     estabelecimentoAtual?.id, paginaAtual, filtros, debouncedBusca, sortColumn, sortOrder,
   ]);
 
-  const { data: paginatedResult, isLoading, refetch, isFetching } = trpc.atendimentos.listarPaginado.useQuery(
+  const { data: paginatedResult, isLoading, refetch, isFetching, error: erroListagem } = trpc.atendimentos.listarPaginado.useQuery(
     queryInput,
-    { enabled: Boolean(estabelecimentoAtual?.id) },
+    { enabled: Boolean(estabelecimentoAtual?.id), refetchOnMount: "always", refetchOnWindowFocus: true },
   );
 
   const atendimentos = paginatedResult?.items || [];
@@ -252,28 +263,17 @@ export default function AtendimentosUnificados() {
     return (aggregations as any)?.totalValor || 0;
   }, [aggregations]);
 
-  // ===== Distribuições =====
-  const distribuicaoPlano = useMemo(() => {
-    return (aggregations?.convenios || []).map(c => ({ label: c.value || "Sem Plano", count: c.count }));
-  }, [aggregations]);
-
-  const distribuicaoEtapa = useMemo(() => {
-    return (aggregations?.etapas || []).map(e => ({ label: e.value || "Sem Etapa", count: e.count }));
-  }, [aggregations]);
-
-  const distribuicaoTipoServico = useMemo(() => {
-    return (aggregations?.servicos || []).map(s => ({ label: s.value || "Sem Tipo de Serviço", count: s.count }));
-  }, [aggregations]);
-
   // ===== Handlers =====
   const handleFiltroChange = useCallback((key: keyof FiltrosState, value: string) => {
     setFiltros(prev => ({ ...prev, [key]: value }));
     setPaginaAtual(1);
+    setSelecionados(new Set());
   }, []);
 
   const handleLimparFiltros = useCallback(() => {
     setFiltros(FILTROS_INICIAIS);
     setPaginaAtual(1);
+    setSelecionados(new Set());
   }, []);
 
   const handleSort = useCallback((column: string) => {
@@ -609,43 +609,16 @@ export default function AtendimentosUnificados() {
             onFiltroTipo={(tipo) => handleFiltroChange("tipo", tipo)}
           />
 
-          {isTasyLayout && (
-            <AtendimentosPendenciasEtapa
-              items={tasyResumo?.pendenciasPorEtapa || []}
-              filtroAtivo={filtros.etapa}
-              onFiltro={(etapa) => handleFiltroChange("etapa", etapa)}
-            />
-          )}
-
-          {/* Distribuições */}
-          {distribuicaoTipoServico.length > 0 && (
-            <AtendimentosDistribuicao
-              titulo="Quantidade por Serviço"
-              icon="servico"
-              items={distribuicaoTipoServico}
-              filtroAtivo={filtros.servico}
-              onFiltro={(v) => handleFiltroChange("servico", v)}
-              maxVisible={isTasyLayout ? 10 : 30}
-            />
-          )}
-
-          {distribuicaoPlano.length > 0 && (
-            <AtendimentosDistribuicao
-              titulo="Quantidade por Plano (Convênio)"
-              icon="plano"
-              items={distribuicaoPlano}
-              filtroAtivo={filtros.convenio}
-              onFiltro={(v) => handleFiltroChange("convenio", v)}
-            />
-          )}
-
-          {isTasyLayout && distribuicaoEtapa.length > 0 && (
-            <AtendimentosDistribuicao
-              titulo="Quantidade por Etapa da Conta"
-              icon="etapa"
-              items={distribuicaoEtapa}
-              filtroAtivo={filtros.etapa}
-              onFiltro={(v) => handleFiltroChange("etapa", v)}
+          {erroListagem ? (
+            <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              Não foi possível atualizar os atendimentos e seus valores. Use Atualizar para tentar novamente.
+            </div>
+          ) : (
+            <AtendimentosPaineisValor
+              data={paginatedResult?.paineisValor}
+              filtros={filtros}
+              onFiltro={handleFiltroChange}
+              disabled={isFetching}
             />
           )}
 
