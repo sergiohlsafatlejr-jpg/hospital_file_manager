@@ -1,10 +1,13 @@
 # Atendimentos: quantidade sem valores e saída considerada Warleine
 
-**Data:** 08/10/2026  
-**Responsável:** Manus  
-**Branch:** `fix/atendimentos-sem-valor-saida-warleine`  
-**Base validada:** GitHub `main`, commit `8b3eb5f`  
-**Banco:** nenhuma alteração estrutural ou de dados nesta entrega.
+| Identificação | Informação |
+| --- | --- |
+| Data | 08/10/2026 |
+| Responsável | Manus |
+| Branch | `fix/atendimentos-sem-valor-saida-warleine` |
+| Base validada | GitHub `main`, commit `8b3eb5f` |
+| Pull Request | [#63](https://github.com/sergiohlsafatlejr-jpg/safatle-sistema/pull/63) |
+| Banco | Nenhuma alteração estrutural ou de dados nesta entrega |
 
 ## O que muda
 
