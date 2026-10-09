@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
+import { ATENDIMENTOS_BI_QUERY_OPTIONS } from "@shared/atendimentosBiRefresh";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertCircle, Building2, CalendarDays, CircleDollarSign, Clock3, Filter, Layers3, MapPin, RefreshCw, RotateCcw, Tags, WalletCards } from "lucide-react";
@@ -74,12 +75,18 @@ function SelectFilter({ value, placeholder, items, onChange, format = (item) => 
 }
 
 export default function AtendimentosBi() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  // Cada unidade tem seu próprio estado: filtros antigos não escondem uma carga nova.
+  return <AtendimentosBiPainel key={estabelecimentoAtual?.id ?? 0} />;
+}
+
+function AtendimentosBiPainel() {
   const { estabelecimentoAtual, temAcessoModulo } = useEstabelecimento();
   const [filters, setFilters] = useState<Filters>({});
   const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : 0;
   const enabled = Boolean(estabelecimentoId && temAcessoModulo("relAtendimentos"));
-  const input = { estabelecimentoId, ...filters, limite: 12 };
-  const dashboardQuery = trpc.atendimentosBi.painel.useQuery(input, { enabled, staleTime: 30_000 });
+  const input = useMemo(() => ({ estabelecimentoId, ...filters, limite: 12 }), [estabelecimentoId, filters]);
+  const dashboardQuery = trpc.atendimentosBi.painel.useQuery(input, { enabled, ...ATENDIMENTOS_BI_QUERY_OPTIONS });
   const data = dashboardQuery.data;
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
   const setFilter = <K extends keyof Filters>(field: K, value: Filters[K]) => setFilters((current) => ({ ...current, [field]: value }));
@@ -98,6 +105,11 @@ export default function AtendimentosBi() {
             <Button variant="secondary" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching} className="bg-white text-teal-900 hover:bg-teal-50"><RefreshCw className={`mr-2 h-4 w-4 ${dashboardQuery.isFetching ? "animate-spin" : ""}`} />Atualizar</Button>
           </div>
         </header>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-500" aria-live="polite">
+          <span>Mesma base da tela de atendimentos: registros ativos e sem título, sem nova importação para o BI.</span>
+          <span>{dashboardQuery.isFetching ? "Consultando dados atuais…" : dashboardQuery.isError ? "Falha na consulta; tente Atualizar." : dashboardQuery.dataUpdatedAt > 0 ? `Consulta concluída às ${new Date(dashboardQuery.dataUpdatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Aguardando consulta"} · Atualização automática a cada 1 min com esta tela visível.</span>
+        </div>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Filter className="h-4 w-4 text-teal-700" /><h2 className="text-sm font-bold text-slate-800">Filtros interativos</h2>{activeFilterCount > 0 && <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800">{activeFilterCount} ativo(s)</span>}</div><Button size="sm" variant="ghost" onClick={() => setFilters({})} disabled={activeFilterCount === 0}><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Limpar filtros</Button></div>
