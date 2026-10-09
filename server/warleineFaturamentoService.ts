@@ -2,6 +2,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import Decimal from "decimal.js";
 import { getRawPool } from "./db";
 import { compararItensComPadroes, type ResultadoComparacao } from "./services/comparadorPadroes";
+import { getWarleineItemPresentation } from "../shared/warleineItemPresentation";
 
 export type WarleineFinancialFilters = {
   estabelecimentoId: number;
@@ -555,7 +556,7 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
   const offset = (safePage - 1) * safePageSize;
   const [[rows], [countRows], [summaryRows]] = await Promise.all([
     pool.query<RowDataPacket[]>(`
-    SELECT id,codigoTuss,codigoItemInterno,servicoNome,tipoItem,quantidade,valorUnitario,valorFaturado,valorTotalRecebido,valorAberto,valorGlosa,codigoGlosa,motivoGlosa,dataAberturaConta,dataEntrada,dataAlta,prestadorExecutanteNome,setorNome
+    SELECT id,origemRegistroId,codigoTuss,codigoItemInterno,codigoTipoServico,recebimentoViaHospital,servicoNome,tipoItem,quantidade,valorUnitario,valorFaturado,valorTotalRecebido,valorAberto,valorGlosa,codigoGlosa,motivoGlosa,dataAberturaConta,dataEntrada,dataAlta,prestadorExecutanteNome,setorNome
     FROM warleine_faturamento_itens_ativos
     WHERE estabelecimentoId=? AND ${ACTIVE} AND competencia=? AND numeroConta=? AND ${CONVENIO_CHAVE_SQL}=?
     ORDER BY id
@@ -573,6 +574,12 @@ export async function getWarleineAccountItems(estabelecimentoId: number, compete
   ]);
   const summary = summaryRows[0] || {} as RowDataPacket;
   return { items: rows.map((row) => ({
+    ...getWarleineItemPresentation(estabelecimentoId, {
+      origemRegistroId: row.origemRegistroId,
+      dataAberturaConta: row.dataAberturaConta,
+      codigoTipoServico: row.codigoTipoServico,
+      recebimentoViaHospital: row.recebimentoViaHospital,
+    }),
     id: Number(row.id), codigoTuss: String(row.codigoTuss || ""), codigoItemInterno: String(row.codigoItemInterno || ""), servicoNome: String(row.servicoNome || ""),
     tipoItem: String(row.tipoItem || ""), quantidade: n(row.quantidade), valorUnitario: money(row.valorUnitario), valorFaturado: money(row.valorFaturado),
     valorRecebido: money(row.valorTotalRecebido), valorAberto: money(row.valorAberto), valorGlosa: money(row.valorGlosa), codigoGlosa: String(row.codigoGlosa || ""),
