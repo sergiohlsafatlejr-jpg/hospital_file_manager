@@ -16,7 +16,8 @@
  * Não há `DELETE` nem `TRUNCATE` em nenhuma etapa:
  * - a carga é idempotente porque cada staging tem índice único na chave de origem;
  * - "saiu da origem" é `ativoNaFonte = 0`, não exclusão;
- * - `loteRef` identifica a carga, então a staging acumula histórico em vez de ser limpa.
+ * - `loteRef` identifica a carga mais recente de cada chave; o upsert da staging NÃO
+ *   guarda o histórico completo de versões por lote.
  *
  * REGRA DE OURO
  * -------------
@@ -78,6 +79,31 @@ export function resolverTabelaStaging(unidade: string): TabelaStagingAtendimento
     );
   }
   return tabela;
+}
+
+/**
+ * Habilitação progressiva: identificador confirmado no cadastro do Portal para o
+ * Hospital Urológico. As outras tabelas da #27 NÃO podem receber dados antes de
+ * seus respectivos vínculos serem conferidos e aprovados individualmente.
+ * Esta guarda protege também chamadas internas do serviço, não apenas a UI.
+ */
+const ESTABELECIMENTOS_HABILITADOS: Partial<Record<UnidadeStagingAtendimentosParados, number>> = {
+  urologico: 1260036,
+};
+
+// O vínculo de estabelecimento não equivale à liberação para escrita.
+// Requer outra PR após 0130 homologada, fonte/chave natural aprovadas e controle
+// persistido de lote fechado. Nenhuma variável de ambiente libera esse passo.
+const CARGA_E_PUBLICACAO_LIBERADAS = false;
+
+export function validarEscopoStagingParados(unidade: string, estabelecimentoId: number): void {
+  resolverTabelaStaging(unidade);
+  const chave = unidade.trim().toLowerCase() as UnidadeStagingAtendimentosParados;
+  const esperado = ESTABELECIMENTOS_HABILITADOS[chave];
+  if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 ||
+      esperado === undefined || estabelecimentoId !== esperado) {
+    throw new Error("Staging indisponível para o estabelecimento informado.");
+  }
 }
 
 /** Linha normalizada que chega do banco de origem. */
@@ -328,6 +354,13 @@ export function montarLinhaStaging(linha: LinhaAtendimentoParado, escopo: Escopo
 export async function carregarStagingParados(params: EscopoPublicacao & {
   linhas: LinhaAtendimentoParado[];
 }): Promise<{ gravados: number; rejeitados: number }> {
+  validarEscopoStagingParados(params.unidade, params.estabelecimentoId);
+  if (!String(params.loteRef ?? "").trim()) {
+    throw new Error("loteRef é obrigatório para a carga da staging.");
+  }
+  if (!CARGA_E_PUBLICACAO_LIBERADAS) {
+    throw new Error("Carga de atendimentos parados ainda não habilitada.");
+  }
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 
@@ -404,6 +437,7 @@ export async function carregarStagingParados(params: EscopoPublicacao & {
  */
 export async function publicarAtendimentosParados(params: EscopoPublicacao & {
   permitirReducaoGrande?: boolean;
+  confirmarSnapshotCompleto?: boolean;
 }): Promise<{
   publicaveis: number;
   ativosAntes: number;
@@ -411,6 +445,17 @@ export async function publicarAtendimentosParados(params: EscopoPublicacao & {
   publicados: number;
   desativados: number;
 }> {
+  validarEscopoStagingParados(params.unidade, params.estabelecimentoId);
+  // Enquanto não há controle persistido de lote fechado, nunca permitir que uma
+  // chamada de publicação sem declaração explícita desative registros existentes.
+  if (params.confirmarSnapshotCompleto !== true || params.permitirReducaoGrande === true) {
+    throw new Error("Publicação bloqueada: exige snapshot completo confirmado e sem redução forçada.");
+  }
+  // Não habilitar apenas porque o código foi implantado ou uma env mudou:
+  // sem manifesto fechado qualquer booleano de confirmação pode ser falso.
+  if (!CARGA_E_PUBLICACAO_LIBERADAS) {
+    throw new Error("Publicação de atendimentos parados ainda não habilitada.");
+  }
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 
@@ -426,30 +471,24 @@ export async function publicarAtendimentosParados(params: EscopoPublicacao & {
   );
   const lotePublicavel = and(
     eq(tabela.loteRef, loteRef),
+    eq(tabela.origemSistema, origemSistema),
     ne(tabela.statusValidacao, "rejeitado"),
   );
 
   return db.transaction(async (tx) => {
-    // Guarda: o lote precisa pertencer a uma única unidade e ser a unidade esperada.
-    const unidadesNoLote = await tx
-      .selectDistinct({ estabelecimentoId: tabela.estabelecimentoId })
+    // Validar TODAS as linhas da referência, inclusive rejeitadas: não ocultar
+    // uma unidade/origem estranha pela filtragem dos itens publicáveis.
+    const escoposNoLote = await tx
+      .selectDistinct({ estabelecimentoId: tabela.estabelecimentoId, origemSistema: tabela.origemSistema })
       .from(tabela)
-      .where(lotePublicavel);
-    const idsNoLote = unidadesNoLote.map((linha) => Number(linha.estabelecimentoId));
-    if (idsNoLote.length > 1) {
-      throw new Error(
-        `Lote ${loteRef} mistura estabelecimentos (${idsNoLote.join(", ")}). `
-          + "A carga deve ser separada por unidade.",
-      );
-    }
-    if (idsNoLote.length === 1 && idsNoLote[0] !== estabelecimentoId) {
-      throw new Error(
-        `Lote ${loteRef} pertence ao estabelecimento ${idsNoLote[0]}, `
-          + `e não ao ${estabelecimentoId} informado.`,
-      );
+      .where(eq(tabela.loteRef, loteRef));
+    if (escoposNoLote.some((linha) =>
+      Number(linha.estabelecimentoId) !== estabelecimentoId || linha.origemSistema !== origemSistema
+    )) {
+      throw new Error("Lote contém estabelecimento ou origem diferente da unidade selecionada.");
     }
 
-    const publicaveis = idsNoLote.length === 0
+    const publicaveis = escoposNoLote.length === 0
       ? 0
       : Number(
           (
@@ -602,6 +641,7 @@ export async function obterResumoStaging(params: EscopoPublicacao): Promise<{
   rejeitados: number;
   valorTotal: number;
 }> {
+  validarEscopoStagingParados(params.unidade, params.estabelecimentoId);
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
 

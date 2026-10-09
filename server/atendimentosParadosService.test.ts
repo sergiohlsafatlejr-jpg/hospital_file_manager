@@ -12,6 +12,10 @@ import {
   montarLoteRef,
   normalizarOrigemSistema,
   resolverTabelaStaging,
+  validarEscopoStagingParados,
+  carregarStagingParados,
+  publicarAtendimentosParados,
+  obterResumoStaging,
   validarOrigemId,
   type LinhaAtendimentoParado,
 } from "./atendimentosParadosService";
@@ -71,6 +75,74 @@ describe("tabelas de staging por unidade", () => {
     expect(() => resolverTabelaStaging("cardiologia")).toThrow(/cardiologia/);
     expect(() => resolverTabelaStaging("cardiologia")).toThrow(/urologico/);
     expect(() => resolverTabelaStaging("")).toThrow(/não possui tabela de staging/i);
+  });
+});
+
+describe("habilitação progressiva do piloto Urológico", () => {
+  const escopoPiloto = {
+    unidade: "urologico",
+    estabelecimentoId: 1260036,
+    origemSistema: "tasy",
+    loteRef: "lote-de-teste",
+  };
+
+  it("aceita somente o ID cadastrado da unidade piloto", () => {
+    expect(() => validarEscopoStagingParados(" UROLOGICO ", 1260036)).not.toThrow();
+    for (const id of [0, 7, 1260037, NaN, 1.5]) {
+      expect(() => validarEscopoStagingParados("urologico", id)).toThrow(/indisponível/i);
+    }
+  });
+
+  it("não permite usar outra tabela com o ID da Urologia antes de habilitá-la", () => {
+    for (const unidade of ["iad", "irg", "hemolabor", "maternidade"]) {
+      expect(() => validarEscopoStagingParados(unidade, 1260036)).toThrow(/indisponível/i);
+    }
+  });
+
+  it("rejeita carga e resumo de unidade errada antes de acessar o banco", async () => {
+    const escopoErrado = { ...escopoPiloto, estabelecimentoId: 7 };
+    await expect(carregarStagingParados({ ...escopoErrado, linhas: [LINHA_BASE] })).rejects.toThrow(/indisponível/i);
+    await expect(obterResumoStaging(escopoErrado)).rejects.toThrow(/indisponível/i);
+  });
+
+  it("não inicia a carga se faltar identificação do lote", async () => {
+    await expect(carregarStagingParados({
+      ...escopoPiloto,
+      loteRef: "   ",
+      linhas: [LINHA_BASE],
+    })).rejects.toThrow(/loteRef é obrigatório/i);
+  });
+
+  it("rejeita publicação sem snapshot completo confirmado e sem redução forçada", async () => {
+    await expect(publicarAtendimentosParados(escopoPiloto)).rejects.toThrow(/snapshot completo/i);
+    await expect(publicarAtendimentosParados({
+      ...escopoPiloto,
+      confirmarSnapshotCompleto: true,
+      permitirReducaoGrande: true,
+    })).rejects.toThrow(/redução forçada/i);
+    await expect(publicarAtendimentosParados({
+      ...escopoPiloto,
+      estabelecimentoId: 7,
+      confirmarSnapshotCompleto: true,
+    })).rejects.toThrow(/indisponível/i);
+  });
+
+  it("não carrega nem publica o piloto após deploy ou variável de ambiente", async () => {
+    const anterior = process.env.ATENDIMENTOS_PARADOS_PUBLICACAO_HABILITADA;
+    process.env.ATENDIMENTOS_PARADOS_PUBLICACAO_HABILITADA = "true";
+    try {
+      await expect(carregarStagingParados({
+        ...escopoPiloto,
+        linhas: [LINHA_BASE],
+      })).rejects.toThrow(/não habilitada/i);
+      await expect(publicarAtendimentosParados({
+        ...escopoPiloto,
+        confirmarSnapshotCompleto: true,
+      })).rejects.toThrow(/não habilitada/i);
+    } finally {
+      if (anterior === undefined) delete process.env.ATENDIMENTOS_PARADOS_PUBLICACAO_HABILITADA;
+      else process.env.ATENDIMENTOS_PARADOS_PUBLICACAO_HABILITADA = anterior;
+    }
   });
 });
 
