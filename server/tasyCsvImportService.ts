@@ -134,9 +134,11 @@ function buildUtcDate(year: number, month: number, day: number, hour: number, mi
 export function parseTasyDate(value: string): Date | null {
   const raw = clean(value);
   if (!raw) return null;
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?)?$/);
   if (iso) {
-    const [, y, m, d, hh = "00", mm = "00", ss = "00"] = iso;
+    const [, y, m, d, hh = "00", mm = "00", ss = "00", fraction] = iso;
+    // O destino é DATETIME sem frações; não descartar milissegundos não zero silenciosamente.
+    if (fraction && /[1-9]/.test(fraction)) return null;
     return buildUtcDate(Number(y), Number(m), Number(d), Number(hh), Number(mm), Number(ss));
   }
   const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
