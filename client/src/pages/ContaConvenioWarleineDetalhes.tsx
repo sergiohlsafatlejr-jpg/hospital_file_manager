@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
+import { formatWarleineItemCivilDate } from "@shared/warleineItemPresentation";
 import {
   AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, Database, DollarSign, FileText, Loader2, Package, Receipt, ShieldAlert,
@@ -110,12 +111,19 @@ export default function ContaConvenioWarleineDetalhes() {
                   <CardHeader><CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" />Itens da conta</CardTitle></CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto"><Table>
-                      <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Descrição</TableHead><TableHead>Tipo</TableHead><TableHead>Setor</TableHead><TableHead className="text-right">Qtd.</TableHead><TableHead className="text-right">Unitário</TableHead><TableHead className="text-right">Faturado</TableHead><TableHead>Análise</TableHead></TableRow></TableHeader>
+                      <TableHeader><TableRow><TableHead>Data do item</TableHead><TableHead>Código TUSS</TableHead><TableHead>Código interno</TableHead><TableHead>Descrição</TableHead><TableHead>Tipo de item (codgrufi)</TableHead><TableHead>Tipo de procedimento</TableHead><TableHead>Recebimento</TableHead><TableHead>Setor</TableHead><TableHead className="text-right">Qtd.</TableHead><TableHead className="text-right">Unitário</TableHead><TableHead className="text-right">Faturado</TableHead><TableHead>Análise</TableHead></TableRow></TableHeader>
                       <TableBody>{items.map((item: any) => (
                         <TableRow key={item.id}>
-                          <TableCell className="font-mono text-xs">{item.codigoItem || "—"}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {formatWarleineItemCivilDate(item.dataItem)}
+                            {!item.dataItem && item.dataOrigem && <span className="block text-xs text-muted-foreground" title={item.dataOrigemRotulo}>Origem/abertura: {formatWarleineItemCivilDate(item.dataOrigem)}</span>}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{item.codigoTuss || "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">{item.codigoItemInterno || "—"}</TableCell>
                           <TableCell className="max-w-[360px] truncate" title={item.descricaoItem || ""}>{item.descricaoItem || "—"}</TableCell>
+                          <TableCell><Badge variant="outline">{item.tipoItemCodigo || "—"}</Badge></TableCell>
                           <TableCell><Badge variant="outline">{item.tipoItem || "—"}</Badge></TableCell>
+                          <TableCell className="whitespace-nowrap"><Badge variant="outline" title={`receber: ${item.modalidadeRecebimento || "não informado"}`}>{item.modalidadeRecebimentoRotulo || "Não informado"}</Badge></TableCell>
                           <TableCell>{item.setor || "—"}</TableCell>
                           <TableCell className="text-right">{item.quantidade || "0"}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
