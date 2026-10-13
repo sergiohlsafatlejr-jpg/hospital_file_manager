@@ -5,6 +5,7 @@ import {
   type HupConciliacaoItem,
   type HupConciliacaoStatus,
 } from "./hupConciliacaoPilotoCompare";
+import { avaliarComparativoItem } from "../shared/hupComparativoPresentation";
 
 const DecimalExato = Decimal.clone({ precision: 80 });
 
@@ -28,6 +29,11 @@ export type HupConciliacaoGuia = {
   gruposComGlosa: number;
   gruposCandidatos: number;
   gruposHospitalares: number;
+  gruposComparaveis: number;
+  valorFaturadoComparavel: string | null;
+  diferencaComparavel: string | null;
+  comparacaoCompleta: boolean;
+  diferencaGuia: string | null;
   itens: HupConciliacaoItem[];
   detalhesLimitados: boolean;
 };
@@ -40,12 +46,16 @@ type GuiaEmConstrucao = Omit<
   | "status"
   | "valorPagoCandidato"
   | "valorGlosaCandidata"
+  | "valorFaturadoComparavel"
+  | "diferencaComparavel"
 > & {
   valorFaturado: Decimal;
   valorFaturadoHospital: Decimal;
   valorFaturadoMedicoDireto: Decimal;
   valorPagoCandidato: Decimal | null;
   valorGlosaCandidata: Decimal | null;
+  valorFaturadoComparavel: Decimal | null;
+  diferencaComparavel: Decimal | null;
 };
 
 function texto(valor: unknown): string {
@@ -85,6 +95,11 @@ function novaGuia(item: HupConciliacaoItem, chave: string): GuiaEmConstrucao {
     gruposComGlosa: 0,
     gruposCandidatos: 0,
     gruposHospitalares: 0,
+    gruposComparaveis: 0,
+    valorFaturadoComparavel: null,
+    diferencaComparavel: null,
+    comparacaoCompleta: false,
+    diferencaGuia: null,
     itens: [],
     detalhesLimitados: false,
   };
@@ -123,6 +138,14 @@ export function agruparGuiasHup(items: readonly HupConciliacaoItem[], limiteDeta
     }
     if (item.modalidade === "N") guia.valorFaturadoMedicoDireto = guia.valorFaturadoMedicoDireto.plus(item.valorFaturado);
     guia.statusContagens[item.status] += 1;
+    const avaliacao = avaliarComparativoItem(item);
+    if (avaliacao.comparavel && avaliacao.diferenca != null) {
+      // The presentation evaluator only admits an exclusive S candidate with
+      // equal valid dates and known values; this is a subtotal, never rateio.
+      guia.gruposComparaveis += 1;
+      guia.valorFaturadoComparavel = (guia.valorFaturadoComparavel ?? new DecimalExato(0)).plus(item.valorFaturado);
+      guia.diferencaComparavel = (guia.diferencaComparavel ?? new DecimalExato(0)).plus(avaliacao.diferenca);
+    }
     if (item.status === "candidato") {
       guia.gruposCandidatos += 1;
       // O motor já garante exclusividade; não se deduplica por valor ou código de guia.
@@ -141,6 +164,7 @@ export function agruparGuiasHup(items: readonly HupConciliacaoItem[], limiteDeta
 
   return [...porGuia.values(), ...isoladas].map((guia, indice) => {
     const statusPresentes = HUP_CONCILIACAO_STATUS.filter((status) => guia.statusContagens[status] > 0);
+    const comparacaoCompleta = guia.gruposHospitalares > 0 && guia.gruposHospitalares === guia.gruposComparaveis;
     return {
       // Posição visual, sem hash/origem e sem colisão entre tuplas incompletas iguais.
       chave: `guia-${indice + 1}`,
@@ -160,6 +184,11 @@ export function agruparGuiasHup(items: readonly HupConciliacaoItem[], limiteDeta
       gruposComGlosa: guia.gruposComGlosa,
       gruposCandidatos: guia.gruposCandidatos,
       gruposHospitalares: guia.gruposHospitalares,
+      gruposComparaveis: guia.gruposComparaveis,
+      valorFaturadoComparavel: guia.valorFaturadoComparavel == null ? null : formatoDecimalExato(guia.valorFaturadoComparavel),
+      diferencaComparavel: guia.diferencaComparavel == null ? null : formatoDecimalExato(guia.diferencaComparavel),
+      comparacaoCompleta,
+      diferencaGuia: comparacaoCompleta && guia.diferencaComparavel != null ? formatoDecimalExato(guia.diferencaComparavel) : null,
       itens: guia.itens,
       detalhesLimitados: guia.detalhesLimitados,
     };

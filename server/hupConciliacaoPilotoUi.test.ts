@@ -1,74 +1,89 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 const ui = readFileSync(new URL("../client/src/components/HupConciliacaoPiloto.tsx", import.meta.url), "utf8");
+const detalhes = readFileSync(new URL("../client/src/components/HupComparativoGuiaDetalhes.tsx", import.meta.url), "utf8");
+const table = readFileSync(new URL("../client/src/components/ConciliacaoGuiasTabela.tsx", import.meta.url), "utf8");
+const money = readFileSync(new URL("../client/src/lib/hupPilotoMoney.ts", import.meta.url), "utf8");
 const page = readFileSync(new URL("../client/src/pages/ConciliacaoCruzada.tsx", import.meta.url), "utf8");
 
-describe("Banco HUP na Conciliação Cruzada: tabela de guias e leitura", () => {
-  it("usa somente queries de opções e guias do router próprio", () => {
-    expect(ui).toContain("trpc.hupConciliacaoPiloto.opcoes.useQuery");
-    expect(ui).toContain("trpc.hupConciliacaoPiloto.guias.useQuery");
-    expect(ui).not.toMatch(/useMutation|\.mutate\(|\.mutateAsync\(|popularTudo|conciliarAutomaticamente|resetarConciliacao/);
-    expect(ui).not.toContain("trpc.faturamentoUnificado");
+describe("Banco HUP no visual da Conciliação Cruzada existente", () => {
+  it("mantém uma página e um único cabeçalho com os filtros originais", () => {
+    expect(page).toContain('return <ConciliacaoCruzadaAtual />');
+    expect(page).not.toContain('recorteBanco');
+    expect(page).toContain('fonteDados === "banco" && bancoDisponivel');
+    expect(page).toContain('estabelecimentoId === 1260036');
+    expect(page).toContain('temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId)');
+    expect(ui).not.toContain('<h1');
+    expect(ui).not.toContain('Filtros');
+    expect(ui).not.toContain('DashboardLayout');
+    for(const label of ['Competência','Convênio','Status Conciliação','Lote XML (Enviado)','Lote Retorno (Convênio)','Buscar','Prestador','Data Pagamento'])expect(page).toContain(label);
   });
-  it("desmonta o fluxo legado no modo Banco e restringe unidade e módulo", () => {
-    const wrapper = page.slice(page.indexOf("export default function ConciliacaoCruzada"), page.indexOf("function ConciliacaoCruzadaAtual"));
-    expect(wrapper).toContain("estabelecimentoId === 1260036");
-    expect(wrapper).toContain('temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId)');
-    expect(wrapper).toContain("if (recorteBanco && bancoDisponivel)");
-    expect(wrapper).toContain("key={estabelecimentoId}");
-    expect(wrapper).toContain("setRecorteBanco(null)");
-    expect(wrapper).toContain("return <ConciliacaoCruzadaAtual");
+  it("compartilha a tabela real nas duas fontes e preserva a sequência de colunas", () => {
+    expect(ui).toContain('<ConciliacaoGuiasTabela');
+    expect(page).toContain('<ConciliacaoGuiasTabela');
+    const labels=['Guia','Paciente','Comp.','Lote','Protocolo','Itens','Faturado','Recebido','Glosado','Acréscimo','Status','Detalhes'];
+    let previous=-1;for(const label of labels){const pos=table.search(new RegExp(`>\\s*${label}\\s*</th>`));expect(pos).toBeGreaterThan(previous);previous=pos;}
+    expect(table).toContain('bg-green-500 hover:bg-green-600');
+    expect(table).toContain('bg-red-500 hover:bg-red-600');
+    expect(table).toContain('text-blue-600');
+    expect(table).toContain('text-green-600');
+    expect(table).toContain('text-red-600');
   });
-  it("posiciona Buscar dados do banco imediatamente após Popular Dados", () => {
-    const header=page.slice(page.indexOf("{/* Cabeçalho */}"),page.indexOf("{/* Filtros */}"));
-    expect(header.indexOf("Popular Dados")).toBeLessThan(header.indexOf("Buscar dados do banco"));
-    expect(header.indexOf("Buscar dados do banco")).toBeLessThan(header.indexOf("Conciliar Automaticamente"));
-    expect(header).toContain("disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}");
-    expect(header).not.toContain("Piloto Banco — somente leitura");
-    expect(header).toContain("competenciaFiltro !== \"todos\" ? competenciaFiltro : undefined");
-    expect(header).toContain("convenioId: convenioIdNum");
+  it("não apresenta os painéis e explicações do layout rejeitado na lista", () => {
+    for(const forbidden of ['Contexto dos demonstrativos','Faturado comparável:','Comparativo das guias da competência','Fonte Banco</Badge><span','<Dialog'])expect(ui).not.toContain(forbidden);
+    expect(ui).not.toContain('valorPagoDemonstrativo');
+    expect(ui).not.toContain('valorGlosaDemonstrativo');
+    expect(detalhes).not.toContain('<Dialog');
   });
-  it("mantém título, filtros, tabela Guias/Contas e modal de itens", () => {
-    for(const label of ["Conciliação Cruzada","Cruzamento do faturamento com recebimentos","Buscar dados do banco","Guias / Contas (","Origem","Faturado","Pago candidato","Glosa candidata","Fonte Banco","Ver base atual"])expect(ui).toContain(label);
-    expect(ui).toContain('aria-label="Guias e contas da fonte Banco"');
-    expect(ui).toContain('aria-label="Itens e candidatos da guia"');
-    expect(ui).toContain("setGuiaSelecionada(guia)");
-    expect(ui).toContain("<Dialog open=");
-    expect(ui).not.toContain("Grupos de itens e candidatos para revisão");
+  it("deixa Buscar Banco no cabeçalho sem executar as ações persistidas no modo leitura", () => {
+    const header=page.slice(page.indexOf('{/* Cabeçalho */}'),page.indexOf('{/* Filtros */}'));
+    expect(header.indexOf('Popular Dados')).toBeLessThan(header.indexOf('Buscar dados do banco'));
+    expect(header.indexOf('Buscar dados do banco')).toBeLessThan(header.indexOf('Conciliar Automaticamente'));
+    expect(header).toContain('disabled={fonteBanco || popularTudo.isPending}');
+    expect(header).toContain('disabled={fonteBanco || popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}');
+    expect(header).toContain('disabled={fonteBanco || resetarConc.isPending}');
+    expect(header).toContain('if (!fonteBanco)');
+    expect(page).toContain('enabled: !fonteBanco && estabelecimentoId > 0');
+    expect(page).toContain('enabled: !fonteBanco && !!guiaSelecionada');
+    expect(page).toContain('{!fonteBanco && <>');
+    expect(page).toContain('setFonteDados("base")');
   });
-  it("não oferece gravação no modo Banco e informa limites dos valores", () => {
-    expect(ui).toContain('disabled title="Popular Dados pertence à base atual.');
-    expect(ui).toContain("consulta sem gravação");
-    expect(ui).toContain("não soma os recebimentos do Hop");
-    expect(ui).toContain("não recebimentos confirmados");
-    expect(ui).toContain("grupos hospitalares");
-    expect(ui).toContain("Os totais desse campo são parciais");
-    expect(ui).toContain('if (value == null) return "—"');
-    expect(ui).toContain("detalhesLimitados");
-    expect(ui).toContain("primeiros 100");
-    expect(ui).toContain("item.diferencaEstimada != null");
-    expect(ui).toContain("Não é glosa automática nem vínculo confirmado");
+  it("aplica os filtros da própria página à consulta Banco, sem ignorar opções sem suporte", () => {
+    expect(page).toContain('busca={busca} mesPagamento={dataPagtoFiltro === "todos" ? undefined : dataPagtoFiltro}');
+    expect(page).toContain('competenciaFiltro.replace("-", "/")');
+    expect(page).toContain('opcoesBanco?.convenios.some');
+    expect(page).toContain('Lote XML não se aplica ao faturado do Banco');
+    expect(page).toContain('Filtro por lote do retorno ainda não disponível');
+    expect(page).toContain('disabled={fonteBanco} value={filtroPrestador}');
+    expect(page).toContain('Selecionar mês');
+    expect(page).toContain('Mês do pagamento');
+    expect(page).toContain('if (fonteDados === "banco" || fonteBanco || filtrosCarregadosPara !== estabelecimentoId) return');
+    expect(page).toContain('setFiltrosCarregadosPara(-1); setFonteDados("base")');
   });
-  it("mostra cobertura 0/y com valor desconhecido, sem ocultar grupos hospitalares", () => {
-    expect(ui).not.toContain("guia.gruposComPago > 0 &&");
-    expect(ui).not.toContain("guia.gruposComGlosa > 0 &&");
-    expect(ui.match(/guia\.gruposHospitalares > 0 &&/g)).toHaveLength(2);
-    expect(ui).toContain("{guia.gruposComPago}/{guia.gruposHospitalares}");
-    expect(ui).toContain("{guia.gruposComGlosa}/{guia.gruposHospitalares}");
+  it("consulta somente queries próprias e diferenças conservadoras", () => {
+    expect(ui).toContain('trpc.hupConciliacaoPiloto.guias.useQuery');
+    expect(detalhes).toContain('trpc.hupConciliacaoPiloto.itensGuia.useQuery');
+    expect(detalhes).toContain('avaliarComparativoItem(item)');
+    for(const source of [ui,detalhes])expect(source).not.toMatch(/useMutation|\.mutate\(|\.mutateAsync\(|trpc\.faturamentoUnificado/);
+    expect(money).toContain('if (value == null) return "—"');
+    expect(ui).not.toContain('statusLabel: "Conciliado"');
   });
-  it("limpa resultados e detalhes após alterar recorte, erro ou consulta", () => {
-    expect(ui).toContain("setApplied(null); setPage(1); setGuiaSelecionada(null)");
-    expect(ui).toContain("const result = applied && !error && !isFetching ? data : undefined");
-    expect(ui).toContain("enabled: applied !== null && estabelecimentoId === 1260036");
-    expect(ui).toContain("retry: false");
-    expect(ui).toContain("open={!!guiaSelecionada && !!result}");
+  it("não chama de confirmado o valor Banco desconhecido do médico direto", () => {
+    expect(table).toContain('modo === "banco"');
+    expect(table).toContain('Valor candidato à revisão, não recebido confirmado');
+    expect(table).toContain('Valor candidato à revisão, não glosado confirmado');
+    expect(table).toContain('Recebido informado na base atual');
+    expect(table).not.toContain('Recebido confirmado na base atual');
   });
-  it("valida o recorte da tela antiga contra opções Banco antes de buscar", () => {
-    expect(ui).toContain("opcoes?.competencias.includes(competencia)");
-    expect(ui).toContain("opcoes?.convenios.some(c => String(c.id) === convenio)");
-    expect(ui).toContain("recorteInicial.competencia && recorteInicial.convenioId && recorteValido");
-    expect(ui).toContain('replace("-", "/")');
-    expect(ui).toContain("new Decimal(value)");
-    expect(ui).not.toMatch(/Number\((?:item|guia)\.(codigoTuss|guiaPrestador|conta|valorFaturado)\)/);
+  it("preserva os identificadores reais e a revisão de todos os itens paginados", () => {
+    expect(detalhes).toContain('guiaPrestador');
+    expect(detalhes).toContain('guiaOperadora');
+    expect(detalhes).toContain('pageSize: 50');
+    expect(detalhes).toContain('Próxima');
+    expect(detalhes).not.toContain('primeiros 100');
+    expect(detalhes).toContain('Comparativo por item da guia');
+    expect(table).toContain('row.paciente || "—"');
+    expect(table).toContain('row.lote || "—"');
+    expect(table).toContain('row.protocolo || "—"');
   });
 });

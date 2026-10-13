@@ -1,15 +1,20 @@
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { TRPCError } from "@trpc/server";
+import Decimal from "decimal.js";
 import { getRawPool } from "./db";
 import {
   compararSnapshotHup,
   dataCivilPiloto,
+  formatoDecimalExato,
+  type HupConciliacaoItem,
   type HupConciliacaoResumo,
   type HupConciliacaoStatus,
   type HupDemonstrativoEvento,
   type HupSnapshotItem,
 } from "./hupConciliacaoPilotoCompare";
 import { agruparGuiasHup, type HupConciliacaoGuia } from "./hupConciliacaoPilotoGuias";
+
+const DecimalExato = Decimal.clone({ precision: 80 });
 
 export const HUP_PILOTO_ESTABELECIMENTO = 1260036;
 export const HUP_PILOTO_LIMITE = 50000;
@@ -98,6 +103,12 @@ export type HupPilotoInput = {
   mesPagamento?: string;
 };
 export type HupGuiasInput = Omit<HupPilotoInput, "status"> & { status?: "todos" | HupConciliacaoStatus | "misto" };
+export type HupItensGuiaInput = Omit<HupGuiasInput, "status" | "busca"> & {
+  guiaChave: string;
+  conta: string;
+  guiaPrestador: string;
+  guiaOperadora: string;
+};
 
 type BaseResposta = {
   somenteLeitura: true;
@@ -122,6 +133,15 @@ function validarConsulta(input: HupPilotoInput | HupGuiasInput, maxPageSize = 10
   const page = input.page ?? 1, pageSize = input.pageSize ?? 50;
   if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) bad("Paginação inválida.");
   return { page, pageSize };
+}
+
+function validarItensGuia(input: HupItensGuiaInput): { page: number; pageSize: number } {
+  const paginacao = validarConsulta(input);
+  if (!/^guia-\d+$/.test(input.guiaChave)) bad("Identificador de guia inválido.");
+  for (const identificador of [input.conta, input.guiaPrestador, input.guiaOperadora]) {
+    if (typeof identificador !== "string" || identificador.length > 250) bad("Identificadores da guia inválidos.");
+  }
+  return paginacao;
 }
 
 /** Loads every comparison group once, inside the read-only RR transaction. */
@@ -233,7 +253,69 @@ export type HupGuiasResposta = {
   total: number;
   items: HupConciliacaoGuia[];
   resumo: HupConciliacaoResumo & { totalGuias: number };
+  comparativo: HupComparativoGuias;
 };
+
+export type HupComparativoGuias = {
+  totalGuias: number;
+  totalGruposHospitalares: number;
+  gruposComparaveis: number;
+  guiasComparaveis: number;
+  valorFaturadoComparavel: string | null;
+  valorPagoCandidato: string | null;
+  valorGlosaCandidata: string | null;
+  diferencaComparavel: string | null;
+  gruposComPago: number;
+  gruposComGlosa: number;
+};
+
+/**
+ * Sums only already-exclusive engine candidates represented by each full guide.
+ * It deliberately runs before guide search/status/page filtering and never uses
+ * the demonstrativo-wide totals from the original comparison summary.
+ */
+export function resumirComparativoGuias(guias: readonly HupConciliacaoGuia[]): HupComparativoGuias {
+  let valorFaturadoComparavel: Decimal | null = null;
+  let valorPagoCandidato: Decimal | null = null;
+  let valorGlosaCandidata: Decimal | null = null;
+  let diferencaComparavel: Decimal | null = null;
+  let totalGruposHospitalares = 0;
+  let gruposComparaveis = 0;
+  let guiasComparaveis = 0;
+  let gruposComPago = 0;
+  let gruposComGlosa = 0;
+  for (const guia of guias) {
+    totalGruposHospitalares += guia.gruposHospitalares;
+    gruposComparaveis += guia.gruposComparaveis;
+    gruposComPago += guia.gruposComPago;
+    gruposComGlosa += guia.gruposComGlosa;
+    if (guia.comparacaoCompleta) guiasComparaveis += 1;
+    if (guia.valorFaturadoComparavel != null) {
+      valorFaturadoComparavel = (valorFaturadoComparavel ?? new DecimalExato(0)).plus(guia.valorFaturadoComparavel);
+    }
+    if (guia.valorPagoCandidato != null) {
+      valorPagoCandidato = (valorPagoCandidato ?? new DecimalExato(0)).plus(guia.valorPagoCandidato);
+    }
+    if (guia.valorGlosaCandidata != null) {
+      valorGlosaCandidata = (valorGlosaCandidata ?? new DecimalExato(0)).plus(guia.valorGlosaCandidata);
+    }
+    if (guia.diferencaComparavel != null) {
+      diferencaComparavel = (diferencaComparavel ?? new DecimalExato(0)).plus(guia.diferencaComparavel);
+    }
+  }
+  return {
+    totalGuias: guias.length,
+    totalGruposHospitalares,
+    gruposComparaveis,
+    guiasComparaveis,
+    valorFaturadoComparavel: valorFaturadoComparavel == null ? null : formatoDecimalExato(valorFaturadoComparavel),
+    valorPagoCandidato: valorPagoCandidato == null ? null : formatoDecimalExato(valorPagoCandidato),
+    valorGlosaCandidata: valorGlosaCandidata == null ? null : formatoDecimalExato(valorGlosaCandidata),
+    diferencaComparavel: diferencaComparavel == null ? null : formatoDecimalExato(diferencaComparavel),
+    gruposComPago,
+    gruposComGlosa,
+  };
+}
 
 /** The guide table is always formed from all compared groups, then filtered/paged. */
 export async function guiasHupPiloto(input: HupGuiasInput): Promise<HupGuiasResposta> {
@@ -249,11 +331,13 @@ export async function guiasHupPiloto(input: HupGuiasInput): Promise<HupGuiasResp
         total: 0,
         items: [],
         resumo: { ...result.compared.resumo, totalGuias: 0 },
+        comparativo: resumirComparativoGuias([]),
       };
     }
     // Retain complete groups only long enough to make search independent from
     // the first-100 display cap; the response is rebuilt capped below.
     const guiasCompletas = agruparGuiasHup(result.compared.items, Number.MAX_SAFE_INTEGER);
+    const comparativo = resumirComparativoGuias(guiasCompletas);
     const busca = texto(input.busca).toUpperCase();
     const filtered = guiasCompletas.filter(guia => (input.status === undefined || input.status === "todos" || guia.status === input.status)
       && (!busca || [
@@ -275,6 +359,68 @@ export async function guiasHupPiloto(input: HupGuiasInput): Promise<HupGuiasResp
       items: itensPagina,
       // This deliberately remains global to the complete comparison, not page/filter totals.
       resumo: { ...result.compared.resumo, totalGuias: guiasCompletas.length },
+      comparativo,
+    };
+  });
+}
+
+export type HupItensGuiaResposta = {
+  status: "ok" | "sem_snapshot" | "sem_faturado" | "limite_excedido";
+  somenteLeitura: true;
+  competencia: string;
+  convenioNome: string;
+  geradoEm: string;
+  fonte: string;
+  recebimentosFonte: string;
+  aviso: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  guia: Omit<HupConciliacaoGuia, "itens"> | null;
+  items: HupConciliacaoItem[];
+};
+
+/**
+ * Detail query for one visual guide key.  It rebuilds the same full ordered
+ * grouping inside the same read-only RR transaction, then pages every group
+ * rather than reusing the guide-list's 100-item display cap.
+ */
+export async function itensGuiaHupPiloto(input: HupItensGuiaInput): Promise<HupItensGuiaResposta> {
+  const { page, pageSize } = validarItensGuia(input);
+  return leitura(async c => {
+    const result = await carregarComparacaoCompleta(c, input, page, pageSize);
+    if (result.status !== "ok") {
+      return {
+        ...result.base,
+        status: result.status,
+        aviso: result.aviso,
+        total: 0,
+        guia: null,
+        items: [],
+      };
+    }
+    const guiasCompletas = agruparGuiasHup(result.compared.items, Number.MAX_SAFE_INTEGER);
+    // The visual key is positional and a new published snapshot can reorder it
+    // between list and detail requests.  The literal public tuple is therefore
+    // the binding identity; do not silently select an equal incomplete tuple.
+    const candidatas = guiasCompletas.filter(guia => guia.conta === input.conta
+      && guia.guiaPrestador === input.guiaPrestador
+      && guia.guiaOperadora === input.guiaOperadora);
+    if (!candidatas.length) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Guia não encontrada no recorte informado." });
+    }
+    if (candidatas.length !== 1) {
+      throw new TRPCError({ code: "CONFLICT", message: "Identificadores insuficientes para abrir esta guia com segurança." });
+    }
+    const guiaCompleta = candidatas[0]!;
+    const { itens, ...guia } = guiaCompleta;
+    return {
+      ...result.base,
+      status: "ok",
+      aviso: result.aviso,
+      total: itens.length,
+      guia,
+      items: itens.slice((page - 1) * pageSize, page * pageSize),
     };
   });
 }
