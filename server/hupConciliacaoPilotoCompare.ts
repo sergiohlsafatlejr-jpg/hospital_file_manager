@@ -37,6 +37,7 @@ export type HupDemonstrativoEvento = {
   dataPagamento: string | null;
   valorPago: string | null;
   valorGlosa: string | null;
+  quantidade?: string | null;
 };
 
 export type HupConciliacaoCandidato = {
@@ -46,11 +47,14 @@ export type HupConciliacaoCandidato = {
   dataPagamento: string | null;
   valorPago: string | null;
   valorGlosa: string | null;
+  quantidade?: string | null;
 };
 
 export type HupConciliacaoItem = {
   chave: string;
   descricoesItem?: string[];
+  consolidadoPorSetor?: boolean;
+  composicaoSetores?: { setor: string; totalItens: number; quantidade: string; valorFaturado: string }[];
   conta: string;
   guiaPrestador: string;
   guiaOperadora: string;
@@ -98,6 +102,7 @@ type GrupoInterno = {
   dataItem: string | null;
   tipoItem: string;
   setor: string;
+  setores: Map<string, { totalItens: number; quantidade: Decimal; valorFaturado: Decimal }>;
   modalidade: string;
   mapeamentoAmbiguo: boolean;
   totalItens: number;
@@ -142,7 +147,9 @@ export function formatoDecimalExato(value: Decimal.Value, casasMinimas = 2): str
   return parsed.toFixed(casas);
 }
 
-function chaveGrupo(item: HupSnapshotItem): string {
+export type HupPoliticaComparacao = { consolidarSetores?: boolean };
+
+function chaveGrupo(item: HupSnapshotItem, consolidarSetores = false): string {
   // Separador de controle impede colisões de concatenação sem usar origem/hash.
   return [
     text(item.conta),
@@ -151,7 +158,7 @@ function chaveGrupo(item: HupSnapshotItem): string {
     text(item.codigoTuss),
     item.dataItem ?? "",
     text(item.tipoItem),
-    text(item.setor),
+    consolidarSetores ? "" : text(item.setor),
     text(item.modalidade).toUpperCase(),
   ].map(v => JSON.stringify(v)).join("\u001f");
 }
@@ -191,6 +198,11 @@ function eventoCombinaGrupo(grupo: GrupoInterno, evento: HupDemonstrativoEvento)
   return { evento, dataSemProva };
 }
 
+function quantidadeCandidata(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  try { return formatoDecimalExato(value, 0); } catch { return null; }
+}
+
 function candidato(evento: HupDemonstrativoEvento): HupConciliacaoCandidato {
   return {
     guia: text(evento.guia),
@@ -199,6 +211,7 @@ function candidato(evento: HupDemonstrativoEvento): HupConciliacaoCandidato {
     dataPagamento: evento.dataPagamento,
     valorPago: evento.valorPago == null ? null : formatoDecimalExato(evento.valorPago),
     valorGlosa: evento.valorGlosa == null ? null : formatoDecimalExato(evento.valorGlosa),
+    quantidade: quantidadeCandidata(evento.quantidade),
   };
 }
 
@@ -213,7 +226,9 @@ function itemBase(grupo: GrupoInterno): Omit<HupConciliacaoItem, "status" | "mot
     codigoTuss: grupo.codigoTuss,
     dataItem: grupo.dataItem,
     tipoItem: grupo.tipoItem,
-    setor: grupo.setor,
+    setor: [...grupo.setores.keys()].join(" / "),
+    consolidadoPorSetor: grupo.setores.size > 1,
+    composicaoSetores: [...grupo.setores].map(([setor, c]) => ({ setor, totalItens: c.totalItens, quantidade: formatoDecimalExato(c.quantidade, 0), valorFaturado: formatoDecimalExato(c.valorFaturado) })),
     modalidade: grupo.modalidade,
     totalItens: grupo.totalItens,
     quantidade: formatoDecimalExato(grupo.quantidade, 0),
@@ -224,10 +239,11 @@ function itemBase(grupo: GrupoInterno): Omit<HupConciliacaoItem, "status" | "mot
 export function compararSnapshotHup(
   itensSnapshot: readonly HupSnapshotItem[],
   eventosDemonstrativo: readonly HupDemonstrativoEvento[],
+  politica: HupPoliticaComparacao = {},
 ): { items: HupConciliacaoItem[]; resumo: HupConciliacaoResumo } {
   const porGrupo = new Map<string, GrupoInterno>();
   for (const item of itensSnapshot) {
-    const key = chaveGrupo(item);
+    const key = chaveGrupo(item, politica.consolidarSetores === true);
     const existente = porGrupo.get(key);
     if (existente) {
       existente.totalItens += 1;
@@ -235,6 +251,10 @@ export function compararSnapshotHup(
       existente.quantidade = existente.quantidade.plus(decimal(item.quantidade));
       existente.valorFaturado = existente.valorFaturado.plus(decimal(item.valorFaturado));
       existente.mapeamentoAmbiguo ||= Boolean(item.mapeamentoAmbiguo);
+      const setor = text(item.setor);
+      const c = existente.setores.get(setor) ?? { totalItens: 0, quantidade: new ExactDecimal(0), valorFaturado: new ExactDecimal(0) };
+      c.totalItens += 1; c.quantidade = c.quantidade.plus(decimal(item.quantidade)); c.valorFaturado = c.valorFaturado.plus(decimal(item.valorFaturado));
+      existente.setores.set(setor, c);
       continue;
     }
     porGrupo.set(key, {
@@ -247,6 +267,7 @@ export function compararSnapshotHup(
       dataItem: item.dataItem,
       tipoItem: text(item.tipoItem),
       setor: text(item.setor),
+      setores: new Map([[text(item.setor), { totalItens: 1, quantidade: decimal(item.quantidade), valorFaturado: decimal(item.valorFaturado) }]]),
       modalidade: text(item.modalidade).toUpperCase(),
       mapeamentoAmbiguo: Boolean(item.mapeamentoAmbiguo),
       totalItens: 1,
@@ -374,6 +395,15 @@ export function compararSnapshotHup(
 
     const unico = eventos[0]!;
     const semProvaDeData = elegiveis[0]?.dataSemProva ?? false;
+    // Só remove a ambiguidade de setor quando o retorno único prova data e
+    // quantidade agregada. Valor diferente permanece comparável, não é glosa.
+    if (politica.consolidarSetores && grupo.setores.size > 1) {
+      let quantidadeRetorno: Decimal | null = null;
+      try { quantidadeRetorno = unico.quantidade == null ? null : decimal(unico.quantidade); } catch { /* falha fechada */ }
+      if (semProvaDeData || !quantidadeRetorno || !quantidadeRetorno.gt(0) || !grupo.quantidade.gt(0) || !quantidadeRetorno.eq(grupo.quantidade)) {
+        return { ...base, status: "ambiguo", motivo: "Consolidação por setor sem prova de data ou quantidade total do retorno; nenhuma associação foi concluída.", numeroCandidatos: 1, valorPagoCandidato: null, valorGlosaCandidata: null, diferencaEstimada: null, candidatos };
+      }
+    }
     const valorPago = unico.valorPago == null ? null : decimal(unico.valorPago);
     const valorGlosa = unico.valorGlosa == null ? null : decimal(unico.valorGlosa);
     return {
@@ -383,7 +413,9 @@ export function compararSnapshotHup(
         ? "Candidato por guia e código, mas há valor de pagamento ou glosa não informado. Nenhuma diferença foi calculada nem associação concluída."
         : semProvaDeData
         ? "Candidato único por guia e código; a data do item está ausente em uma das fontes, sem prova de item. Associação não concluída."
-        : "Candidato único por guia, código e data. Associação não concluída.",
+        : grupo.setores.size > 1
+          ? "Candidato consolidado por guia, código, data e quantidade total; setores preservados, pagamento contado uma vez. Associação não concluída."
+          : "Candidato único por guia, código e data. Associação não concluída.",
       numeroCandidatos: 1,
       valorPagoCandidato: valorPago == null ? null : formatoDecimalExato(valorPago),
       valorGlosaCandidata: valorGlosa == null ? null : formatoDecimalExato(valorGlosa),
