@@ -31,9 +31,16 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { getConciliacaoStatusLabel } from "@/lib/conciliacaoStatus";
 import HupConciliacaoPiloto from "@/components/HupConciliacaoPiloto";
 import ConciliacaoGuiasTabela from "@/components/ConciliacaoGuiasTabela";
+import { chaveContextoConciliacao, lerFonteConciliacao, lerContextoBanco, salvarFonteConciliacao, salvarContextoBanco, limparBuscasDeOutrosUsuarios } from "@/lib/conciliacaoBancoContexto";
 
 export default function ConciliacaoCruzada() {
-  return <ConciliacaoCruzadaAtual />;
+  const { user } = useAuth();
+  const { estabelecimentoAtual, temAcessoModuloNoEstabelecimento } = useEstabelecimento();
+  const unidade = estabelecimentoAtual?.id || 0;
+  const permitido = temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", unidade);
+  useEffect(() => { limparBuscasDeOutrosUsuarios(user?.id); }, [user?.id]);
+  // Remontar ao trocar usuário/unidade/permissão elimina estado e detalhes antigos.
+  return <ConciliacaoCruzadaAtual key={`${user?.id || 0}:${unidade}:${permitido}`} />;
 }
 
 function ConciliacaoCruzadaAtual() {
@@ -53,12 +60,18 @@ function ConciliacaoCruzadaAtual() {
     [estabelecimentos, temAcessoModuloNoEstabelecimento]
   );
 
-  const [fonteDados, setFonteDados] = useState<"base" | "banco">("base");
-  const [atualizacaoBanco, setAtualizacaoBanco] = useState(0);
   const bancoDisponivel = estabelecimentoId === 1260036
     && temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId);
+  const contextoKey = chaveContextoConciliacao(user?.id, estabelecimentoId);
+  const [fonteDados, setFonteDados] = useState<"base" | "banco">(() => lerFonteConciliacao(contextoKey, bancoDisponivel));
+  const [contextoInicial] = useState(() => bancoDisponivel ? lerContextoBanco(contextoKey) : null);
+  const [paginaBanco, setPaginaBanco] = useState(fonteDados === "banco" ? contextoInicial?.pagina || 1 : 1);
+  const [atualizacaoBanco, setAtualizacaoBanco] = useState(0);
   const fonteBanco = fonteDados === "banco" && bancoDisponivel;
-  useEffect(() => { setFonteDados("base"); }, [estabelecimentoId, bancoDisponivel]);
+  // Fallback por falta de permissão não é uma escolha explícita da Base atual.
+  useEffect(() => {
+    if (bancoDisponivel) salvarFonteConciliacao(contextoKey, fonteDados);
+  }, [contextoKey, bancoDisponivel, fonteDados]);
   const { data: opcoesBanco, isFetching: carregandoOpcoesBanco, error: erroOpcoesBanco, refetch: refetchOpcoesBanco } = trpc.hupConciliacaoPiloto.opcoes.useQuery(
     { estabelecimentoId }, { enabled: fonteBanco, retry: false, staleTime: 0 },
   );
@@ -77,12 +90,12 @@ function ConciliacaoCruzadaAtual() {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   }, [storageKey]);
-  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(savedFilters?.competencia || "todos");
-  const [convenioFiltro, setConvenioFiltro] = useState(savedFilters?.convenio || "todos");
-  const [statusFiltro, setStatusFiltro] = useState(savedFilters?.status || "todos");
-  const [loteXmlFiltro, setLoteXmlFiltro] = useState(savedFilters?.loteXml || "todos");
-  const [loteRetornoFiltro, setLoteRetornoFiltro] = useState(savedFilters?.loteRetorno || "todos");
-  const [dataPagtoFiltro, setDataPagtoFiltro] = useState(savedFilters?.dataPagto || "todos");
+  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(fonteBanco ? contextoInicial?.competencia || "todos" : savedFilters?.competencia || "todos");
+  const [convenioFiltro, setConvenioFiltro] = useState(fonteBanco ? contextoInicial?.convenio || "todos" : savedFilters?.convenio || "todos");
+  const [statusFiltro, setStatusFiltro] = useState(fonteBanco ? contextoInicial?.status || "todos" : savedFilters?.status || "todos");
+  const [loteXmlFiltro, setLoteXmlFiltro] = useState(fonteBanco ? "todos" : savedFilters?.loteXml || "todos");
+  const [loteRetornoFiltro, setLoteRetornoFiltro] = useState(fonteBanco ? "todos" : savedFilters?.loteRetorno || "todos");
+  const [dataPagtoFiltro, setDataPagtoFiltro] = useState(fonteBanco ? contextoInicial?.dataPagto || "todos" : savedFilters?.dataPagto || "todos");
   const [filtrosCarregadosPara, setFiltrosCarregadosPara] = useState(estabelecimentoId);
 
   // Recarregar os filtros próprios ao trocar de estabelecimento. Sem esta
@@ -116,18 +129,22 @@ function ConciliacaoCruzadaAtual() {
   // sobrescrever o novo hospital com o estado do hospital anterior.
   useEffect(() => {
     if (fonteDados === "banco" || fonteBanco || filtrosCarregadosPara !== estabelecimentoId) return;
-    localStorage.setItem(storageKey, JSON.stringify({
+    try { localStorage.setItem(storageKey, JSON.stringify({
       competencia: competenciaFiltro,
       convenio: convenioFiltro,
       status: statusFiltro,
       loteXml: loteXmlFiltro,
       loteRetorno: loteRetornoFiltro,
       dataPagto: dataPagtoFiltro,
-    }));
+    })); } catch { /* Navegação continua sem persistência quando o storage é bloqueado. */ }
   }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey, estabelecimentoId, filtrosCarregadosPara, fonteBanco, fonteDados]);
   const [loteXmlOpen, setLoteXmlOpen] = useState(false);
   const [loteRetornoOpen, setLoteRetornoOpen] = useState(false);
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca] = useState(fonteBanco ? contextoInicial?.busca || "" : "");
+  useEffect(() => {
+    if (!fonteBanco) return;
+    salvarContextoBanco(contextoKey, { competencia: competenciaFiltro, convenio: convenioFiltro, status: statusFiltro, dataPagto: dataPagtoFiltro, pagina: paginaBanco, busca });
+  }, [contextoKey, fonteBanco, competenciaFiltro, convenioFiltro, statusFiltro, dataPagtoFiltro, paginaBanco, busca]);
   const [paginaAtual, setPaginaAtual] = useState(0);
   const ITENS_POR_PAGINA = 50;
 
@@ -840,7 +857,10 @@ function ConciliacaoCruzadaAtual() {
             {bancoDisponivel && <Button variant={fonteBanco ? "default" : "outline"}
               onClick={() => {
                 if (!fonteBanco) {
-                  setFonteDados("banco"); setStatusFiltro("todos"); setLoteXmlFiltro("todos"); setLoteRetornoFiltro("todos"); setDataPagtoFiltro("todos"); setFiltroPrestador("todos");
+                  const anterior = lerContextoBanco(contextoKey);
+                  if (anterior) { setCompetenciaFiltro(anterior.competencia); setConvenioFiltro(anterior.convenio); }
+                  setPaginaBanco(anterior?.pagina || 1); setBusca(anterior?.busca || "");
+                  setFonteDados("banco"); setStatusFiltro(anterior?.status || "todos"); setLoteXmlFiltro("todos"); setLoteRetornoFiltro("todos"); setDataPagtoFiltro(anterior?.dataPagto || "todos"); setFiltroPrestador("todos");
                   setGuiaConciliadaSelecionada(null); setGuiaSelecionada(null); setModalDetalhesAberto(false); setModalVinculacaoAberto(false); setModalXmlAberto(false); setModalGlosaAberto(false); setModalVinculacaoManualAberto(false); setModalResultadoAberto(false);
                 } else { setAtualizacaoBanco(n => n + 1); void refetchOpcoesBanco(); }
               }}
@@ -1061,13 +1081,14 @@ function ConciliacaoCruzadaAtual() {
         {/* Abas */}
         {fonteBanco ? <>
           {carregandoOpcoesBanco && <p className="text-sm text-muted-foreground" role="status">Carregando fonte Banco…</p>}
-          {erroOpcoesBanco ? <p role="alert" className="text-sm text-destructive">Não foi possível carregar a fonte Banco.</p> : <HupConciliacaoPiloto
+          {erroOpcoesBanco ? <p role="alert" className="text-sm text-destructive">Não foi possível carregar a fonte Banco.</p> : opcoesBanco ? <HupConciliacaoPiloto
             key={estabelecimentoId} estabelecimentoId={estabelecimentoId}
             competencia={competenciaFiltro !== "todos" && opcoesBanco?.competencias.includes(competenciaFiltro.replace("-", "/")) ? competenciaFiltro.replace("-", "/") : undefined}
             convenioId={opcoesBanco?.convenios.some(c => c.id === convenioIdNum) ? convenioIdNum : undefined}
             status={statusFiltro as "todos" | "candidato" | "ambiguo" | "sem_candidato" | "medico_direto" | "dados_incompletos" | "misto"}
             busca={busca} mesPagamento={dataPagtoFiltro === "todos" ? undefined : dataPagtoFiltro}
-            atualizacao={atualizacaoBanco} />}
+            pagina={paginaBanco} onPaginaChange={setPaginaBanco}
+            atualizacao={atualizacaoBanco} /> : null}
         </> : <Tabs value={abaAtiva} onValueChange={(v) => { setAbaAtiva(v); setGuiaConciliadaSelecionada(null); }}>
           <TabsList className="grid w-full grid-cols-3 max-w-xl">
             <TabsTrigger value="conciliados" className="flex items-center gap-2">
