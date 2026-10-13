@@ -23,6 +23,7 @@ export type HupSnapshotItem = {
   modalidade: string;
   quantidade: string;
   valorFaturado: string;
+  descricaoItem?: string;
   /** A origem nome/código apontou para mais de um convênio manual. */
   mapeamentoAmbiguo?: boolean;
 };
@@ -49,6 +50,7 @@ export type HupConciliacaoCandidato = {
 
 export type HupConciliacaoItem = {
   chave: string;
+  descricoesItem?: string[];
   conta: string;
   guiaPrestador: string;
   guiaOperadora: string;
@@ -88,6 +90,7 @@ export type HupConciliacaoResumo = {
 
 type GrupoInterno = {
   ordem: number;
+  descricoes: Set<string>;
   conta: string;
   guiaPrestador: string;
   guiaOperadora: string;
@@ -203,6 +206,7 @@ function itemBase(grupo: GrupoInterno): Omit<HupConciliacaoItem, "status" | "mot
   return {
     // A chave é uma posição determinística do grupo, jamais origemRegistroId/hash.
     chave: `grupo-${grupo.ordem + 1}`,
+    descricoesItem: [...grupo.descricoes],
     conta: grupo.conta,
     guiaPrestador: grupo.guiaPrestador,
     guiaOperadora: grupo.guiaOperadora,
@@ -227,6 +231,7 @@ export function compararSnapshotHup(
     const existente = porGrupo.get(key);
     if (existente) {
       existente.totalItens += 1;
+      if (text(item.descricaoItem)) existente.descricoes.add(text(item.descricaoItem));
       existente.quantidade = existente.quantidade.plus(decimal(item.quantidade));
       existente.valorFaturado = existente.valorFaturado.plus(decimal(item.valorFaturado));
       existente.mapeamentoAmbiguo ||= Boolean(item.mapeamentoAmbiguo);
@@ -234,6 +239,7 @@ export function compararSnapshotHup(
     }
     porGrupo.set(key, {
       ordem: porGrupo.size,
+      descricoes: new Set(text(item.descricaoItem) ? [text(item.descricaoItem)] : []),
       conta: text(item.conta),
       guiaPrestador: text(item.guiaPrestador),
       guiaOperadora: text(item.guiaOperadora),
