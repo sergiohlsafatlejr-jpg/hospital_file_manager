@@ -31,22 +31,24 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { getConciliacaoStatusLabel } from "@/lib/conciliacaoStatus";
 import HupConciliacaoPiloto from "@/components/HupConciliacaoPiloto";
 
+type RecorteBancoInicial = { competencia?: string; convenioId?: number };
+
 export default function ConciliacaoCruzada() {
   const { estabelecimentoAtual, temAcessoModuloNoEstabelecimento } = useEstabelecimento();
-  const [pilotoAberto, setPilotoAberto] = useState(false);
+  const [recorteBanco, setRecorteBanco] = useState<RecorteBancoInicial | null>(null);
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
-  const pilotoDisponivel = estabelecimentoId === 1260036
+  const bancoDisponivel = estabelecimentoId === 1260036
     && temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId);
-  useEffect(() => { setPilotoAberto(false); }, [estabelecimentoId]);
-  if (pilotoAberto && pilotoDisponivel) {
+  useEffect(() => { setRecorteBanco(null); }, [estabelecimentoId]);
+  if (recorteBanco && bancoDisponivel) {
     return <DashboardLayout><HupConciliacaoPiloto key={estabelecimentoId}
       estabelecimentoId={estabelecimentoId} nome={estabelecimentoAtual?.nome || "Hospital Urológico"}
-      onVoltar={() => setPilotoAberto(false)} /></DashboardLayout>;
+      recorteInicial={recorteBanco} onVoltar={() => setRecorteBanco(null)} /></DashboardLayout>;
   }
-  return <ConciliacaoCruzadaAtual onAbrirPiloto={pilotoDisponivel ? () => setPilotoAberto(true) : undefined} />;
+  return <ConciliacaoCruzadaAtual onBuscarBanco={bancoDisponivel ? setRecorteBanco : undefined} />;
 }
 
-function ConciliacaoCruzadaAtual({ onAbrirPiloto }: { onAbrirPiloto?: () => void }) {
+function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: RecorteBancoInicial) => void }) {
   const { user } = useAuth();
   const {
     estabelecimentos,
@@ -827,10 +829,6 @@ function ConciliacaoCruzadaAtual({ onAbrirPiloto }: { onAbrirPiloto?: () => void
             <p className="text-muted-foreground text-sm sm:text-base">Cruzamento do faturamento com recebimentos</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {onAbrirPiloto && <Button variant="outline" onClick={onAbrirPiloto}
-              disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}>
-              <Eye className="w-4 h-4 mr-2" />Piloto Banco — somente leitura
-            </Button>}
             <Button 
               variant="outline" 
               onClick={() => popularTudo.mutate({ estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined })}
@@ -839,6 +837,12 @@ function ConciliacaoCruzadaAtual({ onAbrirPiloto }: { onAbrirPiloto?: () => void
               {popularTudo.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
               Popular Dados
             </Button>
+            {onBuscarBanco && <Button variant="outline"
+              onClick={() => onBuscarBanco({ competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum })}
+              title="Exibir guias e contas do snapshot Banco publicado, sem gravar conciliações"
+              disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}>
+              <Database className="w-4 h-4 mr-2" />Buscar dados do banco
+            </Button>}
             <Button 
               className="bg-primary hover:bg-primary/90"
               onClick={executarConciliacaoAutomatica}
