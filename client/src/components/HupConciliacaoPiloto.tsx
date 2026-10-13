@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import ConciliacaoGuiasTabela, {
   type ConciliacaoGuiaTabelaRow,
 } from "./ConciliacaoGuiasTabela";
 import HupComparativoGuiaDetalhes from "./HupComparativoGuiaDetalhes";
+import { paginaBancoValida } from "@/lib/conciliacaoBancoContexto";
 
 export type HupConciliacaoBancoStatus =
   | "todos"
@@ -27,6 +28,8 @@ export type HupConciliacaoPilotoProps = {
   status?: HupConciliacaoBancoStatus | null;
   busca?: string;
   mesPagamento?: string;
+  pagina?: number;
+  onPaginaChange?: (pagina: number) => void;
   /** Parent-owned refresh trigger. A positive value after mount refetches safely. */
   atualizacao?: number;
 };
@@ -138,7 +141,8 @@ function linhaBanco(
     lote: null,
     protocolo: null,
     totalItens: guia.totalItens,
-    valorFaturado: guia.valorFaturado,
+    // Receber=N é médico direto: visível para revisão, fora do faturado hospitalar.
+    valorFaturado: guia.valorFaturadoHospital,
     valorRecebido: guia.valorPagoCandidato,
     valorGlosado: guia.valorGlosaCandidata,
     valorAcrescimo: acrescimoSeguro(guia),
@@ -169,9 +173,17 @@ export default function HupConciliacaoPiloto({
   status = "todos",
   busca,
   mesPagamento,
+  pagina,
+  onPaginaChange,
   atualizacao,
 }: HupConciliacaoPilotoProps) {
-  const [page, setPage] = useState(1);
+  const [paginaInterna, setPaginaInterna] = useState(() => paginaBancoValida(pagina));
+  const page = paginaBancoValida(pagina ?? paginaInterna);
+  const setPage = useCallback((proxima: number) => {
+    const valida = paginaBancoValida(proxima);
+    setPaginaInterna(valida);
+    onPaginaChange?.(valida);
+  }, [onPaginaChange]);
   const [selecionada, setSelecionada] = useState<Selecionada | null>(null);
   const statusAplicado = status ?? "todos";
   const competenciaOk = competenciaValida(competencia);
@@ -241,12 +253,13 @@ export default function HupConciliacaoPiloto({
       staleTime: 0,
     });
 
-  // A changed parent filter always returns to the first API page. The sourceKey
-  // guard below hides a prior guide synchronously before this effect commits.
+  // Restaurar não é mudar filtro. Só um recorte novo volta à primeira página.
+  const filtrosAnteriores = useRef(filtrosKey);
   useEffect(() => {
-    setPage(1);
+    if (filtrosAnteriores.current !== filtrosKey) setPage(1);
+    filtrosAnteriores.current = filtrosKey;
     setSelecionada(null);
-  }, [filtrosKey]);
+  }, [filtrosKey, setPage]);
 
   useEffect(() => {
     if (isFetching || error || !enabled) setSelecionada(null);
@@ -278,6 +291,10 @@ export default function HupConciliacaoPiloto({
     [result]
   );
   const totalPaginas = Math.max(1, Math.ceil((result?.total ?? 0) / 50));
+  useEffect(() => {
+    // O snapshot pode diminuir enquanto a pessoa está fora da página.
+    if (result?.status === "ok" && page > totalPaginas) setPage(totalPaginas);
+  }, [result, page, totalPaginas, setPage]);
   const selecionadaAtual =
     selecionada?.sourceKey === selecaoSourceKey ? selecionada : null;
 
@@ -426,7 +443,7 @@ export default function HupConciliacaoPiloto({
             disabled={page <= 1}
             onClick={() => {
               setSelecionada(null);
-              setPage(value => value - 1);
+              setPage(page - 1);
             }}
           >
             Anterior
@@ -437,7 +454,7 @@ export default function HupConciliacaoPiloto({
             disabled={page >= totalPaginas}
             onClick={() => {
               setSelecionada(null);
-              setPage(value => value + 1);
+              setPage(page + 1);
             }}
           >
             Próxima

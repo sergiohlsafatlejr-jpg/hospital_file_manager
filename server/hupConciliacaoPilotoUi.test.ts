@@ -8,7 +8,7 @@ const page = readFileSync(new URL("../client/src/pages/ConciliacaoCruzada.tsx", 
 
 describe("Banco HUP no visual da Conciliação Cruzada existente", () => {
   it("mantém uma página e um único cabeçalho com os filtros originais", () => {
-    expect(page).toContain('return <ConciliacaoCruzadaAtual />');
+    expect(page).toContain('return <ConciliacaoCruzadaAtual key=');
     expect(page).not.toContain('recorteBanco');
     expect(page).toContain('fonteDados === "banco" && bancoDisponivel');
     expect(page).toContain('estabelecimentoId === 1260036');
@@ -85,5 +85,28 @@ describe("Banco HUP no visual da Conciliação Cruzada existente", () => {
     expect(table).toContain('row.paciente || "—"');
     expect(table).toContain('row.lote || "—"');
     expect(table).toContain('row.protocolo || "—"');
+  });
+  it("restaura a fonte por usuário/unidade sem resetar Banco em todo mount", () => {
+    expect(page).toContain('chaveContextoConciliacao(user?.id, estabelecimentoId)');
+    expect(page).toContain('lerFonteConciliacao(contextoKey, bancoDisponivel)');
+    expect(page).toContain('lerContextoBanco(contextoKey)');
+    expect(page).toContain('salvarContextoBanco(contextoKey');
+    expect(page).not.toContain('useEffect(() => { setFonteDados("base"); }');
+    expect(page).toContain('if (bancoDisponivel) salvarFonteConciliacao(contextoKey, fonteDados)');
+    expect(page).not.toContain('salvarFonteConciliacao(contextoKey, fonteBanco ? "banco" : "base")');
+    expect(page).toContain('pagina={paginaBanco} onPaginaChange={setPaginaBanco}');
+  });
+  it("aguarda opções da unidade e não reinicia a página restaurada ao montar", () => {
+    expect(page).toContain(': opcoesBanco ? <HupConciliacaoPiloto');
+    expect(ui).toContain('useRef(filtrosKey)');
+    expect(ui).toContain('if (filtrosAnteriores.current !== filtrosKey) setPage(1)');
+    expect(ui).toContain('page > totalPaginas');
+  });
+  it("a coluna Faturado usa o subtotal hospitalar e nunca soma médico direto", () => {
+    expect(ui).toContain('valorFaturado: guia.valorFaturadoHospital');
+    expect(ui).not.toContain('valorFaturado: guia.valorFaturado,');
+    expect(detalhes).toContain('item.modalidade === "S" ? item.valorFaturado : null');
+    expect(detalhes).toContain('Médico direto: excluído do faturado hospitalar');
+    expect(detalhes).toContain('formatPilotoMoney(guia.valorFaturadoHospital)');
   });
 });

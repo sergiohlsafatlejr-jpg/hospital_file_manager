@@ -130,8 +130,9 @@ export default function HupComparativoGuiaDetalhes({
           <strong>{formatPilotoMoney(guia.diferencaGuia)}</strong>
         </span>
         <span className="basis-full text-xs text-muted-foreground">
-          Valores candidatos; vínculos não gravados. “—” é desconhecido, não
-          zero.
+          Valores candidatos; vínculos não gravados. Médico direto não compõe
+          o faturado hospitalar. Nos valores do retorno, “—” é não informado,
+          não zero.
         </span>
       </div>
 
@@ -200,7 +201,9 @@ export default function HupComparativoGuiaDetalhes({
                       {item.quantidade || "—"}
                     </td>
                     <td className="p-3 text-right whitespace-nowrap text-blue-600 tabular-nums">
-                      {formatPilotoMoney(item.valorFaturado)}
+                      <span title={item.modalidade === "N" ? "Médico direto: excluído do faturado hospitalar" : "Faturado via hospital (receber S)"}>
+                        {formatPilotoMoney(item.modalidade === "S" ? item.valorFaturado : null)}
+                      </span>
                     </td>
                     <td
                       className="p-3 text-right whitespace-nowrap text-green-600 tabular-nums"
