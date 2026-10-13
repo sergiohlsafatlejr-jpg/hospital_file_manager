@@ -106,6 +106,32 @@ describe("agruparGuiasHup", () => {
     });
   });
 
+  it("calcula subtotal hospitalar somente para candidato único com data provada, sem compor médico direto", () => {
+    const [guia] = agruparGuiasHup([
+      item({
+        status: "candidato", numeroCandidatos: 1, valorFaturado: "100.25", valorPagoCandidato: "90.00", valorGlosaCandidata: "5.25",
+        candidatos: [{ guia: "OP123", codigoTuss: "000456", dataItem: "2026-08-25", dataPagamento: "2026-09-01", valorPago: "90.00", valorGlosa: "5.25" }],
+      }),
+      item({ chave: "grupo-2", modalidade: "N", valorFaturado: "999.00" }),
+    ]);
+    expect(guia).toMatchObject({
+      gruposHospitalares: 1,
+      gruposComparaveis: 1,
+      valorFaturadoComparavel: "100.25",
+      diferencaComparavel: "5.00",
+      comparacaoCompleta: true,
+      diferencaGuia: "5.00",
+    });
+  });
+
+  it("não publica diferença de guia parcial quando qualquer grupo hospitalar não é comparável", () => {
+    const [guia] = agruparGuiasHup([
+      item({ status: "candidato", numeroCandidatos: 1, valorPagoCandidato: "90", valorGlosaCandidata: "5", candidatos: [{ guia: "OP123", codigoTuss: "000456", dataItem: "2026-08-25", dataPagamento: null, valorPago: "90", valorGlosa: "5" }] }),
+      item({ chave: "grupo-2", codigoTuss: "002", status: "sem_candidato", valorFaturado: "20" }),
+    ]);
+    expect(guia).toMatchObject({ gruposComparaveis: 1, comparacaoCompleta: false, diferencaComparavel: "5.00", diferencaGuia: null });
+  });
+
   it("guarda no máximo cem detalhes com flag mas nunca trunca totais", () => {
     const [guia] = agruparGuiasHup(Array.from({ length: 101 }, (_, index) => item({ chave: `grupo-${index + 1}`, totalItens: 2, valorFaturado: "1" })));
     expect(guia).toMatchObject({ totalItens: 202, totalGrupos: 101, valorFaturado: "101.00", detalhesLimitados: true });

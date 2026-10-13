@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./db",()=>({getRawPool:vi.fn()}));
 import {getRawPool} from "./db";
-import {compararHupPiloto,guiasHupPiloto,opcoesHupPiloto,resolverConveniosPiloto,HUP_PILOTO_LIMITE} from "./hupConciliacaoPilotoService";
+import {compararHupPiloto,guiasHupPiloto,itensGuiaHupPiloto,opcoesHupPiloto,resolverConveniosPiloto,resumirComparativoGuias,HUP_PILOTO_LIMITE} from "./hupConciliacaoPilotoService";
 const input={estabelecimentoId:1260036,competencia:"2026/08",convenioId:1};
 const raw={conta:"C1",guiaPrestador:"G1",guiaOperadora:"",codigoTuss:"000123",dataItem:"2026-08-25",tipoItem:"1",setor:"Sala",modalidade:"S",quantidade:"1",valorFaturado:"100.00",nomeConvenio:"Convênio teste",codigoConvenio:"001"};
 const mapping={convenioId:1,nome:"Convênio teste",codigo:"001",nomeCanonico:"Convênio teste"};
@@ -40,7 +40,17 @@ describe("serviço HUP estritamente leitura",()=>{
 	  {...raw,conta:"0001",guiaPrestador:"G1",guiaOperadora:"O1",codigoTuss:"0002",valorFaturado:"20.00"},
 	  {...raw,conta:"0002",guiaPrestador:"G2",guiaOperadora:"O2",codigoTuss:"0003",valorFaturado:"30.00"},
 	 ]});const r=await guiasHupPiloto({...input,page:2,pageSize:1,busca:""});expect(r).toMatchObject({status:"ok",total:2,resumo:{totalItens:3,totalGrupos:3,totalGuias:2,valorFaturadoHospital:"60.00"}});expect(r.items).toHaveLength(1);expect(r.items[0]).toMatchObject({conta:"0002",totalGrupos:1,totalItens:1,valorFaturado:"30.00"});setup({rows:[raw]});const f=await guiasHupPiloto({...input,status:"sem_candidato"});expect(f.total).toBe(1);expect(f.resumo).toMatchObject({totalItens:1,totalGuias:1});});
- it("sanitize erros e libera conexão mesmo após falha",async()=>{const c=setup({fail:true});await expect(compararHupPiloto(input)).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR",message:"Não foi possível concluir a leitura do piloto. Nenhuma conciliação foi gravada."});expect(c.rollback).toHaveBeenCalled();expect(c.release).toHaveBeenCalled();});
+	 it("comparativo de guias permanece global antes do filtro e só soma candidatos exclusivos",async()=>{setup({rows:[
+	  {...raw,conta:"C1",guiaPrestador:"G1",guiaOperadora:"O1",codigoTuss:"001",valorFaturado:"100"},
+	  {...raw,conta:"C2",guiaPrestador:"G2",guiaOperadora:"O2",codigoTuss:"002",valorFaturado:"20"},
+	 ],events:[
+	  {id:"1",arquivoId:"1",guia:"G1",codigoTuss:"001",dataItem:"2026-08-25",dataPagamento:"2026-09-01",valorPago:"90",valorGlosa:"5"},
+	  {id:"2",arquivoId:"1",guia:"G2",codigoTuss:"002",dataItem:"2026-08-25",dataPagamento:"2026-09-01",valorPago:"15",valorGlosa:"1"},
+	 ]});const r=await guiasHupPiloto({...input,status:"candidato",busca:"C1"});expect(r.total).toBe(1);expect(r.comparativo).toMatchObject({totalGuias:2,totalGruposHospitalares:2,gruposComparaveis:2,guiasComparaveis:2,valorFaturadoComparavel:"120.00",valorPagoCandidato:"105.00",valorGlosaCandidata:"6.00",diferencaComparavel:"9.00",gruposComPago:2,gruposComGlosa:2});});
+	 it("itens de guia pagina todos os grupos, não o limite visual de cem",async()=>{setup({rows:Array.from({length:101},(_,i)=>({...raw,conta:"C1",guiaPrestador:"G1",guiaOperadora:"O1",codigoTuss:String(i).padStart(4,"0")}))});const r=await itensGuiaHupPiloto({...input,guiaChave:"guia-1",conta:"C1",guiaPrestador:"G1",guiaOperadora:"O1",page:2,pageSize:50});expect(r).toMatchObject({status:"ok",total:101,guia:{conta:"C1",totalGrupos:101}});expect(r.items).toHaveLength(50);expect(r.items[0]?.codigoTuss).toBe("0050");expect("itens" in (r.guia??{})).toBe(false);});
+	 it("itens de guia usa a tupla pública, não a posição que pode mudar no snapshot",async()=>{setup({rows:[{...raw,conta:"C1",guiaPrestador:"G1",guiaOperadora:"O1"},{...raw,conta:"C2",guiaPrestador:"G2",guiaOperadora:"O2",codigoTuss:"002"}]});const r=await itensGuiaHupPiloto({...input,guiaChave:"guia-1",conta:"C2",guiaPrestador:"G2",guiaOperadora:"O2"});expect(r.guia).toMatchObject({chave:"guia-2",conta:"C2"});});
+	 it("itens de guia falha fechado para tupla incompleta repetida",async()=>{setup({rows:[{...raw,conta:"C1",guiaPrestador:"0",guiaOperadora:"O1"},{...raw,conta:"C1",guiaPrestador:"0",guiaOperadora:"O1",codigoTuss:"002"}]});await expect(itensGuiaHupPiloto({...input,guiaChave:"guia-1",conta:"C1",guiaPrestador:"0",guiaOperadora:"O1"})).rejects.toMatchObject({code:"CONFLICT",message:"Identificadores insuficientes para abrir esta guia com segurança."});});
+	 it("sanitize erros e libera conexão mesmo após falha",async()=>{const c=setup({fail:true});await expect(compararHupPiloto(input)).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR",message:"Não foi possível concluir a leitura do piloto. Nenhuma conciliação foi gravada."});expect(c.rollback).toHaveBeenCalled();expect(c.release).toHaveBeenCalled();});
  it("não reutiliza conexão quando rollback falha",async()=>{const c=setup({fail:true});c.rollback.mockRejectedValue(Error("falha"));await expect(compararHupPiloto(input)).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});expect(c.destroy).toHaveBeenCalled();expect(c.release).not.toHaveBeenCalled();});
  it("timeout destrói a conexão em vez de devolvê-la ao pool",async()=>{const c=setup({timeout:true});await expect(compararHupPiloto(input)).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});expect(c.destroy).toHaveBeenCalled();expect(c.release).not.toHaveBeenCalled();});
  it("convênio de outra unidade é rejeitado",async()=>{setup({cv:false});await expect(compararHupPiloto(input)).rejects.toMatchObject({code:"BAD_REQUEST"});});
