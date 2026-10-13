@@ -178,6 +178,9 @@ export default function HupComparativoGuiaDetalhes({
                   <tr className="border-b align-top hover:bg-muted/50">
                     <td className="p-3 font-medium">
                       {item.codigoTuss || "—"}
+                      <span className="mt-1 block max-w-[280px] text-xs font-normal text-muted-foreground" aria-label="Nome do item">
+                        {item.descricoesItem?.length ? item.descricoesItem.join(" / ") : "Nome não informado"}
+                      </span>
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       {formatWarleineItemCivilDate(item.dataItem)}

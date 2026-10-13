@@ -167,7 +167,7 @@ async function carregarComparacaoCompleta(c: PoolConnection, input: HupPilotoInp
   const maps = await lerMapas(c, input.estabelecimentoId);
   const [rows] = await select(c, `SELECT i.numeroConta conta,i.guiaPrestador,i.guiaOperadora,i.codigoTuss,
       i.convenioFaturadoNome nomeConvenio,i.convenioFaturadoCodigo codigoConvenio,
-      i.dataAberturaConta dataItem,i.codigoTipoServico tipoItem,i.setorNome setor,
+      i.dataAberturaConta dataItem,i.codigoTipoServico tipoItem,i.setorNome setor,i.servicoNome descricaoItem,
       i.recebimentoViaHospital modalidade,CAST(i.quantidade AS CHAR) quantidade,CAST(i.valorFaturado AS CHAR) valorFaturado
       ${SNAPSHOT} AND i.competencia=? ORDER BY i.id LIMIT ?`, [input.estabelecimentoId, input.competencia, HUP_PILOTO_LIMITE + 1]);
   if (!rows.length) return vazio("sem_snapshot", "Não há snapshot Hop publicado para a competência selecionada.");
@@ -197,6 +197,7 @@ async function carregarComparacaoCompleta(c: PoolConnection, input: HupPilotoInp
     codigoTuss: texto(r.codigoTuss),
     dataItem: dataCivilPiloto(r.dataItem),
     tipoItem: texto(r.tipoItem),
+    descricaoItem: texto(r.descricaoItem),
     setor: texto(r.setor),
     modalidade: texto(r.modalidade).toUpperCase(),
     quantidade: texto(r.quantidade),
