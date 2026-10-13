@@ -29,8 +29,24 @@ import {
 import * as XLSX from "xlsx";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { getConciliacaoStatusLabel } from "@/lib/conciliacaoStatus";
+import HupConciliacaoPiloto from "@/components/HupConciliacaoPiloto";
 
 export default function ConciliacaoCruzada() {
+  const { estabelecimentoAtual, temAcessoModuloNoEstabelecimento } = useEstabelecimento();
+  const [pilotoAberto, setPilotoAberto] = useState(false);
+  const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const pilotoDisponivel = estabelecimentoId === 1260036
+    && temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId);
+  useEffect(() => { setPilotoAberto(false); }, [estabelecimentoId]);
+  if (pilotoAberto && pilotoDisponivel) {
+    return <DashboardLayout><HupConciliacaoPiloto key={estabelecimentoId}
+      estabelecimentoId={estabelecimentoId} nome={estabelecimentoAtual?.nome || "Hospital Urológico"}
+      onVoltar={() => setPilotoAberto(false)} /></DashboardLayout>;
+  }
+  return <ConciliacaoCruzadaAtual onAbrirPiloto={pilotoDisponivel ? () => setPilotoAberto(true) : undefined} />;
+}
+
+function ConciliacaoCruzadaAtual({ onAbrirPiloto }: { onAbrirPiloto?: () => void }) {
   const { user } = useAuth();
   const {
     estabelecimentos,
@@ -811,6 +827,10 @@ export default function ConciliacaoCruzada() {
             <p className="text-muted-foreground text-sm sm:text-base">Cruzamento do faturamento com recebimentos</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            {onAbrirPiloto && <Button variant="outline" onClick={onAbrirPiloto}
+              disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}>
+              <Eye className="w-4 h-4 mr-2" />Piloto Banco — somente leitura
+            </Button>}
             <Button 
               variant="outline" 
               onClick={() => popularTudo.mutate({ estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined })}
