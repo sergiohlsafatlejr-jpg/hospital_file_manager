@@ -23,6 +23,7 @@ import { padroesCobrancaRouter } from "./routers/padroesCobrancaRouter";
 import { integradorDadosRouter } from "./routers/integradorDadosRouter";
 import { easyLocalRouter } from "./routers/easyLocalRouter";
 import { faturamentoUnificadoRouter } from "./routers/faturamentoUnificadoRouter";
+import { hupConciliacaoPilotoRouter } from "./routers/hupConciliacaoPilotoRouter";
 import { contasConvenioRouter } from "./routers/contasConvenioRouter";
 import { cbhpmRouter } from "./routers/cbhpmRouter";
 import { auditoriaRouter } from "./routers/auditoriaRouter";
@@ -8910,6 +8911,7 @@ export const appRouter = router({
 
   // ============ FATURAMENTO UNIFICADO & CONCILIAÇÃO CRUZADA ============
   faturamentoUnificado: faturamentoUnificadoRouter,
+  hupConciliacaoPiloto: hupConciliacaoPilotoRouter,
 
   // ============ CBHPM & TABELAS DE PORTE ============
   cbhpm: cbhpmRouter,
