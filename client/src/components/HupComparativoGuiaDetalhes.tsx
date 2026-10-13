@@ -192,7 +192,17 @@ export default function HupComparativoGuiaDetalhes({
                       </span>
                     </td>
                     <td className="p-3">{item.tipoItem || "—"}</td>
-                    <td className="p-3">{item.setor || "—"}</td>
+                    <td className="p-3">
+                      {item.consolidadoPorSetor && item.composicaoSetores ? (
+                        <details aria-label="Composição do item por setor">
+                          <summary className="cursor-pointer">{item.composicaoSetores.length} setores · item consolidado</summary>
+                          <div className="mt-2 space-y-1 text-xs">
+                            {item.composicaoSetores.map(c => <p key={c.setor}>{c.setor || "Setor não informado"} · qtd. {c.quantidade} · faturado {formatPilotoMoney(c.valorFaturado)}</p>)}
+                            <p className="text-muted-foreground">Pagamento único do grupo, sem rateio por setor.</p>
+                          </div>
+                        </details>
+                      ) : item.setor || "—"}
+                    </td>
                     <td className="p-3">
                       {item.modalidade === "N"
                         ? "Médico direto"

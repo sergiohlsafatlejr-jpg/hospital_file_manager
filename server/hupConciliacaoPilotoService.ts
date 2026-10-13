@@ -28,6 +28,7 @@ const MAPS = `SELECT m.convenioId,m.nome_origem nome,m.codigo_origem codigo,cv.n
  AND (cv.estabelecimentoId IS NULL OR cv.estabelecimentoId=m.estabelecimentoId)
  WHERE m.estabelecimentoId=? AND m.ativo='sim' AND m.metodo_match='manual' ORDER BY m.id LIMIT 5001`;
 const texto = (v: unknown) => String(v ?? "").trim();
+export const usaConsolidacaoUnimed = (nome: string) => /^UNIMED(?:\s|$)/i.test(nome.trim());
 const compValida = (value: string, separator: string) => new RegExp(`^(19|20|21|22)\\d{2}${separator}(0[1-9]|1[0-2])$`).test(value);
 
 export function exigirHupPiloto(estabelecimentoId: number) {
@@ -185,7 +186,7 @@ async function carregarComparacaoCompleta(c: PoolConnection, input: HupPilotoInp
   params.push(HUP_PILOTO_LIMITE + 1);
   const [events] = await select(c, `SELECT d.id,d.arquivo_id arquivoId,d.numero_guia guia,d.codigo_item codigoTuss,
       DATE_FORMAT(d.data_execucao,'%Y-%m-%d') dataItem,DATE_FORMAT(d.data_pagamento,'%Y-%m-%d') dataPagamento,
-      CAST(d.valor_pago AS CHAR) valorPago,CAST(d.valor_glosa AS CHAR) valorGlosa
+      CAST(d.valor_pago AS CHAR) valorPago,CAST(d.valor_glosa AS CHAR) valorGlosa,CAST(d.quantidade AS CHAR) quantidade
       FROM demonstrativo d INNER JOIN arquivos a ON a.id=d.arquivo_id AND a.estabelecimentoId=d.estabelecimentoId
       AND a.convenioId=d.convenio_id AND a.status='processado'
       WHERE d.estabelecimentoId=? AND d.convenio_id=?${paymentClause} ORDER BY d.id LIMIT ?`, params);
@@ -212,12 +213,13 @@ async function carregarComparacaoCompleta(c: PoolConnection, input: HupPilotoInp
     dataPagamento: dataCivilPiloto(r.dataPagamento),
     valorPago: r.valorPago == null ? null : texto(r.valorPago),
     valorGlosa: r.valorGlosa == null ? null : texto(r.valorGlosa),
+    quantidade: r.quantidade == null ? null : texto(r.quantidade),
   }));
   return {
     base,
     status: "ok",
     aviso: `Comparação de leitura, sem vínculo confirmado. De-para manual inequívoco; ${conflitos} item(ns) excluído(s) por conflito de convênio. Totais de pagamento pertencem ao recorte dos demonstrativos, não à competência faturada.`,
-    compared: compararSnapshotHup(snapshot, pagamentos),
+    compared: compararSnapshotHup(snapshot, pagamentos, { consolidarSetores: usaConsolidacaoUnimed(base.convenioNome) }),
   };
 }
 
