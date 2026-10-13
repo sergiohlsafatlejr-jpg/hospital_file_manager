@@ -1,0 +1,14 @@
+import { it,expect } from "vitest";
+import { avaliarConsolidacaoSetores,type ItemSetorBanco,type EventoConsolidadoBanco } from "./bancoConsolidacaoSetores";
+const i:ItemSetorBanco={id:1,estabelecimentoId:1260036,convenioId:7,competencia:"2026/08",conta:"CONTA-TESTE",guia:"GUIA-TESTE",codigoTuss:"123",dataItem:"2026-08-01",tipoItem:"MAT",setor:"A",receber:"S",quantidade:"1",valorFaturado:"10"};
+const j={...i,id:2,setor:"B",quantidade:"2",valorFaturado:"20"};
+const e:EventoConsolidadoBanco={id:4,estabelecimentoId:1260036,convenioId:7,guia:"GUIA-TESTE",codigoTuss:"123",dataItem:"2026-08-01",quantidade:"3",valorInformado:"30",valorPago:"25",valorGlosa:"5"};
+it("compara um retorno à soma dos dois setores preservando composição",()=>{const r=avaliarConsolidacaoSetores([i,j],[e])[0];expect(r.status).toBe("consolidado_para_revisao");expect(r.valorPagoConsolidado).toBe("25.0000");expect(r.diferencaConsolidada).toBe("0.0000");expect(r.rateioPagamento).toBeNull();expect(r.valoresPorSetor).toHaveLength(2);});
+it("não mistura contas nem modalidades S/N",()=>{expect(avaliarConsolidacaoSetores([i,{...j,conta:"OUTRA"}],[e])[0].status).toBe("bloqueado");expect(avaliarConsolidacaoSetores([i,{...j,receber:"N"}],[e])[0].status).toBe("bloqueado");});
+it("não mistura competências ou tipos",()=>{expect(avaliarConsolidacaoSetores([i,{...j,competencia:"2026/09"}],[e])[0].status).toBe("bloqueado");expect(avaliarConsolidacaoSetores([i,{...j,tipoItem:"MED"}],[e])[0].status).toBe("bloqueado");});
+it("exige data, quantidade e valor informado como prova",()=>{for(const change of [{dataItem:null},{quantidade:null},{quantidade:"4"},{valorInformado:"29"}])expect(avaliarConsolidacaoSetores([i,j],[{...e,...change}])[0].status).toBe("bloqueado");});
+it("não soma múltiplos retornos",()=>expect(avaliarConsolidacaoSetores([i,j],[e,{...e,id:5}])[0].status).toBe("bloqueado"));
+it("não converte glosa ausente para zero",()=>expect(avaliarConsolidacaoSetores([i,j],[{...e,valorGlosa:null}])[0].diferencaConsolidada).toBeNull());
+it("preserva escala exata e mantém diferença como não confirmado",()=>{const r=avaliarConsolidacaoSetores([i,j],[{...e,valorPago:"24.9999"}])[0];expect(r.diferencaConsolidada).toBe("0.0001");expect(r.somenteLeitura).toBe(true);});
+it("não duplica IDs de itens",()=>expect(avaliarConsolidacaoSetores([i,i],[e])[0].bloqueios).toContain("item_duplicado"));
+it("isolamento de unidade e convênio",()=>{expect(avaliarConsolidacaoSetores([i,j],[{...e,estabelecimentoId:2}])[0].status).toBe("bloqueado");expect(avaliarConsolidacaoSetores([i,j],[{...e,convenioId:9}])[0].status).toBe("bloqueado");});

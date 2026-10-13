@@ -1,0 +1,15 @@
+import {it,expect} from "vitest";
+import {prepararGrupoBanco,type ItemGrupoBanco,type EventoGrupoBanco} from "./bancoConfirmacaoGrupo";
+const a:ItemGrupoBanco={id:1,loteId:8,estabelecimentoId:1260036,convenioId:7,competencia:"2026/08",origemRegistroId:"hop_hup:teste:1",conta:"CONTA-TESTE",guiaPrestador:"GUIA-TESTE",guiaOperadora:null,codigoTuss:"123",dataItem:"2026-08-01",receber:"S",quantidade:"1",valorFaturado:"10",tipoItem:"MAT",setor:"A"};
+const b={...a,id:2,setor:"B",origemRegistroId:"hop_hup:teste:2",quantidade:"2",valorFaturado:"20"};
+const e:EventoGrupoBanco={id:5,arquivoId:10,estabelecimentoId:1260036,convenioId:7,arquivoProcessado:true,guia:"GUIA-TESTE",codigoTuss:"123",dataItem:"2026-08-01",codigoPrestador:"1234",loteRetorno:"LOTE-TESTE",protocoloRetorno:"PROTOCOLO-TESTE",dataPagamento:"2026-09-01",valorPago:"25",valorGlosa:"5",codigoGlosa:"123",quantidade:"3",valorInformado:"30"};
+const p=()=>({membros:[a,b],evento:e,itensDoRecorte:[a,b],eventosDoRecorte:[e],itensJaVinculados:[],eventosJaVinculados:[],prestadoresAutorizados:["1234"],confirmadoPor:9,revisado:true});
+it("um retorno confirmado para dois setores sem rateio",()=>{const r=prepararGrupoBanco(p());expect(r.itemIds).toEqual([1,2]);expect(r.totalItens).toBe(2);expect(r.valorPago).toBe("25.0000");expect(r.valorFaturadoGrupo).toBe("30.0000");expect(r.diferenca).toBe("0.0000");expect(r).not.toHaveProperty("valoresPagoPorItem");});
+it("identidade do grupo não depende da ordem visual",()=>expect(prepararGrupoBanco(p()).grupoFingerprint).toBe(prepararGrupoBanco({...p(),membros:[b,a]}).grupoFingerprint));
+it("não aceita grupo parcial",()=>expect(()=>prepararGrupoBanco({...p(),membros:[a]})).toThrow("GRUPO_INCOMPLETO"));
+it("não reutiliza membro já confirmado",()=>expect(()=>prepararGrupoBanco({...p(),itensJaVinculados:[2]})).toThrow("MEMBRO_JA"));
+it("não aceita lotes fonte diferentes",()=>expect(()=>prepararGrupoBanco({...p(),membros:[a,{...b,loteId:9}],itensDoRecorte:[a,{...b,loteId:9}]})).toThrow("LOTES"));
+it("glosa ausente não é preenchida para fechar o grupo",()=>expect(()=>prepararGrupoBanco({...p(),evento:{...e,valorGlosa:null},eventosDoRecorte:[{...e,valorGlosa:null}]})).toThrow("PROVA"));
+it("não escolhe um entre múltiplos retornos",()=>expect(()=>prepararGrupoBanco({...p(),eventosDoRecorte:[e,{...e,id:6}]})).toThrow("PROVA"));
+it("não confirma sem revisão",()=>expect(()=>prepararGrupoBanco({...p(),revisado:false})).toThrow("REVISAO"));
+it("valida a origem de todos os membros",()=>{const invalido={...b,origemRegistroId:"outro_sistema:2"};expect(()=>prepararGrupoBanco({...p(),membros:[a,invalido],itensDoRecorte:[a,invalido]})).toThrow("MEMBRO_FONTE");});

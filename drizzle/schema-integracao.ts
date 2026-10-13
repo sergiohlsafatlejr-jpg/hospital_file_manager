@@ -1627,3 +1627,5 @@ export const stagingFaturadoRecebidoIad = mysqlTable(
     estabelecimentos_id: varchar("estabelecimentos_id", { length: 100 }),
   },
 );
+
+export * from "./schema-banco";
