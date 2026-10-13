@@ -1,5 +1,8 @@
 # Conciliação Banco — comparativo explícito por guia e item
 
+> **Revisão visual de 13/10/2026:** Sergio rejeitou a apresentação inicial. A PR #71 agora reutiliza a própria página, filtros fixos e tabela da Conciliação Cruzada, com detalhes inline. A descrição visual anterior abaixo é histórica; o funcionamento atual está em [Visual original da Conciliação Cruzada](conciliacao-banco-visual-original.md). As regras financeiras e os diagnósticos de dados continuam válidos.
+
+
 ## Por que a tela anterior confundia
 
 Na versão da PR #70, competência filtrava o faturado do snapshot Hop publicado; mês do pagamento era opcional. Se vazio, os demonstrativos processados do mesmo convênio e estabelecimento eram consultados em todos os meses. Isso não misturava estabelecimentos, mas os dois indicadores superiores de pago e glosa somavam todos os eventos do recorte de pagamento, inclusive outras guias e competências. Eram contexto, não valor recebido das contas faturadas selecionadas.

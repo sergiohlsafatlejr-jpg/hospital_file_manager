@@ -30,25 +30,13 @@ import * as XLSX from "xlsx";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dateUtils";
 import { getConciliacaoStatusLabel } from "@/lib/conciliacaoStatus";
 import HupConciliacaoPiloto from "@/components/HupConciliacaoPiloto";
-
-type RecorteBancoInicial = { competencia?: string; convenioId?: number };
+import ConciliacaoGuiasTabela from "@/components/ConciliacaoGuiasTabela";
 
 export default function ConciliacaoCruzada() {
-  const { estabelecimentoAtual, temAcessoModuloNoEstabelecimento } = useEstabelecimento();
-  const [recorteBanco, setRecorteBanco] = useState<RecorteBancoInicial | null>(null);
-  const estabelecimentoId = estabelecimentoAtual?.id || 0;
-  const bancoDisponivel = estabelecimentoId === 1260036
-    && temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId);
-  useEffect(() => { setRecorteBanco(null); }, [estabelecimentoId]);
-  if (recorteBanco && bancoDisponivel) {
-    return <DashboardLayout><HupConciliacaoPiloto key={estabelecimentoId}
-      estabelecimentoId={estabelecimentoId} nome={estabelecimentoAtual?.nome || "Hospital Urológico"}
-      recorteInicial={recorteBanco} onVoltar={() => setRecorteBanco(null)} /></DashboardLayout>;
-  }
-  return <ConciliacaoCruzadaAtual onBuscarBanco={bancoDisponivel ? setRecorteBanco : undefined} />;
+  return <ConciliacaoCruzadaAtual />;
 }
 
-function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: RecorteBancoInicial) => void }) {
+function ConciliacaoCruzadaAtual() {
   const { user } = useAuth();
   const {
     estabelecimentos,
@@ -63,6 +51,16 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       temAcessoModuloNoEstabelecimento('conciliacaoContasPagas', estabelecimento.id)
     ),
     [estabelecimentos, temAcessoModuloNoEstabelecimento]
+  );
+
+  const [fonteDados, setFonteDados] = useState<"base" | "banco">("base");
+  const [atualizacaoBanco, setAtualizacaoBanco] = useState(0);
+  const bancoDisponivel = estabelecimentoId === 1260036
+    && temAcessoModuloNoEstabelecimento("conciliacaoContasPagas", estabelecimentoId);
+  const fonteBanco = fonteDados === "banco" && bancoDisponivel;
+  useEffect(() => { setFonteDados("base"); }, [estabelecimentoId, bancoDisponivel]);
+  const { data: opcoesBanco, isFetching: carregandoOpcoesBanco, error: erroOpcoesBanco, refetch: refetchOpcoesBanco } = trpc.hupConciliacaoPiloto.opcoes.useQuery(
+    { estabelecimentoId }, { enabled: fonteBanco, retry: false, staleTime: 0 },
   );
 
   // Aba ativa
@@ -91,6 +89,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   // hidratação, filtros de um hospital eram copiados para o seguinte e podiam
   // ocultar CASSI/Vivacom até o usuário limpar tudo manualmente.
   useEffect(() => {
+    if (fonteBanco) return;
     let filtros: any = null;
     try {
       const salvo = localStorage.getItem(storageKey);
@@ -111,12 +110,12 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
     setBusca("");
     setGuiaConciliadaSelecionada(null);
     setFiltrosCarregadosPara(estabelecimentoId);
-  }, [estabelecimentoId, storageKey]);
+  }, [estabelecimentoId, storageKey, fonteBanco]);
 
   // Salvar somente após carregar a chave do estabelecimento atual, evitando
   // sobrescrever o novo hospital com o estado do hospital anterior.
   useEffect(() => {
-    if (filtrosCarregadosPara !== estabelecimentoId) return;
+    if (fonteDados === "banco" || fonteBanco || filtrosCarregadosPara !== estabelecimentoId) return;
     localStorage.setItem(storageKey, JSON.stringify({
       competencia: competenciaFiltro,
       convenio: convenioFiltro,
@@ -125,7 +124,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       loteRetorno: loteRetornoFiltro,
       dataPagto: dataPagtoFiltro,
     }));
-  }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey, estabelecimentoId, filtrosCarregadosPara]);
+  }, [competenciaFiltro, convenioFiltro, statusFiltro, loteXmlFiltro, loteRetornoFiltro, dataPagtoFiltro, storageKey, estabelecimentoId, filtrosCarregadosPara, fonteBanco, fonteDados]);
   const [loteXmlOpen, setLoteXmlOpen] = useState(false);
   const [loteRetornoOpen, setLoteRetornoOpen] = useState(false);
   const [busca, setBusca] = useState("");
@@ -190,13 +189,13 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   // Competências da conciliados_automatico
   const { data: competenciasConciliados } = trpc.faturamentoUnificado.competenciasConciliados.useQuery(
     { estabelecimentoId },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Convênios da conciliados_automatico
   const { data: conveniosConciliados } = trpc.faturamentoUnificado.conveniosConciliados.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Convênio ID numérico para filtro
@@ -209,25 +208,25 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   // Lotes do XML TISS (enviado)
   const { data: lotesXml } = trpc.faturamentoUnificado.lotesXmlTiss.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Lotes do retorno/demonstrativo
   const { data: lotesRetorno } = trpc.faturamentoUnificado.lotesRetorno.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Datas de pagamento disponíveis
   const { data: datasPagamento } = trpc.faturamentoUnificado.datasPagamento.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // ===== QUERY PARA SEPARAÇÃO PRÓPRIO/TERCEIRO =====
   const { data: codigosPrestador } = trpc.faturamentoUnificado.codigosPrestadorEstabelecimento.useQuery(
     { estabelecimentoId },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Filtro de tipo de prestador (próprio/terceiro)
@@ -259,7 +258,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       limit: XML_RETORNO_POR_PAGINA,
       offset: paginaXmlRetorno * XML_RETORNO_POR_PAGINA,
     },
-    { enabled: estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
+    { enabled: !fonteBanco && estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
   );
   const guiasGlosadas = guiasGlosadasData?.items;
   const totalGuiasGlosadas = guiasGlosadasData?.total || 0;
@@ -272,7 +271,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       convenioId: convenioIdNum,
       competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
     },
-    { enabled: estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
+    { enabled: !fonteBanco && estabelecimentoId > 0 && abaAtiva === "xml_recurso" }
   );
 
   // Resumo agrupado por guia (aba conciliados - tabela principal)
@@ -289,7 +288,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       limit: ITENS_POR_PAGINA,
       offset: paginaConciliados * ITENS_POR_PAGINA,
     },
-    { enabled: estabelecimentoId > 0 && abaAtiva === "conciliados" && !guiaConciliadaSelecionada }
+    { enabled: !fonteBanco && estabelecimentoId > 0 && abaAtiva === "conciliados" && !guiaConciliadaSelecionada }
   );
 
   // Resumo totais dos conciliados
@@ -300,7 +299,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       convenioId: convenioIdNum,
       dataPagto: dataPagtoFiltro !== "todos" ? dataPagtoFiltro : undefined,
     },
-    { enabled: estabelecimentoId > 0 && abaAtiva === "conciliados" }
+    { enabled: !fonteBanco && estabelecimentoId > 0 && abaAtiva === "conciliados" }
   );
 
   // Itens detalhados de uma guia conciliada (drill-down)
@@ -310,7 +309,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       numeroGuia: guiaConciliadaSelecionada?.numeroGuia || undefined,
       contaNumero: guiaConciliadaSelecionada?.contaNumero || undefined,
     },
-    { enabled: !!guiaConciliadaSelecionada && estabelecimentoId > 0 }
+    { enabled: !fonteBanco && !!guiaConciliadaSelecionada && estabelecimentoId > 0 }
   );
 
   // ===== QUERIES PARA ABA FATURAMENTO UNIFICADO =====
@@ -318,13 +317,13 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   // Competências do faturamento_unificado
   const { data: competencias } = trpc.faturamentoUnificado.competencias.useQuery(
     { estabelecimentoId },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Convênios do faturamento_unificado
   const { data: convenios } = trpc.faturamentoUnificado.convenios.useQuery(
     { estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined },
-    { enabled: estabelecimentoId > 0 }
+    { enabled: !fonteBanco && estabelecimentoId > 0 }
   );
 
   // Resumo por guia (aba faturamento)
@@ -340,7 +339,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       limite: ITENS_POR_PAGINA,
       offset: paginaAtual * ITENS_POR_PAGINA,
     },
-    { enabled: estabelecimentoId > 0 && abaAtiva === "faturamento" }
+    { enabled: !fonteBanco && estabelecimentoId > 0 && abaAtiva === "faturamento" }
   );
 
   // Itens da guia selecionada (modal faturamento)
@@ -350,7 +349,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       contaNumero: guiaSelecionada?.contaNumero || undefined,
       numeroGuia: guiaSelecionada?.numeroGuia || undefined,
     },
-    { enabled: !!guiaSelecionada && estabelecimentoId > 0 }
+    { enabled: !fonteBanco && !!guiaSelecionada && estabelecimentoId > 0 }
   );
 
   // Recebimentos candidatos para vinculação manual
@@ -360,7 +359,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
       pacienteNome: buscaVinculacao || undefined,
       competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
     },
-    { enabled: modalVinculacaoAberto && buscaVinculacao.length >= 3 && estabelecimentoId > 0 }
+    { enabled: !fonteBanco && modalVinculacaoAberto && buscaVinculacao.length >= 3 && estabelecimentoId > 0 }
   );
 
   // ===== MUTATIONS =====
@@ -401,7 +400,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   const { data: statusJob } = trpc.faturamentoUnificado.statusConciliacao.useQuery(
     { jobId: conciliacaoJobId || '' },
     {
-      enabled: !!conciliacaoJobId && conciliacaoEmAndamento,
+      enabled: !fonteBanco && !!conciliacaoJobId && conciliacaoEmAndamento,
       refetchInterval: conciliacaoEmAndamento ? 3000 : false,
     }
   );
@@ -745,8 +744,8 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
   const totalPaginasConciliados = Math.ceil((dadosGuiasConciliadas?.total || 0) / ITENS_POR_PAGINA);
 
   // Competências e convênios dependem da aba ativa
-  const competenciasAtivas = abaAtiva === "conciliados" ? competenciasConciliados : competencias;
-  const conveniosAtivos = abaAtiva === "conciliados" ? conveniosConciliados : convenios;
+  const competenciasAtivas = fonteBanco ? opcoesBanco?.competencias.map(c => ({ competencia: c.replace("/", "-"), total: undefined })) : abaAtiva === "conciliados" ? competenciasConciliados : competencias;
+  const conveniosAtivos = fonteBanco ? opcoesBanco?.convenios.map(c => ({ convenioId: c.id, convenio: c.nome, total: undefined })) : abaAtiva === "conciliados" ? conveniosConciliados : convenios;
 
   if (!estabelecimentoId) {
     return (
@@ -831,22 +830,30 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
           <div className="flex gap-2 flex-wrap">
             <Button 
               variant="outline" 
-              onClick={() => popularTudo.mutate({ estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined })}
-              disabled={popularTudo.isPending}
+              onClick={() => { if (!fonteBanco) popularTudo.mutate({ estabelecimentoId, competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined }); }}
+              title={fonteBanco ? "Importação para a base persistida não faz parte desta consulta Banco" : undefined}
+              disabled={fonteBanco || popularTudo.isPending}
             >
               {popularTudo.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
               Popular Dados
             </Button>
-            {onBuscarBanco && <Button variant="outline"
-              onClick={() => onBuscarBanco({ competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined, convenioId: convenioIdNum })}
-              title="Exibir guias e contas do snapshot Banco publicado, sem gravar conciliações"
+            {bancoDisponivel && <Button variant={fonteBanco ? "default" : "outline"}
+              onClick={() => {
+                if (!fonteBanco) {
+                  setFonteDados("banco"); setStatusFiltro("todos"); setLoteXmlFiltro("todos"); setLoteRetornoFiltro("todos"); setDataPagtoFiltro("todos"); setFiltroPrestador("todos");
+                  setGuiaConciliadaSelecionada(null); setGuiaSelecionada(null); setModalDetalhesAberto(false); setModalVinculacaoAberto(false); setModalXmlAberto(false); setModalGlosaAberto(false); setModalVinculacaoManualAberto(false); setModalResultadoAberto(false);
+                } else { setAtualizacaoBanco(n => n + 1); void refetchOpcoesBanco(); }
+              }}
+              title="Buscar somente faturado publicado no Banco, comparando com demonstrativos sem gravar vínculos"
               disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}>
               <Database className="w-4 h-4 mr-2" />Buscar dados do banco
             </Button>}
+            {fonteBanco && <Button variant="outline" onClick={() => { setFiltrosCarregadosPara(-1); setFonteDados("base"); }}>Base atual</Button>}
             <Button 
               className="bg-primary hover:bg-primary/90"
-              onClick={executarConciliacaoAutomatica}
-              disabled={popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}
+              onClick={() => { if (!fonteBanco) void executarConciliacaoAutomatica(); }}
+              title={fonteBanco ? "Conciliação persistida ainda não habilitada para a fonte Banco" : undefined}
+              disabled={fonteBanco || popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento}
             >
               {(popularTudo.isPending || conciliarAuto.isPending || conciliacaoEmAndamento) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
               {popularTudo.isPending
@@ -859,14 +866,15 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
             </Button>
             <Button 
               variant="outline" 
-              onClick={executarReset}
-              disabled={resetarConc.isPending}
+              onClick={() => { if (!fonteBanco) executarReset(); }}
+              title={fonteBanco ? "Esta consulta não possui vínculos gravados para resetar" : undefined}
+              disabled={fonteBanco || resetarConc.isPending}
               className="text-orange-600 border-orange-300 hover:bg-orange-50"
             >
               {resetarConc.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-2" />}
               Resetar
             </Button>
-            <Button variant="outline" onClick={() => { refetch(); refetchGuiasConciliadas(); refetchResumo(); }}>
+            <Button variant="outline" onClick={() => { if (fonteBanco) { setAtualizacaoBanco(n => n + 1); void refetchOpcoesBanco(); } else { refetch(); refetchGuiasConciliadas(); refetchResumo(); } }}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Atualizar
             </Button>
@@ -886,14 +894,14 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
               <div>
                 <Label className="font-semibold text-primary">Competência</Label>
                 <Select value={competenciaFiltro} onValueChange={(v) => { setCompetenciaFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
-                  <SelectTrigger className="border-primary">
+                  <SelectTrigger className="border-primary" aria-label="Competência">
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todas</SelectItem>
                     {competenciasAtivas?.map((c: any) => (
                       <SelectItem key={c.competencia} value={c.competencia}>
-                        {formatarCompetencia(c.competencia)} ({c.total} itens)
+                        {formatarCompetencia(c.competencia)}{c.total != null ? ` (${c.total} itens)` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -902,14 +910,14 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
               <div>
                 <Label>Convênio</Label>
                 <Select value={convenioFiltro} onValueChange={(v) => { setConvenioFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Convênio">
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
                     {conveniosAtivos?.map((c: any) => (
                       <SelectItem key={String(c.convenioId || c.convenio)} value={String(c.convenioId || c.convenio)}>
-                        {c.convenio || `Convênio ${c.convenioId}`} ({c.total})
+                        {c.convenio || `Convênio ${c.convenioId}`}{c.total != null ? ` (${c.total})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -918,14 +926,21 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
               <div>
                 <Label>Status Conciliação</Label>
                 <Select value={statusFiltro} onValueChange={(v) => { setStatusFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
+                  <SelectTrigger aria-label="Status Conciliação"><SelectValue placeholder="Todos" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="conciliado">Conciliado</SelectItem>
-                    <SelectItem value="nao_conciliado">Não Conciliado</SelectItem>
-                    <SelectItem value="sem_pagamento_guia">Sem Pagamento</SelectItem>
+                    {fonteBanco ? <>
+                      <SelectItem value="candidato">Candidato à revisão</SelectItem>
+                      <SelectItem value="ambiguo">Ambíguo</SelectItem>
+                      <SelectItem value="sem_candidato">Sem candidato</SelectItem>
+                      <SelectItem value="medico_direto">Médico direto</SelectItem>
+                      <SelectItem value="dados_incompletos">Dados incompletos</SelectItem>
+                      <SelectItem value="misto">Situação mista</SelectItem>
+                    </> : <>
+                      <SelectItem value="conciliado">Conciliado</SelectItem>
+                      <SelectItem value="nao_conciliado">Não Conciliado</SelectItem>
+                      <SelectItem value="sem_pagamento_guia">Sem Pagamento</SelectItem>
+                    </>}
                   </SelectContent>
                 </Select>
               </div>
@@ -933,8 +948,8 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
                 <Label>Lote XML (Enviado)</Label>
                 <Popover open={loteXmlOpen} onOpenChange={setLoteXmlOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" aria-expanded={loteXmlOpen} className="w-full justify-between font-normal h-9 bg-transparent">
-                      {loteXmlFiltro === "todos" ? "Todos" : `Lote ${loteXmlFiltro}`}
+                    <Button disabled={fonteBanco} title={fonteBanco ? "Lote XML não se aplica ao faturado do Banco" : undefined} variant="outline" role="combobox" aria-expanded={loteXmlOpen} className="w-full justify-between font-normal h-9 bg-transparent">
+                      {fonteBanco ? "Não se aplica" : loteXmlFiltro === "todos" ? "Todos" : `Lote ${loteXmlFiltro}`}
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -964,8 +979,8 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
                 <Label>Lote Retorno (Convênio)</Label>
                 <Popover open={loteRetornoOpen} onOpenChange={setLoteRetornoOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" aria-expanded={loteRetornoOpen} className="w-full justify-between font-normal h-9 bg-transparent">
-                      {loteRetornoFiltro === "todos" ? "Todos" : (() => { const found = lotesRetorno?.find((l: any) => l.lote === loteRetornoFiltro); return found?.protocolo ? `Lote ${loteRetornoFiltro} (Prot. ${found.protocolo})` : `Lote ${loteRetornoFiltro}`; })()}
+                    <Button disabled={fonteBanco} title={fonteBanco ? "Filtro por lote do retorno ainda não disponível nesta consulta Banco" : undefined} variant="outline" role="combobox" aria-expanded={loteRetornoOpen} className="w-full justify-between font-normal h-9 bg-transparent">
+                      {fonteBanco ? "Todos os processados" : loteRetornoFiltro === "todos" ? "Todos" : (() => { const found = lotesRetorno?.find((l: any) => l.lote === loteRetornoFiltro); return found?.protocolo ? `Lote ${loteRetornoFiltro} (Prot. ${found.protocolo})` : `Lote ${loteRetornoFiltro}`; })()}
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -996,17 +1011,17 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="Guia, conta, paciente..."
+                    id="conciliacao-busca" aria-label="Buscar" placeholder={fonteBanco ? "Guia, conta, TUSS..." : "Guia, conta, paciente..."}
                     value={busca}
                     onChange={(e) => { setBusca(e.target.value); setPaginaAtual(0); setPaginaConciliados(0); }}
                     className="pl-9"
                   />
                 </div>
               </div>
-              {(abaAtiva === 'conciliados' || abaAtiva === 'xml_recurso') && (
+              {(fonteBanco || abaAtiva === 'conciliados' || abaAtiva === 'xml_recurso') && (
                 <div>
                   <Label>Prestador</Label>
-                  <Select value={filtroPrestador} onValueChange={(v) => setFiltroPrestador(v as any)}>
+                  <Select disabled={fonteBanco} value={filtroPrestador} onValueChange={(v) => setFiltroPrestador(v as any)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -1018,7 +1033,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
                   </Select>
                 </div>
               )}
-              {abaAtiva === 'conciliados' && (
+              {fonteBanco ? <div><Label>Data Pagamento</Label><Select value={dataPagtoFiltro} onValueChange={setDataPagtoFiltro}><SelectTrigger aria-label="Data Pagamento"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas</SelectItem><SelectItem value="mes">Selecionar mês</SelectItem>{/^\d{4}-\d{2}$/.test(dataPagtoFiltro) && <SelectItem value={dataPagtoFiltro}>{dataPagtoFiltro.slice(5)}/{dataPagtoFiltro.slice(0, 4)}</SelectItem>}</SelectContent></Select>{dataPagtoFiltro !== "todos" && <Input className="mt-2" aria-label="Mês do pagamento" type="month" value={dataPagtoFiltro === "mes" ? "" : dataPagtoFiltro} onChange={e => setDataPagtoFiltro(e.target.value || "mes")} />}</div> : abaAtiva === 'conciliados' && (
                 <div>
                   <Label>Data Pagamento</Label>
                   <Select value={dataPagtoFiltro} onValueChange={(v) => { setDataPagtoFiltro(v); setPaginaAtual(0); setPaginaConciliados(0); setGuiaConciliadaSelecionada(null); }}>
@@ -1044,7 +1059,16 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
         {/* Seção scrollável: abas + conteúdo */}
         <div className="flex-1 overflow-y-auto space-y-4">
         {/* Abas */}
-        <Tabs value={abaAtiva} onValueChange={(v) => { setAbaAtiva(v); setGuiaConciliadaSelecionada(null); }}>
+        {fonteBanco ? <>
+          {carregandoOpcoesBanco && <p className="text-sm text-muted-foreground" role="status">Carregando fonte Banco…</p>}
+          {erroOpcoesBanco ? <p role="alert" className="text-sm text-destructive">Não foi possível carregar a fonte Banco.</p> : <HupConciliacaoPiloto
+            key={estabelecimentoId} estabelecimentoId={estabelecimentoId}
+            competencia={competenciaFiltro !== "todos" && opcoesBanco?.competencias.includes(competenciaFiltro.replace("-", "/")) ? competenciaFiltro.replace("-", "/") : undefined}
+            convenioId={opcoesBanco?.convenios.some(c => c.id === convenioIdNum) ? convenioIdNum : undefined}
+            status={statusFiltro as "todos" | "candidato" | "ambiguo" | "sem_candidato" | "medico_direto" | "dados_incompletos" | "misto"}
+            busca={busca} mesPagamento={dataPagtoFiltro === "todos" ? undefined : dataPagtoFiltro}
+            atualizacao={atualizacaoBanco} />}
+        </> : <Tabs value={abaAtiva} onValueChange={(v) => { setAbaAtiva(v); setGuiaConciliadaSelecionada(null); }}>
           <TabsList className="grid w-full grid-cols-3 max-w-xl">
             <TabsTrigger value="conciliados" className="flex items-center gap-2">
               <ListChecks className="w-4 h-4" />
@@ -1590,95 +1614,41 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
                       </div>
                     ) : (
                       <>
-                        <div className="overflow-x-auto">
-                          <table className="w-full">
-                            <thead>
-                              <tr className="border-b bg-muted/50">
-                                <th className="text-left p-3 font-medium">Guia</th>
-                                <th className="text-left p-3 font-medium max-w-[200px]">Paciente</th>
-                                <th className="text-left p-3 font-medium">Comp.</th>
-                                <th className="text-left p-3 font-medium">Lote</th>
-                                <th className="text-left p-3 font-medium">Protocolo</th>
-                                <th className="text-center p-3 font-medium">Itens</th>
-                                <th className="text-right p-3 font-medium">Faturado</th>
-                                <th className="text-right p-3 font-medium">Recebido</th>
-                                <th className="text-right p-3 font-medium">Glosado</th>
-                                <th className="text-right p-3 font-medium">Acréscimo</th>
-                                <th className="text-center p-3 font-medium">Status</th>
-                                <th className="text-center p-3 font-medium">Desassociados</th>
-                                <th className="text-center p-3 font-medium">Detalhes</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {guiasConciliadas.map((guia: any, index: number) => (
-                                <tr key={`${guia.guia}-${index}`} className={`border-b hover:bg-muted/50 cursor-pointer ${
-                                  guia.statusGuia === 'nao_conciliado' ? 'bg-red-50/50 dark:bg-red-950/20' : guia.statusGuia === 'sem_pagamento' ? 'bg-gray-50/50 dark:bg-gray-950/20' : ''
-                                }`} onClick={() => setGuiaConciliadaSelecionada(guia)}>
-                                  <td className="p-3 font-mono text-sm font-medium">{guia.guia || '-'}</td>
-                                  <td className="p-3 text-sm max-w-[200px] truncate" title={guia.pacienteNome}>
-                                    <span>{guia.pacienteNome || '-'}</span>
-                                    {Number(guia.totalContas) > 1 && (
-                                      <Badge variant="outline" className="ml-1 text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">Alta Adm.</Badge>
-                                    )}
-                                    {Number(guia.itensAgrupados) > 0 && (
-                                      <Badge variant="outline" className="ml-1 text-[10px] bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">{guia.itensAgrupados} agrup.</Badge>
-                                    )}
-                                    {isTerceiro(guia) && (
-                                      <Badge variant="outline" className="ml-1 text-[10px] bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Terceiro</Badge>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-sm">{formatarCompetencia(guia.competencia)}</td>
-                                  <td className="p-3 text-sm font-mono">
-                                    {guia.loteXml || guia.loteRetorno || '-'}
-                                  </td>
-                                  <td className="p-3 text-sm font-mono">
-                                    {guia.protocoloXml || guia.protocoloRetorno || '-'}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    <span className="text-sm">{guia.totalItens}</span>
-                                    {(Number(guia.itensDivergentes) > 0 || Number(guia.itensNaoRecebidos) > 0 || Number(guia.itensTerceiros) > 0 || Number(guia.itensGlosados) > 0) && (
-                                      <div className="flex gap-1 justify-center mt-0.5">
-                                        {Number(guia.itensConciliados) > 0 && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title={`${guia.itensConciliados} OK`} />}
-                                        {Number(guia.itensAcrescimos || guia.itensDivergentes) > 0 && <span className="w-2 h-2 rounded-full bg-teal-500 inline-block" title={`${guia.itensAcrescimos || guia.itensDivergentes} acrésc.`} />}
-                                        {Number(guia.itensNaoRecebidos) > 0 && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title={`${guia.itensNaoRecebidos} N/R`} />}
-                                        {Number(guia.itensTerceiros) > 0 && <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" title={`${guia.itensTerceiros} terceiro(s)`} />}
-                                        {Number(guia.itensGlosados) > 0 && <span className="w-2 h-2 rounded-full bg-red-700 inline-block" title={`${guia.itensGlosados} glosado(s)`} />}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-right font-medium text-blue-600">{formatarMoeda(Number(guia.valorFaturado))}</td>
-                                  <td className="p-3 text-right font-medium text-green-600">{formatarMoeda(Number(guia.valorPago))}</td>
-                                  <td className="p-3 text-right font-medium text-red-600">{formatarMoeda(Number(guia.valorGlosa))}</td>
-                                  <td className={`p-3 text-right font-medium ${Number(guia.diferenca) < 0 ? 'text-teal-600' : 'text-gray-400'}`}>
-                                    {Number(guia.diferenca) < 0 ? formatarMoeda(Math.abs(Number(guia.diferenca))) : '-'}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    {guia.statusGuia === 'conciliado' ? (
-                                      <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Conciliado</Badge>
-                                    ) : guia.statusGuia === 'sem_pagamento' ? (
-                                      <Badge className="bg-gray-500 hover:bg-gray-600"><AlertCircle className="w-3 h-3 mr-1" /> Sem Pagamento</Badge>
-                                    ) : (
-                                      <Badge className="bg-red-500 hover:bg-red-600"><XCircle className="w-3 h-3 mr-1" /> Não Conciliado</Badge>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    {Number(guia.itensDesassociados || 0) > 0 ? (
-                                      <Badge className="bg-orange-500 hover:bg-orange-600">{guia.itensDesassociados}</Badge>
-                                    ) : (
-                                      <Badge className="bg-green-500 hover:bg-green-600">0</Badge>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setGuiaConciliadaSelecionada(guia); }}>
-                                      <Eye className="w-4 h-4 mr-1" />
-                                      <ChevronRight className="w-3 h-3" />
-                                    </Button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <ConciliacaoGuiasTabela
+                          rows={guiasConciliadas.map((guia: any, index: number) => ({
+                            chave: `${guia.guia}-${index}`,
+                            guia: guia.guia || "",
+                            paciente: guia.pacienteNome || null,
+                            competencia: guia.competencia || "",
+                            lote: guia.loteXml || guia.loteRetorno || null,
+                            protocolo: guia.protocoloXml || guia.protocoloRetorno || null,
+                            totalItens: Number(guia.totalItens || 0),
+                            valorFaturado: String(guia.valorFaturado ?? 0),
+                            valorRecebido: String(guia.valorPago ?? 0),
+                            valorGlosado: String(guia.valorGlosa ?? 0),
+                            valorAcrescimo: Number(guia.diferenca) < 0 ? String(Math.abs(Number(guia.diferenca))) : null,
+                            statusLabel: guia.statusGuia === "conciliado" ? "Conciliado" : guia.statusGuia === "sem_pagamento" ? "Sem Pagamento" : "Não Conciliado",
+                            statusVariant: guia.statusGuia === "conciliado" ? "conciliado" as const : guia.statusGuia === "sem_pagamento" ? "sem_pagamento" as const : "nao_conciliado" as const,
+                            desassociados: Number(guia.itensDesassociados || 0),
+                            dots: [
+                              ...(Number(guia.itensConciliados) > 0 ? [{label:`${guia.itensConciliados} OK`,color:"bg-green-500"}] : []),
+                              ...(Number(guia.itensAcrescimos || guia.itensDivergentes) > 0 ? [{label:`${guia.itensAcrescimos || guia.itensDivergentes} acrésc.`,color:"bg-teal-500"}] : []),
+                              ...(Number(guia.itensNaoRecebidos) > 0 ? [{label:`${guia.itensNaoRecebidos} N/R`,color:"bg-red-500"}] : []),
+                              ...(Number(guia.itensTerceiros) > 0 ? [{label:`${guia.itensTerceiros} terceiro(s)`,color:"bg-orange-500"}] : []),
+                              ...(Number(guia.itensGlosados) > 0 ? [{label:`${guia.itensGlosados} glosado(s)`,color:"bg-red-700"}] : []),
+                            ],
+                            pacienteBadges: <>
+                              {Number(guia.totalContas) > 1 && <Badge variant="outline" className="ml-1 text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">Alta Adm.</Badge>}
+                              {Number(guia.itensAgrupados) > 0 && <Badge variant="outline" className="ml-1 text-[10px] bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300">{guia.itensAgrupados} agrup.</Badge>}
+                              {isTerceiro(guia) && <Badge variant="outline" className="ml-1 text-[10px] bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300">Terceiro</Badge>}
+                            </>,
+                          }))}
+                          formatarCompetencia={formatarCompetencia}
+                          onAbrir={chave => {
+                            const guia = guiasConciliadas.find((g: any, index: number) => `${g.guia}-${index}` === chave);
+                            if (guia) setGuiaConciliadaSelecionada(guia);
+                          }}
+                        />
 
                         {/* Paginação */}
                         {totalPaginasConciliados > 1 && (
@@ -2191,10 +2161,11 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
+        </Tabs>}
 
         </div>
 
+        {!fonteBanco && <>
         {/* Modal de Geração de XML */}
         <Dialog open={modalXmlAberto} onOpenChange={setModalXmlAberto}>
           <DialogContent className="max-w-[600px]">
@@ -2776,6 +2747,7 @@ function ConciliacaoCruzadaAtual({ onBuscarBanco }: { onBuscarBanco?: (recorte: 
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </>}
       </div>
     </DashboardLayout>
   );
