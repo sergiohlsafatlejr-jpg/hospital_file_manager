@@ -46,6 +46,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { formatDateBR } from "@/lib/dateUtils";
+import { filtroNumericoOpcional } from "@/lib/recebimentosExcelFilters";
 
 interface FileItem {
   file: File;
@@ -92,13 +93,13 @@ export default function RecebimentosExcel() {
   const utils = trpc.useUtils();
 
   // Buscar dados de recebimentos_excel
-  const mesReferencia = mesRef ? parseInt(mesRef) : undefined;
-  const anoReferencia = anoRef ? parseInt(anoRef) : undefined;
+  const mesReferencia = filtroNumericoOpcional(mesRef);
+  const anoReferencia = filtroNumericoOpcional(anoRef);
 
   const { data: recebimentoData, isLoading, refetch } = trpc.recebimentosExcel.list.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id,
-      convenioId: filtroConvenio ? parseInt(filtroConvenio) : undefined,
+      convenioId: filtroNumericoOpcional(filtroConvenio),
       search: buscaDebounced || undefined,
       mesReferencia,
       anoReferencia,
@@ -111,7 +112,7 @@ export default function RecebimentosExcel() {
   const { data: resumo } = trpc.recebimentosExcel.resumo.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id,
-      convenioId: filtroConvenio ? parseInt(filtroConvenio) : undefined,
+      convenioId: filtroNumericoOpcional(filtroConvenio),
       mesReferencia,
       anoReferencia,
     },

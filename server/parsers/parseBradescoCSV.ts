@@ -58,7 +58,7 @@ function parseValorBR(valorStr: string): number {
   return isNaN(num) ? 0 : num;
 }
 
-function parseCSVLine(line: string): string[] {
+function parseCSVLine(line: string, delimiter: ',' | ';'): string[] {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -66,8 +66,13 @@ function parseCSVLine(line: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
     if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === delimiter && !inQuotes) {
       result.push(current);
       current = '';
     } else {
@@ -76,6 +81,13 @@ function parseCSVLine(line: string): string[] {
   }
   result.push(current);
   return result;
+}
+
+function detectDelimiter(lines: string[]): ',' | ';' {
+  // Cabeçalho sem valores financeiros; separadores dentro de aspas
+  // não participam da detecção, preservando decimais e descrições.
+  const header = lines.find(line => line.includes('Data do Evento')) || lines[0] || '';
+  return parseCSVLine(header, ';').length > parseCSVLine(header, ',').length ? ';' : ',';
 }
 
 export function parseBradescoCSV(
@@ -100,7 +112,8 @@ export function parseBradescoCSV(
     }
     
     // Extrair CNPJ e código do prestador (linha 2)
-    const linha2 = parseCSVLine(lines[1]);
+    const delimiter = detectDelimiter(lines);
+    const linha2 = parseCSVLine(lines[1], delimiter);
     let cnpjPrestador = '';
     let codigoPrestador = '';
     
@@ -123,7 +136,7 @@ export function parseBradescoCSV(
       const line = lines[i];
       if (!line.trim()) continue;
       
-      const campos = parseCSVLine(line);
+      const campos = parseCSVLine(line, delimiter);
       if (campos.length < 2) continue;
       
       const primeiroCampo = campos[0].trim();
@@ -301,6 +314,14 @@ export function parseBradescoCSV(
       }
     }
     
+    if (items.length === 0) {
+      return {
+        success: false, items: [], cnpjPrestador, codigoPrestador,
+        totalLotes, totalGuias, totalItens: 0,
+        error: 'Extrato Bradesco sem itens reconhecidos. Confira o layout do arquivo.',
+      };
+    }
+
     return {
       success: true,
       items,

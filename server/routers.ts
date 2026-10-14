@@ -1,3 +1,4 @@
+import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -1381,7 +1382,15 @@ export const appRouter = router({
                           } else {
                             const csvContent = buffer.toString('utf-8');
                             const result = parseBradescoCSV(csvContent, arquivoId, input.convenioId, input.estabelecimentoId, dataReferenciaUpload, dataPagamentoUpload);
-                            records = result.items || [];
+                            if (!result.success) {
+                              console.warn('[Upload] CSV Bradesco sem itens válidos; processamento interrompido');
+                              await finalizarCsvBradescoInvalido({
+                                marcarErro: () => db.updateArquivoStatus(arquivoId, 'erro'),
+                                zerarProgresso: () => db.updateArquivoProgresso(arquivoId, 0, 0, 0),
+                              });
+                              return;
+                            }
+                            records = result.items;
                           }
                           
                           if (records.length > 0) {
