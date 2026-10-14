@@ -1,3 +1,9 @@
+import { readEasyLocalConfig } from "./easyLocalConnection";
+vi.mock("./easyLocalCadastroStore", () => ({
+  resolverEasyLocalConfig: vi.fn(),
+}));
+import { resolverEasyLocalConfig } from "./easyLocalCadastroStore";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const pgMock = vi.hoisted(() => ({
@@ -37,6 +43,9 @@ function mockSafeCatalog(columns: unknown[] = [], origins: unknown[] = []) {
 describe("catálogo EASYLocal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(resolverEasyLocalConfig).mockImplementation(async () =>
+      readEasyLocalConfig()
+    );
     for (const [key, value] of Object.entries(env)) {
       originalEnv[key] = process.env[key];
       process.env[key] = value;
