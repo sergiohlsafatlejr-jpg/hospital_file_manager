@@ -1,21 +1,21 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
-import { EasyLocalTab } from "@/components/integrador/EasyLocalTab";
+import { EasyLocalIntegradorTabs } from "@/components/integrador/EasyLocalIntegradorTabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
-/** O EASYLocal é global na fase de conexão; a unidade selecionada é apenas contexto visual do piloto. */
+/** A área administrativa protege a consulta de contexto e todos os hooks das abas do integrador. */
 export function IntegradorEasyLocal() {
   const { user, loading } = useAuth();
-  const { estabelecimentoAtual } = useEstabelecimento();
 
-  if (loading)
+  if (loading) {
     return (
       <p className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" /> Carregando integrador…
       </p>
     );
+  }
   if (user?.role !== "admin") {
     return (
       <Alert variant="destructive">
@@ -27,17 +27,21 @@ export function IntegradorEasyLocal() {
     );
   }
 
+  return <IntegradorEasyLocalConteudo />;
+}
+
+function IntegradorEasyLocalConteudo() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Integrador de Dados
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight">Integrador de Dados</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Conexão EASYLocal · preparação para o piloto Hospital Urológico
+          Conexão EASYLocal e preparação controlada de tabelas e leituras
         </p>
       </header>
-      <EasyLocalTab
+      <EasyLocalIntegradorTabs
         key={estabelecimentoAtual?.id ?? "sem-unidade"}
         estabelecimentoId={estabelecimentoAtual?.id ?? null}
       />

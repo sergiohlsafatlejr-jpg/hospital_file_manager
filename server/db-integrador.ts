@@ -1,5 +1,6 @@
 import { eq, desc, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { easyLocalTabelaGerenciada } from "../shared/easyLocalIntegrador";
 import {
   integracaoConexoes,
   InsertIntegracaoConexao,
@@ -32,6 +33,102 @@ async function getDb() {
 /** Força reconexão descartando a instância cacheada */
 function resetDb() {
   _db = null;
+}
+
+/**
+ * EASYLocal é gerenciado pelo serviço dedicado. Este módulo é o acesso do
+ * integrador legado e não pode mutar nem expor os registros desse namespace.
+ */
+const EASYLOCAL_SERVER_ALIAS = "__EASYLOCAL_SERVER__";
+
+class EasyLocalLegacyIsolationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EasyLocalLegacyIsolationError";
+  }
+}
+
+function tabelaEasyLocalGerenciada(nome: unknown): boolean {
+  if (typeof nome !== "string") return false;
+  // As funções SQL legadas removem caracteres inválidos antes de executar a
+  // query. Verificar a forma normalizada evita que "integ_el_1_x;" alcance a
+  // tabela EASYLocal após a sanitização.
+  const nomeNormalizado = nome.replace(/[^a-zA-Z0-9_]/g, "");
+  return easyLocalTabelaGerenciada(nome) || easyLocalTabelaGerenciada(nomeNormalizado);
+}
+
+function conexaoEasyLocalInterna(nome: unknown): boolean {
+  return typeof nome === "string" && nome.trim().toUpperCase() === EASYLOCAL_SERVER_ALIAS;
+}
+
+function recusarTabelaEasyLocal(nome: unknown): void {
+  if (tabelaEasyLocalGerenciada(nome)) {
+    throw new EasyLocalLegacyIsolationError(
+      "A tabela EASYLocal é gerenciada pelo serviço dedicado e não pode ser acessada pela API legada.",
+    );
+  }
+}
+
+function recusarConexaoEasyLocal(nome: unknown): void {
+  if (conexaoEasyLocalInterna(nome)) {
+    throw new EasyLocalLegacyIsolationError(
+      "A conexão interna __EASYLOCAL_SERVER__ é reservada ao EASYLocal e não pode ser usada pela API legada.",
+    );
+  }
+}
+
+async function obterTabelaLegadaPorId(db: any, tabelaId: number) {
+  const [tabela] = await db.select().from(integracaoTabelas)
+    .where(eq(integracaoTabelas.id, tabelaId));
+  recusarTabelaEasyLocal(tabela?.nome);
+  return tabela ?? null;
+}
+
+async function obterColunaLegadaPorId(db: any, colunaId: number) {
+  const [coluna] = await db.select().from(integracaoColunas)
+    .where(eq(integracaoColunas.id, colunaId));
+  if (coluna) await obterTabelaLegadaPorId(db, coluna.tabelaId);
+  return coluna ?? null;
+}
+
+async function obterConexaoLegadaPorId(db: any, conexaoId: number) {
+  const [conexao] = await db.select().from(integracaoConexoes)
+    .where(eq(integracaoConexoes.id, conexaoId));
+  recusarConexaoEasyLocal(conexao?.nome);
+  return conexao ?? null;
+}
+
+async function recusarMapeamentoEasyLocal(db: any, mapeamento: any): Promise<void> {
+  if (!mapeamento) return;
+  await obterTabelaLegadaPorId(db, mapeamento.tabelaDestinoId);
+  await obterConexaoLegadaPorId(db, mapeamento.conexaoOrigemId);
+}
+
+async function obterMapeamentoLegadoPorId(db: any, mapeamentoId: number) {
+  const [mapeamento] = await db.select().from(integracaoMapeamentos)
+    .where(eq(integracaoMapeamentos.id, mapeamentoId));
+  await recusarMapeamentoEasyLocal(db, mapeamento);
+  return mapeamento ?? null;
+}
+
+async function obterSincronizacaoLegadaPorId(db: any, sincronizacaoId: number) {
+  const [sincronizacao] = await db.select().from(integracaoSincronizacoes)
+    .where(eq(integracaoSincronizacoes.id, sincronizacaoId));
+  if (sincronizacao) await obterMapeamentoLegadoPorId(db, sincronizacao.mapeamentoId);
+  return sincronizacao ?? null;
+}
+
+async function filtrarMapeamentosLegados(db: any, mapeamentos: any[]) {
+  const legados = [];
+  for (const mapeamento of mapeamentos) {
+    try {
+      await recusarMapeamentoEasyLocal(db, mapeamento);
+      legados.push(mapeamento);
+    } catch (error) {
+      if (!(error instanceof EasyLocalLegacyIsolationError)) throw error;
+    }
+  }
+  return legados;
 }
 
 /**
@@ -83,7 +180,8 @@ export async function listarConexoes(estabelecimentoId?: number) {
     if (estabelecimentoId) {
       query = query.where(eq(integracaoConexoes.estabelecimentoId, estabelecimentoId)) as any;
     }
-    return query.orderBy(desc(integracaoConexoes.criadoEm));
+    const conexoes = await query.orderBy(desc(integracaoConexoes.criadoEm));
+    return conexoes.filter((conexao: any) => !conexaoEasyLocalInterna(conexao.nome));
   });
 }
 
@@ -92,11 +190,13 @@ export async function obterConexao(id: number) {
     const db = await getDb();
     if (!db) return null;
     const [conexao] = await db.select().from(integracaoConexoes).where(eq(integracaoConexoes.id, id));
+    recusarConexaoEasyLocal(conexao?.nome);
     return conexao || null;
   });
 }
 
 export async function criarConexao(dados: Omit<InsertIntegracaoConexao, "id" | "criadoEm" | "atualizadoEm">) {
+  recusarConexaoEasyLocal(dados.nome);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -109,6 +209,8 @@ export async function atualizarConexao(id: number, dados: Partial<InsertIntegrac
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterConexaoLegadaPorId(db, id);
+    recusarConexaoEasyLocal(dados.nome);
     await db.update(integracaoConexoes).set(dados).where(eq(integracaoConexoes.id, id));
   });
 }
@@ -117,6 +219,7 @@ export async function excluirConexao(id: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterConexaoLegadaPorId(db, id);
     await db.delete(integracaoConexoes).where(eq(integracaoConexoes.id, id));
   });
 }
@@ -125,6 +228,7 @@ export async function atualizarStatusConexao(id: number, status: "ok" | "erro" |
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return;
+    await obterConexaoLegadaPorId(db, id);
     await db.update(integracaoConexoes).set({
       statusConexao: status,
       erroConexao: erro || null,
@@ -145,7 +249,8 @@ export async function listarTabelas(estabelecimentoId?: number) {
     if (estabelecimentoId) {
       query = query.where(eq(integracaoTabelas.estabelecimentoId, estabelecimentoId)) as any;
     }
-    return query.orderBy(desc(integracaoTabelas.criadoEm));
+    const tabelas = await query.orderBy(desc(integracaoTabelas.criadoEm));
+    return tabelas.filter((tabela: any) => !tabelaEasyLocalGerenciada(tabela.nome));
   });
 }
 
@@ -154,11 +259,13 @@ export async function obterTabela(id: number) {
     const db = await getDb();
     if (!db) return null;
     const [tabela] = await db.select().from(integracaoTabelas).where(eq(integracaoTabelas.id, id));
+    recusarTabelaEasyLocal(tabela?.nome);
     return tabela || null;
   });
 }
 
 export async function criarTabela(dados: Omit<InsertIntegracaoTabela, "id" | "criadoEm" | "atualizadoEm">) {
+  recusarTabelaEasyLocal(dados.nome);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -171,6 +278,8 @@ export async function atualizarTabela(id: number, dados: Partial<InsertIntegraca
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterTabelaLegadaPorId(db, id);
+    recusarTabelaEasyLocal(dados.nome);
     await db.update(integracaoTabelas).set(dados).where(eq(integracaoTabelas.id, id));
   });
 }
@@ -179,6 +288,7 @@ export async function excluirTabela(id: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterTabelaLegadaPorId(db, id);
     // Excluir colunas primeiro
     await db.delete(integracaoColunas).where(eq(integracaoColunas.tabelaId, id));
     await db.delete(integracaoTabelas).where(eq(integracaoTabelas.id, id));
@@ -193,6 +303,7 @@ export async function listarColunas(tabelaId: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return [];
+    await obterTabelaLegadaPorId(db, tabelaId);
     return db.select().from(integracaoColunas)
       .where(eq(integracaoColunas.tabelaId, tabelaId))
       .orderBy(integracaoColunas.ordem);
@@ -203,6 +314,7 @@ export async function criarColuna(dados: Omit<InsertIntegracaoColuna, "id" | "cr
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterTabelaLegadaPorId(db, dados.tabelaId);
     const [result] = await db.insert(integracaoColunas).values(dados);
     return result.insertId;
   });
@@ -213,6 +325,7 @@ export async function criarColunasEmLote(colunas: Omit<InsertIntegracaoColuna, "
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
     if (colunas.length === 0) return;
+    for (const coluna of colunas) await obterTabelaLegadaPorId(db, coluna.tabelaId);
     await db.insert(integracaoColunas).values(colunas);
   });
 }
@@ -221,6 +334,8 @@ export async function atualizarColuna(id: number, dados: Partial<InsertIntegraca
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterColunaLegadaPorId(db, id);
+    if (dados.tabelaId !== undefined) await obterTabelaLegadaPorId(db, dados.tabelaId);
     await db.update(integracaoColunas).set(dados).where(eq(integracaoColunas.id, id));
   });
 }
@@ -229,6 +344,7 @@ export async function excluirColuna(id: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterColunaLegadaPorId(db, id);
     await db.delete(integracaoColunas).where(eq(integracaoColunas.id, id));
   });
 }
@@ -245,7 +361,8 @@ export async function listarMapeamentos(estabelecimentoId?: number) {
     if (estabelecimentoId) {
       query = query.where(eq(integracaoMapeamentos.estabelecimentoId, estabelecimentoId)) as any;
     }
-    return query.orderBy(desc(integracaoMapeamentos.criadoEm));
+    const mapeamentos = await query.orderBy(desc(integracaoMapeamentos.criadoEm));
+    return filtrarMapeamentosLegados(db, mapeamentos);
   });
 }
 
@@ -253,7 +370,9 @@ export async function buscarMapeamentoPorTabela(tabelaDestinoId: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return null;
+    await obterTabelaLegadaPorId(db, tabelaDestinoId);
     const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.tabelaDestinoId, tabelaDestinoId)).limit(1);
+    await recusarMapeamentoEasyLocal(db, mapeamento);
     return mapeamento || null;
   });
 }
@@ -263,6 +382,7 @@ export async function obterMapeamento(id: number) {
     const db = await getDb();
     if (!db) return null;
     const [mapeamento] = await db.select().from(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
+    await recusarMapeamentoEasyLocal(db, mapeamento);
     return mapeamento || null;
   });
 }
@@ -271,6 +391,8 @@ export async function criarMapeamento(dados: Omit<InsertIntegracaoMapeamento, "i
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterTabelaLegadaPorId(db, dados.tabelaDestinoId);
+    await obterConexaoLegadaPorId(db, dados.conexaoOrigemId);
     const [result] = await db.insert(integracaoMapeamentos).values(dados);
     return result.insertId;
   });
@@ -280,6 +402,9 @@ export async function atualizarMapeamento(id: number, dados: Partial<InsertInteg
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterMapeamentoLegadoPorId(db, id);
+    if (dados.tabelaDestinoId !== undefined) await obterTabelaLegadaPorId(db, dados.tabelaDestinoId);
+    if (dados.conexaoOrigemId !== undefined) await obterConexaoLegadaPorId(db, dados.conexaoOrigemId);
     await db.update(integracaoMapeamentos).set(dados).where(eq(integracaoMapeamentos.id, id));
   });
 }
@@ -288,6 +413,7 @@ export async function excluirMapeamento(id: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterMapeamentoLegadoPorId(db, id);
     // Excluir campos do mapeamento primeiro
     await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, id));
     await db.delete(integracaoMapeamentos).where(eq(integracaoMapeamentos.id, id));
@@ -302,6 +428,7 @@ export async function listarCamposMapeamento(mapeamentoId: number) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return [];
+    await obterMapeamentoLegadoPorId(db, mapeamentoId);
     return db.select().from(integracaoMapeamentoCampos)
       .where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
   });
@@ -311,6 +438,7 @@ export async function salvarCamposMapeamento(mapeamentoId: number, campos: Omit<
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterMapeamentoLegadoPorId(db, mapeamentoId);
     // Limpar campos existentes e inserir novos
     await db.delete(integracaoMapeamentoCampos).where(eq(integracaoMapeamentoCampos.mapeamentoId, mapeamentoId));
     if (campos.length > 0) {
@@ -329,11 +457,24 @@ export async function listarSincronizacoes(mapeamentoId?: number, limite = 50) {
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return [];
+    if (mapeamentoId) await obterMapeamentoLegadoPorId(db, mapeamentoId);
     let query = db.select().from(integracaoSincronizacoes);
     if (mapeamentoId) {
       query = query.where(eq(integracaoSincronizacoes.mapeamentoId, mapeamentoId)) as any;
     }
-    return query.orderBy(desc(integracaoSincronizacoes.iniciadoEm)).limit(limite);
+    const sincronizacoes = await query.orderBy(desc(integracaoSincronizacoes.iniciadoEm)).limit(limite);
+    if (mapeamentoId) return sincronizacoes;
+
+    const legadas = [];
+    for (const sincronizacao of sincronizacoes) {
+      try {
+        await obterMapeamentoLegadoPorId(db, sincronizacao.mapeamentoId);
+        legadas.push(sincronizacao);
+      } catch (error) {
+        if (!(error instanceof EasyLocalLegacyIsolationError)) throw error;
+      }
+    }
+    return legadas;
   });
 }
 
@@ -341,6 +482,7 @@ export async function criarSincronizacao(dados: Omit<InsertIntegracaoSincronizac
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterMapeamentoLegadoPorId(db, dados.mapeamentoId);
     const [result] = await db.insert(integracaoSincronizacoes).values(dados);
     return result.insertId;
   });
@@ -350,6 +492,8 @@ export async function atualizarSincronizacao(id: number, dados: Partial<InsertIn
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
+    await obterSincronizacaoLegadaPorId(db, id);
+    if (dados.mapeamentoId !== undefined) await obterMapeamentoLegadoPorId(db, dados.mapeamentoId);
     await db.update(integracaoSincronizacoes).set(dados).where(eq(integracaoSincronizacoes.id, id));
   });
 }
@@ -359,6 +503,7 @@ export async function obterSincronizacao(id: number) {
     const db = await getDb();
     if (!db) return null;
     const [row] = await db.select().from(integracaoSincronizacoes).where(eq(integracaoSincronizacoes.id, id)).limit(1);
+    if (row) await obterMapeamentoLegadoPorId(db, row.mapeamentoId);
     return row ?? null;
   });
 }
@@ -390,6 +535,7 @@ export async function executarDDLCriarTabela(nomeTabela: string, colunas: Array<
   chaveUnica: string;
   valorPadrao?: string | null;
 }>) {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -431,6 +577,7 @@ export async function executarDDLAdicionarColuna(nomeTabela: string, coluna: {
   obrigatorio: string;
   valorPadrao?: string | null;
 }) {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -447,6 +594,7 @@ export async function executarDDLAdicionarColuna(nomeTabela: string, coluna: {
 }
 
 export async function executarDDLRemoverTabela(nomeTabela: string) {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -462,6 +610,7 @@ export async function executarDDLRemoverTabela(nomeTabela: string) {
 }
 
 export async function limparDadosTabela(nomeTabela: string) {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -539,6 +688,7 @@ function sanitizarValorSQL(v: any): string {
 }
 
 export async function inserirDadosTabela(nomeTabela: string, registros: Record<string, any>[], campoChave?: string) {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
@@ -610,6 +760,7 @@ export async function inserirDadosTabela(nomeTabela: string, registros: Record<s
 }
 
 export async function contarRegistrosTabela(nomeTabela: string): Promise<number> {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return 0;
@@ -626,6 +777,7 @@ export async function contarRegistrosTabela(nomeTabela: string): Promise<number>
 }
 
 export async function consultarDadosTabela(nomeTabela: string, limite = 100, offset = 0): Promise<any[]> {
+  recusarTabelaEasyLocal(nomeTabela);
   return withRetry(async () => {
     const db = await getDb();
     if (!db) return [];
