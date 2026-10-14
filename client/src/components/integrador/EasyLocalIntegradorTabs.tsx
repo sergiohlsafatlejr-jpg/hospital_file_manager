@@ -11,7 +11,7 @@ import {
   Table2,
   Trash2,
 } from "lucide-react";
-import { EasyLocalTab } from "@/components/integrador/EasyLocalTab";
+import { EasyLocalConexaoCadastro } from "@/components/integrador/EasyLocalConexaoCadastro";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -161,6 +161,7 @@ export function EasyLocalIntegradorTabs({
   const [leitura, setLeitura] = useState<FormLeitura>(novoFormularioLeitura);
   const [erroLeitura, setErroLeitura] = useState<string | null>(null);
   const [resultadoLeitura, setResultadoLeitura] = useState<string | null>(null);
+  const [versaoConexao, setVersaoConexao] = useState(0);
 
   // Catálogos e metadados só são solicitados dentro das abas correspondentes; nunca ao abrir a página.
   const tabelas = trpc.easyLocalIntegrador.listarTabelas.useQuery(
@@ -377,7 +378,17 @@ export function EasyLocalIntegradorTabs({
       </TabsList>
 
       <TabsContent value="conexoes">
-        <EasyLocalTab estabelecimentoId={estabelecimentoId} modoCatalogo />
+        <EasyLocalConexaoCadastro
+          key={versaoConexao}
+          onCadastroSalvo={() => {
+            // Uma conexão central nova invalida as origens aprovadas e torna
+            // qualquer seleção anterior imprópria para uma leitura futura.
+            setVersaoConexao(atual => atual + 1);
+            setOrigemDeteccao("");
+            setCamposDetectados(null);
+            setLeitura(novoFormularioLeitura());
+          }}
+        />
       </TabsContent>
 
       <TabsContent value="tabelas" className="space-y-4">

@@ -3,7 +3,7 @@ import {
   easyLocalOrigem,
   type EasyLocalCampoOrigem,
 } from "../shared/easyLocalIntegrador";
-import { readEasyLocalConfig } from "./easyLocalConnection";
+import { resolverEasyLocalConfig } from "./easyLocalCadastroStore";
 
 const CONNECTION_TIMEOUT_MS = 5000;
 const QUERY_TIMEOUT_MS = 5000;
@@ -167,12 +167,11 @@ async function ensureNonPrivilegedRole(client: pg.Client): Promise<void> {
 async function withEasyLocalCatalog<T>(
   operation: (client: pg.Client) => Promise<T>
 ): Promise<T> {
-  const config = readEasyLocalConfig();
-  if (!config) throw new EasyLocalMetadataError(CONFIGURATION_ERROR);
-
   let client: pg.Client | undefined;
   let readOnlyTransactionStarted = false;
   try {
+    const config = await resolverEasyLocalConfig();
+    if (!config) throw new EasyLocalMetadataError(CONFIGURATION_ERROR);
     client = new pg.Client({
       host: config.host,
       port: config.port,

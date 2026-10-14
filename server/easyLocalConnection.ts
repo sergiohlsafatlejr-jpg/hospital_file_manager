@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import pg from "pg";
+import { resolverEasyLocalConfig } from "./easyLocalCadastroStore";
 
 export type EasyLocalConnectionResult =
   | { status: "configuracao_pendente" }
@@ -7,7 +8,7 @@ export type EasyLocalConnectionResult =
   | { status: "credencial_privilegiada" }
   | { status: "falha_conexao" };
 
-type EasyLocalConnectionConfig = {
+export type EasyLocalConnectionConfig = {
   host: string;
   port: number;
   database: string;
@@ -23,12 +24,14 @@ async function closeEasyLocalClient(client: pg.Client): Promise<void> {
   try {
     await Promise.race([
       client.end(),
-      new Promise<void>((resolve) => {
+      new Promise<void>(resolve => {
         timer = setTimeout(() => {
           // pg 8.x: destruir o socket se o driver não completar o encerramento.
           // A consulta já terminou ou falhou e este cliente não será reutilizado.
           try {
-            const connection = client as unknown as { connection?: { stream?: { destroy(): void } } };
+            const connection = client as unknown as {
+              connection?: { stream?: { destroy(): void } };
+            };
             connection.connection?.stream?.destroy();
           } catch {
             // Falha de limpeza não deve alterar o resultado sanitizado.
@@ -45,7 +48,9 @@ async function closeEasyLocalClient(client: pg.Client): Promise<void> {
 }
 
 /** Configuração exclusivamente no backend. Nunca reutilizar DATABASE_URL do Portal. */
-export function readEasyLocalConfig(env: NodeJS.ProcessEnv = process.env): EasyLocalConnectionConfig | null {
+export function readEasyLocalConfig(
+  env: NodeJS.ProcessEnv = process.env
+): EasyLocalConnectionConfig | null {
   const host = env.EASYLOCAL_PG_HOST?.trim();
   const port = Number(env.EASYLOCAL_PG_PORT);
   const database = env.EASYLOCAL_PG_DATABASE?.trim();
@@ -55,12 +60,30 @@ export function readEasyLocalConfig(env: NodeJS.ProcessEnv = process.env): EasyL
   // Um PEM customizado pode ser fornecido multiline ou com quebras de linha escapadas.
   const ca = env.EASYLOCAL_PG_CA_CERT?.replace(/\\n/g, "\n").trim();
 
-  if (!host || !database || !user || !password || !ca || !env.EASYLOCAL_PG_PORT) return null;
+  if (!host || !database || !user || !password || !ca || !env.EASYLOCAL_PG_PORT)
+    return null;
   // Exigir DNS, cujo nome deve ser verificado contra o certificado do servidor.
-  if (isIP(host) || host.length > 253 || !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host)) return null;
+  if (
+    isIP(host) ||
+    host.length > 253 ||
+    !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host)
+  )
+    return null;
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  if (ca !== "SYSTEM" && (!ca.includes("-----BEGIN CERTIFICATE-----") || !ca.includes("-----END CERTIFICATE-----"))) return null;
-  return { host, port, database, user, password, ca: ca === "SYSTEM" ? undefined : ca };
+  if (
+    ca !== "SYSTEM" &&
+    (!ca.includes("-----BEGIN CERTIFICATE-----") ||
+      !ca.includes("-----END CERTIFICATE-----"))
+  )
+    return null;
+  return {
+    host,
+    port,
+    database,
+    user,
+    password,
+    ca: ca === "SYSTEM" ? undefined : ca,
+  };
 }
 
 /**
@@ -69,7 +92,17 @@ export function readEasyLocalConfig(env: NodeJS.ProcessEnv = process.env): EasyL
  * sem log de URL, hostname, credencial, certificado ou erro bruto do driver.
  */
 export async function testarConexaoEasyLocal(): Promise<EasyLocalConnectionResult> {
-  const config = readEasyLocalConfig();
+  try {
+    return await testarConexaoComConfig(await resolverEasyLocalConfig());
+  } catch {
+    return { status: "falha_conexao" };
+  }
+}
+
+/** Rascunho administrativo: prova restrita sem persistência nem importação. */
+export async function testarConexaoComConfig(
+  config: EasyLocalConnectionConfig | null
+): Promise<EasyLocalConnectionResult> {
   if (!config) return { status: "configuracao_pendente" };
 
   let client: pg.Client | undefined;
@@ -97,13 +130,14 @@ export async function testarConexaoEasyLocal(): Promise<EasyLocalConnectionResul
          WHERE (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls OR r.rolreplication
            OR has_database_privilege(r.oid, current_database(), 'CREATE'))
            AND (r.rolname = current_user OR pg_has_role(session_user, r.oid, 'MEMBER'))
-       ) AS privilegiada`,
+       ) AS privilegiada`
     );
     // MEMBER cobre associações diretas/indiretas, inclusive as que permitiriam SET ROLE.
     // Rejeitar associações não assumíveis é deliberadamente conservador.
     // A ausência de metadados não pode aprovar uma credencial desconhecida.
     if (privileges.rows.length !== 1) return { status: "falha_conexao" };
-    if (privileges.rows[0].privilegiada !== false) return { status: "credencial_privilegiada" };
+    if (privileges.rows[0].privilegiada !== false)
+      return { status: "credencial_privilegiada" };
     const result = await client.query("SELECT 1 AS conectividade");
     return result.rows[0]?.conectividade === 1
       ? { status: "conectado" }
