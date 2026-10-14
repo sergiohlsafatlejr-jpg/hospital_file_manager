@@ -60,16 +60,18 @@ describe("cadastro da conexão central EASYLocal", () => {
     expect(cadastro).toContain("disabled={!podeTestar}");
   });
 
-  it("separa os resultados de conectividade e de privilégios com texto seguro", () => {
+  it("aceita credencial administrativa e limita o EASYLocal à origem somente leitura", () => {
     for (const status of [
       "conectado",
       "configuracao_pendente",
-      "credencial_privilegiada",
       "falha_conexao",
     ]) {
       expect(cadastro).toContain(status);
     }
-    expect(cadastro).toContain("Role com privilégios excessivos");
+    expect(cadastro).toContain("Credenciais administrativas são aceitas.");
+    expect(cadastro).toContain("não administra nem escreve no PostgreSQL");
+    expect(cadastro).not.toContain("Role com privilégios excessivos");
+    expect(cadastro).not.toContain("role dedicada somente leitura");
     expect(cadastro).toContain("Nenhum detalhe técnico sensível é exibido.");
   });
 
