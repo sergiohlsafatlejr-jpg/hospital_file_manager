@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { EasyLocalConexaoCadastro } from "@/components/integrador/EasyLocalConexaoCadastro";
+import { EasyLocalImportacaoAcao } from "@/components/integrador/EasyLocalImportacaoAcao";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -403,8 +404,8 @@ export function EasyLocalIntegradorTabs({
                     <Table2 className="h-5 w-5" /> Tabelas gerenciadas
                   </CardTitle>
                   <CardDescription className="mt-1 max-w-2xl">
-                    Crie apenas tabelas novas do catálogo EASYLocal. Nenhuma
-                    tabela existente será adotada ou alterada.
+                    Crie tabelas novas de destino no Portal. O EASYLocal é a
+                    origem; nenhuma tabela existente será adotada ou alterada.
                   </CardDescription>
                 </div>
                 <Button type="button" onClick={iniciarNovaTabela}>
@@ -760,11 +761,12 @@ export function EasyLocalIntegradorTabs({
           <>
             <Alert>
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Configuração preparada, sem execução</AlertTitle>
+              <AlertTitle>Importação manual com prévia</AlertTitle>
               <AlertDescription>
-                Publicar uma leitura nesta página requer adaptador e validação
-                separados. A frequência desejada não cria agendamento,
-                sincronização ou ingestão.
+                Revise o lote e confirme a importação na tabela gerenciada do
+                Portal. A frequência desejada ainda não ativa horários. A
+                publicação nas páginas finais requer adaptador e validação
+                separados.
               </AlertDescription>
             </Alert>
             <Card>
@@ -956,7 +958,7 @@ export function EasyLocalIntegradorTabs({
                   Configurações cadastradas
                 </CardTitle>
                 <CardDescription>
-                  Todas permanecem preparadas sem execução ativa.
+                  Sem execução automática. Use a prévia para uma importação manual.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -983,6 +985,7 @@ export function EasyLocalIntegradorTabs({
                             Domínio e frequência
                           </th>
                           <th className="p-3 font-medium">Situação</th>
+                          <th className="p-3 font-medium">Importação no Portal</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -1008,8 +1011,16 @@ export function EasyLocalIntegradorTabs({
                             </td>
                             <td className="p-3">
                               <Badge variant="outline">
-                                Preparada sem execução
+                                Automação não ativada
                               </Badge>
+                            </td>
+                            <td className="p-3">
+                              <EasyLocalImportacaoAcao
+                                key={`${configuracao.id}-${versaoConexao}`}
+                                estabelecimentoId={estabelecimentoId}
+                                leituraId={configuracao.id}
+                                nomeTabela={configuracao.nomeTabela}
+                              />
                             </td>
                           </tr>
                         ))}

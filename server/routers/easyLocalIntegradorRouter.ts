@@ -17,6 +17,10 @@ import {
   detectarEasyLocalCampos,
   listarEasyLocalOrigens,
 } from "../easyLocalMetadata";
+import {
+  preverEasyLocalImportacao,
+  executarEasyLocalImportacao,
+} from "../easyLocalImportacaoService";
 import { getDb } from "../db";
 import { estabelecimentos } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
@@ -88,5 +92,23 @@ export const easyLocalIntegradorRouter = router({
     .input(easyLocalLeitura)
     .mutation(({ input, ctx }) =>
       operacao(() => salvarEasyLocalLeitura(input, ctx.user.id))
+    ),
+  preverImportacao: adminProcedure
+    .input(unidade.extend({ leituraId: z.number().int().positive() }).strict())
+    .mutation(({ input, ctx }) =>
+      operacao(() => preverEasyLocalImportacao(input, ctx.user.id))
+    ),
+  executarImportacao: adminProcedure
+    .input(
+      unidade
+        .extend({
+          leituraId: z.number().int().positive(),
+          confirmarImportacao: z.literal(true),
+          tokenPrevia: z.string().min(1).max(8192),
+        })
+        .strict()
+    )
+    .mutation(({ input, ctx }) =>
+      operacao(() => executarEasyLocalImportacao(input, ctx.user.id))
     ),
 });
