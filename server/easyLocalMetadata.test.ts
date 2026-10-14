@@ -32,8 +32,6 @@ const originalEnv: Record<string, string | undefined> = {};
 
 function mockSafeCatalog(columns: unknown[] = [], origins: unknown[] = []) {
   pgMock.query.mockImplementation(async (query: string) => {
-    if (query.includes("pg_catalog.pg_roles"))
-      return { rows: [{ privilegiada: false }] };
     if (query.includes("information_schema.columns")) return { rows: columns };
     if (query.includes("information_schema.tables")) return { rows: origins };
     return { rows: [] };
@@ -68,29 +66,15 @@ describe("catálogo EASYLocal", () => {
     }
   });
 
-  it("recusa role administrativa antes de consultar metadata e fecha a conexão", async () => {
-    pgMock.query.mockImplementation(async (query: string) => {
-      if (query.includes("pg_catalog.pg_roles"))
-        return { rows: [{ privilegiada: true }] };
-      if (query === "BEGIN READ ONLY" || query === "ROLLBACK")
-        return { rows: [] };
-      throw new Error("consulta de catálogo não deveria ocorrer");
+  it("aceita credencial administrativa e consulta somente metadados em READ ONLY com TLS validado", async () => {
+    vi.mocked(resolverEasyLocalConfig).mockResolvedValueOnce({
+      host: env.EASYLOCAL_PG_HOST,
+      port: 5432,
+      database: env.EASYLOCAL_PG_DATABASE,
+      user: "postgres_admin",
+      password: "segredo-administrativo-de-teste",
+      ca: env.EASYLOCAL_PG_CA_CERT,
     });
-
-    await expect(listarEasyLocalOrigens()).rejects.toThrow(
-      "privilégios administrativos"
-    );
-    expect(pgMock.query).toHaveBeenCalledWith("BEGIN READ ONLY");
-    expect(
-      pgMock.query.mock.calls.some(([query]) =>
-        String(query).includes("information_schema.tables")
-      )
-    ).toBe(false);
-    expect(pgMock.query).toHaveBeenCalledWith("ROLLBACK");
-    expect(pgMock.end).toHaveBeenCalledOnce();
-  });
-
-  it("consulta somente information_schema em transação READ ONLY com TLS validado e limite detector de excesso", async () => {
     mockSafeCatalog(
       [],
       [
@@ -107,6 +91,7 @@ describe("catálogo EASYLocal", () => {
     expect(pgMock.Client).toHaveBeenCalledWith(
       expect.objectContaining({
         host: env.EASYLOCAL_PG_HOST,
+        user: "postgres_admin",
         connectionTimeoutMillis: 5000,
         query_timeout: 5000,
         statement_timeout: 5000,
@@ -127,6 +112,10 @@ describe("catálogo EASYLocal", () => {
     expect(originQuery![1]).toEqual([201]);
     expect(pgMock.query).toHaveBeenCalledWith("BEGIN READ ONLY");
     expect(pgMock.query).toHaveBeenCalledWith("ROLLBACK");
+    const statements = pgMock.query.mock.calls.map(([query]) => String(query));
+    expect(statements.join("\n")).not.toMatch(
+      /pg_catalog\.pg_roles|pg_auth|GRANT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE/i
+    );
     expect(pgMock.end).toHaveBeenCalledOnce();
   });
 

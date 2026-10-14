@@ -12,8 +12,6 @@ const MAX_ORIGENS = 200;
 
 const CONFIGURATION_ERROR =
   "A configuração do catálogo EASYLocal está indisponível.";
-const PRIVILEGED_ROLE_ERROR =
-  "A credencial EASYLocal possui privilégios administrativos.";
 const CATALOG_ERROR = "Não foi possível consultar o catálogo EASYLocal.";
 const TOO_MANY_ORIGINS_ERROR =
   "Há mais de 200 origens elegíveis no catálogo EASYLocal.";
@@ -145,25 +143,6 @@ function toEasyLocalCampo(row: CatalogColumnRow): EasyLocalCampoOrigem {
   return campo;
 }
 
-async function ensureNonPrivilegedRole(client: pg.Client): Promise<void> {
-  const privileges = await client.query<{ privilegiada: boolean }>(
-    `SELECT EXISTS (
-       SELECT 1 FROM pg_catalog.pg_roles r
-       WHERE (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls OR r.rolreplication
-         OR has_database_privilege(r.oid, current_database(), 'CREATE'))
-         AND (r.rolname = current_user OR pg_has_role(session_user, r.oid, 'MEMBER'))
-     ) AS privilegiada`
-  );
-
-  // Rejeita também resposta parcial/desconhecida; a credencial só é aceita com false explícito.
-  if (
-    privileges.rows.length !== 1 ||
-    privileges.rows[0]?.privilegiada !== false
-  ) {
-    throw new EasyLocalMetadataError(PRIVILEGED_ROLE_ERROR);
-  }
-}
-
 async function withEasyLocalCatalog<T>(
   operation: (client: pg.Client) => Promise<T>
 ): Promise<T> {
@@ -191,7 +170,6 @@ async function withEasyLocalCatalog<T>(
     await client.connect();
     await client.query("BEGIN READ ONLY");
     readOnlyTransactionStarted = true;
-    await ensureNonPrivilegedRole(client);
     return await operation(client);
   } catch (error) {
     if (error instanceof EasyLocalMetadataError) throw error;

@@ -48,7 +48,6 @@ import {
 type ResultadoTeste =
   | "conectado"
   | "configuracao_pendente"
-  | "credencial_privilegiada"
   | "falha_conexao";
 
 type FormularioCadastro = {
@@ -70,18 +69,13 @@ const resultadoTeste: Record<
   conectado: {
     titulo: "Conexão validada",
     descricao:
-      "A conexão e a role de leitura foram verificadas sem consultar registros ou iniciar importações.",
+      "TLS e SELECT 1 foram verificados em transação somente leitura, sem consultar registros ou iniciar importações. Credenciais administrativas são aceitas; o EASYLocal é somente origem e o Portal não administra nem escreve no PostgreSQL.",
     sucesso: true,
   },
   configuracao_pendente: {
     titulo: "Configuração pendente",
     descricao:
       "Revise os dados necessários e tente novamente. Nenhum detalhe sensível é exibido.",
-  },
-  credencial_privilegiada: {
-    titulo: "Role com privilégios excessivos",
-    descricao:
-      "O teste bloqueou esta role. Solicite ao TI uma role dedicada somente leitura antes de prosseguir.",
   },
   falha_conexao: {
     titulo: "Não foi possível validar a conexão",
@@ -402,8 +396,10 @@ export function EasyLocalConexaoCadastro({
                 : "Configurar conexão central"}
             </DialogTitle>
             <DialogDescription>
-              Use uma role dedicada somente leitura. A senha e o certificado
-              nunca são exibidos depois de salvos.
+              Credenciais administrativas são aceitas. O EASYLocal é somente
+              origem: o Portal consulta em modo de leitura e não administra nem
+              escreve no PostgreSQL. A senha e o certificado nunca são exibidos
+              depois de salvos.
             </DialogDescription>
           </DialogHeader>
 
@@ -508,11 +504,11 @@ export function EasyLocalConexaoCadastro({
                 }
                 maxLength={4096}
                 autoComplete="new-password"
-                placeholder={
-                  senhaConfigurada
-                    ? "Deixe em branco para manter a senha atual"
-                    : "Informe a senha da role somente leitura"
-                }
+                  placeholder={
+                    senhaConfigurada
+                      ? "Deixe em branco para manter a senha atual"
+                      : "Informe a senha da credencial PostgreSQL"
+                  }
               />
             </Campo>
 

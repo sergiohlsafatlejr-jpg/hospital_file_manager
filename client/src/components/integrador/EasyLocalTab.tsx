@@ -23,24 +23,18 @@ import { trpc } from "@/lib/trpc";
 type Resultado =
   | "conectado"
   | "configuracao_pendente"
-  | "credencial_privilegiada"
   | "falha_conexao";
 
 const mensagens: Record<Resultado, { titulo: string; descricao: string }> = {
   conectado: {
     titulo: "Conexão validada nesta sessão",
     descricao:
-      "TLS, bloqueio de atributos administrativos e SELECT 1 passaram. A role ainda precisa de validação dos grants efetivos pelo TI; nenhuma tabela hospitalar foi lida ou sincronizada.",
+      "TLS com verificação e SELECT 1 passaram em transação somente leitura. Credenciais administrativas são aceitas porque o EASYLocal é somente origem; o Portal não administra nem escreve no PostgreSQL.",
   },
   configuracao_pendente: {
     titulo: "Configuração pendente",
     descricao:
       "Os parâmetros necessários ainda não estão completos no backend. Solicite o ajuste pelo canal seguro de segredos.",
-  },
-  credencial_privilegiada: {
-    titulo: "Credencial com privilégios excessivos",
-    descricao:
-      "O teste bloqueou a role atual. O TI precisa instalar uma role dedicada somente leitura antes de prosseguir.",
   },
   falha_conexao: {
     titulo: "Não foi possível validar a conexão",
@@ -163,7 +157,7 @@ export function EasyLocalTab({
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><LockKeyhole className="h-5 w-5" /> Conexão central e isolamento</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p>As credenciais não são copiadas para as tabelas de configuração. O cadastro de leitura guarda somente uma referência ao EASYLocal do servidor.</p>
-            <p>Use uma role dedicada somente leitura. Privilégios administrativos bloqueiam a consulta de metadados.</p>
+            <p>Credenciais administrativas são aceitas. O EASYLocal é somente origem: o Portal consulta metadados em transações de leitura e não administra nem escreve no PostgreSQL.</p>
             <p>Novas tabelas são isoladas pela unidade selecionada. Leituras exigem coluna e identificador do estabelecimento na origem.</p>
             <p>O teste opcional não importa dados e não ativa tarefas. Falhas de rede não apagam a configuração salva.</p>
           </CardContent>
@@ -187,8 +181,8 @@ export function EasyLocalTab({
               </strong>
             </p>
             <p>
-              Role dedicada somente leitura: <strong>validação pendente</strong>{" "}
-              — execute o teste acima com a nova role configurada pelo TI.
+              Credencial PostgreSQL: <strong>aceita, inclusive administrativa</strong>{" "}
+              — o EASYLocal permanece somente como origem de leitura.
             </p>
             <p>
               View de consumo e mapeamento por unidade:{" "}
@@ -217,8 +211,7 @@ export function EasyLocalTab({
         </CardHeader>
         <CardContent className="grid gap-3 text-sm md:grid-cols-3">
           <p>
-            <strong>1. TI:</strong> role somente leitura e view final com
-            isolamento da unidade.
+            <strong>1. TI:</strong> TLS e view final com isolamento da unidade.
           </p>
           <p>
             <strong>2. Validação:</strong> metadados de colunas, chave e

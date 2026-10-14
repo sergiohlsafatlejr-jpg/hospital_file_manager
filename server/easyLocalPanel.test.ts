@@ -41,9 +41,10 @@ describe("painel de preparação EASYLocal", () => {
   it("não inventa contagens e não exibe parâmetros de conexão", () => {
     expect(legacy).not.toContain("508 registros sincronizados com sucesso");
     expect(panel).toMatch(/a\s+tela não recebe host, usuário, senha ou certificado/);
-    expect(panel).toContain(
-      "A role ainda precisa de validação dos grants efetivos pelo TI"
-    );
+    expect(panel).toContain("Credenciais administrativas são aceitas");
+    expect(panel).toContain("não administra nem escreve no PostgreSQL");
+    expect(panel).not.toContain("Credencial com privilégios excessivos");
+    expect(panel).not.toContain("role dedicada somente leitura");
     expect(panel).toContain(
       "Leitura de linhas, cadastro de queries e sincronização:"
     );

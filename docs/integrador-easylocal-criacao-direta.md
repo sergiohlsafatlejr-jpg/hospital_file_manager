@@ -12,9 +12,9 @@ A implementação fica em branch própria e PR. A preferência de criação dire
 
 Reutiliza o painel EASYLocal existente em modo central. A configuração permanece nos segredos do servidor; não existe cadastro de senha em Base64 nem cópia de credenciais para o catálogo.
 
-O teste manual é opcional. As operações de metadados abrem sua própria conexão PostgreSQL, verificam TLS e privilégios, consultam somente o catálogo e encerram a conexão. Uma falha não apaga a configuração, mas também não garante disponibilidade permanente da rede.
+O teste manual é opcional. As operações de metadados abrem sua própria conexão PostgreSQL, verificam TLS, usam `BEGIN READ ONLY` e `ROLLBACK`, consultam somente o catálogo e encerram a conexão. Uma falha não apaga a configuração, mas também não garante disponibilidade permanente da rede.
 
-**Preflight real de 14/10:** os quatro cadastros de catálogo do Portal estão presentes. A sonda de conexão bloqueou a credencial EASYLocal atual por privilégios administrativos. Antes de detectar origens ou salvar leituras, o TI precisa instalar uma role dedicada somente leitura pelo canal de segredos já utilizado. Não enviar credenciais em conversa, Issue ou PR.
+**Preflight real de 14/10:** os quatro cadastros de catálogo do Portal estão presentes. Credenciais administrativas são aceitas porque o EASYLocal é somente origem: o Portal não administra nem escreve no PostgreSQL. Antes de detectar origens ou salvar leituras, seguem necessárias as aprovações de origem, isolamento e dados. Não enviar credenciais em conversa, Issue ou PR.
 
 ### Tabelas
 
