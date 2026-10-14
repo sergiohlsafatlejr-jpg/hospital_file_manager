@@ -51,8 +51,10 @@ const mensagens: Record<Resultado, { titulo: string; descricao: string }> = {
 
 export function EasyLocalTab({
   estabelecimentoId,
+  modoCatalogo = false,
 }: {
   estabelecimentoId: number | null;
+  modoCatalogo?: boolean;
 }) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const preparacao = trpc.easyLocal.obterPreparacao.useQuery(
@@ -65,7 +67,7 @@ export function EasyLocalTab({
   });
   const piloto = preparacao.data?.piloto;
   const unidadeCorreta =
-    !!piloto && estabelecimentoId === piloto.estabelecimentoId;
+    modoCatalogo ? !!estabelecimentoId : !!piloto && estabelecimentoId === piloto.estabelecimentoId;
 
   return (
     <div className="space-y-5">
@@ -76,9 +78,9 @@ export function EasyLocalTab({
               <Database className="h-5 w-5" /> EASYLocal · conexão da empresa
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Hospitais alimentam o EASYLocal; o Portal fará a leitura das
+              {modoCatalogo ? "A configuração central fica salva nos segredos do servidor. Cada consulta de metadados abre uma conexão validada; não é necessário testar manualmente antes de cada operação." : <>Hospitais alimentam o EASYLocal; o Portal fará a leitura das
               fontes aprovadas em uma fase posterior. Agora é possível apenas
-              testar a conexão do backend.
+              testar a conexão do backend.</>}
             </p>
           </div>
           <Badge variant="outline">Preparação · sem sincronização</Badge>
@@ -114,7 +116,7 @@ export function EasyLocalTab({
               <p className="text-sm">
                 <span className="font-medium">Configuração: </span>
                 {preparacao.data?.configuracaoDisponivel
-                  ? "presente no servidor (conexão ainda não testada nesta sessão)"
+                  ? (modoCatalogo ? "salva no servidor; teste manual opcional" : "presente no servidor (conexão ainda não testada nesta sessão)")
                   : "incompleta no servidor"}
               </p>
             )}
@@ -157,7 +159,15 @@ export function EasyLocalTab({
           </CardContent>
         </Card>
 
-        <Card>
+        {modoCatalogo ? <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><LockKeyhole className="h-5 w-5" /> Conexão central e isolamento</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p>As credenciais não são copiadas para as tabelas de configuração. O cadastro de leitura guarda somente uma referência ao EASYLocal do servidor.</p>
+            <p>Use uma role dedicada somente leitura. Privilégios administrativos bloqueiam a consulta de metadados.</p>
+            <p>Novas tabelas são isoladas pela unidade selecionada. Leituras exigem coluna e identificador do estabelecimento na origem.</p>
+            <p>O teste opcional não importa dados e não ativa tarefas. Falhas de rede não apagam a configuração salva.</p>
+          </CardContent>
+        </Card> : <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <LockKeyhole className="h-5 w-5" /> Piloto · Hospital Urológico
@@ -196,7 +206,7 @@ export function EasyLocalTab({
               </AlertDescription>
             </Alert>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
 
       <Card>
