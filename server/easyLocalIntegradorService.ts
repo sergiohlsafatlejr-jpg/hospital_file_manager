@@ -51,7 +51,7 @@ export function ddlEasyLocalTabela(raw: EasyLocalTabelaInput): string {
           `  \`${c.nome}\` ${tipoSql(c)} ${c.obrigatorio ? "NOT NULL" : "NULL"}`
       )
       .join(",\n") +
-    `,\n  \`_sincronizado_em\` DATETIME NULL,\n  INDEX \`idx_estabelecimento\` (\`estabelecimento_id\`)\n)`
+    `,\n  \`_sincronizado_em\` DATETIME NULL,\n  INDEX \`idx_estabelecimento\` (\`estabelecimento_id\`)\n) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`
   );
 }
 function descriptor(
@@ -150,7 +150,7 @@ export async function criarEasyLocalTabela(
     reservaConfirmada = true;
     await conn.query(ddlEasyLocalTabela(t));
     const [cols] = await conn.execute<RowDataPacket[]>(
-      "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+      "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_SET_NAME, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
       [nomeFisico]
     );
     if (
@@ -194,7 +194,12 @@ export async function criarEasyLocalTabela(
           Number(p.CHARACTER_MAXIMUM_LENGTH) !== (c.tamanho ?? 255)) ||
         (c.tipo === "decimal" &&
           (Number(p.NUMERIC_PRECISION) !== (c.tamanho ?? 18) ||
-            Number(p.NUMERIC_SCALE) !== (c.escala ?? 2)))
+            Number(p.NUMERIC_SCALE) !== (c.escala ?? 2))) ||
+        ((c.tipo === "varchar" || c.tipo === "text") &&
+          (String(p.CHARACTER_SET_NAME ?? "").toLowerCase() !== "utf8mb4" ||
+            !String(p.COLLATION_NAME ?? "")
+              .toLowerCase()
+              .startsWith("utf8mb4_")))
       ) {
         erro(
           "INTERNAL_SERVER_ERROR",

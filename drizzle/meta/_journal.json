@@ -379,6 +379,13 @@
       "when": 1791922720742,
       "tag": "0135_fuzzy_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "5",
+      "when": 1792003825434,
+      "tag": "0136_lame_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }

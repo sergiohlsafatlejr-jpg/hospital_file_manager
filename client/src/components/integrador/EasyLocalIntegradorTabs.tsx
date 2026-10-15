@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { EasyLocalConexaoCadastro } from "@/components/integrador/EasyLocalConexaoCadastro";
 import { EasyLocalImportacaoAcao } from "@/components/integrador/EasyLocalImportacaoAcao";
+import { EasyLocalAgendamentoAcao } from "@/components/integrador/EasyLocalAgendamentoAcao";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -761,10 +762,11 @@ export function EasyLocalIntegradorTabs({
           <>
             <Alert>
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Importação manual com prévia</AlertTitle>
+              <AlertTitle>Importação e horários com revisão</AlertTitle>
               <AlertDescription>
                 Revise o lote e confirme a importação na tabela gerenciada do
-                Portal. A frequência desejada ainda não ativa horários. A
+                Portal. Salvar a frequência desejada não ativa horários: use
+                Configurar horário e confirme a prévia para automatizar. A
                 publicação nas páginas finais requer adaptador e validação
                 separados.
               </AlertDescription>
@@ -958,7 +960,9 @@ export function EasyLocalIntegradorTabs({
                   Configurações cadastradas
                 </CardTitle>
                 <CardDescription>
-                  Sem execução automática. Use a prévia para uma importação manual.
+                  Revise a importação manual ou configure um horário automático
+                  por leitura e estabelecimento. Nenhuma tarefa é iniciada apenas
+                  por abrir esta página ou salvar o cadastro.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -984,7 +988,7 @@ export function EasyLocalIntegradorTabs({
                           <th className="p-3 font-medium">
                             Domínio e frequência
                           </th>
-                          <th className="p-3 font-medium">Situação</th>
+                          <th className="p-3 font-medium">Horários automáticos</th>
                           <th className="p-3 font-medium">Importação no Portal</th>
                         </tr>
                       </thead>
@@ -1010,9 +1014,13 @@ export function EasyLocalIntegradorTabs({
                               {configuracao.frequenciaDesejada}
                             </td>
                             <td className="p-3">
-                              <Badge variant="outline">
-                                Automação não ativada
-                              </Badge>
+                              <EasyLocalAgendamentoAcao
+                                key={`agenda-${estabelecimentoId}-${configuracao.id}-${versaoConexao}`}
+                                estabelecimentoId={estabelecimentoId}
+                                leituraId={configuracao.id}
+                                nomeTabela={configuracao.nomeTabela}
+                                frequenciaDesejada={configuracao.frequenciaDesejada}
+                              />
                             </td>
                             <td className="p-3">
                               <EasyLocalImportacaoAcao

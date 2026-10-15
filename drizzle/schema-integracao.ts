@@ -1629,3 +1629,5 @@ export const stagingFaturadoRecebidoIad = mysqlTable(
 );
 
 export * from "./schema-banco";
+
+export * from "./schema-easylocal-agendamento";

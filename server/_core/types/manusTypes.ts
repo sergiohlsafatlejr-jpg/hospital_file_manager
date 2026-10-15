@@ -66,4 +66,6 @@ export interface GetUserInfoWithJwtResponse {
   email?: string | null;
   platform?: string | null;
   loginMethod?: string | null;
+  /** Populado apenas para identidades Heartbeat (openId cron_*). */
+  taskUid?: string | null;
 }
