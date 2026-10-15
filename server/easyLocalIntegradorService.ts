@@ -12,6 +12,10 @@ import {
   type EasyLocalTabelaResumo,
   type EasyLocalLeituraResumo,
 } from "../shared/easyLocalIntegrador";
+import {
+  easyLocalNomesStaging,
+} from "../shared/easyLocalStagings";
+import { leituraStagingResumo } from "./easyLocalStagingsService";
 
 const CONNECTION_ALIAS = "__EASYLOCAL_SERVER__";
 const MARKER = "easylocal-direto-v1";
@@ -368,13 +372,35 @@ export async function listarEasyLocalLeituras(
   try {
     await unidade(conn, estabelecimentoId);
     const [rows] = await conn.execute<RowDataPacket[]>(
-      "SELECT m.id, m.tabelaDestinoId, m.queryOrigem, m.descricao, m.ativo, t.nomeExibicao FROM integracao_mapeamentos m JOIN integracao_tabelas t ON t.id = m.tabelaDestinoId AND t.estabelecimentoId = m.estabelecimentoId WHERE m.estabelecimentoId = ? AND t.nome LIKE ? ORDER BY m.id DESC LIMIT 201",
-      [estabelecimentoId, `el_${estabelecimentoId}_%`]
+      "SELECT m.id, m.tabelaDestinoId, m.estabelecimentoId, m.queryOrigem, m.descricao, m.ativo, m.campoChave, m.frequencia, m.modoImportacao, t.nome, t.nomeExibicao, t.descricao AS tabelaDescricao FROM integracao_mapeamentos m JOIN integracao_tabelas t ON t.id = m.tabelaDestinoId AND t.estabelecimentoId = m.estabelecimentoId WHERE m.estabelecimentoId = ? AND (t.nome LIKE ? OR t.nome IN (?, ?, ?, ?)) ORDER BY m.id DESC LIMIT 201",
+      [
+        estabelecimentoId,
+        `el_${estabelecimentoId}_%`,
+        ...easyLocalNomesStaging,
+      ]
     );
     if (rows.length > 200)
       erro("BAD_REQUEST", "Mais de 200 configurações; refine o catálogo.");
     return rows.flatMap(r => {
       try {
+        const staging = leituraStagingResumo(
+          {
+            id: r.id,
+            tabelaDestinoId: r.tabelaDestinoId,
+            estabelecimentoId: r.estabelecimentoId,
+            nomeExibicao: r.nomeExibicao,
+            tabelaNome: r.nome,
+            tabelaDescricao: r.tabelaDescricao,
+            descricao: r.descricao,
+            queryOrigem: r.queryOrigem,
+            campoChave: r.campoChave,
+            frequencia: r.frequencia,
+            ativo: r.ativo,
+            modoImportacao: r.modoImportacao,
+          },
+          estabelecimentoId
+        );
+        if (staging) return [staging];
         if (JSON.parse(r.descricao).marker !== MARKER || r.ativo !== "nao")
           return [];
         const c = easyLocalLeitura.parse(JSON.parse(r.queryOrigem));

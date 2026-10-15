@@ -7,12 +7,17 @@ import {
   easyLocalLeitura,
   easyLocalOrigem,
 } from "../../shared/easyLocalIntegrador";
+import { easyLocalLeituraStaging } from "../../shared/easyLocalStagings";
 import {
   criarEasyLocalTabela,
   listarEasyLocalTabelas,
   listarEasyLocalLeituras,
   salvarEasyLocalLeitura,
 } from "../easyLocalIntegradorService";
+import {
+  listarEasyLocalStagingsExistentes,
+  salvarEasyLocalLeituraStaging,
+} from "../easyLocalStagingsService";
 import {
   detectarEasyLocalCampos,
   listarEasyLocalOrigens,
@@ -59,6 +64,16 @@ async function operacao<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 export const easyLocalIntegradorRouter = router({
+  listarStagingsExistentes: adminProcedure
+    .input(unidade)
+    .query(({ input }) =>
+      operacao(() => listarEasyLocalStagingsExistentes(input.estabelecimentoId))
+    ),
+  salvarLeituraStaging: adminProcedure
+    .input(easyLocalLeituraStaging)
+    .mutation(({ input, ctx }) =>
+      operacao(() => salvarEasyLocalLeituraStaging(input, ctx.user.id))
+    ),
   listarTabelas: adminProcedure
     .input(unidade)
     .query(({ input }) =>

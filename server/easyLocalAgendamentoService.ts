@@ -6,6 +6,7 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/prom
 import { COOKIE_NAME } from "@shared/const";
 import { getRawPool } from "./db";
 import * as importacao from "./easyLocalImportacaoService";
+import { exigirDestinoEasyLocalExecutavel } from "./easyLocalDestinoGuard";
 import {
   createHeartbeatJob,
   deleteHeartbeatJob,
@@ -401,6 +402,7 @@ async function validateCatalog(
     fail("NOT_FOUND", "Leitura EASYLocal não encontrada nesta unidade.");
   }
   const row = rows[0]!;
+  exigirDestinoEasyLocalExecutavel(row.tabelaNome, row.tabelaDescricao, row.leituraDescricao);
   let leitura: ReturnType<typeof easyLocalLeitura.parse>;
   let description: Record<string, unknown> | null = null;
   let tableDescription: Record<string, unknown> | null = null;

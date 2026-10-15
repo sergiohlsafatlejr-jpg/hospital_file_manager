@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -38,12 +38,21 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import {
+  chaveOrigemEasyLocal,
+  colunaEstabelecimentoDetectada,
+  contextoDeteccaoAindaAtual,
+  type ContextoDeteccaoEasyLocal,
+  valorVinculoPersistido,
+} from "@/components/integrador/EasyLocalLeituraForm";
 import {
   easyLocalCriarTabela,
   easyLocalLeitura,
@@ -54,6 +63,11 @@ import {
   type EasyLocalTabelaInput,
   type EasyLocalTabelaResumo,
 } from "@shared/easyLocalIntegrador";
+import {
+  easyLocalLeituraStaging,
+  type EasyLocalLeituraStagingInput,
+  type EasyLocalStagingResumo,
+} from "@shared/easyLocalStagings";
 
 type TipoColuna = EasyLocalColuna["tipo"];
 type ColunaRascunho = {
@@ -68,9 +82,16 @@ type FormLeitura = Omit<
   EasyLocalLeituraInput,
   "estabelecimentoId" | "origem" | "tabelaId"
 > & {
-  tabelaId: string;
+  destino: string;
   origemChave: string;
 };
+type EasyLocalLeituraResumoUi = EasyLocalLeituraResumo & {
+  tipoDestino?: "nova" | "staging_existente";
+  execucaoLiberada?: false;
+  bloqueios?: string[];
+  escritorAtual?: "nao_confirmado";
+};
+type LeituraStagingPendente = EasyLocalLeituraStagingInput;
 
 const TIPOS: Array<{ valor: TipoColuna; rotulo: string }> = [
   { valor: "varchar", rotulo: "Texto curto (varchar)" },
@@ -107,7 +128,7 @@ function novaColuna(): ColunaRascunho {
 
 function novoFormularioLeitura(): FormLeitura {
   return {
-    tabelaId: "",
+    destino: "",
     origemChave: "",
     colunaEstabelecimento: "",
     valorEstabelecimento: "",
@@ -156,6 +177,14 @@ export function EasyLocalIntegradorTabs({
   const [camposDetectados, setCamposDetectados] = useState<
     EasyLocalCampoOrigem[] | null
   >(null);
+  const [camposDetectadosLeitura, setCamposDetectadosLeitura] = useState<
+    EasyLocalCampoOrigem[] | null
+  >(null);
+  const contextoDeteccaoLeituraRef = useRef<ContextoDeteccaoEasyLocal | null>(
+    null
+  );
+  const estabelecimentoAtualRef = useRef<number | null>(estabelecimentoId);
+  estabelecimentoAtualRef.current = estabelecimentoId;
   const [erroTabela, setErroTabela] = useState<string | null>(null);
   const [tabelaParaConfirmar, setTabelaParaConfirmar] =
     useState<EasyLocalTabelaInput | null>(null);
@@ -163,7 +192,11 @@ export function EasyLocalIntegradorTabs({
   const [leitura, setLeitura] = useState<FormLeitura>(novoFormularioLeitura);
   const [erroLeitura, setErroLeitura] = useState<string | null>(null);
   const [resultadoLeitura, setResultadoLeitura] = useState<string | null>(null);
+  const [stagingParaConfirmar, setStagingParaConfirmar] =
+    useState<LeituraStagingPendente | null>(null);
   const [versaoConexao, setVersaoConexao] = useState(0);
+  const versaoConexaoRef = useRef(versaoConexao);
+  versaoConexaoRef.current = versaoConexao;
 
   // Catálogos e metadados só são solicitados dentro das abas correspondentes; nunca ao abrir a página.
   const tabelas = trpc.easyLocalIntegrador.listarTabelas.useQuery(
@@ -191,6 +224,15 @@ export function EasyLocalIntegradorTabs({
       retry: false,
     }
   );
+  const stagings = trpc.easyLocalIntegrador.listarStagingsExistentes.useQuery(
+    { estabelecimentoId: estabelecimentoId ?? 0 },
+    {
+      enabled:
+        Boolean(estabelecimentoId) &&
+        (abaAtiva === "tabelas" || abaAtiva === "leituras"),
+      retry: false,
+    }
+  );
 
   const criarTabela = trpc.easyLocalIntegrador.criarTabela.useMutation({
     onSuccess: (resposta: { nomeFisico: string }) => {
@@ -214,18 +256,84 @@ export function EasyLocalIntegradorTabs({
     },
     onError: () => setErroTabela(erroSeguro("metadados")),
   });
+  const detectarCamposLeitura =
+    trpc.easyLocalIntegrador.detectarCampos.useMutation({
+      onSuccess: (campos: EasyLocalCampoOrigem[], solicitacao) => {
+        if (
+          !contextoDeteccaoAindaAtual(
+            solicitacao,
+            contextoDeteccaoLeituraRef.current
+          )
+        ) {
+          return;
+        }
+        const colunaAutomatica = colunaEstabelecimentoDetectada(campos);
+        setCamposDetectadosLeitura(campos);
+        setErroLeitura(null);
+        setLeitura(atual => ({
+          ...atual,
+          colunaEstabelecimento: colunaAutomatica,
+          valorEstabelecimento: colunaAutomatica
+            ? valorVinculoPersistido(
+                listaLeiturasRef.current,
+                solicitacao.origem,
+                colunaAutomatica
+              )
+            : "",
+        }));
+      },
+      onError: (_erro, solicitacao) => {
+        if (
+          contextoDeteccaoAindaAtual(
+            solicitacao,
+            contextoDeteccaoLeituraRef.current
+          )
+        ) {
+          setErroLeitura(erroSeguro("metadados"));
+        }
+      },
+    });
   const salvarLeitura = trpc.easyLocalIntegrador.salvarLeitura.useMutation({
-    onSuccess: () => {
+    onMutate: () => versaoConexaoRef.current,
+    onSuccess: (_resposta, input, versaoConexaoDaSolicitacao) => {
+      if (
+        estabelecimentoAtualRef.current !== input.estabelecimentoId ||
+        versaoConexaoRef.current !== versaoConexaoDaSolicitacao
+      )
+        return;
       setResultadoLeitura("Configuração preparada e salva sem execução ativa.");
       setLeitura(novoFormularioLeitura());
+      setCamposDetectadosLeitura(null);
+      contextoDeteccaoLeituraRef.current = null;
       leituras.refetch();
     },
     onError: () => setErroLeitura(erroSeguro("leitura")),
   });
+  const salvarLeituraStaging =
+    trpc.easyLocalIntegrador.salvarLeituraStaging.useMutation({
+      onMutate: () => versaoConexaoRef.current,
+      onSuccess: (_resposta, input, versaoConexaoDaSolicitacao) => {
+        if (
+          estabelecimentoAtualRef.current !== input.estabelecimentoId ||
+          versaoConexaoRef.current !== versaoConexaoDaSolicitacao
+        )
+          return;
+        setResultadoLeitura("Vínculo preparado — carga e horário bloqueados.");
+        setStagingParaConfirmar(null);
+        setLeitura(novoFormularioLeitura());
+        setCamposDetectadosLeitura(null);
+        contextoDeteccaoLeituraRef.current = null;
+        leituras.refetch();
+      },
+      onError: () => setErroLeitura(erroSeguro("leitura")),
+    });
 
   const listaTabelas = (tabelas.data ?? []) as EasyLocalTabelaResumo[];
   const listaOrigens = (origens.data ?? []) as Origem[];
-  const listaLeituras = (leituras.data ?? []) as EasyLocalLeituraResumo[];
+  const listaLeituras = (leituras.data ?? []) as EasyLocalLeituraResumoUi[];
+  const listaLeiturasRef = useRef<EasyLocalLeituraResumoUi[]>(listaLeituras);
+  listaLeiturasRef.current = listaLeituras;
+  const listaStagings = (stagings.data ?? []) as EasyLocalStagingResumo[];
   const tabelasCriadas = useMemo(
     () => listaTabelas.filter(tabela => tabela.estado === "criada"),
     [listaTabelas]
@@ -344,16 +452,112 @@ export function EasyLocalIntegradorTabs({
     if (origem) detectarCampos.mutate({ estabelecimentoId, origem });
   }
 
-  function confirmarLeitura() {
-    if (!estabelecimentoId || !origemSelecionada) {
+  function detectarMetadadosDaLeitura(origem: Origem) {
+    if (!estabelecimentoId) return;
+    const solicitacao: ContextoDeteccaoEasyLocal = {
+      estabelecimentoId,
+      origem,
+    };
+    contextoDeteccaoLeituraRef.current = solicitacao;
+    setCamposDetectadosLeitura(null);
+    detectarCamposLeitura.mutate(solicitacao);
+  }
+
+  function selecionarDestinoLeitura(valor: string) {
+    setErroLeitura(null);
+    setResultadoLeitura(null);
+    contextoDeteccaoLeituraRef.current = null;
+    setCamposDetectadosLeitura(null);
+    const staging = listaStagings.find(
+      item =>
+        `staging:${item.nomeFisico}` === valor && item.estado === "disponivel"
+    );
+    if (staging) {
+      setLeitura(atual => ({
+        ...atual,
+        destino: valor,
+        origemChave: chaveOrigemEasyLocal(staging.origem),
+        colunaEstabelecimento: "",
+        valorEstabelecimento: "",
+        campoChave: staging.dominio === "atendimentos" ? "numatend" : "",
+        dominio: staging.dominio,
+      }));
+      detectarMetadadosDaLeitura(staging.origem);
+      return;
+    }
+    setLeitura(atual => ({
+      ...atual,
+      destino: valor,
+      origemChave: "",
+      colunaEstabelecimento: "",
+      valorEstabelecimento: "",
+      campoChave: "",
+    }));
+  }
+
+  function selecionarOrigemLeitura(valor: string) {
+    const origem = listaOrigens.find(
+      item => chaveOrigemEasyLocal(item) === valor
+    );
+    if (!origem) return;
+    setErroLeitura(null);
+    setResultadoLeitura(null);
+    setLeitura(atual => ({
+      ...atual,
+      origemChave: valor,
+      colunaEstabelecimento: "",
+      valorEstabelecimento: "",
+      campoChave: "",
+    }));
+    detectarMetadadosDaLeitura(origem);
+  }
+
+  function prepararVinculoStaging(staging: EasyLocalStagingResumo) {
+    if (!estabelecimentoId) return;
+    const validacao = easyLocalLeituraStaging.safeParse({
+      estabelecimentoId,
+      nomeStaging: staging.nomeFisico,
+      origem: staging.origem,
+      colunaEstabelecimento: leitura.colunaEstabelecimento.trim(),
+      valorEstabelecimento: leitura.valorEstabelecimento.trim(),
+      dominio: staging.dominio,
+      frequenciaDesejada: leitura.frequenciaDesejada,
+      confirmarVinculo: true,
+    });
+    if (!validacao.success) {
       setErroLeitura(
-        "Selecione uma tabela criada e uma origem aprovada antes de salvar."
+        "Informe ou revise o campo e o valor do vínculo antes de confirmar."
+      );
+      return;
+    }
+    setErroLeitura(null);
+    setStagingParaConfirmar(validacao.data);
+  }
+
+  function confirmarLeitura() {
+    if (!estabelecimentoId) return;
+    const staging = listaStagings.find(
+      item => `staging:${item.nomeFisico}` === leitura.destino
+    );
+    if (staging) {
+      if (staging.estado !== "disponivel") {
+        setErroLeitura(
+          "Este staging está apenas em diagnóstico e não pode receber vínculo."
+        );
+        return;
+      }
+      prepararVinculoStaging(staging);
+      return;
+    }
+    if (!origemSelecionada) {
+      setErroLeitura(
+        "Selecione um destino no Portal e uma origem aprovada antes de salvar."
       );
       return;
     }
     const validacao = easyLocalLeitura.safeParse({
       estabelecimentoId,
-      tabelaId: Number(leitura.tabelaId),
+      tabelaId: Number(leitura.destino),
       origem: origemSelecionada,
       colunaEstabelecimento: leitura.colunaEstabelecimento.trim(),
       valorEstabelecimento: leitura.valorEstabelecimento.trim(),
@@ -369,6 +573,10 @@ export function EasyLocalIntegradorTabs({
     }
     setErroLeitura(null);
     salvarLeitura.mutate(validacao.data);
+  }
+
+  function confirmarVinculoStaging() {
+    if (stagingParaConfirmar) salvarLeituraStaging.mutate(stagingParaConfirmar);
   }
 
   return (
@@ -388,6 +596,9 @@ export function EasyLocalIntegradorTabs({
             setVersaoConexao(atual => atual + 1);
             setOrigemDeteccao("");
             setCamposDetectados(null);
+            setCamposDetectadosLeitura(null);
+            contextoDeteccaoLeituraRef.current = null;
+            setStagingParaConfirmar(null);
             setLeitura(novoFormularioLeitura());
           }}
         />
@@ -467,6 +678,88 @@ export function EasyLocalIntegradorTabs({
                                   ? "Criada"
                                   : "Pendente de conferência"}
                               </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Database className="h-5 w-5" /> Tabelas staging existentes
+                </CardTitle>
+                <CardDescription>
+                  As quatro tabelas físicas existentes podem ser associadas
+                  quando estiverem disponíveis para vínculo. Este diagnóstico
+                  não cria, adota nem altera tabelas e não libera carga ou
+                  horário.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {stagings.isLoading ? (
+                  <Carregando texto="Consultando tabelas staging existentes…" />
+                ) : stagings.isError ? (
+                  <Erro
+                    mensagem={erroSeguro("catalogo")}
+                    acao={() => stagings.refetch()}
+                  />
+                ) : listaStagings.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nenhuma tabela staging foi encontrada para diagnóstico.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead className="bg-muted/50 text-left text-muted-foreground">
+                        <tr>
+                          <th className="p-3 font-medium">Staging</th>
+                          <th className="p-3 font-medium">Origem e domínio</th>
+                          <th className="p-3 font-medium">Diagnóstico</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {listaStagings.map(staging => (
+                          <tr key={staging.nomeFisico}>
+                            <td className="p-3">
+                              <div className="font-medium">
+                                {staging.nomeExibicao}
+                              </div>
+                              <code className="text-xs text-muted-foreground">
+                                {staging.nomeFisico}
+                              </code>
+                            </td>
+                            <td className="p-3 text-xs text-muted-foreground">
+                              <code>
+                                {staging.origem.schema}.{staging.origem.tabela}
+                              </code>
+                              <div className="mt-1">
+                                {staging.dominio} · {staging.totalColunas}{" "}
+                                colunas
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <Badge
+                                variant={
+                                  staging.estado === "disponivel"
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                              >
+                                {staging.estado === "disponivel"
+                                  ? "Disponível para vínculo"
+                                  : staging.estado === "incompativel"
+                                    ? "Incompatível"
+                                    : "Ausente"}
+                              </Badge>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Escritor atual: desconhecido.{" "}
+                                {staging.bloqueios.join(" ")}
+                              </p>
                             </td>
                           </tr>
                         ))}
@@ -777,70 +1070,110 @@ export function EasyLocalIntegradorTabs({
                   <Database className="h-5 w-5" /> Preparar leitura
                 </CardTitle>
                 <CardDescription>
-                  Associe uma tabela gerenciada criada a uma origem aprovada.
-                  Não informe credenciais nem dados de registros.
+                  Escolha o destino no Portal. Tabelas novas seguem o fluxo já
+                  existente; staging disponível prepara somente o vínculo entre
+                  origem, destino e estabelecimento.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {erroLeitura && <Erro mensagem={erroLeitura} />}
                 {resultadoLeitura && <Sucesso mensagem={resultadoLeitura} />}
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Campo
-                    label="Tabela gerenciada criada"
-                    htmlFor="leitura-tabela"
-                  >
+                  <Campo label="Destino no Portal" htmlFor="leitura-destino">
                     <Select
-                      value={leitura.tabelaId}
-                      onValueChange={valor =>
-                        setLeitura(atual => ({ ...atual, tabelaId: valor }))
-                      }
+                      value={leitura.destino}
+                      onValueChange={selecionarDestinoLeitura}
                     >
-                      <SelectTrigger id="leitura-tabela" className="w-full">
-                        <SelectValue placeholder="Selecione uma tabela" />
+                      <SelectTrigger
+                        id="leitura-destino"
+                        className="w-full min-w-0 overflow-hidden [&>span]:min-w-0 [&>span]:truncate"
+                      >
+                        <SelectValue placeholder="Selecione um destino" />
                       </SelectTrigger>
                       <SelectContent>
-                        {tabelasCriadas.map(tabela => (
-                          <SelectItem key={tabela.id} value={String(tabela.id)}>
-                            {tabela.nomeExibicao} · {tabela.nomeFisico}
-                          </SelectItem>
-                        ))}
+                        <SelectGroup>
+                          <SelectLabel>Tabela nova</SelectLabel>
+                          {tabelasCriadas.map(tabela => (
+                            <SelectItem
+                              key={tabela.id}
+                              value={String(tabela.id)}
+                            >
+                              {tabela.nomeExibicao} · {tabela.nomeFisico}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                        <SelectGroup>
+                          <SelectLabel>Staging existente</SelectLabel>
+                          {listaStagings
+                            .filter(staging => staging.estado === "disponivel")
+                            .map(staging => (
+                              <SelectItem
+                                key={staging.nomeFisico}
+                                value={`staging:${staging.nomeFisico}`}
+                              >
+                                {staging.nomeExibicao} · {staging.nomeFisico}
+                              </SelectItem>
+                            ))}
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                   </Campo>
                   <Campo label="Origem aprovada" htmlFor="leitura-origem">
                     <Select
                       value={leitura.origemChave}
-                      onValueChange={valor =>
-                        setLeitura(atual => ({ ...atual, origemChave: valor }))
-                      }
+                      disabled={leitura.destino.startsWith("staging:")}
+                      onValueChange={selecionarOrigemLeitura}
                     >
-                      <SelectTrigger id="leitura-origem" className="w-full">
+                      <SelectTrigger
+                        id="leitura-origem"
+                        className="w-full min-w-0 overflow-hidden [&>span]:min-w-0 [&>span]:truncate"
+                      >
                         <SelectValue placeholder="Selecione uma origem" />
                       </SelectTrigger>
                       <SelectContent>
                         {listaOrigens.map(origem => (
                           <SelectItem
-                            key={`${origem.schema}.${origem.tabela}`}
-                            value={`${origem.schema}.${origem.tabela}`}
+                            key={chaveOrigemEasyLocal(origem)}
+                            value={chaveOrigemEasyLocal(origem)}
                           >
                             {origem.schema}.{origem.tabela}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {leitura.destino.startsWith("staging:") && (
+                      <p className="text-xs text-muted-foreground">
+                        Par origem e domínio fixado pelo staging selecionado.
+                      </p>
+                    )}
                   </Campo>
                 </div>
-                {tabelas.isLoading || origens.isLoading ? (
-                  <Carregando texto="Consultando catálogo e origens aprovadas…" />
+                {tabelas.isLoading ||
+                origens.isLoading ||
+                stagings.isLoading ? (
+                  <Carregando texto="Consultando catálogo, staging e origens aprovadas…" />
                 ) : null}
-                {(tabelas.isError || origens.isError) && (
+                {(tabelas.isError || origens.isError || stagings.isError) && (
                   <Erro
                     mensagem={erroSeguro("catalogo")}
                     acao={() => {
                       tabelas.refetch();
                       origens.refetch();
+                      stagings.refetch();
                     }}
                   />
+                )}
+                {detectarCamposLeitura.isPending && (
+                  <Carregando texto="Consultando somente os metadados da origem…" />
+                )}
+                {camposDetectadosLeitura && (
+                  <p className="text-xs text-muted-foreground">
+                    Metadados consultados:{" "}
+                    {camposDetectadosLeitura
+                      .map(campo => campo.nome)
+                      .join(", ") || "nenhum campo"}
+                    .
+                  </p>
                 )}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   <Campo
@@ -850,14 +1183,32 @@ export function EasyLocalIntegradorTabs({
                     <Input
                       id="leitura-coluna-estab"
                       value={leitura.colunaEstabelecimento}
-                      onChange={event =>
+                      onChange={event => {
+                        const colunaEstabelecimento = event.target.value;
                         setLeitura(atual => ({
                           ...atual,
-                          colunaEstabelecimento: event.target.value,
-                        }))
+                          colunaEstabelecimento,
+                          valorEstabelecimento: origemSelecionada
+                            ? valorVinculoPersistido(
+                                listaLeituras,
+                                origemSelecionada,
+                                colunaEstabelecimento
+                              )
+                            : "",
+                        }));
+                      }}
+                      list="campos-origem-estabelecimento"
+                      placeholder={
+                        camposDetectadosLeitura
+                          ? "Selecione ou informe o campo"
+                          : "Informe após consultar a origem"
                       }
-                      placeholder="hospital_id"
                     />
+                    <datalist id="campos-origem-estabelecimento">
+                      {(camposDetectadosLeitura ?? []).map(campo => (
+                        <option key={campo.nome} value={campo.nome} />
+                      ))}
+                    </datalist>
                   </Campo>
                   <Campo
                     label="Valor do estabelecimento"
@@ -872,26 +1223,58 @@ export function EasyLocalIntegradorTabs({
                           valorEstabelecimento: event.target.value,
                         }))
                       }
-                      placeholder="Identificador aprovado"
+                      placeholder="Informe ou revise o valor na origem"
                       maxLength={100}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Não é preenchido com o identificador do Portal; informe ou
+                      revise uma vez para esta origem.
+                    </p>
                   </Campo>
-                  <Campo label="Campo chave" htmlFor="leitura-chave">
-                    <Input
-                      id="leitura-chave"
-                      value={leitura.campoChave}
-                      onChange={event =>
-                        setLeitura(atual => ({
-                          ...atual,
-                          campoChave: event.target.value,
-                        }))
-                      }
-                      placeholder="id_origem"
-                    />
-                  </Campo>
+                  {leitura.destino.startsWith("staging:") ? (
+                    <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                      {leitura.dominio === "atendimentos" ? (
+                        <>
+                          Referência visual de atendimentos:{" "}
+                          <code>numatend</code>. Não é enviada no vínculo.
+                        </>
+                      ) : (
+                        <>
+                          Faturamento não possui chave segura nesta etapa;
+                          valores financeiros de origem float permanecem
+                          bloqueados para carga.
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <Campo label="Campo chave" htmlFor="leitura-chave">
+                      <Input
+                        id="leitura-chave"
+                        value={leitura.campoChave}
+                        onChange={event =>
+                          setLeitura(atual => ({
+                            ...atual,
+                            campoChave: event.target.value,
+                          }))
+                        }
+                        list="campos-origem-chave"
+                        placeholder={
+                          camposDetectadosLeitura
+                            ? "Selecione ou informe o campo"
+                            : "Informe após consultar a origem"
+                        }
+                      />
+                      <datalist id="campos-origem-chave">
+                        {(camposDetectadosLeitura ?? []).map(campo => (
+                          <option key={campo.nome} value={campo.nome} />
+                        ))}
+                      </datalist>
+                    </Campo>
+                  )}
                   <Campo label="Domínio" htmlFor="leitura-dominio">
                     <Select
                       value={leitura.dominio}
+                      disabled={leitura.destino.startsWith("staging:")}
                       onValueChange={valor =>
                         setLeitura(atual => ({
                           ...atual,
@@ -938,18 +1321,40 @@ export function EasyLocalIntegradorTabs({
                     </Select>
                   </Campo>
                 </div>
+                {leitura.destino.startsWith("staging:") && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>
+                      Vínculo preparado, execução não liberada
+                    </AlertTitle>
+                    <AlertDescription>
+                      Esta confirmação salva somente metadados, origem, destino,
+                      estabelecimento e valor do vínculo. Carga e horário
+                      permanecem bloqueados: não há PK ou unique confirmado.
+                      {leitura.dominio === "faturamento" &&
+                        " O financeiro possui origem float."}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="flex justify-end">
                   <Button
                     type="button"
                     onClick={confirmarLeitura}
-                    disabled={salvarLeitura.isPending}
+                    disabled={
+                      salvarLeitura.isPending ||
+                      salvarLeituraStaging.isPending ||
+                      !leitura.destino
+                    }
                   >
-                    {salvarLeitura.isPending ? (
+                    {salvarLeitura.isPending ||
+                    salvarLeituraStaging.isPending ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="mr-2 h-4 w-4" />
                     )}
-                    Salvar configuração preparada
+                    {leitura.destino.startsWith("staging:")
+                      ? "Revisar vínculo de staging"
+                      : "Salvar configuração preparada"}
                   </Button>
                 </div>
               </CardContent>
@@ -961,8 +1366,8 @@ export function EasyLocalIntegradorTabs({
                 </CardTitle>
                 <CardDescription>
                   Revise a importação manual ou configure um horário automático
-                  por leitura e estabelecimento. Nenhuma tarefa é iniciada apenas
-                  por abrir esta página ou salvar o cadastro.
+                  por leitura e estabelecimento. Nenhuma tarefa é iniciada
+                  apenas por abrir esta página ou salvar o cadastro.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -988,50 +1393,96 @@ export function EasyLocalIntegradorTabs({
                           <th className="p-3 font-medium">
                             Domínio e frequência
                           </th>
-                          <th className="p-3 font-medium">Horários automáticos</th>
-                          <th className="p-3 font-medium">Importação no Portal</th>
+                          <th className="p-3 font-medium">
+                            Horários automáticos
+                          </th>
+                          <th className="p-3 font-medium">
+                            Importação no Portal
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {listaLeituras.map(configuracao => (
-                          <tr key={configuracao.id}>
-                            <td className="p-3 font-medium">
-                              {configuracao.nomeTabela}
-                            </td>
-                            <td className="p-3">
-                              <code className="text-xs">
-                                {configuracao.origem.schema}.
-                                {configuracao.origem.tabela}
-                              </code>
-                            </td>
-                            <td className="p-3 text-xs text-muted-foreground">
-                              {configuracao.campoChave} ·{" "}
-                              {configuracao.colunaEstabelecimento} =
-                              identificador configurado
-                            </td>
-                            <td className="p-3 text-xs text-muted-foreground">
-                              {configuracao.dominio} ·{" "}
-                              {configuracao.frequenciaDesejada}
-                            </td>
-                            <td className="p-3">
-                              <EasyLocalAgendamentoAcao
-                                key={`agenda-${estabelecimentoId}-${configuracao.id}-${versaoConexao}`}
-                                estabelecimentoId={estabelecimentoId}
-                                leituraId={configuracao.id}
-                                nomeTabela={configuracao.nomeTabela}
-                                frequenciaDesejada={configuracao.frequenciaDesejada}
-                              />
-                            </td>
-                            <td className="p-3">
-                              <EasyLocalImportacaoAcao
-                                key={`${configuracao.id}-${versaoConexao}`}
-                                estabelecimentoId={estabelecimentoId}
-                                leituraId={configuracao.id}
-                                nomeTabela={configuracao.nomeTabela}
-                              />
-                            </td>
-                          </tr>
-                        ))}
+                        {listaLeituras.map(configuracao => {
+                          const stagingExistente =
+                            configuracao.tipoDestino === "staging_existente";
+                          return (
+                            <tr key={configuracao.id}>
+                              <td className="p-3 font-medium">
+                                {configuracao.nomeTabela}
+                                {stagingExistente && (
+                                  <p className="mt-1 text-xs font-normal text-muted-foreground">
+                                    Vínculo de staging preparado
+                                  </p>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <code className="text-xs">
+                                  {configuracao.origem.schema}.
+                                  {configuracao.origem.tabela}
+                                </code>
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                {stagingExistente ? (
+                                  <>
+                                    {configuracao.colunaEstabelecimento} =
+                                    identificador configurado
+                                    <p className="mt-1">
+                                      Escritor atual: desconhecido.
+                                    </p>
+                                    <p className="mt-1 text-destructive">
+                                      {(
+                                        configuracao.bloqueios ?? [
+                                          "Sem PK/unique confirmada; financeiro com origem float.",
+                                        ]
+                                      ).join(" ")}
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    {configuracao.campoChave} ·{" "}
+                                    {configuracao.colunaEstabelecimento} =
+                                    identificador configurado
+                                  </>
+                                )}
+                              </td>
+                              <td className="p-3 text-xs text-muted-foreground">
+                                {configuracao.dominio} ·{" "}
+                                {configuracao.frequenciaDesejada}
+                              </td>
+                              <td className="p-3">
+                                {stagingExistente ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    Carga e horário bloqueados
+                                  </span>
+                                ) : (
+                                  <EasyLocalAgendamentoAcao
+                                    key={`agenda-${estabelecimentoId}-${configuracao.id}-${versaoConexao}`}
+                                    estabelecimentoId={estabelecimentoId}
+                                    leituraId={configuracao.id}
+                                    nomeTabela={configuracao.nomeTabela}
+                                    frequenciaDesejada={
+                                      configuracao.frequenciaDesejada
+                                    }
+                                  />
+                                )}
+                              </td>
+                              <td className="p-3">
+                                {stagingExistente ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    Execução não liberada
+                                  </span>
+                                ) : (
+                                  <EasyLocalImportacaoAcao
+                                    key={`${configuracao.id}-${versaoConexao}`}
+                                    estabelecimentoId={estabelecimentoId}
+                                    leituraId={configuracao.id}
+                                    nomeTabela={configuracao.nomeTabela}
+                                  />
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1041,6 +1492,86 @@ export function EasyLocalIntegradorTabs({
           </>
         )}
       </TabsContent>
+
+      <Dialog
+        open={Boolean(stagingParaConfirmar)}
+        onOpenChange={aberto => !aberto && setStagingParaConfirmar(null)}
+      >
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Confirmar vínculo de staging</DialogTitle>
+            <DialogDescription>
+              Revise o escopo antes de salvar o vínculo preparado.
+            </DialogDescription>
+          </DialogHeader>
+          {stagingParaConfirmar && (
+            <div className="min-w-0 space-y-3 text-sm">
+              <div className="min-w-0 overflow-hidden rounded-md border bg-muted/20 p-3">
+                <p className="min-w-0 break-words">
+                  <span className="text-muted-foreground">Destino: </span>
+                  <code className="break-all">
+                    {stagingParaConfirmar.nomeStaging}
+                  </code>
+                </p>
+                <p className="min-w-0 break-words">
+                  <span className="text-muted-foreground">Origem: </span>
+                  <code className="break-all">
+                    {stagingParaConfirmar.origem.schema}.
+                    {stagingParaConfirmar.origem.tabela}
+                  </code>
+                </p>
+                <p className="break-words">
+                  <span className="text-muted-foreground">
+                    Estabelecimento:{" "}
+                  </span>
+                  {stagingParaConfirmar.estabelecimentoId}
+                </p>
+                <p className="break-words">
+                  <span className="text-muted-foreground">Vínculo: </span>
+                  {stagingParaConfirmar.colunaEstabelecimento} ={" "}
+                  {stagingParaConfirmar.valorEstabelecimento}
+                </p>
+              </div>
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Confirmo salvar somente metadados, origem, destino,
+                  estabelecimento e valor do vínculo. Esta confirmação não
+                  importa registros nem ativa horário.
+                </AlertDescription>
+              </Alert>
+              <p className="text-xs text-muted-foreground">
+                Vínculo preparado — carga e horário bloqueados: não há PK ou
+                unique confirmado.
+                {stagingParaConfirmar.dominio === "faturamento" &&
+                  " O financeiro possui origem float."}
+              </p>
+            </div>
+          )}
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setStagingParaConfirmar(null)}
+              disabled={salvarLeituraStaging.isPending}
+            >
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              className="w-full whitespace-normal sm:w-auto"
+              onClick={confirmarVinculoStaging}
+              disabled={salvarLeituraStaging.isPending}
+            >
+              {salvarLeituraStaging.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Confirmar vínculo preparado
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(tabelaParaConfirmar)}
@@ -1135,7 +1666,7 @@ function Campo({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
     </div>
