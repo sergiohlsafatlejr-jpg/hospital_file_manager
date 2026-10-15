@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import pg from "pg";
 import { SignJWT, jwtVerify } from "jose";
 import type {
@@ -57,6 +57,8 @@ type DestinationColumn = {
   defaultValue: unknown;
   chave: string;
   extra: string;
+  charset: string | null;
+  collation: string | null;
   ordem: number;
 };
 type LockedConfiguration = {
@@ -384,7 +386,7 @@ async function loadDestinationColumns(
   estabelecimentoId: number
 ): Promise<DestinationColumn[]> {
   const [rows] = await connection.execute<SqlRow[]>(
-    "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, ORDINAL_POSITION FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+    "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_SET_NAME, COLLATION_NAME, ORDINAL_POSITION FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
     [tableName]
   );
   const destination = rows.map(row => ({
@@ -397,6 +399,14 @@ async function loadDestinationColumns(
     defaultValue: row.COLUMN_DEFAULT,
     chave: String(row.COLUMN_KEY ?? ""),
     extra: String(row.EXTRA ?? "").toLowerCase(),
+    charset:
+      typeof row.CHARACTER_SET_NAME === "string"
+        ? row.CHARACTER_SET_NAME.toLowerCase()
+        : null,
+    collation:
+      typeof row.COLLATION_NAME === "string"
+        ? row.COLLATION_NAME.toLowerCase()
+        : null,
     ordem: nullableNumber(row.ORDINAL_POSITION) ?? 0,
   }));
   validateDestinationPhysical(destination, columns, estabelecimentoId);
@@ -448,7 +458,10 @@ function validateDestinationPhysical(
         column.tamanho !== (configured.tamanho ?? 255)) ||
       (configured.tipo === "decimal" &&
         (column.precisao !== (configured.tamanho ?? 18) ||
-          column.escala !== (configured.escala ?? 2)))
+          column.escala !== (configured.escala ?? 2))) ||
+      ((configured.tipo === "varchar" || configured.tipo === "text") &&
+        (column.charset !== "utf8mb4" ||
+          !column.collation?.startsWith("utf8mb4_")))
     ) {
       fail("CONFLICT", "A estrutura física do destino requer conferência.");
     }
@@ -1310,5 +1323,1094 @@ export async function executarEasyLocalImportacao(
       healthy = await rollbackOrDestroy(connection);
     }
     if (connection && healthy) releaseQuietly(connection);
+  }
+}
+
+/** Limites exclusivos do callback agendado; o contrato manual de 2.000 permanece intacto. */
+const EASYLOCAL_IMPORTACAO_AGENDADA_LIMITE = 100000;
+const EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS = 90_000;
+const EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA = 1000;
+const EASYLOCAL_IMPORTACAO_AGENDADA_MAX_PARAMS = 3000;
+const EASYLOCAL_IMPORTACAO_AGENDADA_REVISAO_PLANO = "easylocal-agendada-v1";
+// Soma serializada das linhas normalizadas mantidas pelo plano (origem e
+// destino). Impede que 100 mil campos TEXT esgotem a memória do callback.
+const EASYLOCAL_IMPORTACAO_AGENDADA_MAX_LINHAS_BYTES = 32 * 1024 * 1024;
+// Reserva suficiente para o ACK do COMMIT e um cleanup curto, antes dos 2 min
+// concedidos ao callback pelo SDK. O watchdog abaixo é o limite autoritativo.
+const EASYLOCAL_IMPORTACAO_AGENDADA_RESERVA_COMMIT_MS = 5_000;
+const EASYLOCAL_IMPORTACAO_AGENDADA_CLEANUP_MS = 500;
+
+type ScheduledDeadline = {
+  expiraEm: number;
+  inicioMonotonicamente: number;
+  expirado: boolean;
+  watchdog: ReturnType<typeof setTimeout>;
+  canceladores: Set<(error: TRPCError) => void>;
+  conexoesQuarentenadas: WeakSet<PoolConnection>;
+};
+type ScheduledDestinationRow = Record<string, unknown> & {
+  _easylocal_id: string;
+};
+type ScheduledImportPlan = ImportPlan & { revisao: string };
+type ScheduledMemoryBudget = { bytes: number };
+
+function quarantineScheduledConnection(
+  deadline: ScheduledDeadline,
+  connection: PoolConnection
+): void {
+  if (deadline.conexoesQuarentenadas.has(connection)) return;
+  deadline.conexoesQuarentenadas.add(connection);
+  destroyQuietly(connection);
+}
+
+function isScheduledConnectionQuarantined(
+  deadline: ScheduledDeadline,
+  connection: PoolConnection
+): boolean {
+  return deadline.conexoesQuarentenadas.has(connection);
+}
+
+function reserveScheduledRowBytes(
+  budget: ScheduledMemoryBudget,
+  row: Record<string, unknown>
+): void {
+  budget.bytes += Buffer.byteLength(stable(row), "utf8");
+  if (budget.bytes > EASYLOCAL_IMPORTACAO_AGENDADA_MAX_LINHAS_BYTES) {
+    fail(
+      "BAD_REQUEST",
+      "A importação agendada excede o limite seguro de dados. Refine a leitura antes de importar."
+    );
+  }
+}
+
+function scheduledDeadline(): ScheduledDeadline {
+  const deadline = {
+    expiraEm: Date.now() + EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS,
+    inicioMonotonicamente: performance.now(),
+    expirado: false,
+    watchdog: undefined as unknown as ReturnType<typeof setTimeout>,
+    canceladores: new Set<(error: TRPCError) => void>(),
+    conexoesQuarentenadas: new WeakSet<PoolConnection>(),
+  };
+  // Não é cron nem timer recorrente: este único watchdog cancela awaits pendentes
+  // mesmo quando o driver ignora seus timeouts próprios.
+  deadline.watchdog = setTimeout(
+    () => expireScheduledDeadline(deadline),
+    EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS
+  );
+  return deadline;
+}
+
+function scheduledDeadlineError(): TRPCError {
+  return new TRPCError({
+    code: "CONFLICT",
+    message:
+      "A importação agendada excedeu o limite de 90 segundos e foi interrompida. Confira o estado antes de repetir.",
+  });
+}
+
+function expireScheduledDeadline(deadline: ScheduledDeadline): void {
+  if (deadline.expirado) return;
+  deadline.expirado = true;
+  const error = scheduledDeadlineError();
+  for (const cancelar of [...deadline.canceladores]) cancelar(error);
+}
+
+function closeScheduledDeadline(deadline: ScheduledDeadline): void {
+  clearTimeout(deadline.watchdog);
+  deadline.canceladores.clear();
+}
+
+function scheduledExpired(deadline: ScheduledDeadline): boolean {
+  if (
+    deadline.expirado ||
+    Date.now() >= deadline.expiraEm ||
+    performance.now() - deadline.inicioMonotonicamente >=
+      EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS
+  ) {
+    expireScheduledDeadline(deadline);
+    return true;
+  }
+  return false;
+}
+
+function scheduledRemaining(deadline: ScheduledDeadline): number {
+  const remaining = Math.min(
+    deadline.expiraEm - Date.now(),
+    EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS -
+      (performance.now() - deadline.inicioMonotonicamente)
+  );
+  if (remaining <= 0 || scheduledExpired(deadline))
+    throw scheduledDeadlineError();
+  return remaining;
+}
+
+function assertScheduledBudget(deadline: ScheduledDeadline): void {
+  scheduledRemaining(deadline);
+}
+
+function assertScheduledWriteBudget(deadline: ScheduledDeadline): void {
+  if (
+    scheduledRemaining(deadline) <=
+    EASYLOCAL_IMPORTACAO_AGENDADA_RESERVA_COMMIT_MS
+  ) {
+    throw scheduledDeadlineError();
+  }
+}
+
+/**
+ * O race sozinho devolveria a API e deixaria a operação de driver em curso. Cada
+ * espera registrada recebe o watchdog e deve cancelar/quarentenar seu recurso.
+ * Valores que chegam depois do timeout são explicitamente descartados.
+ */
+function awaitScheduled<T>(
+  deadline: ScheduledDeadline,
+  start: () => Promise<T>,
+  cancel: () => void,
+  lateValue?: (value: T) => void
+): Promise<T> {
+  assertScheduledBudget(deadline);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return false;
+      settled = true;
+      deadline.canceladores.delete(onDeadline);
+      callback();
+      return true;
+    };
+    const onDeadline = (error: TRPCError) => {
+      finish(() => {
+        try {
+          cancel();
+        } finally {
+          reject(error);
+        }
+      });
+    };
+    deadline.canceladores.add(onDeadline);
+
+    let pending: Promise<T>;
+    try {
+      pending = Promise.resolve(start());
+    } catch (error) {
+      finish(() => reject(error));
+      return;
+    }
+    pending.then(
+      value => {
+        // O ACK que chega depois do watchdog é tardio: o recurso permanece
+        // quarentenado e não pode transformar um timeout em sucesso.
+        if (scheduledExpired(deadline)) {
+          onDeadline(scheduledDeadlineError());
+          lateValue?.(value);
+          return;
+        }
+        if (!finish(() => resolve(value))) {
+          try {
+            lateValue?.(value);
+          } catch {
+            // O recurso tardio já não pode alterar uma resposta sanitizada.
+          }
+          return;
+        }
+      },
+      error => finish(() => reject(error))
+    );
+  });
+}
+
+type PgClientWithDestroyableStream = pg.Client & {
+  connection?: { stream?: { destroy: (error?: Error) => void } };
+};
+
+function destroyScheduledPgStream(client: pg.Client): void {
+  try {
+    (client as PgClientWithDestroyableStream).connection?.stream?.destroy();
+  } catch {
+    // O end abaixo continua sendo tentado; ambos são best effort.
+  }
+}
+
+function abortScheduledPgClient(client: pg.Client): void {
+  destroyScheduledPgStream(client);
+  try {
+    void Promise.resolve(client.end()).catch(() => undefined);
+  } catch {
+    // Cliente de origem é descartável e nunca volta a um pool deste processo.
+  }
+}
+
+async function scheduledCleanup(
+  deadline: ScheduledDeadline,
+  start: () => Promise<unknown>,
+  quarantine: () => void
+): Promise<boolean> {
+  let pending: Promise<unknown>;
+  try {
+    pending = Promise.resolve(start());
+  } catch {
+    quarantine();
+    return false;
+  }
+  if (scheduledExpired(deadline)) {
+    quarantine();
+    void pending.catch(() => undefined);
+    return false;
+  }
+  return new Promise<boolean>(resolve => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      deadline.canceladores.delete(onDeadline);
+      resolve(ok);
+    };
+    const onDeadline = () => {
+      quarantine();
+      finish(false);
+    };
+    const timeout = Math.max(
+      1,
+      Math.min(
+        EASYLOCAL_IMPORTACAO_AGENDADA_CLEANUP_MS,
+        Math.min(
+          deadline.expiraEm - Date.now(),
+          EASYLOCAL_IMPORTACAO_AGENDADA_TEMPO_MS -
+            (performance.now() - deadline.inicioMonotonicamente)
+        )
+      )
+    );
+    const timer = setTimeout(() => {
+      quarantine();
+      finish(false);
+    }, timeout);
+    deadline.canceladores.add(onDeadline);
+    pending.then(
+      () => (scheduledExpired(deadline) ? onDeadline() : finish(true)),
+      () => onDeadline()
+    );
+  });
+}
+
+async function scheduledRollbackOrDestroy(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline
+): Promise<boolean> {
+  // Inicia o rollback até no instante de expiração; ele pode ter alcançado o
+  // servidor. Nunca esperamos além do cleanup finito nem devolvemos ao pool.
+  return scheduledCleanup(
+    deadline,
+    () => connection.rollback(),
+    () => quarantineScheduledConnection(deadline, connection)
+  );
+}
+
+async function scheduledClosePgClient(
+  client: pg.Client | undefined,
+  deadline: ScheduledDeadline
+): Promise<void> {
+  if (!client) return;
+  await scheduledCleanup(
+    deadline,
+    () => client.end(),
+    () => abortScheduledPgClient(client)
+  );
+}
+
+async function scheduledRollbackPgClient(
+  client: pg.Client,
+  deadline: ScheduledDeadline
+): Promise<void> {
+  await scheduledCleanup(
+    deadline,
+    () => client.query("ROLLBACK"),
+    () => abortScheduledPgClient(client)
+  );
+}
+
+async function scheduledAcquireDestination(
+  deadline: ScheduledDeadline
+): Promise<PoolConnection> {
+  const pool = await awaitScheduled(
+    deadline,
+    () => getRawPool(),
+    () => undefined
+  );
+  if (!pool) fail("INTERNAL_SERVER_ERROR", "Destino do Portal indisponível.");
+  return await awaitScheduled(
+    deadline,
+    () => pool.getConnection(),
+    () => undefined,
+    connection => quarantineScheduledConnection(deadline, connection)
+  );
+}
+
+async function scheduledMysqlCall<T>(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline,
+  start: () => Promise<T>
+): Promise<T> {
+  const result = await awaitScheduled(deadline, start, () =>
+    quarantineScheduledConnection(deadline, connection)
+  );
+  assertScheduledBudget(deadline);
+  return result;
+}
+
+async function scheduledPgCall<T>(
+  client: pg.Client,
+  deadline: ScheduledDeadline,
+  start: () => Promise<T>
+): Promise<T> {
+  const result = await awaitScheduled(deadline, start, () =>
+    abortScheduledPgClient(client)
+  );
+  assertScheduledBudget(deadline);
+  return result;
+}
+
+/** Statement timeout por query, limitado também pelo orçamento total de 90 s. */
+async function scheduledPgQuery<T extends pg.QueryResultRow>(
+  client: pg.Client,
+  deadline: ScheduledDeadline,
+  sql: string,
+  values?: unknown[]
+): Promise<pg.QueryResult<T>> {
+  const timeout = Math.max(
+    1,
+    Math.min(QUERY_TIMEOUT_MS, scheduledRemaining(deadline))
+  );
+  // SET LOCAL ocorre dentro da transação read-only; não persiste e não exige write.
+  await scheduledPgCall(client, deadline, () =>
+    client.query(`SET LOCAL statement_timeout = ${timeout}`)
+  );
+  return scheduledPgCall(client, deadline, () => client.query<T>(sql, values));
+}
+
+async function scheduledMysqlExecute<T>(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline,
+  sql: string,
+  values?: unknown[]
+): Promise<T> {
+  const timeout = Math.max(
+    1,
+    Math.min(QUERY_TIMEOUT_MS, scheduledRemaining(deadline))
+  );
+  // mysql2 aceita QueryOptions também em execute; não há timer local nem retry.
+  const result = (await scheduledMysqlCall(connection, deadline, () =>
+    connection.execute({ sql, timeout }, values)
+  )) as unknown as T;
+  return result;
+}
+
+async function scheduledMysqlWrite<T>(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline,
+  sql: string,
+  values?: unknown[]
+): Promise<T> {
+  assertScheduledWriteBudget(deadline);
+  return scheduledMysqlExecute(connection, deadline, sql, values);
+}
+
+async function scheduledMysqlCommit(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline
+): Promise<void> {
+  // Não há check posterior: se o ACK chegou antes do watchdog, o sucesso é
+  // conhecido mesmo que o loop de eventos atravesse o prazo logo em seguida.
+  await awaitScheduled(
+    deadline,
+    () => connection.commit(),
+    () => quarantineScheduledConnection(deadline, connection)
+  );
+}
+
+/**
+ * Reaproveita os validadores/carregadores existentes sem deixar as consultas de
+ * metadados fora do orçamento. O proxy não altera a transação nem cria timers:
+ * só troca cada SQL string por QueryOptions com timeout restante.
+ */
+function scheduledBoundedConnection(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline
+): PoolConnection {
+  return new Proxy(connection, {
+    get(target, property, receiver) {
+      if (property !== "execute" && property !== "query") {
+        return Reflect.get(target, property, receiver);
+      }
+      return async (sql: unknown, values?: unknown[]) => {
+        const timeout = Math.max(
+          1,
+          Math.min(QUERY_TIMEOUT_MS, scheduledRemaining(deadline))
+        );
+        const statement =
+          typeof sql === "string"
+            ? { sql, timeout }
+            : { ...(sql as Record<string, unknown>), timeout };
+        const method = target[property] as unknown as (
+          query: unknown,
+          parameters?: unknown[]
+        ) => Promise<unknown>;
+        return scheduledMysqlCall(target, deadline, () =>
+          method.call(target, statement, values)
+        );
+      };
+    },
+  }) as PoolConnection;
+}
+
+async function startScheduledDestinationTransaction(
+  connection: PoolConnection,
+  deadline: ScheduledDeadline
+): Promise<void> {
+  try {
+    const [rows] = await scheduledMysqlExecute<[SqlRow[]]>(
+      connection,
+      deadline,
+      "SELECT VERSION() AS versao"
+    );
+    if (rows.length !== 1 || typeof rows[0]?.versao !== "string") {
+      fail(
+        "INTERNAL_SERVER_ERROR",
+        "Modo transacional do destino não confirmado."
+      );
+    }
+    await scheduledMysqlExecute(
+      connection,
+      deadline,
+      /tidb/i.test(rows[0].versao) ? "BEGIN PESSIMISTIC" : "START TRANSACTION"
+    );
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    fail(
+      "INTERNAL_SERVER_ERROR",
+      "Modo transacional do destino não confirmado."
+    );
+  }
+}
+
+function sourceColumnsFromScheduledRows(
+  rows: Array<Record<string, unknown>>,
+  configuration: LockedConfiguration
+): SourceColumn[] {
+  if (!rows.length)
+    fail("NOT_FOUND", "A tabela de origem não está disponível para leitura.");
+  const all = rows.map(row => ({
+    nome: typeof row.nome === "string" ? row.nome : "",
+    tipo: typeof row.tipo === "string" ? row.tipo.toLowerCase() : "",
+    udt: typeof row.udt === "string" ? row.udt.toLowerCase() : "",
+    nullable: row.nullable === "YES",
+    tamanho: nullableNumber(row.tamanho),
+    precisao: nullableNumber(row.precisao),
+    escala: nullableNumber(row.escala),
+    precisaoDataHora: nullableNumber(row.precisao_data_hora),
+    ordem: nullableNumber(row.ordem) ?? 0,
+  }));
+  const required = new Set([
+    ...configuration.colunas.map(column => column.nome),
+    configuration.leitura.colunaEstabelecimento,
+    configuration.leitura.campoChave,
+  ]);
+  if (all.some(column => !easyLocalIdentifier.safeParse(column.nome).success)) {
+    fail("CONFLICT", "O catálogo físico da origem requer conferência.");
+  }
+  const selected = all.filter(column => required.has(column.nome));
+  if (selected.length !== required.size) {
+    fail("CONFLICT", "As colunas configuradas não existem na origem.");
+  }
+  return selected;
+}
+
+async function sourceSnapshotScheduled(
+  configuration: LockedConfiguration,
+  deadline: ScheduledDeadline
+): Promise<SourceSnapshot> {
+  let client: pg.Client | undefined;
+  let transactionStarted = false;
+  try {
+    const config = await awaitScheduled(
+      deadline,
+      () => resolverEasyLocalConfig(),
+      () => undefined
+    );
+    if (!config)
+      fail("CONFLICT", "A configuração da origem EASYLocal está pendente.");
+    assertScheduledBudget(deadline);
+    const pgClient = createPgClient(config);
+    client = pgClient;
+    await scheduledPgCall(pgClient, deadline, () => pgClient.connect());
+    await scheduledPgCall(pgClient, deadline, () =>
+      pgClient.query(
+        "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+      )
+    );
+    transactionStarted = true;
+
+    const sourceColumnsResult = await scheduledPgQuery<Record<string, unknown>>(
+      client,
+      deadline,
+      `SELECT c.column_name AS nome,
+              c.data_type AS tipo,
+              c.udt_name AS udt,
+              c.is_nullable AS nullable,
+              c.character_maximum_length AS tamanho,
+              c.numeric_precision AS precisao,
+              c.numeric_scale AS escala,
+              c.datetime_precision AS precisao_data_hora,
+              c.ordinal_position AS ordem
+         FROM information_schema.columns c
+         JOIN information_schema.tables t
+           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+         WHERE c.table_schema = $1
+           AND c.table_name = $2
+           AND t.table_type IN ('BASE TABLE', 'VIEW')
+           AND has_table_privilege(current_user, format('%I.%I', t.table_schema, t.table_name), 'SELECT')
+         ORDER BY c.ordinal_position`,
+      [configuration.leitura.origem.schema, configuration.leitura.origem.tabela]
+    );
+    const columns = sourceColumnsFromScheduledRows(
+      sourceColumnsResult.rows,
+      configuration
+    );
+    const primaryKeyResult = await scheduledPgQuery<{ nome: unknown }>(
+      client,
+      deadline,
+      `SELECT kcu.column_name AS nome
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.constraint_schema = kcu.constraint_schema
+          AND tc.table_schema = kcu.table_schema
+          AND tc.table_name = kcu.table_name
+         WHERE tc.table_schema = $1
+           AND tc.table_name = $2
+           AND tc.constraint_type = 'PRIMARY KEY'
+         ORDER BY kcu.ordinal_position`,
+      [configuration.leitura.origem.schema, configuration.leitura.origem.tabela]
+    );
+    const primaryKey = primaryKeyResult.rows.flatMap(row =>
+      typeof row.nome === "string" &&
+      easyLocalIdentifier.safeParse(row.nome).success
+        ? [row.nome]
+        : []
+    );
+    // View sem PK é válida; linhas reais têm chave não nula e única validada abaixo.
+    validateSourceColumns(columns, configuration);
+
+    const selectedNames = configuration.colunas.map(column => column.nome);
+    const selectList = selectedNames.map(quotedPostgres).join(", ");
+    const sourceSql = `SELECT ${selectList} FROM ${quotedPostgres(configuration.leitura.origem.schema)}.${quotedPostgres(configuration.leitura.origem.tabela)} WHERE ${quotedPostgres(configuration.leitura.colunaEstabelecimento)} = $1 ORDER BY ${quotedPostgres(configuration.leitura.campoChave)} ASC LIMIT $2 OFFSET $3`;
+    const rows: Array<Record<string, unknown>> = [];
+    const memory = { bytes: 0 } satisfies ScheduledMemoryBudget;
+    const seen = new Set<string>();
+    for (let offset = 0; ; offset += EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA) {
+      const result = await scheduledPgQuery<Record<string, unknown>>(
+        client,
+        deadline,
+        sourceSql,
+        [
+          configuration.leitura.valorEstabelecimento,
+          Math.min(
+            EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA,
+            EASYLOCAL_IMPORTACAO_AGENDADA_LIMITE + 1 - rows.length
+          ),
+          offset,
+        ]
+      );
+      if (!result.rows.length) break;
+      for (const raw of result.rows) {
+        const row = normalizeSourceRow(raw, configuration.colunas);
+        const key = row[configuration.leitura.campoChave];
+        if (key === null || key === undefined) {
+          fail("BAD_REQUEST", "A chave da origem não pode ser nula.");
+        }
+        // A assinatura é independente de collation e preserva A/a como distintos.
+        const signature = stable(key);
+        if (seen.has(signature)) {
+          fail(
+            "CONFLICT",
+            "A origem possui chaves duplicadas; corrija antes de importar."
+          );
+        }
+        seen.add(signature);
+        reserveScheduledRowBytes(memory, row);
+        rows.push(row);
+        if (rows.length > EASYLOCAL_IMPORTACAO_AGENDADA_LIMITE) {
+          fail(
+            "BAD_REQUEST",
+            `A origem excede o limite agendado de ${EASYLOCAL_IMPORTACAO_AGENDADA_LIMITE} registros. Refine a leitura antes de importar.`
+          );
+        }
+      }
+      if (result.rows.length < EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA) break;
+    }
+    rows.sort((left, right) =>
+      compareStable(
+        stable(left[configuration.leitura.campoChave]),
+        stable(right[configuration.leitura.campoChave])
+      )
+    );
+    return {
+      // Uma revisão pública não deve servir como verificador offline da senha.
+      configDigest: createHmac("sha256", tokenSecret())
+        .update(
+          stable({
+            host: config.host,
+            port: config.port,
+            database: config.database,
+            user: config.user,
+            password: config.password,
+            ca: config.ca ?? null,
+          })
+        )
+        .digest("hex"),
+      columns,
+      primaryKey,
+      rows,
+    };
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    return fail(
+      "INTERNAL_SERVER_ERROR",
+      "Não foi possível ler a origem EASYLocal com segurança."
+    );
+  } finally {
+    if (client && transactionStarted) {
+      await scheduledRollbackPgClient(client, deadline);
+    }
+    await scheduledClosePgClient(client, deadline);
+  }
+}
+
+async function loadDestinationRowsScheduled(
+  connection: PoolConnection,
+  configuration: LockedConfiguration,
+  sourceRows: Array<Record<string, unknown>>,
+  deadline: ScheduledDeadline,
+  memory: ScheduledMemoryBudget
+): Promise<Map<string, ScheduledDestinationRow>> {
+  if (!sourceRows.length) return new Map();
+  const key = configuration.leitura.campoChave;
+  const keyColumn = configuration.colunas.find(column => column.nome === key);
+  if (!keyColumn)
+    fail("CONFLICT", "A configuração de leitura requer conferência.");
+  const keyExpression = destinationKeyExpression(keyColumn);
+  const keys = sourceRows.map(row => row[key]);
+  if (new Set(keys.map(stable)).size !== keys.length) {
+    fail(
+      "CONFLICT",
+      "A origem possui chaves duplicadas; corrija antes de importar."
+    );
+  }
+  const [duplicates] = await scheduledMysqlExecute<[SqlRow[]]>(
+    connection,
+    deadline,
+    `SELECT ${keyExpression} AS chave FROM ${quotedMysql(configuration.nomeTabelaFisica)} WHERE \`estabelecimento_id\` = ? GROUP BY ${keyExpression} HAVING COUNT(*) > 1 LIMIT 1`,
+    [configuration.leitura.estabelecimentoId]
+  );
+  if (duplicates.length) {
+    fail("CONFLICT", "O destino contém chaves duplicadas nesta unidade.");
+  }
+  const selected = configuration.colunas
+    .map(destinationSelectExpression)
+    .join(", ");
+  const byKey = new Map<string, ScheduledDestinationRow>();
+  for (
+    let start = 0;
+    start < keys.length;
+    start += EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA
+  ) {
+    const chunk = keys.slice(
+      start,
+      start + EASYLOCAL_IMPORTACAO_AGENDADA_PAGINA
+    );
+    const [rows] = await scheduledMysqlExecute<[SqlRow[]]>(
+      connection,
+      deadline,
+      `SELECT CAST(\`_id\` AS CHAR) AS \`_easylocal_id\`, ${selected} FROM ${quotedMysql(configuration.nomeTabelaFisica)} WHERE \`estabelecimento_id\` = ? AND ${keyExpression} IN (${chunk.map(() => "?").join(", ")})`,
+      [configuration.leitura.estabelecimentoId, ...chunk]
+    );
+    for (const raw of rows) {
+      const technicalId = raw._easylocal_id;
+      if (
+        (typeof technicalId !== "string" &&
+          typeof technicalId !== "number" &&
+          typeof technicalId !== "bigint") ||
+        (typeof technicalId === "number" &&
+          !Number.isSafeInteger(technicalId)) ||
+        !/^[1-9][0-9]*$/.test(String(technicalId))
+      ) {
+        fail(
+          "CONFLICT",
+          "O identificador técnico do destino requer conferência."
+        );
+      }
+      const row = normalizeDestinationRow(
+        raw,
+        configuration.colunas
+      ) as ScheduledDestinationRow;
+      row._easylocal_id = String(technicalId);
+      reserveScheduledRowBytes(memory, row);
+      const value = row[key];
+      if (value === null || value === undefined) {
+        fail("CONFLICT", "O destino contém uma chave inválida nesta unidade.");
+      }
+      const signature = stable(value);
+      if (byKey.has(signature)) {
+        fail("CONFLICT", "O destino contém chaves duplicadas nesta unidade.");
+      }
+      byKey.set(signature, row);
+    }
+  }
+  return byKey;
+}
+
+function scheduledRevision(
+  configuration: LockedConfiguration,
+  source: SourceSnapshot,
+  destinationColumns: DestinationColumn[]
+): string {
+  // Revisão propositalmente estática: não inclui linhas, contagens ou timestamps
+  // de sincronização/atualização que mudam em toda execução.
+  return digest({
+    plano: EASYLOCAL_IMPORTACAO_AGENDADA_REVISAO_PLANO,
+    leitura: {
+      leituraId: configuration.leituraId,
+      tabelaId: configuration.tabelaId,
+      nomeTabelaMeta: configuration.nomeTabelaMeta,
+      nomeTabelaFisica: configuration.nomeTabelaFisica,
+      leitura: configuration.leitura,
+      colunas: configuration.colunas,
+      mapeamento: {
+        id: configuration.mappingState.id,
+        tabelaDestinoId: configuration.mappingState.tabelaDestinoId,
+        conexaoOrigemId: configuration.mappingState.conexaoOrigemId,
+        descricao: configuration.mappingState.descricao,
+        queryOrigem: configuration.mappingState.queryOrigem,
+        campoChave: configuration.mappingState.campoChave,
+        frequencia: configuration.mappingState.frequencia,
+        ativo: configuration.mappingState.ativo,
+        estabelecimentoId: configuration.mappingState.estabelecimentoId,
+        modoImportacao: configuration.mappingState.modoImportacao,
+        colunaControle: configuration.mappingState.colunaControle,
+      },
+      tabela: {
+        id: configuration.tableState.id,
+        nome: configuration.tableState.nome,
+        descricao: configuration.tableState.descricao,
+        estabelecimentoId: configuration.tableState.estabelecimentoId,
+        criadaNoBanco: configuration.tableState.criadaNoBanco,
+      },
+      conexao: configuration.connectionState,
+    },
+    credencialCentral: source.configDigest,
+    origem: { colunas: source.columns, primaryKey: source.primaryKey },
+    destino: destinationColumns,
+  });
+}
+
+async function buildScheduledPlan(
+  connection: PoolConnection,
+  input: EasyLocalImportacaoPreviaInput,
+  deadline: ScheduledDeadline
+): Promise<ScheduledImportPlan> {
+  // Os validadores manuais são reutilizados com timeout restante por statement.
+  const bounded = scheduledBoundedConnection(connection, deadline);
+  // Mesma linha e ordem do cadastro central: mutex global antes da unidade.
+  // Não depender de gap locks TiDB, inclusive quando há apenas fallback de env.
+  const [centralMutex] = await bounded.execute<SqlRow[]>(
+    "SELECT id FROM estabelecimentos ORDER BY id LIMIT 1 FOR UPDATE"
+  );
+  if (centralMutex.length !== 1) {
+    fail("CONFLICT", "A conexão central não pode ser serializada no momento.");
+  }
+  const configuration = await lockAndLoadConfiguration(bounded, input);
+  assertScheduledBudget(deadline);
+  const destinationColumns = await loadDestinationColumns(
+    bounded,
+    configuration.nomeTabelaFisica,
+    configuration.colunas,
+    input.estabelecimentoId
+  );
+  assertScheduledBudget(deadline);
+  const source = await sourceSnapshotScheduled(configuration, deadline);
+  const memory = { bytes: 0 } satisfies ScheduledMemoryBudget;
+  for (const row of source.rows) reserveScheduledRowBytes(memory, row);
+  const destinationRows = await loadDestinationRowsScheduled(
+    bounded,
+    configuration,
+    source.rows,
+    deadline,
+    memory
+  );
+  const counts = countsFor(
+    source.rows,
+    destinationRows,
+    configuration.leitura.campoChave,
+    configuration.colunas
+  );
+  assertScheduledBudget(deadline);
+  return {
+    configuration,
+    source,
+    destinationColumns,
+    destinationRows,
+    fingerprint: "",
+    counts,
+    revisao: scheduledRevision(configuration, source, destinationColumns),
+  };
+}
+
+function scheduledWriteChunkSize(columnCount: number): number {
+  return Math.max(
+    1,
+    Math.min(
+      250,
+      Math.floor(
+        EASYLOCAL_IMPORTACAO_AGENDADA_MAX_PARAMS / (columnCount * 2 + 1)
+      )
+    )
+  );
+}
+
+async function applyScheduledPlan(
+  connection: PoolConnection,
+  plan: ScheduledImportPlan,
+  usuarioId: number,
+  deadline: ScheduledDeadline
+): Promise<void> {
+  const { configuration, source, destinationRows, counts } = plan;
+  const key = configuration.leitura.campoChave;
+  const names = configuration.colunas.map(column => column.nome);
+  const quoted = names.map(quotedMysql);
+  const inserts: Array<Record<string, unknown>> = [];
+  const updates: Array<{ row: Record<string, unknown>; id: string }> = [];
+  for (const row of source.rows) {
+    const previous = destinationRows.get(stable(row[key]));
+    if (!previous) inserts.push(row);
+    else if (!sameManagedValues(row, previous, configuration.colunas)) {
+      updates.push({ row, id: String(previous._easylocal_id) });
+    }
+  }
+  // Todo o lote é normalizado, tipado e comparado antes deste ponto de escrita.
+  if (
+    inserts.length !== counts.registrosInseridos ||
+    updates.length !== counts.registrosAtualizados
+  ) {
+    fail("CONFLICT", "O plano agendado requer conferência antes de escrever.");
+  }
+  const chunkSize = scheduledWriteChunkSize(names.length);
+  for (let start = 0; start < inserts.length; start += chunkSize) {
+    const chunk = inserts.slice(start, start + chunkSize);
+    const [result] = await scheduledMysqlWrite<[ResultSetHeader]>(
+      connection,
+      deadline,
+      `INSERT INTO ${quotedMysql(configuration.nomeTabelaFisica)} (\`estabelecimento_id\`, ${quoted.join(", ")}, \`_sincronizado_em\`) VALUES ${chunk.map(() => `(${["?", ...names.map(() => "?"), "CURRENT_TIMESTAMP"].join(", ")})`).join(", ")}`,
+      chunk.flatMap(row => [
+        configuration.leitura.estabelecimentoId,
+        ...names.map(name => row[name]),
+      ])
+    );
+    if (result.affectedRows !== chunk.length) {
+      fail(
+        "CONFLICT",
+        "O estado do destino mudou durante a importação agendada."
+      );
+    }
+  }
+  for (let start = 0; start < updates.length; start += chunkSize) {
+    const chunk = updates.slice(start, start + chunkSize);
+    const assignments = names.map(
+      name =>
+        `${quotedMysql(name)} = CASE \`_id\` ${chunk.map(() => "WHEN ? THEN ?").join(" ")} ELSE ${quotedMysql(name)} END`
+    );
+    const values: unknown[] = [];
+    for (const name of names) {
+      for (const update of chunk) values.push(update.id, update.row[name]);
+    }
+    values.push(
+      configuration.leitura.estabelecimentoId,
+      ...chunk.map(item => item.id)
+    );
+    const [result] = await scheduledMysqlWrite<[ResultSetHeader]>(
+      connection,
+      deadline,
+      `UPDATE ${quotedMysql(configuration.nomeTabelaFisica)} SET ${assignments.join(", ")}, \`_sincronizado_em\` = CURRENT_TIMESTAMP WHERE \`estabelecimento_id\` = ? AND \`_id\` IN (${chunk.map(() => "?").join(", ")})`,
+      values
+    );
+    if (result.affectedRows !== chunk.length) {
+      fail(
+        "CONFLICT",
+        "O estado do destino mudou durante a importação agendada."
+      );
+    }
+  }
+  const [mappingUpdate] = await scheduledMysqlWrite<[ResultSetHeader]>(
+    connection,
+    deadline,
+    "UPDATE integracao_mapeamentos SET ultimaSincronizacao = CURRENT_TIMESTAMP, totalRegistrosImportados = totalRegistrosImportados + ? WHERE id = ? AND estabelecimentoId = ?",
+    [
+      counts.registrosLidos,
+      configuration.leituraId,
+      configuration.leitura.estabelecimentoId,
+    ]
+  );
+  if (mappingUpdate.affectedRows !== 1) {
+    fail("CONFLICT", "A configuração mudou durante a importação agendada.");
+  }
+  await scheduledMysqlWrite(
+    connection,
+    deadline,
+    "INSERT INTO integracao_sincronizacoes (mapeamentoId, status, registrosLidos, registrosInseridos, registrosAtualizados, registrosErro, finalizadoEm, duracaoMs, executadoPor) VALUES (?, 'sucesso', ?, ?, ?, 0, CURRENT_TIMESTAMP, 0, ?)",
+    [
+      configuration.leituraId,
+      counts.registrosLidos,
+      counts.registrosInseridos,
+      counts.registrosAtualizados,
+      String(usuarioId),
+    ]
+  );
+}
+
+/** Prévia interna persistível pelo scheduler, sem token manual de curta duração. */
+export async function preverEasyLocalImportacaoAgendada(
+  raw: { leituraId: number; estabelecimentoId: number },
+  usuarioId: number
+): Promise<{
+  revisao: string;
+  registrosLidos: number;
+  registrosInseridos: number;
+  registrosAtualizados: number;
+  registrosInalterados: number;
+  limite: number;
+}> {
+  let connection: PoolConnection | undefined;
+  let started = false;
+  let healthy = true;
+  let deadline: ScheduledDeadline | undefined;
+  try {
+    const input = easyLocalImportacaoPreviaInput.parse(raw);
+    requireActor(usuarioId);
+    deadline = scheduledDeadline();
+    connection = await scheduledAcquireDestination(deadline);
+    // Mesmo se o deadline falhar ao abrir a transação, rollback é seguro e evita
+    // devolver ao pool uma conexão cujo BEGIN pode ter sido aceito pelo servidor.
+    started = true;
+    await startScheduledDestinationTransaction(connection, deadline);
+    const plan = await buildScheduledPlan(connection, input, deadline);
+    const rolledBack = await scheduledRollbackOrDestroy(connection, deadline);
+    started = false;
+    if (!rolledBack) {
+      healthy = false;
+      fail(
+        "INTERNAL_SERVER_ERROR",
+        "Prévia agendada não confirmada. Confira a configuração e o catálogo."
+      );
+    }
+    return {
+      revisao: plan.revisao,
+      ...plan.counts,
+      limite: EASYLOCAL_IMPORTACAO_AGENDADA_LIMITE,
+    };
+  } catch (error) {
+    return sanitize(
+      error,
+      "Prévia agendada não confirmada. Confira a configuração e o catálogo."
+    );
+  } finally {
+    if (connection && started && deadline)
+      healthy = await scheduledRollbackOrDestroy(connection, deadline);
+    if (
+      connection &&
+      healthy &&
+      deadline &&
+      !isScheduledConnectionQuarantined(deadline, connection)
+    )
+      releaseQuietly(connection);
+    if (deadline) closeScheduledDeadline(deadline);
+  }
+}
+
+/** Execução atômica agendada; a aprovação persistida é reconferida como revisão estática. */
+export async function executarEasyLocalImportacaoAgendada(
+  raw: { leituraId: number; estabelecimentoId: number },
+  usuarioId: number,
+  revisaoAprovada: string
+): Promise<EasyLocalImportacaoResultado> {
+  let connection: PoolConnection | undefined;
+  let started = false;
+  let commitAttempted = false;
+  let healthy = true;
+  let deadline: ScheduledDeadline | undefined;
+  try {
+    const input = easyLocalImportacaoPreviaInput.parse(raw);
+    requireActor(usuarioId);
+    if (
+      typeof revisaoAprovada !== "string" ||
+      !/^[a-f0-9]{64}$/.test(revisaoAprovada)
+    ) {
+      fail("CONFLICT", "A aprovação agendada requer uma nova prévia.");
+    }
+    deadline = scheduledDeadline();
+    connection = await scheduledAcquireDestination(deadline);
+    // Abertura parcial/timeout também precisa descarte transacional integral.
+    started = true;
+    await startScheduledDestinationTransaction(connection, deadline);
+    const plan = await buildScheduledPlan(connection, input, deadline);
+    if (plan.revisao !== revisaoAprovada) {
+      fail(
+        "CONFLICT",
+        "A aprovação agendada ficou desatualizada. Gere nova prévia."
+      );
+    }
+    await applyScheduledPlan(connection, plan, usuarioId, deadline);
+    assertScheduledWriteBudget(deadline);
+    commitAttempted = true;
+    try {
+      await scheduledMysqlCommit(connection, deadline);
+    } catch {
+      started = false;
+      healthy = false;
+      quarantineScheduledConnection(deadline, connection);
+      fail(
+        "INTERNAL_SERVER_ERROR",
+        "Resultado da importação agendada não confirmado. Confira o destino antes de repetir."
+      );
+    }
+    started = false;
+    return { sucesso: true, ...plan.counts };
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    if (commitAttempted) {
+      if (connection && deadline) {
+        started = false;
+        healthy = false;
+        quarantineScheduledConnection(deadline, connection);
+      }
+      fail(
+        "INTERNAL_SERVER_ERROR",
+        "Resultado da importação agendada não confirmado. Confira o destino antes de repetir."
+      );
+    }
+    return sanitize(
+      error,
+      "Importação agendada não confirmada. Confira o destino e gere nova prévia antes de repetir."
+    );
+  } finally {
+    if (connection && started && deadline)
+      healthy = await scheduledRollbackOrDestroy(connection, deadline);
+    if (
+      connection &&
+      healthy &&
+      deadline &&
+      !isScheduledConnectionQuarantined(deadline, connection)
+    )
+      releaseQuietly(connection);
+    if (deadline) closeScheduledDeadline(deadline);
   }
 }

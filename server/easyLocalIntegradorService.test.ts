@@ -48,18 +48,24 @@ function physical() {
       IS_NULLABLE: "NO",
       COLUMN_KEY: "PRI",
       EXTRA: "auto_increment",
+      CHARACTER_SET_NAME: null,
+      COLLATION_NAME: null,
     },
     {
       COLUMN_NAME: "estabelecimento_id",
       DATA_TYPE: "int",
       IS_NULLABLE: "NO",
       COLUMN_DEFAULT: "12",
+      CHARACTER_SET_NAME: null,
+      COLLATION_NAME: null,
     },
     {
       COLUMN_NAME: "codigo",
       DATA_TYPE: "varchar",
       IS_NULLABLE: "NO",
       CHARACTER_MAXIMUM_LENGTH: "255",
+      CHARACTER_SET_NAME: "utf8mb4",
+      COLLATION_NAME: "utf8mb4_bin",
     },
     {
       COLUMN_NAME: "valor",
@@ -67,11 +73,15 @@ function physical() {
       IS_NULLABLE: "YES",
       NUMERIC_PRECISION: "15",
       NUMERIC_SCALE: "4",
+      CHARACTER_SET_NAME: null,
+      COLLATION_NAME: null,
     },
     {
       COLUMN_NAME: "_sincronizado_em",
       DATA_TYPE: "datetime",
       IS_NULLABLE: "YES",
+      CHARACTER_SET_NAME: null,
+      COLLATION_NAME: null,
     },
   ];
 }
@@ -107,6 +117,7 @@ describe("criação direta EASYLocal isolada", () => {
     expect(ddl).toContain("CREATE TABLE `integ_el_12_teste`");
     expect(ddl).toContain("DECIMAL(15,0)");
     expect(ddl).toContain("DEFAULT 12");
+    expect(ddl).toContain("DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin");
     expect(ddl).not.toMatch(/IF NOT EXISTS|DROP|TRUNCATE|ALTER|DELETE|UPDATE/i);
   });
   it.each([
@@ -203,6 +214,34 @@ describe("criação direta EASYLocal isolada", () => {
     expect(
       mocks.conn.execute.mock.calls.some(c =>
         String(c[0]).includes("SET criadaNoBanco")
+      )
+    ).toBe(false);
+  });
+  it("preserva a reserva quando coluna textual não confirma utf8mb4", async () => {
+    const invalid = physical().map(column =>
+      column.COLUMN_NAME === "codigo"
+        ? {
+            ...column,
+            CHARACTER_SET_NAME: "latin1",
+            COLLATION_NAME: "latin1_swedish_ci",
+          }
+        : column
+    );
+    mocks.conn.execute.mockImplementation(async (sql: string) =>
+      sql.includes("FROM estabelecimentos")
+        ? [[{ id: 12 }]]
+        : sql.includes("information_schema.COLUMNS")
+          ? [invalid]
+          : sql.startsWith("INSERT INTO integracao_tabelas")
+            ? [{ insertId: 77 }]
+            : [[]]
+    );
+    await expect(criarEasyLocalTabela(input, 9)).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
+    expect(
+      mocks.conn.execute.mock.calls.some(call =>
+        String(call[0]).includes("SET criadaNoBanco = 'sim'")
       )
     ).toBe(false);
   });

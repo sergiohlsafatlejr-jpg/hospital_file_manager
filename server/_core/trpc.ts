@@ -13,7 +13,17 @@ const t = initTRPC.context<TrpcContext>().create({
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+
+/** Heartbeat identities are accepted only by their dedicated Express callbacks,
+ * never by tRPC (including otherwise-public application procedures). */
+const blockCronIdentity = t.middleware(async ({ ctx, next }) => {
+  if (ctx.user && (ctx.user.isCron || ctx.user.id <= 0)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Identidade cron não pode usar tRPC" });
+  }
+  return next();
+});
+
+export const publicProcedure = t.procedure.use(blockCronIdentity);
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -56,7 +66,7 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = t.procedure.use(blockCronIdentity).use(requireUser);
 
 export type ReportPermissionModule = Parameters<typeof verificarAcessoModulo>[2];
 
@@ -101,7 +111,7 @@ export function reportProcedure(modulo: ReportPermissionModule) {
   }));
 }
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = t.procedure.use(blockCronIdentity).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
@@ -244,6 +254,7 @@ const permissaoMiddleware = t.middleware(async (opts) => {
  * Procedure com logging, auditoria e permissões
  */
 export const trackedProcedure = t.procedure
+  .use(blockCronIdentity)
   .use(loggingMiddleware)
   .use(auditMiddleware)
   .use(permissaoMiddleware);
@@ -252,6 +263,7 @@ export const trackedProcedure = t.procedure
  * Procedure protegida com logging, auditoria e permissões
  */
 export const trackedProtectedProcedure = t.procedure
+  .use(blockCronIdentity)
   .use(requireUser)
   .use(loggingMiddleware)
   .use(auditMiddleware)

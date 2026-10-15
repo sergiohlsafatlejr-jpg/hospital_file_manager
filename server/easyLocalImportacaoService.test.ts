@@ -73,6 +73,8 @@ const defaultPhysical = [
     IS_NULLABLE: "NO",
     COLUMN_KEY: "PRI",
     EXTRA: "auto_increment",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 1,
   },
   {
@@ -82,6 +84,8 @@ const defaultPhysical = [
     COLUMN_DEFAULT: "12",
     COLUMN_KEY: "",
     EXTRA: "",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 2,
   },
   {
@@ -90,6 +94,8 @@ const defaultPhysical = [
     IS_NULLABLE: "NO",
     COLUMN_KEY: "",
     EXTRA: "",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 3,
   },
   {
@@ -100,6 +106,8 @@ const defaultPhysical = [
     EXTRA: "",
     NUMERIC_PRECISION: "15",
     NUMERIC_SCALE: "4",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 4,
   },
   {
@@ -108,6 +116,8 @@ const defaultPhysical = [
     IS_NULLABLE: "YES",
     COLUMN_KEY: "",
     EXTRA: "",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 5,
   },
   {
@@ -116,6 +126,8 @@ const defaultPhysical = [
     IS_NULLABLE: "YES",
     COLUMN_KEY: "",
     EXTRA: "",
+    CHARACTER_SET_NAME: null,
+    COLLATION_NAME: null,
     ORDINAL_POSITION: 6,
   },
 ];
@@ -378,6 +390,64 @@ describe("importação manual EASYLocal → Portal", () => {
     ).toBe(true);
   });
 
+  it.each([
+    ["latin1", "latin1_swedish_ci"],
+    ["utf8mb3", "utf8mb3_general_ci"],
+    ["utf8mb4", "utf8_general_ci"],
+  ])(
+    "rejeita destino textual com charset/collation incompatível (%s/%s) antes de escrever",
+    async (charset, collation) => {
+      columns = [
+        { nome: "codigo", tipo: "varchar", tamanho: 20, obrigatorio: true },
+        { nome: "descricao", tipo: "text", obrigatorio: false },
+      ];
+      physicalRows = [
+        ...defaultPhysical.slice(0, 2),
+        {
+          COLUMN_NAME: "codigo",
+          DATA_TYPE: "varchar",
+          IS_NULLABLE: "NO",
+          COLUMN_KEY: "",
+          EXTRA: "",
+          CHARACTER_MAXIMUM_LENGTH: "20",
+          CHARACTER_SET_NAME: charset,
+          COLLATION_NAME: collation,
+          ORDINAL_POSITION: 3,
+        },
+        {
+          COLUMN_NAME: "descricao",
+          DATA_TYPE: "text",
+          IS_NULLABLE: "YES",
+          COLUMN_KEY: "",
+          EXTRA: "",
+          CHARACTER_SET_NAME: "utf8mb4",
+          COLLATION_NAME: "utf8mb4_bin",
+          ORDINAL_POSITION: 4,
+        },
+        {
+          ...defaultPhysical.at(-1)!,
+          ORDINAL_POSITION: 5,
+        },
+      ];
+      await expect(
+        preview([{ codigo: "😀", descricao: "🏥" }])
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(mocks.pgInstances).toHaveLength(0);
+      expect(
+        mocks.destination.execute.mock.calls.some(call =>
+          /^(INSERT INTO `integ_|UPDATE `integ_)/.test(String(call[0]))
+        )
+      ).toBe(false);
+      expect(
+        mocks.destination.execute.mock.calls.some(
+          call =>
+            String(call[0]).includes("CHARACTER_SET_NAME") &&
+            String(call[0]).includes("COLLATION_NAME")
+        )
+      ).toBe(true);
+    }
+  );
+
   it("preserva A/a como chaves distintas em SQL binário e no fingerprint", async () => {
     columns = [
       { nome: "codigo", tipo: "varchar", tamanho: 20, obrigatorio: true },
@@ -391,6 +461,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "NO",
         COLUMN_KEY: "PRI",
         EXTRA: "auto_increment",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 1,
       },
       {
@@ -400,6 +472,8 @@ describe("importação manual EASYLocal → Portal", () => {
         COLUMN_DEFAULT: "12",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 2,
       },
       {
@@ -409,6 +483,8 @@ describe("importação manual EASYLocal → Portal", () => {
         COLUMN_KEY: "",
         EXTRA: "",
         CHARACTER_MAXIMUM_LENGTH: "20",
+        CHARACTER_SET_NAME: "utf8mb4",
+        COLLATION_NAME: "utf8mb4_0900_ai_ci",
         ORDINAL_POSITION: 3,
       },
       {
@@ -417,6 +493,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "YES",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: "utf8mb4",
+        COLLATION_NAME: "utf8mb4_0900_ai_ci",
         ORDINAL_POSITION: 4,
       },
       {
@@ -425,6 +503,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "YES",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 5,
       },
     ];
@@ -464,8 +544,8 @@ describe("importação manual EASYLocal → Portal", () => {
       },
     ];
     const rows = [
-      { codigo: "A", descricao: "maiúscula" },
-      { codigo: "a", descricao: "minúscula" },
+      { codigo: "A", descricao: "maiúscula 😀" },
+      { codigo: "a", descricao: "minúscula 🏥" },
     ];
     await expect(preview(rows)).resolves.toMatchObject({
       registrosLidos: 2,
@@ -528,6 +608,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "NO",
         COLUMN_KEY: "PRI",
         EXTRA: "auto_increment",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 1,
       },
       {
@@ -537,6 +619,8 @@ describe("importação manual EASYLocal → Portal", () => {
         COLUMN_DEFAULT: "12",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 2,
       },
       {
@@ -545,6 +629,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "NO",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 3,
       },
       {
@@ -553,6 +639,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "YES",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: "utf8mb4",
+        COLLATION_NAME: "utf8mb4_bin",
         ORDINAL_POSITION: 4,
       },
       {
@@ -561,6 +649,8 @@ describe("importação manual EASYLocal → Portal", () => {
         IS_NULLABLE: "YES",
         COLUMN_KEY: "",
         EXTRA: "",
+        CHARACTER_SET_NAME: null,
+        COLLATION_NAME: null,
         ORDINAL_POSITION: 5,
       },
     ];

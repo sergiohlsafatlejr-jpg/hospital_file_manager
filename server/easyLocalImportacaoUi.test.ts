@@ -39,7 +39,7 @@ describe("confirmação de importação EASYLocal no Portal", () => {
   it("não promete agendamento ou publicação final ao importar staging", () => {
     expect(ui).toContain("Não ativa os horários de busca");
     expect(ui).toContain("depende do adaptador do domínio");
-    expect(tabs).toContain("Automação não ativada");
+    expect(tabs).toContain("Salvar a frequência desejada não ativa horários");
     expect(tabs).toContain("destino no Portal");
     expect(ui).not.toMatch(/cron|setInterval|scheduleCronTask/);
   });

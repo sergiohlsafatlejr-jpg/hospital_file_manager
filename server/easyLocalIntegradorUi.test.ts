@@ -84,10 +84,10 @@ describe("interface do integrador EASYLocal", () => {
     expect(tabs).not.toContain("useMutation({ mutate");
   });
 
-  it("mantém horários desativados e exige prévia para importação manual", () => {
-    expect(tabs).toContain("Importação manual com prévia");
-    expect(tabs).toContain("A frequência desejada ainda não ativa horários");
-    expect(tabs).toContain("Automação não ativada");
+  it("separa cadastro preparado da ativação explícita e da importação manual", () => {
+    expect(tabs).toContain("Importação e horários com revisão");
+    expect(tabs).toContain("Salvar a frequência desejada não ativa horários");
+    expect(tabs).toContain("<EasyLocalAgendamentoAcao");
     expect(tabs).toContain("<EasyLocalImportacaoAcao");
     expect(tabs).toContain("Salvar configuração preparada");
   });

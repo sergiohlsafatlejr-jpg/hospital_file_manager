@@ -11,7 +11,7 @@ import { initializeJobScheduler } from "./jobScheduler";
 import { fileProcessorRouter } from "../fileProcessor";
 import { uploadMultipartRouter } from "../uploadMultipart";
 import { initializeWarleineImportWorker } from "../warleineFaturamentoWorker";
-
+import { easyLocalAgendamentoHandler } from "../easyLocalAgendamentoCallback";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -50,6 +50,8 @@ async function startServer() {
   app.use(fileProcessorRouter);
   // Multipart upload route for large files (>16MB)
   app.use(uploadMultipartRouter);
+  // Callback agendado: identidade cron validada pelo SDK; nunca usa o body para escopo.
+  app.post("/api/scheduled/easylocal-importar", easyLocalAgendamentoHandler);
   // tRPC API
   app.use(
     "/api/trpc",
