@@ -105,6 +105,12 @@ export type EasyLocalLeituraResumo = {
   dominio: EasyLocalLeituraInput["dominio"];
   frequenciaDesejada: EasyLocalLeituraInput["frequenciaDesejada"];
   estado: "preparada_sem_execucao";
+  /** Ausente em registros diretos legados para preservar o contrato anterior. */
+  tipoDestino?: "nova" | "staging_existente";
+  /** Stagings existentes são sempre catalogadas sem autorização de execução. */
+  execucaoLiberada?: boolean;
+  /** Motivos operacionais que continuam impedindo qualquer carga. */
+  bloqueios?: string[];
 };
 
 export function easyLocalNomeFisico(

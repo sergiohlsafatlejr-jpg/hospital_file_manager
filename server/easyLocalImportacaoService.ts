@@ -9,6 +9,7 @@ import type {
 } from "mysql2/promise";
 import { getRawPool } from "./db";
 import { resolverEasyLocalConfig } from "./easyLocalCadastroStore";
+import { exigirDestinoEasyLocalExecutavel } from "./easyLocalDestinoGuard";
 import {
   EASYLOCAL_IMPORTACAO_LIMITE,
   EASYLOCAL_PREVIA_TTL_SEGUNDOS,
@@ -276,6 +277,7 @@ async function lockAndLoadConfiguration(
   if (tables.length !== 1)
     fail("NOT_FOUND", "Tabela gerenciada não encontrada nesta unidade.");
   const table = tables[0]!;
+  exigirDestinoEasyLocalExecutavel(table.nome, table.descricao, map.descricao);
 
   const [connections] = await connection.execute<SqlRow[]>(
     "SELECT id, nome, descricao, tipo, host, porta, banco, usuario, `ssl`, estabelecimentoId, ativo FROM integracao_conexoes WHERE id = ? AND estabelecimentoId = ? FOR UPDATE",
