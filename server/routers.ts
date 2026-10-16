@@ -1,4 +1,5 @@
 import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
+import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -1286,33 +1287,27 @@ export const appRouter = router({
                       // ARQUIVO GRANDE: Delegar para processamento em background
                       console.log(`[Upload] Arquivo grande Excel/CSV (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - delegando para background processing`);
                       
-                      // Excluir dados antigos deste arquivo se for reimportação
-                      if (isReimportacao) {
-                        await db.deleteRecebimentosExcelByArquivo(arquivoId);
-                        await db.deleteDemonstrativoByArquivo(arquivoId);
-                        console.log('[Upload] Dados antigos excluídos para reimportação');
-                      }
-                      
-                      // Marcar como processando e disparar background
-                      await db.updateArquivoStatus(arquivoId, "processando");
-                      await db.updateArquivoProgresso(arquivoId, 5, 0);
-                      
                       // Disparar processamento via rota interna (request HTTP separada)
                       const port = process.env.PORT || '3000';
                       const internalUrl = `http://localhost:${port}/api/internal/process-file`;
                       const secret = process.env.JWT_SECRET || 'internal-process-secret';
                       
-                      fetch(internalUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ arquivoId, secret }),
-                      }).catch(err => {
-                        console.error('[Upload] Erro ao disparar processamento interno:', err);
-                        db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
+                      await delegarPlanilhaRetorno({
+                        arquivoId, secret, reimportacao: isReimportacao, tipoArquivo: input.tipoArquivo,
+                      }, {
+                        marcarProcessando: () => db.updateArquivoStatus(arquivoId, "processando"),
+                        atualizarProgresso: () => db.updateArquivoProgresso(arquivoId, 5, 0),
+                        disparar: payload => fetch(internalUrl, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(payload),
+                        }),
+                        marcarErro: () => db.updateArquivoStatus(arquivoId, "erro"),
                       });
                       
                       console.log(`[Upload] Background processing disparado para arquivo ${arquivoId}`);
-                      // NÃO esperar - retorna imediato ao frontend
+                      // Somente o worker finaliza. Não alcançar a marcação inline abaixo.
+                      return;
                     } else {
                       // ARQUIVO PEQUENO (<2MB): Processar inline (rápido)
                       console.log('[Upload] Processando arquivo Excel/CSV pequeno inline:', arquivoId);

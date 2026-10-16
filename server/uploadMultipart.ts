@@ -19,6 +19,7 @@ import { sdk } from './_core/sdk';
 import { importTasyCsvFile } from './tasyCsvImportService';
 import { hashWarleineFile, reserveWarleineImportJob } from './warleineFaturamentoImportService';
 import { encryptWarleineFile } from './warleineFileVault';
+import { delegarPlanilhaRetorno } from './retornoUploadDispatch';
 
 const router = Router();
 
@@ -236,28 +237,22 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
 
     // Para arquivos retornados (Excel/CSV), delegar processamento em background
     if (direcao === 'retornado' && (tipoArquivo === 'excel' || tipoArquivo === 'csv')) {
-      // Excluir dados antigos se reimportação
-      if (isReimportacao) {
-        await db.deleteRecebimentosExcelByArquivo(arquivoId);
-        await db.deleteDemonstrativoByArquivo(arquivoId);
-      }
-
-      // Marcar como processando
-      await db.updateArquivoStatus(arquivoId, "processando");
-      await db.updateArquivoProgresso(arquivoId, 5, 0);
-
       // Disparar processamento em background
       const port = process.env.PORT || '3000';
       const internalUrl = `http://localhost:${port}/api/internal/process-file`;
       const secret = process.env.JWT_SECRET || 'internal-process-secret';
 
-      fetch(internalUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ arquivoId, secret }),
-      }).catch(err => {
-        console.error('[UploadMultipart] Erro ao disparar processamento:', err);
-        db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
+      await delegarPlanilhaRetorno({
+        arquivoId, secret, reimportacao: isReimportacao, tipoArquivo,
+      }, {
+        marcarProcessando: () => db.updateArquivoStatus(arquivoId, "processando"),
+        atualizarProgresso: () => db.updateArquivoProgresso(arquivoId, 5, 0),
+        disparar: payload => fetch(internalUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+        marcarErro: () => db.updateArquivoStatus(arquivoId, "erro"),
       });
 
       console.log(`[UploadMultipart] Background processing disparado para ${arquivoId}`);

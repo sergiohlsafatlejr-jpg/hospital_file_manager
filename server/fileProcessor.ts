@@ -19,6 +19,7 @@
 import { Router } from 'express';
 import * as db from './db';
 import type { InsertFaturamentoTiss, InsertRecebimentoExcel } from '../drizzle/schema';
+import { deveLimparExcelRetorno } from './retornoUploadDispatch';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ async function plog(arquivoId: number, level: string, message: string) {
 }
 
 router.post('/api/internal/process-file', async (req, res) => {
-  const { arquivoId, secret, skipContaConvenioSync = false } = req.body;
+  const { arquivoId, secret, skipContaConvenioSync = false, limparDadosAnteriores } = req.body;
   
   // Validar segredo interno
   if (secret !== INTERNAL_SECRET) {
@@ -80,7 +81,7 @@ router.post('/api/internal/process-file', async (req, res) => {
     await plog(arquivoId, 'info', `Download OK: ${(buffer.length / 1024 / 1024).toFixed(2)} MB | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB | RSS: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`);
     
     if (arquivo.direcao === "retornado") {
-      await processRetornado(arquivoId, arquivo, buffer);
+      await processRetornado(arquivoId, arquivo, buffer, deveLimparExcelRetorno(limparDadosAnteriores));
       
       // Aplicar padrões de aceite automático de glosa nos itens recém-importados
       try {
@@ -110,7 +111,7 @@ router.post('/api/internal/process-file', async (req, res) => {
   }
 });
 
-async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer) {
+async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer, limparExcel = true) {
   const nomeArquivo = arquivo.nome.toLowerCase();
   const tipoArquivo = nomeArquivo.endsWith('.xml') ? 'xml' : nomeArquivo.endsWith('.csv') ? 'csv' : 'excel';
   // Corrigir timezone: extrair apenas a data (YYYY-MM-DD) para evitar que UTC-3 mude o dia
@@ -244,9 +245,12 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer)
   }
   
   if (tipoArquivo === 'excel') {
-    // Excluir dados antigos
-    await db.deleteRecebimentosExcelByArquivo(arquivoId);
-    await db.deleteDemonstrativoByArquivo(arquivoId);
+    // Novos IDs Excel não possuem dados anteriores. Reprocessamentos e chamadas
+    // antigas continuam limpando; sem índice por arquivo, o DELETE vazio é caro.
+    if (limparExcel) {
+      await db.deleteRecebimentosExcelByArquivo(arquivoId);
+      await db.deleteDemonstrativoByArquivo(arquivoId);
+    }
     
     await db.updateArquivoProgresso(arquivoId, 12, 0);
     
