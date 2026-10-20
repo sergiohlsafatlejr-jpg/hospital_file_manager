@@ -1,16 +1,27 @@
-import { useState, useMemo, Fragment } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, FileText, AlertTriangle, DollarSign, TrendingDown, CheckCircle, Clock, BarChart3 } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3 } from "lucide-react";
 import { useLocation } from "wouter";
+import { RecursoGlosaMultiSelect } from "@/components/recurso-glosa/RecursoGlosaMultiSelect";
+import { MAX_RECEBIMENTO_IDS_DEMONSTRATIVO } from "@shared/recursoGlosaDemonstrativoFiltros";
+import {
+  criarEscopoDemonstrativo,
+  derivarOpcoesMotivoGlosa,
+  filtrarDetalhePorMotivos,
+  idsRecebimentosVisiveis,
+  mesmaSelecao,
+  normalizarSelecao,
+  reconciliarSelecao,
+} from "@/components/recurso-glosa/recursoGlosaDemonstrativo";
 
 export default function RecursoGlosaDemonstrativo() {
   const { estabelecimentoAtual } = useEstabelecimento();
@@ -18,17 +29,48 @@ export default function RecursoGlosaDemonstrativo() {
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
 
   // States
-  const [competencia, setCompetencia] = useState<string>("todas");
+  // Array vazio significa "todas" no novo contrato do demonstrativo.
+  const [competenciasSelecionadas, setCompetenciasSelecionadas] = useState<string[]>([]);
   const [convenioId, setConvenioId] = useState<string>("todos");
-  const [dataPagto, setDataPagto] = useState<string>("todos");
+  const [datasPagtoSelecionadas, setDatasPagtoSelecionadas] = useState<string[]>([]);
   const [busca, setBusca] = useState("");
   const [agrupamento, setAgrupamento] = useState<"guia" | "item" | "motivo">("guia");
   const [expandedGuia, setExpandedGuia] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [expandedMotivo, setExpandedMotivo] = useState<string | null>(null);
+  const [motivosInternosSelecionados, setMotivosInternosSelecionados] = useState<string[]>([]);
+  const [detailScope, setDetailScope] = useState<string | null>(null);
   const [editingJustificativa, setEditingJustificativa] = useState<{ id: number; value: string; fonte?: string } | null>(null);
   const [editingValorRecurso, setEditingValorRecurso] = useState<{ id: number; value: string; fonte?: string } | null>(null);
   const [page, setPage] = useState(1);
+
+  const convenioIdNumero = convenioId !== "todos" ? Number(convenioId) : undefined;
+  const scopeKey = useMemo(() => criarEscopoDemonstrativo({
+    estabelecimentoId,
+    competencias: competenciasSelecionadas,
+    datasPagto: datasPagtoSelecionadas,
+    convenioId: convenioIdNumero,
+  }), [estabelecimentoId, competenciasSelecionadas, datasPagtoSelecionadas, convenioIdNumero]);
+
+  const limparEstadoDetalhe = () => {
+    setExpandedGuia(null);
+    setExpandedItem(null);
+    setExpandedMotivo(null);
+    setMotivosInternosSelecionados([]);
+    setDetailScope(null);
+    setEditingJustificativa(null);
+    setEditingValorRecurso(null);
+  };
+
+  // Mudanças externas de estabelecimento são tratadas após a renderização,
+  // nunca disparando setState durante render.
+  useEffect(() => {
+    limparEstadoDetalhe();
+    setCompetenciasSelecionadas([]);
+    setConvenioId('todos');
+    setDatasPagtoSelecionadas([]);
+    setPage(1);
+  }, [estabelecimentoId]);
 
   // Queries
   const { data: competencias } = trpc.faturamentoUnificado.competenciasDemonstrativo.useQuery(
@@ -36,19 +78,27 @@ export default function RecursoGlosaDemonstrativo() {
     { enabled: !!estabelecimentoId }
   );
   const { data: convenios } = trpc.faturamentoUnificado.conveniosDemonstrativo.useQuery(
-    { estabelecimentoId, competencia: competencia && competencia !== 'todas' ? competencia : undefined },
+    {
+      estabelecimentoId,
+      competencias: competenciasSelecionadas,
+      datasPagto: datasPagtoSelecionadas,
+    },
     { enabled: !!estabelecimentoId }
   );
   const { data: datasPagamento } = trpc.faturamentoUnificado.datasPagamentoDemonstrativo.useQuery(
-    { estabelecimentoId, competencia: competencia && competencia !== 'todas' ? competencia : undefined, convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined },
+    {
+      estabelecimentoId,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+    },
     { enabled: !!estabelecimentoId }
   );
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosDemonstrativo.useQuery(
     {
       estabelecimentoId,
-      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
-      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
-      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+      datasPagto: datasPagtoSelecionadas,
       agrupamento,
       busca: busca || undefined,
       page,
@@ -57,38 +107,81 @@ export default function RecursoGlosaDemonstrativo() {
     { enabled: !!estabelecimentoId }
   );
 
-  const { data: detalheGuia, refetch: refetchDetalheGuia } = trpc.faturamentoUnificado.itensGlosadosDetalheGuiaDemonstrativo.useQuery(
+  const isScopeAtual = detailScope === scopeKey;
+  const { data: detalheGuia, refetch: refetchDetalheGuia, isLoading: detalheGuiaCarregando, isFetching: detalheGuiaAtualizando, isError: detalheGuiaComErro } = trpc.faturamentoUnificado.itensGlosadosDetalheGuiaDemonstrativo.useQuery(
     {
       estabelecimentoId,
       guia: expandedGuia || "",
-      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
-      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
-      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+      datasPagto: datasPagtoSelecionadas,
     },
-    { enabled: !!expandedGuia && agrupamento === 'guia' }
+    { enabled: !!expandedGuia && agrupamento === 'guia' && isScopeAtual }
   );
 
-  const { data: detalheItem, refetch: refetchDetalheItem } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItemDemonstrativo.useQuery(
+  const { data: detalheItem, refetch: refetchDetalheItem, isLoading: detalheItemCarregando, isFetching: detalheItemAtualizando, isError: detalheItemComErro } = trpc.faturamentoUnificado.itensGlosadosDetalhePorItemDemonstrativo.useQuery(
     {
       estabelecimentoId,
       item: expandedItem || "",
-      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
-      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
-      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+      datasPagto: datasPagtoSelecionadas,
     },
-    { enabled: !!expandedItem && agrupamento === 'item' }
+    { enabled: !!expandedItem && agrupamento === 'item' && isScopeAtual }
   );
 
-  const { data: detalheMotivo, refetch: refetchDetalheMotivo } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivoDemonstrativo.useQuery(
+  const { data: detalheMotivo, refetch: refetchDetalheMotivo, isLoading: detalheMotivoCarregando, isFetching: detalheMotivoAtualizando, isError: detalheMotivoComErro } = trpc.faturamentoUnificado.itensGlosadosDetalhePorMotivoDemonstrativo.useQuery(
     {
       estabelecimentoId,
       codigoGlosa: expandedMotivo || "",
-      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
-      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
-      dataPagto: dataPagto && dataPagto !== 'todos' ? dataPagto : undefined,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+      datasPagto: datasPagtoSelecionadas,
     },
-    { enabled: !!expandedMotivo && agrupamento === 'motivo' }
+    { enabled: !!expandedMotivo && agrupamento === 'motivo' && isScopeAtual }
   );
+
+  const competenciaOptions = useMemo(() => (competencias || []).map((competencia: any) => ({
+    value: competencia.competencia,
+    label: `${competencia.competencia} (${competencia.total})`,
+  })), [competencias]);
+  const dataPagtoOptions = useMemo(() => (datasPagamento || []).map((data: any) => ({
+    value: data.dataPagto,
+    label: `${new Date(`${data.dataPagto}T12:00:00`).toLocaleDateString('pt-BR')} (${data.total})`,
+  })), [datasPagamento]);
+
+  // A API retorna opções dependentes do escopo. A reconciliação é feita em
+  // effects para não disparar reset durante a renderização nem reter seleção inválida.
+  useEffect(() => {
+    if (!competencias) return;
+    const reconciliadas = reconciliarSelecao(competenciasSelecionadas, competenciaOptions.map((option) => option.value));
+    if (!mesmaSelecao(competenciasSelecionadas, reconciliadas)) {
+      limparEstadoDetalhe();
+      setCompetenciasSelecionadas(reconciliadas);
+      setPage(1);
+    }
+  }, [competencias, competenciaOptions, competenciasSelecionadas]);
+
+  useEffect(() => {
+    if (!convenios || convenioId === 'todos') return;
+    const aindaDisponivel = convenios.some((convenio: any) => String(convenio.convenioId) === convenioId);
+    if (!aindaDisponivel) {
+      limparEstadoDetalhe();
+      setConvenioId('todos');
+      setDatasPagtoSelecionadas([]);
+      setPage(1);
+    }
+  }, [convenioId, convenios]);
+
+  useEffect(() => {
+    if (!datasPagamento) return;
+    const reconciliadas = reconciliarSelecao(datasPagtoSelecionadas, dataPagtoOptions.map((option) => option.value));
+    if (!mesmaSelecao(datasPagtoSelecionadas, reconciliadas)) {
+      limparEstadoDetalhe();
+      setDatasPagtoSelecionadas(reconciliadas);
+      setPage(1);
+    }
+  }, [dataPagtoOptions, datasPagamento, datasPagtoSelecionadas]);
 
   // Mutations
   const salvarJustificativaMutation = trpc.faturamentoUnificado.salvarJustificativaDemonstrativo.useMutation({
@@ -175,27 +268,78 @@ export default function RecursoGlosaDemonstrativo() {
   };
 
   const handleGerarIA = (ids: number[]) => {
+    if (ids.length === 0) return;
     gerarIAMutation.mutate({ estabelecimentoId, recebimentoIds: ids });
   };
 
-  const handleReplicar = (justificativa: string, item?: string, codigoGlosa?: string) => {
-    if (!justificativa) {
+  const handleReplicar = ({
+    justificativa,
+    item,
+    codigoGlosa,
+    recebimentoIds,
+  }: {
+    justificativa: string;
+    item?: string;
+    codigoGlosa?: string;
+    recebimentoIds: number[];
+  }) => {
+    if (!justificativa || recebimentoIds.length === 0) {
       toast.error("Preencha uma justificativa antes de replicar");
       return;
     }
     replicarMutation.mutate({
       estabelecimentoId,
-      competencia: competencia && competencia !== 'todas' ? competencia : undefined,
-      convenioId: convenioId && convenioId !== 'todos' ? Number(convenioId) : undefined,
+      competencias: competenciasSelecionadas,
+      datasPagto: datasPagtoSelecionadas,
+      convenioId: convenioIdNumero,
       item,
       codigoGlosa,
       justificativa,
+      recebimentoIds,
     });
   };
 
   const handleAceitarTodas = (items: Array<{id: number; fonte: string}>) => {
     if (items.length === 0) return;
     aceitarEmLoteMutation.mutate({ items, aceita: true, estabelecimentoId, guia: expandedGuia || undefined });
+  };
+
+  const resetarPorFiltro = () => {
+    limparEstadoDetalhe();
+    setPage(1);
+  };
+
+  const trocarCompetencias = (selecionadas: string[]) => {
+    resetarPorFiltro();
+    setCompetenciasSelecionadas(normalizarSelecao(selecionadas));
+  };
+
+  const trocarDatasPagto = (selecionadas: string[]) => {
+    resetarPorFiltro();
+    setDatasPagtoSelecionadas(normalizarSelecao(selecionadas));
+  };
+
+  const trocarConvenio = (proximoConvenioId: string) => {
+    resetarPorFiltro();
+    setConvenioId(proximoConvenioId);
+    setDatasPagtoSelecionadas([]);
+  };
+
+  const trocarMotivosInternos = (selecionados: string[]) => {
+    setEditingJustificativa(null);
+    setEditingValorRecurso(null);
+    setMotivosInternosSelecionados(normalizarSelecao(selecionados));
+    setPage(1);
+  };
+
+  const abrirDetalhe = (tipo: 'guia' | 'item' | 'motivo', valor: string, aberto: boolean) => {
+    setEditingJustificativa(null);
+    setEditingValorRecurso(null);
+    setMotivosInternosSelecionados([]);
+    setExpandedGuia(tipo === 'guia' && aberto ? valor : null);
+    setExpandedItem(tipo === 'item' && aberto ? valor : null);
+    setExpandedMotivo(tipo === 'motivo' && aberto ? valor : null);
+    setDetailScope(aberto ? scopeKey : null);
   };
 
   const formatCurrency = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
@@ -208,17 +352,35 @@ export default function RecursoGlosaDemonstrativo() {
 
   const items = itensGlosados?.items || [];
   const totalPages = itensGlosados?.totalPages || 1;
+  const detalheGuiaAtual = isScopeAtual ? (detalheGuia || []) : [];
+  const detalheItemAtual = isScopeAtual ? (detalheItem || []) : [];
+  const detalheMotivoAtual = isScopeAtual ? (detalheMotivo || []) : [];
+  const opcoesMotivosInternos = useMemo(
+    () => derivarOpcoesMotivoGlosa(detalheItemAtual),
+    [detalheItemAtual],
+  );
+  const detalheItemFiltrado = useMemo(
+    () => filtrarDetalhePorMotivos(detalheItemAtual, motivosInternosSelecionados),
+    [detalheItemAtual, motivosInternosSelecionados],
+  );
+  const excedeLimiteAcoes = (rows: Array<{ id: number }>) => idsRecebimentosVisiveis(rows).length > MAX_RECEBIMENTO_IDS_DEMONSTRATIVO;
+  const acoesGuiaBloqueadas = !isScopeAtual || !detalheGuia || detalheGuiaCarregando || detalheGuiaAtualizando || detalheGuiaComErro || excedeLimiteAcoes(detalheGuiaAtual);
+  const acoesItemBloqueadas = !isScopeAtual || !detalheItem || detalheItemCarregando || detalheItemAtualizando || detalheItemComErro || excedeLimiteAcoes(detalheItemFiltrado);
+  const acoesMotivoBloqueadas = !isScopeAtual || !detalheMotivo || detalheMotivoCarregando || detalheMotivoAtualizando || detalheMotivoComErro || excedeLimiteAcoes(detalheMotivoAtual);
+
+  // Não remover automaticamente um motivo durante refetch: isso ampliaria a
+  // seleção para "Todos". Apenas a troca explícita de item/filtro limpa o recorte.
 
   const [, navigate] = useLocation();
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/analise-glosa')} title="Voltar">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-2xl font-bold">Recurso Glosa Demonstrativo</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Recurso Glosa Demonstrativo</h1>
         </div>
         <Badge variant="outline" className="text-xs">Fonte: Demonstrativo XML + Recebimentos Excel</Badge>
       </div>
@@ -226,27 +388,24 @@ export default function RecursoGlosaDemonstrativo() {
       {/* Filtros */}
       <Card>
         <CardContent className="pt-4">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Competência</label>
-              <Select value={competencia} onValueChange={(v) => { setCompetencia(v); setPage(1); }}>
-                <SelectTrigger><SelectValue placeholder="Competência" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas</SelectItem>
-                {competencias?.map((c: any) => (
-                  <SelectItem key={c.competencia} value={c.competencia}>
-                    {c.competencia} ({c.total})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-              </Select>
+              <label className="text-xs font-medium text-muted-foreground">Competências</label>
+              <RecursoGlosaMultiSelect
+                ariaLabel="Competências"
+                options={competenciaOptions}
+                selected={competenciasSelecionadas}
+                onChange={trocarCompetencias}
+                placeholder="Todas"
+                allLabel="Todas"
+              />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Convênio</label>
-              <Select value={convenioId} onValueChange={(v) => { setConvenioId(v); setPage(1); }}>
+              <Select value={convenioId} onValueChange={trocarConvenio}>
                 <SelectTrigger><SelectValue placeholder="Convênio" /></SelectTrigger>
-              <SelectContent>
+                <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
                 {convenios?.map((c: any) => (
                   <SelectItem key={c.convenioId} value={String(c.convenioId)}>
@@ -258,18 +417,15 @@ export default function RecursoGlosaDemonstrativo() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Data Pagamento</label>
-              <Select value={dataPagto} onValueChange={(v) => { setDataPagto(v); setPage(1); }}>
-                <SelectTrigger><SelectValue placeholder="Data Pagamento" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todas</SelectItem>
-                {datasPagamento?.map((d: any) => (
-                  <SelectItem key={d.dataPagto} value={d.dataPagto}>
-                    {new Date(d.dataPagto + 'T12:00:00').toLocaleDateString('pt-BR')} ({d.total})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-              </Select>
+              <label className="text-xs font-medium text-muted-foreground">Datas de pagamento</label>
+              <RecursoGlosaMultiSelect
+                ariaLabel="Datas de pagamento"
+                options={dataPagtoOptions}
+                selected={datasPagtoSelecionadas}
+                onChange={trocarDatasPagto}
+                placeholder="Todas"
+                allLabel="Todas"
+              />
             </div>
 
             <div className="space-y-1">
@@ -280,7 +436,7 @@ export default function RecursoGlosaDemonstrativo() {
                   placeholder="Buscar guia, paciente, item..."
                   className="pl-9"
                   value={busca}
-                  onChange={(e) => { setBusca(e.target.value); setPage(1); }}
+                  onChange={(e) => { resetarPorFiltro(); setBusca(e.target.value); }}
                 />
               </div>
             </div>
@@ -338,12 +494,12 @@ export default function RecursoGlosaDemonstrativo() {
               </div>
             </div>
             {/* Barra de progresso da análise */}
-            <div className="rounded-lg border bg-card p-3 flex items-center gap-4">
+            <div className="rounded-lg border bg-card p-3 flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
               <div className="flex items-center gap-2 shrink-0">
                 <BarChart3 className="h-4 w-4 text-purple-600" />
                 <span className="text-sm font-medium">Análise das glosas do período</span>
               </div>
-              <div className="flex-1">
+              <div className="w-full md:flex-1">
                 <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-700">
                   <div className="bg-purple-600 h-4 rounded-full transition-all flex items-center justify-end pr-2" style={{ width: `${Math.max(Math.min(resumo.percentualAnalise || 0, 100), 8)}%` }}>
                     <span className="text-[10px] font-bold text-white">{resumo.percentualAnalise?.toFixed(2) || '0.00'}%</span>
@@ -351,7 +507,7 @@ export default function RecursoGlosaDemonstrativo() {
                 </div>
               </div>
               {(resumo.percentualAnalise || 0) < 100 && (
-                <p className="text-xs text-red-500 font-bold shrink-0">Atenção! Podem haver glosas não submetidas</p>
+                <p className="max-w-full text-xs text-red-500 font-bold md:shrink-0">Atenção! Podem haver glosas não submetidas</p>
               )}
             </div>
           </div>
@@ -359,8 +515,8 @@ export default function RecursoGlosaDemonstrativo() {
       })()}
 
       {/* Tabs de agrupamento */}
-      <Tabs value={agrupamento} onValueChange={(v) => { setAgrupamento(v as any); setPage(1); setExpandedGuia(null); setExpandedItem(null); setExpandedMotivo(null); }}>
-        <TabsList>
+      <Tabs value={agrupamento} onValueChange={(v) => { setAgrupamento(v as any); resetarPorFiltro(); }}>
+        <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="guia" className="gap-1"><Users className="h-4 w-4" /> Por Guia/Paciente</TabsTrigger>
           <TabsTrigger value="item" className="gap-1"><ListTree className="h-4 w-4" /> Por Item</TabsTrigger>
           <TabsTrigger value="motivo" className="gap-1"><Tag className="h-4 w-4" /> Por Motivo de Glosa</TabsTrigger>
@@ -397,7 +553,7 @@ export default function RecursoGlosaDemonstrativo() {
                       <tr><td colSpan={14} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
                       <Fragment key={item.guia}>
-                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedGuia(expandedGuia === item.guia ? null : item.guia)}>
+                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => abrirDetalhe('guia', item.guia, expandedGuia !== item.guia)}>
                           <td className="p-2">{expandedGuia === item.guia ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.guia}</td>
                           <td className="p-2">{item.paciente}</td>
@@ -422,17 +578,17 @@ export default function RecursoGlosaDemonstrativo() {
                             <td colSpan={14} className="p-0">
                               <div className="bg-muted/20 p-4 border-b">
                                 <div className="flex items-center justify-between mb-3">
-                                  <span className="text-sm font-medium">Itens glosados da guia {item.guia} ({detalheGuia?.length || 0} itens)</span>
+                                  <span className="text-sm font-medium">Itens glosados da guia {item.guia} ({detalheGuiaAtual.length} itens)</span>
                                   <div className="flex gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => detalheGuia && handleGerarIA(detalheGuia.map((d: any) => d.id))} disabled={gerarIAMutation.isPending}>
-                                      <Sparkles className="h-3 w-3 mr-1" /> Gerar com IA
+                                    <Button size="sm" variant="outline" onClick={() => handleGerarIA(idsRecebimentosVisiveis(detalheGuiaAtual))} disabled={acoesGuiaBloqueadas || gerarIAMutation.isPending}>
+                                      <Sparkles className="h-3 w-3 mr-1" /> Gerar IA ({detalheGuiaAtual.length} filtradas)
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={() => detalheGuia && handleAceitarTodas(detalheGuia.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
-                                      <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
+                                    <Button size="sm" variant="outline" onClick={() => handleAceitarTodas(detalheGuiaAtual.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={acoesGuiaBloqueadas || aceitarEmLoteMutation.isPending}>
+                                      <Ban className="h-3 w-3 mr-1" /> Aceitar filtradas ({detalheGuiaAtual.filter((d: any) => !d.glosaAceita).length})
                                     </Button>
                                   </div>
                                 </div>
-                                {renderDetalheTable(detalheGuia || [], 'guia')}
+                                {renderDetalheTable(detalheGuiaAtual, 'guia', detalheGuiaCarregando || detalheGuiaAtualizando, detalheGuiaComErro)}
                               </div>
                             </td>
                           </tr>
@@ -473,7 +629,7 @@ export default function RecursoGlosaDemonstrativo() {
                       <tr><td colSpan={10} className="p-4 text-center text-muted-foreground">Nenhum item encontrado</td></tr>
                     ) : items.map((item: any) => (
                       <Fragment key={item.codigo}>
-                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedItem(expandedItem === item.codigo ? null : item.codigo)}>
+                        <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => abrirDetalhe('item', item.codigo, expandedItem !== item.codigo)}>
                           <td className="p-2">{expandedItem === item.codigo ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                           <td className="p-2 font-mono text-xs">{item.codigo}</td>
                           <td className="p-2">{item.descricao}</td>
@@ -489,25 +645,42 @@ export default function RecursoGlosaDemonstrativo() {
                           <tr key={`${item.codigo}-detail`}>
                             <td colSpan={10} className="p-0">
                               <div className="bg-muted/20 p-4 border-b">
-                                <div className="flex items-center justify-between mb-3">
-                                  <span className="text-sm font-medium">Guias com item {item.codigo} ({detalheItem?.length || 0} ocorrências)</span>
+                                <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                  <div>
+                                    <span className="text-sm font-medium">Guias com item {item.codigo} ({detalheItemFiltrado.length}/{detalheItemAtual.length} ocorrências exibidas)</span>
+                                  </div>
+                                  <div className="min-w-[280px] xl:w-[320px]">
+                                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Motivo de glosa no item</label>
+                                    <RecursoGlosaMultiSelect
+                                      ariaLabel="Motivo de glosa no item"
+                                      options={opcoesMotivosInternos}
+                                      selected={motivosInternosSelecionados}
+                                      onChange={trocarMotivosInternos}
+                                      placeholder="Todos os motivos"
+                                      allLabel="Todos os motivos"
+                                    />
+                                  </div>
                                   <div className="flex gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => detalheItem && handleGerarIA(detalheItem.map((d: any) => d.id))} disabled={gerarIAMutation.isPending}>
-                                      <Sparkles className="h-3 w-3 mr-1" /> Gerar com IA
+                                    <Button size="sm" variant="outline" onClick={() => handleGerarIA(idsRecebimentosVisiveis(detalheItemFiltrado))} disabled={acoesItemBloqueadas || detalheItemFiltrado.length === 0 || gerarIAMutation.isPending}>
+                                      <Sparkles className="h-3 w-3 mr-1" /> Gerar IA ({detalheItemFiltrado.length} filtradas)
                                     </Button>
                                     <Button size="sm" variant="outline" onClick={() => {
-                                      const firstWithJustificativa = detalheItem?.find((d: any) => d.justificativa);
-                                      if (firstWithJustificativa) handleReplicar(firstWithJustificativa.justificativa, item.codigo);
+                                      const firstWithJustificativa = detalheItemFiltrado.find((d: any) => d.justificativa);
+                                      if (firstWithJustificativa) handleReplicar({
+                                        justificativa: firstWithJustificativa.justificativa,
+                                        item: item.codigo,
+                                        recebimentoIds: idsRecebimentosVisiveis(detalheItemFiltrado),
+                                      });
                                       else toast.error("Preencha ao menos uma justificativa antes de replicar");
-                                    }} disabled={replicarMutation.isPending}>
-                                      <Copy className="h-3 w-3 mr-1" /> Replicar em Todas as Contas
+                                    }} disabled={acoesItemBloqueadas || detalheItemFiltrado.length === 0 || replicarMutation.isPending}>
+                                      <Copy className="h-3 w-3 mr-1" /> Replicar filtradas ({detalheItemFiltrado.length})
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={() => detalheItem && handleAceitarTodas(detalheItem.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
-                                      <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
+                                    <Button size="sm" variant="outline" onClick={() => handleAceitarTodas(detalheItemFiltrado.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={acoesItemBloqueadas || aceitarEmLoteMutation.isPending}>
+                                      <Ban className="h-3 w-3 mr-1" /> Aceitar filtradas ({detalheItemFiltrado.filter((d: any) => !d.glosaAceita).length})
                                     </Button>
                                   </div>
                                 </div>
-                                {renderDetalheTable(detalheItem || [], 'item')}
+                                {renderDetalheTable(detalheItemFiltrado, 'item', detalheItemCarregando || detalheItemAtualizando, detalheItemComErro)}
                               </div>
                             </td>
                           </tr>
@@ -549,10 +722,10 @@ export default function RecursoGlosaDemonstrativo() {
                       const motivoKey = item.codigoGlosa || 'SEM_CODIGO';
                       return (
                         <Fragment key={motivoKey}>
-                          <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => setExpandedMotivo(expandedMotivo === motivoKey ? null : motivoKey)}>
+                          <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => abrirDetalhe('motivo', motivoKey, expandedMotivo !== motivoKey)}>
                             <td className="p-2">{expandedMotivo === motivoKey ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                             <td className="p-2 font-mono text-xs">{item.codigoGlosa === 'SEM_CODIGO' ? '-' : item.codigoGlosa}</td>
-                            <td className="p-2">{item.motivoGlosa || 'Não informado'}</td>
+                            <td className="p-2">{item.motivoGlosa || '-'}</td>
                             <td className="p-2 text-xs text-muted-foreground">{item.justificativasPreenchidas}/{item.itensGlosados} preenchidas</td>
                             <td className="p-2">{item.convenio}</td>
                             <td className="p-2 text-right">{item.itensGlosados}</td>
@@ -565,24 +738,28 @@ export default function RecursoGlosaDemonstrativo() {
                               <td colSpan={9} className="p-0">
                                 <div className="bg-muted/20 p-4 border-b">
                                   <div className="flex items-center justify-between mb-3">
-                                    <span className="text-sm font-medium">Itens com motivo {item.codigoGlosa === 'SEM_CODIGO' ? 'Sem código' : item.codigoGlosa} ({detalheMotivo?.length || 0} ocorrências)</span>
-                                    <div className="flex gap-2">
-                                      <Button size="sm" variant="outline" onClick={() => detalheMotivo && handleGerarIA(detalheMotivo.map((d: any) => d.id))} disabled={gerarIAMutation.isPending}>
-                                        <Sparkles className="h-3 w-3 mr-1" /> Gerar com IA
+                                  <span className="text-sm font-medium">Itens com motivo {item.codigoGlosa === 'SEM_CODIGO' ? 'Sem código' : item.codigoGlosa} ({detalheMotivoAtual.length} ocorrências)</span>
+                                  <div className="flex gap-2">
+                                      <Button size="sm" variant="outline" onClick={() => handleGerarIA(idsRecebimentosVisiveis(detalheMotivoAtual))} disabled={acoesMotivoBloqueadas || gerarIAMutation.isPending}>
+                                        <Sparkles className="h-3 w-3 mr-1" /> Gerar IA ({detalheMotivoAtual.length} filtradas)
                                       </Button>
                                       <Button size="sm" variant="outline" onClick={() => {
-                                        const firstWithJustificativa = detalheMotivo?.find((d: any) => d.justificativa);
-                                        if (firstWithJustificativa) handleReplicar(firstWithJustificativa.justificativa, undefined, motivoKey);
+                                        const firstWithJustificativa = detalheMotivoAtual.find((d: any) => d.justificativa);
+                                        if (firstWithJustificativa) handleReplicar({
+                                          justificativa: firstWithJustificativa.justificativa,
+                                          codigoGlosa: motivoKey,
+                                          recebimentoIds: idsRecebimentosVisiveis(detalheMotivoAtual),
+                                        });
                                         else toast.error("Preencha ao menos uma justificativa antes de replicar");
-                                      }} disabled={replicarMutation.isPending}>
-                                        <Copy className="h-3 w-3 mr-1" /> Replicar em Todas as Contas
+                                      }} disabled={acoesMotivoBloqueadas || detalheMotivoAtual.length === 0 || replicarMutation.isPending}>
+                                        <Copy className="h-3 w-3 mr-1" /> Replicar filtradas ({detalheMotivoAtual.length})
                                       </Button>
-                                      <Button size="sm" variant="outline" onClick={() => detalheMotivo && handleAceitarTodas(detalheMotivo.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={aceitarEmLoteMutation.isPending}>
-                                        <Ban className="h-3 w-3 mr-1" /> Aceitar Todas
+                                      <Button size="sm" variant="outline" onClick={() => handleAceitarTodas(detalheMotivoAtual.filter((d: any) => !d.glosaAceita).map((d: any) => ({ id: d.id, fonte: d.fonte || 'demo' })))} disabled={acoesMotivoBloqueadas || aceitarEmLoteMutation.isPending}>
+                                        <Ban className="h-3 w-3 mr-1" /> Aceitar filtradas ({detalheMotivoAtual.filter((d: any) => !d.glosaAceita).length})
                                       </Button>
                                     </div>
                                   </div>
-                                  {renderDetalheTable(detalheMotivo || [], 'motivo')}
+                                  {renderDetalheTable(detalheMotivoAtual, 'motivo', detalheMotivoCarregando || detalheMotivoAtualizando, detalheMotivoComErro)}
                                 </div>
                               </td>
                             </tr>
@@ -601,24 +778,29 @@ export default function RecursoGlosaDemonstrativo() {
       {/* Paginação */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</Button>
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => { resetarPorFiltro(); setPage(page - 1); }}>Anterior</Button>
           <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Próxima</Button>
+          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => { resetarPorFiltro(); setPage(page + 1); }}>Próxima</Button>
         </div>
       )}
     </div>
   );
 
   // Função auxiliar para renderizar tabela de detalhe
-  function renderDetalheTable(data: any[], tipo: 'guia' | 'item' | 'motivo') {
+  function renderDetalheTable(data: any[], tipo: 'guia' | 'item' | 'motivo', carregando = false, comErro = false) {
+    if (carregando) return <p className="text-sm text-muted-foreground">Carregando detalhes...</p>;
+    if (comErro) return <p role="alert" className="text-sm text-destructive">Não foi possível carregar os detalhes deste item.</p>;
     if (!data || data.length === 0) return <p className="text-sm text-muted-foreground">Nenhum item encontrado</p>;
     return (
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        {excedeLimiteAcoes(data) && <p role="status" className="mb-2 text-xs text-amber-700">As ações em lote aceitam até {MAX_RECEBIMENTO_IDS_DEMONSTRATIVO} registros. Reduza o período ou selecione um motivo para continuar; nenhuma linha será omitida automaticamente.</p>}
+        <table className="w-full text-xs" aria-label={tipo === 'item' ? 'Guias do item' : undefined}>
           <thead className="bg-background border-b">
             <tr>
               {tipo !== 'guia' && <th className="p-2 text-left">Guia</th>}
               {tipo !== 'guia' && <th className="p-2 text-left">Paciente</th>}
+              {tipo !== 'guia' && <th className="p-2 text-left">Lote</th>}
+              {tipo !== 'guia' && <th className="p-2 text-left">Protocolo</th>}
               {tipo === 'guia' && <th className="p-2 text-left">Código</th>}
               {tipo === 'guia' && <th className="p-2 text-left">Descrição</th>}
               {tipo === 'guia' && <th className="p-2 text-left">Tipo</th>}
@@ -639,6 +821,8 @@ export default function RecursoGlosaDemonstrativo() {
               <tr key={row.id} className="border-b hover:bg-muted/20">
                 {tipo !== 'guia' && <td className="p-2 font-mono">{row.guia}</td>}
                 {tipo !== 'guia' && <td className="p-2">{row.paciente}</td>}
+                {tipo !== 'guia' && <td className="p-2 font-mono">{row.lote || '-'}</td>}
+                {tipo !== 'guia' && <td className="p-2 font-mono">{row.protocolo || '-'}</td>}
                 {tipo === 'guia' && <td className="p-2 font-mono">{row.codigo}</td>}
                 {tipo === 'guia' && <td className="p-2 max-w-[200px] truncate">{row.descricao}</td>}
                 {tipo === 'guia' && <td className="p-2">{row.tipo || '-'}</td>}
