@@ -7,6 +7,14 @@
 
 import { getDb, getRawPool } from "./db";
 import { sql } from "drizzle-orm";
+import {
+  idPositivoDemonstrativoSchema,
+  montarRecorteRecursoGlosaDemonstrativoSql,
+  normalizarRecorteRecursoGlosaDemonstrativo,
+  pageDemonstrativoSchema,
+  pageSizeDemonstrativoSchema,
+  type RecursoGlosaDemonstrativoRecorteInput,
+} from "../shared/recursoGlosaDemonstrativoFiltros";
 
 /**
  * Retorna as variantes únicas de guia na ordem de preferência da conciliação.
@@ -4603,12 +4611,13 @@ export async function marcarGlosaAceitaEmLote(conciliadoIds: number[], aceita: b
  * Competências disponíveis no recebimentos_excel para o filtro
  */
 export async function competenciasDemonstrativo(estabelecimentoId: number) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo({ estabelecimentoId });
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   const [rows] = await db.execute(sql.raw(
     `SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m') as competencia, COUNT(*) as total
     FROM demonstrativo d
-    WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL
+    WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL
     GROUP BY DATE_FORMAT(d.data_pagamento, '%Y-%m')
     ORDER BY competencia DESC`
   ));
@@ -4618,13 +4627,25 @@ export async function competenciasDemonstrativo(estabelecimentoId: number) {
 /**
  * Convênios disponíveis no demonstrativo para o filtro
  */
-export async function conveniosDemonstrativo(estabelecimentoId: number, competencia?: string) {
+export async function conveniosDemonstrativo(
+  estabelecimentoId: number,
+  competencia?: string,
+  competencias?: string[],
+  dataPagto?: string,
+  datasPagto?: string[],
+  convenioId?: number,
+) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo({
+    estabelecimentoId,
+    competencia,
+    competencias,
+    dataPagto,
+    datasPagto,
+    convenioId,
+  });
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0`;
-  if (competencia) {
-    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
+  const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.valor_glosa > 0`;
   const [rows] = await db.execute(sql.raw(
     `SELECT d.convenio_id as convenioId, c.nome as convenio, COUNT(*) as total
     FROM demonstrativo d
@@ -4642,17 +4663,15 @@ export async function conveniosDemonstrativo(estabelecimentoId: number, competen
 export async function datasPagamentoDemonstrativo(params: {
   estabelecimentoId: number;
   competencia?: string;
+  competencias?: string[];
   convenioId?: number;
+  dataPagto?: string;
+  datasPagto?: string[];
 }): Promise<{ dataPagto: string; total: number }[]> {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  let whereDemo = `WHERE d.estabelecimentoId = ${params.estabelecimentoId} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL`;
-  if (params.competencia) {
-    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${params.competencia.replace(/'/g, "''")}'`;
-  }
-  if (params.convenioId) {
-    whereDemo += ` AND d.convenio_id = ${params.convenioId}`;
-  }
+  const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.valor_glosa > 0 AND d.data_pagamento IS NOT NULL`;
   const [rows] = await db.execute(sql.raw(`
     SELECT DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') as dataPagto, COUNT(*) as total
     FROM demonstrativo d
@@ -4671,31 +4690,27 @@ export async function datasPagamentoDemonstrativo(params: {
  * Suporta agrupamento por guia, item e motivo
  */
 export async function itensGlosadosDemonstrativo(params: {
-  estabelecimentoId: number;
-  competencia?: string;
-  convenioId?: number;
-  dataPagto?: string;
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
+  competencia?: RecursoGlosaDemonstrativoRecorteInput['competencia'];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput['competencias'];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput['convenioId'];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput['dataPagto'];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput['datasPagto'];
   agrupamento: 'guia' | 'item' | 'motivo';
   busca?: string;
   page?: number;
   pageSize?: number;
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const { estabelecimentoId, competencia, convenioId, dataPagto, agrupamento, busca, page = 1, pageSize = 50 } = params;
+  const { agrupamento, busca } = params;
+  const page = pageDemonstrativoSchema.parse(params.page ?? 1);
+  const pageSize = pageSizeDemonstrativoSchema.parse(params.pageSize ?? 50);
   const offset = (page - 1) * pageSize;
 
   // Build WHERE for demonstrativo table
-  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.valor_glosa > 0`;
-  if (competencia) {
-    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  }
-  if (convenioId) {
-    whereDemo += ` AND d.convenio_id = ${convenioId}`;
-  }
-  if (dataPagto) {
-    whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
-  }
+  let whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.valor_glosa > 0`;
   if (busca) {
     const b = busca.replace(/'/g, "''");
     whereDemo += ` AND (d.numero_guia LIKE '%${b}%' OR d.nome_beneficiario LIKE '%${b}%' OR d.codigo_item LIKE '%${b}%' OR d.descricao_item LIKE '%${b}%')`;
@@ -4853,27 +4868,29 @@ export async function itensGlosadosDemonstrativo(params: {
  * Detalhe dos itens glosados de uma guia no demonstrativo (tabela unificada)
  */
 export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
-  estabelecimentoId: number;
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
   guia: string;
-  competencia?: string;
-  convenioId?: number;
-  dataPagto?: string;
+  competencia?: RecursoGlosaDemonstrativoRecorteInput['competencia'];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput['competencias'];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput['convenioId'];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput['dataPagto'];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput['datasPagto'];
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const { estabelecimentoId, guia, competencia, convenioId, dataPagto } = params;
+  const { guia } = params;
 
   // Query from demonstrativo table only
-  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.numero_guia = '${guia.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
-  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
-  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+  const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.numero_guia = '${guia.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
 
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
       SELECT 
         d.id, 'demo' as fonte,
         d.numero_guia as guia,
+        d.protocolo as protocolo,
+        d.lote_prestador as lote,
         d.codigo_item as codigo,
         d.descricao_item as descricao,
         d.tipo_lancamento as tipo,
@@ -4941,7 +4958,7 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
         ${results[0]?.glosaAceitaPor ? `'${String(results[0].glosaAceitaPor).replace(/'/g, "''")}'` : 'NULL'} as glosaAceitaPor
       FROM faturamento_tiss ft
       WHERE ft.numero_guia_prestador = '${guiaEscaped}'
-        AND ft.estabelecimentoId = ${estabelecimentoId}
+        AND ft.estabelecimentoId = ${recorte.estabelecimentoId}
       ORDER BY ft.sequencial_item, ft.data_execucao
     `));
 
@@ -4966,26 +4983,28 @@ export async function itensGlosadosDetalheGuiaDemonstrativo(params: {
  * Detalhe dos itens glosados por código de item no demonstrativo (UNION)
  */
 export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
-  estabelecimentoId: number;
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
   item: string;
-  competencia?: string;
-  convenioId?: number;
-  dataPagto?: string;
+  competencia?: RecursoGlosaDemonstrativoRecorteInput['competencia'];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput['competencias'];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput['convenioId'];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput['dataPagto'];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput['datasPagto'];
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const { estabelecimentoId, item: codigo, competencia, convenioId, dataPagto } = params;
+  const { item: codigo } = params;
 
-  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} AND d.codigo_item = '${codigo.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
-  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
-  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+  const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.codigo_item = '${codigo.replace(/'/g, "''")}' AND d.valor_glosa > 0`;
 
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
       SELECT 
         d.id, 'demo' as fonte,
         d.numero_guia as guia,
+        d.protocolo as protocolo,
+        d.lote_prestador as lote,
         d.codigo_item as codigo,
         d.descricao_item as descricao,
         d.tipo_lancamento as tipo,
@@ -5022,27 +5041,29 @@ export async function itensGlosadosDetalhePorItemDemonstrativo(params: {
  * Detalhe dos itens glosados por motivo no demonstrativo (UNION)
  */
 export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
-  estabelecimentoId: number;
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
   codigoGlosa: string;
-  competencia?: string;
-  convenioId?: number;
-  dataPagto?: string;
+  competencia?: RecursoGlosaDemonstrativoRecorteInput['competencia'];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput['competencias'];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput['convenioId'];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput['dataPagto'];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput['datasPagto'];
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  const { estabelecimentoId, codigoGlosa, competencia, convenioId, dataPagto } = params;
+  const { codigoGlosa } = params;
 
   const codigoFilterDemo = codigoGlosa === 'SEM_CODIGO' ? `AND d.codigo_glosa IS NULL` : `AND d.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
-  let whereDemo = `WHERE d.estabelecimentoId = ${estabelecimentoId} ${codigoFilterDemo} AND d.valor_glosa > 0`;
-  if (competencia) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereDemo += ` AND d.convenio_id = ${convenioId}`;
-  if (dataPagto) whereDemo += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') = '${dataPagto.replace(/'/g, "''")}'`;
+  const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} ${codigoFilterDemo} AND d.valor_glosa > 0`;
 
   const [rows] = await db.execute(sql.raw(`
     SELECT * FROM (
       SELECT 
         d.id, 'demo' as fonte,
         d.numero_guia as guia,
+        d.protocolo as protocolo,
+        d.lote_prestador as lote,
         d.codigo_item as codigo,
         d.descricao_item as descricao,
         d.tipo_lancamento as tipo,
@@ -5123,55 +5144,75 @@ export async function marcarGlosaAceitaDemonstrativo(recebimentoId: number, acei
 /**
  * Marcar glosa aceita em lote no demonstrativo
  */
-export async function marcarGlosaAceitaEmLoteDemonstrativo(items: Array<{id: number; fonte: string}>, aceita: boolean, usuario: string) {
+export async function marcarGlosaAceitaEmLoteDemonstrativo(
+  items: Array<{ id: number; fonte: string }>,
+  aceita: boolean,
+  usuario: string,
+  estabelecimentoId: number,
+) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo({
+    estabelecimentoId,
+    recebimentoIds: items.map(item => item.id),
+  });
+  if (recorte.recebimentoIdsFoiInformado && !recorte.recebimentoIds?.length) {
+    return { success: true, affected: 0 };
+  }
+
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
-  if (items.length === 0) return { success: true, affected: 0 };
-  
-  // Unificado: todos os IDs são da tabela demonstrativo
-  const allIds = items.map(i => i.id);
+  const allIds = recorte.recebimentoIds!;
+  let result: unknown;
   
   if (aceita) {
-    await db.execute(sql.raw(
-      `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE id IN (${allIds.join(',')})`
+    [result] = await db.execute(sql.raw(
+      `UPDATE demonstrativo SET glosa_aceita = 1, glosa_aceita_por = '${usuario.replace(/'/g, "''")}', glosa_aceita_em = NOW(), valor_recurso = 0, recurso_status = 'sem_recurso' WHERE estabelecimentoId = ${recorte.estabelecimentoId} AND id IN (${allIds.join(',')})`
     ));
   } else {
-    await db.execute(sql.raw(
-      `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE id IN (${allIds.join(',')})`
+    [result] = await db.execute(sql.raw(
+      `UPDATE demonstrativo SET glosa_aceita = 0, glosa_aceita_por = NULL, glosa_aceita_em = NULL, valor_recurso = valor_glosa, recurso_status = 'sem_recurso' WHERE estabelecimentoId = ${recorte.estabelecimentoId} AND id IN (${allIds.join(',')})`
     ));
   }
-  return { success: true, affected: items.length };
+  return { success: true, affected: Number((result as { affectedRows?: unknown })?.affectedRows || 0) };
 }
 
 /**
  * Replicar justificativas no demonstrativo (por item ou motivo)
  */
 export async function replicarJustificativasDemonstrativo(params: {
-  estabelecimentoId: number;
-  competencia?: string;
-  convenioId?: number;
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
+  competencia?: RecursoGlosaDemonstrativoRecorteInput['competencia'];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput['competencias'];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput['convenioId'];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput['dataPagto'];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput['datasPagto'];
+  recebimentoIds?: RecursoGlosaDemonstrativoRecorteInput['recebimentoIds'];
   item?: string;
   codigoGlosa?: string;
   justificativa: string;
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
+  // A lista vazia é uma seleção explícita sem linhas visíveis: nunca ampliar o
+  // escopo para todas as linhas e nunca executar escrita.
+  if (recorte.recebimentoIdsFoiInformado && !recorte.recebimentoIds?.length) {
+    return { success: true, affected: 0 };
+  }
+
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   
-  const { estabelecimentoId, competencia, convenioId, item, codigoGlosa, justificativa } = params;
+  const { item, codigoGlosa, justificativa } = params;
   const escapedJust = justificativa.replace(/'/g, "''");
   let totalAffected = 0;
 
   // Update demonstrativo
-  let whereDemo = `WHERE estabelecimentoId = ${estabelecimentoId} AND valor_glosa > 0`;
-  if (competencia) whereDemo += ` AND DATE_FORMAT(data_pagamento, '%Y-%m') = '${competencia.replace(/'/g, "''")}'`;
-  if (convenioId) whereDemo += ` AND convenio_id = ${convenioId}`;
+  let whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} AND d.valor_glosa > 0`;
   if (item) whereDemo += ` AND codigo_item = '${item.replace(/'/g, "''")}'`;
   if (codigoGlosa) {
     if (codigoGlosa === 'SEM_CODIGO') whereDemo += ` AND codigo_glosa IS NULL`;
     else whereDemo += ` AND codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
   }
   const [resultDemo] = await db.execute(sql.raw(
-    `UPDATE demonstrativo SET justificativa_recurso = '${escapedJust}', recurso_status = 'recurso_criado' ${whereDemo}`
+    `UPDATE demonstrativo d SET justificativa_recurso = '${escapedJust}', recurso_status = 'recurso_criado' ${whereDemo}`
   ));
   totalAffected += (resultDemo as any).affectedRows || 0;
 
@@ -5184,25 +5225,26 @@ export async function replicarJustificativasDemonstrativo(params: {
  * Gerar justificativas com IA para o demonstrativo
  */
 export async function gerarJustificativasIADemonstrativo(params: {
-  estabelecimentoId: number;
-  recebimentoIds: number[];
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput['estabelecimentoId'];
+  recebimentoIds: RecursoGlosaDemonstrativoRecorteInput['recebimentoIds'];
 }) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
+  if (!recorte.recebimentoIds?.length) return { justificativas: [] };
+
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
   
-  const { recebimentoIds } = params;
-  if (recebimentoIds.length === 0) return { justificativas: [] };
-  
-  const ids = recebimentoIds.join(',');
+  const ids = recorte.recebimentoIds;
   // Unificado: usa tabela demonstrativo
   const [rows] = await db.execute(sql.raw(`
     SELECT d.id, d.codigo_item as item, d.descricao_item as item_desc, d.codigo_glosa, mg.descricao as motivoGlosa, d.valor_glosa
     FROM demonstrativo d
     LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
-    WHERE d.id IN (${ids})
+    WHERE d.estabelecimentoId = ${recorte.estabelecimentoId} AND d.id IN (${ids.join(',')})
   `));
   
   const items = rows as any[];
+  if (items.length === 0) return { justificativas: [] };
   
   // Usar LLM para gerar justificativas
   const { invokeLLM } = await import("./_core/llm");
@@ -5250,13 +5292,18 @@ export async function gerarJustificativasIADemonstrativo(params: {
   const parsed = JSON.parse(content);
   
   // Salvar as justificativas no banco (unificado: tabela demonstrativo)
-  for (const j of parsed.justificativas) {
+  const idsSelecionados = new Set(ids);
+  const idsEncontrados = new Set(items.map((item: any) => item.id));
+  const justificativas = parsed.justificativas.filter((j: any) =>
+    Number.isInteger(j.id) && idsSelecionados.has(j.id) && idsEncontrados.has(j.id),
+  );
+  for (const j of justificativas) {
     await db.execute(sql.raw(
-      `UPDATE demonstrativo SET justificativa_recurso = '${String(j.justificativa).replace(/'/g, "''")}', recurso_status = 'recurso_criado' WHERE id = ${j.id}`
+      `UPDATE demonstrativo SET justificativa_recurso = '${String(j.justificativa).replace(/'/g, "''")}', recurso_status = 'recurso_criado' WHERE estabelecimentoId = ${recorte.estabelecimentoId} AND id = ${j.id}`
     ));
   }
   
-  return parsed;
+  return { ...parsed, justificativas };
 }
 
 

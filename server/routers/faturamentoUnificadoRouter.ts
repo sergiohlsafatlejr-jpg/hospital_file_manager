@@ -13,6 +13,24 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { exportarConciliacaoExcel } from "../exportacaoConciliacaoService";
 import * as marcarGlosadoService from "../marcarGlosadoService";
+import {
+  dataPagamentoDemonstrativoSchema,
+  idPositivoDemonstrativoSchema,
+  MAX_RECEBIMENTO_IDS_DEMONSTRATIVO,
+  pageDemonstrativoSchema,
+  pageSizeDemonstrativoSchema,
+  recebimentoIdsDemonstrativoSchema,
+  recursoGlosaDemonstrativoRecorteSchema,
+} from "../../shared/recursoGlosaDemonstrativoFiltros";
+
+const filtrosDemonstrativoSchema = recursoGlosaDemonstrativoRecorteSchema.pick({
+  estabelecimentoId: true,
+  convenioId: true,
+  competencia: true,
+  competencias: true,
+  dataPagto: true,
+  datasPagto: true,
+});
 
 export const faturamentoUnificadoRouter = router({
   /**
@@ -855,63 +873,54 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   conveniosDemonstrativo: protectedProcedure
-    .input(z.object({ estabelecimentoId: z.number(), competencia: z.string().optional() }))
+    .input(filtrosDemonstrativoSchema)
     .query(async ({ input }) => {
-      return await faturamentoService.conveniosDemonstrativo(input.estabelecimentoId, input.competencia);
+      return await faturamentoService.conveniosDemonstrativo(
+        input.estabelecimentoId,
+        input.competencia,
+        input.competencias,
+        input.dataPagto,
+        input.datasPagto,
+        input.convenioId,
+      );
     }),
 
   datasPagamentoDemonstrativo: protectedProcedure
-    .input(z.object({ estabelecimentoId: z.number(), competencia: z.string().optional(), convenioId: z.number().optional() }))
+    .input(filtrosDemonstrativoSchema)
     .query(async ({ input }) => {
       return await faturamentoService.datasPagamentoDemonstrativo(input);
     }),
 
   itensGlosadosDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number(),
-      competencia: z.string().optional(),
-      convenioId: z.number().optional(),
-      dataPagto: z.string().optional(),
+    .input(filtrosDemonstrativoSchema.extend({
       agrupamento: z.enum(['guia', 'item', 'motivo']),
       busca: z.string().optional(),
-      page: z.number().optional(),
-      pageSize: z.number().optional(),
+      page: pageDemonstrativoSchema.optional(),
+      pageSize: pageSizeDemonstrativoSchema.optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDemonstrativo(input);
     }),
 
   itensGlosadosDetalheGuiaDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number(),
+    .input(filtrosDemonstrativoSchema.extend({
       guia: z.string(),
-      competencia: z.string().optional(),
-      convenioId: z.number().optional(),
-      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalheGuiaDemonstrativo(input);
     }),
 
   itensGlosadosDetalhePorItemDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number(),
+    .input(filtrosDemonstrativoSchema.extend({
       item: z.string(),
-      competencia: z.string().optional(),
-      convenioId: z.number().optional(),
-      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalhePorItemDemonstrativo(input);
     }),
 
   itensGlosadosDetalhePorMotivoDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number(),
+    .input(filtrosDemonstrativoSchema.extend({
       codigoGlosa: z.string(),
-      competencia: z.string().optional(),
-      convenioId: z.number().optional(),
-      dataPagto: z.string().optional(),
     }))
     .query(async ({ input }) => {
       return await faturamentoService.itensGlosadosDetalhePorMotivoDemonstrativo(input);
@@ -952,10 +961,21 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   marcarGlosaAceitaEmLoteDemonstrativo: protectedProcedure
-    .input(z.object({ items: z.array(z.object({ id: z.number(), fonte: z.string() })), aceita: z.boolean(), estabelecimentoId: z.number().optional(), guia: z.string().optional() }))
+    .input(z.object({
+      items: z.array(z.object({ id: idPositivoDemonstrativoSchema, fonte: z.string() }))
+        .max(MAX_RECEBIMENTO_IDS_DEMONSTRATIVO, `Informe no máximo ${MAX_RECEBIMENTO_IDS_DEMONSTRATIVO} itens`),
+      aceita: z.boolean(),
+      estabelecimentoId: idPositivoDemonstrativoSchema,
+      guia: z.string().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
-      const result = await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(input.items, input.aceita, ctx.user?.name || ctx.user?.openId || 'desconhecido');
-      if (input.estabelecimentoId && input.guia) {
+      const result = await faturamentoService.marcarGlosaAceitaEmLoteDemonstrativo(
+        input.items,
+        input.aceita,
+        ctx.user?.name || ctx.user?.openId || 'desconhecido',
+        input.estabelecimentoId,
+      );
+      if (input.guia) {
         await faturamentoService.verificarGuiaFinalizadaECriarRecursos({
           estabelecimentoId: input.estabelecimentoId,
           guia: input.guia,
@@ -966,10 +986,8 @@ export const faturamentoUnificadoRouter = router({
     }),
 
   replicarJustificativasDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number(),
-      competencia: z.string().optional(),
-      convenioId: z.number().optional(),
+    .input(filtrosDemonstrativoSchema.extend({
+      recebimentoIds: recebimentoIdsDemonstrativoSchema.optional(),
       item: z.string().optional(),
       codigoGlosa: z.string().optional(),
       justificativa: z.string(),
@@ -980,8 +998,8 @@ export const faturamentoUnificadoRouter = router({
 
   gerarJustificativasIADemonstrativo: protectedProcedure
     .input(z.object({
-      estabelecimentoId: z.number(),
-      recebimentoIds: z.array(z.number()),
+      estabelecimentoId: idPositivoDemonstrativoSchema,
+      recebimentoIds: recebimentoIdsDemonstrativoSchema,
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.gerarJustificativasIADemonstrativo(input);
