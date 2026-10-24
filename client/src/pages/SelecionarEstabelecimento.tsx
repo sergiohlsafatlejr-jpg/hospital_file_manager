@@ -1,4 +1,4 @@
-import { Building2, MapPin, FileText, LogIn, Newspaper, ExternalLink, Clock, Activity, TrendingUp, Shield } from "lucide-react";
+import { AlertCircle, Building2, MapPin, FileText, LogIn, Newspaper, ExternalLink, Clock, Activity, TrendingUp, Shield } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { useEstabelecimento, Estabelecimento } from "@/contexts/EstabelecimentoC
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { getOAuthLoginFeedback } from "@shared/oauthLoginFeedback";
 
 function formatTimeAgo(dateStr: string): string {
   if (!dateStr) return "";
@@ -37,6 +38,8 @@ export default function SelecionarEstabelecimento() {
   const { estabelecimentos, setEstabelecimentoAtual, isLoading } = useEstabelecimento();
   const { user, loading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const isAuthenticated = Boolean(user);
+  const authFeedback = getOAuthLoginFeedback(window.location.search, isAuthenticated);
 
   const { data: noticias, isLoading: noticiasLoading } = trpc.noticias.listar.useQuery(undefined, {
     refetchInterval: 30 * 60 * 1000, // 30 minutos
@@ -46,6 +49,10 @@ export default function SelecionarEstabelecimento() {
 
 
   const handleSelecionar = (estabelecimento: Estabelecimento) => {
+    if (!isAuthenticated) {
+      setLocation("/login");
+      return;
+    }
     setEstabelecimentoAtual(estabelecimento);
     setLocation("/");
   };
@@ -53,8 +60,6 @@ export default function SelecionarEstabelecimento() {
   const handleLogin = () => {
     setLocation("/login");
   };
-
-  const isAuthenticated = Boolean(user);
 
   if (isLoading || authLoading) {
     return (
@@ -125,6 +130,35 @@ export default function SelecionarEstabelecimento() {
                 Plataforma completa para gerenciamento de convênios, análise de glosas, 
                 conciliação de contas e controle de atendimentos hospitalares.
               </p>
+              {authFeedback && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="mb-8 max-w-lg rounded-lg border border-red-200/70 bg-white p-4 text-slate-950 shadow-sm"
+                >
+                  <div className="flex gap-3">
+                    <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-700" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <p className="font-semibold">{authFeedback.title}</p>
+                      <p className="mt-1 text-sm leading-5 text-slate-700">{authFeedback.message}</p>
+                      {authFeedback.reference && (
+                        <p className="mt-2 text-xs text-slate-600">
+                          Referência de atendimento: {authFeedback.reference}
+                        </p>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={handleLogin}
+                      >
+                        Ir para o login
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {!isAuthenticated && (
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Button 
