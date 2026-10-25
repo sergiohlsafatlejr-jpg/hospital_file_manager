@@ -22,7 +22,8 @@ describe("telas públicas de senha", () => {
   });
 
   it("mantém o provedor externo como alternativa", () => {
-    expect(login).toContain("getLoginUrl()");
+    expect(login).toContain("startLogin()");
+    expect(login).toContain("onClick={handleProviderLogin}");
     expect(login).toContain("Esqueci minha senha");
   });
 

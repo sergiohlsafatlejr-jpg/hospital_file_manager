@@ -1,6 +1,7 @@
 import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, Pool } from "mysql2/promise";
+import { describeAuthFailure } from "./authDiagnostics";
 import type { ProcedimentoFonte } from "./procedimentosTabela";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
 import {
@@ -286,7 +287,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       }
     }
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    console.error("[Database] Failed to upsert user:", describeAuthFailure(error));
     throw error;
   }
 }
