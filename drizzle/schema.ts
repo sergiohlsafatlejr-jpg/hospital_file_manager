@@ -5102,3 +5102,6 @@ export const lotesFaturamento = mysqlTable("lotes_faturamento", {
 }));
 export type LoteFaturamento = typeof lotesFaturamento.$inferSelect;
 export type InsertLoteFaturamento = typeof lotesFaturamento.$inferInsert;
+
+// Ledger isolado de respostas de recursos; as tabelas vivem em arquivo próprio.
+export * from "./schema-retornos-recursos";
