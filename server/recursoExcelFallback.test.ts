@@ -52,10 +52,11 @@ describe("fallback da planilha de recurso Unimed", () => {
     expect(isLoteUnimed({ convenioId: 60004, convenioNome: "Cassi" })).toBe(false);
   });
 
-  it("não altera novamente o status de lotes em acompanhamento", () => {
-    expect(deveMarcarLoteComoEnviado({ status: "pendente_envio" })).toBe(true);
-    expect(deveMarcarLoteComoEnviado({ status: "rascunho" })).toBe(true);
+  it("a exportação nunca confirma o envio do lote", () => {
+    expect(deveMarcarLoteComoEnviado({ status: "pendente_envio" })).toBe(false);
+    expect(deveMarcarLoteComoEnviado({ status: "rascunho" })).toBe(false);
     expect(deveMarcarLoteComoEnviado({ status: "enviado" })).toBe(false);
+    expect(deveMarcarLoteComoEnviado({ status: "respondido" })).toBe(false);
     expect(deveMarcarLoteComoEnviado({ status: "finalizado" })).toBe(false);
   });
 });

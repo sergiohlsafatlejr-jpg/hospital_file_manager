@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -38,12 +39,26 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDateBR, toInputDateValue } from "@/lib/dateUtils";
-import { deveMarcarLoteComoEnviado, isLoteUnimed } from "@/lib/recursoLoteExport";
+import {
+  contextoUnidadeAindaAtual,
+  ContextoUnidade,
+  isFonteComRecebimentoRecursoInformado,
+  normalizarCamposFinanceirosRecurso,
+  podeConfirmarEnvioManual,
+  rotuloRecebimentoRecurso,
+  validarConfirmacaoEnvioManual,
+} from "@/lib/recursoEnvioUi";
+import { isLoteUnimed } from "@/lib/recursoLoteExport";
 
 const formatCurrency = (value: number | string | null | undefined) => {
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (!num && num !== 0) return "R$ 0,00";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+};
+
+const formatCurrencyOrUnknown = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") return "-";
+  return formatCurrency(value);
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -72,12 +87,17 @@ export default function AcompanhamentoRecursos() {
   const [uploadandoPdf, setUploadandoPdf] = useState(false);
   const [dialogValidacao, setDialogValidacao] = useState(false);
   const [resultadoValidacao, setResultadoValidacao] = useState<any>(null);
+  const [dialogConfirmarEnvio, setDialogConfirmarEnvio] = useState(false);
+  const [loteParaConfirmarEnvio, setLoteParaConfirmarEnvio] = useState<any>(null);
+  const [dataEnvioConfirmacao, setDataEnvioConfirmacao] = useState("");
+  const [protocoloEnvioConfirmacao, setProtocoloEnvioConfirmacao] = useState("");
   
-  // Estados para edição inline de pagamento
+  // Estados para edição inline de recebimento do recurso informado manualmente.
   const [editandoItem, setEditandoItem] = useState<number | null>(null);
-  const [valorRecebidoEdit, setValorRecebidoEdit] = useState<string>("");
-  const [dataPagamentoEdit, setDataPagamentoEdit] = useState<string>("");
+  const [valorRecebidoRecursoEdit, setValorRecebidoRecursoEdit] = useState<string>("");
+  const [dataRecebimentoRecursoEdit, setDataRecebimentoRecursoEdit] = useState<string>("");
   const [salvandoItem, setSalvandoItem] = useState(false);
+  const [loteIdParaDetalhes, setLoteIdParaDetalhes] = useState<number | null>(null);
 
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
 
@@ -92,65 +112,86 @@ export default function AcompanhamentoRecursos() {
   const { data: resumo } = trpc.recursos.resumoLotes.useQuery({
     estabelecimentoId: estabelecimentoAtual?.id,
   }, { enabled: !!estabelecimentoAtual?.id });
+  const resumoFinanceiro = resumo;
 
   const utils = trpc.useUtils();
+  const estabelecimentoIdAtual = estabelecimentoAtual?.id ?? null;
+  const contextoUnidadeRef = useRef<ContextoUnidade>({ estabelecimentoId: estabelecimentoIdAtual, versao: 0 });
+  const contextoDetalhesRef = useRef<ContextoUnidade | null>(null);
+  const contextoExportacoesRef = useRef(new Map<string, ContextoUnidade>());
+  const contextoPagamentosRef = useRef(new Map<number, ContextoUnidade>());
+  const contextoConfirmacaoRef = useRef<ContextoUnidade | null>(null);
 
-  // Mutation para atualizar lote
-  const atualizarLoteMutation = trpc.recursos.atualizarLote.useMutation({
-    onSuccess: () => {
-      toast.success("Lote atualizado com sucesso!");
-      refetchLotes();
-    },
-    onError: (error) => toast.error(error.message),
-  });
+  const capturarContextoUnidade = (): ContextoUnidade => ({ ...contextoUnidadeRef.current });
+  const callbackPertenceAUnidadeAtual = (contexto: ContextoUnidade | null | undefined) =>
+    contextoUnidadeAindaAtual(contexto, contextoUnidadeRef.current);
 
-  // Mutation para atualizar pagamento do item
+  useEffect(() => {
+    if (contextoUnidadeRef.current.estabelecimentoId === estabelecimentoIdAtual) return;
+
+    contextoUnidadeRef.current = {
+      estabelecimentoId: estabelecimentoIdAtual,
+      versao: contextoUnidadeRef.current.versao + 1,
+    };
+    contextoDetalhesRef.current = null;
+    contextoExportacoesRef.current.clear();
+    contextoPagamentosRef.current.clear();
+    contextoConfirmacaoRef.current = null;
+    setLoteDetalhes(null);
+    setLoteIdParaDetalhes(null);
+    setDialogDetalhes(false);
+    setEditandoItem(null);
+    setValorRecebidoRecursoEdit("");
+    setDataRecebimentoRecursoEdit("");
+    setSalvandoItem(false);
+    setDialogConfirmarEnvio(false);
+    setLoteParaConfirmarEnvio(null);
+    setDataEnvioConfirmacao("");
+    setProtocoloEnvioConfirmacao("");
+    setDialogValidacao(false);
+    setResultadoValidacao(null);
+    setExportandoLote(null);
+    setExportandoXml(null);
+    setExportandoZip(null);
+  }, [estabelecimentoIdAtual]);
+
+  // A rota atual usa os aliases legados; eles representam exclusivamente o
+  // recebimento do recurso, não o pagamento original da conta.
   const atualizarPagamentoMutation = trpc.recursos.atualizarPagamentoItem.useMutation({
-    onSuccess: () => {
-      toast.success("Pagamento atualizado com sucesso!");
-      const itemIdEditado = editandoItem;
-      const valorEditado = valorRecebidoEdit;
-      const dataEditada = dataPagamentoEdit;
-      
+    onSuccess: (_data, variables) => {
+      const contexto = contextoPagamentosRef.current.get(variables.recursoId);
+      contextoPagamentosRef.current.delete(variables.recursoId);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+
+      toast.success("Recebimento do recurso atualizado com sucesso!");
       setEditandoItem(null);
       setSalvandoItem(false);
-      
-      if (loteDetalhes && loteDetalhes.itens && itemIdEditado) {
-        const itensAtualizados = loteDetalhes.itens.map((item: any) => {
-          if (item.id === itemIdEditado) {
-            return { ...item, valorRecebido: valorEditado || "0", dataPagamento: dataEditada || null };
-          }
-          return item;
-        });
-        
-        let novoTotalRecebido = 0;
-        for (const item of itensAtualizados) {
-          const valor = parseFloat(item.valorRecebido || "0");
-          if (!isNaN(valor)) novoTotalRecebido += valor;
-        }
-        
-        setLoteDetalhes({ ...loteDetalhes, itens: itensAtualizados, valorTotalRecebido: novoTotalRecebido.toFixed(2) });
-      }
-      
-      utils.recursos.detalhesLote.invalidate();
-      utils.recursos.listarLotes.invalidate();
-      utils.recursos.resumoLotes.invalidate();
+      void utils.recursos.detalhesLote.invalidate();
+      void utils.recursos.listarLotes.invalidate();
+      void utils.recursos.resumoLotes.invalidate();
+      void refetchLotes();
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      const contexto = contextoPagamentosRef.current.get(variables.recursoId);
+      contextoPagamentosRef.current.delete(variables.recursoId);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
       toast.error(error.message);
       setSalvandoItem(false);
     },
   });
 
   // Detalhes do lote
-  const [loteIdParaDetalhes, setLoteIdParaDetalhes] = useState<number | null>(null);
   const { data: detalhesLoteData } = trpc.recursos.detalhesLote.useQuery(
     { loteId: loteIdParaDetalhes! },
     { enabled: loteIdParaDetalhes !== null }
   );
 
   useEffect(() => {
-    if (detalhesLoteData && loteIdParaDetalhes !== null) {
+    if (
+      detalhesLoteData
+      && loteIdParaDetalhes !== null
+      && callbackPertenceAUnidadeAtual(contextoDetalhesRef.current)
+    ) {
       const itens = detalhesLoteData.itens || detalhesLoteData.recursos || [];
       
       setLoteDetalhes({ ...detalhesLoteData, itens });
@@ -159,29 +200,43 @@ export default function AcompanhamentoRecursos() {
   }, [detalhesLoteData, loteIdParaDetalhes]);
 
   const handleVerDetalhes = (lote: any) => {
+    contextoDetalhesRef.current = capturarContextoUnidade();
+    setEditandoItem(null);
+    setValorRecebidoRecursoEdit("");
+    setDataRecebimentoRecursoEdit("");
     setLoteIdParaDetalhes(lote.id);
   };
 
+  const fecharDetalhes = () => {
+    contextoDetalhesRef.current = null;
+    setLoteIdParaDetalhes(null);
+    setLoteDetalhes(null);
+    setDialogDetalhes(false);
+    setEditandoItem(null);
+  };
+
   const handleEditarItem = (item: any) => {
+    const financeiro = normalizarCamposFinanceirosRecurso(item);
     setEditandoItem(item.id);
-    setValorRecebidoEdit(item.valorRecebido?.toString() || "0");
-    setDataPagamentoEdit(item.dataPagamento ? toInputDateValue(item.dataPagamento) : "");
+    setValorRecebidoRecursoEdit(financeiro.valorRecebidoRecurso?.toString() || "");
+    setDataRecebimentoRecursoEdit(financeiro.dataRecebimentoRecurso ? toInputDateValue(financeiro.dataRecebimentoRecurso) : "");
   };
 
   const handleSalvarPagamento = () => {
     if (!editandoItem) return;
+    contextoPagamentosRef.current.set(editandoItem, capturarContextoUnidade());
     setSalvandoItem(true);
     atualizarPagamentoMutation.mutate({
       recursoId: editandoItem,
-      valorRecebido: valorRecebidoEdit,
-      dataPagamento: dataPagamentoEdit,
+      valorRecebido: valorRecebidoRecursoEdit,
+      dataPagamento: dataRecebimentoRecursoEdit,
     });
   };
 
   const handleCancelarEdicao = () => {
     setEditandoItem(null);
-    setValorRecebidoEdit("");
-    setDataPagamentoEdit("");
+    setValorRecebidoRecursoEdit("");
+    setDataRecebimentoRecursoEdit("");
   };
 
   const calcularDiasRestantes = (dataPrazo: Date | string | null | undefined) => {
@@ -192,11 +247,41 @@ export default function AcompanhamentoRecursos() {
     return diff;
   };
 
-  // Mutation para exportar lote específico em Excel
+  const confirmarEnvioLoteMutation = trpc.recursos.confirmarEnvioLote.useMutation({
+    onSuccess: () => {
+      const contexto = contextoConfirmacaoRef.current;
+      contextoConfirmacaoRef.current = null;
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+
+      toast.success("Envio externo declarado e registrado com sucesso.");
+      setDialogConfirmarEnvio(false);
+      setLoteParaConfirmarEnvio(null);
+      setDataEnvioConfirmacao("");
+      setProtocoloEnvioConfirmacao("");
+      void utils.recursos.detalhesLote.invalidate();
+      void utils.recursos.listarLotes.invalidate();
+      void utils.recursos.resumoLotes.invalidate();
+      void refetchLotes();
+    },
+    onError: (error: { message: string }) => {
+      const contexto = contextoConfirmacaoRef.current;
+      contextoConfirmacaoRef.current = null;
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+      toast.error(error.message);
+    },
+  });
+
+  const exportacaoEmAndamento = exportandoLote !== null || exportandoXml !== null || exportandoZip !== null;
+
+  // Mutation para exportar lote específico em Excel. Exportar apenas gera o
+  // arquivo local; nunca declara ou altera o envio externo do lote.
   const exportarLoteMutation = trpc.recursos.exportarLote.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any, variables) => {
+      const contexto = contextoExportacoesRef.current.get(`excel:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`excel:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+
       setExportandoLote(null);
-      const loteAtual = todosLotes?.lotes?.find((lote: any) => lote.id === data.lote.id);
       const dadosFormatados = data.recursos.map((r: any) => ({
         "Seq.": r.sequencial,
         "Protocolo (DP)": r.protocoloDP,
@@ -216,10 +301,16 @@ export default function AcompanhamentoRecursos() {
         "Justificativa para o pagamento": r.justificativaPagamento,
         "Anexo": r.anexo,
         "Qtde Acatado": r.qtdeAcatado,
-        "Valor Acatado": r.valorAcatado,
         "Pago pelo código": r.pagoPeloCodigo,
-        "Valor Recebido": r.valorRecebido,
-        "Data Pagamento": r.dataPagamento,
+        "Pago original da conta": r.valorPagoOriginal ?? null,
+        "Data pagamento original": r.dataPagamentoOriginal ?? null,
+        "Recebido do recurso (informado)": r.valorRecebidoRecurso ?? null,
+        "Data recebimento recurso": r.dataRecebimentoRecurso ?? null,
+        "Valor acatado": r.valorAcatado ?? null,
+        "Carteirinha": r.carteirinha ?? r.codigoBeneficiario ?? "",
+        "Data do Item": r.dataItem ?? r.dataAtendimento ?? "",
+        "Valor Glosado": r.valorGlosado ?? null,
+        "Descrição do Recurso Realizado": r.descricaoRecurso ?? r.justificativaPagamento ?? "",
         "Observações": r.observacoes,
       }));
       
@@ -231,21 +322,18 @@ export default function AcompanhamentoRecursos() {
         "Total de Itens": data.totais.totalItens,
         "Total Valor Glosado": data.totais.totalValorGlosado,
         "Total Valor Recursado": data.totais.totalValorRecursado,
-        "Total Valor Recuperado": data.totais.totalValorRecuperado,
-        "Total Valor Recebido": data.totais.totalValorRecebido || 0,
+        "Valor acatado (registrado)": data.totais.totalValorAcatado ?? data.totais.totalValorRecuperado ?? 0,
+        "Total recebido do recurso (informado)": data.totais.totalValorRecebidoRecurso ?? null,
       }]);
       XLSX.utils.book_append_sheet(wb, totaisSheet, "Totais");
       
       XLSX.writeFile(wb, `lote_${data.lote.numeroLote}_recursos.xlsx`);
-      toast.success(`Planilha do lote ${data.lote.numeroLote} exportada com sucesso!`);
-      
-      // Somente a primeira exportação muda o lote para enviado. Downloads posteriores
-      // na aba Acompanhamento não podem sobrescrever status como respondido/finalizado.
-      if (deveMarcarLoteComoEnviado(loteAtual)) {
-        marcarComoEnviado(data.lote.id);
-      }
+      toast.success(`Arquivo Excel do lote ${data.lote.numeroLote} gerado com sucesso.`);
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      const contexto = contextoExportacoesRef.current.get(`excel:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`excel:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
       setExportandoLote(null);
       toast.error("Erro ao exportar lote: " + error.message);
     },
@@ -254,6 +342,10 @@ export default function AcompanhamentoRecursos() {
   // Mutation para exportar XML ANS/TISS
   const exportarXmlMutation = trpc.recursos.exportarXml.useMutation({
     onSuccess: (data: any, variables) => {
+      const contexto = contextoExportacoesRef.current.get(`xml:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`xml:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+
       setExportandoXml(null);
       
       const xmlsPorProtocolo = data.xmlsPorProtocolo as Array<{ protocolo: string; xml: string; validacao: any; guias: string[]; valorTotalRecursado: number }> | undefined;
@@ -276,9 +368,9 @@ export default function AcompanhamentoRecursos() {
         if (temErros) {
           setResultadoValidacao(xmlsPorProtocolo[0].validacao);
           setDialogValidacao(true);
-          toast.warning(`${xmlsPorProtocolo.length} XMLs exportados. Alguns contêm erros de validação.`);
+          toast.warning(`${xmlsPorProtocolo.length} XMLs gerados. Alguns contêm erros de validação e não foram enviados ao convênio.`);
         } else {
-          toast.success(`${xmlsPorProtocolo.length} XMLs TISS exportados com sucesso! Lote marcado como enviado.`);
+          toast.success(`${xmlsPorProtocolo.length} XMLs TISS gerados com sucesso.`);
         }
       } else {
         const blob = new Blob([data.xml], { type: "application/xml" });
@@ -294,21 +386,20 @@ export default function AcompanhamentoRecursos() {
         if (data.validacao) {
           setResultadoValidacao(data.validacao);
           if (data.validacao.valido) {
-            toast.success("XML TISS exportado e validado! Lote marcado como enviado.");
+            toast.success("XML TISS gerado e validado com sucesso.");
           } else {
             setDialogValidacao(true);
-            toast.warning(`XML exportado com ${data.validacao.erros.length} erro(s) de validação.`);
+            toast.warning(`XML gerado com ${data.validacao.erros.length} erro(s) de validação e não foi enviado ao convênio.`);
           }
         } else {
-          toast.success("XML ANS/TISS exportado! Lote marcado como enviado.");
+          toast.success("XML ANS/TISS gerado com sucesso.");
         }
       }
-      
-      // Auto-marcar como enviado
-      marcarComoEnviado(variables.loteId);
-      refetchLotes();
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      const contexto = contextoExportacoesRef.current.get(`xml:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`xml:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
       setExportandoXml(null);
       toast.error("Erro ao exportar XML: " + error.message);
     },
@@ -317,22 +408,25 @@ export default function AcompanhamentoRecursos() {
   // Mutation para baixar ZIP
   const exportarZipMutation = trpc.recursos.exportarXmlZip.useMutation({
     onSuccess: (data: any, variables: any) => {
+      const contexto = contextoExportacoesRef.current.get(`zip:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`zip:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
+
       setExportandoZip(null);
       window.open(data.zipUrl, '_blank');
       
       const todosValidos = data.resultados.every((r: any) => r.valido);
       if (todosValidos) {
-        toast.success(`ZIP com ${data.totalXmls} XMLs exportado! Lote marcado como enviado.`);
+        toast.success(`Arquivo ZIP com ${data.totalXmls} XMLs gerado com sucesso.`);
       } else {
         const comErros = data.resultados.filter((r: any) => !r.valido).length;
-        toast.warning(`ZIP exportado com ${data.totalXmls} XMLs. ${comErros} contém erros.`);
+        toast.warning(`Arquivo ZIP gerado com ${data.totalXmls} XMLs. ${comErros} contêm erros de validação e não foram enviados ao convênio.`);
       }
-      
-      // Auto-marcar como enviado
-      marcarComoEnviado(variables.loteId);
-      refetchLotes();
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      const contexto = contextoExportacoesRef.current.get(`zip:${variables.loteId}`);
+      contextoExportacoesRef.current.delete(`zip:${variables.loteId}`);
+      if (!callbackPertenceAUnidadeAtual(contexto)) return;
       setExportandoZip(null);
       toast.error("Erro ao exportar ZIP: " + error.message);
     },
@@ -354,29 +448,65 @@ export default function AcompanhamentoRecursos() {
     },
   });
 
-  // Função para auto-marcar lote como enviado
-  const marcarComoEnviado = (loteId: number) => {
-    atualizarLoteMutation.mutate({
-      loteId,
-      status: "enviado",
-      dataEnvio: new Date(),
+  const handleAbrirConfirmacaoEnvio = (lote: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!podeConfirmarEnvioManual(lote)) {
+      toast.error("Este lote não pode ter o envio confirmado neste status.");
+      return;
+    }
+    if (exportacaoEmAndamento) {
+      toast.warning("Aguarde a geração do arquivo terminar antes de confirmar o envio externo.");
+      return;
+    }
+
+    setLoteParaConfirmarEnvio(lote);
+    setDataEnvioConfirmacao(toInputDateValue(new Date()));
+    setProtocoloEnvioConfirmacao(lote.protocoloEnvio || "");
+    setDialogConfirmarEnvio(true);
+  };
+
+  const handleConfirmarEnvioManual = () => {
+    if (!loteParaConfirmarEnvio || !podeConfirmarEnvioManual(loteParaConfirmarEnvio)) return;
+    if (exportacaoEmAndamento) {
+      toast.warning("A confirmação não pode ser registrada durante uma exportação.");
+      return;
+    }
+
+    const validacao = validarConfirmacaoEnvioManual({
+      dataEnvio: dataEnvioConfirmacao,
+      protocoloEnvio: protocoloEnvioConfirmacao,
+    });
+    if (!validacao.valido) {
+      toast.error(validacao.erros[0]);
+      return;
+    }
+
+    contextoConfirmacaoRef.current = capturarContextoUnidade();
+    confirmarEnvioLoteMutation.mutate({
+      loteId: loteParaConfirmarEnvio.id,
+      protocoloEnvio: validacao.protocoloEnvio,
+      dataEnvio: validacao.dataEnvio,
+      confirmar: true,
     });
   };
 
   const handleExportarLote = (loteId: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    contextoExportacoesRef.current.set(`excel:${loteId}`, capturarContextoUnidade());
     setExportandoLote(loteId);
     exportarLoteMutation.mutate({ loteId });
   };
 
   const handleExportarXml = (loteId: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    contextoExportacoesRef.current.set(`xml:${loteId}`, capturarContextoUnidade());
     setExportandoXml(loteId);
     exportarXmlMutation.mutate({ loteId });
   };
 
   const handleExportarZip = (loteId: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    contextoExportacoesRef.current.set(`zip:${loteId}`, capturarContextoUnidade());
     setExportandoZip(loteId);
     exportarZipMutation.mutate({ loteId });
   };
@@ -424,20 +554,20 @@ export default function AcompanhamentoRecursos() {
         className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
         onClick={() => handleVerDetalhes(lote)}
       >
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-4">
-            <div className="p-2 bg-primary/10 rounded-lg">
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <div className="shrink-0 p-2 bg-primary/10 rounded-lg">
               <Package className="h-6 w-6 text-primary" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="font-semibold">Lote {lote.numeroLote}</h3>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h3 className="font-semibold break-words">Lote {lote.numeroLote}</h3>
                 <Badge className={statusConfig.color}>
                   {statusConfig.icon}
                   <span className="ml-1">{statusConfig.label}</span>
                 </Badge>
               </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Building2 className="h-4 w-4" />
                   {lote.convenioNome || "Convênio"}
@@ -458,15 +588,15 @@ export default function AcompanhamentoRecursos() {
                 )}
               </div>
               {lote.protocoloEnvio && (
-                <p className="text-sm mt-1">
+                <p className="text-sm mt-1 [overflow-wrap:anywhere]">
                   <span className="text-muted-foreground">Protocolo:</span>{" "}
                   <span className="font-medium">{lote.protocoloEnvio}</span>
                 </p>
               )}
             </div>
           </div>
-          <div className="text-right">
-            <div className="flex flex-col items-end gap-1">
+          <div className="shrink-0 text-left sm:text-right">
+            <div className="flex flex-col items-start sm:items-end gap-1">
               <div className="text-sm">
                 <span className="text-muted-foreground">Glosado:</span>{" "}
                 <span className="font-medium text-red-600">{formatCurrency(lote.valorTotalGlosado)}</span>
@@ -475,10 +605,10 @@ export default function AcompanhamentoRecursos() {
                 <span className="text-muted-foreground">Recursado:</span>{" "}
                 <span className="font-medium text-orange-600">{formatCurrency(lote.valorTotalRecursado)}</span>
               </div>
-              {lote.valorTotalRecuperado > 0 && (
+              {(lote.valorTotalAcatado ?? lote.valorTotalRecuperado) > 0 && (
                 <div className="text-sm">
-                  <span className="text-muted-foreground">Recuperado:</span>{" "}
-                  <span className="font-medium text-green-600">{formatCurrency(lote.valorTotalRecuperado)}</span>
+                  <span className="text-muted-foreground">{lote.valorTotalAcatado !== undefined ? "Acatado (registrado):" : "Total histórico (a revisar):"}</span>{" "}
+                  <span className={`font-medium ${lote.valorTotalAcatado !== undefined ? "text-green-600" : "text-amber-700"}`}>{formatCurrency(lote.valorTotalAcatado ?? lote.valorTotalRecuperado)}</span>
                 </div>
               )}
             </div>
@@ -517,10 +647,10 @@ export default function AcompanhamentoRecursos() {
           <div className="flex gap-2 flex-wrap">
             {isEnvio ? (
               <>
-                {/* Aba Envio: botões de geração */}
-                <Button size="sm" variant="outline" onClick={(e) => handleExportarLote(lote.id, e)} disabled={exportandoLote === lote.id} title="Exportar Excel (Padrão Unimed)">
+                {/* Gerar arquivo não declara o envio ao convênio. */}
+                <Button size="sm" variant="outline" onClick={(e) => handleExportarLote(lote.id, e)} disabled={exportandoLote === lote.id} title="Baixar relatório Excel do lote">
                   {exportandoLote === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-                  Excel
+                  Baixar Excel
                 </Button>
                 <Button size="sm" variant="outline" onClick={(e) => handleExportarXml(lote.id, e)} disabled={exportandoXml === lote.id} title="Gerar XML (Padrão ANS/TISS)">
                   {exportandoXml === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileText className="h-4 w-4 mr-1" />}
@@ -532,16 +662,27 @@ export default function AcompanhamentoRecursos() {
                     Baixar ZIP ({lote.totalProtocolos} XMLs)
                   </Button>
                 )}
+                {podeConfirmarEnvioManual(lote) && (
+                  <Button
+                    size="sm"
+                    onClick={(e) => handleAbrirConfirmacaoEnvio(lote, e)}
+                    disabled={exportacaoEmAndamento || confirmarEnvioLoteMutation.isPending}
+                    title="Registra a declaração do envio externo; não transmite arquivos ao convênio"
+                  >
+                    {confirmarEnvioLoteMutation.isPending && loteParaConfirmarEnvio?.id === lote.id
+                      ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      : <CheckCircle2 className="h-4 w-4 mr-1" />}
+                    Confirmar envio
+                  </Button>
+                )}
               </>
             ) : (
               <>
-                {/* Aba Acompanhamento: baixar novamente a planilha Unimed sem alterar o status */}
-                {loteUnimed && (
-                  <Button size="sm" variant="outline" onClick={(e) => handleExportarLote(lote.id, e)} disabled={exportandoLote === lote.id} title="Baixar planilha de recurso da Unimed" className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950">
-                    {exportandoLote === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-                    Excel Unimed
-                  </Button>
-                )}
+                {/* Todo convênio pode baixar novamente o relatório sem alterar status. */}
+                <Button size="sm" variant="outline" onClick={(e) => handleExportarLote(lote.id, e)} disabled={exportandoLote === lote.id} title={loteUnimed ? "Baixar planilha de recurso no modelo Unimed" : "Baixar relatório Excel do lote"} className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950">
+                  {exportandoLote === lote.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
+                  Baixar Excel
+                </Button>
                 {lote.xmlUrl && (
                   <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); window.open(lote.xmlUrl, '_blank'); }} title="Baixar XML gerado" className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950">
                     <Download className="h-4 w-4 mr-1" />
@@ -588,7 +729,7 @@ export default function AcompanhamentoRecursos() {
       </div>
 
       {/* Cards de Resumo */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pendentes de Envio</CardTitle>
@@ -596,7 +737,7 @@ export default function AcompanhamentoRecursos() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{resumo?.lotesPendentes || 0}</div>
-            <p className="text-xs text-muted-foreground">lotes aguardando geração</p>
+                    <p className="text-xs text-muted-foreground">lotes aguardando declaração de envio</p>
           </CardContent>
         </Card>
 
@@ -624,14 +765,24 @@ export default function AcompanhamentoRecursos() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Valor Recuperado</CardTitle>
+            <CardTitle className="text-sm font-medium">Valor Acatado</CardTitle>
             <DollarSign className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(resumo?.valorTotalRecuperado || 0)}</div>
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(resumoFinanceiro?.valorTotalAcatado ?? resumoFinanceiro?.valorTotalRecuperado ?? 0)}</div>
             <p className="text-xs text-muted-foreground">
-              {resumo?.valorTotalRecursado ? `${((resumo.valorTotalRecuperado / resumo.valorTotalRecursado) * 100).toFixed(1)}% de sucesso` : "0%"}
+              {resumoFinanceiro?.valorTotalRecursado ? `${(((resumoFinanceiro?.valorTotalAcatado ?? resumoFinanceiro?.valorTotalRecuperado ?? 0) / resumoFinanceiro.valorTotalRecursado) * 100).toFixed(1)}% acatado` : "0%"}
             </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recebido do recurso</CardTitle>
+            <DollarSign className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-700">{formatCurrency(resumo?.valorTotalRecebido ?? 0)}</div>
+            <p className="text-xs text-muted-foreground">total informado manualmente; não é o pago original</p>
           </CardContent>
         </Card>
       </div>
@@ -695,7 +846,7 @@ export default function AcompanhamentoRecursos() {
             <CardHeader>
               <CardTitle>Lotes Pendentes de Envio</CardTitle>
               <CardDescription>
-                Gere Excel, XML ou ZIP para enviar ao convênio. Após gerar, o lote será marcado automaticamente como "Enviado".
+                Gere Excel, XML ou ZIP para preparar o envio. A geração não transmite nem altera o status; após o envio externo, registre a declaração manual com data e protocolo.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -706,7 +857,7 @@ export default function AcompanhamentoRecursos() {
               ) : lotesParaEnvio.length === 0 ? (
                 <div className="text-center py-12">
                   <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">Todos os lotes foram enviados!</h3>
+                  <h3 className="text-lg font-medium mb-2">Não há lotes aguardando confirmação de envio.</h3>
                   <p className="text-muted-foreground">
                     Crie novos lotes na tela de "Criação de Lotes" para enviar recursos.
                   </p>
@@ -739,7 +890,7 @@ export default function AcompanhamentoRecursos() {
                   <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-medium mb-2">Nenhum lote enviado ainda</h3>
                   <p className="text-muted-foreground">
-                    Envie lotes na aba "Envio de Lotes" para acompanhá-los aqui.
+                    Gere os arquivos e, após o envio externo ao convênio, confirme a declaração na aba "Envio de Lotes".
                   </p>
                 </div>
               ) : (
@@ -753,15 +904,15 @@ export default function AcompanhamentoRecursos() {
       </Tabs>
 
       {/* Dialog de Detalhes do Lote */}
-      <Dialog open={dialogDetalhes} onOpenChange={setDialogDetalhes}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={dialogDetalhes} onOpenChange={(aberto) => { if (!aberto) fecharDetalhes(); }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)] xl:max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalhes do Lote {loteDetalhes?.numeroLote}</DialogTitle>
             <DialogDescription>Visualize os itens recursados e o status do lote</DialogDescription>
           </DialogHeader>
           
           {loteDetalhes && (
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -798,17 +949,15 @@ export default function AcompanhamentoRecursos() {
                 </Card>
                 <Card>
                   <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Valor Recuperado</p>
-                    <p className="text-xl font-bold text-green-600">{formatCurrency(loteDetalhes.valorTotalRecuperado)}</p>
+                    <p className="text-sm text-muted-foreground">Valor acatado (registrado)</p>
+                    <p className="text-xl font-bold text-green-600">{formatCurrencyOrUnknown(loteDetalhes.valorTotalAcatado ?? loteDetalhes.valorTotalRecuperado ?? null)}</p>
                   </CardContent>
                 </Card>
                 <Card className="border-2 border-green-200 bg-green-50">
                   <CardContent className="pt-4">
-                    <p className="text-sm text-muted-foreground">Valor Recebido</p>
-                    <p className="text-xl font-bold text-green-700">{formatCurrency(loteDetalhes.valorTotalRecebido || 0)}</p>
-                    {loteDetalhes.dataPagamento && (
-                      <p className="text-xs text-muted-foreground mt-1">Pago em: {formatDateBR(loteDetalhes.dataPagamento)}</p>
-                    )}
+                    <p className="text-sm text-muted-foreground">Total recebido do recurso</p>
+                    <p className="text-xl font-bold text-green-700">{formatCurrencyOrUnknown(loteDetalhes.valorTotalRecebidoRecurso ?? null)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Total informado nos recursos; não confirma crédito bancário.</p>
                   </CardContent>
                 </Card>
               </div>
@@ -831,7 +980,7 @@ export default function AcompanhamentoRecursos() {
               {loteDetalhes.itens && loteDetalhes.itens.length > 0 && (
                 <div>
                   <h4 className="font-medium mb-3">Itens Recursados ({loteDetalhes.itens.length})</h4>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="min-w-0 max-w-full border rounded-lg overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -840,35 +989,48 @@ export default function AcompanhamentoRecursos() {
                           <TableHead>Descrição</TableHead>
                           <TableHead>Paciente</TableHead>
                           <TableHead className="text-right">Vl. Glosado</TableHead>
-                          <TableHead className="text-right">Vl. Recebido</TableHead>
-                          <TableHead>Data Pgto</TableHead>
+                          <TableHead className="text-right">Pago original da conta</TableHead>
+                          <TableHead>Data pagamento original</TableHead>
+                          <TableHead className="text-right">Recebimento do recurso (informado)</TableHead>
+                          <TableHead>Data recebimento recurso</TableHead>
+                          <TableHead className="text-right">Valor acatado</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Origem</TableHead>
                           <TableHead className="text-center">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {loteDetalhes.itens.map((item: any) => (
+                        {loteDetalhes.itens.map((item: any) => {
+                          const financeiro = normalizarCamposFinanceirosRecurso(item);
+                          const recebimentoInformado = isFonteComRecebimentoRecursoInformado(item.fonte);
+                          const rotuloRecebimento = rotuloRecebimentoRecurso(item);
+
+                          return (
                           <TableRow key={item.chaveItem || `${item.fonte || "item"}-${item.id}`}>
                             <TableCell className="font-medium">{item.guiaNumero || "-"}</TableCell>
                             <TableCell>{item.codigoProcedimento}</TableCell>
                             <TableCell className="max-w-[200px] truncate">{item.descricaoProcedimento}</TableCell>
                             <TableCell>{item.pacienteNome || "-"}</TableCell>
                             <TableCell className="text-right text-red-600">{formatCurrency(item.valorGlosado)}</TableCell>
+                            <TableCell className="text-right">{formatCurrencyOrUnknown(financeiro.valorPagoOriginal)}</TableCell>
+                            <TableCell>{financeiro.dataPagamentoOriginal ? formatDateBR(financeiro.dataPagamentoOriginal) : "-"}</TableCell>
                             <TableCell className="text-right">
                               {editandoItem === item.id ? (
-                                <Input type="number" step="0.01" min="0" value={valorRecebidoEdit} onChange={(e) => setValorRecebidoEdit(e.target.value)} className="w-28 text-right text-green-600" />
+                                <Input type="number" step="0.01" min="0" value={valorRecebidoRecursoEdit} onChange={(e) => setValorRecebidoRecursoEdit(e.target.value)} className="w-28 text-right text-green-600" aria-label="Recebimento do recurso informado" />
                               ) : (
-                                <span className="text-green-600">{formatCurrency(item.valorRecebido || 0)}</span>
+                                <span className="text-green-600" title={rotuloRecebimento}>
+                                  {recebimentoInformado ? formatCurrencyOrUnknown(financeiro.valorRecebidoRecurso) : rotuloRecebimento}
+                                </span>
                               )}
                             </TableCell>
                             <TableCell>
                               {editandoItem === item.id ? (
-                                <Input type="date" value={dataPagamentoEdit} onChange={(e) => setDataPagamentoEdit(e.target.value)} className="w-36" />
+                                <Input type="date" value={dataRecebimentoRecursoEdit} onChange={(e) => setDataRecebimentoRecursoEdit(e.target.value)} className="w-36" aria-label="Data de recebimento do recurso" />
                               ) : (
-                                item.dataPagamento ? formatDateBR(item.dataPagamento) : "-"
+                                recebimentoInformado && financeiro.dataRecebimentoRecurso ? formatDateBR(financeiro.dataRecebimentoRecurso) : "-"
                               )}
                             </TableCell>
+                            <TableCell className="text-right">{formatCurrencyOrUnknown(financeiro.valorAcatado)}</TableCell>
                             <TableCell>
                               <Badge variant="outline">
                                 {item.status === "deferido" || item.status === "recurso_deferido" ? "Deferido" : item.status === "indeferido" || item.status === "recurso_indeferido" ? "Indeferido" : item.status === "enviado" || item.status === "recurso_enviado" ? "Enviado" : item.status === "recurso_criado" ? "Criado" : "Pendente"}
@@ -898,7 +1060,8 @@ export default function AcompanhamentoRecursos() {
                               )}
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -920,7 +1083,74 @@ export default function AcompanhamentoRecursos() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogDetalhes(false)}>Fechar</Button>
+            <Button variant="outline" onClick={fecharDetalhes}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação declaratória: não executa transmissão para o convênio. */}
+      <Dialog
+        open={dialogConfirmarEnvio}
+        onOpenChange={(aberto) => {
+          if (confirmarEnvioLoteMutation.isPending) return;
+          setDialogConfirmarEnvio(aberto);
+          if (!aberto) {
+            setLoteParaConfirmarEnvio(null);
+            setDataEnvioConfirmacao("");
+            setProtocoloEnvioConfirmacao("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar envio externo do lote</DialogTitle>
+            <DialogDescription>
+              Registre a declaração de que o lote {loteParaConfirmarEnvio?.numeroLote || ""} foi enviado externamente. Esta ação não envia arquivos ao convênio.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="data-envio-lote">Data do envio externo</Label>
+              <Input
+                id="data-envio-lote"
+                type="date"
+                value={dataEnvioConfirmacao}
+                onChange={(event) => setDataEnvioConfirmacao(event.target.value)}
+                disabled={confirmarEnvioLoteMutation.isPending}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="protocolo-envio-lote">Protocolo de envio</Label>
+              <Input
+                id="protocolo-envio-lote"
+                value={protocoloEnvioConfirmacao}
+                onChange={(event) => setProtocoloEnvioConfirmacao(event.target.value)}
+                placeholder="Informe o protocolo fornecido pelo convênio"
+                disabled={confirmarEnvioLoteMutation.isPending}
+                required
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              A confirmação só estará disponível para lotes em rascunho ou pendentes de envio e não pode ocorrer durante a geração de arquivos.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDialogConfirmarEnvio(false)}
+              disabled={confirmarEnvioLoteMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmarEnvioManual}
+              disabled={exportacaoEmAndamento || confirmarEnvioLoteMutation.isPending}
+            >
+              {confirmarEnvioLoteMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registrando...</>
+                : <><CheckCircle2 className="h-4 w-4 mr-2" /> Registrar declaração</>}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

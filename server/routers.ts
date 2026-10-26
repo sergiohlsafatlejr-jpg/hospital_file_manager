@@ -1,5 +1,7 @@
 import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
 import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
+import { confirmarEnvioLote, confirmarEnvioLoteSchema } from "./recursoLoteEnvioService";
+import { dadosPagamentoManual, pagamentoRecursoManualSchema } from "./recursoPagamentoManual";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -2712,26 +2714,10 @@ export const appRouter = router({
 
     // Atualizar valor recebido e data de pagamento de um item de recurso
     atualizarPagamentoItem: protectedProcedure
-      .input(
-        z.object({
-          recursoId: z.number(),
-          valorRecebido: z.string().optional(),
-          dataPagamento: z.string().optional(),
-        })
-      )
+      .input(pagamentoRecursoManualSchema)
       .mutation(async ({ input, ctx }) => {
         await exigirAcessoRecurso(ctx.user.id, input.recursoId, "editar");
-        const updateData: any = {};
-        
-        if (input.valorRecebido !== undefined) {
-          updateData.valorRecebido = input.valorRecebido;
-        }
-        
-        if (input.dataPagamento !== undefined && input.dataPagamento !== "") {
-          updateData.dataPagamento = new Date(input.dataPagamento);
-        } else if (input.dataPagamento === "") {
-          updateData.dataPagamento = null;
-        }
+        const updateData = dadosPagamentoManual(input);
         
         await db.updateRecursoGlosa(
           input.recursoId,
@@ -3100,8 +3086,27 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
+        const lote = await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
+        if (input.status === "enviado" || input.dataEnvio !== undefined || input.protocoloEnvio !== undefined ||
+          (["rascunho", "pendente_envio"].includes(lote.status) && input.status &&
+            !["rascunho", "pendente_envio"].includes(input.status))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Use Confirmar envio, informando protocolo e data, antes de iniciar o acompanhamento." });
+        }
+        if (!["rascunho", "pendente_envio"].includes(lote.status) && input.status &&
+          ["rascunho", "pendente_envio"].includes(input.status)) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O lote já está em acompanhamento; seu status não pode regredir por esta operação." });
+        }
         return db.atualizarLoteRecurso(input);
+      }),
+
+    confirmarEnvioLote: protectedProcedure
+      .input(confirmarEnvioLoteSchema)
+      .mutation(async ({ input, ctx }) => {
+        const lote = await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
+        return confirmarEnvioLote(input, ctx.user.id, {
+          estabelecimentoId: lote.estabelecimentoId,
+          convenioId: lote.convenioId,
+        });
       }),
 
     detalhesLote: protectedProcedure
@@ -3219,11 +3224,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
-        return db.enviarLoteRecurso({
-          loteId: input.loteId,
-          protocoloEnvio: input.protocoloEnvio,
-          dataPrazoPagamento: input.dataPrazoPagamento,
-        });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use Confirmar envio para registrar o protocolo, a data e a confirmação do envio externo." });
       }),
 
     // ============ EXPORTAÇÃO DE RECURSOS ============
