@@ -1,6 +1,7 @@
 import { eq, and, desc, like, sql, gte, lte, lt, gt, or, inArray, count, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, Pool } from "mysql2/promise";
+import Decimal from "decimal.js";
 import { describeAuthFailure } from "./authDiagnostics";
 import type { ProcedimentoFonte } from "./procedimentosTabela";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
@@ -8673,7 +8674,7 @@ export async function listarLotesRecurso(params: {
       const guias = await db
         .select({ guiaNumero: recursosGlosa.guiaNumero })
         .from(recursosGlosa)
-        .where(eq(recursosGlosa.loteId, lote.id));
+        .where(and(eq(recursosGlosa.loteId, lote.id), eq(recursosGlosa.estabelecimentoId, lote.estabelecimentoId!), eq(recursosGlosa.convenioId, lote.convenioId)));
       const guiasUnicas = [...new Set(guias.map(g => g.guiaNumero).filter(Boolean))];
       
       if (guiasUnicas.length === 0) {
@@ -8687,6 +8688,8 @@ export async function listarLotesRecurso(params: {
         .where(
           and(
             inArray(demonstrativo.numeroGuia, guiasUnicas as string[]),
+            eq(demonstrativo.estabelecimentoId, lote.estabelecimentoId!),
+            eq(demonstrativo.convenioId, lote.convenioId),
             sql`${demonstrativo.valorGlosa} > 0`,
             sql`${demonstrativo.protocolo} IS NOT NULL AND ${demonstrativo.protocolo} != ''`
           )
@@ -8704,10 +8707,106 @@ export async function listarLotesRecurso(params: {
 }
 
 /**
- * Busca resumo dos lotes de recursos
+ * Valores de recurso usam Decimal antes da serialização. Pagamento original,
+ * recebimento do recurso e acatamento são fatos distintos.
  */
-export async function getResumoLotesRecurso(estabelecimentoId?: number) {
-  const db = await getDb();
+const DecimalRecurso = Decimal.clone({ precision: 40 });
+
+type FonteItemRecurso = "demonstrativo" | "conciliacao" | "recursos_glosa" | "antigo" | "xml_lote";
+
+function decimalRecurso(valor: unknown): Decimal {
+  if (valor === null || valor === undefined || valor === "") return new DecimalRecurso(0);
+  const texto = String(valor).trim();
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(texto)) return new DecimalRecurso(0);
+  const decimal = new DecimalRecurso(texto);
+  return decimal.isFinite() ? decimal : new DecimalRecurso(0);
+}
+
+function textoMoedaRecurso(valor: unknown): string {
+  return decimalRecurso(valor).toDecimalPlaces(2, DecimalRecurso.ROUND_HALF_UP).toFixed(2);
+}
+
+function textoMoedaRecursoOuNulo(valor: unknown): string | null {
+  return valor === null || valor === undefined || valor === ""
+    ? null
+    : textoMoedaRecurso(valor);
+}
+
+function numeroMoedaRecurso(valor: unknown): number {
+  const decimal = decimalRecurso(valor).toDecimalPlaces(2, DecimalRecurso.ROUND_HALF_UP);
+  const centavos = decimal.times(100);
+  if (!centavos.isInteger() || centavos.abs().greaterThan(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Valor de recurso fora da faixa segura de centavos.");
+  }
+  const numero = centavos.toNumber() / 100;
+  if (!new DecimalRecurso(String(numero)).equals(decimal)) {
+    throw new Error("Valor de recurso perderia precisão na serialização.");
+  }
+  return numero;
+}
+
+function somarMoedasRecurso(valores: Iterable<unknown>): Decimal {
+  let total = new DecimalRecurso(0);
+  for (const valor of valores) total = total.plus(decimalRecurso(valor));
+  return total;
+}
+
+function statusComAcatamento(status: unknown): boolean {
+  return status === "deferido" || status === "deferido_parcial";
+}
+
+function itemPertenceAoLote(item: Record<string, any>, lote: Record<string, any>): boolean {
+  return Number(item.estabelecimentoId) === Number(lote.estabelecimentoId)
+    && Number(item.convenioId) === Number(lote.convenioId);
+}
+
+function normalizarItemFinanceiroRecurso(
+  item: Record<string, any>,
+  fonte: FonteItemRecurso,
+) {
+  const manual = fonte === "recursos_glosa" || fonte === "antigo";
+  const valorRecebidoRecurso = manual ? textoMoedaRecurso(item.valorRecebido) : "0.00";
+  const dataRecebimentoRecurso = manual ? item.dataPagamento || null : null;
+  const valorAcatado = manual && statusComAcatamento(item.status)
+    ? textoMoedaRecurso(item.valorRecuperado)
+    : "0.00";
+
+  return {
+    ...item,
+    fonte,
+    // Pagamento do retorno original não comprova recebimento do recurso.
+    valorPagoOriginal: manual ? null : textoMoedaRecursoOuNulo(item.valorPagoOriginal),
+    dataPagamentoOriginal: manual ? null : item.dataPagamentoOriginal || null,
+    // Somente recursosGlosa registra controle manual de recebimento nesta fase.
+    valorRecebidoRecurso,
+    dataRecebimentoRecurso,
+    // Aliases legados sempre significam recebimento do recurso, nunca pagamento original.
+    valorRecebido: valorRecebidoRecurso,
+    dataPagamento: dataRecebimentoRecurso,
+    // Acatamento exige status final e valor manual de recursosGlosa.
+    valorAcatado,
+    valorRecuperado: valorAcatado,
+  };
+}
+
+function resumoFinanceiroItensRecurso(itens: Array<Record<string, any>>) {
+  const totalValorPagoOriginal = somarMoedasRecurso(itens.map(item => item.valorPagoOriginal));
+  const totalValorRecebidoRecurso = somarMoedasRecurso(itens.map(item => item.valorRecebidoRecurso));
+  const totalValorAcatado = somarMoedasRecurso(itens.map(item => item.valorAcatado));
+  return {
+    totalValorPagoOriginal: textoMoedaRecurso(totalValorPagoOriginal),
+    totalValorRecebidoRecurso: textoMoedaRecurso(totalValorRecebidoRecurso),
+    totalValorAcatado: textoMoedaRecurso(totalValorAcatado),
+  };
+}
+
+/**
+ * Busca resumo dos lotes de recursos.
+ * Os totais de recebimento e acatamento vêm dos registros manuais dos itens.
+ * Totais do lote são expostos apenas como histórico rastreável, sem DML.
+ */
+export async function getResumoLotesRecurso(estabelecimentoId?: number, dbOverride?: any) {
+  const db = dbOverride ?? await getDb();
   if (!db) return {
     totalLotes: 0,
     lotesEnviados: 0,
@@ -8716,6 +8815,19 @@ export async function getResumoLotesRecurso(estabelecimentoId?: number) {
     valorTotalGlosado: 0,
     valorTotalRecursado: 0,
     valorTotalRecuperado: 0,
+    valorTotalAcatado: 0,
+    valorTotalRecebido: 0,
+    valorTotalHistoricoRecebido: 0,
+    valorTotalHistoricoAcatado: 0,
+    divergenciaHistoricoRecebido: 0,
+    divergenciaHistoricoAcatado: 0,
+    registrosRecebimentoManual: 0,
+    registrosAcatados: 0,
+    fontesValores: {
+      recebimentoRecurso: "recursosGlosa.valorRecebido",
+      acatamento: "recursosGlosa.valorRecuperado (deferido/deferido_parcial)",
+      historicoLote: "lotesRecurso (somente rastreabilidade)",
+    },
     lotesVencendo: 0,
   };
 
@@ -8725,32 +8837,45 @@ export async function getResumoLotesRecurso(estabelecimentoId?: number) {
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
   const lotes = await db
     .select()
     .from(lotesRecurso)
     .where(whereClause);
 
+  const lotesPorId = new Map(lotes.map((lote: any) => [lote.id, lote]));
+  const recursosDosLotes = lotes.length === 0
+    ? []
+    : await db
+      .select()
+      .from(recursosGlosa)
+      .where(inArray(recursosGlosa.loteId, lotes.map((lote: any) => lote.id)));
+
+  // Defesa adicional contra um vínculo legado entre unidade/convênio distintos.
+  const recursosRastreaveis = recursosDosLotes.filter((recurso: any) => {
+    const lote = lotesPorId.get(recurso.loteId);
+    return lote && itemPertenceAoLote(recurso, lote);
+  });
+
   const hoje = new Date();
   const em7Dias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-  let totalLotes = lotes.length;
+  const totalLotes = lotes.length;
   let lotesEnviados = 0;
   let lotesRespondidos = 0;
   let lotesPendentes = 0;
-  let valorTotalGlosado = 0;
-  let valorTotalRecursado = 0;
-  let valorTotalRecuperado = 0;
+  let valorTotalGlosado = new DecimalRecurso(0);
+  let valorTotalRecursado = new DecimalRecurso(0);
+  let valorTotalHistoricoRecebido = new DecimalRecurso(0);
+  let valorTotalHistoricoAcatado = new DecimalRecurso(0);
   let lotesVencendo = 0;
 
   for (const lote of lotes) {
-    valorTotalGlosado += parseFloat(lote.valorTotalGlosado || "0");
-    valorTotalRecursado += parseFloat(lote.valorTotalRecursado || "0");
-    valorTotalRecuperado += parseFloat(lote.valorTotalRecuperado || "0");
+    valorTotalGlosado = valorTotalGlosado.plus(decimalRecurso(lote.valorTotalGlosado));
+    valorTotalRecursado = valorTotalRecursado.plus(decimalRecurso(lote.valorTotalRecursado));
+    valorTotalHistoricoRecebido = valorTotalHistoricoRecebido.plus(decimalRecurso(lote.valorTotalRecebido));
+    valorTotalHistoricoAcatado = valorTotalHistoricoAcatado.plus(decimalRecurso(lote.valorTotalRecuperado));
 
     if (lote.status === "enviado" || lote.status === "em_analise") {
       lotesEnviados++;
-      // Verificar se está vencendo
       if (lote.dataPrazoPagamento && new Date(lote.dataPrazoPagamento) <= em7Dias) {
         lotesVencendo++;
       }
@@ -8761,14 +8886,35 @@ export async function getResumoLotesRecurso(estabelecimentoId?: number) {
     }
   }
 
+  const valorTotalRecebido = somarMoedasRecurso(recursosRastreaveis.map((recurso: any) => recurso.valorRecebido));
+  const recursosAcatados = recursosRastreaveis.filter((recurso: any) => statusComAcatamento(recurso.status));
+  const valorTotalAcatado = somarMoedasRecurso(recursosAcatados.map((recurso: any) => recurso.valorRecuperado));
+  const registrosRecebimentoManual = recursosRastreaveis.filter(
+    (recurso: any) => !decimalRecurso(recurso.valorRecebido).isZero(),
+  ).length;
+
   return {
     totalLotes,
     lotesEnviados,
     lotesRespondidos,
     lotesPendentes,
-    valorTotalGlosado,
-    valorTotalRecursado,
-    valorTotalRecuperado,
+    valorTotalGlosado: numeroMoedaRecurso(valorTotalGlosado),
+    valorTotalRecursado: numeroMoedaRecurso(valorTotalRecursado),
+    // Alias existente mantido: agora apenas acatamento comprovado.
+    valorTotalRecuperado: numeroMoedaRecurso(valorTotalAcatado),
+    valorTotalAcatado: numeroMoedaRecurso(valorTotalAcatado),
+    valorTotalRecebido: numeroMoedaRecurso(valorTotalRecebido),
+    valorTotalHistoricoRecebido: numeroMoedaRecurso(valorTotalHistoricoRecebido),
+    valorTotalHistoricoAcatado: numeroMoedaRecurso(valorTotalHistoricoAcatado),
+    divergenciaHistoricoRecebido: numeroMoedaRecurso(valorTotalHistoricoRecebido.minus(valorTotalRecebido)),
+    divergenciaHistoricoAcatado: numeroMoedaRecurso(valorTotalHistoricoAcatado.minus(valorTotalAcatado)),
+    registrosRecebimentoManual,
+    registrosAcatados: recursosAcatados.length,
+    fontesValores: {
+      recebimentoRecurso: "recursosGlosa.valorRecebido",
+      acatamento: "recursosGlosa.valorRecuperado (deferido/deferido_parcial)",
+      historicoLote: "lotesRecurso (somente rastreabilidade)",
+    },
     lotesVencendo,
   };
 }
@@ -8808,36 +8954,49 @@ export async function atualizarLoteRecurso(params: {
 /**
  * Recalcula o valor total recebido de um lote somando os valores recebidos dos itens
  */
-export async function recalcularTotalLote(loteId: number): Promise<{ success: boolean; valorTotalRecebido: string }> {
-  const db = await getDb();
+export async function recalcularTotalLote(
+  loteId: number,
+  dbOverride?: any,
+): Promise<{ success: boolean; valorTotalRecebido: string }> {
+  const db = dbOverride ?? await getDb();
   if (!db) return { success: false, valorTotalRecebido: "0" };
 
-  // Buscar todos os recursos do lote
+  const [lote] = await db
+    .select({
+      id: lotesRecurso.id,
+      estabelecimentoId: lotesRecurso.estabelecimentoId,
+      convenioId: lotesRecurso.convenioId,
+    })
+    .from(lotesRecurso)
+    .where(eq(lotesRecurso.id, loteId))
+    .limit(1);
+  if (!lote) return { success: false, valorTotalRecebido: "0" };
+
+  // Só inclui registros manuais que pertencem ao mesmo lote, unidade e convênio.
   const recursosDoLote = await db
     .select({
       valorRecebido: recursosGlosa.valorRecebido,
     })
     .from(recursosGlosa)
-    .where(eq(recursosGlosa.loteId, loteId));
+    .where(and(
+      eq(recursosGlosa.loteId, lote.id),
+      eq(recursosGlosa.estabelecimentoId, lote.estabelecimentoId),
+      eq(recursosGlosa.convenioId, lote.convenioId),
+    ));
 
-  // Somar os valores recebidos
-  let totalRecebido = 0;
-  for (const recurso of recursosDoLote) {
-    if (recurso.valorRecebido) {
-      const valor = parseFloat(recurso.valorRecebido);
-      if (!isNaN(valor)) {
-        totalRecebido += valor;
-      }
-    }
-  }
+  const valorTotalRecebido = textoMoedaRecurso(
+    somarMoedasRecurso(recursosDoLote.map((recurso: any) => recurso.valorRecebido)),
+  );
 
-  const valorTotalRecebido = totalRecebido.toFixed(2);
-
-  // Atualizar o lote com o novo total
+  // Não reescreve acatamento/recuperado: este caminho é somente de recebimento manual legado.
   await db
     .update(lotesRecurso)
     .set({ valorTotalRecebido })
-    .where(eq(lotesRecurso.id, loteId));
+    .where(and(
+      eq(lotesRecurso.id, lote.id),
+      eq(lotesRecurso.estabelecimentoId, lote.estabelecimentoId),
+      eq(lotesRecurso.convenioId, lote.convenioId),
+    ));
 
   return { success: true, valorTotalRecebido };
 }
@@ -8858,8 +9017,8 @@ export async function getLoteRecursoById(loteId: number) {
   return lote || null;
 }
 
-export async function getDetalhesLoteRecurso(loteId: number) {
-  const db = await getDb();
+export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
+  const db = dbOverride ?? await getDb();
   if (!db) return null;
 
   const [lote] = await db
@@ -8873,133 +9032,163 @@ export async function getDetalhesLoteRecurso(loteId: number) {
   const [demoRows] = await db.execute(sql.raw(`
     SELECT
       d.id,
+      d.estabelecimentoId AS estabelecimentoId,
+      d.convenio_id AS convenioId,
       d.numero_guia AS guiaNumero,
+      d.carteira_beneficiario AS pacienteCarteirinha,
       d.codigo_item AS codigoProcedimento,
       d.descricao_item AS descricaoProcedimento,
       d.nome_beneficiario AS pacienteNome,
       d.valor_glosa AS valorGlosado,
       COALESCE(d.valor_recurso, d.valor_glosa) AS valorRecursado,
-      d.valor_pago AS valorRecebido,
-      d.data_pagamento AS dataPagamento,
+      d.valor_pago AS valorPagoOriginal,
+      d.data_pagamento AS dataPagamentoOriginal,
       d.recurso_status AS status,
       d.codigo_glosa AS motivoGlosa,
       d.justificativa_recurso AS justificativa
     FROM demonstrativo d
     WHERE d.recurso_id = ${Number(loteId)}
+      AND d.estabelecimentoId = ${Number(lote.estabelecimentoId)}
+      AND d.convenio_id = ${Number(lote.convenioId)}
     ORDER BY d.nome_beneficiario, d.numero_guia, d.id
   `));
 
   const [concRows] = await db.execute(sql.raw(`
     SELECT
       ca.id,
+      ca.estabelecimentoId AS estabelecimentoId,
+      ca.convenioId AS convenioId,
       ca.numeroGuia AS guiaNumero,
+      '' AS pacienteCarteirinha,
       ca.codigoItem AS codigoProcedimento,
       ca.descricaoItem AS descricaoProcedimento,
       ca.pacienteNome,
       ca.valorGlosa AS valorGlosado,
       COALESCE(ca.valorRecurso, ca.valorGlosa) AS valorRecursado,
-      ca.valorPago AS valorRecebido,
-      NULL AS dataPagamento,
+      ca.valorPago AS valorPagoOriginal,
+      NULL AS dataPagamentoOriginal,
       ca.statusRecursoItem AS status,
       ca.codigoGlosa AS motivoGlosa,
       '' AS justificativa
     FROM conciliados_automatico ca
     WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
+      AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
+      AND ca.convenioId = ${Number(lote.convenioId)}
     ORDER BY ca.pacienteNome, ca.numeroGuia, ca.id
   `));
 
   const recursosDoLote = await db
     .select()
     .from(recursosGlosa)
-    .where(eq(recursosGlosa.loteId, loteId))
+    .where(and(
+      eq(recursosGlosa.loteId, loteId),
+      eq(recursosGlosa.estabelecimentoId, lote.estabelecimentoId),
+      eq(recursosGlosa.convenioId, lote.convenioId),
+    ))
     .orderBy(recursosGlosa.createdAt);
 
-  // Buscar convênio
   const [convenio] = lote.convenioId
     ? await db.select().from(convenios).where(eq(convenios.id, lote.convenioId)).limit(1)
     : [null];
-
-  // Buscar estabelecimento
   const [estabelecimento] = lote.estabelecimentoId
     ? await db.select().from(estabelecimentos).where(eq(estabelecimentos.id, lote.estabelecimentoId)).limit(1)
     : [null];
 
-  const itensDemonstrativo = (demoRows as unknown as any[]).map(r => ({
-    ...r,
-    chaveItem: `demonstrativo-${r.id}`,
-    fonte: "demonstrativo",
-    editavelPagamento: false,
-    valorGlosado: String(r.valorGlosado || "0"),
-    valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
-    valorRecebido: String(r.valorRecebido || "0"),
-  }));
-
-  const itensConciliacao = (concRows as unknown as any[]).map(r => ({
-    ...r,
-    chaveItem: `conciliacao-${r.id}`,
-    fonte: "conciliacao",
-    editavelPagamento: false,
-    valorGlosado: String(r.valorGlosado || "0"),
-    valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
-    valorRecebido: String(r.valorRecebido || "0"),
-  }));
-
-  const itensLegados = recursosDoLote.map(r => ({
-    id: r.id,
-    chaveItem: `recursos_glosa-${r.id}`,
-    fonte: "recursos_glosa",
-    editavelPagamento: true,
-    guiaNumero: r.guiaNumero,
-    codigoProcedimento: r.codigoProcedimento,
-    descricaoProcedimento: r.descricaoProcedimento,
-    pacienteNome: r.pacienteNome,
-    valorGlosado: r.valorGlosado,
-    valorRecursado: r.valorCobrado,
-    valorRecebido: r.valorRecebido || "0",
-    dataPagamento: r.dataPagamento,
-    status: r.status,
-    motivoGlosa: r.motivoGlosaConvenio,
-    justificativa: r.justificativaRecurso,
-  }));
+  const itensDemonstrativo = (demoRows as unknown as any[])
+    .filter(item => itemPertenceAoLote(item, lote))
+    .map(item => normalizarItemFinanceiroRecurso({
+      ...item,
+      chaveItem: `demonstrativo-${item.id}`,
+      editavelPagamento: false,
+      valorGlosado: textoMoedaRecurso(item.valorGlosado),
+      valorRecursado: textoMoedaRecurso(item.valorRecursado ?? item.valorGlosado),
+    }, "demonstrativo"));
+  const itensConciliacao = (concRows as unknown as any[])
+    .filter(item => itemPertenceAoLote(item, lote))
+    .map(item => normalizarItemFinanceiroRecurso({
+      ...item,
+      chaveItem: `conciliacao-${item.id}`,
+      editavelPagamento: false,
+      valorGlosado: textoMoedaRecurso(item.valorGlosado),
+      valorRecursado: textoMoedaRecurso(item.valorRecursado ?? item.valorGlosado),
+    }, "conciliacao"));
+  const itensLegados = recursosDoLote
+    .filter((item: any) => itemPertenceAoLote(item, lote))
+    .map((item: any) => normalizarItemFinanceiroRecurso({
+      ...item,
+      chaveItem: `recursos_glosa-${item.id}`,
+      editavelPagamento: true,
+      valorGlosado: textoMoedaRecurso(item.valorGlosado),
+      valorRecursado: textoMoedaRecurso(item.valorCobrado),
+      motivoGlosa: item.motivoGlosaConvenio,
+      justificativa: item.justificativaRecurso,
+    }, "recursos_glosa"));
 
   let itens: any[] = [...itensDemonstrativo, ...itensConciliacao, ...itensLegados];
 
-  // Lotes muito antigos podem conservar somente o XML enviado.
+  // XML enviado é apenas uma reconstrução de itens solicitados: sem prova de
+  // recebimento/acatamento, ambos permanecem explicitamente em zero.
   if (itens.length === 0 && lote.xmlUrl) {
-    const exportacao = await getRecursosLoteParaExportacao(loteId);
-    itens = (exportacao?.recursos || []).map((r: any, index: number) => ({
-      id: r.id || index + 1,
-      chaveItem: r.chaveItem || `xml_lote-${index + 1}`,
-      fonte: r.fonte || "xml_lote",
+    const exportacao = await getRecursosLoteParaExportacao(loteId, db);
+    itens = (exportacao?.recursos || []).map((item: any, index: number) => normalizarItemFinanceiroRecurso({
+      id: item.id || index + 1,
+      chaveItem: item.chaveItem || `xml_lote-${index + 1}`,
       editavelPagamento: false,
-      guiaNumero: r.guia,
-      codigoProcedimento: r.codigoProcedimento,
-      descricaoProcedimento: r.descricaoProcedimento,
-      pacienteNome: r.paciente,
-      valorGlosado: String(r.valorGlosado || "0"),
-      valorRecursado: String(r.valorRecursado || r.valorGlosado || "0"),
-      valorRecebido: String(r.valorRecebido || "0"),
-      dataPagamento: r.dataPagamento || null,
-      status: r.status,
-      motivoGlosa: r.motivoGlosa,
-      justificativa: r.descricaoRecurso,
-    }));
+      guiaNumero: item.guia,
+      pacienteCarteirinha: item.carteirinha,
+      codigoProcedimento: item.codigoProcedimento,
+      descricaoProcedimento: item.descricaoProcedimento,
+      pacienteNome: item.paciente,
+      valorGlosado: textoMoedaRecurso(item.valorGlosado),
+      valorRecursado: textoMoedaRecurso(item.valorRecursado ?? item.valorGlosado),
+      valorPagoOriginal: null,
+      dataPagamentoOriginal: null,
+      status: item.status,
+      motivoGlosa: item.motivoGlosa,
+      justificativa: item.descricaoRecurso,
+    }, "xml_lote"));
   }
+
+  const resumoValores = resumoFinanceiroItensRecurso(itens);
+  const totalHistoricoRecebido = textoMoedaRecurso(lote.valorTotalRecebido);
+  const totalHistoricoAcatado = textoMoedaRecurso(lote.valorTotalRecuperado);
+  const divergenciaHistoricoRecebido = textoMoedaRecurso(
+    decimalRecurso(totalHistoricoRecebido).minus(decimalRecurso(resumoValores.totalValorRecebidoRecurso)),
+  );
+  const divergenciaHistoricoAcatado = textoMoedaRecurso(
+    decimalRecurso(totalHistoricoAcatado).minus(decimalRecurso(resumoValores.totalValorAcatado)),
+  );
 
   return {
     ...lote,
     convenioNome: convenio?.nome || "Não informado",
     estabelecimentoNome: estabelecimento?.nome || "Não informado",
     recursos: itens,
-    itens: itens,
+    itens,
     totalRecursos: itens.length,
     itensRegistrados: Number(lote.quantidadeItens || 0),
     itensLocalizados: itens.length,
     historicoIncompleto: itens.length < Number(lote.quantidadeItens || 0),
-    valorTotalRecebido: lote.valorTotalRecebido || "0",
+    // Alias consumido pela tela: recebido comprovado no recurso, não pago original.
+    valorTotalRecebido: resumoValores.totalValorRecebidoRecurso,
+    valorTotalRecebidoRecurso: resumoValores.totalValorRecebidoRecurso,
+    valorTotalRecuperado: resumoValores.totalValorAcatado,
+    valorTotalAcatado: resumoValores.totalValorAcatado,
+    valorTotalPagoOriginal: resumoValores.totalValorPagoOriginal,
+    totalHistoricoRecebido,
+    totalHistoricoAcatado,
+    divergenciaHistoricoRecebido,
+    divergenciaHistoricoAcatado,
+    inconsistenciaHistoricoRecebido: !decimalRecurso(divergenciaHistoricoRecebido).isZero(),
+    inconsistenciaHistoricoAcatado: !decimalRecurso(divergenciaHistoricoAcatado).isZero(),
+    fontesValores: {
+      pagamentoOriginal: "demonstrativo.valor_pago | conciliados_automatico.valorPago",
+      recebimentoRecurso: "recursosGlosa.valorRecebido",
+      acatamento: "recursosGlosa.valorRecuperado (deferido/deferido_parcial)",
+      historicoLote: "lotesRecurso (somente rastreabilidade)",
+    },
   };
 }
-
 
 // ============ PADRÕES DE COBRANÇA E INSIGHTS DE IA ============
 
@@ -9960,8 +10149,8 @@ export async function criarLoteRecurso(params: {
   protocoloEnvio?: string;
   dataInicioConta?: string;
   dataFimConta?: string;
-}): Promise<{ loteId: number; numeroLote: string }> {
-  const db = await getDb();
+}, dbOverride?: any): Promise<{ loteId: number; numeroLote: string }> {
+  const db = dbOverride ?? await getDb();
   if (!db) throw new Error("Database not available");
 
   // Separar IDs por fonte
@@ -9986,100 +10175,115 @@ export async function criarLoteRecurso(params: {
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
   const numeroLote = `L${ano}${mes}${dia}${hora}${minuto}${random}`;
 
-  let valorTotalGlosado = 0;
-  let valorTotalRecursado = 0;
+  let valorTotalGlosado = new DecimalRecurso(0);
+  let valorTotalRecursado = new DecimalRecurso(0);
   let totalItens = 0;
 
-  // Buscar itens do DEMONSTRATIVO para calcular totais
-  if (demoIds.length > 0) {
-    const demoIdsStr = demoIds.join(',');
-    const [demoRows2] = await db.execute(sql.raw(`
-      SELECT id, COALESCE(valor_glosa, 0) as valorGlosa, COALESCE(valor_recurso, valor_glosa, 0) as valorRecurso
-      FROM demonstrativo
-      WHERE id IN (${demoIdsStr})
-        AND estabelecimentoId = ${params.estabelecimentoId}
-        AND convenio_id = ${params.convenioId}
-    `));
-    const demoArray = demoRows2 as unknown as any[];
-    if (demoArray.length !== demoIds.length) {
-      throw new Error("Um ou mais itens do demonstrativo não pertencem ao estabelecimento e convênio do lote");
+  return db.transaction(async (tx: any) => {
+    // As leituras e os vínculos são uma única reserva atômica: nenhum item pode
+    // ser escolhido por dois lotes enquanto esta transação está aberta.
+    if (demoIds.length > 0) {
+      const [demoRows2] = await tx.execute(sql`
+        SELECT id, COALESCE(valor_glosa, 0) as valorGlosa, COALESCE(valor_recurso, valor_glosa, 0) as valorRecurso
+        FROM demonstrativo
+        WHERE id IN (${sql.join(demoIds.map(id => sql`${id}`), sql`, `)})
+          AND estabelecimentoId = ${params.estabelecimentoId}
+          AND convenio_id = ${params.convenioId}
+          AND recurso_status = 'recurso_criado'
+          AND recurso_id IS NULL
+        FOR UPDATE
+      `);
+      const demoArray = demoRows2 as unknown as any[];
+      const demoElegiveis = new Set(demoArray.map(item => Number(item.id)));
+      if (demoArray.length !== demoIds.length || demoIds.some(id => !demoElegiveis.has(id))) {
+        throw new Error("Um ou mais itens do demonstrativo não pertencem ao estabelecimento e convênio do lote");
+      }
+      for (const item of demoArray) {
+        valorTotalGlosado = valorTotalGlosado.plus(decimalRecurso(item.valorGlosa));
+        valorTotalRecursado = valorTotalRecursado.plus(decimalRecurso(item.valorRecurso ?? item.valorGlosa));
+      }
+      totalItens += demoArray.length;
     }
-    for (const item of demoArray) {
-      valorTotalGlosado += parseFloat(item.valorGlosa || "0");
-      valorTotalRecursado += parseFloat(item.valorRecurso || item.valorGlosa || "0");
-    }
-    totalItens += demoArray.length;
-  }
 
-  // Buscar itens da CONCILIAÇÃO para calcular totais
-  if (concIds.length > 0) {
-    const concIdsStr = concIds.join(',');
-    const [concRows2] = await db.execute(sql.raw(`
-      SELECT id, COALESCE(valorGlosa, 0) as valorGlosa, COALESCE(valorRecurso, valorGlosa, 0) as valorRecurso
-      FROM conciliados_automatico
-      WHERE id IN (${concIdsStr})
-        AND estabelecimentoId = ${params.estabelecimentoId}
-        AND convenioId = ${params.convenioId}
-    `));
-    const concArray = concRows2 as unknown as any[];
-    if (concArray.length !== concIds.length) {
-      throw new Error("Um ou mais itens da conciliação não pertencem ao estabelecimento e convênio do lote");
+    if (concIds.length > 0) {
+      const [concRows2] = await tx.execute(sql`
+        SELECT id, COALESCE(valorGlosa, 0) as valorGlosa, COALESCE(valorRecurso, valorGlosa, 0) as valorRecurso
+        FROM conciliados_automatico
+        WHERE id IN (${sql.join(concIds.map(id => sql`${id}`), sql`, `)})
+          AND estabelecimentoId = ${params.estabelecimentoId}
+          AND convenioId = ${params.convenioId}
+          AND statusRecursoItem = 'iniciado'
+          AND xmlRecursoLoteId IS NULL
+        FOR UPDATE
+      `);
+      const concArray = concRows2 as unknown as any[];
+      const concElegiveis = new Set(concArray.map(item => Number(item.id)));
+      if (concArray.length !== concIds.length || concIds.some(id => !concElegiveis.has(id))) {
+        throw new Error("Um ou mais itens da conciliação não pertencem ao estabelecimento e convênio do lote");
+      }
+      for (const item of concArray) {
+        valorTotalGlosado = valorTotalGlosado.plus(decimalRecurso(item.valorGlosa));
+        valorTotalRecursado = valorTotalRecursado.plus(decimalRecurso(item.valorRecurso ?? item.valorGlosa));
+      }
+      totalItens += concArray.length;
     }
-    for (const item of concArray) {
-      valorTotalGlosado += parseFloat(item.valorGlosa || "0");
-      valorTotalRecursado += parseFloat(item.valorRecurso || item.valorGlosa || "0");
+
+    // Preparação/exportação não confirma envio nem prazo contratual de resposta.
+    const [result] = await tx.insert(lotesRecurso).values({
+      convenioId: params.convenioId,
+      estabelecimentoId: params.estabelecimentoId,
+      userId: params.userId,
+      numeroLote,
+      descricao: params.descricao || `Lote de recursos - ${totalItens} itens`,
+      valorTotalGlosado: textoMoedaRecurso(valorTotalGlosado),
+      valorTotalRecursado: textoMoedaRecurso(valorTotalRecursado),
+      valorTotalRecuperado: "0",
+      quantidadeItens: totalItens,
+      status: "pendente_envio",
+      protocoloEnvio: params.protocoloEnvio || null,
+      dataPrazoResposta: null,
+      createdAt: new Date(),
+    });
+
+    const loteId = Number(result?.insertId);
+    if (!Number.isInteger(loteId) || loteId <= 0) {
+      throw new Error("Não foi possível criar o lote de recursos");
     }
-    totalItens += concArray.length;
-  }
 
-  // Calcular prazo de resposta (30 dias úteis após criação - padrão ANS)
-  const dataPrazoResposta = new Date(dataAtual);
-  dataPrazoResposta.setDate(dataPrazoResposta.getDate() + 30);
+    // Preparar o vínculo sem declarar envio: conserva recurso_criado.
+    if (demoIds.length > 0) {
+      const [demoUpdate] = await tx.execute(sql`
+        UPDATE demonstrativo
+        SET recurso_id = ${loteId}
+        WHERE id IN (${sql.join(demoIds.map(id => sql`${id}`), sql`, `)})
+          AND estabelecimentoId = ${params.estabelecimentoId}
+          AND convenio_id = ${params.convenioId}
+          AND recurso_status = 'recurso_criado'
+          AND recurso_id IS NULL
+      `);
+      if (Number((demoUpdate as any)?.affectedRows) !== demoIds.length) {
+        throw new Error("Não foi possível reservar todos os itens do demonstrativo para o lote");
+      }
+    }
 
-  // Criar o lote
-  const [result] = await db.insert(lotesRecurso).values({
-    convenioId: params.convenioId,
-    estabelecimentoId: params.estabelecimentoId,
-    userId: params.userId,
-    numeroLote,
-    descricao: params.descricao || `Lote de recursos - ${totalItens} itens`,
-    valorTotalGlosado: valorTotalGlosado.toFixed(2),
-    valorTotalRecursado: valorTotalRecursado.toFixed(2),
-    valorTotalRecuperado: "0",
-    quantidadeItens: totalItens,
-    status: "pendente_envio",
-    protocoloEnvio: params.protocoloEnvio || null,
-    dataPrazoResposta,
-    createdAt: new Date(),
+    // Preparar o vínculo sem alterar o estado existente iniciado.
+    if (concIds.length > 0) {
+      const [concUpdate] = await tx.execute(sql`
+        UPDATE conciliados_automatico
+        SET xmlRecursoLoteId = ${loteId}
+        WHERE id IN (${sql.join(concIds.map(id => sql`${id}`), sql`, `)})
+          AND estabelecimentoId = ${params.estabelecimentoId}
+          AND convenioId = ${params.convenioId}
+          AND statusRecursoItem = 'iniciado'
+          AND xmlRecursoLoteId IS NULL
+      `);
+      if (Number((concUpdate as any)?.affectedRows) !== concIds.length) {
+        throw new Error("Não foi possível reservar todos os itens da conciliação para o lote");
+      }
+    }
+
+    return { loteId, numeroLote };
   });
-
-  const loteId = result.insertId;
-
-  // Atualizar itens do DEMONSTRATIVO: marcar como incluído em lote
-  if (demoIds.length > 0) {
-    const demoIdsStr = demoIds.join(',');
-    await db.execute(sql.raw(`
-      UPDATE demonstrativo
-      SET recurso_id = ${loteId}, recurso_status = 'recurso_enviado'
-      WHERE id IN (${demoIdsStr})
-        AND estabelecimentoId = ${params.estabelecimentoId}
-        AND convenio_id = ${params.convenioId}
-    `));
-  }
-
-  // Atualizar itens da CONCILIAÇÃO: marcar como incluído em lote e gravar xmlRecursoLoteId
-  if (concIds.length > 0) {
-    const concIdsStr = concIds.join(',');
-    await db.execute(sql.raw(`
-      UPDATE conciliados_automatico
-      SET statusRecursoItem = 'recurso_enviado', xmlRecursoLoteId = ${loteId}
-      WHERE id IN (${concIdsStr})
-        AND estabelecimentoId = ${params.estabelecimentoId}
-        AND convenioId = ${params.convenioId}
-    `));
-  }
-
-  return { loteId, numeroLote };
 }
 
 /**
@@ -10208,79 +10412,117 @@ export async function getRecursosDoConvenio(params: {
 
 
 /**
- * Busca recursos de um lote para exportação com dados detalhados
+ * Busca recursos de um lote para exportação com dados detalhados.
+ * Pagamento do demonstrativo/conciliação é preservado como fato original e
+ * nunca é reinterpretado como recebimento do recurso.
  */
-export async function getRecursosLoteParaExportacao(loteId: number) {
-  const db = await getDb();
+export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?: any) {
+  const db = dbOverride ?? await getDb();
   if (!db) return null;
 
-  // Buscar lote
   const [lote] = await db
     .select()
     .from(lotesRecurso)
     .where(eq(lotesRecurso.id, loteId))
     .limit(1);
-
   if (!lote) return null;
 
-  // Buscar recursos do lote - SISTEMA NOVO (demonstrativo + conciliados_automatico) + ANTIGO (recursosGlosa)
   const [demoItems] = await db.execute(sql.raw(`
-    SELECT 
-      d.id, d.numero_guia as guiaNumero, d.nome_beneficiario as pacienteNome,
-      d.carteira_beneficiario as pacienteCarteirinha,
-      COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento) as dataGlosa,
-      d.valor_glosa as valorGlosado, COALESCE(d.valor_recurso, d.valor_glosa) as valorRecursado,
-      d.codigo_glosa as motivoGlosaConvenio, d.justificativa_recurso as justificativaRecurso,
-      d.codigo_item as codigoProcedimento, d.descricao_item as descricaoProcedimento,
-      d.recurso_status as status, d.valor_recurso as valorRecuperado,
-      d.quantidade as quantidade, d.valor_pago as valorRecebido, d.data_pagamento as dataPagamento,
-      'demonstrativo' as fonte
+    SELECT
+      d.id,
+      d.estabelecimentoId AS estabelecimentoId,
+      d.convenio_id AS convenioId,
+      d.numero_guia AS guiaNumero,
+      d.nome_beneficiario AS pacienteNome,
+      d.carteira_beneficiario AS pacienteCarteirinha,
+      COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento) AS dataGlosa,
+      d.valor_glosa AS valorGlosado,
+      COALESCE(d.valor_recurso, d.valor_glosa) AS valorRecursado,
+      d.codigo_glosa AS motivoGlosaConvenio,
+      d.justificativa_recurso AS justificativaRecurso,
+      d.codigo_item AS codigoProcedimento,
+      d.descricao_item AS descricaoProcedimento,
+      d.recurso_status AS status,
+      d.quantidade AS quantidade,
+      d.valor_pago AS valorPagoOriginal,
+      d.data_pagamento AS dataPagamentoOriginal,
+      'demonstrativo' AS fonte
     FROM demonstrativo d
-    WHERE d.recurso_id = ${loteId}
+    WHERE d.recurso_id = ${Number(loteId)}
+      AND d.estabelecimentoId = ${Number(lote.estabelecimentoId)}
+      AND d.convenio_id = ${Number(lote.convenioId)}
     ORDER BY d.nome_beneficiario, d.numero_guia
   `));
 
   const [concItems] = await db.execute(sql.raw(`
-    SELECT 
-      ca.id, ca.numeroGuia as guiaNumero, ca.pacienteNome,
-      '' as pacienteCarteirinha,
-      ca.dataExecucao as dataGlosa,
-      ca.valorGlosa as valorGlosado, COALESCE(ca.valorRecurso, ca.valorGlosa) as valorRecursado,
-      ca.codigoGlosa as motivoGlosaConvenio, '' as justificativaRecurso,
-      ca.codigoItem as codigoProcedimento, ca.descricaoItem as descricaoProcedimento,
-      ca.statusRecursoItem as status, ca.valorRecurso as valorRecuperado,
-      ca.quantidade as quantidade, ca.valorPago as valorRecebido, NULL as dataPagamento,
-      'conciliacao' as fonte
+    SELECT
+      ca.id,
+      ca.estabelecimentoId AS estabelecimentoId,
+      ca.convenioId AS convenioId,
+      ca.numeroGuia AS guiaNumero,
+      ca.pacienteNome,
+      '' AS pacienteCarteirinha,
+      ca.dataExecucao AS dataGlosa,
+      ca.valorGlosa AS valorGlosado,
+      COALESCE(ca.valorRecurso, ca.valorGlosa) AS valorRecursado,
+      ca.codigoGlosa AS motivoGlosaConvenio,
+      '' AS justificativaRecurso,
+      ca.codigoItem AS codigoProcedimento,
+      ca.descricaoItem AS descricaoProcedimento,
+      ca.statusRecursoItem AS status,
+      ca.quantidade AS quantidade,
+      ca.valorPago AS valorPagoOriginal,
+      NULL AS dataPagamentoOriginal,
+      'conciliacao' AS fonte
     FROM conciliados_automatico ca
-    WHERE ca.xmlRecursoLoteId = ${loteId}
+    WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
+      AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
+      AND ca.convenioId = ${Number(lote.convenioId)}
     ORDER BY ca.pacienteNome, ca.numeroGuia
   `));
 
-  // Fallback: buscar da tabela antiga recursosGlosa
   const recursosAntigos = await db
     .select()
     .from(recursosGlosa)
-    .where(eq(recursosGlosa.loteId, loteId))
+    .where(and(
+      eq(recursosGlosa.loteId, loteId),
+      eq(recursosGlosa.estabelecimentoId, lote.estabelecimentoId),
+      eq(recursosGlosa.convenioId, lote.convenioId),
+    ))
     .orderBy(recursosGlosa.pacienteNome, recursosGlosa.guiaNumero);
 
-  // Combinar todas as fontes persistidas
   let recursosDoLote: any[] = [
-    ...(demoItems as unknown as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
-    ...(concItems as unknown as any[]).map(r => ({ ...r, valorGlosado: r.valorGlosado ? String(r.valorGlosado) : '0', valorRecursado: r.valorRecursado ? String(r.valorRecursado) : '0' })),
-    ...recursosAntigos.map(r => ({ ...r, fonte: 'antigo' })),
+    ...(demoItems as unknown as any[])
+      .filter(item => itemPertenceAoLote(item, lote))
+      .map(item => normalizarItemFinanceiroRecurso({
+        ...item,
+        valorGlosado: textoMoedaRecurso(item.valorGlosado),
+        valorRecursado: textoMoedaRecurso(item.valorRecursado ?? item.valorGlosado),
+      }, "demonstrativo")),
+    ...(concItems as unknown as any[])
+      .filter(item => itemPertenceAoLote(item, lote))
+      .map(item => normalizarItemFinanceiroRecurso({
+        ...item,
+        valorGlosado: textoMoedaRecurso(item.valorGlosado),
+        valorRecursado: textoMoedaRecurso(item.valorRecursado ?? item.valorGlosado),
+      }, "conciliacao")),
+    ...recursosAntigos
+      .filter((item: any) => itemPertenceAoLote(item, lote))
+      .map((item: any) => normalizarItemFinanceiroRecurso({
+        ...item,
+        valorGlosado: textoMoedaRecurso(item.valorGlosado),
+        valorRecursado: textoMoedaRecurso(item.valorCobrado),
+      }, "antigo")),
   ];
 
-  // Lotes históricos podem ter perdido o vínculo com os itens após uma
-  // reimportação do demonstrativo. Nesses casos, reconstruir a planilha pelos
-  // XMLs do próprio lote, obtendo URLs assinadas novas pelo storage.
+  // XML enviado contém o pedido, não resposta/baixa do recurso. Fallback não
+  // deve inferir recebimento ou acatamento a partir de valores solicitados.
   if (recursosDoLote.length === 0 && lote.xmlUrl) {
-    const urlsXml = lote.xmlUrl.split(',').map(url => url.trim()).filter(Boolean);
+    const urlsXml = lote.xmlUrl.split(',').map((url: string) => url.trim()).filter(Boolean);
     const itensXml: any[] = [];
-
     for (const urlAntiga of urlsXml) {
       const chave = extrairChaveXmlDaUrl(urlAntiga);
       if (!chave) continue;
-
       try {
         const { url } = await storageGet(chave);
         const response = await fetch(url);
@@ -10290,7 +10532,6 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
         }
         const xml = await response.text();
         const itens = extrairRecursosDoXml(xml);
-
         for (const item of itens) {
           const [complemento] = await db
             .select({
@@ -10301,93 +10542,119 @@ export async function getRecursosLoteParaExportacao(loteId: number) {
             .from(demonstrativo)
             .where(and(
               eq(demonstrativo.estabelecimentoId, lote.estabelecimentoId),
+              eq(demonstrativo.convenioId, lote.convenioId),
               eq(demonstrativo.numeroGuia, item.guiaNumero),
               eq(demonstrativo.codigoItem, item.codigoProcedimento),
             ))
             .limit(1);
-
-          itensXml.push({
+          itensXml.push(normalizarItemFinanceiroRecurso({
             id: `xml-${itensXml.length + 1}`,
             guiaNumero: item.guiaNumero,
-            pacienteNome: complemento?.pacienteNome || 'N/A',
-            pacienteCarteirinha: complemento?.pacienteCarteirinha || '',
+            pacienteNome: complemento?.pacienteNome || "N/A",
+            pacienteCarteirinha: complemento?.pacienteCarteirinha || "",
             dataGlosa: item.dataAtendimento,
-            valorGlosado: String(item.valorRecursado),
-            valorRecursado: String(item.valorRecursado),
+            valorGlosado: textoMoedaRecurso(item.valorRecursado),
+            valorRecursado: textoMoedaRecurso(item.valorRecursado),
             motivoGlosaConvenio: item.codigoGlosa,
             justificativaRecurso: item.justificativa,
             codigoProcedimento: item.codigoProcedimento,
             descricaoProcedimento: item.descricaoProcedimento,
-            status: 'recurso_enviado',
-            valorRecuperado: '0',
-            fonte: 'xml_lote',
-            quantidade: complemento?.quantidade || '1',
+            // O XML comprova apenas o artefato preparado; não confirma envio.
+            status: lote.status,
+            fonte: "xml_lote",
+            quantidade: complemento?.quantidade || "1",
             protocoloDP: item.protocoloDP,
-          });
+            valorPagoOriginal: null,
+            dataPagamentoOriginal: null,
+          }, "xml_lote"));
         }
       } catch (error) {
         console.warn(`[Recurso Excel] Não foi possível recuperar o XML ${chave}:`, error);
       }
     }
-
     recursosDoLote = itensXml;
   }
 
-  // Buscar convênio
   const [convenio] = lote.convenioId
     ? await db.select().from(convenios).where(eq(convenios.id, lote.convenioId)).limit(1)
     : [null];
 
-  // Formatar dados para exportação - Padrão Unimed
-  const dadosExportacao = recursosDoLote.map((recurso, index) => ({
-    id: recurso.id,
-    chaveItem: `${recurso.fonte || 'recursos_glosa'}-${recurso.id || index + 1}`,
-    fonte: recurso.fonte || 'recursos_glosa',
-    editavelPagamento: recurso.fonte === 'antigo',
-    // Campos padrão
-    numero: index + 1,
-    paciente: recurso.pacienteNome || "N/A",
-    guia: recurso.guiaNumero || "N/A",
-    carteirinha: recurso.pacienteCarteirinha || "N/A",
-    dataItem: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "N/A",
-    valorGlosado: recurso.valorGlosado ? parseFloat(String(recurso.valorGlosado)) : 0,
-    valorRecursado: recurso.valorRecursado ? parseFloat(String(recurso.valorRecursado)) : (recurso.valorGlosado ? parseFloat(String(recurso.valorGlosado)) : 0),
-    motivoGlosa: recurso.motivoGlosaConvenio || "N/A",
-    descricaoRecurso: recurso.justificativaRecurso || recurso.justificativa || "N/A",
-    codigoProcedimento: recurso.codigoProcedimento || "N/A",
-    descricaoProcedimento: recurso.descricaoProcedimento || "N/A",
-    status: recurso.status,
-    valorRecuperado: recurso.valorRecuperado ? parseFloat(String(recurso.valorRecuperado)) : 0,
-    // Campos de pagamento
-    valorRecebido: (recurso as any).valorRecebido ? parseFloat((recurso as any).valorRecebido) : 0,
-    dataPagamento: (recurso as any).dataPagamento ? new Date((recurso as any).dataPagamento).toLocaleDateString("pt-BR") : "",
-    // Campos adicionais para padrão Unimed
-    sequencial: index + 1,
-    protocoloDP: recurso.protocoloDP || lote.protocoloEnvio || "",
-    seqDP: recurso.guiaNumero || "",
-    codigoBeneficiario: recurso.pacienteCarteirinha || "",
-    dataAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
-    periodoAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
-    codigoServico: recurso.codigoProcedimento || "",
-    descricao: recurso.descricaoProcedimento || "",
-    participacao: "",
-    quantidade: recurso.quantidade ? parseFloat(String(recurso.quantidade)) : 1,
-    localAtendimento: "",
-    justificativaPagamento: recurso.justificativaRecurso || "",
-    anexo: "",
-    qtdeAcatado: recurso.status === "deferido" ? 1 : 0,
-    valorAcatado: recurso.status === "deferido" ? (recurso.valorRecuperado ? parseFloat(recurso.valorRecuperado) : 0) : 0,
-    pagoPeloCodigo: "",
-    observacoes: (recurso as any).observacoesPagamento || "",
-  }));
+  const dadosExportacao = recursosDoLote.map((recurso, index) => {
+    const valorGlosado = numeroMoedaRecurso(recurso.valorGlosado);
+    const valorRecursado = numeroMoedaRecurso(recurso.valorRecursado ?? recurso.valorGlosado);
+    const valorPagoOriginal = recurso.valorPagoOriginal === null ? null : numeroMoedaRecurso(recurso.valorPagoOriginal);
+    const valorRecebidoRecurso = numeroMoedaRecurso(recurso.valorRecebidoRecurso);
+    const valorAcatado = numeroMoedaRecurso(recurso.valorAcatado);
+    return {
+      id: recurso.id,
+      chaveItem: `${recurso.fonte || "recursos_glosa"}-${recurso.id || index + 1}`,
+      fonte: recurso.fonte || "recursos_glosa",
+      editavelPagamento: recurso.fonte === "antigo" || recurso.fonte === "recursos_glosa",
+      numero: index + 1,
+      paciente: recurso.pacienteNome || "N/A",
+      guia: recurso.guiaNumero || "N/A",
+      carteirinha: recurso.pacienteCarteirinha || "N/A",
+      dataItem: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "N/A",
+      valorGlosado,
+      valorRecursado,
+      motivoGlosa: recurso.motivoGlosaConvenio || recurso.motivoGlosa || "N/A",
+      descricaoRecurso: recurso.justificativaRecurso || recurso.justificativa || "N/A",
+      codigoProcedimento: recurso.codigoProcedimento || "N/A",
+      descricaoProcedimento: recurso.descricaoProcedimento || "N/A",
+      status: recurso.status,
+      valorPagoOriginal,
+      dataPagamentoOriginal: recurso.dataPagamentoOriginal || null,
+      valorRecebidoRecurso,
+      dataRecebimentoRecurso: recurso.dataRecebimentoRecurso || null,
+      // Compatibilidade: aliases representam somente recebimento do recurso.
+      valorRecebido: valorRecebidoRecurso,
+      dataPagamento: recurso.dataRecebimentoRecurso
+        ? new Date(recurso.dataRecebimentoRecurso).toLocaleDateString("pt-BR")
+        : "",
+      valorAcatado,
+      valorRecuperado: valorAcatado,
+      sequencial: index + 1,
+      protocoloDP: recurso.protocoloDP || lote.protocoloEnvio || "",
+      seqDP: recurso.guiaNumero || "",
+      codigoBeneficiario: recurso.pacienteCarteirinha || "",
+      dataAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
+      periodoAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
+      codigoServico: recurso.codigoProcedimento || "",
+      descricao: recurso.descricaoProcedimento || "",
+      participacao: "",
+      quantidade: recurso.quantidade ? Number(recurso.quantidade) : 1,
+      localAtendimento: "",
+      justificativaPagamento: recurso.justificativaRecurso || "",
+      anexo: "",
+      qtdeAcatado: statusComAcatamento(recurso.status) ? 1 : 0,
+      pagoPeloCodigo: "",
+      observacoes: recurso.observacoesPagamento || "",
+    };
+  });
 
-  // Calcular totais
+  const totaisDecimais = {
+    totalValorGlosado: somarMoedasRecurso(dadosExportacao.map(item => item.valorGlosado)),
+    totalValorRecursado: somarMoedasRecurso(dadosExportacao.map(item => item.valorRecursado)),
+    totalValorPagoOriginal: somarMoedasRecurso(dadosExportacao.map(item => item.valorPagoOriginal)),
+    totalValorRecebidoRecurso: somarMoedasRecurso(dadosExportacao.map(item => item.valorRecebidoRecurso)),
+    totalValorAcatado: somarMoedasRecurso(dadosExportacao.map(item => item.valorAcatado)),
+  };
+  const totalHistoricoRecebido = decimalRecurso(lote.valorTotalRecebido);
+  const totalHistoricoAcatado = decimalRecurso(lote.valorTotalRecuperado);
   const totais = {
     totalItens: dadosExportacao.length,
-    totalValorGlosado: dadosExportacao.reduce((sum, r) => sum + r.valorGlosado, 0),
-    totalValorRecursado: dadosExportacao.reduce((sum, r) => sum + r.valorRecursado, 0),
-    totalValorRecuperado: dadosExportacao.reduce((sum, r) => sum + r.valorRecuperado, 0),
-    totalValorRecebido: dadosExportacao.reduce((sum, r) => sum + r.valorRecebido, 0),
+    totalValorGlosado: numeroMoedaRecurso(totaisDecimais.totalValorGlosado),
+    totalValorRecursado: numeroMoedaRecurso(totaisDecimais.totalValorRecursado),
+    totalValorPagoOriginal: numeroMoedaRecurso(totaisDecimais.totalValorPagoOriginal),
+    totalValorRecebidoRecurso: numeroMoedaRecurso(totaisDecimais.totalValorRecebidoRecurso),
+    totalValorAcatado: numeroMoedaRecurso(totaisDecimais.totalValorAcatado),
+    // Aliases existentes: recebimento/acatamento comprovados, não fontes originais.
+    totalValorRecebido: numeroMoedaRecurso(totaisDecimais.totalValorRecebidoRecurso),
+    totalValorRecuperado: numeroMoedaRecurso(totaisDecimais.totalValorAcatado),
+    totalHistoricoRecebido: numeroMoedaRecurso(totalHistoricoRecebido),
+    totalHistoricoAcatado: numeroMoedaRecurso(totalHistoricoAcatado),
+    divergenciaHistoricoRecebido: numeroMoedaRecurso(totalHistoricoRecebido.minus(totaisDecimais.totalValorRecebidoRecurso)),
+    divergenciaHistoricoAcatado: numeroMoedaRecurso(totalHistoricoAcatado.minus(totaisDecimais.totalValorAcatado)),
   };
 
   return {

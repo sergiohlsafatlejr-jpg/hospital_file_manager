@@ -10,6 +10,10 @@ export function isLoteUnimed(lote: LoteParaExportacao): boolean {
   return Number(lote.convenioId) === 1 || descricao.includes("unimed");
 }
 
-export function deveMarcarLoteComoEnviado(lote: LoteParaExportacao | undefined): boolean {
-  return lote?.status === "rascunho" || lote?.status === "pendente_envio";
+/**
+ * Mantido temporariamente para consumidores legados. A geração ou o novo
+ * download de um arquivo nunca confirma o envio externo do lote.
+ */
+export function deveMarcarLoteComoEnviado(_lote: LoteParaExportacao | undefined): boolean {
+  return false;
 }
