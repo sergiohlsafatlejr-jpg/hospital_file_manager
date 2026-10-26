@@ -40,6 +40,7 @@ const DashboardProdutividade = lazy(() => import("./pages/DashboardProdutividade
 const AlterarSenha = lazy(() => import("./pages/AlterarSenha"));
 const ContaDetalhes = lazy(() => import("./pages/ContaDetalhes"));
 const AcompanhamentoRecursos = lazy(() => import("./pages/AcompanhamentoRecursos"));
+const RetornosRecursos = lazy(() => import("./pages/RetornosRecursos"));
 const DashboardIA = lazy(() => import("./pages/DashboardIA"));
 const EnvioRecursosLote = lazy(() => import("./pages/EnvioRecursosLote"));
 const RegrasIA = lazy(() => import("./pages/RegrasIA"));
@@ -187,6 +188,7 @@ function Router() {
         <Route path={"/produtividade"} component={DashboardProdutividade} />
         <Route path={"/alterar-senha"} component={AlterarSenha} />
         <Route path={"/acompanhamento-recursos"} component={AcompanhamentoRecursos} />
+        <Route path={"/retornos-recursos"} component={RetornosRecursos} />
         <Route path={"/dashboard-ia"} component={DashboardIA} />
         <Route path={"/envio-recursos-lote"} component={EnvioRecursosLote} />
         <Route path={"/regras-ia"} component={RegrasIA} />

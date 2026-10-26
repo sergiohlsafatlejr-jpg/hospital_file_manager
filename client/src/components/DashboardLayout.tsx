@@ -160,6 +160,7 @@ const menuItems: MenuItem[] = [
     { icon: Eye, label: "Recursos Analisados", path: "/recursos", modulo: "recursosGlosa" },
     { icon: Package, label: "Criação de Lotes", path: "/envio-recursos-lote", modulo: "recursosGlosa" },
     { icon: History, label: "Acompanhamento Recursos", path: "/acompanhamento-recursos", modulo: "recursosGlosa" },
+    { icon: FileCode2, label: "Retornos de Recursos", path: "/retornos-recursos", modulo: "recursosGlosa" },
   ]},
 
 // Módulo 5 - Relatórios BI (com subpastas)

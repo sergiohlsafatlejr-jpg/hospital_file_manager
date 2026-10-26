@@ -82,6 +82,7 @@ import {
 } from "./procedimentosTabela";
 import { gerarUnimedDbf } from "./unimedDbfExporter";
 import { lerEConsolidarArquivosProcedimentos } from "./procedimentosImportacaoLote";
+import { retornosRecursosRouter } from "./routers/retornosRecursosRouter";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -198,6 +199,7 @@ export const appRouter = router({
   atendimentosBi: atendimentosBiRouter,
   relatorioVisita: relatorioVisitaRouter,
   passwordAuth: passwordAuthRouter,
+  retornosRecursos: retornosRecursosRouter,
   
   auth: router({
     me: publicProcedure.query(({ ctx }) => {

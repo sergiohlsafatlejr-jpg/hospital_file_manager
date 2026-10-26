@@ -19,9 +19,10 @@ import {
   Calendar, 
   DollarSign, 
   FileText, 
+  FileCode2,
   Upload, 
   Clock, 
-  CheckCircle2, 
+  CheckCircle2,
   XCircle, 
   AlertTriangle,
   Search,
@@ -49,6 +50,7 @@ import {
   validarConfirmacaoEnvioManual,
 } from "@/lib/recursoEnvioUi";
 import { isLoteUnimed } from "@/lib/recursoLoteExport";
+import { Link } from "wouter";
 
 const formatCurrency = (value: number | string | null | undefined) => {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -726,6 +728,10 @@ export default function AcompanhamentoRecursos() {
             Envie e acompanhe os lotes de recursos de glosa
           </p>
         </div>
+        <Link href="/retornos-recursos" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+          <FileCode2 className="h-4 w-4" />
+          Ver retornos de recursos
+        </Link>
       </div>
 
       {/* Cards de Resumo */}
