@@ -135,7 +135,10 @@ export async function confirmarEnvioLote(
     `);
     const [conciliadosRows] = await tx.execute(sql`
       SELECT id, estabelecimentoId, convenioId FROM conciliados_automatico
-      WHERE xmlRecursoLoteId = ${input.loteId} FOR UPDATE
+      WHERE xmlRecursoLoteId = ${input.loteId}
+        AND estabelecimentoId = ${escopo.estabelecimentoId}
+        AND convenioId = ${escopo.convenioId}
+      FOR UPDATE
     `);
     const modernos = [
       ...(demonstrativosRows as unknown as Array<EscopoLote>),
