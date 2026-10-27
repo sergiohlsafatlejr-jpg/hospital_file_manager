@@ -114,6 +114,38 @@ describe("interface de contexto médico informativo", () => {
     expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("distingue lista médica vazia de falha ao carregar a lista", () => {
+    const vazio = renderToStaticMarkup(
+      createElement(ContaContextoMedicoConteudo, {
+        resultado: contaContextoMedicoFixture,
+        arquivos: [],
+      })
+    );
+    const erro = renderToStaticMarkup(
+      createElement(ContaContextoMedicoConteudo, {
+        resultado: contaContextoMedicoFixture,
+        arquivos: [],
+        arquivosErrorMessage: "Escopo médico não encontrado.",
+      })
+    );
+    const disponivel = renderToStaticMarkup(
+      createElement(ContaContextoMedicoConteudo, {
+        resultado: contaContextoMedicoFixture,
+        arquivos: [{ id: 9002, nome: "arquivo-sintetico.xml", dataReferencia: "2026-01-12" }],
+      })
+    );
+
+    expect(vazio).toContain("Nenhum arquivo médico elegível");
+    expect(vazio).not.toContain("Não foi possível carregar os arquivos médicos");
+    expect(erro).toContain("Não foi possível carregar os arquivos médicos");
+    expect(erro).toContain("Revise a conta selecionada e tente carregar os arquivos novamente.");
+    expect(erro).not.toContain("Escopo médico não encontrado.");
+    expect(erro).not.toContain("Nenhum arquivo médico elegível");
+    expect(disponivel).toContain("Selecione um arquivo médico");
+    expect(disponivel).not.toContain("Não foi possível carregar os arquivos médicos");
+    expect(disponivel).not.toContain("Nenhum arquivo médico elegível");
+  });
+
   it("mantém grupo alternativo opcional até uma escolha explícita de obrigatoriedade", () => {
     const html = renderToStaticMarkup(
       createElement(GrupoAlternativoFields, {

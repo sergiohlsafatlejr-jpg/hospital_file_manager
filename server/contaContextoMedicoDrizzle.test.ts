@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { describe, expect, it, vi } from "vitest";
 import {
   criarContaContextoMedicoRepositorioDrizzle,
@@ -34,6 +35,23 @@ function respostaXml(conteudo = "<ans:mensagemTISS xmlns:ans=\"urn:ans\" />") {
   });
 }
 
+function repositorioComSnapshot(linhas: unknown[]) {
+  const where = vi.fn(async () => linhas);
+  const from = vi.fn(() => ({ where }));
+  const select = vi.fn(() => ({ from }));
+  return {
+    repositorio: criarContaContextoMedicoRepositorioDrizzle({
+      getDb: async () => ({ select }) as never,
+    }),
+    select,
+    where,
+  };
+}
+
+function filtroSnapshot(where: ReturnType<typeof vi.fn>) {
+  return new MySqlDialect().sqlToQuery(where.mock.calls[0]?.[0] as never);
+}
+
 describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
   it("não abre banco ao construir o repositório e resolve somente o getDb injetado na operação", async () => {
     const getDb = vi.fn(async () => null);
@@ -44,10 +62,10 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
     expect(getDb).toHaveBeenCalledTimes(1);
   });
 
-  it("projeta de faturamento_tiss apenas metadados clínicos e correlação privada, sem campos financeiros", async () => {
+  it("resolve pelo fallback da guia da operadora quando a guia do prestador está ausente", async () => {
     const linhas = [{
-      numeroGuiaPrestador: "GUIA-SINTETICA-1",
-      numeroGuiaOperadora: "OPERADORA-1",
+      numeroGuiaPrestador: null,
+      numeroGuiaOperadora: scope.numeroConta,
       carteiraBeneficiario: "CORRELACAO-PRIVADA",
       dataExecucao: new Date("2026-10-03T12:00:00.000Z"),
       codigoItem: "HOSP-01",
@@ -55,12 +73,7 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
       quantidade: "1.250",
       tipoItem: "PROCEDIMENTO",
     }];
-    const where = vi.fn(async () => linhas);
-    const from = vi.fn(() => ({ where }));
-    const select = vi.fn(() => ({ from }));
-    const repositorio = criarContaContextoMedicoRepositorioDrizzle({
-      getDb: async () => ({ select }) as never,
-    });
+    const { repositorio, select, where } = repositorioComSnapshot(linhas);
 
     const snapshot = await repositorio.resolverSnapshotHospitalar(scope);
 
@@ -68,8 +81,8 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
       scope,
       setorInformado: false,
       referenciasGuias: [{
-        numeroGuiaPrestador: "GUIA-SINTETICA-1",
-        numeroGuiaOperadora: "OPERADORA-1",
+        numeroGuiaPrestador: null,
+        numeroGuiaOperadora: scope.numeroConta,
         beneficiario: "CORRELACAO-PRIVADA",
         datasExecucao: ["2026-10-03"],
       }],
@@ -92,6 +105,56 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
       "tipoItem",
     ]);
     expect(Object.keys(projection).join(" ")).not.toMatch(/valor|recebimento|pagamento/i);
+
+    const filtro = filtroSnapshot(where);
+    expect(filtro.sql).toMatch(
+      /`faturamento_tiss`\.`numero_guia_prestador`\s*=\s*\?\s+or\s+\(coalesce\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\)\s*=\s*''\s+and\s+`faturamento_tiss`\.`numero_guia_operadora`\s*=\s*\?\)/i,
+    );
+    expect(filtro.params).toEqual([
+      scope.arquivoHospitalId,
+      scope.estabelecimentoId,
+      scope.convenioId,
+      scope.numeroConta,
+      scope.numeroConta,
+      scope.numeroLote,
+      scope.competencia,
+    ]);
+  });
+
+  it("bloqueia fallback da operadora quando existe guia do prestador divergente", async () => {
+    const { repositorio, where } = repositorioComSnapshot([]);
+
+    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
+
+    const filtro = filtroSnapshot(where);
+    // A segunda alternativa só é verdadeira quando a guia prestador é nula,
+    // vazia ou contém apenas espaços; uma guia divergente não pode cair nela.
+    expect(filtro.sql).toMatch(
+      /coalesce\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\)\s*=\s*''\s+and\s+`faturamento_tiss`\.`numero_guia_operadora`\s*=\s*\?/i,
+    );
+    expect(filtro.params).toContain(scope.numeroConta);
+  });
+
+  it("mantém lote e competência estritos inclusive no fallback da guia da operadora", async () => {
+    const { repositorio, where } = repositorioComSnapshot([]);
+
+    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
+
+    const filtro = filtroSnapshot(where);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`arquivo_id`\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`estabelecimentoId`\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`convenioId`\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/coalesce\(`faturamento_tiss`\.`numero_lote`, ''\)\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/coalesce\(`faturamento_tiss`\.`competencia`, ''\)\s*=\s*\?/i);
+    expect(filtro.params).toEqual([
+      scope.arquivoHospitalId,
+      scope.estabelecimentoId,
+      scope.convenioId,
+      scope.numeroConta,
+      scope.numeroConta,
+      scope.numeroLote,
+      scope.competencia,
+    ]);
   });
 
   it("separa principais compostos e deduplica sem transformar material em procedimento", async () => {

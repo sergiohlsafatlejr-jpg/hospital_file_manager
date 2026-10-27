@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   arquivos,
   contaContextoMedicoContextos,
@@ -644,8 +644,15 @@ export function criarContaContextoMedicoRepositorioDrizzle(
           eq(faturamentoTiss.arquivoId, scope.arquivoHospitalId),
           eq(faturamentoTiss.estabelecimentoId, scope.estabelecimentoId),
           eq(faturamentoTiss.convenioId, scope.convenioId),
-          // A conta XML é a guia prestador materializada pela tela de contas.
-          eq(faturamentoTiss.numeroGuiaPrestador, scope.numeroConta),
+          // A conta XML materializa a guia prestador. Só quando ela estiver
+          // ausente, a guia da operadora pode representar a mesma conta.
+          or(
+            eq(faturamentoTiss.numeroGuiaPrestador, scope.numeroConta),
+            and(
+              sql`COALESCE(TRIM(${faturamentoTiss.numeroGuiaPrestador}), '') = ''`,
+              eq(faturamentoTiss.numeroGuiaOperadora, scope.numeroConta),
+            ),
+          ),
           sql`COALESCE(${faturamentoTiss.numeroLote}, '') = ${scope.numeroLote}`,
           sql`COALESCE(${faturamentoTiss.competencia}, '') = ${scope.competencia}`,
         ));

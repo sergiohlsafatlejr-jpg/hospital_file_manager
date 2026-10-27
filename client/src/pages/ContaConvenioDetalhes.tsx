@@ -103,6 +103,7 @@ import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR, toInputDateValue } from "@/lib/dateUtils";
 import ContaConvenioWarleineDetalhes from "./ContaConvenioWarleineDetalhes";
 import { ContaContextoMedico, type ContaContextoMedicoScopeState } from "@/components/contas/ContaContextoMedico";
+import { montarScopeContaContextoMedico } from "@/lib/contaContextoMedicoScope";
 
 // Formatar valor em reais
 const formatCurrency = (value: number | string | null | undefined) => {
@@ -308,8 +309,6 @@ function ContaConvenioDetalhesPadrao() {
     {
       numeroConta,
       estabelecimentoId,
-      numeroLote,
-      competencia,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
@@ -569,48 +568,12 @@ function ContaConvenioDetalhesPadrao() {
   const resumoGeral = itensData?.resumoGeral;
   const resumoPorTipo = itensData?.resumoPorTipo || [];
   const contextoMedicoScopeState = useMemo<ContaContextoMedicoScopeState>(() => {
-    const itensXml = itensContaInteira.data?.items.filter((item) => item.origem === "XML") ?? [];
-    if (itensXml.length === 0) {
-      return { ready: false, reason: "O contexto médico é disponível apenas para uma conta proveniente de XML hospitalar." };
-    }
-
-    const arquivoHospitalIds = new Set(
-      itensXml
-        .map((item) => item.arquivoId)
-        .filter((arquivoId): arquivoId is number => typeof arquivoId === "number")
-    );
-    const convenioIds = new Set(
-      itensXml
-        .map((item) => item.convenioId)
-        .filter((convenioId): convenioId is number => typeof convenioId === "number")
-    );
-    const possuiMetadadoAusente = itensXml.some((item) => typeof item.arquivoId !== "number" || typeof item.convenioId !== "number");
-
-    if (possuiMetadadoAusente || arquivoHospitalIds.size !== 1 || convenioIds.size !== 1) {
-      return {
-        ready: false,
-        reason: "Não foi possível determinar de forma única o arquivo hospitalar e o convênio desta conta XML. Revise a origem antes de consultar o contexto médico.",
-      };
-    }
-
-    const arquivoHospitalId = Array.from(arquivoHospitalIds)[0];
-    const convenioId = Array.from(convenioIds)[0];
-    if (arquivoHospitalId === undefined || convenioId === undefined) {
-      return { ready: false, reason: "A origem XML não possui os identificadores necessários para o contexto médico." };
-    }
-
-    return {
-      ready: true,
-      scope: {
-        estabelecimentoId,
-        convenioId,
-        numeroConta,
-        arquivoHospitalId,
-        numeroLote,
-        competencia,
-      },
-    };
-  }, [competencia, estabelecimentoId, itensContaInteira.data?.items, numeroConta, numeroLote]);
+    return montarScopeContaContextoMedico({
+      estabelecimentoId,
+      numeroConta,
+      items: itensContaInteira.data?.items ?? [],
+    });
+  }, [estabelecimentoId, itensContaInteira.data?.items, numeroConta]);
   const itensContaCompleta = itensContaInteira.data?.items ?? [];
   const exibirContextoMedico = itensContaCompleta.length > 0 && itensContaCompleta.every((item) => item.origem === "XML");
 

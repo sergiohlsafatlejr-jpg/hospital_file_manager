@@ -87,6 +87,10 @@ function makeRepository() {
   let contexto: ContextoMedicoPersistido | null = null;
   let parsed = parseResultado();
   const xmlReads = vi.fn(async () => Buffer.from("<xml-sintetico />"));
+  const listarArquivosMedicos = vi.fn(async () => ({
+    arquivos: [{ id: 6, nome: "honorarios-sintetico.xml", tamanho: 128, dataReferencia: "2026-10-03T12:00:00.000Z" }],
+    temProximaPagina: false,
+  }));
   const writes = { fontes: 0, contextos: 0, eventos: 0, financeiro: 0 };
   let hospital: SnapshotHospitalarAutorizado = {
     scope: clone(scopeNormalizado),
@@ -144,10 +148,7 @@ function makeRepository() {
       const same = JSON.stringify(requested) === JSON.stringify(scopeNormalizado);
       return same ? clone(hospital) : null;
     },
-    listarArquivosMedicos: async () => ({
-      arquivos: [{ id: 6, nome: arquivo.nome, tamanho: arquivo.tamanho, dataReferencia: arquivo.dataReferencia }],
-      temProximaPagina: false,
-    }),
+    listarArquivosMedicos,
     obterArquivoMedicoAutorizado: async (requested, arquivoMedicoId) =>
       JSON.stringify(requested) === JSON.stringify(scopeNormalizado) && arquivoMedicoId === 6 ? clone(arquivo) : null,
     lerXmlMedicoAutorizado: xmlReads,
@@ -182,6 +183,7 @@ function makeRepository() {
     eventos,
     writes,
     xmlReads,
+    listarArquivosMedicos,
   };
 }
 
@@ -218,6 +220,16 @@ describe("contaContextoMedicoService — somente informação não financeira", 
       .rejects.toMatchObject({ codigo: "NAO_ENCONTRADO" } satisfies Partial<ContaContextoMedicoErro>);
     expect(fake.xmlReads).not.toHaveBeenCalled();
     expect(fake.fontes).toHaveLength(0);
+  });
+
+  it("não transforma um escopo hospitalar inválido em lista médica vazia", async () => {
+    const fake = makeRepository();
+    const service = criarContaContextoMedicoService({ repositorio: fake.repository, parse: () => fake.parsed });
+    const foreignScope = { ...scope, competencia: "2026/11" };
+
+    await expect(service.listarArquivos({ scope: foreignScope }))
+      .rejects.toMatchObject({ codigo: "NAO_ENCONTRADO" } satisfies Partial<ContaContextoMedicoErro>);
+    expect(fake.listarArquivosMedicos).not.toHaveBeenCalled();
   });
 
   it("recusa guia cuja correlação explícita não confere beneficiário ou data", async () => {
