@@ -5105,3 +5105,5 @@ export type InsertLoteFaturamento = typeof lotesFaturamento.$inferInsert;
 
 // Ledger isolado de respostas de recursos; as tabelas vivem em arquivo próprio.
 export * from "./schema-retornos-recursos";
+// Informação médica e decisão de composição isoladas das tabelas financeiras.
+export * from "./schema-conta-contexto-medico";

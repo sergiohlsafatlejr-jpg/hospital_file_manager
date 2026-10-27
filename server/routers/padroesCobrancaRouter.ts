@@ -1063,6 +1063,8 @@ export const padroesCobrancaRouter = router({
         valorMedio: z.number().optional(),
         categoria: z.enum(['obrigatorio', 'condicional', 'opcional']).default('obrigatorio'),
         grupo: z.string().optional(), // Nome do grupo condicional (ex: "UTI", "Enfermaria")
+        grupoAlternativo: z.string().trim().min(1).optional(),
+        grupoObrigatorio: z.boolean().optional(),
       })),
       observacoes: z.string().optional(),
     }))
@@ -1123,6 +1125,8 @@ export const padroesCobrancaRouter = router({
         valorMedio: z.number().optional(),
         categoria: z.enum(['obrigatorio', 'condicional', 'opcional']).default('obrigatorio'),
         grupo: z.string().optional(), // Nome do grupo condicional (ex: "UTI", "Enfermaria")
+        grupoAlternativo: z.string().trim().min(1).optional(),
+        grupoObrigatorio: z.boolean().optional(),
       })),
       observacoes: z.string().optional(),
     }))

@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { AutocompleteCodigoItem } from "@/components/AutocompleteCodigoItem";
+import { GrupoAlternativoFields } from "@/components/padroes/GrupoAlternativoFields";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,6 +122,8 @@ export default function EditarPadrao() {
         quantidadeMax: item.quantidadeMax ?? item.quantidadeMedia ?? 1,
         categoria: item.categoria || "obrigatorio",
         grupo: item.grupo || undefined,
+        grupoAlternativo: item.grupoAlternativo?.trim() || undefined,
+        grupoObrigatorio: item.grupoAlternativo?.trim() ? item.grupoObrigatorio === true : undefined,
       })),
     });
   };
@@ -384,12 +387,6 @@ export default function EditarPadrao() {
                         <Select value={item.categoria || "obrigatorio"} onValueChange={(v) => {
                           const newItens = [...itens];
                           newItens[idx].categoria = v;
-                          // Se mudar para condicional e não tem grupo, sugerir
-                          if (v === "condicional" && !newItens[idx].grupo) {
-                            // Sugerir grupo baseado no tipo
-                            const tipoGrupo = item.tipo === "DIARIA" ? "Internação" : item.tipo === "TAXA" ? "Taxas" : "";
-                            newItens[idx].grupo = tipoGrupo;
-                          }
                           if (v !== "condicional") {
                             newItens[idx].grupo = "";
                           }
@@ -551,9 +548,6 @@ export default function EditarPadrao() {
                           onClick={() => {
                             const newItens = [...itens];
                             newItens[idx].categoria = "condicional";
-                            if (!newItens[idx].grupo) {
-                              newItens[idx].grupo = item.tipo === "DIARIA" ? "Internação" : "";
-                            }
                             setItens(newItens);
                           }}
                           title="Condicional"
@@ -581,6 +575,17 @@ export default function EditarPadrao() {
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
+                      <div className="col-span-full rounded-md border border-dashed bg-muted/20 p-2">
+                        <GrupoAlternativoFields
+                          id={`editar-item-${idx}`}
+                          value={{ grupoAlternativo: item.grupoAlternativo, grupoObrigatorio: item.grupoObrigatorio }}
+                          onChange={(next) => {
+                            const newItens = [...itens];
+                            newItens[idx] = { ...newItens[idx], ...next };
+                            setItens(newItens);
+                          }}
+                        />
+                      </div>
                     </div>
                   );
                 })}
@@ -590,12 +595,6 @@ export default function EditarPadrao() {
             {/* Datalist para sugestão de grupos */}
             <datalist id="grupos-list">
               {gruposExistentes.map(g => <option key={g} value={g} />)}
-              <option value="UTI" />
-              <option value="Enfermaria" />
-              <option value="Internação" />
-              <option value="Centro Cirúrgico" />
-              <option value="Medicamentos" />
-              <option value="Materiais" />
             </datalist>
           </CardContent>
         </Card>

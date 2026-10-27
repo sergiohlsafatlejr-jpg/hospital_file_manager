@@ -102,6 +102,7 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR, toInputDateValue } from "@/lib/dateUtils";
 import ContaConvenioWarleineDetalhes from "./ContaConvenioWarleineDetalhes";
+import { ContaContextoMedico, type ContaContextoMedicoScopeState } from "@/components/contas/ContaContextoMedico";
 
 // Formatar valor em reais
 const formatCurrency = (value: number | string | null | undefined) => {
@@ -299,6 +300,15 @@ function ContaConvenioDetalhesPadrao() {
       estabelecimentoId,
       tipoItem: tipoFiltro || undefined,
       numeroLote: numeroLote,
+      competencia,
+    },
+    { enabled: !!numeroConta && !!estabelecimentoId }
+  );
+  const itensContaInteira = trpc.contasConvenio.listarItens.useQuery(
+    {
+      numeroConta,
+      estabelecimentoId,
+      numeroLote,
       competencia,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
@@ -558,6 +568,51 @@ function ContaConvenioDetalhesPadrao() {
   const primeiroItem = itensData?.items?.[0];
   const resumoGeral = itensData?.resumoGeral;
   const resumoPorTipo = itensData?.resumoPorTipo || [];
+  const contextoMedicoScopeState = useMemo<ContaContextoMedicoScopeState>(() => {
+    const itensXml = itensContaInteira.data?.items.filter((item) => item.origem === "XML") ?? [];
+    if (itensXml.length === 0) {
+      return { ready: false, reason: "O contexto médico é disponível apenas para uma conta proveniente de XML hospitalar." };
+    }
+
+    const arquivoHospitalIds = new Set(
+      itensXml
+        .map((item) => item.arquivoId)
+        .filter((arquivoId): arquivoId is number => typeof arquivoId === "number")
+    );
+    const convenioIds = new Set(
+      itensXml
+        .map((item) => item.convenioId)
+        .filter((convenioId): convenioId is number => typeof convenioId === "number")
+    );
+    const possuiMetadadoAusente = itensXml.some((item) => typeof item.arquivoId !== "number" || typeof item.convenioId !== "number");
+
+    if (possuiMetadadoAusente || arquivoHospitalIds.size !== 1 || convenioIds.size !== 1) {
+      return {
+        ready: false,
+        reason: "Não foi possível determinar de forma única o arquivo hospitalar e o convênio desta conta XML. Revise a origem antes de consultar o contexto médico.",
+      };
+    }
+
+    const arquivoHospitalId = Array.from(arquivoHospitalIds)[0];
+    const convenioId = Array.from(convenioIds)[0];
+    if (arquivoHospitalId === undefined || convenioId === undefined) {
+      return { ready: false, reason: "A origem XML não possui os identificadores necessários para o contexto médico." };
+    }
+
+    return {
+      ready: true,
+      scope: {
+        estabelecimentoId,
+        convenioId,
+        numeroConta,
+        arquivoHospitalId,
+        numeroLote,
+        competencia,
+      },
+    };
+  }, [competencia, estabelecimentoId, itensContaInteira.data?.items, numeroConta, numeroLote]);
+  const itensContaCompleta = itensContaInteira.data?.items ?? [];
+  const exibirContextoMedico = itensContaCompleta.length > 0 && itensContaCompleta.every((item) => item.origem === "XML");
 
   // ============================================================
   // DADOS CONSOLIDADOS PARA RELATÓRIO DO FATURISTA
@@ -1360,7 +1415,7 @@ function ContaConvenioDetalhesPadrao() {
 
         {/* Tabs: Itens, Divergências e Auditoria */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-7 max-w-5xl">
+          <TabsList className={`grid w-full ${exibirContextoMedico ? "grid-cols-8 max-w-6xl" : "grid-cols-7 max-w-5xl"}`}>
             <TabsTrigger value="itens" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Itens ({itensData?.items?.length || 0})
@@ -1373,6 +1428,12 @@ function ContaConvenioDetalhesPadrao() {
               <Pill className="h-4 w-4" />
               Apoio Clínico
             </TabsTrigger>
+            {exibirContextoMedico ? (
+              <TabsTrigger value="contexto-medico" className="flex items-center gap-2 text-sky-700 bg-sky-50/50 hover:bg-sky-100 data-[state=active]:bg-sky-100 data-[state=active]:text-sky-900 border-x border-white">
+                <Stethoscope className="h-4 w-4" />
+                Contexto médico
+              </TabsTrigger>
+            ) : null}
             <TabsTrigger value="falhas" className="flex items-center gap-2">
               <FileWarning className="h-4 w-4" />
               Falta Doc ({falhasData?.length || 0})
@@ -2084,6 +2145,11 @@ function ContaConvenioDetalhesPadrao() {
               </CardContent>
             </Card>
           </TabsContent>
+          {exibirContextoMedico ? (
+            <TabsContent value="contexto-medico">
+              <ContaContextoMedico scopeState={contextoMedicoScopeState} />
+            </TabsContent>
+          ) : null}
 
           {/* Tab: Falhas de Prontuário */}
           <TabsContent value="falhas">

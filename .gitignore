@@ -109,6 +109,7 @@ temp/
 # Test/debug scripts
 *.mjs
 !scripts/migrations/0137-retornos-restrita.mjs
+!scripts/migrations/0138-contexto-medico-restrita.mjs
 
 # Sample data files
 *.xlsx

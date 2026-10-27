@@ -83,6 +83,7 @@ import {
 import { gerarUnimedDbf } from "./unimedDbfExporter";
 import { lerEConsolidarArquivosProcedimentos } from "./procedimentosImportacaoLote";
 import { retornosRecursosRouter } from "./routers/retornosRecursosRouter";
+import { contaContextoMedicoRouter } from "./routers/contaContextoMedicoRouter";
 
 const PASSWORD_SESSION_MS = 12 * 60 * 60 * 1000;
 const relatorioLaboratorioProcedure = reportProcedure("relLaboratorio");
@@ -8919,6 +8920,7 @@ export const appRouter = router({
 
   // ============ CONTAS CONVÊNIO (OPERACIONAL) ============
   contasConvenio: contasConvenioRouter,
+  contaContextoMedico: contaContextoMedicoRouter,
 
   // ============ FATURAMENTO UNIFICADO & CONCILIAÇÃO CRUZADA ============
   faturamentoUnificado: faturamentoUnificadoRouter,

@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { AutocompleteCodigoItem } from "@/components/AutocompleteCodigoItem";
+import { GrupoAlternativoFields } from "@/components/padroes/GrupoAlternativoFields";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,18 @@ export default function CriarGabarito() {
   const [observacoes, setObservacoes] = useState("");
   const [selectedSetor, setSelectedSetor] = useState<string>("");
   const [selectedConvenioId, setSelectedConvenioId] = useState<string>("");
-  const [itens, setItens] = useState<any[]>([{ codigo: "", descricao: "", tipo: "MAT_MED", frequencia: 100, quantidadeMedia: 1, quantidadeMin: 1, quantidadeMax: 1, valorMedio: 0 }]);
+  const [itens, setItens] = useState<Array<{
+    codigo: string;
+    descricao: string;
+    tipo: string;
+    frequencia: number;
+    quantidadeMedia: number;
+    quantidadeMin: number;
+    quantidadeMax: number;
+    valorMedio: number;
+    grupoAlternativo?: string;
+    grupoObrigatorio?: boolean;
+  }>>([{ codigo: "", descricao: "", tipo: "MAT_MED", frequencia: 100, quantidadeMedia: 1, quantidadeMin: 1, quantidadeMax: 1, valorMedio: 0 }]);
 
   // Query de setores disponíveis
   const setores = trpc.padroesCobranca.listarSetores.useQuery({ estabelecimentoId });
@@ -88,6 +100,8 @@ export default function CriarGabarito() {
         quantidadeMedia: ((item.quantidadeMin ?? 1) + (item.quantidadeMax ?? 1)) / 2,
         quantidadeMin: item.quantidadeMin ?? 1,
         quantidadeMax: item.quantidadeMax ?? 1,
+        grupoAlternativo: item.grupoAlternativo?.trim() || undefined,
+        grupoObrigatorio: item.grupoAlternativo?.trim() ? item.grupoObrigatorio === true : undefined,
       })),
       observacoes: observacoes || undefined,
     });
@@ -354,6 +368,17 @@ export default function CriarGabarito() {
                       <Button size="sm" variant="ghost" className="text-red-500 h-9 w-9 p-0" onClick={() => removeItem(idx)} disabled={itens.length <= 1}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                    </div>
+                    <div className="col-span-full rounded-md border border-dashed bg-muted/20 p-2">
+                      <GrupoAlternativoFields
+                        id={`novo-item-${idx}`}
+                        value={{ grupoAlternativo: item.grupoAlternativo, grupoObrigatorio: item.grupoObrigatorio }}
+                        onChange={(next) => {
+                          const newItens = [...itens];
+                          newItens[idx] = { ...newItens[idx], ...next };
+                          setItens(newItens);
+                        }}
+                      />
                     </div>
                   </div>
                 ))}
