@@ -103,6 +103,7 @@ import { toast } from "sonner";
 import { formatDateBR, formatDateTimeBR, toInputDateValue } from "@/lib/dateUtils";
 import ContaConvenioWarleineDetalhes from "./ContaConvenioWarleineDetalhes";
 import { ContaContextoMedico, type ContaContextoMedicoScopeState } from "@/components/contas/ContaContextoMedico";
+import { ProntuarioPdfAnexos } from "@/components/contas/ProntuarioPdfAnexos";
 import { montarScopeContaContextoMedico } from "@/lib/contaContextoMedicoScope";
 
 // Formatar valor em reais
@@ -2017,7 +2018,7 @@ function ContaConvenioDetalhesPadrao() {
             </Card>
           </TabsContent>
           {/* Tab: Prontuário Clínico */}
-          <TabsContent value="prontuario-clinico">
+          <TabsContent value="prontuario-clinico" className="space-y-4">
             <Card>
               <CardHeader className="bg-blue-50/50">
                 <div className="flex items-center justify-between">
@@ -2107,6 +2108,9 @@ function ContaConvenioDetalhesPadrao() {
                 )}
               </CardContent>
             </Card>
+            {exibirContextoMedico && contextoMedicoScopeState.ready ? (
+              <ProntuarioPdfAnexos scope={contextoMedicoScopeState.scope} />
+            ) : null}
           </TabsContent>
           {exibirContextoMedico ? (
             <TabsContent value="contexto-medico">
