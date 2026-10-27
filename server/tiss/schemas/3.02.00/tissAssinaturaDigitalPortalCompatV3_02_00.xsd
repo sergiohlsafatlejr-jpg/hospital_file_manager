@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Compatibilidade local: o XSD oficial 3.02.00 referencia ans:assinaturaDigital,
+     enquanto o arquivo oficial de assinatura declara apenas Signature. O Portal não
+     emite assinatura digital neste fluxo; este alias viabiliza a compilação do XSD. -->
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+        xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+        xmlns:ans="http://www.ans.gov.br/padroes/tiss/schemas"
+        targetNamespace="http://www.ans.gov.br/padroes/tiss/schemas"
+        elementFormDefault="qualified">
+  <import namespace="http://www.w3.org/2000/09/xmldsig#" schemaLocation="xmldsig-core-schema.xsd"/>
+  <complexType name="assinaturaDigital">
+    <complexContent>
+      <extension base="ds:SignatureType"/>
+    </complexContent>
+  </complexType>
+</schema>

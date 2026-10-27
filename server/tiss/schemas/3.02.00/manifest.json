@@ -1,0 +1,24 @@
+{
+  "publisher": "Agência Nacional de Saúde Suplementar",
+  "standard": "Padrão TISS — Componente de Comunicação",
+  "schemaVersion": "3.02.00",
+  "entrypoint": "tissRecursoGlosaPortalV3_02_00.xsd",
+  "source": "https://www.ans.gov.br/padroes/tiss/schemas/",
+  "files": {
+    "tissV3_02_00.xsd": "cb8c3a75982e9692c4ce10083d95a26b285271239b1cc7ed038a5e04fc56bf85",
+    "tissSimpleTypesV3_02_00.xsd": "2b1a59b82e319971e019f1c410677541663eb685422ca63ec8cd0d8a61a22c4b",
+    "tissComplexTypesV3_02_00.xsd": "db88bdfb9894b3a5ebce6163a7892dd031bdea8df6b74a087098eefea10912d7",
+    "tissGuiasV3_02_00.xsd": "1f10d8103ab3d84cb7b6869fdaaa1e40831b6273b6b68aa66bf64e5aa5bb28aa",
+    "tissAssinaturaDigital_v1.01.xsd": "8567690a0eb05b9681fdc575ca7c867f75bf5cb33573175b8d333617ef035221",
+    "xmldsig-core-schema.xsd": "b6388292d746c6cc8f932ce3b6bf7c7fc0bf6cba58ec385b38988887bcf5fdbb",
+    "tissAssinaturaDigitalPortalCompatV3_02_00.xsd": "44326fedbfba323de354ec0a2453d2fb3d7462c1c71d76bb1f517aa74dfcdf03",
+    "tissRecursoGlosaPortalV3_02_00.xsd": "ea1ff1b18ad66b626c2971c1e761d749f83fee8feb7e34997a18c4b250849fe4"
+  },
+  "compatibility": {
+    "reason": "O XSD oficial tissAssinaturaDigital_v1.01.xsd declara Signature, mas tissV3_02_00.xsd e tissGuiasV3_02_00.xsd referenciam assinaturaDigital. O alias só viabiliza a compilação do tipo opcional de assinatura, que não é emitido pelo Portal neste fluxo.",
+    "files": [
+      "tissAssinaturaDigitalPortalCompatV3_02_00.xsd",
+      "tissRecursoGlosaPortalV3_02_00.xsd"
+    ]
+  }
+}
