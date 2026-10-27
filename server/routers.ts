@@ -3357,14 +3357,20 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
         }
         
-        // Validar e salvar cada XML no S3
-        const { validarXmlRecursoGlosa } = await import("./validadorTissRecursoGlosa");
+        // Validar a saída do Portal antes de qualquer persistência.
+        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
         const timestamp = Date.now();
         const resultados = [];
         
         for (let i = 0; i < xmls.length; i++) {
           const xmlItem = xmls[i];
-          const validacao = validarXmlRecursoGlosa(xmlItem.xml);
+          const validacao = await validarXmlRecursoGlosaDoPortal(xmlItem.xml);
+          if (!validacao.valido) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "O XML de recurso gerado não atende ao padrão TISS e não foi exportado.",
+            });
+          }
           const protSuffix = xmls.length > 1 ? `_protocolo_${xmlItem.protocolo}` : "";
           const s3Key = `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}${protSuffix}_${timestamp}.xml`;
           const { url: xmlUrl } = await storagePut(s3Key, Buffer.from(xmlItem.xml, 'utf-8'), 'application/xml');
@@ -3424,12 +3430,18 @@ export const appRouter = router({
         const archive = archiver('zip', { zlib: { level: 9 } });
         archive.pipe(passThrough);
         
-        // Validar e adicionar cada XML ao ZIP
-        const { validarXmlRecursoGlosa } = await import("./validadorTissRecursoGlosa");
+        // Validar a saída do Portal antes de criar ou persistir o ZIP.
+        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
         const resultados: Array<{ protocolo: string; valido: boolean; erros: number }> = [];
         
         for (const xmlItem of xmls) {
-          const validacao = validarXmlRecursoGlosa(xmlItem.xml);
+          const validacao = await validarXmlRecursoGlosaDoPortal(xmlItem.xml);
+          if (!validacao.valido) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "O XML de recurso gerado não atende ao padrão TISS e o ZIP não foi exportado.",
+            });
+          }
           const fileName = xmls.length > 1
             ? `recurso_glosa_lote_${input.loteId}_protocolo_${xmlItem.protocolo}.xml`
             : `recurso_glosa_lote_${input.loteId}.xml`;
@@ -3472,8 +3484,8 @@ export const appRouter = router({
         if (!xml) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
         }
-        const { validarXmlRecursoGlosa } = await import("./validadorTissRecursoGlosa");
-        const validacao = validarXmlRecursoGlosa(xml);
+        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
+        const validacao = await validarXmlRecursoGlosaDoPortal(xml);
         return { validacao };
       }),
 

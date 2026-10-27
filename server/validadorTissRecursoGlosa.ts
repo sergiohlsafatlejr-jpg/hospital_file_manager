@@ -17,7 +17,7 @@ export interface ValidacaoResultado {
 export interface ValidacaoErro {
   campo: string;
   mensagem: string;
-  tipo: "obrigatorio" | "formato" | "tamanho" | "estrutura" | "valor" | "hash";
+  tipo: "obrigatorio" | "formato" | "tamanho" | "estrutura" | "valor" | "hash" | "schema" | "seguranca";
 }
 
 // Tipos TISS conforme XSD
@@ -67,8 +67,8 @@ export function validarXmlRecursoGlosa(xmlContent: string): ValidacaoResultado {
   let parsed: any;
   try {
     parsed = parser.parse(xmlContent);
-  } catch (e: any) {
-    erros.push({ campo: "xml", mensagem: `XML malformado: ${e.message}`, tipo: "estrutura" });
+  } catch {
+    erros.push({ campo: "xml", mensagem: "XML malformado.", tipo: "estrutura" });
     return { valido: false, erros, avisos };
   }
 
