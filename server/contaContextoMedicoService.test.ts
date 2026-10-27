@@ -91,6 +91,14 @@ function makeRepository() {
     arquivos: [{ id: 6, nome: "honorarios-sintetico.xml", tamanho: 128, dataReferencia: "2026-10-03T12:00:00.000Z" }],
     temProximaPagina: false,
   }));
+  const diagnosticarSnapshotHospitalar = vi.fn(async () => ({
+    etapas: [
+      { etapa: "arquivo_hospitalar" as const, totalLinhas: 0 },
+      { etapa: "identificacao_conta" as const, totalLinhas: 0 },
+      { etapa: "lote" as const, totalLinhas: 0 },
+      { etapa: "competencia" as const, totalLinhas: 0 },
+    ],
+  }));
   const writes = { fontes: 0, contextos: 0, eventos: 0, financeiro: 0 };
   let hospital: SnapshotHospitalarAutorizado = {
     scope: clone(scopeNormalizado),
@@ -148,6 +156,7 @@ function makeRepository() {
       const same = JSON.stringify(requested) === JSON.stringify(scopeNormalizado);
       return same ? clone(hospital) : null;
     },
+    diagnosticarSnapshotHospitalar,
     listarArquivosMedicos,
     obterArquivoMedicoAutorizado: async (requested, arquivoMedicoId) =>
       JSON.stringify(requested) === JSON.stringify(scopeNormalizado) && arquivoMedicoId === 6 ? clone(arquivo) : null,
@@ -184,6 +193,7 @@ function makeRepository() {
     writes,
     xmlReads,
     listarArquivosMedicos,
+    diagnosticarSnapshotHospitalar,
   };
 }
 
@@ -217,19 +227,42 @@ describe("contaContextoMedicoService — somente informação não financeira", 
     const foreignScope = { ...scope, convenioId: 999 };
 
     await expect(service.indexar({ scope: foreignScope, arquivoMedicoId: 6 }))
-      .rejects.toMatchObject({ codigo: "NAO_ENCONTRADO" } satisfies Partial<ContaContextoMedicoErro>);
+      .rejects.toMatchObject({ codigo: "PRECONDICAO" } satisfies Partial<ContaContextoMedicoErro>);
     expect(fake.xmlReads).not.toHaveBeenCalled();
     expect(fake.fontes).toHaveLength(0);
   });
 
-  it("não transforma um escopo hospitalar inválido em lista médica vazia", async () => {
+  it("retorna apenas diagnóstico agregado quando não há snapshot e não consulta fontes ou arquivos médicos", async () => {
     const fake = makeRepository();
     const service = criarContaContextoMedicoService({ repositorio: fake.repository, parse: () => fake.parsed });
     const foreignScope = { ...scope, competencia: "2026/11" };
 
-    await expect(service.listarArquivos({ scope: foreignScope }))
-      .rejects.toMatchObject({ codigo: "NAO_ENCONTRADO" } satisfies Partial<ContaContextoMedicoErro>);
+    await expect(service.consultar({ scope: foreignScope })).resolves.toEqual({
+      configuracaoPendente: false,
+      diagnosticoSnapshot: {
+        etapas: [
+          { etapa: "arquivo_hospitalar", totalLinhas: 0 },
+          { etapa: "identificacao_conta", totalLinhas: 0 },
+          { etapa: "lote", totalLinhas: 0 },
+          { etapa: "competencia", totalLinhas: 0 },
+        ],
+      },
+      fontes: [],
+      candidatos: [],
+      contexto: null,
+      itensHospitalares: 0,
+      setorInformado: false,
+      avisos: [],
+    });
+    const respostaArquivos = await service.listarArquivos({ scope: foreignScope });
+    expect(respostaArquivos).toMatchObject({
+      configuracaoPendente: false,
+      arquivos: [],
+      diagnosticoSnapshot: { etapas: expect.any(Array) },
+    });
     expect(fake.listarArquivosMedicos).not.toHaveBeenCalled();
+    expect(fake.diagnosticarSnapshotHospitalar).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(respostaArquivos)).not.toMatch(/CONTA-SINTETICA|39|2026\/11|arquivoHospitalId|numeroConta/i);
   });
 
   it("recusa guia cuja correlação explícita não confere beneficiário ou data", async () => {

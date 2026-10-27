@@ -3,6 +3,7 @@ import type { ContaContextoMedicoResultado } from "@shared/contaContextoMedico";
 /** Dados exclusivamente fictícios para prévia isolada do renderizador. */
 export const contaContextoMedicoFixture: ContaContextoMedicoResultado = {
   configuracaoPendente: false,
+  diagnosticoSnapshot: null,
   itensHospitalares: 8,
   setorInformado: false,
   avisos: ["Fixture sintética: a avaliação considera a conta inteira sem setor informado no XML."],

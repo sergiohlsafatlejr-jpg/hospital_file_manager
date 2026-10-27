@@ -1,4 +1,4 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   arquivos,
   contaContextoMedicoContextos,
@@ -7,7 +7,11 @@ import {
   faturamentoTiss,
   padroesCobranca,
 } from "../drizzle/schema";
-import type { ItemAssociadoGabarito, ProcedimentoMedicoInfo } from "../shared/contaContextoMedico";
+import type {
+  DiagnosticoSnapshotHospitalar,
+  ItemAssociadoGabarito,
+  ProcedimentoMedicoInfo,
+} from "../shared/contaContextoMedico";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
 import { storageGet } from "./storage";
@@ -249,6 +253,42 @@ function condicaoContexto(scope: ScopeContaMedicaNormalizado) {
     eq(contaContextoMedicoContextos.numeroLote, scope.numeroLote),
     eq(contaContextoMedicoContextos.competencia, scope.competencia),
   );
+}
+
+/**
+ * Expressões canônicas idênticas às usadas ao materializar `contas_convenio_itens`.
+ * Todas são avaliadas somente depois de restringir unidade, convênio e arquivo.
+ */
+function contaCanonica() {
+  return sql<string>`COALESCE(
+    NULLIF(TRIM(${faturamentoTiss.numeroGuiaPrestador}), ''),
+    NULLIF(TRIM(${faturamentoTiss.numeroGuiaOperadora}), ''),
+    CONCAT('SEM_GUIA_', ${faturamentoTiss.arquivoId})
+  )`;
+}
+
+function loteCanonico() {
+  return sql<string>`COALESCE(NULLIF(TRIM(${faturamentoTiss.numeroLote}), ''), '')`;
+}
+
+function competenciaCanonica() {
+  return sql<string>`COALESCE(
+    NULLIF(TRIM(${faturamentoTiss.competencia}), ''),
+    DATE_FORMAT(COALESCE(${faturamentoTiss.dataReferencia}, ${arquivos.dataReferencia}, ${faturamentoTiss.dataExecucao}), '%Y/%m'),
+    ''
+  )`;
+}
+
+function condicaoArquivoHospitalar(scope: ScopeContaMedicaNormalizado) {
+  return and(
+    eq(faturamentoTiss.arquivoId, scope.arquivoHospitalId),
+    eq(faturamentoTiss.estabelecimentoId, scope.estabelecimentoId),
+    eq(faturamentoTiss.convenioId, scope.convenioId),
+  );
+}
+
+function condicaoGuia(scope: ScopeContaMedicaNormalizado) {
+  return eq(contaCanonica(), scope.numeroConta);
 }
 
 function camposFonte() {
@@ -640,21 +680,14 @@ export function criarContaContextoMedicoRepositorioDrizzle(
         tipoItem: faturamentoTiss.tipoItem,
       })
         .from(faturamentoTiss)
+        .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
         .where(and(
-          eq(faturamentoTiss.arquivoId, scope.arquivoHospitalId),
-          eq(faturamentoTiss.estabelecimentoId, scope.estabelecimentoId),
-          eq(faturamentoTiss.convenioId, scope.convenioId),
-          // A conta XML materializa a guia prestador. Só quando ela estiver
-          // ausente, a guia da operadora pode representar a mesma conta.
-          or(
-            eq(faturamentoTiss.numeroGuiaPrestador, scope.numeroConta),
-            and(
-              sql`COALESCE(TRIM(${faturamentoTiss.numeroGuiaPrestador}), '') = ''`,
-              eq(faturamentoTiss.numeroGuiaOperadora, scope.numeroConta),
-            ),
-          ),
-          sql`COALESCE(${faturamentoTiss.numeroLote}, '') = ${scope.numeroLote}`,
-          sql`COALESCE(${faturamentoTiss.competencia}, '') = ${scope.competencia}`,
+          condicaoArquivoHospitalar(scope),
+          // A conta XML materializa a guia prestador; só quando ela estiver
+          // ausente, a guia da operadora representa a mesma conta.
+          condicaoGuia(scope),
+          eq(loteCanonico(), scope.numeroLote),
+          eq(competenciaCanonica(), scope.competencia),
         ));
       if (!linhas.length) return null;
 
@@ -699,6 +732,34 @@ export function criarContaContextoMedicoRepositorioDrizzle(
         // faturamento_tiss não possui setor; não inferir um setor inexistente.
         setorInformado: false,
       };
+    },
+
+    async diagnosticarSnapshotHospitalar(scope) {
+      const db = await dbOuErro();
+      // Cada contador adiciona uma única etapa canônica, sempre no mesmo
+      // arquivo/unidade/convênio. A projeção não contém identificadores ou dados
+      // clínicos/financeiros; é apropriada apenas para explicar a pré-condição.
+      const [totais] = await db.select({
+        arquivoHospitalar: sql<number>`COUNT(*)`,
+        identificacaoConta: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} THEN 1 ELSE 0 END)`,
+        lote: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} THEN 1 ELSE 0 END)`,
+        competencia: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} AND ${eq(competenciaCanonica(), scope.competencia)} THEN 1 ELSE 0 END)`,
+      })
+        .from(faturamentoTiss)
+        .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
+        .where(condicaoArquivoHospitalar(scope));
+      const totalSeguro = (value: unknown): number => {
+        const total = Number(value);
+        return Number.isSafeInteger(total) && total >= 0 ? total : 0;
+      };
+      return {
+        etapas: [
+          { etapa: "arquivo_hospitalar", totalLinhas: totalSeguro(totais?.arquivoHospitalar) },
+          { etapa: "identificacao_conta", totalLinhas: totalSeguro(totais?.identificacaoConta) },
+          { etapa: "lote", totalLinhas: totalSeguro(totais?.lote) },
+          { etapa: "competencia", totalLinhas: totalSeguro(totais?.competencia) },
+        ],
+      } satisfies DiagnosticoSnapshotHospitalar;
     },
 
     async listarArquivosMedicos(scope, page, pageSize) {

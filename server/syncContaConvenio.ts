@@ -59,7 +59,7 @@ export async function syncContaConvenioFromFaturamentoTiss(
       ft.data_execucao,
       COALESCE(ft.data_referencia, a.dataReferencia),
       COALESCE(
-        NULLIF(ft.competencia, ''),
+        NULLIF(TRIM(ft.competencia), ''),
         DATE_FORMAT(COALESCE(ft.data_referencia, a.dataReferencia, ft.data_execucao), '%Y/%m')
       ),
       ft.nome_prof,

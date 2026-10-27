@@ -3,6 +3,7 @@ import type {
   CandidatoGabarito,
   ContaContextoMedicoResultado,
   ContextoMedicoInfo,
+  DiagnosticoSnapshotHospitalar,
   FonteMedicaInfo,
   ItemAssociadoGabarito,
   ProcedimentoMedicoInfo,
@@ -161,6 +162,8 @@ export interface ContextoMedicoNovo extends Omit<ContextoMedicoPersistido, "id">
 export interface ContaContextoMedicoRepositorio {
   configurado(): Promise<boolean>;
   resolverSnapshotHospitalar(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado | null>;
+  /** Diagnóstico agregado no mesmo arquivo/unidade/convênio já autorizados. */
+  diagnosticarSnapshotHospitalar(scope: ScopeContaMedicaNormalizado): Promise<DiagnosticoSnapshotHospitalar>;
   listarArquivosMedicos(scope: ScopeContaMedicaNormalizado, page: number, pageSize: number): Promise<{
     arquivos: readonly ArquivoMedicoInfoInterno[];
     temProximaPagina: boolean;
@@ -478,12 +481,26 @@ function correlacionarGuia(
 function pendente(): ContaContextoMedicoResultado {
   return {
     configuracaoPendente: true,
+    diagnosticoSnapshot: null,
     fontes: [],
     candidatos: [],
     contexto: null,
     itensHospitalares: 0,
     setorInformado: false,
     avisos: ["Contexto médico informativo ainda não está configurado para esta instalação."],
+  };
+}
+
+function semSnapshot(diagnosticoSnapshot: DiagnosticoSnapshotHospitalar): ContaContextoMedicoResultado {
+  return {
+    configuracaoPendente: false,
+    diagnosticoSnapshot,
+    fontes: [],
+    candidatos: [],
+    contexto: null,
+    itensHospitalares: 0,
+    setorInformado: false,
+    avisos: [],
   };
 }
 
@@ -518,16 +535,24 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
     return deps.repositorio.configurado();
   }
 
-  async function snapshot(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado> {
+  async function snapshot(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado | null> {
     const result = await deps.repositorio.resolverSnapshotHospitalar(scope);
     if (!result || !mesmoScope(result.scope, scope)) {
-      erro("NAO_ENCONTRADO", "Conta não encontrada para o arquivo hospitalar e escopo informados.");
+      return null;
     }
     return result;
   }
 
-  async function estado(scope: ScopeContaMedicaNormalizado) {
+  async function snapshotObrigatorio(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado> {
     const hospital = await snapshot(scope);
+    if (!hospital) {
+      erro("PRECONDICAO", "O contexto hospitalar ainda não está pronto para esta conta. Atualize a tela e tente novamente.");
+    }
+    return hospital;
+  }
+
+  async function estado(scope: ScopeContaMedicaNormalizado) {
+    const hospital = await snapshotObrigatorio(scope);
     const [fontes, gabaritos, contexto] = await Promise.all([
       deps.repositorio.listarFontes(scope),
       deps.repositorio.listarGabaritosManuais(scope),
@@ -544,7 +569,20 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
     async consultar(input: { scope: ScopeContaMedica }): Promise<ContaContextoMedicoResultado> {
       if (!await configurado()) return pendente();
       const scope = normalizarScopeContaMedica(input.scope);
-      const current = await estado(scope);
+      const hospital = await snapshot(scope);
+      if (!hospital) {
+        return semSnapshot(await deps.repositorio.diagnosticarSnapshotHospitalar(scope));
+      }
+      const [fontes, gabaritos, contexto] = await Promise.all([
+        deps.repositorio.listarFontes(scope),
+        deps.repositorio.listarGabaritosManuais(scope),
+        deps.repositorio.obterContexto(scope),
+      ]);
+      const gabaritoContexto = contexto?.padraoId === null || contexto?.padraoId === undefined
+        ? null
+        : gabaritos.find(gabarito => gabarito.padraoId === contexto.padraoId) ??
+          await deps.repositorio.obterGabaritoManual(scope, contexto.padraoId);
+      const current = { hospital, fontes, gabaritos, contexto, gabaritoContexto };
       const candidatos = candidatosAtuais(scope, current.fontes, current.hospital, current.gabaritos, comparar);
       const avisos: string[] = [];
       if (!current.hospital.setorInformado) avisos.push("Setor não informado: a composição é avaliada sobre a conta inteira.");
@@ -558,6 +596,7 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       }
       return {
         configuracaoPendente: false,
+        diagnosticoSnapshot: null,
         fontes: current.fontes.map(fonteDto),
         candidatos,
         contexto: contextoDto(current.contexto, statusEfetivo),
@@ -571,11 +610,20 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       if (!await configurado()) return { configuracaoPendente: true, arquivos: [], page: 1, temProximaPagina: false };
       const scope = normalizarScopeContaMedica(input.scope);
       // Garante que não se lista arquivo médico de um escopo hospitalar inexistente.
-      await snapshot(scope);
+      if (!await snapshot(scope)) {
+        return {
+          configuracaoPendente: false,
+          diagnosticoSnapshot: await deps.repositorio.diagnosticarSnapshotHospitalar(scope),
+          arquivos: [],
+          page: 1,
+          temProximaPagina: false,
+        };
+      }
       const page = Number.isSafeInteger(input.page) && input.page! > 0 ? input.page! : 1;
       const result = await deps.repositorio.listarArquivosMedicos(scope, page, PAGE_SIZE);
       return {
         configuracaoPendente: false,
+        diagnosticoSnapshot: null,
         page,
         temProximaPagina: result.temProximaPagina,
         arquivos: result.arquivos.map(arquivo => ({
@@ -591,7 +639,7 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       if (!await configurado()) erro("CONFIGURACAO_PENDENTE", "Contexto médico ainda não está configurado.");
       const scope = normalizarScopeContaMedica(input.scope);
       const arquivoMedicoId = inteiroPositivo(input.arquivoMedicoId, "Arquivo médico");
-      const hospital = await snapshot(scope);
+      const hospital = await snapshotObrigatorio(scope);
       const arquivo = await deps.repositorio.obterArquivoMedicoAutorizado(scope, arquivoMedicoId);
       if (!arquivo || arquivo.id !== arquivoMedicoId || arquivo.tipoArquivo !== "xml" || arquivo.direcao !== "enviado" ||
           arquivo.estabelecimentoId !== scope.estabelecimentoId || arquivo.convenioId !== scope.convenioId) {
@@ -795,6 +843,7 @@ export function criarServicoContaContextoMedicoPendente(): ContaContextoMedicoSe
   const repositorio: ContaContextoMedicoRepositorio = {
     configurado: async () => false,
     resolverSnapshotHospitalar: bloqueado as never,
+    diagnosticarSnapshotHospitalar: bloqueado as never,
     listarArquivosMedicos: bloqueado as never,
     obterArquivoMedicoAutorizado: bloqueado as never,
     lerXmlMedicoAutorizado: bloqueado as never,
