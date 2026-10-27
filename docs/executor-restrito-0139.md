@@ -34,4 +34,6 @@ No modo `apply`, o chamador fornece um arquivo de estado exclusivo e uma captura
 
 ## Validação sintética
 
-`server/atendimentos0139Executor.test.ts` cobre, com fábrica fake e sem banco externo: gates externos, baseline/histórico, checksum/revisão, TLS/alvo, execução ordenada, validação por unidade, parada na primeira falha e journal único. A homologação TiDB local é condicional a uma instância TiDB isolada; não é substituída por MariaDB e não foi iniciada por este executor.
+`server/atendimentos0139Executor.test.ts` cobre, com fábrica fake e sem banco externo: gates externos, baseline/histórico, checksum/revisão, TLS/alvo, execução ordenada, validação por unidade, parada na primeira falha e journal único.
+
+O executor também foi homologado em TiDB 8.5.3 local, descartável e protegido por TLS sintético. As oito declarações foram aplicadas em ordem; as três tabelas resultaram vazias; houve um único marcador de journal; e a base fictícia foi removida no encerramento. Esta evidência não é backup, recuperação, homologação de dados do Portal ou autorização para produção.
