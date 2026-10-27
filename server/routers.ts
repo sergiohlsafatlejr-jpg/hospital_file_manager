@@ -28,6 +28,7 @@ import { integradorDadosRouter } from "./routers/integradorDadosRouter";
 import { easyLocalRouter } from "./routers/easyLocalRouter";
 import { easyLocalIntegradorRouter } from "./routers/easyLocalIntegradorRouter";
 import { easyLocalAgendamentoRouter } from "./routers/easyLocalAgendamentoRouter";
+import { atendimentosHopDiarioRouter } from "./routers/atendimentosHopDiarioRouter";
 import { faturamentoUnificadoRouter } from "./routers/faturamentoUnificadoRouter";
 import { hupConciliacaoPilotoRouter } from "./routers/hupConciliacaoPilotoRouter";
 import { contasConvenioRouter } from "./routers/contasConvenioRouter";
@@ -8917,6 +8918,7 @@ export const appRouter = router({
   easyLocal: easyLocalRouter,
   easyLocalIntegrador: easyLocalIntegradorRouter,
   easyLocalAgendamento: easyLocalAgendamentoRouter,
+  atendimentosHopDiario: atendimentosHopDiarioRouter,
 
   // ============ CONTAS CONVÊNIO (OPERACIONAL) ============
   contasConvenio: contasConvenioRouter,

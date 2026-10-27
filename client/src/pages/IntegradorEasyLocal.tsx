@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { AtendimentosHopDiario } from "@/components/integrador/AtendimentosHopDiario";
 import { EasyLocalIntegradorTabs } from "@/components/integrador/EasyLocalIntegradorTabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -36,13 +37,18 @@ function IntegradorEasyLocalConteudo() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">Integrador de Dados</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Integrador de Dados
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Conexão EASYLocal e preparação controlada de tabelas e leituras
         </p>
       </header>
       <EasyLocalIntegradorTabs
         key={estabelecimentoAtual?.id ?? "sem-unidade"}
+        estabelecimentoId={estabelecimentoAtual?.id ?? null}
+      />
+      <AtendimentosHopDiario
         estabelecimentoId={estabelecimentoAtual?.id ?? null}
       />
       <p className="text-xs text-muted-foreground">

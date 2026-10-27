@@ -12,6 +12,8 @@ import { fileProcessorRouter } from "../fileProcessor";
 import { uploadMultipartRouter } from "../uploadMultipart";
 import { initializeWarleineImportWorker } from "../warleineFaturamentoWorker";
 import { easyLocalAgendamentoHandler } from "../easyLocalAgendamentoCallback";
+import { atendimentosHopDiarioCallback } from "../atendimentosHopDiarioCallback";
+import { atendimentosHopProdutorRouter } from "../atendimentosHopProdutor";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -52,6 +54,9 @@ async function startServer() {
   app.use(uploadMultipartRouter);
   // Callback agendado: identidade cron validada pelo SDK; nunca usa o body para escopo.
   app.post("/api/scheduled/easylocal-importar", easyLocalAgendamentoHandler);
+  app.post("/api/scheduled/atendimentos-hop-diario", atendimentosHopDiarioCallback);
+  // Produtor Hop só anuncia lotes; sua credencial fixa a unidade no servidor.
+  app.use("/api/hop/atendimentos", atendimentosHopProdutorRouter);
   // tRPC API
   app.use(
     "/api/trpc",
