@@ -26,6 +26,7 @@ function bancoFake(
     unidade?: number;
     recursos?: any[];
     modernos?: any[];
+    conciliados?: any[];
     falharAuditoria?: boolean;
     semLote?: boolean;
   } = {}
@@ -72,8 +73,21 @@ function bancoFake(
               q.sql.includes(
                 "SELECT id, estabelecimentoId, convenioId FROM conciliados_automatico"
               )
-            )
-              return [[]];
+            ) {
+              const consultaEstaNoEscopo =
+                q.sql.includes("AND estabelecimentoId = ?") &&
+                q.sql.includes("AND convenioId = ?");
+              const conciliados = options.conciliados ?? [];
+              return [
+                consultaEstaNoEscopo
+                  ? conciliados.filter(
+                      item =>
+                        item.estabelecimentoId === lote.estabelecimentoId &&
+                        item.convenioId === lote.convenioId
+                    )
+                  : conciliados,
+              ];
+            }
             if (
               q.sql.includes("INSERT INTO historicoRecursos") &&
               options.falharAuditoria
@@ -230,6 +244,35 @@ describe("confirmação explícita de envio externo", () => {
     expect(fake.calls.filter(c => /UPDATE |INSERT /.test(c.text))).toHaveLength(
       0
     );
+  });
+  it("rejeita demonstrativo de outro convênio antes de escrever", async () => {
+    const fake = bancoFake({
+      modernos: [{ id: 20, estabelecimentoId: 9, convenioId: 8 }],
+    });
+    await expect(confirmarEnvioLote(input, 5, escopo)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+    expect(fake.calls.filter(c => /UPDATE |INSERT /.test(c.text))).toHaveLength(
+      0
+    );
+  });
+  it("ignora colisão legada de conciliação fora do escopo composto do lote", async () => {
+    const fake = bancoFake({
+      conciliados: [
+        { id: 30, estabelecimentoId: 8, convenioId: 6 },
+        { id: 31, estabelecimentoId: 9, convenioId: 7 },
+      ],
+    });
+    await expect(confirmarEnvioLote(input, 5, escopo)).resolves.toMatchObject({
+      success: true,
+      jaConfirmado: false,
+    });
+    const leitura = fake.calls.find(call =>
+      call.text.includes("SELECT id, estabelecimentoId, convenioId FROM conciliados_automatico")
+    );
+    expect(leitura?.text).toContain("AND estabelecimentoId = ?");
+    expect(leitura?.text).toContain("AND convenioId = ?");
+    expect(leitura?.params).toEqual(expect.arrayContaining([12, 9, 7]));
   });
   it("preserva resposta e acatamento já registrados nos itens", async () => {
     const fake = bancoFake({
