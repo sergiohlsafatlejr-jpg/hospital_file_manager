@@ -50,7 +50,7 @@ import {
   UserRound,
   XCircle,
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export type ContaContextoMedicoScopeState =
@@ -74,6 +74,8 @@ export type ContaContextoMedicoConteudoProps = {
   isLoading?: boolean;
   isLoadingArquivos?: boolean;
   errorMessage?: string;
+  arquivosErrorMessage?: string;
+  arquivoScopeKey?: string;
   isIndexing?: boolean;
   isConfirming?: boolean;
   isInvalidating?: boolean;
@@ -385,6 +387,8 @@ export function ContaContextoMedicoConteudo({
   isLoading = false,
   isLoadingArquivos = false,
   errorMessage,
+  arquivosErrorMessage,
+  arquivoScopeKey,
   isIndexing = false,
   isConfirming = false,
   isInvalidating = false,
@@ -402,11 +406,24 @@ export function ContaContextoMedicoConteudo({
   const contexto = resultado?.contexto;
   const statusContexto = getStatusContexto(contexto);
   const configuracaoPendente = resultado?.configuracaoPendente === true;
+  const temErroArquivos = Boolean(arquivosErrorMessage);
+  const arquivoSelecionadoAutorizado = arquivos.some(
+    arquivo => String(arquivo.id) === arquivoSelecionado
+  );
+  useEffect(() => {
+    setArquivoSelecionado("");
+  }, [arquivoScopeKey]);
+  useEffect(() => {
+    if (arquivoSelecionado && !arquivoSelecionadoAutorizado) {
+      setArquivoSelecionado("");
+    }
+  }, [arquivoSelecionado, arquivoSelecionadoAutorizado]);
   const podeIndexar =
-    Boolean(arquivoSelecionado) &&
+    arquivoSelecionadoAutorizado &&
     !isIndexing &&
     Boolean(onIndexar) &&
-    !configuracaoPendente;
+    !configuracaoPendente &&
+    !temErroArquivos;
   const podeConfirmar =
     justificativaConfirmacao.trim().length > 0 &&
     Boolean(confirmAction) &&
@@ -485,7 +502,7 @@ export function ContaContextoMedicoConteudo({
                 <Select
                   value={arquivoSelecionado}
                   onValueChange={setArquivoSelecionado}
-                  disabled={isLoadingArquivos || arquivos.length === 0}
+                  disabled={isLoadingArquivos || temErroArquivos || arquivos.length === 0}
                 >
                   <SelectTrigger
                     id="arquivo-medico"
@@ -495,7 +512,9 @@ export function ContaContextoMedicoConteudo({
                       placeholder={
                         isLoadingArquivos
                           ? "Carregando arquivos autorizados..."
-                          : arquivos.length
+                          : temErroArquivos
+                            ? "Não foi possível carregar os arquivos médicos"
+                            : arquivos.length
                             ? "Selecione um arquivo médico"
                             : "Nenhum arquivo médico elegível"
                       }
@@ -523,6 +542,15 @@ export function ContaContextoMedicoConteudo({
                 Indexar como informação
               </Button>
             </div>
+            {temErroArquivos ? (
+              <Alert variant="destructive" className="mt-3">
+                <AlertTriangle />
+                <AlertTitle>Não foi possível carregar os arquivos médicos</AlertTitle>
+                <AlertDescription>
+                  Revise a conta selecionada e tente carregar os arquivos novamente.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <p className="mt-2 text-xs text-muted-foreground">
               A indexação só ocorre após esta ação. O arquivo precisa pertencer
               ao mesmo hospital e convênio da conta.
@@ -811,6 +839,8 @@ function ContaContextoMedicoDisponivel({ scope }: { scope: ScopeContaMedica }) {
       isLoading={consulta.isLoading}
       isLoadingArquivos={arquivos.isLoading}
       errorMessage={consulta.error?.message}
+      arquivosErrorMessage={arquivos.error?.message}
+      arquivoScopeKey={`${scope.estabelecimentoId}:${scope.convenioId}:${scope.arquivoHospitalId}:${scope.numeroConta}:${scope.numeroLote}:${scope.competencia}`}
       isIndexing={indexar.isPending}
       isConfirming={confirmar.isPending}
       isInvalidating={invalidar.isPending}
