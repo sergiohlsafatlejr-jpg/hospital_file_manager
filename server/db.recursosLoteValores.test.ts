@@ -620,7 +620,7 @@ describe("Issue #106 — valores de lote de recurso", () => {
         fake.db
       )
     ).rejects.toThrow(
-      "Não foi possível reservar todos os itens do demonstrativo"
+      "Um ou mais itens do demonstrativo estão indisponíveis para o lote (escopo, status ou reserva)"
     );
 
     expect(fake.values).toHaveBeenCalledTimes(1);
@@ -677,7 +677,7 @@ describe("Issue #106 — valores de lote de recurso", () => {
         fake.db
       )
     ).rejects.toThrow(
-      "Um ou mais itens do demonstrativo não pertencem ao estabelecimento e convênio do lote"
+      "Um ou mais itens do demonstrativo estão indisponíveis para o lote (escopo, status ou reserva)"
     );
 
     expect(fake.values).not.toHaveBeenCalled();

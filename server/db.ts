@@ -10019,10 +10019,10 @@ export async function getRecursosAgrupadosPorConvenio(params: {
   status?: string;
   dataPagamento?: string;
 }) {
+  if (!params.estabelecimentoId) return [];
+
   const db = await getDb();
   if (!db) return [];
-
-  if (!params.estabelecimentoId) return [];
 
   // Filtro de data de pagamento
   const dataPagamentoFilter = params.dataPagamento
@@ -10076,6 +10076,7 @@ export async function getRecursosAgrupadosPorConvenio(params: {
     FROM conciliados_automatico ca
     WHERE ca.estabelecimentoId = ${params.estabelecimentoId}
       AND ca.statusRecursoItem = 'iniciado'
+      AND ca.xmlRecursoLoteId IS NULL
       AND ca.valorGlosa > 0
       ${dataPagamentoFilterConc}
       AND ca.id NOT IN (
@@ -10196,7 +10197,7 @@ export async function criarLoteRecurso(params: {
       const demoArray = demoRows2 as unknown as any[];
       const demoElegiveis = new Set(demoArray.map(item => Number(item.id)));
       if (demoArray.length !== demoIds.length || demoIds.some(id => !demoElegiveis.has(id))) {
-        throw new Error("Um ou mais itens do demonstrativo não pertencem ao estabelecimento e convênio do lote");
+        throw new Error("Um ou mais itens do demonstrativo estão indisponíveis para o lote (escopo, status ou reserva)");
       }
       for (const item of demoArray) {
         valorTotalGlosado = valorTotalGlosado.plus(decimalRecurso(item.valorGlosa));
@@ -10214,12 +10215,15 @@ export async function criarLoteRecurso(params: {
           AND convenioId = ${params.convenioId}
           AND statusRecursoItem = 'iniciado'
           AND xmlRecursoLoteId IS NULL
+          AND id NOT IN (
+            SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL
+          )
         FOR UPDATE
       `);
       const concArray = concRows2 as unknown as any[];
       const concElegiveis = new Set(concArray.map(item => Number(item.id)));
       if (concArray.length !== concIds.length || concIds.some(id => !concElegiveis.has(id))) {
-        throw new Error("Um ou mais itens da conciliação não pertencem ao estabelecimento e convênio do lote");
+        throw new Error("Um ou mais itens da conciliação estão indisponíveis para o lote (escopo, status ou reserva)");
       }
       for (const item of concArray) {
         valorTotalGlosado = valorTotalGlosado.plus(decimalRecurso(item.valorGlosa));
@@ -10262,7 +10266,7 @@ export async function criarLoteRecurso(params: {
           AND recurso_id IS NULL
       `);
       if (Number((demoUpdate as any)?.affectedRows) !== demoIds.length) {
-        throw new Error("Não foi possível reservar todos os itens do demonstrativo para o lote");
+        throw new Error("Um ou mais itens do demonstrativo estão indisponíveis para o lote (escopo, status ou reserva)");
       }
     }
 
@@ -10276,9 +10280,12 @@ export async function criarLoteRecurso(params: {
           AND convenioId = ${params.convenioId}
           AND statusRecursoItem = 'iniciado'
           AND xmlRecursoLoteId IS NULL
+          AND id NOT IN (
+            SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL
+          )
       `);
       if (Number((concUpdate as any)?.affectedRows) !== concIds.length) {
-        throw new Error("Não foi possível reservar todos os itens da conciliação para o lote");
+        throw new Error("Um ou mais itens da conciliação estão indisponíveis para o lote (escopo, status ou reserva)");
       }
     }
 
@@ -10334,17 +10341,13 @@ export async function getRecursosDoConvenio(params: {
   apenasNaoEnviados?: boolean;
   dataPagamento?: string;
 }) {
+  if (!params.estabelecimentoId) return [];
+
   const db = await getDb();
   if (!db) return [];
 
   // FONTE 1: Demonstrativo
-  let whereExtraDemo = '';
-  if (params.estabelecimentoId) {
-    whereExtraDemo += ` AND d.estabelecimentoId = ${params.estabelecimentoId}`;
-  }
-  if (params.apenasNaoEnviados) {
-    whereExtraDemo += ` AND d.recurso_id IS NULL`;
-  }
+  let whereExtraDemo = ` AND d.estabelecimentoId = ${params.estabelecimentoId}`;
   if (params.dataPagamento) {
     whereExtraDemo += ` AND d.data_pagamento = '${params.dataPagamento}'`;
   }
@@ -10366,17 +10369,15 @@ export async function getRecursosDoConvenio(params: {
       'demonstrativo' as fonte
     FROM demonstrativo d
     WHERE d.convenio_id = ${params.convenioId}
-      AND (d.recurso_status = 'recurso_criado' OR d.classificacao_glosa IN ('recursar', 'auto_recursar'))
+      AND d.recurso_status = 'recurso_criado'
+      AND d.recurso_id IS NULL
       AND d.valor_glosa > 0
       ${whereExtraDemo}
     ORDER BY d.numero_guia, d.codigo_item
   `));
 
   // FONTE 2: Conciliação
-  let whereExtraConc = '';
-  if (params.estabelecimentoId) {
-    whereExtraConc += ` AND ca.estabelecimentoId = ${params.estabelecimentoId}`;
-  }
+  let whereExtraConc = ` AND ca.estabelecimentoId = ${params.estabelecimentoId}`;
   if (params.dataPagamento) {
     whereExtraConc += ` AND ca.competenciaPagamento = '${params.dataPagamento}'`;
   }
@@ -10399,6 +10400,7 @@ export async function getRecursosDoConvenio(params: {
     FROM conciliados_automatico ca
     WHERE ca.convenioId = ${params.convenioId}
       AND ca.statusRecursoItem = 'iniciado'
+      AND ca.xmlRecursoLoteId IS NULL
       AND ca.valorGlosa > 0
       AND ca.id NOT IN (
         SELECT COALESCE(rgi.conciliadoId, 0) FROM recursos_glosa_itens rgi WHERE rgi.conciliadoId IS NOT NULL

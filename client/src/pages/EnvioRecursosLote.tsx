@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -30,6 +30,15 @@ import {
   Hash
 } from "lucide-react";
 import { formatDateBR } from "@/lib/dateUtils";
+import {
+  agruparItensLotePorGuia,
+  chaveRecursoLote,
+  criarSnapshotDaSelecaoLote,
+  criarSnapshotLote,
+  separarItensLotePorFonte,
+  validarSnapshotParaCriacaoLote,
+  type SnapshotCriacaoLote,
+} from "@/lib/recursosLoteSelecao";
 
 const formatCurrency = (value: number | string | null | undefined) => {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -43,9 +52,10 @@ export default function EnvioRecursosLote() {
   const utils = trpc.useUtils();
   
   const [convenioExpandido, setConvenioExpandido] = useState<number | null>(null);
-  const [recursosSelecionados, setRecursosSelecionados] = useState<Set<number>>(new Set());
+  const [recursosSelecionados, setRecursosSelecionados] = useState<Set<string>>(new Set());
   const [dialogCriarLote, setDialogCriarLote] = useState(false);
-  const [convenioParaLote, setConvenioParaLote] = useState<{ id: number; nome: string } | null>(null);
+  const [snapshotCriacaoLote, setSnapshotCriacaoLote] = useState<SnapshotCriacaoLote | null>(null);
+  const [valorSelecionadoNoDialogo, setValorSelecionadoNoDialogo] = useState(0);
   const [busca, setBusca] = useState("");
   
   // Campos adicionais para criação do lote
@@ -78,135 +88,198 @@ export default function EnvioRecursosLote() {
     { enabled: !!convenioExpandido && !!estabelecimentoAtual?.id }
   );
 
-  // Mutation para criar lote
-  const criarLoteMutation = trpc.recursos.criarLote.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Lote ${data.numeroLote} criado com sucesso! Acesse "Acompanhamento Recursos" para gerar Excel/XML e enviar.`);
-      setDialogCriarLote(false);
-      setNumeroLoteManual("");
-      setProtocoloLote("");
-      setDataInicioConta("");
-      setDataFimConta("");
-      setRecursosSelecionados(new Set());
-      setConvenioParaLote(null);
-      setModoGuiaUnica(false);
-      refetch();
-      utils.recursos.agrupadosPorConvenio.invalidate();
-      utils.recursos.listarLotes.invalidate();
-    },
-    onError: (error) => toast.error("Erro ao criar lote: " + error.message),
+  const contextoDoConvenio = (convenioId: number | null | undefined) => ({
+    estabelecimentoId: estabelecimentoAtual?.id,
+    convenioId,
+    filtroDataPagamento,
   });
+
+  const mensagemErroSelecao = (codigo: string) => {
+    if (codigo === "FONTE_DESCONHECIDA") {
+      return "Há itens com fonte desconhecida. Atualize a lista antes de criar o lote.";
+    }
+    if (codigo === "LISTA_DE_ORIGEM_INDISPONIVEL") {
+      return "A lista de itens ainda não está disponível. Atualize a lista e tente novamente.";
+    }
+    if (codigo === "CONTEXTO_ALTERADO" || codigo === "ITEM_FORA_DO_ESCOPO") {
+      return "Algum item não está mais disponível neste escopo. Atualize a lista e selecione novamente.";
+    }
+    if (codigo === "NENHUM_ITEM") {
+      return "Selecione pelo menos um recurso para criar o lote.";
+    }
+    return "Não foi possível validar a seleção. Atualize a lista e tente novamente.";
+  };
+
+  const limparSelecaoDoEscopo = () => {
+    setRecursosSelecionados(new Set());
+    setDialogCriarLote(false);
+    setSnapshotCriacaoLote(null);
+    setValorSelecionadoNoDialogo(0);
+  };
+
+  // Uma seleção não é válida fora da unidade, convênio ou filtro em que foi feita.
+  useEffect(() => {
+    setConvenioExpandido(null);
+    setBusca("");
+    limparSelecaoDoEscopo();
+  }, [estabelecimentoAtual?.id, filtroDataPagamento]);
+
+  // Mutation para criar lote
+  const criarLoteMutation = trpc.recursos.criarLote.useMutation();
 
   const handleExpandirConvenio = (convenioId: number) => {
     if (convenioExpandido === convenioId) {
       setConvenioExpandido(null);
-      setRecursosSelecionados(new Set());
     } else {
       setConvenioExpandido(convenioId);
-      setRecursosSelecionados(new Set());
     }
+    setBusca("");
+    limparSelecaoDoEscopo();
   };
 
-  const handleSelecionarRecurso = (recursoId: number, checked: boolean) => {
-    const novos = new Set(recursosSelecionados);
-    if (checked) {
-      novos.add(recursoId);
-    } else {
-      novos.delete(recursoId);
+  const handleSelecionarRecurso = (chave: string | null, checked: boolean) => {
+    if (!chave) {
+      toast.error("Este item tem uma fonte desconhecida e não pode ser selecionado. Atualize a lista.");
+      return;
     }
-    setRecursosSelecionados(novos);
+    setRecursosSelecionados(anterior => {
+      const novos = new Set(anterior);
+      if (checked) novos.add(chave);
+      else novos.delete(chave);
+      return novos;
+    });
   };
 
   const handleSelecionarTodos = (recursos: any[], checked: boolean) => {
-    if (checked) {
-      setRecursosSelecionados(new Set(recursos.map(r => r.id)));
-    } else {
+    if (!checked) {
       setRecursosSelecionados(new Set());
+      return;
     }
+
+    const chaves = recursos.map(chaveRecursoLote);
+    if (chaves.some(chave => !chave)) {
+      toast.error("Há itens com fonte desconhecida. Atualize a lista antes de selecionar todos.");
+      return;
+    }
+    setRecursosSelecionados(new Set(chaves as string[]));
   };
 
   const handleAbrirCriarLote = (convenioId: number, convenioNome: string) => {
-    if (recursosSelecionados.size === 0) {
-      toast.error("Selecione pelo menos um recurso para criar o lote");
+    if (convenioExpandido !== convenioId) {
+      toast.error("A seleção não pertence ao convênio aberto. Atualize a lista e selecione novamente.");
       return;
     }
-    setConvenioParaLote({ id: convenioId, nome: convenioNome });
+
+    const resultado = criarSnapshotDaSelecaoLote({
+      contexto: contextoDoConvenio(convenioId),
+      convenioNome,
+      itensDisponiveis: recursosConvenio,
+      chavesSelecionadas: recursosSelecionados,
+    });
+    if (!resultado.valido) {
+      toast.error(mensagemErroSelecao(resultado.codigo));
+      return;
+    }
+
+    setSnapshotCriacaoLote(resultado.snapshot);
+    setValorSelecionadoNoDialogo(
+      (recursosConvenio || [])
+        .filter(recurso => {
+          const chave = chaveRecursoLote(recurso);
+          return !!chave && recursosSelecionados.has(chave);
+        })
+        .reduce((total, recurso) => total + parseFloat(recurso.valorGlosado || "0"), 0),
+    );
     setDialogCriarLote(true);
   };
 
-  const handleCriarLote = () => {
-    if (!convenioParaLote || !estabelecimentoAtual) return;
+  const handleCriarLote = async () => {
+    const snapshot = snapshotCriacaoLote;
+    if (!snapshot) {
+      toast.error(mensagemErroSelecao("NENHUM_ITEM"));
+      limparSelecaoDoEscopo();
+      return;
+    }
+    const contextoAtual = contextoDoConvenio(snapshot?.contexto.convenioId);
+    const resultado = validarSnapshotParaCriacaoLote(snapshot, contextoAtual);
+    if (!resultado.valido) {
+      toast.error(mensagemErroSelecao(resultado.codigo));
+      limparSelecaoDoEscopo();
+      return;
+    }
 
-    // Separar IDs por fonte (demonstrativo vs conciliacao)
-    const separarPorFonte = (ids: number[]) => {
-      const demoIds: number[] = [];
-      const concIds: number[] = [];
-      for (const id of ids) {
-        const recurso = recursosConvenio?.find((r: any) => r.id === id);
-        if (recurso?.fonte === 'conciliacao') {
-          concIds.push(id);
-        } else {
-          demoIds.push(id);
-        }
-      }
-      return { demoIds, concIds };
-    };
-
-    if (modoGuiaUnica) {
-      // Criar um lote para cada guia selecionada
-      const recursosArray = Array.from(recursosSelecionados);
-      const guiasMap = new Map<string, number[]>();
-      
-      for (const recursoId of recursosArray) {
-        const recurso = recursosConvenio?.find((r: any) => r.id === recursoId);
-        if (recurso) {
-          const guia = recurso.guiaNumero || "sem_guia";
-          if (!guiasMap.has(guia)) {
-            guiasMap.set(guia, []);
-          }
-          guiasMap.get(guia)!.push(recursoId);
-        }
-      }
-
-      // Criar lote para cada guia
-      for (const [guia, ids] of guiasMap) {
-        const { demoIds, concIds } = separarPorFonte(ids);
-        criarLoteMutation.mutate({
-          convenioId: convenioParaLote.id,
-          estabelecimentoId: estabelecimentoAtual.id,
-          recursosIds: [],
-          demonstrativoIds: demoIds.length > 0 ? demoIds : undefined,
-          conciliacaoIds: concIds.length > 0 ? concIds : undefined,
-          descricao: `Lote - Guia ${guia} - ${convenioParaLote.nome}`,
-          protocoloEnvio: protocoloLote || undefined,
-          dataInicioConta: dataInicioConta || undefined,
-          dataFimConta: dataFimConta || undefined,
-        });
-      }
-    } else {
-      // Criar um único lote com todos os recursos selecionados
-      const { demoIds, concIds } = separarPorFonte(Array.from(recursosSelecionados));
-      criarLoteMutation.mutate({
-        convenioId: convenioParaLote.id,
-        estabelecimentoId: estabelecimentoAtual.id,
+    const criarParaItens = (itens: typeof resultado.itens, descricao: string) => {
+      const { demonstrativoIds, conciliacaoIds } = separarItensLotePorFonte(itens);
+      return criarLoteMutation.mutateAsync({
+        convenioId: snapshot.contexto.convenioId,
+        estabelecimentoId: snapshot.contexto.estabelecimentoId,
         recursosIds: [],
-        demonstrativoIds: demoIds.length > 0 ? demoIds : undefined,
-        conciliacaoIds: concIds.length > 0 ? concIds : undefined,
-        descricao: `Lote de recursos - ${convenioParaLote.nome}`,
+        demonstrativoIds: demonstrativoIds.length > 0 ? demonstrativoIds : undefined,
+        conciliacaoIds: conciliacaoIds.length > 0 ? conciliacaoIds : undefined,
+        descricao,
         protocoloEnvio: protocoloLote || undefined,
         dataInicioConta: dataInicioConta || undefined,
         dataFimConta: dataFimConta || undefined,
       });
+    };
+
+    try {
+      const lotes = modoGuiaUnica
+        ? await Promise.all(
+            [...agruparItensLotePorGuia(resultado.itens)].map(([guia, itens]) =>
+              criarParaItens(itens, `Lote - Guia ${guia} - ${snapshot.convenioNome}`),
+            ),
+          )
+        : [
+            await criarParaItens(
+              resultado.itens,
+              `Lote de recursos - ${snapshot.convenioNome}`,
+            ),
+          ];
+
+      toast.success(
+        lotes.length === 1
+          ? `Lote ${lotes[0].numeroLote} criado com sucesso! Acesse "Acompanhamento Recursos" para gerar Excel/XML e enviar.`
+          : `${lotes.length} lotes criados com sucesso! Acesse "Acompanhamento Recursos" para gerar Excel/XML e enviar.`,
+      );
+      setNumeroLoteManual("");
+      setProtocoloLote("");
+      setDataInicioConta("");
+      setDataFimConta("");
+      setModoGuiaUnica(false);
+      limparSelecaoDoEscopo();
+    } catch (error) {
+      const detalhe = error instanceof Error ? ` ${error.message}` : "";
+      toast.error(`Não foi possível criar o lote.${detalhe} Atualize a lista: algum item pode ter ficado indisponível.`);
+    } finally {
+      await Promise.all([
+        refetch(),
+        utils.recursos.agrupadosPorConvenio.invalidate(),
+        utils.recursos.recursosDoConvenio.invalidate(),
+        utils.recursos.datasPagamentoDisponiveis.invalidate(),
+        utils.recursos.listarLotes.invalidate(),
+      ]);
     }
   };
 
   const handleCriarLoteTodos = (convenioId: number, convenioNome: string, recursos: any[]) => {
-    if (recursos.length === 0) {
-      toast.error("Não há recursos para criar lote");
+    const resultado = criarSnapshotLote({
+      contexto: contextoDoConvenio(convenioId),
+      convenioNome,
+      itens: recursos,
+    });
+    if (!resultado.valido) {
+      toast.error(mensagemErroSelecao(resultado.codigo));
       return;
     }
-    setRecursosSelecionados(new Set(recursos.map(r => r.id)));
-    setConvenioParaLote({ id: convenioId, nome: convenioNome });
+
+    setConvenioExpandido(convenioId);
+    setBusca("");
+    setRecursosSelecionados(new Set(resultado.snapshot.itens.map(chaveRecursoLote).filter(Boolean) as string[]));
+    setSnapshotCriacaoLote(resultado.snapshot);
+    setValorSelecionadoNoDialogo(
+      recursos.reduce((total, recurso) => total + parseFloat(recurso.valorGlosado || "0"), 0),
+    );
     setDialogCriarLote(true);
   };
 
@@ -221,6 +294,21 @@ export default function EnvioRecursosLote() {
       r.descricaoProcedimento?.toLowerCase().includes(termo)
     );
   }, [recursosConvenio, busca]);
+
+  const todosRecursosFiltradosSelecionados = !!recursosFiltrados
+    && recursosFiltrados.length > 0
+    && recursosFiltrados.every(recurso => {
+      const chave = chaveRecursoLote(recurso);
+      return !!chave && recursosSelecionados.has(chave);
+    });
+
+  const handleAlterarDialogCriarLote = (aberto: boolean) => {
+    setDialogCriarLote(aberto);
+    if (!aberto) {
+      setSnapshotCriacaoLote(null);
+      setValorSelecionadoNoDialogo(0);
+    }
+  };
 
   if (!user) return null;
 
@@ -240,7 +328,7 @@ export default function EnvioRecursosLote() {
         </div>
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <Select value={filtroDataPagamento || "todas"} onValueChange={(v) => { setFiltroDataPagamento(v === "todas" ? "" : v); setConvenioExpandido(null); }}>
+          <Select value={filtroDataPagamento || "todas"} onValueChange={(v) => setFiltroDataPagamento(v === "todas" ? "" : v)}>
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Data Pagamento" />
             </SelectTrigger>
@@ -413,8 +501,8 @@ export default function EnvioRecursosLote() {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="w-[40px]">
-                                    <Checkbox
-                                      checked={recursosFiltrados && recursosFiltrados.length > 0 && recursosSelecionados.size === recursosFiltrados.length}
+                                  <Checkbox
+                                      checked={todosRecursosFiltradosSelecionados}
                                       onCheckedChange={(checked) => handleSelecionarTodos(recursosFiltrados || [], !!checked)}
                                     />
                                   </TableHead>
@@ -429,12 +517,16 @@ export default function EnvioRecursosLote() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {(recursosFiltrados || []).map((recurso) => (
-                                  <TableRow key={recurso.id}>
+                                {(recursosFiltrados || []).map((recurso) => {
+                                  const chave = chaveRecursoLote(recurso);
+                                  const fonteConhecida = !!chave;
+                                  return (
+                                  <TableRow key={chave || `fonte-desconhecida:${recurso.id}`}>
                                     <TableCell>
                                       <Checkbox
-                                        checked={recursosSelecionados.has(recurso.id)}
-                                        onCheckedChange={(checked) => handleSelecionarRecurso(recurso.id, !!checked)}
+                                        checked={!!chave && recursosSelecionados.has(chave)}
+                                        onCheckedChange={(checked) => handleSelecionarRecurso(chave, !!checked)}
+                                        disabled={!fonteConhecida}
                                       />
                                     </TableCell>
                                     <TableCell className="font-mono text-sm">
@@ -452,8 +544,8 @@ export default function EnvioRecursosLote() {
                                       {formatCurrency(recurso.valorGlosado)}
                                     </TableCell>
                                     <TableCell>
-                                      <Badge variant="outline" className={recurso.fonte === 'conciliacao' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}>
-                                        {recurso.fonte === 'conciliacao' ? 'Conciliação' : 'Demonstrativo'}
+                                      <Badge variant="outline" className={recurso.fonte === 'conciliacao' ? 'bg-blue-50 text-blue-700' : recurso.fonte === 'demonstrativo' ? 'bg-purple-50 text-purple-700' : 'bg-red-50 text-red-700'}>
+                                        {recurso.fonte === 'conciliacao' ? 'Conciliação' : recurso.fonte === 'demonstrativo' ? 'Demonstrativo' : 'Fonte desconhecida'}
                                       </Badge>
                                     </TableCell>
                                     <TableCell>
@@ -462,7 +554,8 @@ export default function EnvioRecursosLote() {
                                       </Badge>
                                     </TableCell>
                                   </TableRow>
-                                ))}
+                                  );
+                                })}
                               </TableBody>
                             </Table>
                           </div>
@@ -478,12 +571,12 @@ export default function EnvioRecursosLote() {
       </Card>
 
       {/* Dialog de Criação de Lote */}
-      <Dialog open={dialogCriarLote} onOpenChange={setDialogCriarLote}>
+      <Dialog open={dialogCriarLote} onOpenChange={handleAlterarDialogCriarLote}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Criar Lote de Recursos</DialogTitle>
             <DialogDescription>
-              Configure os dados do lote para {convenioParaLote?.nome}
+              Configure os dados do lote para {snapshotCriacaoLote?.convenioNome}
             </DialogDescription>
           </DialogHeader>
           
@@ -492,20 +585,16 @@ export default function EnvioRecursosLote() {
             <div className="p-4 bg-muted rounded-lg space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Convênio:</span>
-                <span className="font-medium">{convenioParaLote?.nome}</span>
+                <span className="font-medium">{snapshotCriacaoLote?.convenioNome}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Recursos selecionados:</span>
-                <span className="font-medium">{recursosSelecionados.size}</span>
+                <span className="font-medium">{snapshotCriacaoLote?.itens.length || 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Valor total glosado:</span>
                 <span className="font-medium text-red-600">
-                  {formatCurrency(
-                    recursosConvenio
-                      ?.filter(r => recursosSelecionados.has(r.id))
-                      .reduce((sum, r) => sum + parseFloat(r.valorGlosado || "0"), 0) || 0
-                  )}
+                  {formatCurrency(valorSelecionadoNoDialogo)}
                 </span>
               </div>
             </div>
@@ -579,7 +668,7 @@ export default function EnvioRecursosLote() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogCriarLote(false)}>
+            <Button variant="outline" onClick={() => handleAlterarDialogCriarLote(false)}>
               Cancelar
             </Button>
             <Button 
