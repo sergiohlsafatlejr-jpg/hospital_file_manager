@@ -53,6 +53,7 @@ const adminContext = {
 function resultadoConfigurado() {
   return {
     configuracaoPendente: false,
+    diagnosticoSnapshot: null,
     fontes: [],
     candidatos: [],
     contexto: null,
@@ -67,6 +68,7 @@ function criarServicoFake(): ContaContextoMedicoService {
     consultar: vi.fn(async () => resultadoConfigurado()),
     listarArquivos: vi.fn(async () => ({
       configuracaoPendente: false,
+      diagnosticoSnapshot: null,
       arquivos: [],
       page: 1,
       temProximaPagina: false,

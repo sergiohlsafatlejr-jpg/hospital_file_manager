@@ -32,6 +32,7 @@ import type {
   CandidatoGabarito,
   ContaContextoMedicoResultado,
   ContextoMedicoInfo,
+  DiagnosticoSnapshotHospitalar,
   FonteMedicaInfo,
   ProcedimentoMedicoInfo,
   ScopeContaMedica,
@@ -82,6 +83,7 @@ export type ContaContextoMedicoConteudoProps = {
   onIndexar?: (arquivoMedicoId: number) => void;
   onConfirmar?: (padraoId: number, justificativa: string) => void;
   onInvalidar?: (justificativa: string) => void;
+  onRecarregar?: () => void;
 };
 
 const MAX_PROCEDIMENTOS_VISIVEIS = 6;
@@ -122,6 +124,22 @@ function formatDateTime(value: string | null | undefined): string {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+function mensagemPrecondicaoSnapshot(diagnostico: DiagnosticoSnapshotHospitalar | null | undefined): string | null {
+  if (!diagnostico) return null;
+  const total = (etapa: DiagnosticoSnapshotHospitalar["etapas"][number]["etapa"]) =>
+    diagnostico.etapas.find(item => item.etapa === etapa)?.totalLinhas ?? 0;
+  if (total("arquivo_hospitalar") === 0) {
+    return "Os itens hospitalares ainda não estão disponíveis para preparar este contexto.";
+  }
+  if (total("identificacao_conta") === 0) {
+    return "Os itens hospitalares ainda não possuem uma identificação de conta compatível para preparar este contexto.";
+  }
+  if (total("lote") === 0) {
+    return "Os itens hospitalares ainda não possuem um lote compatível para preparar este contexto.";
+  }
+  return "Os itens hospitalares ainda não possuem uma competência compatível para preparar este contexto.";
 }
 
 function ProcedimentoCard({
@@ -395,6 +413,7 @@ export function ContaContextoMedicoConteudo({
   onIndexar,
   onConfirmar,
   onInvalidar,
+  onRecarregar,
 }: ContaContextoMedicoConteudoProps) {
   const [arquivoSelecionado, setArquivoSelecionado] = useState<string>("");
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
@@ -406,6 +425,7 @@ export function ContaContextoMedicoConteudo({
   const contexto = resultado?.contexto;
   const statusContexto = getStatusContexto(contexto);
   const configuracaoPendente = resultado?.configuracaoPendente === true;
+  const mensagemSnapshot = mensagemPrecondicaoSnapshot(resultado?.diagnosticoSnapshot);
   const temErroArquivos = Boolean(arquivosErrorMessage);
   const arquivoSelecionadoAutorizado = arquivos.some(
     arquivo => String(arquivo.id) === arquivoSelecionado
@@ -423,6 +443,7 @@ export function ContaContextoMedicoConteudo({
     !isIndexing &&
     Boolean(onIndexar) &&
     !configuracaoPendente &&
+    !mensagemSnapshot &&
     !temErroArquivos;
   const podeConfirmar =
     justificativaConfirmacao.trim().length > 0 &&
@@ -473,7 +494,28 @@ export function ContaContextoMedicoConteudo({
               <AlertTitle>
                 Não foi possível consultar o contexto médico
               </AlertTitle>
-              <AlertDescription>{errorMessage}</AlertDescription>
+              <AlertDescription className="space-y-3">
+                <p>Não foi possível carregar o contexto médico agora. Recarregue a tela e tente novamente.</p>
+                {onRecarregar ? (
+                  <Button variant="outline" size="sm" onClick={onRecarregar}>
+                    Recarregar contexto
+                  </Button>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {mensagemSnapshot ? (
+            <Alert>
+              <Info />
+              <AlertTitle>Contexto hospitalar ainda não está pronto</AlertTitle>
+              <AlertDescription className="space-y-3">
+                <p>{mensagemSnapshot}</p>
+                {onRecarregar ? (
+                  <Button variant="outline" size="sm" onClick={onRecarregar}>
+                    Recarregar contexto
+                  </Button>
+                ) : null}
+              </AlertDescription>
             </Alert>
           ) : null}
           {resultado?.configuracaoPendente ? (
@@ -844,6 +886,7 @@ function ContaContextoMedicoDisponivel({ scope }: { scope: ScopeContaMedica }) {
       isIndexing={indexar.isPending}
       isConfirming={confirmar.isPending}
       isInvalidating={invalidar.isPending}
+      onRecarregar={() => { void atualizar(); }}
       onIndexar={arquivoMedicoId => indexar.mutate({ scope, arquivoMedicoId })}
       onConfirmar={(padraoId, justificativa) =>
         confirmar.mutate({
@@ -865,6 +908,7 @@ function ContaContextoMedicoDisponivel({ scope }: { scope: ScopeContaMedica }) {
 }
 
 function ContaContextoMedicoIndisponivel({ reason }: { reason: string }) {
+  void reason;
   return (
     <Card className="border-sky-200">
       <CardHeader>
@@ -880,7 +924,9 @@ function ContaContextoMedicoIndisponivel({ reason }: { reason: string }) {
         <Alert>
           <AlertTriangle />
           <AlertTitle>Contexto indisponível para esta conta</AlertTitle>
-          <AlertDescription>{reason}</AlertDescription>
+          <AlertDescription>
+            Não foi possível preparar o contexto médico para esta conta. Recarregue a tela e tente novamente.
+          </AlertDescription>
         </Alert>
       </CardContent>
     </Card>

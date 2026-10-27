@@ -37,13 +37,15 @@ function respostaXml(conteudo = "<ans:mensagemTISS xmlns:ans=\"urn:ans\" />") {
 
 function repositorioComSnapshot(linhas: unknown[]) {
   const where = vi.fn(async () => linhas);
-  const from = vi.fn(() => ({ where }));
+  const leftJoin = vi.fn(() => ({ where }));
+  const from = vi.fn(() => ({ leftJoin }));
   const select = vi.fn(() => ({ from }));
   return {
     repositorio: criarContaContextoMedicoRepositorioDrizzle({
       getDb: async () => ({ select }) as never,
     }),
     select,
+    leftJoin,
     where,
   };
 }
@@ -73,7 +75,7 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
       quantidade: "1.250",
       tipoItem: "PROCEDIMENTO",
     }];
-    const { repositorio, select, where } = repositorioComSnapshot(linhas);
+    const { repositorio, select, leftJoin, where } = repositorioComSnapshot(linhas);
 
     const snapshot = await repositorio.resolverSnapshotHospitalar(scope);
 
@@ -105,56 +107,96 @@ describe("contaContextoMedicoDrizzle — projeção e leitura seguras", () => {
       "tipoItem",
     ]);
     expect(Object.keys(projection).join(" ")).not.toMatch(/valor|recebimento|pagamento/i);
+    expect(leftJoin).toHaveBeenCalledTimes(1);
 
     const filtro = filtroSnapshot(where);
     expect(filtro.sql).toMatch(
-      /`faturamento_tiss`\.`numero_guia_prestador`\s*=\s*\?\s+or\s+\(coalesce\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\)\s*=\s*''\s+and\s+`faturamento_tiss`\.`numero_guia_operadora`\s*=\s*\?\)/i,
+      /coalesce\(\s*nullif\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\),\s*nullif\(trim\(`faturamento_tiss`\.`numero_guia_operadora`\), ''\),\s*concat\('SEM_GUIA_', `faturamento_tiss`\.`arquivo_id`\)\s*\)\s*=\s*\?/i,
     );
     expect(filtro.params).toEqual([
       scope.arquivoHospitalId,
       scope.estabelecimentoId,
       scope.convenioId,
       scope.numeroConta,
+      scope.numeroLote,
+      scope.competencia,
+    ]);
+  });
+
+  it("usa a guia da operadora apenas quando a guia do prestador está ausente", async () => {
+    const { repositorio, where } = repositorioComSnapshot([]);
+
+    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
+
+    const filtro = filtroSnapshot(where);
+    // `NULLIF(TRIM(prestador), '')` é a primeira alternativa. Assim, uma guia
+    // de prestador divergente não permite que a guia da operadora assuma a conta.
+    expect(filtro.sql).toMatch(
+      /coalesce\(\s*nullif\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\),\s*nullif\(trim\(`faturamento_tiss`\.`numero_guia_operadora`\), ''\),\s*concat\('SEM_GUIA_', `faturamento_tiss`\.`arquivo_id`\)\s*\)/i,
+    );
+    expect(filtro.params).toContain(scope.numeroConta);
+  });
+
+  it("normaliza espaços periféricos e deriva competência na mesma prioridade da materialização", async () => {
+    const { repositorio, leftJoin, where } = repositorioComSnapshot([]);
+
+    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
+
+    const filtro = filtroSnapshot(where);
+    expect(filtro.sql).toMatch(/nullif\(trim\(`faturamento_tiss`\.`numero_lote`\), ''\)/i);
+    expect(filtro.sql).toMatch(/nullif\(trim\(`faturamento_tiss`\.`competencia`\), ''\)/i);
+    expect(filtro.sql).toMatch(/date_format\(coalesce\(`faturamento_tiss`\.`data_referencia`, `arquivos`\.`dataReferencia`, `faturamento_tiss`\.`data_execucao`\), '%Y\/%m'\)/i);
+    const join = new MySqlDialect().sqlToQuery(leftJoin.mock.calls[0]?.[1] as never);
+    expect(join.sql).toMatch(/`arquivos`\.`id`\s*=\s*`faturamento_tiss`\.`arquivo_id`/i);
+    expect(filtro.params).toEqual([
+      scope.arquivoHospitalId,
+      scope.estabelecimentoId,
+      scope.convenioId,
       scope.numeroConta,
       scope.numeroLote,
       scope.competencia,
     ]);
   });
 
-  it("bloqueia fallback da operadora quando existe guia do prestador divergente", async () => {
+  it("mantém isolamento por arquivo, unidade e convênio sem fallback automático para outro arquivo", async () => {
     const { repositorio, where } = repositorioComSnapshot([]);
 
-    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
-
-    const filtro = filtroSnapshot(where);
-    // A segunda alternativa só é verdadeira quando a guia prestador é nula,
-    // vazia ou contém apenas espaços; uma guia divergente não pode cair nela.
-    expect(filtro.sql).toMatch(
-      /coalesce\(trim\(`faturamento_tiss`\.`numero_guia_prestador`\), ''\)\s*=\s*''\s+and\s+`faturamento_tiss`\.`numero_guia_operadora`\s*=\s*\?/i,
-    );
-    expect(filtro.params).toContain(scope.numeroConta);
-  });
-
-  it("mantém lote e competência estritos inclusive no fallback da guia da operadora", async () => {
-    const { repositorio, where } = repositorioComSnapshot([]);
-
-    await expect(repositorio.resolverSnapshotHospitalar(scope)).resolves.toBeNull();
+    await expect(repositorio.resolverSnapshotHospitalar({ ...scope, arquivoHospitalId: 40 })).resolves.toBeNull();
 
     const filtro = filtroSnapshot(where);
     expect(filtro.sql).toMatch(/`faturamento_tiss`\.`arquivo_id`\s*=\s*\?/i);
     expect(filtro.sql).toMatch(/`faturamento_tiss`\.`estabelecimentoId`\s*=\s*\?/i);
     expect(filtro.sql).toMatch(/`faturamento_tiss`\.`convenioId`\s*=\s*\?/i);
-    expect(filtro.sql).toMatch(/coalesce\(`faturamento_tiss`\.`numero_lote`, ''\)\s*=\s*\?/i);
-    expect(filtro.sql).toMatch(/coalesce\(`faturamento_tiss`\.`competencia`, ''\)\s*=\s*\?/i);
-    expect(filtro.params).toEqual([
-      scope.arquivoHospitalId,
-      scope.estabelecimentoId,
-      scope.convenioId,
-      scope.numeroConta,
-      scope.numeroConta,
-      scope.numeroLote,
-      scope.competencia,
+    expect(filtro.params.slice(0, 3)).toEqual([40, scope.estabelecimentoId, scope.convenioId]);
+    expect(filtro.sql).not.toMatch(/order by|limit|arquivo_id\s*<>|arquivo_id\s+is\s+null/i);
+  });
+
+  it("retorna somente totais agregados por estágio para diagnóstico do snapshot ausente", async () => {
+    const { repositorio, select, where } = repositorioComSnapshot([{
+      arquivoHospitalar: "39",
+      identificacaoConta: "39",
+      lote: "39",
+      competencia: "0",
+    }]);
+
+    await expect(repositorio.diagnosticarSnapshotHospitalar(scope)).resolves.toEqual({
+      etapas: [
+        { etapa: "arquivo_hospitalar", totalLinhas: 39 },
+        { etapa: "identificacao_conta", totalLinhas: 39 },
+        { etapa: "lote", totalLinhas: 39 },
+        { etapa: "competencia", totalLinhas: 0 },
+      ],
+    });
+    expect(Object.keys(select.mock.calls[0]?.[0] as Record<string, unknown>).sort()).toEqual([
+      "arquivoHospitalar",
+      "competencia",
+      "identificacaoConta",
+      "lote",
     ]);
+    const filtro = filtroSnapshot(where);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`arquivo_id`\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`estabelecimentoId`\s*=\s*\?/i);
+    expect(filtro.sql).toMatch(/`faturamento_tiss`\.`convenioId`\s*=\s*\?/i);
   });
 
   it("separa principais compostos e deduplica sem transformar material em procedimento", async () => {

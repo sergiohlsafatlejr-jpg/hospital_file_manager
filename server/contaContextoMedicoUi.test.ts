@@ -146,6 +146,36 @@ describe("interface de contexto médico informativo", () => {
     expect(disponivel).not.toContain("Nenhum arquivo médico elegível");
   });
 
+  it("traduz a pré-condição do snapshot sem expor mensagem, guia ou identificadores brutos", () => {
+    const html = renderToStaticMarkup(
+      createElement(ContaContextoMedicoConteudo, {
+        resultado: {
+          ...contaContextoMedicoFixture,
+          diagnosticoSnapshot: {
+            etapas: [
+              { etapa: "arquivo_hospitalar", totalLinhas: 39 },
+              { etapa: "identificacao_conta", totalLinhas: 39 },
+              { etapa: "lote", totalLinhas: 39 },
+              { etapa: "competencia", totalLinhas: 0 },
+            ],
+          },
+          fontes: [],
+          candidatos: [],
+          contexto: null,
+        },
+        errorMessage: "Conta não encontrada para GUIA-PRIVADA no arquivo 39.",
+        onRecarregar: vi.fn(),
+      })
+    );
+
+    expect(html).toContain("Contexto hospitalar ainda não está pronto");
+    expect(html).toContain("competência compatível");
+    expect(html).toContain("Recarregar contexto");
+    expect(html).not.toContain("Conta não encontrada para GUIA-PRIVADA no arquivo 39.");
+    expect(html).not.toContain("GUIA-PRIVADA");
+    expect(html).not.toContain("arquivo 39");
+  });
+
   it("mantém grupo alternativo opcional até uma escolha explícita de obrigatoriedade", () => {
     const html = renderToStaticMarkup(
       createElement(GrupoAlternativoFields, {

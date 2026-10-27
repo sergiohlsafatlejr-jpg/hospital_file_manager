@@ -130,8 +130,30 @@ export interface ContextoMedicoInfo {
   abrangencia: "conta_inteira_sem_setor" | "conta_inteira";
 }
 
+/**
+ * Diagnóstico agregado e seguro da pré-condição do snapshot hospitalar.
+ *
+ * Não transporta guia, arquivo, paciente, valores nem conteúdo de item. Os
+ * totais apenas indicam, por etapa canônica, se há linhas no mesmo escopo já
+ * autorizado (unidade, convênio e arquivo hospitalar exatos).
+ */
+export type EtapaDiagnosticoSnapshotHospitalar =
+  | "arquivo_hospitalar"
+  | "identificacao_conta"
+  | "lote"
+  | "competencia";
+
+export interface DiagnosticoSnapshotHospitalar {
+  etapas: Array<{
+    etapa: EtapaDiagnosticoSnapshotHospitalar;
+    totalLinhas: number;
+  }>;
+}
+
 export interface ContaContextoMedicoResultado {
   configuracaoPendente: boolean;
+  /** Preenchido somente quando não há snapshot hospitalar para o escopo exato. */
+  diagnosticoSnapshot: DiagnosticoSnapshotHospitalar | null;
   fontes: FonteMedicaInfo[];
   candidatos: CandidatoGabarito[];
   contexto: ContextoMedicoInfo | null;
