@@ -5107,5 +5107,7 @@ export type InsertLoteFaturamento = typeof lotesFaturamento.$inferInsert;
 export * from "./schema-retornos-recursos";
 // Informação médica e decisão de composição isoladas das tabelas financeiras.
 export * from "./schema-conta-contexto-medico";
+// Metadados de PDFs de prontuário; a migração correspondente é reservada separadamente.
+export * from "./schema-prontuario-pdf";
 // Controle de lote e agenda do snapshot Hop, sem migração automática.
 export * from "./schema-atendimentos-hop-diario";

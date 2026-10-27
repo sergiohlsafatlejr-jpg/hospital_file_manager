@@ -14,6 +14,8 @@ import { initializeWarleineImportWorker } from "../warleineFaturamentoWorker";
 import { easyLocalAgendamentoHandler } from "../easyLocalAgendamentoCallback";
 import { atendimentosHopDiarioCallback } from "../atendimentosHopDiarioCallback";
 import { atendimentosHopProdutorRouter } from "../atendimentosHopProdutor";
+import { registrarDownloadProntuarioPdf } from "../prontuarioPdfDownload";
+import { registrarUploadProntuarioPdf } from "../prontuarioPdfUpload";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -57,6 +59,9 @@ async function startServer() {
   app.post("/api/scheduled/atendimentos-hop-diario", atendimentosHopDiarioCallback);
   // Produtor Hop só anuncia lotes; sua credencial fixa a unidade no servidor.
   app.use("/api/hop/atendimentos", atendimentosHopProdutorRouter);
+  // PDF clínico somente por sessão autenticada; nunca por URL direta de storage.
+  registrarUploadProntuarioPdf(app);
+  registrarDownloadProntuarioPdf(app);
   // tRPC API
   app.use(
     "/api/trpc",
