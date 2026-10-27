@@ -108,6 +108,7 @@ temp/
 
 # Test/debug scripts
 *.mjs
+!scripts/migrations/0137-retornos-restrita.mjs
 
 # Sample data files
 *.xlsx
