@@ -3,7 +3,7 @@ import { DBFFile } from "dbffile";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gerarUnimedDbf, mapUnimedDbfRow } from "./unimedDbfExporter";
+import { gerarUnimedDbf, mapUnimedDbfRow, normalizarDescricaoDbf } from "./unimedDbfExporter";
 
 describe("unimedDbfExporter", () => {
   it("mapeia o registro para o layout oficial do DBF Unimed", () => {
@@ -29,10 +29,30 @@ describe("unimedDbfExporter", () => {
     });
   });
 
+  it("normaliza acentos, pontuação e símbolos na DESCRSP", () => {
+    expect(normalizarDescricaoDbf("Ação, ã, ç, ~ e ^: Coração & Saúde"))
+      .toBe("Acao a c e Coracao Saude");
+    expect(mapUnimedDbfRow({
+      codigo: "1",
+      nome: "Ação, ã, ç, ~ e ^: Coração & Saúde",
+      valor: 10,
+    }).DESCRSP).toBe("Acao a c e Coracao Saude");
+  });
+
+  it("mantém DESCRSP sem caracteres especiais e limitada a 65 caracteres", () => {
+    const descricao = normalizarDescricaoDbf(
+      "Descrição muito longa, com acentuação e caracteres ~ ^ ! @ # $ % para truncar corretamente",
+    );
+
+    expect(descricao).toHaveLength(65);
+    expect(descricao).toMatch(/^[A-Za-z0-9 ]+$/);
+    expect(descricao).not.toMatch(/\s{2,}/);
+  });
+
   it("gera um DBF legível com os 16 campos do exemplo", async () => {
     const content = await gerarUnimedDbf([{
       codigo: "31102360",
-      nome: "Ureterorrenolitotripsia flexível a laser unilateral",
+      nome: "Ureterorrenolitotripsia flexível, à laser ~ unilateral ^",
       valor: 1533.7,
       valorPorteAnestesico: 806.41,
       porte: 5,
@@ -52,6 +72,7 @@ describe("unimedDbfExporter", () => {
       const rows = await dbf.readRecords();
       expect(rows[0]).toMatchObject({
         CODSPPROP: "31102360",
+        DESCRSP: "Ureterorrenolitotripsia flexivel a laser unilateral",
         VALORPROF: 1533.7,
         VALORANE: 806.41,
         PTOPORANE: 5,

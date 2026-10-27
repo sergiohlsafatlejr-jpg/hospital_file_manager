@@ -47,13 +47,24 @@ function truncate(value: unknown, length: number): string {
   return String(value ?? "").normalize("NFC").slice(0, length);
 }
 
+/** Normaliza DESCRSP para o conjunto ASCII aceito pelo importador legado. */
+export function normalizarDescricaoDbf(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 65);
+}
+
 export function mapUnimedDbfRow(row: UnimedDbfRow) {
   return {
     CODTBPPROP: "00",
     CODTBPPADR: "00",
     CODSPPROP: truncate(row.codigo, 10),
     CODSPPADR: truncate(row.codigo, 10),
-    DESCRSP: truncate(row.nome, 65),
+    DESCRSP: normalizarDescricaoDbf(row.nome),
     VALORHOSP: 0,
     VALORPROF: numeric(row.valor),
     VALORANE: numeric(row.valorPorteAnestesico),
