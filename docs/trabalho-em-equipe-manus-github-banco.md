@@ -1,175 +1,91 @@
 # Trabalho em equipe no Safatle Sistema
 
-**Autor:** Manus AI  
-**Equipe:** Sergio, Danilo e Paulo  
-**Projeto Manus:** Safalte Sistemas  
+**Autor:** Manus AI
+**Equipe:** Sergio, Danilo e Paulo
+**Projeto:** Safalte Sistemas
 **Repositório:** `sergiohlsafatlejr-jpg/safatle-sistema`
+**Regra de aprovação atualizada por Sergio:** 26/10/2026, 19:08 BRT
 
-## Decisão operacional
+## Regra permanente de aprovação
 
-Sergio, Danilo e Paulo podem trabalhar ao mesmo tempo, mas não devem compartilhar a mesma branch nem executar alterações concorrentes no banco. O **Manus organiza contexto e colaboração**, o **GitHub controla as versões do código** e as **migrações Drizzle controlam a estrutura do banco**.
+Sergio é o **único aprovador obrigatório** das Pull Requests e o responsável final por prioridades, mudanças destrutivas e liberações em produção. Por decisão expressa dele em 26/10/2026, Danilo e Paulo deixam de ser revisores obrigatórios. Eles podem contribuir com revisões técnicas quando solicitado, mas sua disponibilidade ou aprovação não é requisito adicional ao aceite de Sergio.
 
-> O trabalho de tela, serviços, testes e documentação pode ocorrer em paralelo. Mudanças em `drizzle/schema.ts`, `drizzle/schema-integracao.ts` ou `drizzle/meta/_journal.json` entram em uma fila única: somente uma migração de banco é preparada e integrada por vez.
+Essa mudança não é autorização irrestrita para mesclar todas as PRs abertas ou executar qualquer operação de produção. Cada merge, publicação, migração, carga, exclusão ou ativação depende da autorização de Sergio para o escopo e a revisão apresentados. Se ele autorizar um conjunto claramente identificado de PRs, registrar esse conjunto e seus limites; não estender a liberação a outras PRs ou revisões posteriores relevantes.
 
-## Situação verificada em 23 de setembro de 2026
+O autor apresenta a mudança, os testes, as limitações e o impacto. Sergio dá o aceite humano final. Auditorias automatizadas e pareceres de agentes ajudam a análise técnica, mas não devem ser registrados como uma aprovação humana de Sergio.
 
-| Item                     | Situação                                                                                                                                             |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Repositório principal    | Privado, com branch padrão `main`                                                                                                                    |
-| Acesso GitHub            | Sergio é administrador; `Danilochavesc` e `PaulohsBorges` têm permissão de escrita                                                                   |
-| Proteção de `main`       | Não está ativa                                                                                                                                       |
-| Automação de CI          | Ainda não há workflow ativo; o modelo está em `docs/exemplo-ci-github-actions.yml` para ativação por uma credencial GitHub com permissão de workflow |
-| Dívida técnica existente | A verificação TypeScript falha e 36 de 197 arquivos de teste apresentam falhas na `main`; parte dos testes depende de serviços e segredos externos   |
-| Banco principal          | MySQL/TiDB por `DATABASE_URL`, com Drizzle ORM                                                                                                       |
-| Migrações                | Versionadas em `drizzle/`, atualmente até `0124`                                                                                                     |
-| Conector Manus           | GitHub está ativo; não há conector de banco ativo nesta tarefa                                                                                       |
-| Segredos                 | Nenhum arquivo `.env` está versionado no repositório                                                                                                 |
+## Branches, GitHub e coordenação
 
-Esta mudança adiciona um modelo de integração contínua, checklist de Pull Request, responsáveis de revisão para arquivos críticos e comandos separados para gerar, conferir e aplicar migrações. Ela não altera o banco nem os dados. Enquanto a dívida técnica atual não for corrigida, o modelo trata `pnpm check` e `pnpm test` como diagnósticos não bloqueantes. O build e `pnpm db:check` serão bloqueantes quando o modelo for ativado.
+Sergio, Danilo, Paulo e Manus podem preparar entregas em paralelo, em **branches próprias**. Toda alteração do sistema deve ser sincronizada com `https://github.com/sergiohlsafatlejr-jpg/safatle-sistema.git` e entrar em `main` por Pull Request. **Nunca fazer push direto em `main`**, inclusive em mudanças urgentes ou somente documentais.
 
-## Como usar o Manus em equipe
+Por decisão de Sergio em 02/10/2026, a coordenação ocorre por Issues e PRs do GitHub; não depende de Manus Collab. A Issue privada [#34 — Coordenação de migrações](https://github.com/sergiohlsafatlejr-jpg/safatle-sistema/issues/34) registra reservas, responsável, revisão, PR, executor, janela e resultados sanitizados de banco.
 
-Estar no mesmo projeto Manus não torna todas as conversas automaticamente visíveis. As tarefas são privadas por padrão. Para uma conversa que os três precisam acompanhar e editar, o proprietário abre **Compartilhar**, escolhe **Colaboração** e convida Danilo e Paulo. Somente o proprietário da tarefa pode convidar pessoas. O Manus permite até cinquenta participantes em uma tarefa de colaboração, incluindo o proprietário.[1]
+Cada entrega deve ter escopo curto, responsável, branch e PR identificados. A PR registra as verificações pertinentes, uma descrição do impacto e as pendências. Somente membros autorizados acessam o repositório; sua natureza privada não permite incluir segredos ou dados hospitalares.
 
-Para uma tarefa que precisa apenas ser consultada pelos demais, o proprietário pode usar **Compartilhar > Acesso da equipe > Copiar link**. O acesso público não deve ser usado para código privado, dados hospitalares, credenciais ou capturas de tela com informações de pacientes.[2]
+O fluxo de desenvolvimento é atualizar a referência da `main`, criar branch própria, implementar, testar, revisar o diff, sincronizar a branch e abrir PR. A aprovação de Sergio deve ser ligada ao escopo e à revisão apresentados antes do merge/publicação. Checkpoint não comprova deploy; verificar o ambiente publicado antes de declarar implantação.
 
-A primeira entrada de um colaborador em uma tarefa Collab limpa os cookies de login do ambiente Sandbox. Portanto, integrações autenticadas pelo navegador podem pedir novo login. Credenciais de banco nunca devem ser colocadas na conversa, mesmo quando somente a equipe participa.[1]
+## Testes e prévias
 
-### Estrutura recomendada no Manus
+Executar testes focados, build, verificação de tipos e `git diff --check` conforme a entrega. Para mudanças de banco, `pnpm db:check` permanece obrigatório. Dívida técnica preexistente deve ser identificada por baseline; não declarar verificações falhas como aprovadas, nem introduzir novos erros no escopo.
 
-A equipe mantém uma tarefa Collab chamada **Coordenação — Safatle Sistema**. Ela registra prioridades, responsáveis, links dos Pull Requests e o estado das migrações. Cada entrega técnica maior deve ocorrer em uma tarefa separada do mesmo projeto, vinculada ao número da Issue ou do Pull Request. Assim, o histórico operacional permanece legível e o código continua controlado pelo GitHub.
-
-Antes de começar, cada pessoa informa na tarefa de coordenação:
-
-```text
-Responsável: Danilo
-Entrega: corrigir conciliação do convênio X
-Branch: fix/123-conciliacao-convenio-x
-Arquivos principais: server/conciliacaoService.ts
-Banco: não
-PR: ainda não aberto
-```
-
-Se a entrega alterar banco, deve constar `Banco: sim` e a mensagem `MIGRAÇÃO RESERVADA`. Enquanto essa reserva estiver ativa, a outra pessoa não gera migração.
+Mudanças visuais devem apresentar uma prévia privada com dados sintéticos ou desidentificados autorizados, em backend e banco isolados de produção. Não apontar mutações ou importações de uma prévia para o banco do Portal. Identificar branch, revisão e evidências; não prometer prévia persistente por PR antes de configurar e verificar esse serviço.
 
 ## Divisão de responsabilidades
 
-| Pessoa                       | Responsabilidade principal                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Sergio                       | Define prioridade, aceita a entrega funcional, aprova mudanças destrutivas e controla a aplicação em produção |
-| Danilo                       | Desenvolve em branch própria, escreve testes, prepara migração quando necessário e abre Pull Request          |
-| Paulo                        | Desenvolve em branch própria, escreve testes, prepara migração quando necessário e abre Pull Request          |
-| Danilo ou Paulo como revisor | Revisa o Pull Request do outro, inclusive o SQL e o impacto nos dados                                         |
+Sergio define prioridades, analisa o escopo e as evidências e autoriza merge, publicação e ações de produção. Danilo e Paulo desenvolvem em branches próprias, preparam testes e PRs e podem oferecer revisão técnica opcional. Manus apoia implementação, análise, testes e coordenação e só executa produção com autorização específica e delegação de Sergio quando aplicável.
 
-Danilo e Paulo podem trocar os papéis de autor e revisor. Quem escreveu a mudança não faz a única revisão da própria entrega. Sergio permanece como responsável final por qualquer ação em produção.
+Aprovação de código não equivale a autorização de banco ou de dados. Delegação de execução não autoriza redefinir requisitos, escolher outro destino, ampliar recortes ou executar recuperação destrutiva.
 
-## Fluxo diário de código
+## Fluxo obrigatório de banco
 
-Cada entrega começa em uma Issue ou tarefa com escopo curto. O desenvolvedor atualiza `main`, cria uma branch própria e trabalha apenas nela.
+### Reserva única
 
-```bash
-git switch main
-git pull origin main
-git switch -c feat/123-nome-curto
-```
+Manter **somente uma migração ativa por vez**. Antes de gerar ou aplicar, consultar a Issue #34 e registrar `MIGRAÇÃO RESERVADA`, com responsável, branch, PR e escopo. A reserva não confere autorização automática de produção. A próxima migração aguarda liberação ou suspensão formal da atual.
 
-As convenções são `feat/`, `fix/`, `hotfix/` e `docs/`. Não se faz push direto em `main`. Antes de abrir o Pull Request, o autor executa:
+Enquanto uma reserva estiver ativa, podem avançar em paralelo mudanças de código que não gerem nem alterem migração. Alterações concorrentes em schema/journal devem aguardar a fila. Registrar `MIGRAÇÃO LIBERADA` somente após a conferência final, ou registrar suspensão/cancelamento com seus limites.
 
-```bash
-pnpm install --frozen-lockfile
-pnpm check
-pnpm test
-pnpm build
-git diff --check
-```
+### Schema e artefatos imutáveis
 
-O Pull Request deve ser pequeno o suficiente para ser revisado por outra pessoa. O merge acontece somente depois de o build e a conferência de migrações passarem, o autor demonstrar que não adicionou novas falhas e o revisor aprovar. Até a ativação do GitHub Actions, esses comandos são executados localmente e seus resultados são registrados no Pull Request. Como `main` não possui proteção técnica no momento, essa regra depende da disciplina da equipe. Depois que a dívida de tipagem e testes for eliminada, essas verificações devem se tornar bloqueantes no CI.
+O schema TypeScript é a fonte de verdade. Usar `pnpm db:generate` e `pnpm db:check` no desenvolvimento. Conferir o SQL gerado; incluir schema, nova SQL, snapshot e journal na mesma revisão quando houver alteração estrutural.
 
-## Fluxo obrigatório para alterações de banco
+Nunca editar ou renumerar uma migração já integrada/aplicada, combinar snapshots manualmente ou alterar o journal à mão. Uma correção exige nova migração coordenada. Se uma migração ainda não integrada ficou incompatível, atualizá-la a partir da `main` e regenerá-la pelo Drizzle.
 
-O schema TypeScript é a fonte de verdade. Uma mudança começa em `drizzle/schema.ts` ou `drizzle/schema-integracao.ts` e produz uma migração SQL nova. Migrações já integradas ou aplicadas nunca são editadas.
+### Revisão e homologação
 
-### 1. Reservar a migração
+Apresentar a Sergio a revisão exata, objetos e comandos previstos, efeitos nos dados, índices, isolamento por estabelecimento e plano de recuperação. A aprovação obrigatória é a dele; revisão de Danilo/Paulo é opcional.
 
-O autor informa `MIGRAÇÃO RESERVADA` na tarefa Collab de coordenação e inclui o nome da branch. Somente essa branch pode gerar uma migração até o merge ou cancelamento.
+Homologação e produção usam acessos e destinos distintos. Testar o schema no produto/versão compatível com o destino, além dos fluxos funcionais pertinentes. Para dados, validar contagens, somatórios e isolamento, usando precisão decimal para valores financeiros. MariaDB local não deve ser descrito como recuperação ou homologação completa de TiDB.
 
-### 2. Atualizar a branch antes de gerar
+### Backup e aplicação em produção
 
-```bash
-git fetch origin
-git rebase origin/main
-```
+Backup aplicável, proteção, retenção e recuperação demonstrada continuam exigidos pelo procedimento da entrega. Cópia cifrada local e checkpoint de código não equivalem, por si só, a backup durável restaurável de produção. O responsável de recuperação e as evidências de restauração devem ser identificados antes da janela.
 
-### 3. Alterar o schema e gerar os arquivos
+Sergio ou delegado formal aplica somente o escopo autorizado, uma única vez, em janela exclusiva e após os requisitos técnicos. **Enquanto o histórico legado Drizzle estiver divergente, não executar `pnpm db:migrate` geral nem `db:push`.** Usar somente procedimento restrito previamente aprovado para a SQL versionada, com preflight físico/histórico e registro controlado depois da prova física. Não selecionar e aplicar migrações pendentes indiscriminadamente.
 
-```bash
-pnpm db:generate
-pnpm db:check
-```
+A migração 0135 Banco/XML permanece fora do escopo da 0137. Suspensão de reserva não equivale a aplicação, desfazimento ou reconciliação de histórico. Não reparar entradas anteriores sem procedimento e autorização próprios.
 
-`db:generate` cria o SQL, o snapshot e a entrada de journal. `db:check` valida a consistência do histórico. O autor precisa ler o SQL gerado antes do commit. O Drizzle separa a geração da aplicação e executa somente migrações ainda não registradas no banco.[3] [4]
+DDL pode ficar parcial. Parar na primeira falha ou incerteza, preservar evidências e não repetir comandos às cegas. Não executar `DROP`, `TRUNCATE`, `DELETE`, reordenação de SQL, recriação ou alteração de histórico para contornar uma falha sem plano específico aprovado.
 
-### 4. Abrir o Pull Request
+Após a execução, validar estruturas, constraints, índices, tipos/defaults e histórico em conexão independente, além das contagens e do isolamento aplicáveis. Registrar na Issue #34 revisão, arquivo, horário, executor e resultados agregados, sem segredos ou dados hospitalares. Só então liberar a reserva.
 
-O mesmo commit deve conter a alteração do schema, o novo arquivo SQL, o snapshot e o journal. O checklist deve explicar o que muda, como os dados existentes são preservados, o impacto em índices e o plano de validação.
+### Ações destrutivas e exceções
 
-Qualquer `DROP`, `TRUNCATE`, `DELETE` em massa, redução de tipo ou remoção de coluna exige backup e aprovação explícita de Sergio antes da execução. Aprovar o Pull Request não substitui essa autorização quando a ação for destrutiva.
+Qualquer remoção de estrutura, `TRUNCATE`, exclusão em massa, redução de tipo, substituição de dados ou alteração destrutiva exige alvo, impacto, backup e autorização explícita de Sergio. Aprovar uma PR não substitui a autorização destrutiva.
 
-### 5. Validar em homologação
+Uma exceção a backup, homologação, recuperação ou outro requisito deve ser específica, com risco e limites apresentados e aceite inequívoco de Sergio. Exceções antigas não se transferem para outra migração. A adoção de Sergio como aprovador único **não cria uma dispensa permanente desses requisitos**.
 
-A equipe usa uma credencial exclusiva de homologação, nunca a credencial de produção.
+## Segredos e dados hospitalares
 
-```bash
-pnpm db:migrate
-pnpm test
-pnpm build
-```
+Credenciais, chaves, conexões e valores de segredos permanecem em gerenciadores seguros ou arquivos locais ignorados pelo Git, nunca em chat, Issues, PRs, documentos, logs ou capturas. Não divulgar pacientes, carteirinhas, guias, protocolos, valores individuais ou conteúdo de XML/PDF. Usar metadados mínimos, contagens e agregados sanitizados.
 
-Depois da aplicação, o autor valida contagens, somatórios, isolamento por estabelecimento e a tela afetada. Para valores financeiros, a comparação deve preservar a precisão decimal.
+Danilo e Paulo recebem, quando necessário, acesso individual limitado à homologação; não precisam de credenciais de produção. Inspeções de produção devem priorizar somente leitura, TLS e consultas restritas.
 
-### 6. Aplicar em produção uma única vez
+## Checklist de liberação
 
-Após revisão, homologação e backup aplicável, Sergio ou a pessoa formalmente designada por ele executa `pnpm db:migrate` com a credencial de produção. Durante essa janela, ninguém executa outra migração no mesmo banco.
+Antes de encerrar uma entrega, confirmar branch e PR sincronizadas, revisão exata aprovada por Sergio, testes e limitações registrados e ausência de push direto na main. Para banco, confirmar reserva única, SQL imutável, backup/recuperação e homologação aplicáveis, janela/executor autorizados e pós-validação independente. Para deploy, comprovar a versão efetivamente publicada.
 
-O registro da liberação deve conter o commit, o arquivo de migração, a data e hora, o executor e o resultado da validação. A equipe libera a reserva somente depois dessa conferência.
+A implantação de código ou tabela não autoriza, automaticamente, importações, vínculos, recebimentos, estornos ou horários de automação. Cada ativação deve ter escopo e autorização próprios.
 
-## Se duas pessoas precisarem mudar o banco
+## Registro da decisão
 
-A primeira mudança mantém a reserva. A segunda pode continuar trabalhando em código que não gere migração, mas aguarda o primeiro merge. Depois disso, o segundo desenvolvedor atualiza a branch com `origin/main`, resolve o schema e gera uma nova migração a partir do histórico atualizado.
-
-Não se renumera SQL já integrado, não se combina snapshots manualmente e não se altera `drizzle/meta/_journal.json` à mão. Se uma migração local ainda não foi integrada e ficou incompatível, ela deve ser regenerada a partir da `main` atual.
-
-## O que pode acontecer em paralelo
-
-| Situação                                                    | Pode ocorrer ao mesmo tempo? | Regra                                                          |
-| ----------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------- |
-| Danilo altera uma tela e Paulo corrige um serviço diferente | Sim                          | Branches separadas e Pull Requests separados                   |
-| Danilo e Paulo editam o mesmo arquivo                       | Com cautela                  | Dividir funções ou combinar previamente para reduzir conflitos |
-| Um deles altera o schema e o outro trabalha sem banco       | Sim                          | Somente o primeiro mantém a reserva de migração                |
-| Ambos geram migrações Drizzle                               | Não                          | Uma migração por vez                                           |
-| Ambos aplicam em homologação no mesmo instante              | Não                          | Um executor e uma janela registrada                            |
-| Qualquer colaborador aplica em produção                     | Não                          | Somente Sergio ou delegado formal                              |
-| Revisão do código enquanto o autor corrige comentários      | Sim                          | O autor atualiza a mesma branch do Pull Request                |
-
-## Segredos e acesso ao banco
-
-A aplicação usa `DATABASE_URL` para MySQL/TiDB e também possui integrações opcionais com PostgreSQL. As credenciais devem existir somente em gerenciadores de segredos ou arquivos `.env` locais ignorados pelo Git. Não devem ser copiadas para Issues, Pull Requests, tarefas Manus, documentos, logs ou capturas de tela.
-
-Danilo e Paulo recebem, no máximo, acesso individual e revogável à homologação. A produção deve usar conta separada, com permissões mínimas e acesso restrito ao responsável pela liberação. Para inspecionar produção, prefira acesso somente leitura e consultas previamente revisadas.
-
-## Checklist de início imediato
-
-1. Sergio abre uma tarefa Collab **Coordenação — Safatle Sistema** e convida Danilo e Paulo.
-2. Cada entrega recebe uma Issue ou tarefa curta e uma branch exclusiva.
-3. Danilo e Paulo nunca fazem push direto em `main`; um revisa o Pull Request do outro.
-4. A etiqueta textual `MIGRAÇÃO RESERVADA` impede duas migrações simultâneas.
-5. O autor usa `db:generate` e `db:check`; somente o responsável pela liberação usa `db:migrate` em produção.
-6. Nenhuma credencial ou dado hospitalar é publicado no Manus ou GitHub.
-7. O merge ocorre apenas após as verificações obrigatórias, revisão e validação funcional; novas falhas de tipos ou testes não são aceitas.
-
-## Referências
-
-[1]: https://help.manus.im/en/articles/12135428-how-can-i-use-manus-collab "How can I use Manus Collab?"
-[2]: https://help.manus.im/en/articles/11711785-how-can-manus-team-members-see-the-tasks-i-created "How can Manus Team members see the tasks I created?"
-[3]: https://orm.drizzle.team/docs/migrations "Drizzle ORM migrations"
-[4]: https://orm.drizzle.team/docs/kit-overview "Drizzle Kit overview"
+Em 26/10/2026, às 19:08 BRT, Sergio escolheu expressamente: **“B — Alterar a regra permanente, com Sergio como aprovador único”**. Esta versão substitui o requisito anterior de revisão obrigatória de outra pessoa, mantendo todos os demais controles acima. A atualização da configuração compartilhada não equivale ao merge de uma PR ou à aplicação da 0137.

@@ -5,6 +5,10 @@
 **Banco:** MySQL/TiDB  
 **Ferramenta de migração:** Drizzle Kit
 
+**Atualização de governança — 26/10/2026:** Sergio é o único aprovador obrigatório das PRs. Danilo e Paulo podem revisar tecnicamente, mas não são revisores obrigatórios. Cada merge, publicação ou ação de produção continua exigindo autorização dele para o escopo apresentado. Consulte `docs/trabalho-em-equipe-manus-github-banco.md` para o protocolo vigente; este documento conserva exemplos históricos de comandos e layouts, não é autorização de execução.
+
+**Regra de banco vigente:** manter uma única migração ativa, coordenada na Issue privada #34. Enquanto o histórico legado estiver divergente, não executar `pnpm db:migrate` geral nem `db:push` em produção: aplicar somente procedimento restrito da SQL versionada, aprovado por Sergio, com backup/recuperação e homologação aplicáveis. Os exemplos de migrador abaixo se limitam a ambientes isolados com histórico consistente. A aprovação exclusiva de Sergio não dispensa requisitos técnicos nem autoriza importações, rotinas ou exclusões.
+
 ## Decisão principal
 
 A equipe deve adotar um fluxo **codebase-first com migrações SQL versionadas**. Isso significa que a estrutura do banco é definida no repositório, cada alteração produz um arquivo SQL novo em `drizzle/` e a aplicação em produção ocorre somente depois de revisão e validação.
@@ -19,8 +23,8 @@ O projeto já está preparado para esse modelo. O arquivo `drizzle.config.ts` l�
 | ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Sergio             | Administrador do repositório e responsável pela liberação                           | Priorizar entregas, aprovar operações destrutivas e controlar a aplicação em produção                                           |
 | Danilo             | Acesso de escrita ao repositório e à homologação; sem credencial direta de produção | Criar branch, desenvolver, preparar migração, escrever testes e abrir Pull Request                                              |
-| Paulo              | Acesso de escrita ao repositório e à homologação; sem credencial direta de produção | Criar branch, desenvolver, preparar migração, escrever testes e revisar o trabalho de Danilo                                    |
-| Revisor da entrega | Acesso ao repositório e ao ambiente de homologação                                  | Revisar SQL, impacto nos dados, índices, isolamento por estabelecimento e plano de reversão; Danilo e Paulo alternam este papel |
+| Paulo              | Acesso de escrita ao repositório e à homologação; sem credencial direta de produção | Criar branch, desenvolver, preparar migração, escrever testes e abrir Pull Request; revisão técnica opcional                     |
+| Sergio como aprovador | Acesso às evidências da revisão exata e resultados de homologação                | Aprovar o escopo, SQL, impactos, isolamento e recuperação; único aceite humano obrigatório                                     |
 | Usuário do portal  | Acesso funcional aos módulos autorizados por estabelecimento                        | Validar a tela e os resultados; não executa comandos de banco                                                                   |
 
 Danilo e Paulo podem desenvolver e preparar migrações, mas **não precisam nem devem receber a senha do banco de produção**. A mudança chega ao banco por arquivo SQL versionado e por uma liberação controlada.
@@ -138,15 +142,11 @@ Quando houver alteração de dados, o teste também deve comparar contagens e so
 
 ### 6. Aprovar e aplicar em produção
 
-A execução em produção é feita por uma única pessoa responsável, depois que a Pull Request foi revisada e o checkpoint foi salvo. O comando recomendado é:
+A execução em produção é feita por Sergio ou delegado formal, após o aceite de Sergio sobre a revisão exata e a comprovação de backup/recuperação, homologação e janela exclusiva. Checkpoint de código não é backup do banco nem prova de publicação.
 
-```bash
-pnpm db:migrate
-```
+Enquanto o histórico Drizzle legado estiver divergente, não executar `pnpm db:migrate` geral nem `db:push`. Usar somente o procedimento restrito aprovado da SQL imutável, com preflight físico/histórico, parada na primeira falha e registro único controlado depois da prova física. Não reordenar SQL, selecionar migrações pendentes, repetir DDL às cegas ou reparar histórico anterior por conveniência.
 
-O responsável precisa registrar o commit liberado, a migração aplicada, data e hora, usuário executor e o resultado da validação. Durante a aplicação, ninguém deve gerar outra migração nem executar outro `db:migrate` contra o mesmo banco.
-
-Para esta aplicação Manus, as mudanças de schema também podem ser aplicadas de forma controlada pela ferramenta SQL do WebDev depois de a migração ter sido gerada e revisada. A regra é a mesma: executar o SQL versionado, nunca comandos manuais diferentes do arquivo que será commitado.
+O responsável precisa registrar na Issue #34 o commit liberado, a migração, horário, executor e resultado sanitizado da validação. Durante a aplicação, ninguém gera ou aplica outra migração no mesmo banco. A reserva só é liberada após a pós-validação independente. Mudanças destrutivas e recuperação executável exigem autorização própria; a aprovação do código não autoriza importações ou ativação de rotinas.
 
 ### 7. Validar e fechar a entrega
 
@@ -192,11 +192,11 @@ git diff --check
 | Branch atualizada com `main`                              | Sim         |
 | Schema TypeScript alterado no arquivo correto             | Sim         |
 | Nova migração, snapshot e journal incluídos no commit     | Sim         |
-| SQL revisado por outra pessoa                             | Sim         |
+| Escopo e SQL aprovados por Sergio na revisão exata         | Sim         |
 | Testes, build e `db:check` aprovados                      | Sim         |
 | Homologação validada para mudanças relevantes             | Sim         |
 | Aprovação explícita para qualquer ação destrutiva         | Sim         |
-| `db:migrate` executado uma única vez por responsável      | Sim         |
+| Aplicação restrita única por Sergio ou delegado formal    | Sim         |
 | Validador funcional e conferência de isolamento aprovados | Sim         |
 | Checkpoint Manus e push GitHub confirmados                | Sim         |
 
