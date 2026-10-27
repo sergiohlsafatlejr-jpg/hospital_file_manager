@@ -1,6 +1,6 @@
 # Executor restrito 0138 — contexto médico informativo
 
-**Situação: preparado para revisão; não autorizado para aplicação operacional.** Este documento descreve apenas o executor de `0138_known_blink`. Ele não altera a SQL, o snapshot, o journal, nem migrações anteriores. A migração é aditiva e cria exclusivamente as três tabelas informativas de contexto médico previstas no plano.
+**Situação: PR #113 autorizada e mesclada; correção focal de compatibilidade do preflight aguardando aceite. Nenhuma DDL produtiva executada.** Este documento descreve apenas o executor de `0138_known_blink`. Ele não altera a SQL, o snapshot, o journal, nem migrações anteriores. A migração é aditiva e cria exclusivamente as três tabelas informativas de contexto médico previstas no plano.
 
 ## Escopo imutável
 
@@ -48,6 +48,8 @@ A factory para mysql2 é opcional e é fornecida pelo chamador autorizado. Quand
 
 O preflight bloqueia se qualquer tabela alvo já existir, se uma FK tocar o escopo, se o layout de `__drizzle_migrations` não for estritamente `id` bigint unsigned auto-increment, `hash` text e `created_at` bigint, ou se o histórico anterior não estiver íntegro. Ele exige ausência do marcador 0135, presença exata dos marcadores 0136 e 0137, preservação de todos os registros históricos anteriores e ausência do marcador 0138.
 
+O layout real tem `created_at` nullable. A definição admite `YES` ou `NO`, mas todos os valores históricos devem ser não nulos, dígitos decimais, inteiros positivos seguros e anteriores à 0138. Datas nulas, vazias, whitespace, inválidas, fracionárias, zero/negativas ou fora do limite seguro bloqueiam antes de DDL. O executor não altera a nulabilidade nem preenche/repara registros antigos para passar pelo gate.
+
 ## Gates externos de aplicação
 
 `apply` permanece bloqueado por padrão. O callback `verifyExternalGates` é responsabilidade de um wrapper futuro autorizado; `() => true` é recusado. Ele precisa devolver um atestado canônico ligado à identidade exata da SQL e deste executor, à revisão de artefatos, à janela e ao escopo 0138.
@@ -64,7 +66,7 @@ Antes de uma conexão de aplicação/DDL, a chamada exige os sete signoffs boole
 
 Os gates de revisão e autorização devem estar registrados por Sergio, indicar escopo `executor-0138` e vincular SQL, executor e revisão exatos. A exceção de backup, quando usada, também é estritamente vinculada a `0138_known_blink`, possui validade e não pode ser criada pelo executor. Evidência fictícia, callback permissivo, checkpoint, cópia local, banco sintético ou a presença de dados em interface não comprovam backup, restauração, aprovação ou autorização.
 
-**Estado em 27/10/2026:** a autorização comunicada às 09:47 para o escopo 0138 não constitui por si só todos os gates canônicos. A revisão exata de Sergio continua pendente. Portanto, os gates de aplicação estão falsos neste preparo e nenhuma DDL/DML foi executada por ele. Não se declara backup, restauração ou exceção operacional como já comprovados.
+**Estado em 27/10/2026:** Sergio aprovou às 10:17 a revisão da PR #113 e a 0138 restrita, incluindo o risco de ausência de backup/recuperação. O preflight original parou antes de DDL, porque exigia nulabilidade `NO` para a coluna antiga de data, enquanto a definição real informa `YES`. Não se alterou metadado para simular outro layout. O código corretivo será apresentado em PR/revisão próprias antes de novo apply. A exceção continua exclusiva à 0138 e não se declara backup ou restauração como comprovados.
 
 ## Aplicação eventual, somente após autorização externa completa
 
@@ -97,6 +99,8 @@ O ensaio futuro pode usar somente banco TiDB sintético isolado e nomes/dados si
 A suite atual usa conexões fake e verifica: preflight somente leitura, ausência de conexão automática, gate canônico obrigatório, TLS injetado, sequência das sete declarações, parada sem retry em falha parcial, bloqueio de journal diante de divergência física, proteção do marcador 0137, journal duplicado e segunda execução não idempotente. Ela não é prova de backup/restauração, autorização de Sergio ou prontidão operacional.
 
 Também foi concluído um ensaio separado do executor real em **TiDB 8.5.3 local isolado, com TLS verificado**. O preflight somente leitura e a aplicação das sete declarações foram aprovados, com três tabelas, 45 colunas, três PKs, três únicos e quatro índices não únicos. A sequência incluiu inspeção após cada declaração, conexão independente, journal transacional único e validação final. O histórico e os gates desse ensaio eram explicitamente fictícios; não contêm nem substituem aprovação, credenciais ou recuperação de produção. A instância sintética foi encerrada ao final.
+
+O ensaio da correção repetiu o executor completo em TiDB 8.5.3 local/TLS, agora com `created_at BIGINT NULL` na tabela fictícia de histórico, igual à definição observada em produção. Preflight, sete DDLs, journal e validação final passaram. São 21 testes fake do executor, incluindo os dois layouts, a preservação do histórico e dez valores históricos inválidos bloqueados sem DDL/journal. Não se exportou o histórico real para o ambiente local.
 
 ## Limites preservados
 

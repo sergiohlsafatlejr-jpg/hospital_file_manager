@@ -596,7 +596,9 @@ function historyLayoutIsExpected(layoutRows) {
       normalized(hash.COLUMN_TYPE ?? hash.column_type) === "text" &&
       normalized(hash.IS_NULLABLE ?? hash.is_nullable) === "no" &&
       normalized(createdAt.COLUMN_TYPE ?? createdAt.column_type) === "bigint" &&
-      normalized(createdAt.IS_NULLABLE ?? createdAt.is_nullable) === "no"
+      // O histórico real permite NULL na definição; os valores são validados
+      // integralmente em ledgerIs0138Baseline, sem alterar a tabela existente.
+      ["yes", "no"].includes(normalized(createdAt.IS_NULLABLE ?? createdAt.is_nullable))
   );
 }
 
@@ -632,7 +634,13 @@ function ledgerIs0138Baseline(ledger, artifacts) {
     exactMarker(ledger, marker136) &&
     exactMarker(ledger, marker137) &&
     noMarker(ledger, marker138) &&
-    ledger.every(entry => Number(entry.created_at) <= MIGRATION_TIMESTAMP - 1)
+    ledger.every(entry => {
+      if (entry.created_at === null || entry.created_at === undefined) return false;
+      const value = String(entry.created_at);
+      const timestamp = Number(value);
+      return /^\d+$/.test(value) && Number.isSafeInteger(timestamp) &&
+        timestamp > 0 && timestamp <= MIGRATION_TIMESTAMP - 1;
+    })
   );
 }
 

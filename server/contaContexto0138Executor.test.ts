@@ -33,6 +33,7 @@ type FakeOptions = {
   duplicateJournal?: boolean;
   wrongAffectedRows?: boolean;
   remove0137?: boolean;
+  historyCreatedAtNullable?: boolean;
 };
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -256,7 +257,7 @@ class FakeConnection {
             COLUMN_NAME: "created_at",
             ORDINAL_POSITION: 3,
             COLUMN_TYPE: "bigint",
-            IS_NULLABLE: "NO",
+            IS_NULLABLE: database.options.historyCreatedAtNullable ? "YES" : "NO",
             EXTRA: "",
           },
         ],
@@ -416,6 +417,46 @@ describe("executor restrito 0138", () => {
     expect(journalWrites(database)).toEqual([]);
     expect(database.purposes).toEqual(["0138-preflight-a", "0138-preflight-b"]);
   });
+
+  it("aceita o layout real com data nullable quando todos os registros são válidos", async () => {
+    const database = new FakeDatabase(await targetContract(), await baselineLedger(), {
+      historyCreatedAtNullable: true,
+    });
+    const before = JSON.stringify(database.ledger);
+    const result = await runRestricted0138({ root, connectionFactory: database });
+    expect(result).toMatchObject({ ok: true, phase: "preflight-read-only", ddlCount: 0 });
+    expect(JSON.stringify(database.ledger)).toBe(before);
+    expect(ddl(database)).toEqual([]);
+    expect(journalWrites(database)).toEqual([]);
+  });
+
+  it("aplica as mesmas sete DDLs no layout nullable sem editar histórico anterior", async () => {
+    const database = new FakeDatabase(await targetContract(), await baselineLedger(), {
+      historyCreatedAtNullable: true,
+    });
+    const before = JSON.stringify(database.ledger);
+    const count = database.ledger.length;
+    const result = await runRestricted0138(await applyOptions(database));
+    expect(result).toMatchObject({ ok: true, ddlCount: 7 });
+    expect(JSON.stringify(database.ledger.slice(0, count))).toBe(before);
+    expect(database.ledger).toHaveLength(count + 1);
+    expect(journalWrites(database)).toHaveLength(1);
+  });
+
+  it.each([null, undefined, "", " ", "invalid", "1.5", -1, 0, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    "bloqueia histórico com data inválida %s mesmo em coluna nullable antes de qualquer DDL",
+    async value => {
+      const ledger = await baselineLedger();
+      ledger[0].created_at = value;
+      const database = new FakeDatabase(await targetContract(), ledger, {
+        historyCreatedAtNullable: true,
+      });
+      const result = await runRestricted0138(await applyOptions(database));
+      expect(result).toMatchObject({ ok: false, phase: "preflight", ddlCount: 0 });
+      expect(ddl(database)).toEqual([]);
+      expect(journalWrites(database)).toEqual([]);
+    }
+  );
 
   it("falha sem factory e nunca descobre conexão por DATABASE_URL ou ambiente", async () => {
     const previous = process.env.DATABASE_URL;
