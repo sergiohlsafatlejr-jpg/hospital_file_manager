@@ -219,7 +219,7 @@ function base64url(value: Buffer | string): string {
 }
 
 function segredoToken(): Buffer {
-  const secret = process.env.JWT_SECRET ?? "";
+  const secret = process.env.RETORNOS_RECURSOS_CONFIRMATION_SECRET ?? "";
   if (Buffer.byteLength(secret, "utf8") < 32)
     erro(
       "PRECONDITION_FAILED",

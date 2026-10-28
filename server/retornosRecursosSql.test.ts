@@ -48,7 +48,8 @@ function xml(total = "49.00", accepted = "30.00") {
 const suite = enabled ? describe : describe.skip;
 suite("Retornos: integração SQL local opt-in", () => {
   beforeAll(async () => {
-    process.env.JWT_SECRET = "chave-qa-sintetica-exclusiva-retornos-1234567890";
+    process.env.RETORNOS_RECURSOS_CONFIRMATION_SECRET =
+      "chave-qa-sintetica-exclusiva-retornos-1234567890";
     pool = mysql.createPool({
       host: "127.0.0.1",
       port: 3410,
