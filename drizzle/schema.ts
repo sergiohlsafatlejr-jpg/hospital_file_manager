@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, date, datetime, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, longtext, timestamp, varchar, decimal, json, date, datetime, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -4705,6 +4705,36 @@ export const contratosConvenios = mysqlTable("contratos_convenios", {
 
 export type ContratoConvenio = typeof contratosConvenios.$inferSelect;
 export type InsertContratoConvenio = typeof contratosConvenios.$inferInsert;
+
+/**
+ * PDFs importados para leitura e consulta de pontos importantes do contrato.
+ * O conteúdo binário permanece no storage privado; o banco guarda somente
+ * metadados, texto extraído e o resultado estruturado da leitura.
+ */
+export const contratosConveniosDocumentos = mysqlTable("contratos_convenios_documentos", {
+  id: int("id").autoincrement().primaryKey(),
+  contratoId: int("contratoId").notNull(),
+  estabelecimentoId: int("estabelecimentoId").notNull(),
+  nomeArquivo: varchar("nomeArquivo", { length: 255 }).notNull(),
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  mimeType: varchar("mimeType", { length: 100 }).default("application/pdf").notNull(),
+  tamanhoBytes: int("tamanhoBytes").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  paginas: int("paginas"),
+  status: mysqlEnum("status", ["processando", "concluido", "ocr_necessario", "erro"]).default("processando").notNull(),
+  textoExtraido: longtext("textoExtraido"),
+  pontosImportantes: json("pontosImportantes"),
+  erroProcessamento: text("erroProcessamento"),
+  criadoPor: int("criadoPor").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  contratoIdx: index("idx_contratos_conv_doc_contrato").on(table.contratoId, table.createdAt),
+  estabelecimentoIdx: index("idx_contratos_conv_doc_estabelecimento").on(table.estabelecimentoId, table.createdAt),
+  hashUnico: uniqueIndex("uq_contratos_conv_doc_contrato_hash").on(table.contratoId, table.sha256),
+}));
+export type ContratoConvenioDocumento = typeof contratosConveniosDocumentos.$inferSelect;
+export type InsertContratoConvenioDocumento = typeof contratosConveniosDocumentos.$inferInsert;
 
 /**
  * Tabelas de Preços Negociadas (Anexas ao Contrato)

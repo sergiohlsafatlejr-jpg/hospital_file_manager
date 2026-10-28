@@ -1,0 +1,444 @@
+{
+  "routes": [
+    {
+      "path": "/login",
+      "title": "/login"
+    },
+    {
+      "path": "/esqueci-senha",
+      "title": "/esqueci-senha"
+    },
+    {
+      "path": "/redefinir-senha",
+      "title": "/redefinir-senha"
+    },
+    {
+      "path": "/selecionar-estabelecimento",
+      "title": "/selecionar-estabelecimento"
+    },
+    {
+      "path": "/",
+      "title": "/"
+    },
+    {
+      "path": "/dashboard",
+      "title": "/dashboard"
+    },
+    {
+      "path": "/upload",
+      "title": "/upload"
+    },
+    {
+      "path": "/arquivos",
+      "title": "/arquivos"
+    },
+    {
+      "path": "/comparacoes",
+      "title": "/comparacoes"
+    },
+    {
+      "path": "/relatorios",
+      "title": "/relatorios"
+    },
+    {
+      "path": "/configuracoes/:rest*",
+      "title": "/configuracoes/:rest*"
+    },
+    {
+      "path": "/conta-convenio",
+      "title": "/conta-convenio"
+    },
+    {
+      "path": "/conta-convenio-detalhes",
+      "title": "/conta-convenio-detalhes"
+    },
+    {
+      "path": "/demonstrativo-detalhes",
+      "title": "/demonstrativo-detalhes"
+    },
+    {
+      "path": "/contas/:guiaNumero",
+      "title": "/contas/:guiaNumero"
+    },
+    {
+      "path": "/conciliacao",
+      "title": "/conciliacao"
+    },
+    {
+      "path": "/conciliacao/:convenioId/:guiaNumero",
+      "title": "/conciliacao/:convenioId/:guiaNumero"
+    },
+    {
+      "path": "/analise-glosa",
+      "title": "/analise-glosa"
+    },
+    {
+      "path": "/recursos",
+      "title": "/recursos"
+    },
+    {
+      "path": "/regras-conciliacao",
+      "title": "/regras-conciliacao"
+    },
+    {
+      "path": "/tendencias",
+      "title": "/tendencias"
+    },
+    {
+      "path": "/demonstrativo",
+      "title": "/demonstrativo"
+    },
+    {
+      "path": "/repasse",
+      "title": "/repasse"
+    },
+    {
+      "path": "/dicionario-glosas",
+      "title": "/dicionario-glosas"
+    },
+    {
+      "path": "/estabelecimentos",
+      "title": "/estabelecimentos"
+    },
+    {
+      "path": "/convenios",
+      "title": "/convenios"
+    },
+    {
+      "path": "/tabelas-preco",
+      "title": "/tabelas-preco"
+    },
+    {
+      "path": "/regras-negocio",
+      "title": "/regras-negocio"
+    },
+    {
+      "path": "/dashboard-consolidado",
+      "title": "/dashboard-consolidado"
+    },
+    {
+      "path": "/gerenciar-permissoes",
+      "title": "/gerenciar-permissoes"
+    },
+    {
+      "path": "/produtividade",
+      "title": "/produtividade"
+    },
+    {
+      "path": "/alterar-senha",
+      "title": "/alterar-senha"
+    },
+    {
+      "path": "/acompanhamento-recursos",
+      "title": "/acompanhamento-recursos"
+    },
+    {
+      "path": "/retornos-recursos",
+      "title": "/retornos-recursos"
+    },
+    {
+      "path": "/dashboard-ia",
+      "title": "/dashboard-ia"
+    },
+    {
+      "path": "/envio-recursos-lote",
+      "title": "/envio-recursos-lote"
+    },
+    {
+      "path": "/regras-ia",
+      "title": "/regras-ia"
+    },
+    {
+      "path": "/motor-regras",
+      "title": "/motor-regras"
+    },
+    {
+      "path": "/conciliacao-cruzada",
+      "title": "/conciliacao-cruzada"
+    },
+    {
+      "path": "/vinculacoes-padrao",
+      "title": "/vinculacoes-padrao"
+    },
+    {
+      "path": "/recurso-glosa-conciliacao",
+      "title": "/recurso-glosa-conciliacao"
+    },
+    {
+      "path": "/recurso-glosa-demonstrativo",
+      "title": "/recurso-glosa-demonstrativo"
+    },
+    {
+      "path": "/contas-faturadas",
+      "title": "/contas-faturadas"
+    },
+    {
+      "path": "/contas-faturadas/:conta",
+      "title": "/contas-faturadas/:conta"
+    },
+    {
+      "path": "/recebimentos-xml",
+      "title": "/recebimentos-xml"
+    },
+    {
+      "path": "/recebimentos-excel",
+      "title": "/recebimentos-excel"
+    },
+    {
+      "path": "/atendimentos",
+      "title": "/atendimentos"
+    },
+    {
+      "path": "/atendimentos-faturar",
+      "title": "/atendimentos-faturar"
+    },
+    {
+      "path": "/atendimentos-com-protocolo",
+      "title": "/atendimentos-com-protocolo"
+    },
+    {
+      "path": "/gerenciar-avisos",
+      "title": "/gerenciar-avisos"
+    },
+    {
+      "path": "/auditoria",
+      "title": "/auditoria"
+    },
+    {
+      "path": "/cache-dashboard",
+      "title": "/cache-dashboard"
+    },
+    {
+      "path": "/historico-validacao-xml",
+      "title": "/historico-validacao-xml"
+    },
+    {
+      "path": "/popular-historico-xml",
+      "title": "/popular-historico-xml"
+    },
+    {
+      "path": "/integracao",
+      "title": "/integracao"
+    },
+    {
+      "path": "/integracao-legado",
+      "title": "/integracao-legado"
+    },
+    {
+      "path": "/mapeamento-convenios",
+      "title": "/mapeamento-convenios"
+    },
+    {
+      "path": "/padroes-cobranca",
+      "title": "/padroes-cobranca"
+    },
+    {
+      "path": "/criar-gabarito",
+      "title": "/criar-gabarito"
+    },
+    {
+      "path": "/editar-padrao/:id",
+      "title": "/editar-padrao/:id"
+    },
+    {
+      "path": "/detalhes-padrao/:id",
+      "title": "/detalhes-padrao/:id"
+    },
+    {
+      "path": "/tabelas-porte",
+      "title": "/tabelas-porte"
+    },
+    {
+      "path": "/dashboard-auditoria",
+      "title": "/dashboard-auditoria"
+    },
+    {
+      "path": "/conferencia-correcao",
+      "title": "/conferencia-correcao"
+    },
+    {
+      "path": "/conferencia-correcao/:snapshotId",
+      "title": "/conferencia-correcao/:snapshotId"
+    },
+    {
+      "path": "/relatorio-faturamento",
+      "title": "/relatorio-faturamento"
+    },
+    {
+      "path": "/faturamento-externo",
+      "title": "/faturamento-externo"
+    },
+    {
+      "path": "/relatorio-atendimentos",
+      "title": "/relatorio-atendimentos"
+    },
+    {
+      "path": "/bi-atendimentos",
+      "title": "/bi-atendimentos"
+    },
+    {
+      "path": "/relatorio-custos",
+      "title": "/relatorio-custos"
+    },
+    {
+      "path": "/nfse",
+      "title": "/nfse"
+    },
+    {
+      "path": "/financeiro",
+      "title": "/financeiro"
+    },
+    {
+      "path": "/contratos",
+      "title": "/contratos"
+    },
+    {
+      "path": "/propostas",
+      "title": "/propostas"
+    },
+    {
+      "path": "/painel-executivo",
+      "title": "/painel-executivo"
+    },
+    {
+      "path": "/permissoes-safatle",
+      "title": "/permissoes-safatle"
+    },
+    {
+      "path": "/recebimentos-pdf-saude-caixa",
+      "title": "/recebimentos-pdf-saude-caixa"
+    },
+    {
+      "path": "/atendimentos-unificados",
+      "title": "/atendimentos-unificados"
+    },
+    {
+      "path": "/previsao-pagamentos-imec",
+      "title": "/previsao-pagamentos-imec"
+    },
+    {
+      "path": "/analise-faturamento-itens",
+      "title": "/analise-faturamento-itens"
+    },
+    {
+      "path": "/relatorio-laboratorio",
+      "title": "/relatorio-laboratorio"
+    },
+    {
+      "path": "/relatorio-visita",
+      "title": "/relatorio-visita"
+    },
+    {
+      "path": "/relatorio-visita-xml",
+      "title": "/relatorio-visita-xml"
+    },
+    {
+      "path": "/relatorio-ultrassom",
+      "title": "/relatorio-ultrassom"
+    },
+    {
+      "path": "/relatorio-ox-uti",
+      "title": "/relatorio-ox-uti"
+    },
+    {
+      "path": "/relatorio-fisioterapia",
+      "title": "/relatorio-fisioterapia"
+    },
+    {
+      "path": "/comparativo-mes-a-mes",
+      "title": "/comparativo-mes-a-mes"
+    },
+    {
+      "path": "/relatorio-ox-uti-faturado",
+      "title": "/relatorio-ox-uti-faturado"
+    },
+    {
+      "path": "/resumo-paciente-ox-uti",
+      "title": "/resumo-paciente-ox-uti"
+    },
+    {
+      "path": "/faturado-recebido-unificado",
+      "title": "/faturado-recebido-unificado"
+    },
+    {
+      "path": "/faturado-recebido-warleine",
+      "title": "/faturado-recebido-warleine"
+    },
+    {
+      "path": "/contratos-convenios",
+      "title": "/contratos-convenios"
+    },
+    {
+      "path": "/auditoria-sistema",
+      "title": "/auditoria-sistema"
+    },
+    {
+      "path": "/relatorios-glosas-bi",
+      "title": "/relatorios-glosas-bi"
+    },
+    {
+      "path": "/relatorios-glosas-warleine",
+      "title": "/relatorios-glosas-warleine"
+    },
+    {
+      "path": "/rh/upload",
+      "title": "/rh/upload"
+    },
+    {
+      "path": "/rh/folha-pagamento",
+      "title": "/rh/folha-pagamento"
+    },
+    {
+      "path": "/rh/colaboradores",
+      "title": "/rh/colaboradores"
+    },
+    {
+      "path": "/rh/plano-salarios",
+      "title": "/rh/plano-salarios"
+    },
+    {
+      "path": "/rpa-manager",
+      "title": "/rpa-manager"
+    },
+    {
+      "path": "/vinculacao-inteligente",
+      "title": "/vinculacao-inteligente"
+    },
+    {
+      "path": "/aceite-automatico-glosa",
+      "title": "/aceite-automatico-glosa"
+    },
+    {
+      "path": "/faturamento",
+      "title": "/faturamento"
+    },
+    {
+      "path": "/faturamento/digitacao",
+      "title": "/faturamento/digitacao"
+    },
+    {
+      "path": "/faturamento/lotes",
+      "title": "/faturamento/lotes"
+    },
+    {
+      "path": "/faturamento/remessa/:id",
+      "title": "/faturamento/remessa/:id"
+    },
+    {
+      "path": "/faturamento/remessas-fechadas",
+      "title": "/faturamento/remessas-fechadas"
+    },
+    {
+      "path": "/faturamento/nova-guia",
+      "title": "/faturamento/nova-guia"
+    },
+    {
+      "path": "/faturamento/guia/:id",
+      "title": "/faturamento/guia/:id"
+    },
+    {
+      "path": "/404",
+      "title": "/404"
+    }
+  ]
+}
