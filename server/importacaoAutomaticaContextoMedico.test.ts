@@ -23,19 +23,20 @@ const honorariosPuro = Buffer.from(`<?xml version="1.0"?>
   </guiaHonorarios></guiasTISS></prestadorParaOperadora></mensagemTISS>`);
 
 describe("importação automática de contexto médico", () => {
-  it("classifica honorários puro, não-honorários e documento misto de modo fechado", () => {
+  it("classifica honorários puro, XML hospitalar e documento misto sem bloquear o fluxo financeiro hospitalar", () => {
     expect(classificarXmlHonorarios(honorariosPuro)).toEqual({
       tipo: "honorarios_puro",
     });
-    expect(
-      classificarXmlHonorarios(
-        Buffer.from("<mensagemTISS><guiaConsulta /></mensagemTISS>")
-      )
-    ).toEqual({ tipo: "nao_honorarios" });
+    const hospitalarPuro = Buffer.from(
+      "<mensagemTISS><prestadorParaOperadora><guiasTISS><guiaSPSADT /></guiasTISS></prestadorParaOperadora></mensagemTISS>"
+    );
+    expect(classificarXmlHonorarios(hospitalarPuro)).toEqual({
+      tipo: "nao_honorarios",
+    });
     expect(
       classificarXmlHonorarios(
         Buffer.from(`
-      <mensagemTISS><guiasTISS><guiaHonorarios /><guiaConsulta /></guiasTISS></mensagemTISS>
+      <mensagemTISS><guiasTISS><guiaHonorarios /><guiaSPSADT /></guiasTISS></mensagemTISS>
     `)
       )
     ).toEqual({ tipo: "misto_ou_ambiguo" });
@@ -47,6 +48,23 @@ describe("importação automática de contexto médico", () => {
     expect(
       classificarXmlHonorarios(Buffer.from("<!DOCTYPE x><mensagemTISS />"))
     ).toEqual({ tipo: "misto_ou_ambiguo" });
+  });
+
+  it("mantém XML hospitalar grande no fluxo financeiro em vez de bloqueá-lo por tamanho", async () => {
+    const hospitalarGrande = Buffer.from(
+      `<mensagemTISS><prestadorParaOperadora><guiasTISS><guiaSPSADT /></guiasTISS></prestadorParaOperadora>${" ".repeat(2 * 1024 * 1024)}</mensagemTISS>`
+    );
+    const indexarAutomaticamente = vi.fn();
+
+    expect(classificarXmlHonorarios(hospitalarGrande)).toEqual({
+      tipo: "nao_honorarios",
+    });
+    await expect(
+      rotearEnvioXmlParaContextoMedico(arquivo, hospitalarGrande, {
+        criarServico: () => ({ indexarAutomaticamente }),
+      })
+    ).resolves.toEqual({ destino: "financeiro" });
+    expect(indexarAutomaticamente).not.toHaveBeenCalled();
   });
 
   it("envia honorários puro somente ao serviço informativo e preserva a idempotência retornada", async () => {
