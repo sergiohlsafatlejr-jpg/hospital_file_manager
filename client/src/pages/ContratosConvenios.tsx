@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { toast } from "sonner";
 import { formatDateBR } from "@/lib/dateUtils";
-import { Building2, Search, Plus, Pencil, Trash2, Calendar, FileText, AlertTriangle, Eye, UploadCloud, FileSpreadsheet, Send, Mail } from "lucide-react";
+import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning } from "lucide-react";
 
 const STATUS_CONFIG = {
   ativo: { label: "Ativo", color: "bg-green-500" },
@@ -22,12 +22,33 @@ const STATUS_CONFIG = {
   renovado: { label: "Renovado", color: "bg-blue-500" },
 };
 
+const DOCUMENTO_STATUS_CONFIG = {
+  concluido: { label: "Leitura concluída", color: "bg-green-600" },
+  ocr_necessario: { label: "OCR necessário", color: "bg-amber-600" },
+  processando: { label: "Processando", color: "bg-blue-600" },
+  erro: { label: "Erro", color: "bg-red-600" },
+};
+
+function formatarTamanho(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export default function ContratosConvenios() {
   const [modalAberto, setModalAberto] = useState(false);
   const [contratoEditando, setContratoEditando] = useState<any>(null);
   const [busca, setBusca] = useState("");
   const [convenioSelecionado, setConvenioSelecionado] = useState<string>("");
   const [statusSelecionado, setStatusSelecionado] = useState<string>("ativo");
+  const [documentosModalAberto, setDocumentosModalAberto] = useState(false);
+  const [documentosContratoId, setDocumentosContratoId] = useState<number | null>(null);
+  const [documentoDetalheId, setDocumentoDetalheId] = useState<number | null>(null);
+  const [arquivosPdf, setArquivosPdf] = useState<File[]>([]);
+  const [arrastandoPdf, setArrastandoPdf] = useState(false);
+  const [importandoPdf, setImportandoPdf] = useState(false);
+  const [resultadoImportacao, setResultadoImportacao] = useState<any>(null);
+  const arquivoInputRef = useRef<HTMLInputElement>(null);
   
   const utils = trpc.useUtils();
   const convenios = trpc.convenios.list.useQuery({}); 
@@ -40,6 +61,19 @@ export default function ContratosConvenios() {
   const contratos = trpc.contratosConvenios.listar.useQuery({ estabelecimentoId: estabelecimentoIdFiltro }, {
     enabled: !!estabelecimentoIdFiltro || estabelecimentoAtual?.id === 0,
   });
+  const contratoIds = useMemo(() => (contratos.data ?? []).map(contrato => contrato.id), [contratos.data]);
+  const resumoDocumentos = trpc.contratosConvenios.resumoDocumentos.useQuery({ contratoIds }, {
+    enabled: contratoIds.length > 0,
+    retry: false,
+  });
+  const documentos = trpc.contratosConvenios.listarDocumentos.useQuery(
+    { contratoId: documentosContratoId ?? 0 },
+    { enabled: documentosModalAberto && documentosContratoId !== null, retry: false },
+  );
+  const documentoDetalhe = trpc.contratosConvenios.obterDocumento.useQuery(
+    { id: documentoDetalheId ?? 0 },
+    { enabled: documentoDetalheId !== null, retry: false },
+  );
   
   const criar = trpc.contratosConvenios.criar.useMutation({
     onSuccess: () => {
@@ -110,6 +144,76 @@ export default function ContratosConvenios() {
     return convenios.data?.find((c: any) => c.id === id)?.nome || "Desconhecido";
   };
 
+  const adicionarArquivosPdf = (arquivos: FileList | File[]) => {
+    const candidatos = Array.from(arquivos);
+    const validos = candidatos.filter((arquivo) => {
+      const ehPdf = arquivo.name.toLowerCase().endsWith(".pdf");
+      const tamanhoValido = arquivo.size > 0 && arquivo.size <= 20 * 1024 * 1024;
+      return ehPdf && tamanhoValido;
+    });
+    if (validos.length !== candidatos.length) {
+      toast.warning("Alguns arquivos foram ignorados. Aceitamos somente PDFs de até 20 MB.");
+    }
+    setArquivosPdf((atuais) => {
+      const chavesAtuais = new Set(atuais.map((arquivo) => `${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
+      const novos = validos.filter((arquivo) => !chavesAtuais.has(`${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
+      const combinados = [...atuais, ...novos];
+      if (combinados.length > 30) {
+        toast.error("O lote pode conter no máximo 30 PDFs.");
+        return combinados.slice(0, 30);
+      }
+      return combinados;
+    });
+  };
+
+  const abrirDocumentos = (contratoId: number) => {
+    setDocumentosContratoId(contratoId);
+    setDocumentoDetalheId(null);
+    setResultadoImportacao(null);
+    setArquivosPdf([]);
+    setDocumentosModalAberto(true);
+  };
+
+  const quantidadeDocumentos = (contratoId: number) => {
+    return resumoDocumentos.data?.find((item) => item.contratoId === contratoId)?.quantidade ?? 0;
+  };
+
+  const importarPdfs = async () => {
+    if (!documentosContratoId || arquivosPdf.length === 0) {
+      toast.error("Selecione um contrato e ao menos um PDF.");
+      return;
+    }
+    setImportandoPdf(true);
+    setResultadoImportacao(null);
+    try {
+      const formData = new FormData();
+      formData.append("contratoId", String(documentosContratoId));
+      arquivosPdf.forEach((arquivo) => formData.append("files", arquivo, arquivo.name));
+      const resposta = await fetch("/api/contratos-convenios/importar-pdfs", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+      const payload = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) throw new Error(payload.error || "Não foi possível importar os PDFs.");
+      setResultadoImportacao(payload);
+      setArquivosPdf([]);
+      await Promise.all([
+        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId }),
+        utils.contratosConvenios.resumoDocumentos.invalidate(),
+      ]);
+      if (payload.processados > 0) {
+        toast.success(`${payload.processados} PDF(s) processado(s).`);
+      } else {
+        toast.warning("Nenhum PDF foi processado. Consulte os detalhes do lote.");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao importar PDFs.");
+    } finally {
+      setImportandoPdf(false);
+    }
+  };
+
   // Exemplo Mock do Dashboard Superior (pode ser turbinado depois via API)
   const ativos = contratos.data?.filter(c => c.status === "ativo").length || 0;
   const expirando = contratos.data?.filter(c => c.status === "vencendo").length || 0;
@@ -121,14 +225,28 @@ export default function ContratosConvenios() {
           <h1 className="text-2xl font-bold tracking-tight">Contratos de Convênios</h1>
           <p className="text-muted-foreground">Gerencie a vigência e as tabelas de preços negociadas com as Operadoras.</p>
         </div>
-        <Button onClick={() => { 
-          setContratoEditando(null); 
-          setConvenioSelecionado("");
-          setStatusSelecionado("ativo");
-          setModalAberto(true); 
-        }} className="gap-2">
-          <Plus className="h-4 w-4" /> Novo Contrato
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setDocumentosContratoId(contratos.data?.[0]?.id ?? null);
+              setResultadoImportacao(null);
+              setDocumentosModalAberto(true);
+            }}
+            disabled={!contratos.data?.length}
+            className="gap-2"
+          >
+            <UploadCloud className="h-4 w-4" /> Importar PDFs
+          </Button>
+          <Button onClick={() => {
+            setContratoEditando(null);
+            setConvenioSelecionado("");
+            setStatusSelecionado("ativo");
+            setModalAberto(true);
+          }} className="gap-2">
+            <Plus className="h-4 w-4" /> Novo Contrato
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -189,7 +307,7 @@ export default function ContratosConvenios() {
                 <TableHead>Nº Contrato</TableHead>
                 <TableHead>Início</TableHead>
                 <TableHead>Término</TableHead>
-                <TableHead>Tabelas Fechadas</TableHead>
+                <TableHead>Documentos PDF</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
@@ -209,8 +327,8 @@ export default function ContratosConvenios() {
                       <TableCell>{c.dataInicio ? formatDateBR(c.dataInicio) : "-"}</TableCell>
                       <TableCell>{c.dataFim ? formatDateBR(c.dataFim) : "-"}</TableCell>
                       <TableCell>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-dashed">
-                          <FileSpreadsheet className="h-3 w-3" /> 0 Tabelas
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-dashed" onClick={() => abrirDocumentos(c.id)}>
+                          <FileSearch className="h-3 w-3" /> {quantidadeDocumentos(c.id)} {quantidadeDocumentos(c.id) === 1 ? "documento" : "documentos"}
                         </Button>
                       </TableCell>
                       <TableCell>
@@ -239,6 +357,192 @@ export default function ContratosConvenios() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={documentosModalAberto} onOpenChange={setDocumentosModalAberto}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSearch className="h-5 w-5 text-primary" /> Leitura de contratos em PDF
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Anexe até 30 PDFs. O original fica protegido no storage e a tela destaca vigência, faturamento, pagamento, documentos e alertas encontrados.
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label>Contrato que receberá os documentos</Label>
+              <Select
+                value={documentosContratoId?.toString() ?? ""}
+                onValueChange={(value) => {
+                  setDocumentosContratoId(Number(value));
+                  setResultadoImportacao(null);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Selecione o contrato" /></SelectTrigger>
+                <SelectContent>
+                  {contratos.data?.map((contrato) => (
+                    <SelectItem key={contrato.id} value={contrato.id.toString()}>
+                      {getConvenioNome(contrato.convenioId)}{contrato.numeroContrato ? ` — ${contrato.numeroContrato}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div
+              className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${arrastandoPdf ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setArrastandoPdf(true);
+              }}
+              onDragLeave={() => setArrastandoPdf(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setArrastandoPdf(false);
+                adicionarArquivosPdf(event.dataTransfer.files);
+              }}
+            >
+              <input
+                ref={arquivoInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) adicionarArquivosPdf(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+                disabled={importandoPdf}
+              />
+              <UploadCloud className="mx-auto h-10 w-10 text-primary" />
+              <p className="mt-3 font-medium">Arraste os PDFs para esta área</p>
+              <p className="mt-1 text-sm text-muted-foreground">ou selecione até 30 arquivos PDF de 20 MB cada</p>
+              <Button type="button" variant="outline" className="mt-4" onClick={() => arquivoInputRef.current?.click()} disabled={importandoPdf}>
+                Selecionar arquivos
+              </Button>
+            </div>
+
+            {arquivosPdf.length > 0 && (
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center justify-between text-sm font-medium">
+                  <span>{arquivosPdf.length} PDF(s) pronto(s) para importar</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setArquivosPdf([])} disabled={importandoPdf}>Limpar</Button>
+                </div>
+                <div className="max-h-32 space-y-1 overflow-y-auto">
+                  {arquivosPdf.map((arquivo) => (
+                    <div key={`${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="truncate"><FileText className="mr-1 inline h-3.5 w-3.5" />{arquivo.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{formatarTamanho(arquivo.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {resultadoImportacao?.documentos?.length > 0 && (
+              <div className="rounded-lg border p-3">
+                <h3 className="mb-2 text-sm font-semibold">Resultado deste lote</h3>
+                <div className="space-y-1">
+                  {resultadoImportacao.documentos.map((item: any, index: number) => {
+                    const conf = DOCUMENTO_STATUS_CONFIG[item.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro;
+                    return (
+                      <div key={`${item.nomeArquivo}-${index}`} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate">{item.nomeArquivo}</span>
+                        <Badge className={`${conf.color} border-none shrink-0`}>{item.reutilizado ? "Já importado" : conf.label}</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Documentos já importados</h3>
+                {documentos.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              </div>
+              {documentos.isError ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">A tabela de documentos ainda não está disponível neste ambiente. A migração precisa ser aplicada após revisão e autorização.</p>
+              ) : documentos.data?.length ? (
+                <div className="space-y-2">
+                  {documentos.data.map((documento) => {
+                    const conf = DOCUMENTO_STATUS_CONFIG[documento.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro;
+                    return (
+                      <div key={documento.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{documento.nomeArquivo}</p>
+                          <p className="text-xs text-muted-foreground">{documento.paginas || "-"} página(s) · {formatarTamanho(documento.tamanhoBytes)}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge className={`${conf.color} border-none`}>{conf.label}</Badge>
+                          <Button type="button" variant="outline" size="sm" onClick={() => setDocumentoDetalheId(documento.id)}>
+                            <Eye className="mr-1 h-3.5 w-3.5" /> Ver leitura
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nenhum PDF foi importado para este contrato.</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDocumentosModalAberto(false)}>Fechar</Button>
+            <Button onClick={importarPdfs} disabled={!documentosContratoId || !arquivosPdf.length || importandoPdf} className="gap-2">
+              {importandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {importandoPdf ? "Lendo PDFs..." : "Importar e ler PDFs"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={documentoDetalheId !== null} onOpenChange={(open) => !open && setDocumentoDetalheId(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{documentoDetalhe.data?.nomeArquivo || "Leitura do documento"}</DialogTitle>
+          </DialogHeader>
+          {documentoDetalhe.isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando leitura...</div>
+          ) : documentoDetalhe.data ? (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={`${(DOCUMENTO_STATUS_CONFIG[documentoDetalhe.data.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro).color} border-none`}>
+                  {(DOCUMENTO_STATUS_CONFIG[documentoDetalhe.data.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro).label}
+                </Badge>
+                {documentoDetalhe.data.downloadUrl && (
+                  <a href={documentoDetalhe.data.downloadUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+                    <Download className="h-3.5 w-3.5" /> Abrir PDF original
+                  </a>
+                )}
+              </div>
+              {documentoDetalhe.data.status === "ocr_necessario" && (
+                <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><FileWarning className="mt-0.5 h-4 w-4 shrink-0" />Este PDF não apresentou texto selecionável suficiente. Os pontos abaixo podem estar incompletos; a próxima etapa é OCR.</div>
+              )}
+              <div>
+                <h3 className="mb-2 font-semibold">Pontos importantes encontrados</h3>
+                {documentoDetalhe.data.pontosImportantes?.length ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {documentoDetalhe.data.pontosImportantes.map((ponto: any, index: number) => (
+                      <div key={`${ponto.categoria}-${index}`} className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-sm font-semibold">{ponto.titulo}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{ponto.resumo}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">Nenhum ponto estruturado foi encontrado.</p>}
+              </div>
+              <div>
+                <h3 className="mb-2 font-semibold">Texto extraído</h3>
+                <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/20 p-4 text-xs leading-5">{documentoDetalhe.data.textoExtraido || "Nenhum texto extraído."}</pre>
+              </div>
+            </div>
+          ) : <p className="py-8 text-center text-sm text-muted-foreground">Não foi possível carregar este documento.</p>}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={modalAberto} onOpenChange={setModalAberto}>
         <DialogContent className="max-w-2xl">
