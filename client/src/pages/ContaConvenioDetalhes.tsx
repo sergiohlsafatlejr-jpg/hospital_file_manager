@@ -445,21 +445,18 @@ function ContaConvenioDetalhesPadrao() {
       }
     },
       onError: err => {
-      toast.error(`Falha ao buscar prontuário: ${err.message}`);
+        if (err.message.includes("Mapeamento clínico não configurado")) {
+          toast.message(
+            "Integração de prescrições não configurada. Isso não impede o anexo de PDF protegido."
+          );
+          return;
+        }
+        toast.error(`Falha ao buscar prontuário: ${err.message}`);
       },
   });
 
-  // Query local do prontuário (apenas cache)
-  // Como `buscarProntuario` é mutation, chamaremos on mount ou sob demanda.
-  React.useEffect(() => {
-    if (numeroConta && estabelecimentoId) {
-      buscarProntuarioMutation.mutate({
-        numeroConta,
-        estabelecimentoId,
-        forceRemote: false,
-      });
-    }
-  }, [numeroConta, estabelecimentoId]);
+  // A integração clínica externa é opcional e só é chamada por ação explícita.
+  // Isso evita erro de mapeamento ao abrir uma conta e não interfere no PDF protegido.
 
   // Buscar divergências
   const {
@@ -1919,7 +1916,7 @@ function ContaConvenioDetalhesPadrao() {
           >
             <TabsTrigger value="itens" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Itens ({itensData?.items?.length || 0})
+              Itens ({itensData?.items?.length || 0}{!tipoFiltro && procedimentosMedicosInformativos.length > 0 ? ` + ${procedimentosMedicosInformativos.length} médico(s)` : ""})
             </TabsTrigger>
             <TabsTrigger
               value="divergencias"
@@ -2072,6 +2069,62 @@ function ContaConvenioDetalhesPadrao() {
                             </TableRow>
                           );
                         })}
+                        {!tipoFiltro
+                          ? procedimentosMedicosInformativos.map((procedimento, index) => {
+                              const profissionais = procedimento.profissionais
+                                .map(profissional => profissional.nome)
+                                .filter(Boolean)
+                                .join(", ");
+                              return (
+                                <TableRow
+                                  key={`medico-${procedimento.codigo}-${procedimento.dataExecucao ?? "sem-data"}-${index}`}
+                                  className="bg-sky-50/60"
+                                >
+                                  <TableCell className="font-medium">
+                                    {(itensData?.items?.length || 0) + index + 1}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className="border-sky-300 bg-sky-100 text-sky-800"
+                                    >
+                                      <Stethoscope className="mr-1 h-3 w-3" />
+                                      Médico direto
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="font-mono text-sm">
+                                    {procedimento.codigo || "-"}
+                                  </TableCell>
+                                  <TableCell
+                                    className="max-w-xs truncate"
+                                    title={profissionais || procedimento.descricao}
+                                  >
+                                    {procedimento.descricao || "Procedimento médico informativo"}
+                                    {profissionais ? (
+                                      <span className="block text-xs text-muted-foreground">
+                                        {profissionais}
+                                      </span>
+                                    ) : null}
+                                  </TableCell>
+                                  <TableCell>-</TableCell>
+                                  <TableCell>{formatDateBR(procedimento.dataExecucao)}</TableCell>
+                                  <TableCell className="text-right">—</TableCell>
+                                  <TableCell className="text-right">—</TableCell>
+                                  <TableCell className="text-right font-semibold text-sky-700">
+                                    —
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className="border-sky-300 text-sky-800"
+                                    >
+                                      Informativo
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          : null}
                       </TableBody>
                     </Table>
                   </div>
@@ -2079,85 +2132,12 @@ function ContaConvenioDetalhesPadrao() {
               </CardContent>
             </Card>
 
-            {exibirContextoMedico ? (
-              <Card className="border-sky-200 bg-sky-50/40">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Stethoscope className="h-5 w-5 text-sky-700" />
-                    Itens médicos informativos
-                  </CardTitle>
-                  <CardDescription>
-                    Procedimentos do XML de honorários associados
-                    automaticamente por guia. São apenas informativos: não
-                    possuem valores e não alteram cobrança, conciliação ou
-                    ajustes.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {contextoMedicoItens.isLoading ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-9 w-full" />
-                      <Skeleton className="h-9 w-full" />
-                    </div>
-                  ) : procedimentosMedicosInformativos.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhum item médico associado com segurança a esta conta
-                      ainda.
-                    </p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Procedimento</TableHead>
-                            <TableHead>Data de execução</TableHead>
-                            <TableHead>Profissional</TableHead>
-                            <TableHead>Conselho/registro</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {procedimentosMedicosInformativos.map(
-                            (item, index) => (
-                              <TableRow
-                                key={`${item.codigo}-${item.dataExecucao ?? "sem-data"}-${index}`}
-                              >
-                                <TableCell>
-                                  <span className="mr-2 font-mono text-xs text-muted-foreground">
-                                    {item.codigo}
-                                  </span>
-                                  {item.descricao}
-                                </TableCell>
-                                <TableCell>
-                                  {formatDateBR(item.dataExecucao)}
-                                </TableCell>
-                                <TableCell>
-                                  {item.profissionais
-                                    .map(profissional => profissional.nome)
-                                    .filter(Boolean)
-                                    .join(", ") || "Não informado no XML"}
-                                </TableCell>
-                                <TableCell>
-                                  {item.profissionais
-                                    .map(profissional =>
-                                      [
-                                        profissional.conselho,
-                                        profissional.numeroConselho,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ")
-                                    )
-                                    .filter(Boolean)
-                                    .join(", ") || "Não informado no XML"}
-                                </TableCell>
-                              </TableRow>
-                            )
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            {exibirContextoMedico &&
+            !contextoMedicoItens.isLoading &&
+            procedimentosMedicosInformativos.length === 0 ? (
+              <p className="px-1 text-sm text-muted-foreground">
+                Nenhum procedimento médico foi associado com segurança a esta versão hospitalar ainda.
+              </p>
             ) : null}
           </TabsContent>
 
@@ -2979,11 +2959,10 @@ function ContaConvenioDetalhesPadrao() {
                   <div>
                     <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
                       <Stethoscope className="h-5 w-5" />
-                      Apoio Clínico: Prontuário & Prescrições
+                      Apoio Clínico
                     </CardTitle>
                     <CardDescription className="text-blue-700/80">
-                      Dados importados do sistema hospitalar para auxiliar na
-                      auditoria desta conta.
+                      Prescrições externas são opcionais. O anexo de PDF protegido é independente da integração do prontuário.
                     </CardDescription>
                   </div>
                   <Button 
@@ -3004,7 +2983,7 @@ function ContaConvenioDetalhesPadrao() {
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    Sincronizar Prontuário
+                    Buscar no Integrador
                   </Button>
                 </div>
               </CardHeader>
@@ -3020,12 +2999,11 @@ function ContaConvenioDetalhesPadrao() {
                   <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                     <Pill className="mx-auto h-12 w-12 text-gray-400 mb-4 opacity-50" />
                     <h3 className="text-lg font-medium text-gray-900">
-                      Nenhuma prescrição encontrada
+                      Nenhuma prescrição consultada
                     </h3>
                     <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-                      Não foram localizadas prescrições ou evoluções para este
-                      paciente na integração conectada. Clique em "Sincronizar
-                      Prontuário" para buscar novamente.
+                      A busca no Integrador só é feita quando você seleciona “Buscar no Integrador”.
+                      Se não houver mapeamento clínico, isso não bloqueia o anexo seguro de PDF.
                     </p>
                   </div>
                 ) : (
