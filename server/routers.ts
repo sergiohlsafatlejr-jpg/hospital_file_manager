@@ -1,12 +1,25 @@
 import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
 import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
-import { confirmarEnvioLote, confirmarEnvioLoteSchema } from "./recursoLoteEnvioService";
-import { dadosPagamentoManual, pagamentoRecursoManualSchema } from "./recursoPagamentoManual";
+import {
+  confirmarEnvioLote,
+  confirmarEnvioLoteSchema,
+} from "./recursoLoteEnvioService";
+import {
+  dadosPagamentoManual,
+  pagamentoRecursoManualSchema,
+} from "./recursoPagamentoManual";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, publicProcedure, protectedProcedure, reportProcedure, trackedProtectedProcedure, router } from "./_core/trpc";
+import {
+  adminProcedure,
+  publicProcedure,
+  protectedProcedure,
+  reportProcedure,
+  trackedProtectedProcedure,
+  router,
+} from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, eq, getTableColumns } from "drizzle-orm";
@@ -14,14 +27,40 @@ import { nanoid } from "nanoid";
 import { storagePut, storageGet } from "./storage";
 import { parseFile } from "./parsers";
 import type { InsertFaturamentoTiss } from "../drizzle/schema";
-import { parseExcelRecebimentoTiss, parseXmlRecebimentoTiss } from "./recebimentoTissParser";
-import { compararProcedimentos, toDivergenciaInsert, gerarResumoComparacao } from "./comparador";
+import {
+  parseExcelRecebimentoTiss,
+  parseXmlRecebimentoTiss,
+} from "./recebimentoTissParser";
+import {
+  compararProcedimentos,
+  toDivergenciaInsert,
+  gerarResumoComparacao,
+} from "./comparador";
 import * as db from "./db";
 import { getDb } from "./db";
-import { salvarNotificacaoAtendimento, salvarNotificacoesAtendimentoEmLote, buscarNotificacoesAtendimento, getHistoricoNotificacoesAtendimento, verificarAtendimentosDoEstabelecimento, salvarHistoricoNotificacoesAtendimento, listarHistoricoNotificacoesAtendimento } from "./db";
-import { getAtendimentosParadosUnificados, getAtendimentosParadosPorEstabelecimento, calcularDiasParadoUnificado, getKPIsPorTipo, getQuantidadePorPlano, getQuantidadePorServico } from "./atendimentosUnificados";
+import {
+  salvarNotificacaoAtendimento,
+  salvarNotificacoesAtendimentoEmLote,
+  buscarNotificacoesAtendimento,
+  getHistoricoNotificacoesAtendimento,
+  verificarAtendimentosDoEstabelecimento,
+  salvarHistoricoNotificacoesAtendimento,
+  listarHistoricoNotificacoesAtendimento,
+} from "./db";
+import {
+  getAtendimentosParadosUnificados,
+  getAtendimentosParadosPorEstabelecimento,
+  calcularDiasParadoUnificado,
+  getKPIsPorTipo,
+  getQuantidadePorPlano,
+  getQuantidadePorServico,
+} from "./atendimentosUnificados";
 import { motorRegrasRouter } from "./routers/motorRegrasRouter";
-import { enviarEmail, gerarHtmlNotificacaoAtendimentos, verificarConexaoSMTP } from "./emailService";
+import {
+  enviarEmail,
+  gerarHtmlNotificacaoAtendimentos,
+  verificarConexaoSMTP,
+} from "./emailService";
 import { padroesProcedimentosRouter } from "./routers/padroesProcedimentosRouter";
 import { padroesCobrancaRouter } from "./routers/padroesCobrancaRouter";
 import { integradorDadosRouter } from "./routers/integradorDadosRouter";
@@ -58,9 +97,22 @@ import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
 import { serializeTasyCivilDate } from "./tasyCivilDate";
-import { buildAtendimentoNormalizationSql, normalizeAtendimentoCategory, resolveAtendimentoServiceType } from "./atendimentoNormalization";
-import { ATENDIMENTOS_VALOR_SQL, escolherMetricaPainel, getAtendimentosPaineisValor, PAINEIS_VALOR_VAZIOS } from "./atendimentosPaineisValor";
-import { buildAtendimentoDiasParadoSql, buildAtendimentoPermanenciaSql, resolverSaidaEfetivaAtendimento } from "./atendimentosDiasParado";
+import {
+  buildAtendimentoNormalizationSql,
+  normalizeAtendimentoCategory,
+  resolveAtendimentoServiceType,
+} from "./atendimentoNormalization";
+import {
+  ATENDIMENTOS_VALOR_SQL,
+  escolherMetricaPainel,
+  getAtendimentosPaineisValor,
+  PAINEIS_VALOR_VAZIOS,
+} from "./atendimentosPaineisValor";
+import {
+  buildAtendimentoDiasParadoSql,
+  buildAtendimentoPermanenciaSql,
+  resolverSaidaEfetivaAtendimento,
+} from "./atendimentosDiasParado";
 import { relatorioFisioterapiaRouter } from "./routers/relatorioFisioterapiaRouter";
 import { comparativoMesAMesRouter } from "./routers/comparativoMesAMesRouter";
 import { fonteRelatoriosRouter } from "./routers/fonteRelatoriosRouter";
@@ -73,7 +125,12 @@ import { atendimentosBiRouter } from "./routers/atendimentosBiRouter";
 import { relatorioVisitaRouter } from "./routers/relatorioVisitaRouter";
 import { passwordAuthRouter } from "./routers/passwordAuthRouter";
 import { validateNewPassword } from "./passwordAuthService";
-import { ACTION_PROFILE_DEFAULTS, normalizeBiParent, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
+import {
+  ACTION_PROFILE_DEFAULTS,
+  normalizeBiParent,
+  sanitizeCustomModulePermissions,
+  type StandardServiceGroup,
+} from "../shared/permissions";
 import {
   encontrarLinhaCabecalhoProcedimentos,
   detectarFonteProcedimentoPorNome,
@@ -97,7 +154,11 @@ const resumoPacienteOxUtiProcedure = reportProcedure("relResumoPacienteOxUti");
 
 async function refreshPasswordSession(ctx: any, userId: number) {
   const user = await db.getUserById(userId);
-  if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Conta não encontrada" });
+  if (!user)
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Conta não encontrada",
+    });
   const token = await sdk.createSessionToken(user.openId, {
     name: user.name || "Usuário",
     expiresInMs: PASSWORD_SESSION_MS,
@@ -126,31 +187,31 @@ import {
  */
 function sanitizeFilename(filename: string): string {
   // Remove file extension temporarily
-  const lastDotIndex = filename.lastIndexOf('.');
+  const lastDotIndex = filename.lastIndexOf(".");
   const hasExtension = lastDotIndex > 0;
   const name = hasExtension ? filename.substring(0, lastDotIndex) : filename;
-  const ext = hasExtension ? filename.substring(lastDotIndex) : '';
-  
+  const ext = hasExtension ? filename.substring(lastDotIndex) : "";
+
   // Normalize unicode characters (remove accents)
-  let sanitized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  
+  let sanitized = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
   // Replace + and spaces with underscore
-  sanitized = sanitized.replace(/[+\s]+/g, '_');
-  
+  sanitized = sanitized.replace(/[+\s]+/g, "_");
+
   // Remove any character that is not alphanumeric, underscore, hyphen, or dot
-  sanitized = sanitized.replace(/[^a-zA-Z0-9_\-]/g, '');
-  
+  sanitized = sanitized.replace(/[^a-zA-Z0-9_\-]/g, "");
+
   // Remove multiple consecutive underscores
-  sanitized = sanitized.replace(/_+/g, '_');
-  
+  sanitized = sanitized.replace(/_+/g, "_");
+
   // Remove leading/trailing underscores
-  sanitized = sanitized.replace(/^_+|_+$/g, '');
-  
+  sanitized = sanitized.replace(/^_+|_+$/g, "");
+
   // Ensure we have a valid filename
   if (!sanitized) {
-    sanitized = 'arquivo';
+    sanitized = "arquivo";
   }
-  
+
   return sanitized + ext;
 }
 
@@ -160,14 +221,22 @@ function sanitizeFilename(filename: string): string {
  */
 export function mapTipoDespesaParaTipoItem(tipoDespesa?: string): string {
   switch (tipoDespesa) {
-    case 'gas': return 'GÁS MEDICINAL';
-    case 'medicamento': return 'MEDICAMENTO';
-    case 'material': return 'MATERIAL';
-    case 'diaria': return 'DIÁRIA';
-    case 'taxa': return 'TAXA/ALUGUÉIS';
-    case 'procedimento': return 'PROCEDIMENTO';
-    case 'outros': return 'OUTROS';
-    default: return 'PROCEDIMENTO';
+    case "gas":
+      return "GÁS MEDICINAL";
+    case "medicamento":
+      return "MEDICAMENTO";
+    case "material":
+      return "MATERIAL";
+    case "diaria":
+      return "DIÁRIA";
+    case "taxa":
+      return "TAXA/ALUGUÉIS";
+    case "procedimento":
+      return "PROCEDIMENTO";
+    case "outros":
+      return "OUTROS";
+    default:
+      return "PROCEDIMENTO";
   }
 }
 
@@ -204,7 +273,7 @@ export const appRouter = router({
   passwordAuth: passwordAuthRouter,
   retornosRecursos: retornosRecursosRouter,
   prontuarioPdf: prontuarioPdfRouter,
-  
+
   auth: router({
     me: publicProcedure.query(({ ctx }) => {
       if (!ctx.user) return null;
@@ -221,22 +290,25 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
-    
+
     // Verificar se usuário tem senha definida
     hasPassword: protectedProcedure.query(async ({ ctx }) => {
       return db.hasUserPassword(ctx.user.id);
     }),
-    
+
     // Alterar senha do usuário
     changePassword: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         currentPassword: z.string().optional(),
         newPassword: z.string().min(1).max(128),
         confirmPassword: z.string(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const policyError = validateNewPassword(input.newPassword);
-        if (policyError) throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
+        if (policyError)
+          throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
         // Validar confirmação de senha
         if (input.newPassword !== input.confirmPassword) {
           throw new TRPCError({
@@ -244,23 +316,23 @@ export const appRouter = router({
             message: "As senhas não conferem",
           });
         }
-        
+
         // Verificar se usuário tem senha definida
         const hasPassword = await db.hasUserPassword(ctx.user.id);
-        
+
         if (hasPassword && !input.currentPassword) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Informe a senha atual",
           });
         }
-        
+
         const result = await db.changeUserPassword(
           ctx.user.id,
           input.currentPassword || "",
           input.newPassword
         );
-        
+
         if (!result.success) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -271,16 +343,19 @@ export const appRouter = router({
         await refreshPasswordSession(ctx, ctx.user.id);
         return { success: true, message: result.message };
       }),
-      
+
     // Definir senha pela primeira vez (para usuários sem senha)
     setInitialPassword: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         newPassword: z.string().min(1).max(128),
         confirmPassword: z.string(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const policyError = validateNewPassword(input.newPassword);
-        if (policyError) throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
+        if (policyError)
+          throw new TRPCError({ code: "BAD_REQUEST", message: policyError });
         // Validar confirmação de senha
         if (input.newPassword !== input.confirmPassword) {
           throw new TRPCError({
@@ -288,16 +363,17 @@ export const appRouter = router({
             message: "As senhas não conferem",
           });
         }
-        
+
         // Verificar se usuário já tem senha
         const hasPassword = await db.hasUserPassword(ctx.user.id);
         if (hasPassword) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Você já possui uma senha definida. Use a opção de alterar senha.",
+            message:
+              "Você já possui uma senha definida. Use a opção de alterar senha.",
           });
         }
-        
+
         await db.setUserPassword(ctx.user.id, input.newPassword);
         await refreshPasswordSession(ctx, ctx.user.id);
         return { success: true, message: "Senha definida com sucesso" };
@@ -307,10 +383,14 @@ export const appRouter = router({
   // ============ CONVENIOS ============
   convenios: router({
     list: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         ativo: z.enum(["sim", "nao"]).optional(),
-        estabelecimentoId: z.number().optional()
-      }).optional())
+            estabelecimentoId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getConvenios(input?.ativo, input?.estabelecimentoId);
       }),
@@ -364,30 +444,42 @@ export const appRouter = router({
       }),
 
     getPrestador: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z.object({
         convenioId: z.number(),
-        estabelecimentoId: z.number()
-      }))
+          estabelecimentoId: z.number(),
+        })
+      )
       .query(async ({ input }) => {
-        return db.getPrestadorPorConvenioEstabelecimento(input.convenioId, input.estabelecimentoId);
+        return db.getPrestadorPorConvenioEstabelecimento(
+          input.convenioId,
+          input.estabelecimentoId
+        );
       }),
 
     getPrestadorPorCodigo: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z.object({
         codigoPrestador: z.string(),
-        convenioId: z.number().optional()
-      }))
+          convenioId: z.number().optional(),
+        })
+      )
       .query(async ({ input }) => {
-        return db.getPrestadorPorCodigo(input.codigoPrestador, input.convenioId);
+        return db.getPrestadorPorCodigo(
+          input.codigoPrestador,
+          input.convenioId
+        );
       }),
 
     upsertPrestador: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number(),
         estabelecimentoId: z.number(),
         codigoPrestador: z.string().min(1),
-        nomePrestador: z.string().optional()
-      }))
+          nomePrestador: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return db.upsertPrestadorConvenioEstabelecimento(input);
       }),
@@ -398,8 +490,7 @@ export const appRouter = router({
         return db.excluirPrestadorConvenioEstabelecimento(input.id);
       }),
 
-    listarTodosPrestadores: protectedProcedure
-      .query(async () => {
+    listarTodosPrestadores: protectedProcedure.query(async () => {
         return db.listarTodosPrestadores();
       }),
   }),
@@ -466,8 +557,7 @@ export const appRouter = router({
 
   // ============ REGRAS DE CONCILIAÇÃO ============
   regrasConciliacao: router({
-    list: protectedProcedure
-      .query(async () => {
+    list: protectedProcedure.query(async () => {
         return db.getRegrasConciliacao();
       }),
 
@@ -481,14 +571,18 @@ export const appRouter = router({
       .input(
         z.object({
           convenioId: z.number(),
-          itensNaoEncontrados: z.enum(["glosado", "pago", "divergente"]).optional(),
+          itensNaoEncontrados: z
+            .enum(["glosado", "pago", "divergente"])
+            .optional(),
           toleranciaValor: z.string().optional(),
           toleranciaPercentual: z.string().optional(),
           usarCodigo: z.enum(["sim", "nao"]).optional(),
           usarGuia: z.enum(["sim", "nao"]).optional(),
           usarData: z.enum(["sim", "nao"]).optional(),
           usarPaciente: z.enum(["sim", "nao"]).optional(),
-          formatoRetorno: z.enum(["excel_completo", "excel_glosas", "xml_tiss", "csv", "pdf"]).optional(),
+          formatoRetorno: z
+            .enum(["excel_completo", "excel_glosas", "xml_tiss", "csv", "pdf"])
+            .optional(),
           prazoRecursoDias: z.number().optional(),
           observacoes: z.string().optional(),
           ativo: z.enum(["sim", "nao"]).optional(),
@@ -513,7 +607,9 @@ export const appRouter = router({
           .object({
             convenioId: z.number().optional(),
             direcao: z.enum(["enviado", "retornado"]).optional(),
-            tipoArquivo: z.enum(["xml", "excel", "pdf", "csv", "txt"]).optional(),
+            tipoArquivo: z
+              .enum(["xml", "excel", "pdf", "csv", "txt"])
+              .optional(),
             status: z.enum(["pendente", "processado", "erro"]).optional(),
             dataInicio: z.string().optional(),
             dataFim: z.string().optional(),
@@ -526,10 +622,12 @@ export const appRouter = router({
         const arquivosList = await db.getArquivos({
           ...input,
           estabelecimentoId: input?.estabelecimentoId,
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
-        
+
         // Enriquecer com valor total importado por arquivo
         const arquivoIds = arquivosList.map((a: any) => a.id).filter(Boolean);
         if (arquivoIds.length > 0) {
@@ -556,20 +654,23 @@ export const appRouter = router({
 
     // Detectar prestadores de um XML antes da importação
     detectarPrestadores: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         conteudo: z.string(), // Base64 encoded XML
         convenioId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         try {
           // Decode base64 content
           const buffer = Buffer.from(input.conteudo, "base64");
           const xmlContent = buffer.toString("utf-8");
-          
+
           // Extrair códigos de prestadores do XML
           const { extractPrestadoresFromXML } = await import("./parsers");
-          const codigosPrestadores = await extractPrestadoresFromXML(xmlContent);
-          
+          const codigosPrestadores =
+            await extractPrestadoresFromXML(xmlContent);
+
           // Buscar estabelecimentos associados a cada código
           const estabelecimentosEncontrados: Array<{
             codigoPrestador: string;
@@ -577,9 +678,12 @@ export const appRouter = router({
             estabelecimentoNome: string;
             convenioNome: string;
           }> = [];
-          
+
           for (const codigo of codigosPrestadores) {
-            const prestador = await db.getPrestadorPorCodigo(codigo, input.convenioId);
+            const prestador = await db.getPrestadorPorCodigo(
+              codigo,
+              input.convenioId
+            );
             if (prestador) {
               estabelecimentosEncontrados.push({
                 codigoPrestador: codigo,
@@ -589,58 +693,86 @@ export const appRouter = router({
               });
             }
           }
-          
+
           // Determinar o estabelecimento sugerido (o mais frequente ou o primeiro)
-          const estabelecimentoSugerido = estabelecimentosEncontrados.length > 0
+          const estabelecimentoSugerido =
+            estabelecimentosEncontrados.length > 0
             ? estabelecimentosEncontrados[0]
             : null;
-          
+
           // Identificar prestadores não cadastrados
           const prestadoresNaoCadastrados = codigosPrestadores.filter(
-            codigo => !estabelecimentosEncontrados.find(e => e.codigoPrestador === codigo)
+            codigo =>
+              !estabelecimentosEncontrados.find(
+                e => e.codigoPrestador === codigo
+              )
           );
-          
+
           // Cadastrar automaticamente prestadores não cadastrados como "terceiros"
           // Usa o mesmo convênio e estabelecimento do prestador principal detectado
           const prestadoresCadastradosAuto: string[] = [];
-          if (prestadoresNaoCadastrados.length > 0 && estabelecimentoSugerido && input.convenioId) {
-            const { convenioEstabelecimentoPrestador } = await import("../drizzle/schema");
+          if (
+            prestadoresNaoCadastrados.length > 0 &&
+            estabelecimentoSugerido &&
+            input.convenioId
+          ) {
+            const { convenioEstabelecimentoPrestador } = await import(
+              "../drizzle/schema"
+            );
             const { getDb } = await import("./db");
             const drizzleDb = await getDb();
             if (!drizzleDb) throw new Error("Database não disponível");
-            
+
             for (const codigo of prestadoresNaoCadastrados) {
               try {
                 // Verificar se já não existe (pode ter sido cadastrado entre a detecção e agora)
-                const existente = await drizzleDb.select()
+                const existente = await drizzleDb
+                  .select()
                   .from(convenioEstabelecimentoPrestador)
                   .where(
                     and(
-                      eq(convenioEstabelecimentoPrestador.codigoPrestador, codigo),
-                      eq(convenioEstabelecimentoPrestador.convenioId, input.convenioId),
-                      eq(convenioEstabelecimentoPrestador.estabelecimentoId, estabelecimentoSugerido.estabelecimentoId)
+                      eq(
+                        convenioEstabelecimentoPrestador.codigoPrestador,
+                        codigo
+                      ),
+                      eq(
+                        convenioEstabelecimentoPrestador.convenioId,
+                        input.convenioId
+                      ),
+                      eq(
+                        convenioEstabelecimentoPrestador.estabelecimentoId,
+                        estabelecimentoSugerido.estabelecimentoId
+                      )
                     )
                   )
                   .limit(1);
-                
+
                 if (existente.length === 0) {
-                  await drizzleDb.insert(convenioEstabelecimentoPrestador).values({
+                  await drizzleDb
+                    .insert(convenioEstabelecimentoPrestador)
+                    .values({
                     convenioId: input.convenioId,
-                    estabelecimentoId: estabelecimentoSugerido.estabelecimentoId,
+                      estabelecimentoId:
+                        estabelecimentoSugerido.estabelecimentoId,
                     codigoPrestador: codigo,
                     nomePrestador: `Terceiro - ${codigo}`,
                     tipoPrestador: "terceiro",
                     ativo: "sim",
                   });
                   prestadoresCadastradosAuto.push(codigo);
-                  console.log(`[detectarPrestadores] Prestador terceiro cadastrado automaticamente: ${codigo} (conv: ${input.convenioId}, estab: ${estabelecimentoSugerido.estabelecimentoId})`);
+                  console.log(
+                    `[detectarPrestadores] Prestador terceiro cadastrado automaticamente: ${codigo} (conv: ${input.convenioId}, estab: ${estabelecimentoSugerido.estabelecimentoId})`
+                  );
                 }
               } catch (err) {
-                console.error(`[detectarPrestadores] Erro ao cadastrar prestador ${codigo}:`, err);
+                console.error(
+                  `[detectarPrestadores] Erro ao cadastrar prestador ${codigo}:`,
+                  err
+                );
               }
             }
           }
-          
+
           return {
             success: true,
             codigosPrestadores,
@@ -657,7 +789,8 @@ export const appRouter = router({
             estabelecimentosEncontrados: [],
             estabelecimentoSugerido: null,
             prestadoresNaoCadastrados: [],
-            error: error instanceof Error ? error.message : "Erro ao processar XML",
+            error:
+              error instanceof Error ? error.message : "Erro ao processar XML",
           };
         }
       }),
@@ -676,20 +809,50 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // O escopo é autorizado antes de decodificar ou persistir o arquivo.
+        // Admin ainda precisa apontar um convênio compatível; demais usuários
+        // precisam de permissão de edição na unidade.
+        const convenio = await db.getConvenioById(input.convenioId);
+        if (!convenio) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Convênio não encontrado",
+          });
+        }
+        if (
+          convenio.estabelecimentoId &&
+          convenio.estabelecimentoId !== input.estabelecimentoId
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "O convênio informado não pertence ao estabelecimento selecionado",
+          });
+        }
+        if (ctx.user.role !== "admin") {
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "editar"
+          );
+        }
+
         // Decode base64 content
         const buffer = Buffer.from(input.conteudo, "base64");
-        
+
         // Validar arquivo vazio
         if (buffer.length === 0) {
           throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'O arquivo está vazio (0 bytes). Verifique o arquivo e tente novamente.',
+            code: "BAD_REQUEST",
+            message:
+              "O arquivo está vazio (0 bytes). Verifique o arquivo e tente novamente.",
           });
         }
-        
+
         // Sanitize filename to remove special characters
         const sanitizedNome = sanitizeFilename(input.nome);
-        
+
         // Verificar se já existe um arquivo com mesmo nome, convênio e estabelecimento
         const arquivoExistente = await db.findArquivoExistente({
           nome: input.nome,
@@ -698,22 +861,30 @@ export const appRouter = router({
           userId: ctx.user.id,
           direcao: input.direcao,
         });
-        
+
         let arquivoId: number;
         let s3Key: string;
         let url: string;
         let isReimportacao = false;
-        
+
         if (arquivoExistente) {
           // Reimportação: atualizar arquivo existente
-          console.log('[Upload] Arquivo existente encontrado, atualizando:', arquivoExistente.id);
+          console.log(
+            "[Upload] Arquivo existente encontrado, atualizando:",
+            arquivoExistente.id
+          );
           isReimportacao = true;
           arquivoId = arquivoExistente.id;
-          
+
           // Gerar nova chave S3 para o arquivo atualizado
-          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo === "csv" ? "csv" : input.tipoArquivo;
+          const ext =
+            input.tipoArquivo === "excel"
+              ? "xlsx"
+              : input.tipoArquivo === "csv"
+                ? "csv"
+                : input.tipoArquivo;
           s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${sanitizedNome}.${ext}`;
-          
+
           // Upload to S3
           const contentType =
             input.tipoArquivo === "xml"
@@ -725,72 +896,15 @@ export const appRouter = router({
               : input.tipoArquivo === "txt"
               ? "text/plain"
               : "application/pdf";
-          
+
           const uploadResult = await storagePut(s3Key, buffer, contentType);
           url = uploadResult.url;
-          
-          // Excluir faturamento_tiss antigo (para reimportação de XML enviado)
-          await db.deleteFaturamentoTissByArquivo(arquivoId);
-          
-          // Excluir contas_convenio_itens antigos deste arquivo
-          try {
-            const { contasConvenioItens: cciTable, contasConvenioResumo: ccrTable } = await import('../drizzle/schema');
-            const { eq, and } = await import('drizzle-orm');
-            const dbReimport = await getDb();
-            if (dbReimport) {
-              // Buscar guias afetadas antes de deletar
-              const guiasAfetadas = await dbReimport.selectDistinct({ 
-                numeroConta: cciTable.numeroConta,
-                estabelecimentoId: cciTable.estabelecimentoId 
-              }).from(cciTable).where(
-                eq(cciTable.arquivoId, arquivoId)
-              );
-              
-              // Deletar itens do arquivo
-              await dbReimport.delete(cciTable).where(
-                eq(cciTable.arquivoId, arquivoId)
-              );
-              
-              // Recalcular resumos das guias afetadas
-              for (const guia of guiasAfetadas) {
-                const itensRestantes = await dbReimport.select().from(cciTable).where(
-                  and(
-                    eq(cciTable.numeroConta, guia.numeroConta),
-                    eq(cciTable.estabelecimentoId, guia.estabelecimentoId),
-                  )
-                );
-                
-                if (itensRestantes.length === 0) {
-                  await dbReimport.delete(ccrTable).where(
-                    and(
-                      eq(ccrTable.numeroConta, guia.numeroConta),
-                      eq(ccrTable.estabelecimentoId, guia.estabelecimentoId),
-                    )
-                  );
-                } else {
-                  let valorTotal = 0;
-                  for (const item of itensRestantes) {
-                    valorTotal += parseFloat(String(item.valorTotal || 0));
-                  }
-                  await dbReimport.update(ccrTable)
-                    .set({
-                      totalItens: itensRestantes.length,
-                      valorTotal: String(valorTotal.toFixed(2)),
-                    })
-                    .where(
-                      and(
-                        eq(ccrTable.numeroConta, guia.numeroConta),
-                        eq(ccrTable.estabelecimentoId, guia.estabelecimentoId),
-                      )
-                    );
-                }
-              }
-              console.log(`[Reimport] contas_convenio limpo para ${guiasAfetadas.length} guias do arquivo ${arquivoId}`);
-            }
-          } catch (ccErr) {
-            console.error('[Reimport] Erro ao limpar contas_convenio:', ccErr);
-          }
-          
+          // A classificação do XML e qualquer mutação financeira pertencem ao
+          // processor interno. Não antecipar DELETEs em reimportação: XML de
+          // honorários puro nunca toca tabelas financeiras. A remoção completa
+          // de gerações de fontes em reimportação exige migração posterior à
+          // 0140 e permanece explicitamente fora deste fluxo.
+
           // Atualizar registro do arquivo
           await db.updateArquivo(arquivoId, {
             s3Key,
@@ -800,14 +914,23 @@ export const appRouter = router({
             progresso: 0,
             itensProcessados: 0,
             totalItens: null,
-            dataReferencia: input.dataReferencia ? new Date(input.dataReferencia) : null,
-            dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
+            dataReferencia: input.dataReferencia
+              ? new Date(input.dataReferencia)
+              : null,
+            dataPagamento: input.dataPagamento
+              ? new Date(input.dataPagamento)
+              : null,
           });
         } else {
           // Novo arquivo: criar registro
-          const ext = input.tipoArquivo === "excel" ? "xlsx" : input.tipoArquivo === "csv" ? "csv" : input.tipoArquivo;
+          const ext =
+            input.tipoArquivo === "excel"
+              ? "xlsx"
+              : input.tipoArquivo === "csv"
+                ? "csv"
+                : input.tipoArquivo;
           s3Key = `arquivos/${ctx.user.id}/${nanoid()}-${sanitizedNome}.${ext}`;
-          
+
           // Upload to S3
           const contentType =
             input.tipoArquivo === "xml"
@@ -819,10 +942,10 @@ export const appRouter = router({
               : input.tipoArquivo === "txt"
               ? "text/plain"
               : "application/pdf";
-          
+
           const uploadResult = await storagePut(s3Key, buffer, contentType);
           url = uploadResult.url;
-          
+
           // Create arquivo record
           const result = await db.createArquivo({
             nome: input.nome,
@@ -835,791 +958,41 @@ export const appRouter = router({
             s3Url: url,
             tamanho: buffer.length,
             status: "pendente",
-            dataReferencia: input.dataReferencia ? new Date(input.dataReferencia) : null,
-            dataPagamento: input.dataPagamento ? new Date(input.dataPagamento) : null,
+            dataReferencia: input.dataReferencia
+              ? new Date(input.dataReferencia)
+              : null,
+            dataPagamento: input.dataPagamento
+              ? new Date(input.dataPagamento)
+              : null,
           });
           arquivoId = result.id;
         }
-        
-        // Parse file and extract procedimentos in background
-        // Return immediately to user while processing continues
-        const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos de timeout para arquivos grandes
-        
-        const processInBackground = async () => {
-          const startTime = Date.now();
-          let timeoutId: NodeJS.Timeout | null = null;
-          
-          // Timeout para garantir que o status seja atualizado mesmo se o processamento travar
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              reject(new Error(`Timeout: processamento excedeu ${TIMEOUT_MS / 1000 / 60} minutos`));
-            }, TIMEOUT_MS);
-          });
-          
-          // Função interna com a lógica real de processamento
-          const doProcess = async () => {
-          try {
-            console.log('[Upload] Starting background processing:', input.nome);
-            
-            // Set status to processing
+
+        // Todo upload é processado pelo worker interno. Isso mantém a classificação
+        // de XML de honorários e o fluxo financeiro em uma única fronteira. O worker
+        // decide antes de qualquer DELETE/INSERT financeiro e finaliza o status.
             await db.updateArquivoStatus(arquivoId, "processando");
-            
-            // Para arquivos retornados, pular o parseFile genérico (economiza memória e tempo para arquivos grandes)
-            let parseResult: { success: boolean; procedimentos: any[] } = { success: false, procedimentos: [] };
-            
-            if (input.direcao === "enviado") {
-              parseResult = await parseFile(buffer, input.nome);
-              
-              console.log('[Upload] Parse completed in', ((Date.now() - startTime) / 1000).toFixed(1), 's:', {
-                success: parseResult.success,
-                procedimentosCount: parseResult.procedimentos.length,
-                comMedico: parseResult.procedimentos.filter(p => p.nomeMedico).length
+        await db.updateArquivoProgresso(arquivoId, 5, 0);
+
+        const port = process.env.PORT || "3000";
+        const internalUrl = `http://localhost:${port}/api/internal/process-file`;
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
+        fetch(internalUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ arquivoId, secret }),
+        }).catch(() => {
+          // Não registrar nome, URL, chave ou conteúdo do arquivo.
+          db.updateArquivoStatus(arquivoId, "erro").catch(() => undefined);
               });
-            } else {
-              console.log('[Upload] Arquivo retornado - pulando parseFile genérico para otimização');
-            }
-            
-            if (parseResult.success && parseResult.procedimentos.length > 0 && input.direcao === "enviado") {
-              // Agrupar procedimentos por código de prestador executante (APENAS para arquivos enviados)
-              const procedimentosPorPrestador: Record<string, typeof parseResult.procedimentos> = {};
-              
-              for (const proc of parseResult.procedimentos) {
-                const codigoPrestador = proc.codigoPrestadorExecutante || 'SEM_PRESTADOR';
-                if (!procedimentosPorPrestador[codigoPrestador]) {
-                  procedimentosPorPrestador[codigoPrestador] = [];
-                }
-                procedimentosPorPrestador[codigoPrestador].push(proc);
-              }
-              
-              const prestadoresKeys = Object.keys(procedimentosPorPrestador);
-              console.log('[Upload] Prestadores encontrados:', prestadoresKeys);
-              console.log('[Upload] Distribuição por prestador:', 
-                prestadoresKeys.map(k => `${k}: ${procedimentosPorPrestador[k].length} itens`)
-              );
-              
-              // Verificar se há múltiplos prestadores e buscar estabelecimentos associados
-              const prestadoresComEstabelecimento: Array<{
-                codigoPrestador: string;
-                estabelecimentoId: number;
-                procedimentos: typeof parseResult.procedimentos;
-              }> = [];
-              
-              for (const codigoPrestador of prestadoresKeys) {
-                const procs = procedimentosPorPrestador[codigoPrestador];
-                if (codigoPrestador === 'SEM_PRESTADOR') {
-                  prestadoresComEstabelecimento.push({
-                    codigoPrestador,
-                    estabelecimentoId: input.estabelecimentoId,
-                    procedimentos: procs,
-                  });
-                } else {
-                  const prestadorCadastrado = await db.getPrestadorPorCodigo(codigoPrestador, input.convenioId);
-                  if (prestadorCadastrado) {
-                    prestadoresComEstabelecimento.push({
-                      codigoPrestador,
-                      estabelecimentoId: prestadorCadastrado.estabelecimentoId,
-                      procedimentos: procs,
-                    });
-                    console.log(`[Upload] Prestador ${codigoPrestador} associado ao estabelecimento ${prestadorCadastrado.estabelecimentoNome}`);
-                  } else {
-                    prestadoresComEstabelecimento.push({
-                      codigoPrestador,
-                      estabelecimentoId: input.estabelecimentoId,
-                      procedimentos: procs,
-                    });
-                    console.log(`[Upload] Prestador ${codigoPrestador} não cadastrado - usando estabelecimento do arquivo`);
-                  }
-                }
-              }
-              
-              // === FLUXO SIMPLIFICADO: Popular faturamento_tiss diretamente do XML/Excel enviado (sem tabela procedimentos) ===
-              const totalItensToProcess = parseResult.procedimentos.length;
-              await db.updateArquivoProgresso(arquivoId, 0, 0, totalItensToProcess);
-              
-              // Suportar tanto XML quanto Excel como arquivo enviado
-              if (input.direcao === "enviado" && (input.tipoArquivo === "xml" || input.tipoArquivo === "excel")) {
-                try {
-                  console.log('[Upload] Populando faturamento_tiss diretamente do XML enviado...');
-                  const dataReferenciaUpload = input.dataReferencia ? new Date(input.dataReferencia) : undefined;
-                  
-                  // Mapear procedimentos para registros de faturamento_tiss
-                  // Usar prestadoresComEstabelecimento para atribuir o estabelecimentoId correto por prestador
-                  const faturamentoRecords: InsertFaturamentoTiss[] = [];
-                  let seqItem = 0;
-                  
-                  for (const grupo of prestadoresComEstabelecimento) {
-                    for (const proc of grupo.procedimentos) {
-                      seqItem++;
-                      faturamentoRecords.push({
-                        numeroLote: proc.numeroLote || undefined,
-                        sequencialTransacao: proc.sequencialTransacao || undefined,
-                        registroAns: proc.registroANS || undefined,
-                        numeroGuiaPrestador: proc.guiaNumero || undefined,
-                        numeroGuiaOperadora: proc.numeroGuiaOperadora || undefined,
-                        senha: proc.senha || undefined,
-                        carteiraBeneficiario: proc.pacienteCarteirinha || undefined,
-                        tipoItem: mapTipoDespesaParaTipoItem(proc.tipoDespesa),
-                        sequencialItem: seqItem,
-                        dataExecucao: proc.dataExecucao || undefined,
-                        codigoTabela: proc.codigoDespesa || undefined,
-                        codigoItem: proc.codigo,
-                        descricaoItem: proc.descricao || undefined,
-                        quantidade: proc.quantidade ? String(proc.quantidade) : '1',
-                        valorUnitario: proc.valorUnitario ? String(proc.valorUnitario) : undefined,
-                        valorFaturado: proc.valorTotal ? String(proc.valorTotal) : undefined,
-                        nomeProf: proc.nomeMedico || undefined,
-                        conselhoProf: proc.crmMedico || undefined,
-                        codigoPrestadorExecutante: proc.codigoPrestadorExecutante || undefined,
-                        estabelecimentoId: grupo.estabelecimentoId,
-                        arquivoId: arquivoId,
-                        convenioId: input.convenioId,
-                        dataReferencia: dataReferenciaUpload || undefined,
-                        // Competência no formato AAAA/MM derivada da dataReferencia do upload
-                        competencia: dataReferenciaUpload 
-                          ? `${dataReferenciaUpload.getUTCFullYear()}/${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                          : undefined,
-                      });
-                    }
-                  }
-                  
-                  if (faturamentoRecords.length > 0) {
-                    // Insert in batches with progress callback and per-batch error handling
-                    const BATCH_SIZE = 500;
-                    const MAX_RETRIES_PER_BATCH = 2;
-                    let processados = 0;
-                    let batchErrors = 0;
-                    for (let i = 0; i < faturamentoRecords.length; i += BATCH_SIZE) {
-                      const batch = faturamentoRecords.slice(i, i + BATCH_SIZE);
-                      let batchSuccess = false;
-                      for (let attempt = 0; attempt <= MAX_RETRIES_PER_BATCH; attempt++) {
-                        try {
-                          await db.insertFaturamentoTissBatch(batch);
-                          batchSuccess = true;
-                          break;
-                        } catch (batchErr: any) {
-                          if (attempt < MAX_RETRIES_PER_BATCH) {
-                            console.warn(`[Upload] Batch ${i}-${i+batch.length} falhou (tentativa ${attempt+1}/${MAX_RETRIES_PER_BATCH+1}), retentando em 2s...`, batchErr?.message);
-                            await new Promise(r => setTimeout(r, 2000));
-                          } else {
-                            console.error(`[Upload] Batch ${i}-${i+batch.length} falhou após ${MAX_RETRIES_PER_BATCH+1} tentativas, pulando:`, batchErr?.message);
-                            batchErrors++;
-                          }
-                        }
-                      }
-                      if (batchSuccess) processados += batch.length;
-                      const progresso = Math.round(((processados + (batchErrors * BATCH_SIZE)) / faturamentoRecords.length) * 90);
-                      await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 90), processados, faturamentoRecords.length);
-                    }
-                    if (batchErrors > 0) {
-                      console.warn(`[Upload] ${batchErrors} batch(es) falharam de ${Math.ceil(faturamentoRecords.length / BATCH_SIZE)} total`);
-                    }
-                    console.log(`[Upload] faturamento_tiss populado: ${faturamentoRecords.length} registros para ${prestadoresComEstabelecimento.length} prestador(es)`);
-                    
-                    // === MIGRAÇÃO AUTOMÁTICA: Popular contas_convenio_itens e contas_convenio_resumo ===
-                    // Isso garante que os dados apareçam na tela de Conta Convênio imediatamente
-                    try {
-                      console.log('[Upload] Migrando dados para contas_convenio...');
-                      const { contasConvenioItens, contasConvenioResumo } = await import('../drizzle/schema');
-                      const { eq, and, sql: sqlDrizzle } = await import('drizzle-orm');
-                      const dbCC = await getDb();
-                      if (!dbCC) throw new Error('DB indisponível para migração contas_convenio');
-                      
-                      // Processar por estabelecimento
-                      const estabelecimentosProcessados = new Set<number>();
-                      for (const grupo of prestadoresComEstabelecimento) {
-                        if (estabelecimentosProcessados.has(grupo.estabelecimentoId)) continue;
-                        estabelecimentosProcessados.add(grupo.estabelecimentoId);
-                        
-                        // Buscar registros recém-inseridos deste arquivo para este estabelecimento
-                        const registrosArquivo = faturamentoRecords.filter(r => r.estabelecimentoId === grupo.estabelecimentoId);
-                        if (registrosArquivo.length === 0) continue;
-                        
-                        // Agrupar por guia+lote para criar contas (suporte a Alta Administrativa)
-                        const porGuia = new Map<string, typeof registrosArquivo>();
-                        for (const reg of registrosArquivo) {
-                          const guia = reg.numeroGuiaPrestador || reg.numeroGuiaOperadora || 'SEM_GUIA';
-                          const lote = reg.numeroLote ? String(reg.numeroLote) : '';
-                          const chaveGuiaLote = lote ? `${guia}__LOTE__${lote}` : guia;
-                          if (!porGuia.has(chaveGuiaLote)) porGuia.set(chaveGuiaLote, []);
-                          porGuia.get(chaveGuiaLote)!.push(reg);
-                        }
-                        
-                        // Buscar nome do convênio
-                        let convenioNome: string | null = null;
-                        if (input.convenioId) {
-                          const convResult = await db.getConvenioById(input.convenioId);
-                          convenioNome = convResult?.nome || null;
-                        }
-                        
-                        // Limpar dados XML anteriores DESTE ARQUIVO para este estabelecimento
-                        await dbCC.delete(contasConvenioItens).where(
-                          and(
-                            eq(contasConvenioItens.estabelecimentoId, grupo.estabelecimentoId),
-                            eq(contasConvenioItens.origem, "XML"),
-                            eq(contasConvenioItens.arquivoId, arquivoId),
-                          )
-                        );
-                        
-                        // Inserir itens em batches
-                        const BATCH_CC = 500;
-                        let totalCC = 0;
-                        const allItems = registrosArquivo.map(reg => {
-                          const guia = reg.numeroGuiaPrestador || reg.numeroGuiaOperadora || 'SEM_GUIA';
-                          const vlUnit = reg.valorUnitario ? parseFloat(String(reg.valorUnitario)) : 0;
-                          const vlFat = reg.valorFaturado ? parseFloat(String(reg.valorFaturado)) : 0;
-                          const qtd = reg.quantidade ? parseFloat(String(reg.quantidade)) : 0;
-                          const vlTotal = vlFat || (vlUnit * qtd);
-                          
-                          return {
-                            origem: "XML" as const,
-                            numeroConta: String(guia),
-                            numeroGuia: reg.numeroGuiaPrestador ? String(reg.numeroGuiaPrestador) : null,
-                            numeroGuiaOperadora: reg.numeroGuiaOperadora ? String(reg.numeroGuiaOperadora) : null,
-                            numeroLote: reg.numeroLote ? String(reg.numeroLote) : null,
-                            senha: reg.senha ? String(reg.senha) : null,
-                            pacienteNome: null,
-                            carteiraBeneficiario: reg.carteiraBeneficiario ? String(reg.carteiraBeneficiario) : null,
-                            convenio: convenioNome,
-                            convenioId: input.convenioId,
-                            estabelecimentoId: grupo.estabelecimentoId,
-                            tipoItem: reg.tipoItem ? String(reg.tipoItem) : 'OUTROS',
-                            codigoItem: reg.codigoItem ? String(reg.codigoItem) : null,
-                            codigoItemTuss: null,
-                            descricaoItem: reg.descricaoItem ? String(reg.descricaoItem) : null,
-                            codigoTabela: reg.codigoTabela ? String(reg.codigoTabela) : null,
-                            quantidade: qtd ? String(qtd) : null,
-                            valorUnitario: vlUnit ? String(vlUnit) : null,
-                            valorTotal: vlTotal ? String(vlTotal) : null,
-                            dataExecucao: reg.dataExecucao ? new Date(reg.dataExecucao) : null,
-                            dataReferencia: reg.dataReferencia ? new Date(reg.dataReferencia) : null,
-                            competencia: (() => {
-                              const d = reg.dataReferencia ? new Date(reg.dataReferencia) : reg.dataExecucao ? new Date(reg.dataExecucao) : null;
-                              return d ? `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}` : null;
-                            })(),
-                            profissionalExecutante: reg.nomeProf ? String(reg.nomeProf) : null,
-                            codigoPrestadorExecutante: reg.codigoPrestadorExecutante ? String(reg.codigoPrestadorExecutante) : null,
-                            setor: null,
-                            arquivoId: arquivoId,
-                            statusAnalise: "pendente" as const,
-                          };
-                        });
-                        
-                        for (let b = 0; b < allItems.length; b += BATCH_CC) {
-                          const batch = allItems.slice(b, b + BATCH_CC);
-                          await dbCC.insert(contasConvenioItens).values(batch);
-                          totalCC += batch.length;
-                        }
-                        
-                        // Criar/atualizar resumos por guia+lote (suporte a Alta Administrativa)
-                        for (const [chaveGuiaLote, regs] of porGuia.entries()) {
-                          // Extrair guia e lote da chave composta
-                          const [guia, loteStr] = chaveGuiaLote.includes('__LOTE__')
-                            ? chaveGuiaLote.split('__LOTE__')
-                            : [chaveGuiaLote, null];
-                          const loteNumero = loteStr || (regs[0]?.numeroLote ? String(regs[0].numeroLote) : null);
-                          
-                          // Verificar se já existe resumo para esta guia+competência (separar mesma guia em meses diferentes)
-                          // Primeiro calcular a competência para usar na busca
-                          let competenciaCalc: string | null = null;
-                          const dataRefCalc = regs[0]?.dataReferencia;
-                          if (dataRefCalc) {
-                            const d = new Date(dataRefCalc);
-                            competenciaCalc = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-                          } else {
-                            // Buscar primeira dataExecucao disponível
-                            for (const r of regs) {
-                              if (r.dataExecucao) {
-                                const d = new Date(r.dataExecucao);
-                                competenciaCalc = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                break;
-                              }
-                            }
-                          }
-                          
-                          // Buscar resumo existente por guia + estabelecimento + competência
-                          const existingResumoConditions = [
-                            eq(contasConvenioResumo.numeroConta, guia),
-                            eq(contasConvenioResumo.estabelecimentoId, grupo.estabelecimentoId),
-                            eq(contasConvenioResumo.origem, "XML"),
-                          ];
-                          if (competenciaCalc) {
-                            existingResumoConditions.push(eq(contasConvenioResumo.competencia, competenciaCalc));
-                          }
-                          if (loteNumero) {
-                            existingResumoConditions.push(eq(contasConvenioResumo.numeroLote, loteNumero));
-                          } else {
-                            existingResumoConditions.push(sqlDrizzle`${contasConvenioResumo.numeroLote} IS NULL` as any);
-                          }
-                          const existingResumo = await dbCC.select().from(contasConvenioResumo).where(
-                            and(...existingResumoConditions)
-                          ).limit(1);
 
-                          let dataExecGuia: Date | null = null;
-                          for (const r of regs) {
-                            if (r.dataExecucao && !dataExecGuia) dataExecGuia = new Date(r.dataExecucao);
-                          }
-
-                          const resumoItensConditions = [
-                            eq(contasConvenioItens.numeroConta, guia),
-                            eq(contasConvenioItens.estabelecimentoId, grupo.estabelecimentoId),
-                            eq(contasConvenioItens.origem, "XML"),
-                          ];
-                          if (competenciaCalc) {
-                            resumoItensConditions.push(eq(contasConvenioItens.competencia, competenciaCalc));
-                          }
-                          if (loteNumero) {
-                            resumoItensConditions.push(eq(contasConvenioItens.numeroLote, loteNumero));
-                          } else {
-                            resumoItensConditions.push(sqlDrizzle`${contasConvenioItens.numeroLote} IS NULL` as any);
-                          }
-
-                          const [totaisPersistidos] = await dbCC.select({
-                            totalItens: sqlDrizzle<number>`COUNT(*)`,
-                            valorTotal: sqlDrizzle<string>`COALESCE(SUM(CAST(${contasConvenioItens.valorTotal} AS DECIMAL(14,2))), 0)`,
-                          }).from(contasConvenioItens).where(and(...resumoItensConditions));
-
-                          const totalItensGuia = Number(totaisPersistidos?.totalItens || 0);
-                          const valorTotalGuia = Number(totaisPersistidos?.valorTotal || 0);
-                          
-                          // Usar competência já calculada acima
-                          const competencia = competenciaCalc;
-                          
-                          if (existingResumo.length > 0) {
-                            // Recalcular a partir dos itens persistidos torna o reprocessamento idempotente.
-                            const updateSet: any = {
-                              totalItens: totalItensGuia,
-                              valorTotal: String(valorTotalGuia.toFixed(2)),
-                            };
-                            // Preencher competência se estiver NULL
-                            if (!existingResumo[0].competencia && competencia) {
-                              updateSet.competencia = competencia;
-                            }
-                            await dbCC.update(contasConvenioResumo)
-                              .set(updateSet)
-                              .where(eq(contasConvenioResumo.id, existingResumo[0].id));
-                          } else {
-                            // Criar novo resumo
-                            await dbCC.insert(contasConvenioResumo).values({
-                              numeroConta: guia,
-                              numeroLote: loteNumero,
-                              estabelecimentoId: grupo.estabelecimentoId,
-                              origem: "XML" as const,
-                              convenio: convenioNome,
-                              convenioId: input.convenioId,
-                              pacienteNome: null,
-                              carteiraBeneficiario: regs[0]?.carteiraBeneficiario ? String(regs[0].carteiraBeneficiario) : null,
-                              totalItens: totalItensGuia,
-                              valorTotal: String(valorTotalGuia.toFixed(2)),
-                              dataInternacao: dataExecGuia,
-                              statusAnalise: "pendente" as const,
-                              buscadoPor: ctx.user?.id || null,
-                              competencia,
-                            });
-                          }
-                        }
-                        
-                        console.log(`[Upload] contas_convenio populado: ${totalCC} itens, ${porGuia.size} contas para estabelecimento ${grupo.estabelecimentoId}`);
-                      }
-                    } catch (ccError) {
-                      console.error('[Upload] Erro ao migrar para contas_convenio:', ccError);
-                      // Não falhar o upload se a migração falhar
-                    }
-                  }
-                } catch (fatError) {
-                  console.error('[Upload] Erro ao popular faturamento_tiss:', fatError);
-                  // Não falhar o upload se a inserção no faturamento_tiss falhar
-                } finally {
-                  // GARANTIA: sempre marcar como processado, independente de erros na migração
-                  try {
-                    await db.updateArquivoStatus(arquivoId, "processado");
-                    await db.updateArquivoProgresso(arquivoId, 100, totalItensToProcess, totalItensToProcess);
-                  } catch (finalErr) {
-                    console.error('[Upload] Erro ao finalizar status do arquivo:', finalErr);
-                  }
-                }
-              }
-              
-              if (prestadoresComEstabelecimento.length > 1) {
-                console.log(`[Upload] Arquivo contém ${prestadoresComEstabelecimento.length} prestadores diferentes`);
-              }
-              
-              // Status já atualizado no finally acima — garantia de execução mesmo com erros
-              
-              const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-              console.log(`[Upload] Background processing completed in ${totalTime}s:`, input.nome);
-              
-              // Gerar insights de IA automaticamente após processamento (apenas para arquivos enviados/XML)
-              if (input.direcao === "enviado" && input.tipoArquivo === "xml") {
-                try {
-                  console.log('[Upload] Gerando insights de IA para arquivo:', arquivoId);
-                  const resultadoIA = await db.processarInsightsAutomaticos({
-                    arquivoId,
-                    estabelecimentoId: input.estabelecimentoId,
-                    convenioId: input.convenioId,
-                    userId: ctx.user.id!,
-                  });
-                  console.log('[Upload] Insights gerados:', resultadoIA.insightsGerados, 'críticos:', resultadoIA.insightsCriticos);
-                } catch (iaError) {
-                  // Não falhar o upload se a geração de insights falhar
-                  console.error('[Upload] Erro ao gerar insights de IA:', iaError);
-                }
-              }
-            } else if (!parseResult.success) {
-              console.log('[Upload] Parse não encontrou procedimentos (pode ser arquivo de retorno):', input.nome);
-            } else {
-              console.log('[Upload] Arquivo sem procedimentos:', input.nome);
-            }
-            
-            // Processar arquivos de retorno: Excel -> recebimentos_excel, XML -> recebimento_tiss
-            // IMPORTANTE: Este bloco deve executar INDEPENDENTE do resultado do parseFile()
-            // porque XMLs de retorno têm estrutura diferente e o parser genérico não extrai procedimentos
-            if (input.direcao === "retornado") {
-                try {
-                  // Converter datas do input
-                  const dataReferenciaUpload = input.dataReferencia ? new Date(input.dataReferencia) : undefined;
-                  const dataPagamentoUpload = input.dataPagamento ? new Date(input.dataPagamento) : undefined;
-                  
-                  // SEPARAÇÃO: Excel vai para recebimentos_excel, XML vai para recebimento_tiss
-                  if (input.tipoArquivo === "excel" || input.tipoArquivo === "csv") {
-                    // ARQUIVOS EXCEL/CSV DE RETORNO: Processamento em BACKGROUND
-                    // Para evitar timeout em arquivos grandes (>2MB), o processamento é delegado
-                    // à rota interna /api/internal/process-file que já implementa:
-                    // - Parser streaming Unimed com SAX (não acumula na RAM)
-                    // - Chunks de 500 registros com backpressure
-                    // - Progresso atualizado no banco para polling do frontend
-                    // - Conciliação automática e sync demonstrativo
-                    
-                    const isLargeFile = buffer.length > 2 * 1024 * 1024; // > 2MB
-                    
-                    if (isLargeFile) {
-                      // ARQUIVO GRANDE: Delegar para processamento em background
-                      console.log(`[Upload] Arquivo grande Excel/CSV (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - delegando para background processing`);
-                      
-                      // Disparar processamento via rota interna (request HTTP separada)
-                      const port = process.env.PORT || '3000';
-                      const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-                      const secret = process.env.JWT_SECRET || 'internal-process-secret';
-                      
-                      await delegarPlanilhaRetorno({
-                        arquivoId, secret, reimportacao: isReimportacao, tipoArquivo: input.tipoArquivo,
-                      }, {
-                        marcarProcessando: () => db.updateArquivoStatus(arquivoId, "processando"),
-                        atualizarProgresso: () => db.updateArquivoProgresso(arquivoId, 5, 0),
-                        disparar: payload => fetch(internalUrl, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(payload),
-                        }),
-                        marcarErro: () => db.updateArquivoStatus(arquivoId, "erro"),
-                      });
-                      
-                      console.log(`[Upload] Background processing disparado para arquivo ${arquivoId}`);
-                      // Somente o worker finaliza. Não alcançar a marcação inline abaixo.
-                      return;
-                    } else {
-                      // ARQUIVO PEQUENO (<2MB): Processar inline (rápido)
-                      console.log('[Upload] Processando arquivo Excel/CSV pequeno inline:', arquivoId);
-                      
-                      if (isReimportacao) {
-                        await db.deleteRecebimentosExcelByArquivo(arquivoId);
-                        console.log('[Upload] Dados antigos de recebimentos_excel excluídos para reimportação');
-                      }
-                      
-                      try {
-                        await db.updateArquivoProgresso(arquivoId, 10, 0);
-                        
-                        if (input.tipoArquivo === "excel") {
-                          const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
-                          const recordsExcel = parseExcelRecebimentosExcel(
-                            buffer, arquivoId, input.convenioId,
-                            dataReferenciaUpload, dataPagamentoUpload,
-                            input.estabelecimentoId
-                          );
-                          
-                          await db.updateArquivoProgresso(arquivoId, 20, 0, recordsExcel.length);
-                          console.log(`[Upload] Excel parsed: ${recordsExcel.length} registros`);
-                          
-                          if (recordsExcel.length > 0) {
-                            const totalExcel = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted, total) => {
-                              const progresso = Math.round(20 + (inserted / total) * 60);
-                              await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-                            });
-                            console.log('[Upload] Recebimentos Excel importado:', totalExcel, 'itens');
-                            
-                            try {
-                              const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                              const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                              if (syncResult.success) console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                            } catch (syncError) {
-                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                            }
-                            // Conciliação automática
-                            try {
-                              const competenciaConc = dataReferenciaUpload
-                                ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                                : undefined;
-                              if (competenciaConc && input.convenioId) {
-                                const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                                await executarConciliacaoAutomatica({
-                                  estabelecimentoId: input.estabelecimentoId,
-                                  competencia: competenciaConc,
-                                  convenioId: input.convenioId,
-                                });
-                              }
-                            } catch (concError: any) {
-                              console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                            }
-                            await db.updateArquivoProgresso(arquivoId, 95, recordsExcel.length, recordsExcel.length);
-                          }
-                        } else {
-                          // CSV pequeno - processar inline
-                          const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
-                          const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
-                          
-                          const decodedContent = decodeIpasgoBuffer(buffer);
-                          const isIpasgo = detectIpasgoFormat(decodedContent);
-                          
-                          let records: any[] = [];
-                          if (isIpasgo) {
-                            const result = parseIpasgoCSV(decodedContent, arquivoId, input.convenioId, input.estabelecimentoId, dataReferenciaUpload, dataPagamentoUpload);
-                            records = result.items || [];
-                          } else {
-                            const csvContent = buffer.toString('utf-8');
-                            const result = parseBradescoCSV(csvContent, arquivoId, input.convenioId, input.estabelecimentoId, dataReferenciaUpload, dataPagamentoUpload);
-                            if (!result.success) {
-                              console.warn('[Upload] CSV Bradesco sem itens válidos; processamento interrompido');
-                              await finalizarCsvBradescoInvalido({
-                                marcarErro: () => db.updateArquivoStatus(arquivoId, 'erro'),
-                                zerarProgresso: () => db.updateArquivoProgresso(arquivoId, 0, 0, 0),
-                              });
-                              return;
-                            }
-                            records = result.items;
-                          }
-                          
-                          if (records.length > 0) {
-                            await db.insertRecebimentosExcelBatch(records);
-                            try {
-                              const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                              await syncDemonstrativoByArquivo(arquivoId, 'excel');
-                            } catch (syncError) {
-                              console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                            }
-                            await db.updateArquivoProgresso(arquivoId, 95, records.length, records.length);
-                          }
-                        }
-                        
-                        // Aplicar aceite automático
-                        try {
-                          const { aplicarAceiteAutomaticoGlosa } = await import('./fileProcessor');
-                          // Apenas se a função existir no módulo
-                        } catch (e) { /* ignore */ }
-                        
-                      } catch (excelError) {
-                        console.error('[Upload] Erro ao importar recebimentos:', excelError);
-                        await db.updateArquivoProgresso(arquivoId, 0, 0);
-                      }
-                    }
-                  } else if (input.tipoArquivo === "xml") {
-                    // Arquivos XML de retorno -> tabela recebimento_tiss
-                    console.log('[Upload] Processando arquivo XML de retorno para recebimento_tiss:', arquivoId);
-                    
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentoTissByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimento_tiss excluídos para reimportação');
-                    }
-                    
-                    const recebimentoResult = await parseXmlRecebimentoTiss(
-                      buffer,
-                      arquivoId,
-                      input.estabelecimentoId,
-                      input.convenioId,
-                      dataReferenciaUpload,
-                      dataPagamentoUpload
-                    );
-                    
-                    // Atualizar progresso: parsing concluído
-                    if (recebimentoResult) {
-                      await db.updateArquivoProgresso(arquivoId, 20, 0, recebimentoResult.items.length);
-                    }
-                    
-                    if (recebimentoResult && recebimentoResult.success && recebimentoResult.items.length > 0) {
-                      // Inserir com progresso real (20% a 80%)
-                      const totalImportados = await db.insertRecebimentoTiss(recebimentoResult.items, async (inserted, total) => {
-                        const progresso = Math.round(20 + (inserted / total) * 60); // 20% a 80%
-                        await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-                      });
-                      console.log('[Upload] Recebimento TISS importado:', totalImportados, 'itens de', recebimentoResult.totalRows, 'linhas');
-                      
-                      // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
-                      try {
-                        const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                        const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'xml');
-                        if (syncResult.success) {
-                          console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                        } else {
-                          console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
-                        }
-                      } catch (syncError) {
-                        console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                      }
-                      
-                      // CONCILIAÇÃO AUTOMÁTICA: Disparar após importação do XML de retorno
-                      // Usa a competência do arquivo (dataReferencia) para conciliar
-                      try {
-                        const competenciaConc = dataReferenciaUpload
-                          ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                          : undefined;
-                        if (competenciaConc && input.convenioId) {
-                          console.log(`[Upload] Disparando conciliação automática: estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                          const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                          const concResult = await executarConciliacaoAutomatica({
-                            estabelecimentoId: input.estabelecimentoId,
-                            competencia: competenciaConc,
-                            convenioId: input.convenioId,
-                          });
-                          console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
-                        } else {
-                          console.log('[Upload] Conciliação automática não disparada: falta competência ou convênioId');
-                        }
-                      } catch (concError: any) {
-                        console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                      }
-                    } else if (recebimentoResult && !recebimentoResult.success) {
-                      console.error('[Upload] Erro ao processar recebimento_tiss:', recebimentoResult.error);
-                    } else if (recebimentoResult) {
-                      console.log('[Upload] Nenhum item de recebimento_tiss encontrado no arquivo');
-                    }
-                  } else if (input.tipoArquivo === "txt") {
-                    // Arquivos TXT de retorno (Unimed Cerrado) -> tabela recebimento_tiss
-                    console.log('[Upload] Processando arquivo TXT de retorno para recebimento_tiss:', arquivoId);
-                    
-                    // Excluir dados antigos deste arquivo se for reimportação
-                    if (isReimportacao) {
-                      await db.deleteRecebimentoTissByArquivo(arquivoId);
-                      console.log('[Upload] Dados antigos de recebimento_tiss excluídos para reimportação');
-                    }
-                    
-                    const { parseUnimedCerradoTxt } = await import('./parsers/parseUnimedCerradoTxt');
-                    const txtResult = parseUnimedCerradoTxt(
-                      buffer,
-                      arquivoId,
-                      input.estabelecimentoId,
-                      input.convenioId,
-                      dataReferenciaUpload,
-                      dataPagamentoUpload
-                    );
-                    
-                    // Atualizar progresso: parsing concluído
-                    if (txtResult) {
-                      await db.updateArquivoProgresso(arquivoId, 20, 0, txtResult.items.length);
-                    }
-                    
-                    if (txtResult && txtResult.success && txtResult.items.length > 0) {
-                      // Inserir com progresso real (20% a 80%)
-                      const totalImportados = await db.insertRecebimentoTiss(txtResult.items, async (inserted, total) => {
-                        const progresso = Math.round(20 + (inserted / total) * 60);
-                        await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-                      });
-                      console.log('[Upload] TXT Unimed Cerrado importado:', totalImportados, 'itens de', txtResult.totalRows, 'linhas');
-                      
-                      // SINCRONIZAÇÃO AUTOMÁTICA: Popular tabela demonstrativo
-                      try {
-                        const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-                        const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'xml');
-                        if (syncResult.success) {
-                          console.log('[Upload] Demonstrativo sincronizado:', syncResult.total, 'itens');
-                        } else {
-                          console.error('[Upload] Erro ao sincronizar demonstrativo:', syncResult.error);
-                        }
-                      } catch (syncError) {
-                        console.error('[Upload] Erro ao sincronizar demonstrativo:', syncError);
-                      }
-                      // CONCILIAÇÃO AUTOMÁTICA após TXT de retorno
-                      try {
-                        const competenciaConc = dataReferenciaUpload
-                          ? `${dataReferenciaUpload.getUTCFullYear()}-${String(dataReferenciaUpload.getUTCMonth() + 1).padStart(2, '0')}`
-                          : undefined;
-                        if (competenciaConc && input.convenioId) {
-                          console.log(`[Upload] Disparando conciliação automática (TXT): estab=${input.estabelecimentoId}, conv=${input.convenioId}, comp=${competenciaConc}`);
-                          const { executarConciliacaoAutomatica } = await import('./faturamentoUnificadoService');
-                          const concResult = await executarConciliacaoAutomatica({
-                            estabelecimentoId: input.estabelecimentoId,
-                            competencia: competenciaConc,
-                            convenioId: input.convenioId,
-                          });
-                          console.log(`[Upload] Conciliação automática concluída: ${concResult.totalConciliados} conciliados, ${concResult.totalGlosados} glosados, ${concResult.totalNaoRecebidos} sem pagamento`);
-                        }
-                      } catch (concError: any) {
-                        console.error('[Upload] Erro na conciliação automática (não-fatal):', concError?.message?.substring(0, 300));
-                      }
-                    } else if (txtResult && !txtResult.success) {
-                      console.error('[Upload] Erro ao processar TXT:', txtResult.error);
-                    } else if (txtResult) {
-                      console.log('[Upload] Nenhum item encontrado no arquivo TXT');
-                    }
-                  }
-                } catch (recebimentoError) {
-                  // Não falhar o upload se a importação de recebimento falhar
-                  console.error('[Upload] Erro ao importar recebimento:', recebimentoError);
-                }
-                
-                // Atualizar status do arquivo retornado para processado
-                await db.updateArquivoStatus(arquivoId, "processado");
-                const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(`[Upload] Arquivo retornado processado em ${totalTime}s:`, input.nome);
-            } else {
-              // Arquivo enviado: atualizar status baseado no resultado do parse
-              if (!parseResult.success) {
-                await db.updateArquivoStatus(arquivoId, "erro");
-              } else if (parseResult.procedimentos.length === 0) {
-                await db.updateArquivoStatus(arquivoId, "processado");
-                await db.updateArquivoProgresso(arquivoId, 100, 0, 0);
-              }
-            }
-          } catch (error) {
-            console.error("[Upload] Error in background processing:", error);
-            try {
-              await db.updateArquivoStatus(arquivoId, "erro");
-            } catch (dbError) {
-              console.error("[Upload] Failed to update status to erro:", dbError);
-            }
-          }
-          }; // end doProcess
-          
-          // Usar Promise.race para garantir que o timeout funcione
-          try {
-            await Promise.race([doProcess(), timeoutPromise]);
-          } catch (raceError: any) {
-            console.error('[Upload] Processamento falhou ou excedeu timeout:', raceError?.message || raceError);
-            try {
-              await db.updateArquivoStatus(arquivoId, "erro");
-            } catch (dbError) {
-              console.error('[Upload] Failed to update status to erro after timeout:', dbError);
-            }
-          } finally {
-            // Limpar timeout se ainda estiver ativo
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-            }
-          }
+        // DTO sanitizado: a URL de storage não é necessária para acompanhar o
+        // upload e não deve sair pela API.
+        return {
+          id: arquivoId,
+          reimportado: isReimportacao,
+          processandoEmBackground: true,
         };
-        
-        // Start background processing without awaiting
-        // This allows the response to return immediately
-        processInBackground().catch(async (err) => {
-          console.error('[Upload] Unhandled error in background processing:', err);
-          // Garantir que o status seja atualizado para erro em caso de falha não tratada
-          try {
-            await db.updateArquivoStatus(arquivoId, "erro");
-          } catch (dbError) {
-            console.error('[Upload] Failed to update status after unhandled error:', dbError);
-          }
-        });
-        
-        // Return immediately - user can check progress via status endpoint
-        return { id: arquivoId, s3Url: url, reimportado: isReimportacao, processandoEmBackground: true };
       }),
 
     // Endpoint 'reprocessar' unificado está definido mais abaixo (suporta retornado + envio)
@@ -1637,66 +1010,87 @@ export const appRouter = router({
         // Verify the file belongs to the user
         const arquivo = await db.getArquivoById(input.id);
         if (!arquivo) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado" });
-        }
-        if (arquivo.userId !== ctx.user.id && ctx.user.role !== 'admin') {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para excluir este arquivo" });
-        }
-               // Delete associated faturamento_tiss
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Arquivo não encontrado",
+                    });
+                }
+        if (arquivo.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Você não tem permissão para excluir este arquivo",
+          });
+              }
+        // Delete associated faturamento_tiss
         await db.deleteFaturamentoTissByArquivo(input.id);
-        
+
         // Delete associated recebimento_tiss (XML retornados)
         const recTiss = await db.deleteRecebimentoTissByArquivo(input.id);
-        
+
         // Delete associated recebimentos_excel (Excel retornados)
         const recExcel = await db.deleteRecebimentosExcelByArquivo(input.id);
-        
+
         // Delete associated demonstrativo entries
         const demo = await db.deleteDemonstrativoByArquivo(input.id);
-        
+
         // Delete associated contas_convenio_itens
-        try {
-          const { contasConvenioItens, contasConvenioResumo } = await import('../drizzle/schema');
-          const { eq, and, sql: sqlDrizzle } = await import('drizzle-orm');
-          const dbCC = await getDb();
+                    try {
+          const { contasConvenioItens, contasConvenioResumo } = await import(
+            "../drizzle/schema"
+          );
+          const { eq, and, sql: sqlDrizzle } = await import("drizzle-orm");
+                      const dbCC = await getDb();
           if (dbCC) {
             // Buscar guias afetadas antes de deletar para recalcular resumos
-            const guiasAfetadas = await dbCC.selectDistinct({ 
-              numeroConta: contasConvenioItens.numeroConta,
-              estabelecimentoId: contasConvenioItens.estabelecimentoId 
-            }).from(contasConvenioItens).where(
-              eq(contasConvenioItens.arquivoId, input.id)
-            );
-            
+            const guiasAfetadas = await dbCC
+              .selectDistinct({
+                numeroConta: contasConvenioItens.numeroConta,
+                estabelecimentoId: contasConvenioItens.estabelecimentoId,
+              })
+              .from(contasConvenioItens)
+              .where(eq(contasConvenioItens.arquivoId, input.id));
+
             // Deletar itens do arquivo
-            await dbCC.delete(contasConvenioItens).where(
-              eq(contasConvenioItens.arquivoId, input.id)
-            );
-            
+            await dbCC
+              .delete(contasConvenioItens)
+              .where(eq(contasConvenioItens.arquivoId, input.id));
+
             // Recalcular resumos das guias afetadas
             for (const guia of guiasAfetadas) {
-              const itensRestantes = await dbCC.select().from(contasConvenioItens).where(
-                and(
-                  eq(contasConvenioItens.numeroConta, guia.numeroConta),
-                  eq(contasConvenioItens.estabelecimentoId, guia.estabelecimentoId),
-                )
-              );
-              
+              const itensRestantes = await dbCC
+                .select()
+                .from(contasConvenioItens)
+                .where(
+                          and(
+                    eq(contasConvenioItens.numeroConta, guia.numeroConta),
+                    eq(
+                      contasConvenioItens.estabelecimentoId,
+                      guia.estabelecimentoId
+                    )
+                          )
+                        );
+
               if (itensRestantes.length === 0) {
                 // Sem itens restantes: deletar resumo
-                await dbCC.delete(contasConvenioResumo).where(
-                  and(
-                    eq(contasConvenioResumo.numeroConta, guia.numeroConta),
-                    eq(contasConvenioResumo.estabelecimentoId, guia.estabelecimentoId),
-                  )
-                );
-              } else {
+                await dbCC
+                  .delete(contasConvenioResumo)
+                  .where(
+                    and(
+                      eq(contasConvenioResumo.numeroConta, guia.numeroConta),
+                      eq(
+                        contasConvenioResumo.estabelecimentoId,
+                        guia.estabelecimentoId
+                      )
+                    )
+                  );
+                          } else {
                 // Recalcular totais
                 let valorTotal = 0;
                 for (const item of itensRestantes) {
                   valorTotal += parseFloat(String(item.valorTotal || 0));
-                }
-                await dbCC.update(contasConvenioResumo)
+                              }
+                await dbCC
+                  .update(contasConvenioResumo)
                   .set({
                     totalItens: itensRestantes.length,
                     valorTotal: String(valorTotal.toFixed(2)),
@@ -1704,21 +1098,31 @@ export const appRouter = router({
                   .where(
                     and(
                       eq(contasConvenioResumo.numeroConta, guia.numeroConta),
-                      eq(contasConvenioResumo.estabelecimentoId, guia.estabelecimentoId),
+                      eq(
+                        contasConvenioResumo.estabelecimentoId,
+                        guia.estabelecimentoId
+                      )
                     )
                   );
-              }
-            }
-            console.log(`[Arquivo Delete] contas_convenio limpo para ${guiasAfetadas.length} guias`);
-          }
+                            }
+                          }
+            console.log(
+              `[Arquivo Delete] contas_convenio limpo para ${guiasAfetadas.length} guias`
+            );
+                          }
         } catch (ccError) {
-          console.error('[Arquivo Delete] Erro ao limpar contas_convenio:', ccError);
+          console.error(
+            "[Arquivo Delete] Erro ao limpar contas_convenio:",
+            ccError
+          );
         }
-        
+
         // Delete the arquivo record itself
         await db.deleteArquivo(input.id);
-        
-        console.log(`[Arquivo Delete] Arquivo ${input.id} (${arquivo.nome}) exclu\u00eddo em cascata: recebimentoTiss=${recTiss}, recebimentosExcel=${recExcel}, demonstrativo=${demo}`);      
+
+        console.log(
+          `[Arquivo Delete] Arquivo ${input.id} (${arquivo.nome}) exclu\u00eddo em cascata: recebimentoTiss=${recTiss}, recebimentosExcel=${recExcel}, demonstrativo=${demo}`
+        );
         return { success: true };
       }),
 
@@ -1728,38 +1132,46 @@ export const appRouter = router({
         // Get the arquivo
         const arquivo = await db.getArquivoById(input.id);
         if (!arquivo) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Arquivo não encontrado",
+          });
         }
         if (arquivo.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para reprocessar este arquivo" });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Você não tem permissão para reprocessar este arquivo",
+          });
         }
-        
+
         // Marcar como processando
         await db.updateArquivoStatus(input.id, "processando");
         await db.updateArquivoProgresso(input.id, 5, 0);
-        
+
         // Disparar processamento via rota interna (request HTTP separada com seu próprio timeout)
         // O Cloud Run mantém a instância viva enquanto há requests em andamento
-        const port = process.env.PORT || '3000';
+        const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || 'internal-process-secret';
-        
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
+
         fetch(internalUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ arquivoId: input.id, secret }),
         }).catch(err => {
-          console.error('[Reprocessar] Erro ao disparar processamento interno:', err);
+          console.error(
+            "[Reprocessar] Erro ao disparar processamento interno:",
+            err
+          );
           db.updateArquivoStatus(input.id, "erro").catch(() => {});
         });
-        
+
         // Retornar imediatamente ao frontend
         return {
           success: true,
           procedimentosCount: 0,
-          message: "Reprocessamento iniciado. Acompanhe o progresso na lista."
+          message: "Reprocessamento iniciado. Acompanhe o progresso na lista.",
         };
-        
       }),
 
     // Corrigir arquivos travados em processando
@@ -1812,7 +1224,9 @@ export const appRouter = router({
         return db.getComparacoes({
           ...input,
           estabelecimentoId: input?.estabelecimentoId,
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
       }),
@@ -1879,7 +1293,7 @@ export const appRouter = router({
 
         // Save divergencias
         if (resultado.divergencias.length > 0) {
-          const divergenciasToInsert = resultado.divergencias.map((d) =>
+          const divergenciasToInsert = resultado.divergencias.map(d =>
             toDivergenciaInsert(d, comparacaoId)
           );
           await db.createDivergencias(divergenciasToInsert);
@@ -1950,7 +1364,9 @@ export const appRouter = router({
           arquivoId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           convenioId: z.number().optional(),
-          status: z.enum(["pendente", "aceito", "rejeitado", "ignorado"]).optional(),
+          status: z
+            .enum(["pendente", "aceito", "rejeitado", "ignorado"])
+            .optional(),
         })
       )
       .query(async ({ input }) => {
@@ -1967,7 +1383,11 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        const success = await db.atualizarStatusInsightIA(input.id, input.status, input.feedback);
+        const success = await db.atualizarStatusInsightIA(
+          input.id,
+          input.status,
+          input.feedback
+        );
         return { success };
       }),
 
@@ -2210,7 +1630,9 @@ export const appRouter = router({
             nomeMedico: z.string().optional(),
             crmMedico: z.string().optional(),
             codigoPrestadorExecutante: z.string().optional(),
-            statusGlosa: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
+            statusGlosa: z
+              .enum(["todos", "pago", "glosado", "parcial"])
+              .optional(),
             apenasRetornados: z.boolean().optional(),
             direcaoArquivo: z.enum(["enviado", "retornado"]).optional(),
             mesReferencia: z.number().min(1).max(12).optional(),
@@ -2241,14 +1663,18 @@ export const appRouter = router({
 
     // Listar prestadores executantes únicos para filtro
     listarPrestadoresExecutantes: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
-        convenioId: z.number().optional()
-      }).optional())
+            convenioId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.listarPrestadoresExecutantes({
           estabelecimentoId: input?.estabelecimentoId,
-          convenioId: input?.convenioId
+          convenioId: input?.convenioId,
         });
       }),
   }),
@@ -2271,25 +1697,33 @@ export const appRouter = router({
       }),
 
     ultimasComparacoes: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         limit: z.number().default(5),
-        estabelecimentoId: z.number().optional() 
-      }).optional())
+            estabelecimentoId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
-        const comparacoes = await db.getComparacoes({ 
-          estabelecimentoId: input?.estabelecimentoId 
+        const comparacoes = await db.getComparacoes({
+          estabelecimentoId: input?.estabelecimentoId,
         });
         return comparacoes.slice(0, input?.limit || 5);
       }),
 
     ultimosArquivos: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         limit: z.number().default(10),
-        estabelecimentoId: z.number().optional() 
-      }).optional())
+            estabelecimentoId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ input, ctx }) => {
-        const arquivos = await db.getArquivos({ 
-          estabelecimentoId: input?.estabelecimentoId 
+        const arquivos = await db.getArquivos({
+          estabelecimentoId: input?.estabelecimentoId,
         });
         return arquivos.slice(0, input?.limit || 10);
       }),
@@ -2298,15 +1732,19 @@ export const appRouter = router({
   // ============ FATURAMENTO ============
   faturamento: router({
     porConvenio: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
         codigoPrestadorExecutante: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         return db.getFaturamentoPorConvenio(
-          ctx.user.id, 
+          ctx.user.id,
           input?.estabelecimentoId,
           input?.mesReferencia,
           input?.anoReferencia,
@@ -2316,13 +1754,15 @@ export const appRouter = router({
 
     porMes: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           meses: z.number().default(12),
           estabelecimentoId: z.number().optional(),
           anoReferencia: z.number().optional(),
           codigoPrestadorExecutante: z.string().optional(),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getFaturamentoPorMes(
@@ -2336,15 +1776,19 @@ export const appRouter = router({
       }),
 
     resumoGeral: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
         codigoPrestadorExecutante: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         return db.getResumoGeral(
-          ctx.user.id, 
+          ctx.user.id,
           input?.estabelecimentoId,
           input?.mesReferencia,
           input?.anoReferencia,
@@ -2356,25 +1800,43 @@ export const appRouter = router({
   // ============ ANÁLISE DE GLOSA ============
   glosa: router({
     porConvenio: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
-        estabelecimentoId: z.number().optional() 
-      }).optional())
+            estabelecimentoId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
-        return db.getGlosaPorConvenio(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
+        return db.getGlosaPorConvenio(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          input?.convenioId
+        );
       }),
 
     porProcedimento: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           limit: z.number().default(20),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getGlosaPorProcedimento(
           ctx.user.id,
           input?.convenioId,
@@ -2385,14 +1847,20 @@ export const appRouter = router({
 
     tendencia: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           meses: z.number().default(12),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getTendenciaGlosa(
           ctx.user.id,
           input?.convenioId,
@@ -2402,19 +1870,32 @@ export const appRouter = router({
       }),
 
     resumo: protectedProcedure
-      .input(z.object({ 
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
-        estabelecimentoId: z.number().optional() 
-      }).optional())
+            estabelecimentoId: z.number().optional(),
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
-        return db.getResumoGlosa(ctx.user.id, input?.estabelecimentoId, input?.convenioId);
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
+        return db.getResumoGlosa(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          input?.convenioId
+        );
       }),
 
     // Itens glosados com filtros avançados
     itensGlosados: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           dataReferenciaInicio: z.date().optional(),
@@ -2423,14 +1904,21 @@ export const appRouter = router({
           tipo: z.string().optional(),
           codigoGlosa: z.string().optional(),
           motivoGlosa: z.string().optional(),
-          classificacao: z.enum(["todos", "pendente", "aceitar", "recursar"]).optional(),
+            classificacao: z
+              .enum(["todos", "pendente", "aceitar", "recursar"])
+              .optional(),
           search: z.string().optional(),
           page: z.number().default(1),
           pageSize: z.number().default(50),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getItensGlosados({
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
@@ -2450,7 +1938,8 @@ export const appRouter = router({
     // Itens glosados aceitos (separados)
     itensGlosadosAceitos: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           dataReferenciaInicio: z.date().optional(),
@@ -2459,10 +1948,15 @@ export const appRouter = router({
           search: z.string().optional(),
           page: z.number().default(1),
           pageSize: z.number().default(50),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getItensGlosadosAceitos({
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
@@ -2480,7 +1974,8 @@ export const appRouter = router({
   recursos: router({
     list: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           status: z.string().optional(),
@@ -2490,10 +1985,15 @@ export const appRouter = router({
           busca: z.string().optional(),
           page: z.number().default(1),
           limit: z.number().default(20),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getRecursosGlosa(
           ctx.user.id,
           {
@@ -2530,7 +2030,9 @@ export const appRouter = router({
           valorGlosado: z.string().optional(),
           motivoGlosaConvenio: z.string().optional(),
           justificativaRecurso: z.string(),
-          prioridade: z.enum(["baixa", "media", "alta", "urgente"]).default("media"),
+          prioridade: z
+            .enum(["baixa", "media", "alta", "urgente"])
+            .default("media"),
           dataGlosa: z.date().optional(),
           dataPrazoResposta: z.date().optional(),
         })
@@ -2540,7 +2042,7 @@ export const appRouter = router({
           ctx.user.id,
           input.convenioId,
           input.estabelecimentoId,
-          "editar",
+          "editar"
         );
         const id = await db.createRecursoGlosa({
           ...input,
@@ -2564,8 +2066,11 @@ export const appRouter = router({
             valorRecuperado: z.string().optional(),
             motivoGlosaConvenio: z.string().optional(),
             justificativaRecurso: z.string().optional(),
-            prioridade: z.enum(["baixa", "media", "alta", "urgente"]).optional(),
-            status: z.enum([
+            prioridade: z
+              .enum(["baixa", "media", "alta", "urgente"])
+              .optional(),
+            status: z
+              .enum([
               "rascunho",
               "pendente_envio",
               "enviado",
@@ -2573,8 +2078,9 @@ export const appRouter = router({
               "deferido",
               "deferido_parcial",
               "indeferido",
-              "cancelado"
-            ]).optional(),
+                "cancelado",
+              ])
+              .optional(),
             dataGlosa: z.date().optional(),
             dataEnvioRecurso: z.date().optional(),
             dataPrazoResposta: z.date().optional(),
@@ -2616,7 +2122,7 @@ export const appRouter = router({
             "anexo_adicionado",
             "status_alterado",
             "comentario",
-            "lembrete"
+            "lembrete",
           ]),
           descricao: z.string(),
         })
@@ -2635,8 +2141,15 @@ export const appRouter = router({
     estatisticas: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
-        return db.getEstatisticasRecursos(ctx.user.id, input?.estabelecimentoId);
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
+        return db.getEstatisticasRecursos(
+          ctx.user.id,
+          input?.estabelecimentoId
+        );
       }),
 
     enviar: protectedProcedure
@@ -2658,10 +2171,13 @@ export const appRouter = router({
           },
           "Recurso enviado ao convênio"
         );
-        
+
         // Atualizar status dos procedimentos vinculados ao recurso para "enviado"
-        await db.atualizarStatusProcedimentosPorRecurso(input.id, "recurso_enviado");
-        
+        await db.atualizarStatusProcedimentosPorRecurso(
+          input.id,
+          "recurso_enviado"
+        );
+
         return { success: true };
       }),
 
@@ -2687,7 +2203,7 @@ export const appRouter = router({
           },
           `Resposta do convênio: ${input.status}`
         );
-        
+
         // Registrar no histórico de contestações para aprendizado da IA
         const recurso = await db.getRecursoById(input.id);
         if (recurso) {
@@ -2695,7 +2211,8 @@ export const appRouter = router({
             recursoId: input.id,
             convenioId: recurso.convenioId,
             userId: ctx.user.id,
-            codigoGlosa: recurso.motivoGlosaConvenio?.match(/\d{4}/)?.[0] || "0000",
+            codigoGlosa:
+              recurso.motivoGlosaConvenio?.match(/\d{4}/)?.[0] || "0000",
             descricaoGlosa: recurso.motivoGlosaConvenio || "",
             codigoProcedimento: recurso.codigoProcedimento || undefined,
             descricaoProcedimento: recurso.descricaoProcedimento || undefined,
@@ -2704,17 +2221,26 @@ export const appRouter = router({
             argumentoUtilizado: recurso.justificativaRecurso,
             argumentoOrigem: "manual",
             resultado: input.status,
-            argumentoEfetivo: input.status === "deferido" ? "sim" : input.status === "deferido_parcial" ? "parcial" : "nao",
+            argumentoEfetivo:
+              input.status === "deferido"
+                ? "sim"
+                : input.status === "deferido_parcial"
+                  ? "parcial"
+                  : "nao",
           });
-          
+
           // Atualizar status dos procedimentos vinculados ao recurso
-          const novoStatusProcedimento = input.status === "deferido" || input.status === "deferido_parcial" 
-            ? "recurso_deferido" 
+          const novoStatusProcedimento =
+            input.status === "deferido" || input.status === "deferido_parcial"
+            ? "recurso_deferido"
             : "recurso_indeferido";
-          
-          await db.atualizarStatusProcedimentosPorRecurso(input.id, novoStatusProcedimento);
+
+          await db.atualizarStatusProcedimentosPorRecurso(
+            input.id,
+            novoStatusProcedimento
+          );
         }
-        
+
         return { success: true };
       }),
 
@@ -2724,20 +2250,20 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         await exigirAcessoRecurso(ctx.user.id, input.recursoId, "editar");
         const updateData = dadosPagamentoManual(input);
-        
+
         await db.updateRecursoGlosa(
           input.recursoId,
           ctx.user.id,
           updateData,
           "Atualização de pagamento do recurso"
         );
-        
+
         // Recalcular o total do lote após atualização do item
         const recurso = await db.getRecursoById(input.recursoId);
         if (recurso && recurso.loteId) {
           await db.recalcularTotalLote(recurso.loteId);
         }
-        
+
         return { success: true };
       }),
 
@@ -2753,7 +2279,12 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         return db.sugerirArgumentoComIA({
           codigoGlosa: input.codigoGlosa,
           convenioId: input.convenioId,
@@ -2777,9 +2308,18 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         if (input.convenioId) {
-          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar"
+          );
         }
         return db.getHistoricoContestacoes({
           userId: ctx.user.id,
@@ -2802,9 +2342,18 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         if (input.convenioId) {
-          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar"
+          );
         }
         return db.getEstatisticasContestacaoPorCodigo({
           codigoGlosa: input.codigoGlosa,
@@ -2825,9 +2374,18 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         if (input.convenioId) {
-          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar"
+          );
         }
         return db.getMelhoresArgumentos({
           codigoGlosa: input.codigoGlosa,
@@ -2859,7 +2417,9 @@ export const appRouter = router({
           ),
           estabelecimentoId: z.number().optional(), // ID do estabelecimento (para todos os itens)
           justificativaRecurso: z.string(),
-          prioridade: z.enum(["baixa", "media", "alta", "urgente"]).default("media"),
+          prioridade: z
+            .enum(["baixa", "media", "alta", "urgente"])
+            .default("media"),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -2867,8 +2427,13 @@ export const appRouter = router({
           item,
           estabelecimentoId: item.estabelecimentoId || input.estabelecimentoId,
         }));
-        if (itensComEscopo.some(({ estabelecimentoId }) => !estabelecimentoId)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione o estabelecimento dos recursos" });
+        if (
+          itensComEscopo.some(({ estabelecimentoId }) => !estabelecimentoId)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Selecione o estabelecimento dos recursos",
+          });
         }
 
         for (const { item, estabelecimentoId } of itensComEscopo) {
@@ -2876,11 +2441,13 @@ export const appRouter = router({
             ctx.user.id,
             item.convenioId,
             estabelecimentoId,
-            "editar",
+            "editar"
           );
 
           if (item.procedimentoId) {
-            const demonstrativo = await db.getDemonstrativoById(item.procedimentoId);
+            const demonstrativo = await db.getDemonstrativoById(
+              item.procedimentoId
+            );
             if (
               !demonstrativo ||
               demonstrativo.estabelecimentoId !== estabelecimentoId ||
@@ -2888,13 +2455,18 @@ export const appRouter = router({
             ) {
               throw new TRPCError({
                 code: "FORBIDDEN",
-                message: "Item do demonstrativo não pertence ao estabelecimento e convênio selecionados",
+                message:
+                  "Item do demonstrativo não pertence ao estabelecimento e convênio selecionados",
               });
             }
           }
         }
 
-        const resultados: { id: number; codigo: string; procedimentoId?: number }[] = [];
+        const resultados: {
+          id: number;
+          codigo: string;
+          procedimentoId?: number;
+        }[] = [];
         const erros: { codigo: string; erro: string }[] = [];
         const procedimentosParaAtualizar: number[] = [];
 
@@ -2902,30 +2474,43 @@ export const appRouter = router({
           try {
             // Verificar se já existe recurso para este procedimento
             if (item.procedimentoId) {
-              const recursoExistente = await db.verificarRecursoExistente(item.procedimentoId);
+              const recursoExistente = await db.verificarRecursoExistente(
+                item.procedimentoId
+              );
               if (recursoExistente) {
-                erros.push({ codigo: item.codigoProcedimento || "", erro: "Já existe recurso criado para este item" });
+                erros.push({
+                  codigo: item.codigoProcedimento || "",
+                  erro: "Já existe recurso criado para este item",
+                });
                 continue;
               }
             }
 
             const id = await db.createRecursoGlosa({
               ...item,
-              estabelecimentoId: item.estabelecimentoId || input.estabelecimentoId,
+              estabelecimentoId:
+                item.estabelecimentoId || input.estabelecimentoId,
               justificativaRecurso: input.justificativaRecurso,
               prioridade: input.prioridade,
               userId: ctx.user.id,
               status: "rascunho",
             });
-            
-            resultados.push({ id, codigo: item.codigoProcedimento || "", procedimentoId: item.procedimentoId });
-            
+
+            resultados.push({
+              id,
+              codigo: item.codigoProcedimento || "",
+              procedimentoId: item.procedimentoId,
+            });
+
             // Marcar procedimento como "recurso criado"
             if (item.procedimentoId) {
               procedimentosParaAtualizar.push(item.procedimentoId);
             }
           } catch (error: any) {
-            erros.push({ codigo: item.codigoProcedimento || "", erro: error.message });
+            erros.push({
+              codigo: item.codigoProcedimento || "",
+              erro: error.message,
+            });
           }
         }
 
@@ -2934,11 +2519,11 @@ export const appRouter = router({
           await db.marcarProcedimentosComRecurso(procedimentosParaAtualizar);
         }
 
-        return { 
-          sucesso: resultados.length, 
-          falhas: erros.length, 
-          resultados, 
-          erros 
+        return {
+          sucesso: resultados.length,
+          falhas: erros.length,
+          resultados,
+          erros,
         };
       }),
     // Classificar glosa (aceitar ou recursar)
@@ -2955,17 +2540,24 @@ export const appRouter = router({
         // Buscar item do demonstrativo
         const item = await db.getDemonstrativoById(input.procedimentoId);
         if (!item) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Item não encontrado",
+          });
         }
-        await exigirAcessoEstabelecimento(ctx.user.id, item.estabelecimentoId, "editar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          item.estabelecimentoId,
+          "editar"
+        );
 
-        const codigoGlosa = (item.codigoGlosa || '').match(/^(\d+)/)?.[1] || "";
+        const codigoGlosa = (item.codigoGlosa || "").match(/^(\d+)/)?.[1] || "";
 
         // Registrar decisão para aprendizado
         await db.registrarDecisaoGlosa({
           convenioId: item.convenioId || 0,
           codigoGlosa: codigoGlosa || "0000",
-          codigoProcedimento: item.codigoItem || '',
+          codigoProcedimento: item.codigoItem || "",
           tipoProcedimento: item.tipoLancamento || null,
           decisao: input.classificacao,
           valorGlosado: item.valorGlosa || undefined,
@@ -2997,7 +2589,12 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+        await exigirConvenioDoEstabelecimento(
+          ctx.user.id,
+          input.convenioId,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         return db.sugerirClassificacaoGlosa(
           input.codigoGlosa,
           input.convenioId,
@@ -3016,9 +2613,18 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "editar"
+        );
         if (input.convenioId) {
-          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "editar");
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "editar"
+          );
         }
         return db.classificarGlosasAutomaticamente(
           input.estabelecimentoId,
@@ -3037,27 +2643,55 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         if (input.convenioId) {
-          await exigirConvenioDoEstabelecimento(ctx.user.id, input.convenioId, input.estabelecimentoId, "visualizar");
+          await exigirConvenioDoEstabelecimento(
+            ctx.user.id,
+            input.convenioId,
+            input.estabelecimentoId,
+            "visualizar"
+          );
         }
-        return db.buscarHistoricoDecisoes(input.codigoGlosa, input.convenioId, input.estabelecimentoId);
+        return db.buscarHistoricoDecisoes(
+          input.codigoGlosa,
+          input.convenioId,
+          input.estabelecimentoId
+        );
       }),
 
     // ============ LOTES DE RECURSOS ============
     listarLotes: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           estabelecimentoId: z.number().optional(),
           convenioId: z.number().optional(),
-          status: z.enum(["rascunho", "pendente_envio", "enviado", "em_analise", "respondido", "finalizado"]).optional(),
+            status: z
+              .enum([
+                "rascunho",
+                "pendente_envio",
+                "enviado",
+                "em_analise",
+                "respondido",
+                "finalizado",
+              ])
+              .optional(),
           search: z.string().optional(),
           page: z.number().default(1),
           limit: z.number().default(20),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.listarLotesRecurso({
           estabelecimentoId: input?.estabelecimentoId,
           convenioId: input?.convenioId,
@@ -3070,12 +2704,18 @@ export const appRouter = router({
 
     resumoLotes: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           estabelecimentoId: z.number().optional(),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getResumoLotesRecurso(input?.estabelecimentoId);
       }),
 
@@ -3083,7 +2723,16 @@ export const appRouter = router({
       .input(
         z.object({
           loteId: z.number(),
-          status: z.enum(["rascunho", "pendente_envio", "enviado", "em_analise", "respondido", "finalizado"]).optional(),
+          status: z
+            .enum([
+              "rascunho",
+              "pendente_envio",
+              "enviado",
+              "em_analise",
+              "respondido",
+              "finalizado",
+            ])
+            .optional(),
           protocoloEnvio: z.string().optional(),
           dataEnvio: z.date().optional(),
           dataPrazoPagamento: z.date().optional(),
@@ -3092,15 +2741,35 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const lote = await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
-        if (input.status === "enviado" || input.dataEnvio !== undefined || input.protocoloEnvio !== undefined ||
-          (["rascunho", "pendente_envio"].includes(lote.status) && input.status &&
-            !["rascunho", "pendente_envio"].includes(input.status))) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Use Confirmar envio, informando protocolo e data, antes de iniciar o acompanhamento." });
+        const lote = await exigirAcessoLote(
+          ctx.user.id,
+          input.loteId,
+          "editar"
+        );
+        if (
+          input.status === "enviado" ||
+          input.dataEnvio !== undefined ||
+          input.protocoloEnvio !== undefined ||
+          (["rascunho", "pendente_envio"].includes(lote.status) &&
+            input.status &&
+            !["rascunho", "pendente_envio"].includes(input.status))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Use Confirmar envio, informando protocolo e data, antes de iniciar o acompanhamento.",
+          });
         }
-        if (!["rascunho", "pendente_envio"].includes(lote.status) && input.status &&
-          ["rascunho", "pendente_envio"].includes(input.status)) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O lote já está em acompanhamento; seu status não pode regredir por esta operação." });
+        if (
+          !["rascunho", "pendente_envio"].includes(lote.status) &&
+          input.status &&
+          ["rascunho", "pendente_envio"].includes(input.status)
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "O lote já está em acompanhamento; seu status não pode regredir por esta operação.",
+          });
         }
         return db.atualizarLoteRecurso(input);
       }),
@@ -3108,7 +2777,11 @@ export const appRouter = router({
     confirmarEnvioLote: protectedProcedure
       .input(confirmarEnvioLoteSchema)
       .mutation(async ({ input, ctx }) => {
-        const lote = await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
+        const lote = await exigirAcessoLote(
+          ctx.user.id,
+          input.loteId,
+          "editar"
+        );
         return confirmarEnvioLote(input, ctx.user.id, {
           estabelecimentoId: lote.estabelecimentoId,
           convenioId: lote.convenioId,
@@ -3125,14 +2798,20 @@ export const appRouter = router({
     // ============ RECURSOS AGRUPADOS POR CONVÊNIO ============
     agrupadosPorConvenio: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           estabelecimentoId: z.number().optional(),
           status: z.string().optional(),
           dataPagamento: z.string().optional(),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
         return db.getRecursosAgrupadosPorConvenio({
           estabelecimentoId: input?.estabelecimentoId,
           status: input?.status,
@@ -3143,11 +2822,16 @@ export const appRouter = router({
     datasPagamentoDisponiveis: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }).optional())
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input?.estabelecimentoId, "visualizar");
-        const { sql } = await import('drizzle-orm');
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input?.estabelecimentoId,
+          "visualizar"
+        );
+        const { sql } = await import("drizzle-orm");
         const database = await db.getDb();
         if (!database || !input?.estabelecimentoId) return [];
-        const [rows] = await database.execute(sql.raw(`
+        const [rows] = await database.execute(
+          sql.raw(`
           SELECT DISTINCT data_pagamento as dataPagamento, COUNT(*) as qtd
           FROM demonstrativo
           WHERE estabelecimentoId = ${input.estabelecimentoId}
@@ -3157,7 +2841,8 @@ export const appRouter = router({
             AND data_pagamento IS NOT NULL
           GROUP BY data_pagamento
           ORDER BY data_pagamento DESC
-        `));
+        `)
+        );
         return (rows as any[]).map(r => ({
           dataPagamento: r.dataPagamento,
           qtd: Number(r.qtd),
@@ -3175,7 +2860,11 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         return db.getRecursosDoConvenio({
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId,
@@ -3204,7 +2893,7 @@ export const appRouter = router({
           ctx.user.id,
           input.convenioId,
           input.estabelecimentoId,
-          "editar",
+          "editar"
         );
         return db.criarLoteRecurso({
           convenioId: input.convenioId,
@@ -3230,7 +2919,11 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         await exigirAcessoLote(ctx.user.id, input.loteId, "editar");
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Use Confirmar envio para registrar o protocolo, a data e a confirmação do envio externo." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Use Confirmar envio para registrar o protocolo, a data e a confirmação do envio externo.",
+        });
       }),
 
     // ============ EXPORTAÇÃO DE RECURSOS ============
@@ -3247,7 +2940,11 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
+        await exigirAcessoEstabelecimento(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
         const recursos = await db.getRecursosParaExportacao(ctx.user.id, {
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId,
@@ -3258,7 +2955,10 @@ export const appRouter = router({
         });
 
         if (recursos.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Nenhum recurso encontrado para exportação" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Nenhum recurso encontrado para exportação",
+          });
         }
 
         // Formatar dados para exportação
@@ -3272,15 +2972,23 @@ export const appRouter = router({
           descricaoProcedimento: r.descricaoProcedimento || "N/A",
           valorCobrado: r.valorCobrado ? parseFloat(r.valorCobrado) : 0,
           valorGlosado: r.valorGlosado ? parseFloat(r.valorGlosado) : 0,
-          valorRecuperado: r.valorRecuperado ? parseFloat(r.valorRecuperado) : 0,
+          valorRecuperado: r.valorRecuperado
+            ? parseFloat(r.valorRecuperado)
+            : 0,
           motivoGlosa: r.motivoGlosaConvenio || "N/A",
           justificativaRecurso: r.justificativaRecurso || "N/A",
           status: r.status,
           prioridade: r.prioridade,
           protocolo: r.protocoloRecurso || "N/A",
-          dataGlosa: r.dataGlosa ? new Date(r.dataGlosa).toLocaleDateString("pt-BR") : "N/A",
-          dataEnvio: r.dataEnvioRecurso ? new Date(r.dataEnvioRecurso).toLocaleDateString("pt-BR") : "N/A",
-          dataResposta: r.dataResposta ? new Date(r.dataResposta).toLocaleDateString("pt-BR") : "N/A",
+          dataGlosa: r.dataGlosa
+            ? new Date(r.dataGlosa).toLocaleDateString("pt-BR")
+            : "N/A",
+          dataEnvio: r.dataEnvioRecurso
+            ? new Date(r.dataEnvioRecurso).toLocaleDateString("pt-BR")
+            : "N/A",
+          dataResposta: r.dataResposta
+            ? new Date(r.dataResposta).toLocaleDateString("pt-BR")
+            : "N/A",
           respostaConvenio: r.respostaConvenio || "N/A",
           dataCriacao: new Date(r.createdAt).toLocaleDateString("pt-BR"),
         }));
@@ -3288,9 +2996,18 @@ export const appRouter = router({
         // Calcular totais
         const totais = {
           totalRecursos: recursos.length,
-          totalValorCobrado: dadosExportacao.reduce((sum, r) => sum + r.valorCobrado, 0),
-          totalValorGlosado: dadosExportacao.reduce((sum, r) => sum + r.valorGlosado, 0),
-          totalValorRecuperado: dadosExportacao.reduce((sum, r) => sum + r.valorRecuperado, 0),
+          totalValorCobrado: dadosExportacao.reduce(
+            (sum, r) => sum + r.valorCobrado,
+            0
+          ),
+          totalValorGlosado: dadosExportacao.reduce(
+            (sum, r) => sum + r.valorGlosado,
+            0
+          ),
+          totalValorRecuperado: dadosExportacao.reduce(
+            (sum, r) => sum + r.valorRecuperado,
+            0
+          ),
         };
 
         return {
@@ -3312,12 +3029,16 @@ export const appRouter = router({
         await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const dados = await db.getRecursosLoteParaExportacao(input.loteId);
         if (!dados) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Lote não encontrado",
+          });
         }
         if (dados.recursos.length === 0) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "Os itens deste lote histórico não estão mais vinculados ao lote. A planilha não foi gerada para evitar um arquivo vazio.",
+            message:
+              "Os itens deste lote histórico não estão mais vinculados ao lote. A planilha não foi gerada para evitar um arquivo vazio.",
           });
         }
         return dados;
@@ -3340,7 +3061,10 @@ export const appRouter = router({
           input.anexoKey
         );
         if (!sucesso) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao anexar protocolo" });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao anexar protocolo",
+          });
         }
         return { sucesso: true };
       }),
@@ -3356,27 +3080,38 @@ export const appRouter = router({
         await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xmls = await db.gerarXmlsRecursoGlosaPorProtocolo(input.loteId);
         if (!xmls || xmls.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Lote não encontrado ou sem recursos",
+          });
         }
-        
+
         // Validar a saída do Portal antes de qualquer persistência.
-        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
+        const { validarXmlRecursoGlosaDoPortal } = await import(
+          "./tiss/recursoGlosaValidation"
+        );
         const timestamp = Date.now();
         const resultados = [];
-        
+
         for (let i = 0; i < xmls.length; i++) {
           const xmlItem = xmls[i];
           const validacao = await validarXmlRecursoGlosaDoPortal(xmlItem.xml);
           if (!validacao.valido) {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
-              message: "O XML de recurso gerado não atende ao padrão TISS e não foi exportado.",
+              message:
+                "O XML de recurso gerado não atende ao padrão TISS e não foi exportado.",
             });
           }
-          const protSuffix = xmls.length > 1 ? `_protocolo_${xmlItem.protocolo}` : "";
+          const protSuffix =
+            xmls.length > 1 ? `_protocolo_${xmlItem.protocolo}` : "";
           const s3Key = `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}${protSuffix}_${timestamp}.xml`;
-          const { url: xmlUrl } = await storagePut(s3Key, Buffer.from(xmlItem.xml, 'utf-8'), 'application/xml');
-          
+          const { url: xmlUrl } = await storagePut(
+            s3Key,
+            Buffer.from(xmlItem.xml, "utf-8"),
+            "application/xml"
+          );
+
           resultados.push({
             protocolo: xmlItem.protocolo,
             xml: xmlItem.xml,
@@ -3386,16 +3121,24 @@ export const appRouter = router({
             valorTotalRecursado: xmlItem.valorTotalRecursado,
           });
         }
-        
+
         // Atualizar lote com URL do primeiro XML (ou todos)
         if (resultados.length === 1) {
-          await db.atualizarXmlLote(input.loteId, resultados[0].xmlUrl, `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}_${timestamp}.xml`);
+          await db.atualizarXmlLote(
+            input.loteId,
+            resultados[0].xmlUrl,
+            `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}_${timestamp}.xml`
+          );
         } else {
           // Salvar URLs de todos os XMLs separados por vírgula
           const allUrls = resultados.map(r => r.xmlUrl).join(",");
-          await db.atualizarXmlLote(input.loteId, allUrls, `recursos-glosa/lote-${input.loteId}/`);
+          await db.atualizarXmlLote(
+            input.loteId,
+            allUrls,
+            `recursos-glosa/lote-${input.loteId}/`
+          );
         }
-        
+
         // Retorno compatível: xml do primeiro + array completo
         return {
           xml: resultados[0].xml,
@@ -3418,33 +3161,44 @@ export const appRouter = router({
         await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xmls = await db.gerarXmlsRecursoGlosaPorProtocolo(input.loteId);
         if (!xmls || xmls.length === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Lote não encontrado ou sem recursos",
+          });
         }
-        
+
         const archiver = (await import("archiver")).default;
         const { PassThrough } = await import("stream");
-        
+
         // Criar ZIP em memória
         const chunks: Buffer[] = [];
         const passThrough = new PassThrough();
-        passThrough.on('data', (chunk: Buffer) => chunks.push(chunk));
-        
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        passThrough.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+        const archive = archiver("zip", { zlib: { level: 9 } });
         archive.pipe(passThrough);
-        
+
         // Validar a saída do Portal antes de criar ou persistir o ZIP.
-        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
-        const resultados: Array<{ protocolo: string; valido: boolean; erros: number }> = [];
-        
+        const { validarXmlRecursoGlosaDoPortal } = await import(
+          "./tiss/recursoGlosaValidation"
+        );
+        const resultados: Array<{
+          protocolo: string;
+          valido: boolean;
+          erros: number;
+        }> = [];
+
         for (const xmlItem of xmls) {
           const validacao = await validarXmlRecursoGlosaDoPortal(xmlItem.xml);
           if (!validacao.valido) {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
-              message: "O XML de recurso gerado não atende ao padrão TISS e o ZIP não foi exportado.",
+              message:
+                "O XML de recurso gerado não atende ao padrão TISS e o ZIP não foi exportado.",
             });
           }
-          const fileName = xmls.length > 1
+          const fileName =
+            xmls.length > 1
             ? `recurso_glosa_lote_${input.loteId}_protocolo_${xmlItem.protocolo}.xml`
             : `recurso_glosa_lote_${input.loteId}.xml`;
           archive.append(xmlItem.xml, { name: fileName });
@@ -3454,18 +3208,22 @@ export const appRouter = router({
             erros: validacao.erros?.length || 0,
           });
         }
-        
+
         await archive.finalize();
-        
+
         // Aguardar todos os chunks
-        await new Promise<void>((resolve) => passThrough.on('end', resolve));
+        await new Promise<void>(resolve => passThrough.on("end", resolve));
         const zipBuffer = Buffer.concat(chunks);
-        
+
         // Salvar ZIP no S3
         const timestamp = Date.now();
         const s3Key = `recursos-glosa/lote-${input.loteId}/recurso_glosa_lote_${input.loteId}_todos_${timestamp}.zip`;
-        const { url: zipUrl } = await storagePut(s3Key, zipBuffer, 'application/zip');
-        
+        const { url: zipUrl } = await storagePut(
+          s3Key,
+          zipBuffer,
+          "application/zip"
+        );
+
         return {
           zipUrl,
           totalXmls: xmls.length,
@@ -3484,9 +3242,14 @@ export const appRouter = router({
         await exigirAcessoLote(ctx.user.id, input.loteId, "visualizar");
         const xml = await db.gerarXmlRecursoGlosa(input.loteId);
         if (!xml) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Lote não encontrado ou sem recursos" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Lote não encontrado ou sem recursos",
+          });
         }
-        const { validarXmlRecursoGlosaDoPortal } = await import("./tiss/recursoGlosaValidation");
+        const { validarXmlRecursoGlosaDoPortal } = await import(
+          "./tiss/recursoGlosaValidation"
+        );
         const validacao = await validarXmlRecursoGlosaDoPortal(xml);
         return { validacao };
       }),
@@ -3537,12 +3300,14 @@ export const appRouter = router({
     // Resumo da conciliação por convênio
     resumo: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           mesReferencia: z.number().min(1).max(12).optional(),
           anoReferencia: z.number().min(2000).max(2100).optional(),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getResumoConciliacao({
@@ -3628,11 +3393,13 @@ export const appRouter = router({
     // Tendências de glosa por convênio
     porConvenio: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           meses: z.number().optional().default(6),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getTendenciasGlosa({
@@ -3646,10 +3413,12 @@ export const appRouter = router({
     // Tendência geral (todos os convênios)
     geral: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           estabelecimentoId: z.number().optional(),
           meses: z.number().optional().default(6),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getTendenciaGeral({
@@ -3664,7 +3433,8 @@ export const appRouter = router({
   repasse: router({
     list: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           dataInicio: z.string().optional(),
@@ -3672,14 +3442,17 @@ export const appRouter = router({
           search: z.string().optional(),
           page: z.number().optional().default(1),
           pageSize: z.number().optional().default(50),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getRepasseData({
           userId: ctx.user.id,
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
           search: input?.search,
           page: input?.page || 1,
@@ -3690,20 +3463,24 @@ export const appRouter = router({
     // Exportar todos os dados sem paginação
     exportAll: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
           search: z.string().optional(),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input, ctx }) => {
         return db.getRepasseData({
           userId: ctx.user.id,
           convenioId: input?.convenioId,
           estabelecimentoId: input?.estabelecimentoId,
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
           search: input?.search,
           page: 1,
@@ -3717,17 +3494,21 @@ export const appRouter = router({
     // Listar tabelas de preços
     list: protectedProcedure
       .input(
-        z.object({
+        z
+          .object({
           convenioId: z.number().optional(),
           estabelecimentoId: z.number().optional(),
-          tipo: z.enum(["diarias", "mat_med", "taxas", "procedimentos"]).optional(),
+            tipo: z
+              .enum(["diarias", "mat_med", "taxas", "procedimentos"])
+              .optional(),
           procedimentoFonte: z.enum(PROCEDIMENTO_FONTES).optional(),
           codigo: z.string().optional(),
           nome: z.string().optional(),
           apenasVigentes: z.boolean().optional().default(true),
           page: z.number().optional().default(1),
           limit: z.number().optional().default(50),
-        }).optional()
+          })
+          .optional()
       )
       .query(async ({ input }) => {
         return db.getTabelasPreco({
@@ -3744,27 +3525,42 @@ export const appRouter = router({
       }),
 
     exportarUnimedOpcoes: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number().int().positive(),
         estabelecimentoId: z.number().int().positive(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getOpcoesExportacaoUnimed(input.convenioId, input.estabelecimentoId);
+        return db.getOpcoesExportacaoUnimed(
+          input.convenioId,
+          input.estabelecimentoId
+        );
       }),
 
     exportarUnimedDbf: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number().int().positive(),
         estabelecimentoId: z.number().int().positive(),
-        vigencia: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, "Vigência inválida."),
-        tipoBeneficiario: z.string().min(1, "Selecione o tipo de beneficiário."),
-      }))
+          vigencia: z
+            .string()
+            .regex(
+              /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+              "Vigência inválida."
+            ),
+          tipoBeneficiario: z
+            .string()
+            .min(1, "Selecione o tipo de beneficiário."),
+        })
+      )
       .mutation(async ({ input }) => {
         const rows = await db.getLinhasExportacaoUnimed(input);
         if (!rows.length) {
           throw new TRPCError({
             code: "NOT_FOUND",
-            message: "Nenhum procedimento encontrado para os filtros selecionados.",
+            message:
+              "Nenhum procedimento encontrado para os filtros selecionados.",
           });
         }
 
@@ -3774,7 +3570,8 @@ export const appRouter = router({
           .replace(/[\u0300-\u036f]/g, "")
           .replace(/[^a-zA-Z0-9]+/g, "")
           .replace(/^\s+|\s+$/g, "");
-        const nomeArquivo = beneficiarioSlug.toUpperCase() === "REDEPADRAO"
+        const nomeArquivo =
+          beneficiarioSlug.toUpperCase() === "REDEPADRAO"
           ? "UnimedRedePadrao.DBF"
           : `Unimed${beneficiarioSlug || "Procedimentos"}.DBF`;
 
@@ -3813,7 +3610,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const vigenciaInicio = new Date(input.vigenciaInicio);
-        
+
         const id = await db.createTabelaPreco({
           convenioId: input.convenioId,
           estabelecimentoId: input.estabelecimentoId || null,
@@ -3822,14 +3619,23 @@ export const appRouter = router({
           nome: input.nome,
           valor: input.valor,
           vigenciaInicio,
-          procedimentoFonte: input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : null,
+          procedimentoFonte:
+            input.tipo === "procedimentos"
+              ? input.procedimentoFonte || "site"
+              : null,
           porte: input.tipo === "procedimentos" ? input.porte || null : null,
-          numeroAuxiliares: input.tipo === "procedimentos" ? input.numeroAuxiliares ?? null : null,
-          tipoBeneficiario: input.tipo === "procedimentos" ? input.tipoBeneficiario || null : null,
+          numeroAuxiliares:
+            input.tipo === "procedimentos"
+              ? (input.numeroAuxiliares ?? null)
+              : null,
+          tipoBeneficiario:
+            input.tipo === "procedimentos"
+              ? input.tipoBeneficiario || null
+              : null,
           unidade: input.unidade,
           observacao: input.observacao,
         });
-        
+
         // Registrar histórico de criação
         if (id) {
           await db.registrarHistoricoPreco({
@@ -3842,7 +3648,7 @@ export const appRouter = router({
             codigoNovo: input.codigo,
           });
         }
-        
+
         return { id };
       }),
 
@@ -3865,24 +3671,29 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
-        
+
         // Buscar dados anteriores para o histórico
         const itemAnterior = await db.getTabelaPrecoById(id);
-        
+
         const updateData: any = {};
         if (data.codigo) updateData.codigo = data.codigo;
         if (data.nome) updateData.nome = data.nome;
         if (data.valor) updateData.valor = data.valor;
-        if (data.vigenciaInicio) updateData.vigenciaInicio = new Date(data.vigenciaInicio);
-        if (data.procedimentoFonte !== undefined) updateData.procedimentoFonte = data.procedimentoFonte;
+        if (data.vigenciaInicio)
+          updateData.vigenciaInicio = new Date(data.vigenciaInicio);
+        if (data.procedimentoFonte !== undefined)
+          updateData.procedimentoFonte = data.procedimentoFonte;
         if (data.porte !== undefined) updateData.porte = data.porte;
-        if (data.numeroAuxiliares !== undefined) updateData.numeroAuxiliares = data.numeroAuxiliares;
-        if (data.tipoBeneficiario !== undefined) updateData.tipoBeneficiario = data.tipoBeneficiario;
+        if (data.numeroAuxiliares !== undefined)
+          updateData.numeroAuxiliares = data.numeroAuxiliares;
+        if (data.tipoBeneficiario !== undefined)
+          updateData.tipoBeneficiario = data.tipoBeneficiario;
         if (data.unidade !== undefined) updateData.unidade = data.unidade;
-        if (data.observacao !== undefined) updateData.observacao = data.observacao;
-        
+        if (data.observacao !== undefined)
+          updateData.observacao = data.observacao;
+
         const success = await db.updateTabelaPreco(id, updateData);
-        
+
         // Registrar histórico de edição
         if (success && itemAnterior) {
           await db.registrarHistoricoPreco({
@@ -3896,12 +3707,14 @@ export const appRouter = router({
             codigoAnterior: itemAnterior.codigo,
             // Valores novos
             valorNovo: data.valor || itemAnterior.valor,
-            vigenciaInicioNovo: data.vigenciaInicio ? new Date(data.vigenciaInicio) : itemAnterior.vigenciaInicio,
+            vigenciaInicioNovo: data.vigenciaInicio
+              ? new Date(data.vigenciaInicio)
+              : itemAnterior.vigenciaInicio,
             nomeNovo: data.nome || itemAnterior.nome,
             codigoNovo: data.codigo || itemAnterior.codigo,
           });
         }
-        
+
         return { success };
       }),
 
@@ -3911,9 +3724,9 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         // Buscar dados anteriores para o histórico
         const itemAnterior = await db.getTabelaPrecoById(input.id);
-        
+
         const success = await db.deleteTabelaPreco(input.id);
-        
+
         // Registrar histórico de exclusão
         if (success && itemAnterior) {
           await db.registrarHistoricoPreco({
@@ -3926,15 +3739,23 @@ export const appRouter = router({
             codigoAnterior: itemAnterior.codigo,
           });
         }
-        
+
         return { success };
       }),
 
     // Contar itens por tipo
     contarPorTipo: protectedProcedure
-      .input(z.object({ convenioId: z.number(), estabelecimentoId: z.number().optional() }))
+      .input(
+        z.object({
+          convenioId: z.number(),
+          estabelecimentoId: z.number().optional(),
+        })
+      )
       .query(async ({ input }) => {
-        return db.contarItensTabelaPreco(input.convenioId, input.estabelecimentoId);
+        return db.contarItensTabelaPreco(
+          input.convenioId,
+          input.estabelecimentoId
+        );
       }),
 
     // Buscar histórico de alterações de um item
@@ -3953,7 +3774,9 @@ export const appRouter = router({
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
           userId: z.number().optional(),
-          tipoAlteracao: z.enum(["criacao", "edicao", "exclusao", "importacao"]).optional(),
+          tipoAlteracao: z
+            .enum(["criacao", "edicao", "exclusao", "importacao"])
+            .optional(),
           page: z.number().optional().default(1),
           limit: z.number().optional().default(50),
         })
@@ -3996,36 +3819,45 @@ export const appRouter = router({
         });
 
         if (!importacaoId) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao registrar importação" });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao registrar importação",
+          });
         }
 
         try {
           // Decodificar conteúdo Base64 e ler o primeiro conjunto de dados.
           const buffer = Buffer.from(input.conteudo, "base64");
           let rawItems: Array<Record<string, unknown>> = [];
-          const fontePeloNome = input.tipo === "procedimentos"
+          const fontePeloNome =
+            input.tipo === "procedimentos"
             ? detectarFonteProcedimentoPorNome(input.nomeArquivo)
             : undefined;
-          let procedimentoFonte = input.tipo === "procedimentos"
+          let procedimentoFonte =
+            input.tipo === "procedimentos"
             ? fontePeloNome || input.procedimentoFonte || "site"
             : undefined;
 
           if (input.formatoArquivo === "excel") {
             const XLSX = await import("xlsx");
             const workbook = XLSX.read(buffer, { type: "buffer" });
-            const sheetNames = input.tipo === "procedimentos"
+            const sheetNames =
+              input.tipo === "procedimentos"
               ? workbook.SheetNames
               : workbook.SheetNames.slice(0, 1);
             let encontrouCabecalho = false;
-            const fontesCandidatas = input.tipo === "procedimentos"
-              ? [
+            const fontesCandidatas =
+              input.tipo === "procedimentos"
+                ? ([
                   fontePeloNome,
                   input.procedimentoFonte,
                   "dados_completo",
                   "porte_anestesico",
                   "preco_portes",
                   "site",
-                ].filter(Boolean) as Array<typeof PROCEDIMENTO_FONTES[number]>
+                  ].filter(Boolean) as Array<
+                    (typeof PROCEDIMENTO_FONTES)[number]
+                  >)
               : [];
 
             for (const sheetName of sheetNames) {
@@ -4035,8 +3867,8 @@ export const appRouter = router({
                 defval: null,
                 raw: true,
               }) as unknown[][];
-              const fonteDaAba = fontesCandidatas.find((fonte) =>
-                encontrarLinhaCabecalhoProcedimentos(rows, fonte) >= 0,
+              const fonteDaAba = fontesCandidatas.find(
+                fonte => encontrarLinhaCabecalhoProcedimentos(rows, fonte) >= 0
               );
               const headerRow = fonteDaAba
                 ? encontrarLinhaCabecalhoProcedimentos(rows, fonteDaAba)
@@ -4056,13 +3888,15 @@ export const appRouter = router({
 
             if (input.tipo === "procedimentos" && !encontrouCabecalho) {
               throw new Error(
-                `Não foi encontrada uma aba com as colunas do formato ${procedimentoFonte}. Verifique se o arquivo contém codigo, descricao, porte, numero_auxiliares, valor e tipo_de_beneficiario.`,
+                `Não foi encontrada uma aba com as colunas do formato ${procedimentoFonte}. Verifique se o arquivo contém codigo, descricao, porte, numero_auxiliares, valor e tipo_de_beneficiario.`
               );
             }
 
             if (input.tipo !== "procedimentos" && !rawItems.length) {
               const sheet = workbook.Sheets[workbook.SheetNames[0]];
-              rawItems = XLSX.utils.sheet_to_json(sheet) as Array<Record<string, unknown>>;
+              rawItems = XLSX.utils.sheet_to_json(sheet) as Array<
+                Record<string, unknown>
+              >;
             }
           } else if (input.formatoArquivo === "csv") {
             const { parse } = await import("csv-parse/sync");
@@ -4079,7 +3913,9 @@ export const appRouter = router({
             try {
               await fs.writeFile(tempPath, buffer);
               const dbf = await DBFFile.DBFFile.open(tempPath);
-              rawItems = await dbf.readRecords() as Array<Record<string, unknown>>;
+              rawItems = (await dbf.readRecords()) as Array<
+                Record<string, unknown>
+              >;
             } finally {
               await fs.rm(tempPath, { force: true });
             }
@@ -4092,7 +3928,7 @@ export const appRouter = router({
             const fonte = procedimentoFonte || "site";
             if (fonte === "preco_portes" || fonte === "porte_anestesico") {
               throw new Error(
-                "As planilhas Preço de Portes e Porte Anestésico são apenas tabelas de lookup. Importe os quatro arquivos pelo lote consolidado; nenhum registro auxiliar será salvo.",
+                "As planilhas Preço de Portes e Porte Anestésico são apenas tabelas de lookup. Importe os quatro arquivos pelo lote consolidado; nenhum registro auxiliar será salvo."
               );
             }
             let precoPortes = new Map<string, number>();
@@ -4111,10 +3947,10 @@ export const appRouter = router({
                 limit: 100000,
               });
               precoPortes = new Map(
-                referencia.items.map((item) => [
+                referencia.items.map(item => [
                   normalizarCodigo(item.codigo, "preco_portes"),
                   Number(item.valor),
-                ]),
+                ])
               );
 
               const referenciaAnestesica = await db.getTabelasPreco({
@@ -4127,36 +3963,52 @@ export const appRouter = router({
                 limit: 100000,
               });
               portesAnestesicos = new Map(
-                referenciaAnestesica.items.map((item) => [
+                referenciaAnestesica.items.map(item => [
                   `AN${normalizarCodigo(item.codigo, "porte_anestesico")}`,
                   Number(item.valor),
-                ]),
+                ])
               );
             }
 
-            const normalized = normalizarProcedimentos(rawItems, fonte, precoPortes, portesAnestesicos);
-            const portesNaoResolvidos = normalized.errors.some((error) =>
-              error.includes("Porte ") && error.includes("não encontrado na tabela de Preço de Portes"),
+            const normalized = normalizarProcedimentos(
+              rawItems,
+              fonte,
+              precoPortes,
+              portesAnestesicos
+            );
+            const portesNaoResolvidos = normalized.errors.some(
+              error =>
+                error.includes("Porte ") &&
+                error.includes("não encontrado na tabela de Preço de Portes")
             );
             if (fonte === "dados_completo" && portesNaoResolvidos) {
-              throw new Error(precoPortes.size === 0
+              throw new Error(
+                precoPortes.size === 0
                 ? "ATENÇÃO: importe primeiro a planilha de Preço de Portes para este convênio e estabelecimento. Ela é necessária para converter valores como 3C, 4A e 5B."
-                : "A tabela de Preço de Portes não possui todos os códigos necessários para esta planilha. Confira os códigos de porte e importe a referência correta antes de tentar novamente.");
+                  : "A tabela de Preço de Portes não possui todos os códigos necessários para esta planilha. Confira os códigos de porte e importe a referência correta antes de tentar novamente."
+              );
             }
-            const anestesicosNaoResolvidos = normalized.errors.some((error) =>
-              error.includes("Porte anestésico") && error.includes("não encontrado"),
+            const anestesicosNaoResolvidos = normalized.errors.some(
+              error =>
+                error.includes("Porte anestésico") &&
+                error.includes("não encontrado")
             );
             if (fonte === "dados_completo" && anestesicosNaoResolvidos) {
-              throw new Error(portesAnestesicos.size === 0
+              throw new Error(
+                portesAnestesicos.size === 0
                 ? "ATENÇÃO: importe primeiro a planilha de Porte Anestésico para este convênio e estabelecimento. Ela é necessária para converter portes como 5 em AN5 (R$ 806,41)."
-                : "A tabela de Porte Anestésico não possui todos os portes numéricos necessários para esta planilha.");
+                  : "A tabela de Porte Anestésico não possui todos os portes numéricos necessários para esta planilha."
+              );
             }
             importErrors = normalized.errors;
             if (!normalized.items.length) {
-              throw new Error(importErrors[0] || "Nenhum registro válido foi encontrado no arquivo.");
+              throw new Error(
+                importErrors[0] ||
+                  "Nenhum registro válido foi encontrado no arquivo."
+              );
             }
 
-            tabelaItems = normalized.items.map((item) => ({
+            tabelaItems = normalized.items.map(item => ({
               convenioId: input.convenioId,
               estabelecimentoId: input.estabelecimentoId || null,
               tipo: "procedimentos" as const,
@@ -4173,7 +4025,10 @@ export const appRouter = router({
               observacao: null,
             }));
           } else {
-            const findValue = (item: Record<string, unknown>, keys: string[]): unknown => {
+            const findValue = (
+              item: Record<string, unknown>,
+              keys: string[]
+            ): unknown => {
               for (const key of keys) {
                 if (item[key] !== undefined) return item[key];
                 if (item[`${key} `] !== undefined) return item[`${key} `];
@@ -4183,31 +4038,100 @@ export const appRouter = router({
             };
 
             const parseDate = (value: unknown): Date => {
-              if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+              if (value instanceof Date && !Number.isNaN(value.getTime()))
+                return value;
               const text = String(value ?? "").trim();
-              const brMatch = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-              if (brMatch) return new Date(Number(brMatch[3]), Number(brMatch[2]) - 1, Number(brMatch[1]));
-              const isoMatch = text.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-              if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+              const brMatch = text.match(
+                /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/
+              );
+              if (brMatch)
+                return new Date(
+                  Number(brMatch[3]),
+                  Number(brMatch[2]) - 1,
+                  Number(brMatch[1])
+                );
+              const isoMatch = text.match(
+                /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/
+              );
+              if (isoMatch)
+                return new Date(
+                  Number(isoMatch[1]),
+                  Number(isoMatch[2]) - 1,
+                  Number(isoMatch[3])
+                );
               const serial = Number(text);
               if (Number.isFinite(serial) && serial > 1 && serial < 100000) {
-                return new Date(new Date(1899, 11, 30).getTime() + serial * 24 * 60 * 60 * 1000);
+                return new Date(
+                  new Date(1899, 11, 30).getTime() +
+                    serial * 24 * 60 * 60 * 1000
+                );
               }
               const parsed = new Date(text);
               return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
             };
 
-            tabelaItems = rawItems.map((item) => {
-              const codigo = findValue(item, ["codigo", "Codigo", "CODIGO", "cod", "Cod", "COD", "code", "Code", "CODE"]);
-              const nome = findValue(item, ["nome", "Nome", "NOME", "descricao", "Descricao", "DESCRICAO", "name", "Name", "NAME", "desc", "Desc", "DESC"]);
-              const valor = parseValor(findValue(item, ["valor", "Valor", "VALOR", "preco", "Preco", "PRECO", "price", "Price", "PRICE", "vl", "Vl", "VL"]));
+            tabelaItems = rawItems
+              .map(item => {
+                const codigo = findValue(item, [
+                  "codigo",
+                  "Codigo",
+                  "CODIGO",
+                  "cod",
+                  "Cod",
+                  "COD",
+                  "code",
+                  "Code",
+                  "CODE",
+                ]);
+                const nome = findValue(item, [
+                  "nome",
+                  "Nome",
+                  "NOME",
+                  "descricao",
+                  "Descricao",
+                  "DESCRICAO",
+                  "name",
+                  "Name",
+                  "NAME",
+                  "desc",
+                  "Desc",
+                  "DESC",
+                ]);
+                const valor = parseValor(
+                  findValue(item, [
+                    "valor",
+                    "Valor",
+                    "VALOR",
+                    "preco",
+                    "Preco",
+                    "PRECO",
+                    "price",
+                    "Price",
+                    "PRICE",
+                    "vl",
+                    "Vl",
+                    "VL",
+                  ])
+                );
               const vigenciaInicioRaw = findValue(item, [
-                "vigencia_inicio", "Vigencia_inicio", "VIGENCIA_INICIO",
-                "inicio_vigencia", "Inicio_vigencia", "INICIO_VIGENCIA",
-                "vigenciaInicio", "VigenciaInicio", "VIGENCIAINICIO",
-                "data_inicio", "Data_inicio", "DATA_INICIO",
-                "dataInicio", "DataInicio", "DATAINICIO",
-                "inicio", "Inicio", "INICIO",
+                  "vigencia_inicio",
+                  "Vigencia_inicio",
+                  "VIGENCIA_INICIO",
+                  "inicio_vigencia",
+                  "Inicio_vigencia",
+                  "INICIO_VIGENCIA",
+                  "vigenciaInicio",
+                  "VigenciaInicio",
+                  "VIGENCIAINICIO",
+                  "data_inicio",
+                  "Data_inicio",
+                  "DATA_INICIO",
+                  "dataInicio",
+                  "DataInicio",
+                  "DATAINICIO",
+                  "inicio",
+                  "Inicio",
+                  "INICIO",
               ]);
               return {
                 convenioId: input.convenioId,
@@ -4217,10 +4141,25 @@ export const appRouter = router({
                 nome: String(nome ?? "").trim(),
                 valor: valor.toFixed(2),
                 vigenciaInicio: parseDate(vigenciaInicioRaw),
-                unidade: findValue(item, ["unidade", "Unidade", "UNIDADE", "unit", "Unit", "UNIT"]),
-                observacao: findValue(item, ["observacao", "Observacao", "OBSERVACAO", "obs", "Obs", "OBS"]),
+                  unidade: findValue(item, [
+                    "unidade",
+                    "Unidade",
+                    "UNIDADE",
+                    "unit",
+                    "Unit",
+                    "UNIT",
+                  ]),
+                  observacao: findValue(item, [
+                    "observacao",
+                    "Observacao",
+                    "OBSERVACAO",
+                    "obs",
+                    "Obs",
+                    "OBS",
+                  ]),
               };
-            }).filter((item) => item.codigo && item.nome);
+              })
+              .filter(item => item.codigo && item.nome);
           }
 
           // Só desativar os registros anteriores depois que o arquivo foi lido
@@ -4229,7 +4168,9 @@ export const appRouter = router({
             await db.desativarTabelasPreco(
               input.convenioId,
               input.tipo,
-              input.tipo === "procedimentos" ? input.procedimentoFonte || "site" : undefined,
+              input.tipo === "procedimentos"
+                ? input.procedimentoFonte || "site"
+                : undefined
             );
           }
 
@@ -4242,7 +4183,9 @@ export const appRouter = router({
             totalItens: rawItems.length,
             itensImportados: resultado.inseridos,
             itensErro: resultado.erros + importErrors.length,
-            mensagemErro: importErrors.length ? importErrors.slice(0, 20).join(" | ") : null,
+            mensagemErro: importErrors.length
+              ? importErrors.slice(0, 20).join(" | ")
+              : null,
           });
 
           return {
@@ -4272,48 +4215,78 @@ export const appRouter = router({
      * nunca são persistidos como registros independentes.
      */
     importarLoteProcedimentos: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number(),
         estabelecimentoId: z.number().optional(),
-        arquivos: z.array(z.object({
+          arquivos: z
+            .array(
+              z.object({
           nomeArquivo: z.string().min(1),
           formatoArquivo: z.enum(["excel", "csv", "dbf"]),
           conteudo: z.string().min(1),
-        })).length(4),
+              })
+            )
+            .length(4),
         substituirExistentes: z.boolean().default(false),
-      }))
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const importacaoId = await db.createImportacaoTabela({
           convenioId: input.convenioId,
           userId: ctx.user.id,
           tipo: "procedimentos",
-          nomeArquivo: `Lote Unimed: ${input.arquivos.map((arquivo) => arquivo.nomeArquivo).join(" + ")}`.slice(0, 255),
+          nomeArquivo:
+            `Lote Unimed: ${input.arquivos.map(arquivo => arquivo.nomeArquivo).join(" + ")}`.slice(
+              0,
+              255
+            ),
           formatoArquivo: "excel",
           status: "processando",
         });
 
         if (!importacaoId) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao registrar o lote de importação." });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao registrar o lote de importação.",
+          });
         }
 
         try {
-          const fontes = input.arquivos.map((arquivo) => detectarFonteProcedimentoPorNome(arquivo.nomeArquivo));
-          if (fontes.some((fonte) => !fonte)) {
-            throw new Error("Um ou mais arquivos não têm nome reconhecido. Use os quatro nomes padrão da Unimed.");
+          const fontes = input.arquivos.map(arquivo =>
+            detectarFonteProcedimentoPorNome(arquivo.nomeArquivo)
+          );
+          if (fontes.some(fonte => !fonte)) {
+            throw new Error(
+              "Um ou mais arquivos não têm nome reconhecido. Use os quatro nomes padrão da Unimed."
+            );
           }
-          const fontesValidas = fontes.filter((fonte): fonte is typeof PROCEDIMENTO_FONTES[number] => !!fonte);
-          const duplicadas = fontesValidas.filter((fonte, index) => fontesValidas.indexOf(fonte) !== index);
-          if (duplicadas.length > 0 || new Set(fontesValidas).size !== PROCEDIMENTO_FONTES.length) {
-            throw new Error("O lote deve conter exatamente um arquivo de Preço de Portes, um de Porte Anestésico, um de Dados Completos e um da Tabela Unimed Site.");
+          const fontesValidas = fontes.filter(
+            (fonte): fonte is (typeof PROCEDIMENTO_FONTES)[number] => !!fonte
+          );
+          const duplicadas = fontesValidas.filter(
+            (fonte, index) => fontesValidas.indexOf(fonte) !== index
+          );
+          if (
+            duplicadas.length > 0 ||
+            new Set(fontesValidas).size !== PROCEDIMENTO_FONTES.length
+          ) {
+            throw new Error(
+              "O lote deve conter exatamente um arquivo de Preço de Portes, um de Porte Anestésico, um de Dados Completos e um da Tabela Unimed Site."
+            );
           }
 
-          const consolidado = await lerEConsolidarArquivosProcedimentos(input.arquivos);
+          const consolidado = await lerEConsolidarArquivosProcedimentos(
+            input.arquivos
+          );
           if (consolidado.items.length === 0) {
-            throw new Error("Nenhum procedimento válido foi encontrado após a consolidação dos quatro arquivos.");
+            throw new Error(
+              "Nenhum procedimento válido foi encontrado após a consolidação dos quatro arquivos."
+            );
           }
 
           const vigenciaInicio = new Date();
-          const tabelaItems = consolidado.items.map((item) => ({
+          const tabelaItems = consolidado.items.map(item => ({
             convenioId: input.convenioId,
             estabelecimentoId: input.estabelecimentoId || null,
             tipo: "procedimentos" as const,
@@ -4334,7 +4307,7 @@ export const appRouter = router({
             tabelaItems,
             input.convenioId,
             input.estabelecimentoId,
-            input.substituirExistentes,
+            input.substituirExistentes
           );
 
           await db.updateImportacaoTabela(importacaoId, {
@@ -4378,11 +4351,15 @@ export const appRouter = router({
   regrasNegocio: router({
     // Listar regras
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
         estabelecimentoId: z.number().optional(),
         ativo: z.enum(["sim", "nao"]).optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRegrasNegocio(input || {});
       }),
@@ -4396,36 +4373,63 @@ export const appRouter = router({
 
     // Criar regra
     create: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number().optional(),
         estabelecimentoId: z.number().optional(),
         nome: z.string().min(1),
         descricao: z.string().optional(),
         codigoProcedimentoPrincipal: z.string().min(1),
         descricaoProcedimentoPrincipal: z.string().optional(),
-        tipoVerificacao: z.enum(["deve_conter", "nao_deve_conter", "pode_conter", "quantidade_minima", "quantidade_maxima"]),
-        acaoInconsistencia: z.enum(["alerta", "bloquear", "sugerir_adicao", "sugerir_remocao"]),
+          tipoVerificacao: z.enum([
+            "deve_conter",
+            "nao_deve_conter",
+            "pode_conter",
+            "quantidade_minima",
+            "quantidade_maxima",
+          ]),
+          acaoInconsistencia: z.enum([
+            "alerta",
+            "bloquear",
+            "sugerir_adicao",
+            "sugerir_remocao",
+          ]),
         prioridade: z.number().optional(),
-        itens: z.array(z.object({
+          itens: z
+            .array(
+              z.object({
           codigoItem: z.string().min(1),
           descricaoItem: z.string().optional(),
-          tipoItem: z.enum(["procedimento", "taxa", "material", "medicamento", "diaria", "outros"]),
+                tipoItem: z.enum([
+                  "procedimento",
+                  "taxa",
+                  "material",
+                  "medicamento",
+                  "diaria",
+                  "outros",
+                ]),
           quantidadeMinima: z.number().optional(),
           quantidadeMaxima: z.number().optional(),
           valorEsperado: z.string().optional(),
           toleranciaValor: z.string().optional(),
           obrigatorio: z.enum(["sim", "nao"]).optional(),
-        })).optional(),
-      }))
+              })
+            )
+            .optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const { itens, ...regraData } = input;
-        
+
         // Criar regra
         const regraId = await db.createRegraNegocio(regraData as any);
         if (!regraId) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao criar regra" });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao criar regra",
+          });
         }
-        
+
         // Adicionar itens
         if (itens && itens.length > 0) {
           for (const item of itens) {
@@ -4435,23 +4439,35 @@ export const appRouter = router({
             } as any);
           }
         }
-        
+
         return { id: regraId };
       }),
 
     // Atualizar regra
     update: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         nome: z.string().optional(),
         descricao: z.string().optional(),
         codigoProcedimentoPrincipal: z.string().optional(),
         descricaoProcedimentoPrincipal: z.string().optional(),
-        tipoVerificacao: z.enum(["deve_conter", "nao_deve_conter", "pode_conter", "quantidade_minima", "quantidade_maxima"]).optional(),
-        acaoInconsistencia: z.enum(["alerta", "bloquear", "sugerir_adicao", "sugerir_remocao"]).optional(),
+          tipoVerificacao: z
+            .enum([
+              "deve_conter",
+              "nao_deve_conter",
+              "pode_conter",
+              "quantidade_minima",
+              "quantidade_maxima",
+            ])
+            .optional(),
+          acaoInconsistencia: z
+            .enum(["alerta", "bloquear", "sugerir_adicao", "sugerir_remocao"])
+            .optional(),
         prioridade: z.number().optional(),
         ativo: z.enum(["sim", "nao"]).optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         return db.updateRegraNegocio(id, data as any);
@@ -4466,17 +4482,26 @@ export const appRouter = router({
 
     // Adicionar item à regra
     addItem: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         regraId: z.number(),
         codigoItem: z.string().min(1),
         descricaoItem: z.string().optional(),
-        tipoItem: z.enum(["procedimento", "taxa", "material", "medicamento", "diaria", "outros"]),
+          tipoItem: z.enum([
+            "procedimento",
+            "taxa",
+            "material",
+            "medicamento",
+            "diaria",
+            "outros",
+          ]),
         quantidadeMinima: z.number().optional(),
         quantidadeMaxima: z.number().optional(),
         valorEsperado: z.string().optional(),
         toleranciaValor: z.string().optional(),
         obrigatorio: z.enum(["sim", "nao"]).optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         return db.addItemRegraNegocio(input as any);
       }),
@@ -4490,12 +4515,14 @@ export const appRouter = router({
 
     // Preview dos padrões Tasy para gerar regras
     previewPadroesTasy: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
         competencia: z.string().optional(),
         frequenciaMinima: z.number().default(10),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         const { analisarPadroesCobrancaTasy } = await import("./db");
         const analise = await analisarPadroesCobrancaTasy({
@@ -4506,7 +4533,11 @@ export const appRouter = router({
 
         // Filtrar padrões com frequência mínima e que tenham itens associados
         const padroesElegiveis = analise.padroesComposicao
-          .filter(p => p.frequenciaPercentual >= input.frequenciaMinima && p.itensAssociados.length > 0)
+          .filter(
+            p =>
+              p.frequenciaPercentual >= input.frequenciaMinima &&
+              p.itensAssociados.length > 0
+          )
           .map(p => ({
             codigoProcedimento: p.codigoProcedimento,
             descricao: p.descricao,
@@ -4542,13 +4573,15 @@ export const appRouter = router({
 
     // Gerar regras de negócio a partir dos padrões Tasy
     gerarRegrasDosPadroesTasy: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
         competencia: z.string().optional(),
         frequenciaMinima: z.number().default(10),
         padroesSelecionados: z.array(z.string()).optional(), // códigos dos procedimentos a incluir
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         const { analisarPadroesCobrancaTasy } = await import("./db");
         const analise = await analisarPadroesCobrancaTasy({
@@ -4558,26 +4591,56 @@ export const appRouter = router({
         });
 
         const padroesElegiveis = analise.padroesComposicao
-          .filter(p => p.frequenciaPercentual >= input.frequenciaMinima && p.itensAssociados.length > 0)
-          .filter(p => !input.padroesSelecionados || input.padroesSelecionados.includes(p.codigoProcedimento))
-          .filter(p => p.itensAssociados.filter(a => a.frequencia >= input.frequenciaMinima).length > 0);
+          .filter(
+            p =>
+              p.frequenciaPercentual >= input.frequenciaMinima &&
+              p.itensAssociados.length > 0
+          )
+          .filter(
+            p =>
+              !input.padroesSelecionados ||
+              input.padroesSelecionados.includes(p.codigoProcedimento)
+          )
+          .filter(
+            p =>
+              p.itensAssociados.filter(
+                a => a.frequencia >= input.frequenciaMinima
+              ).length > 0
+          );
 
         let criadas = 0;
         let itensAdicionados = 0;
 
-        const mapTipoItem = (tipo: string): "procedimento" | "taxa" | "material" | "medicamento" | "diaria" | "outros" => {
+        const mapTipoItem = (
+          tipo: string
+        ):
+          | "procedimento"
+          | "taxa"
+          | "material"
+          | "medicamento"
+          | "diaria"
+          | "outros" => {
           const t = tipo.toUpperCase();
-          if (t.includes('PROC') || t === 'P' || t === 'C' || t === 'O' || t === '01') return 'procedimento';
-          if (t.includes('TAXA')) return 'taxa';
-          if (t.includes('MAT')) return 'material';
-          if (t.includes('MED') || t.includes('MEDICAMENTO')) return 'medicamento';
-          if (t.includes('DIAR')) return 'diaria';
-          return 'outros';
+          if (
+            t.includes("PROC") ||
+            t === "P" ||
+            t === "C" ||
+            t === "O" ||
+            t === "01"
+          )
+            return "procedimento";
+          if (t.includes("TAXA")) return "taxa";
+          if (t.includes("MAT")) return "material";
+          if (t.includes("MED") || t.includes("MEDICAMENTO"))
+            return "medicamento";
+          if (t.includes("DIAR")) return "diaria";
+          return "outros";
         };
 
         for (const padrao of padroesElegiveis) {
-          const itensAssociadosFiltrados = padrao.itensAssociados
-            .filter(a => a.frequencia >= input.frequenciaMinima);
+          const itensAssociadosFiltrados = padrao.itensAssociados.filter(
+            a => a.frequencia >= input.frequenciaMinima
+          );
 
           if (itensAssociadosFiltrados.length === 0) continue;
 
@@ -4589,9 +4652,14 @@ export const appRouter = router({
             descricao: `Regra gerada automaticamente a partir de ${padrao.contasComItem} contas do Tasy. Frequência: ${padrao.frequenciaPercentual}%. Valor médio: R$ ${padrao.valorTotalMedio.toFixed(2)}`,
             codigoProcedimentoPrincipal: padrao.codigoProcedimento,
             descricaoProcedimentoPrincipal: padrao.descricao || null,
-            tipoVerificacao: 'deve_conter',
-            acaoInconsistencia: 'alerta',
-            prioridade: padrao.frequenciaPercentual >= 50 ? 8 : padrao.frequenciaPercentual >= 25 ? 5 : 3,
+            tipoVerificacao: "deve_conter",
+            acaoInconsistencia: "alerta",
+            prioridade:
+              padrao.frequenciaPercentual >= 50
+                ? 8
+                : padrao.frequenciaPercentual >= 25
+                  ? 5
+                  : 3,
           } as any);
 
           if (!regraId) continue;
@@ -4606,9 +4674,15 @@ export const appRouter = router({
               tipoItem: mapTipoItem(item.tipo),
               quantidadeMinima: Math.max(1, Math.floor(item.quantidadeMedia)),
               quantidadeMaxima: Math.ceil(item.quantidadeMedia * 2),
-              valorEsperado: item.valorUnitarioMedio > 0 ? String(item.valorUnitarioMedio.toFixed(2)) : null,
-              toleranciaValor: item.valorUnitarioMedio > 0 ? String((item.valorUnitarioMedio * 0.2).toFixed(2)) : null,
-              obrigatorio: item.frequencia >= 70 ? 'sim' : 'nao',
+              valorEsperado:
+                item.valorUnitarioMedio > 0
+                  ? String(item.valorUnitarioMedio.toFixed(2))
+                  : null,
+              toleranciaValor:
+                item.valorUnitarioMedio > 0
+                  ? String((item.valorUnitarioMedio * 0.2).toFixed(2))
+                  : null,
+              obrigatorio: item.frequencia >= 70 ? "sim" : "nao",
             } as any);
             itensAdicionados++;
           }
@@ -4633,13 +4707,17 @@ export const appRouter = router({
 
     // Listar alertas pendentes
     pendentes: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
         tipoAlerta: z.string().optional(),
         severidade: z.string().optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getAlertasPendentes(input || {});
       }),
@@ -4653,13 +4731,26 @@ export const appRouter = router({
 
     // Atualizar status do alerta
     updateStatus: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
-        status: z.enum(["pendente", "analisando", "corrigido", "ignorado", "aceito"]),
+          status: z.enum([
+            "pendente",
+            "analisando",
+            "corrigido",
+            "ignorado",
+            "aceito",
+          ]),
         observacao: z.string().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
-        return db.updateAlertaStatus(input.id, input.status, ctx.user.id, input.observacao);
+        return db.updateAlertaStatus(
+          input.id,
+          input.status,
+          ctx.user.id,
+          input.observacao
+        );
       }),
 
     // Executar comparação com tabela de preços
@@ -4685,18 +4776,24 @@ export const appRouter = router({
 
     // Atualizar padrões de conta
     atualizarPadroes: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         convenioId: z.number(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
-        await db.atualizarPadroesContas(input.convenioId, input.estabelecimentoId);
+        await db.atualizarPadroesContas(
+          input.convenioId,
+          input.estabelecimentoId
+        );
         return { success: true };
       }),
 
     // Salvar validação no histórico
     salvarValidacao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         arquivoId: z.number(),
         convenioId: z.number(),
         totalItens: z.number(),
@@ -4705,7 +4802,8 @@ export const appRouter = router({
         sugestoesIA: z.number(),
         valorDiferenca: z.number(),
         detalhes: z.any(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return db.salvarHistoricoValidacao({
           ...input,
@@ -4715,11 +4813,15 @@ export const appRouter = router({
 
     // Listar histórico de validações
     historicoValidacoes: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
         limit: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.listarHistoricoValidacoes(input || {});
       }),
@@ -4733,7 +4835,8 @@ export const appRouter = router({
 
     // Salvar histórico de validação XML
     salvarHistoricoXml: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeArquivo: z.string(),
         dataProcessamento: z.date(),
@@ -4742,7 +4845,8 @@ export const appRouter = router({
         contasInvalidas: z.number(),
         scoreConformidadeMedio: z.number(),
         resultadoCompleto: z.any(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return db.salvarHistoricoValidacaoXml({
           ...input,
@@ -4752,14 +4856,18 @@ export const appRouter = router({
 
     // Listar histórico de validações XML
     listarHistoricoXml: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         usuarioId: z.number().optional(),
         dataInicio: z.date().optional(),
         dataFim: z.date().optional(),
         limit: z.number().optional(),
         offset: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         const filtros = {
           ...input,
@@ -4781,7 +4889,6 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.obterEstatisticasValidacaoXml(input.estabelecimentoId);
       }),
-
   }),
 
   // ============ PERMISSÕES E DASHBOARD CONSOLIDADO ============
@@ -4817,10 +4924,14 @@ export const appRouter = router({
 
     // Verificar permissão específica para um estabelecimento
     verificarPermissao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
-        tipoPermissao: z.enum(["visualizar", "editar", "excluir", "gerenciar"]).optional(),
-      }))
+          tipoPermissao: z
+            .enum(["visualizar", "editar", "excluir", "gerenciar"])
+            .optional(),
+        })
+      )
       .query(async ({ ctx, input }) => {
         return db.verificarPermissaoEstabelecimento(
           ctx.user.id,
@@ -4841,7 +4952,8 @@ export const appRouter = router({
         if (!podeGerenciar && ctx.user.role !== "admin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Você não tem permissão para gerenciar este estabelecimento",
+            message:
+              "Você não tem permissão para gerenciar este estabelecimento",
           });
         }
         return db.getUsuariosEstabelecimento(input.estabelecimentoId);
@@ -4849,10 +4961,20 @@ export const appRouter = router({
 
     // Criar ou atualizar permissão (apenas gestores/admin)
     upsertPermissao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         userId: z.number(),
         estabelecimentoId: z.number(),
-        grupoServico: z.enum(["administrador", "faturista", "recurso_glosa", "gestor", "visualizador", "usuario_tasy"]).optional(),
+          grupoServico: z
+            .enum([
+              "administrador",
+              "faturista",
+              "recurso_glosa",
+              "gestor",
+              "visualizador",
+              "usuario_tasy",
+            ])
+            .optional(),
         grupoId: z.number().nullable().optional(),
         podeVisualizar: z.enum(["sim", "nao"]).optional(),
         podeEditar: z.enum(["sim", "nao"]).optional(),
@@ -4910,7 +5032,8 @@ export const appRouter = router({
         acessoPropostas: z.enum(["sim", "nao"]).optional(),
         acessoAtendimentosConsolidados: z.enum(["sim", "nao"]).optional(),
         acessoNfseConsolidado: z.enum(["sim", "nao"]).optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const podeGerenciar = await db.verificarPermissaoEstabelecimento(
           ctx.user.id,
@@ -4920,23 +5043,38 @@ export const appRouter = router({
         if (!podeGerenciar && ctx.user.role !== "admin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Você não tem permissão para gerenciar este estabelecimento",
+            message:
+              "Você não tem permissão para gerenciar este estabelecimento",
           });
         }
         if (ctx.user.role !== "admin") {
           const alvo = await db.getUserById(input.userId);
           if (alvo?.role === "admin") {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores do sistema" });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Gestores não podem alterar administradores do sistema",
+            });
           }
         }
         if (input.grupoId) {
           const grupo = await db.buscarGrupoServicoPorId(input.grupoId);
-          if (!grupo || grupo.ativo !== "sim" || (grupo.estabelecimentoId && grupo.estabelecimentoId !== input.estabelecimentoId)) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Grupo personalizado inválido para este estabelecimento" });
+          if (
+            !grupo ||
+            grupo.ativo !== "sim" ||
+            (grupo.estabelecimentoId &&
+              grupo.estabelecimentoId !== input.estabelecimentoId)
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Grupo personalizado inválido para este estabelecimento",
+            });
           }
         }
 
-        const anterior = await db.getPermissaoUsuarioEstabelecimento(input.userId, input.estabelecimentoId);
+        const anterior = await db.getPermissaoUsuarioEstabelecimento(
+          input.userId,
+          input.estabelecimentoId
+        );
         const normalizado = normalizeBiParent(input);
         const resultado = await db.upsertPermissaoEstabelecimento(normalizado);
         const usuarioAfetado = await db.getUserById(input.userId);
@@ -4947,7 +5085,9 @@ export const appRouter = router({
           usuarioAfetadoNome: usuarioAfetado?.name || "Usuário",
           estabelecimentoId: input.estabelecimentoId,
           tipoAcao: anterior ? "alterar_permissao" : "criar_permissao",
-          descricao: anterior ? "Permissões de acesso atualizadas" : "Permissão de acesso criada",
+          descricao: anterior
+            ? "Permissões de acesso atualizadas"
+            : "Permissão de acesso criada",
           valoresAnteriores: anterior || undefined,
           valoresNovos: normalizado,
         });
@@ -4966,23 +5106,35 @@ export const appRouter = router({
       if (ctx.user.role === "admin") {
         return db.listarTodosUsuarios();
       }
-      const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
+      const gerenciaveis = await db.getEstabelecimentosGerenciaveis(
+        ctx.user.id
+      );
       if (gerenciaveis.length === 0) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas gestores podem listar usuários" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas gestores podem listar usuários",
+        });
       }
-      return db.listarUsuariosPorEstabelecimentos(gerenciaveis.map((item) => item.id));
+      return db.listarUsuariosPorEstabelecimentos(
+        gerenciaveis.map(item => item.id)
+      );
     }),
 
     // Listar permissões de todos os usuários para o Safatle
     listarPermissoesSafatle: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem ver permissões Safatle" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem ver permissões Safatle",
+        });
       }
       const allUsers = await db.listarTodosUsuarios();
       const results: any[] = [];
       for (const user of allUsers) {
         const perms = await db.getPermissoesUsuario(user.id);
-        const safatlePerm = perms.find((p: any) => p.estabelecimentoId === 2160001);
+        const safatlePerm = perms.find(
+          (p: any) => p.estabelecimentoId === 2160001
+        );
         results.push({
           userId: user.id,
           userName: user.name,
@@ -4996,10 +5148,12 @@ export const appRouter = router({
 
     // Remover permissão (apenas gestores/admin)
     removerPermissao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         userId: z.number(),
         estabelecimentoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const podeGerenciar = await db.verificarPermissaoEstabelecimento(
           ctx.user.id,
@@ -5009,18 +5163,28 @@ export const appRouter = router({
         if (!podeGerenciar && ctx.user.role !== "admin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Você não tem permissão para gerenciar este estabelecimento",
+            message:
+              "Você não tem permissão para gerenciar este estabelecimento",
           });
         }
         if (ctx.user.role !== "admin") {
           const alvo = await db.getUserById(input.userId);
           if (alvo?.role === "admin") {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores do sistema" });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Gestores não podem alterar administradores do sistema",
+            });
           }
         }
-        const anterior = await db.getPermissaoUsuarioEstabelecimento(input.userId, input.estabelecimentoId);
+        const anterior = await db.getPermissaoUsuarioEstabelecimento(
+          input.userId,
+          input.estabelecimentoId
+        );
         const usuarioAfetado = await db.getUserById(input.userId);
-        await db.deletePermissaoEstabelecimento(input.userId, input.estabelecimentoId);
+        await db.deletePermissaoEstabelecimento(
+          input.userId,
+          input.estabelecimentoId
+        );
         await db.registrarLogAuditoria({
           usuarioId: ctx.user.id,
           usuarioNome: ctx.user.name,
@@ -5036,55 +5200,88 @@ export const appRouter = router({
 
     // Criar novo usuário (apenas admin/gestor)
     criarUsuario: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         name: z.string().min(2),
         email: z.string().email(),
         role: z.enum(["admin", "user", "tasy_user"]).optional(),
-        grupoServico: z.enum(["administrador", "faturista", "recurso_glosa", "gestor", "visualizador", "usuario_tasy"]).optional(),
+          grupoServico: z
+            .enum([
+              "administrador",
+              "faturista",
+              "recurso_glosa",
+              "gestor",
+              "visualizador",
+              "usuario_tasy",
+            ])
+            .optional(),
         grupoId: z.number().optional(),
         estabelecimentosIds: z.array(z.number()).optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           const isGestor = await db.verificarSeGestor(ctx.user.id);
           if (!isGestor) {
             throw new TRPCError({
               code: "FORBIDDEN",
-              message: "Apenas administradores ou gestores podem criar usuários",
+              message:
+                "Apenas administradores ou gestores podem criar usuários",
             });
           }
           if (input.role === "admin") {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem criar administradores do sistema" });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Gestores não podem criar administradores do sistema",
+            });
           }
-          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
-          const idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
-          if ((input.estabelecimentosIds || []).some((id) => !idsGerenciaveis.has(id))) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode atribuir estabelecimentos que administra" });
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(
+            ctx.user.id
+          );
+          const idsGerenciaveis = new Set(gerenciaveis.map(item => item.id));
+          if (
+            (input.estabelecimentosIds || []).some(
+              id => !idsGerenciaveis.has(id)
+            )
+          ) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Você só pode atribuir estabelecimentos que administra",
+            });
           }
         }
 
         if (input.grupoId) {
           const grupo = await db.buscarGrupoServicoPorId(input.grupoId);
           const estabelecimentosDestino = input.estabelecimentosIds || [];
-          const grupoDisponivelEmTodos = grupo?.ativo === "sim" && estabelecimentosDestino.every(
-            (estabelecimentoId) => grupo.estabelecimentoId === null || grupo.estabelecimentoId === estabelecimentoId,
+          const grupoDisponivelEmTodos =
+            grupo?.ativo === "sim" &&
+            estabelecimentosDestino.every(
+              estabelecimentoId =>
+                grupo.estabelecimentoId === null ||
+                grupo.estabelecimentoId === estabelecimentoId
           );
           if (!grupoDisponivelEmTodos) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "Grupo personalizado inválido, inativo ou indisponível para um dos estabelecimentos",
+              message:
+                "Grupo personalizado inválido, inativo ou indisponível para um dos estabelecimentos",
             });
           }
         }
-        
+
         try {
           const userId = await db.criarUsuario(input);
-          
+
           // Criar permissões para múltiplos estabelecimentos
-          if (input.estabelecimentosIds && input.estabelecimentosIds.length > 0) {
-            const perfil: StandardServiceGroup = input.role === "tasy_user"
+          if (
+            input.estabelecimentosIds &&
+            input.estabelecimentosIds.length > 0
+          ) {
+            const perfil: StandardServiceGroup =
+              input.role === "tasy_user"
               ? "usuario_tasy"
-              : (input.grupoServico || "visualizador");
+                : input.grupoServico || "visualizador";
             const acoes = ACTION_PROFILE_DEFAULTS[perfil];
             for (const estabelecimentoId of input.estabelecimentosIds) {
               await db.criarPermissaoEstabelecimento({
@@ -5099,9 +5296,10 @@ export const appRouter = router({
               });
             }
           }
-          
+
           // Registrar no log de auditoria
-          const estabelecimentosNomes = input.estabelecimentosIds && input.estabelecimentosIds.length > 0
+          const estabelecimentosNomes =
+            input.estabelecimentosIds && input.estabelecimentosIds.length > 0
             ? ` com acesso a ${input.estabelecimentosIds.length} estabelecimento(s)`
             : "";
           await db.registrarLogAuditoria({
@@ -5111,15 +5309,15 @@ export const appRouter = router({
             usuarioAfetadoNome: input.name,
             tipoAcao: "criar_usuario",
             descricao: `Usuário ${input.name} (${input.email}) criado${estabelecimentosNomes}`,
-            valoresNovos: { 
-              name: input.name, 
-              email: input.email, 
+            valoresNovos: {
+              name: input.name,
+              email: input.email,
               role: input.role || "user",
               estabelecimentosIds: input.estabelecimentosIds,
               grupoId: input.grupoId,
             },
           });
-          
+
           return { success: true, userId };
         } catch (error: any) {
           throw new TRPCError({
@@ -5134,8 +5332,18 @@ export const appRouter = router({
       .input(z.object({ estabelecimentoId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          if (!input.estabelecimentoId || !await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "gerenciar")) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Selecione uma unidade que você administra" });
+          if (
+            !input.estabelecimentoId ||
+            !(await db.verificarPermissaoEstabelecimento(
+              ctx.user.id,
+              input.estabelecimentoId,
+              "gerenciar"
+            ))
+          ) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Selecione uma unidade que você administra",
+            });
           }
         }
         return db.listarGruposServico(input.estabelecimentoId);
@@ -5143,14 +5351,18 @@ export const appRouter = router({
 
     // Criar grupo de serviço personalizado
     criarGrupo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         nome: z.string().min(2),
         descricao: z.string().optional(),
         cor: z.string().optional(),
         icone: z.string().optional(),
-        permissoesPadrao: z.record(z.string(), z.enum(["sim", "nao"])).optional(),
+          permissoesPadrao: z
+            .record(z.string(), z.enum(["sim", "nao"]))
+            .optional(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({
@@ -5158,13 +5370,15 @@ export const appRouter = router({
             message: "Apenas administradores podem criar grupos",
           });
         }
-        
+
         const grupoId = await db.criarGrupoServico({
           ...input,
-          permissoesPadrao: sanitizeCustomModulePermissions(input.permissoesPadrao),
+          permissoesPadrao: sanitizeCustomModulePermissions(
+            input.permissoesPadrao
+          ),
           criadoPor: ctx.user.id,
         });
-        
+
         // Registrar no log de auditoria
         await db.registrarLogAuditoria({
           usuarioId: ctx.user.id,
@@ -5176,20 +5390,24 @@ export const appRouter = router({
           descricao: `Grupo de serviço "${input.nome}" criado`,
           valoresNovos: input,
         });
-        
+
         return { success: true, grupoId };
       }),
 
     // Atualizar grupo de serviço
     atualizarGrupo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         nome: z.string().min(2).optional(),
         descricao: z.string().optional(),
         cor: z.string().optional(),
         icone: z.string().optional(),
-        permissoesPadrao: z.record(z.string(), z.enum(["sim", "nao"])).optional(),
-      }))
+          permissoesPadrao: z
+            .record(z.string(), z.enum(["sim", "nao"]))
+            .optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({
@@ -5197,17 +5415,21 @@ export const appRouter = router({
             message: "Apenas administradores podem atualizar grupos",
           });
         }
-        
+
         const grupoAnterior = await db.buscarGrupoServicoPorId(input.id);
         const { id, ...dadosInput } = input;
         const dados = {
           ...dadosInput,
           ...(dadosInput.permissoesPadrao
-            ? { permissoesPadrao: sanitizeCustomModulePermissions(dadosInput.permissoesPadrao) }
+            ? {
+                permissoesPadrao: sanitizeCustomModulePermissions(
+                  dadosInput.permissoesPadrao
+                ),
+              }
             : {}),
         };
         await db.atualizarGrupoServico(id, dados);
-        
+
         // Registrar no log de auditoria
         await db.registrarLogAuditoria({
           usuarioId: ctx.user.id,
@@ -5219,7 +5441,7 @@ export const appRouter = router({
           valoresAnteriores: grupoAnterior,
           valoresNovos: dados,
         });
-        
+
         return { success: true };
       }),
 
@@ -5233,10 +5455,10 @@ export const appRouter = router({
             message: "Apenas administradores podem excluir grupos",
           });
         }
-        
+
         const grupo = await db.buscarGrupoServicoPorId(input.id);
         await db.excluirGrupoServico(input.id);
-        
+
         // Registrar no log de auditoria
         await db.registrarLogAuditoria({
           usuarioId: ctx.user.id,
@@ -5247,13 +5469,14 @@ export const appRouter = router({
           descricao: `Grupo de serviço "${grupo?.nome}" excluído`,
           valoresAnteriores: grupo,
         });
-        
+
         return { success: true };
       }),
 
     // Listar logs de auditoria
     logsAuditoria: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
         usuarioId: z.number().optional(),
         usuarioAfetadoId: z.number().optional(),
@@ -5262,14 +5485,26 @@ export const appRouter = router({
         dataFim: z.string().optional(),
         limite: z.number().optional(),
         offset: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          if (!input.estabelecimentoId || !await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "gerenciar")) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode consultar a auditoria das unidades que administra" });
+          if (
+            !input.estabelecimentoId ||
+            !(await db.verificarPermissaoEstabelecimento(
+              ctx.user.id,
+              input.estabelecimentoId,
+              "gerenciar"
+            ))
+          ) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "Você só pode consultar a auditoria das unidades que administra",
+            });
           }
         }
-        
+
         return db.listarLogsAuditoria({
           ...input,
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -5281,51 +5516,78 @@ export const appRouter = router({
     listarEstabelecimentosUsuario: protectedProcedure
       .input(z.object({ userId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const estabelecimentosUsuario = await db.getEstabelecimentosUsuario(input.userId);
+        const estabelecimentosUsuario = await db.getEstabelecimentosUsuario(
+          input.userId
+        );
         if (ctx.user.role !== "admin") {
-          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
-          const idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
-          if (idsGerenciaveis.size === 0) throw new TRPCError({ code: "FORBIDDEN" });
-          return estabelecimentosUsuario.filter((item) => idsGerenciaveis.has(item.id));
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(
+            ctx.user.id
+          );
+          const idsGerenciaveis = new Set(gerenciaveis.map(item => item.id));
+          if (idsGerenciaveis.size === 0)
+            throw new TRPCError({ code: "FORBIDDEN" });
+          return estabelecimentosUsuario.filter(item =>
+            idsGerenciaveis.has(item.id)
+          );
         }
         return estabelecimentosUsuario;
       }),
 
     // Atualizar estabelecimentos de um usuário (adicionar/remover)
     atualizarEstabelecimentosUsuario: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         userId: z.number(),
         estabelecimentosIds: z.array(z.number()),
         grupoId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         let idsGerenciaveis: Set<number> | null = null;
         if (ctx.user.role !== "admin") {
           const alvo = await db.getUserById(input.userId);
-          if (alvo?.role === "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Gestores não podem alterar administradores" });
-          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(ctx.user.id);
-          idsGerenciaveis = new Set(gerenciaveis.map((item) => item.id));
-          if (input.estabelecimentosIds.some((id) => !idsGerenciaveis!.has(id))) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Você só pode alterar unidades que administra" });
+          if (alvo?.role === "admin")
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Gestores não podem alterar administradores",
+            });
+          const gerenciaveis = await db.getEstabelecimentosGerenciaveis(
+            ctx.user.id
+          );
+          idsGerenciaveis = new Set(gerenciaveis.map(item => item.id));
+          if (input.estabelecimentosIds.some(id => !idsGerenciaveis!.has(id))) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Você só pode alterar unidades que administra",
+            });
           }
         }
 
         // Buscar estabelecimentos atuais do usuário
-        const estabelecimentosAtuais = await db.getEstabelecimentosUsuario(input.userId);
+        const estabelecimentosAtuais = await db.getEstabelecimentosUsuario(
+          input.userId
+        );
         const idsAtuais = estabelecimentosAtuais.map(e => e.id);
         const idsAtuaisEditaveis = idsGerenciaveis
-          ? idsAtuais.filter((id) => idsGerenciaveis!.has(id))
+          ? idsAtuais.filter(id => idsGerenciaveis!.has(id))
           : idsAtuais;
-        
+
         // Identificar o que adicionar e remover
-        const idsParaAdicionar = input.estabelecimentosIds.filter(id => !idsAtuais.includes(id));
-        const idsParaRemover = idsAtuaisEditaveis.filter(id => !input.estabelecimentosIds.includes(id));
-        
+        const idsParaAdicionar = input.estabelecimentosIds.filter(
+          id => !idsAtuais.includes(id)
+        );
+        const idsParaRemover = idsAtuaisEditaveis.filter(
+          id => !input.estabelecimentosIds.includes(id)
+        );
+
         // Remover permissões
         for (const estabelecimentoId of idsParaRemover) {
-          await db.deletePermissaoEstabelecimento(input.userId, estabelecimentoId);
+          await db.deletePermissaoEstabelecimento(
+            input.userId,
+            estabelecimentoId
+          );
         }
-        
+
         // Adicionar permissões
         for (const estabelecimentoId of idsParaAdicionar) {
           await db.criarPermissaoEstabelecimento({
@@ -5338,10 +5600,10 @@ export const appRouter = router({
             podeGerenciar: false,
           });
         }
-        
+
         // Buscar informações do usuário para o log
         const usuario = await db.getUserById(input.userId);
-        
+
         // Registrar no log de auditoria
         await db.registrarLogAuditoria({
           usuarioId: ctx.user.id,
@@ -5353,25 +5615,29 @@ export const appRouter = router({
           valoresAnteriores: { estabelecimentosIds: idsAtuais },
           valoresNovos: { estabelecimentosIds: input.estabelecimentosIds },
         });
-        
-        return { 
-          success: true, 
-          adicionados: idsParaAdicionar.length, 
-          removidos: idsParaRemover.length 
+
+        return {
+          success: true,
+          adicionados: idsParaAdicionar.length,
+          removidos: idsParaRemover.length,
         };
       }),
 
     // Conceder acesso a todos os estabelecimentos (apenas admin)
     concederAcessoTotal: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         userId: z.number(),
-        permissoes: z.object({
+          permissoes: z
+            .object({
           podeVisualizar: z.enum(["sim", "nao"]).optional(),
           podeEditar: z.enum(["sim", "nao"]).optional(),
           podeExcluir: z.enum(["sim", "nao"]).optional(),
           podeGerenciar: z.enum(["sim", "nao"]).optional(),
-        }).optional(),
-      }))
+            })
+            .optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({
@@ -5379,7 +5645,10 @@ export const appRouter = router({
             message: "Apenas administradores podem conceder acesso total",
           });
         }
-        await db.concederAcessoTodosEstabelecimentos(input.userId, input.permissoes);
+        await db.concederAcessoTodosEstabelecimentos(
+          input.userId,
+          input.permissoes
+        );
         return { success: true };
       }),
 
@@ -5405,28 +5674,40 @@ export const appRouter = router({
   produtividade: router({
     // Buscar métricas de produtividade de classificação de glosas
     metricas: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         return db.getMetricasProdutividade({
           userId: ctx.user.id,
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
       }),
 
     // Buscar métricas de envio de XML
     metricasEnvioXML: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         estabelecimentoId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getMetricasEnvioXML({
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
           estabelecimentoId: input?.estabelecimentoId,
         });
@@ -5434,14 +5715,20 @@ export const appRouter = router({
 
     // Buscar métricas de importação via banco (integrador de dados)
     metricasImportacaoBanco: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         estabelecimentoId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getMetricasImportacaoBanco({
-          dataInicio: input?.dataInicio ? new Date(input.dataInicio) : undefined,
+          dataInicio: input?.dataInicio
+            ? new Date(input.dataInicio)
+            : undefined,
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
           estabelecimentoId: input?.estabelecimentoId,
         });
@@ -5456,7 +5743,8 @@ export const appRouter = router({
       if (!dados) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Você não tem permissão para visualizar o dashboard consolidado",
+          message:
+            "Você não tem permissão para visualizar o dashboard consolidado",
         });
       }
       return dados;
@@ -5464,10 +5752,14 @@ export const appRouter = router({
 
     // Buscar comparativo de glosas entre estabelecimentos
     comparativoGlosas: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx, input }) => {
         let periodo: { inicio: Date; fim: Date } | undefined;
         if (input?.dataInicio && input?.dataFim) {
@@ -5476,7 +5768,10 @@ export const appRouter = router({
             fim: new Date(input.dataFim),
           };
         }
-        const comparativo = await db.getComparativoGlosasEstabelecimentos(ctx.user.id, periodo);
+        const comparativo = await db.getComparativoGlosasEstabelecimentos(
+          ctx.user.id,
+          periodo
+        );
         if (!comparativo) {
           throw new TRPCError({
             code: "FORBIDDEN",
@@ -5488,16 +5783,26 @@ export const appRouter = router({
 
     // Buscar dados de recursos de glosa consolidados de todos os estabelecimentos
     recursadoConsolidado: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ ctx }) => {
         const database = await getDb();
-        if (!database) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Banco de dados não disponível' });
+        if (!database)
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Banco de dados não disponível",
+          });
 
-        const { recursosGlosa, lotesRecurso, convenios, estabelecimentos } = await import("../drizzle/schema");
-        const { sql, eq, and, gte, lte, inArray, isNotNull, count, sum } = await import("drizzle-orm");
+        const { recursosGlosa, lotesRecurso, convenios, estabelecimentos } =
+          await import("../drizzle/schema");
+        const { sql, eq, and, gte, lte, inArray, isNotNull, count, sum } =
+          await import("drizzle-orm");
 
         // Buscar todos os estabelecimentos que o usuário tem acesso
         const estabList = await db.getEstabelecimentos();
@@ -5514,7 +5819,11 @@ export const appRouter = router({
             valorTotalRecebido: sum(recursosGlosa.valorRecebido),
           })
           .from(recursosGlosa)
-          .where(estabIds.length > 0 ? inArray(recursosGlosa.estabelecimentoId, estabIds) : sql`1=1`);
+          .where(
+            estabIds.length > 0
+              ? inArray(recursosGlosa.estabelecimentoId, estabIds)
+              : sql`1=1`
+          );
 
         // KPIs por status
         const statusCounts = await database
@@ -5525,7 +5834,11 @@ export const appRouter = router({
             valorRecuperado: sum(recursosGlosa.valorRecuperado),
           })
           .from(recursosGlosa)
-          .where(estabIds.length > 0 ? inArray(recursosGlosa.estabelecimentoId, estabIds) : sql`1=1`)
+          .where(
+            estabIds.length > 0
+              ? inArray(recursosGlosa.estabelecimentoId, estabIds)
+              : sql`1=1`
+          )
           .groupBy(recursosGlosa.status);
 
         // Agrupar por estabelecimento
@@ -5538,10 +5851,14 @@ export const appRouter = router({
             valorRecebido: sum(recursosGlosa.valorRecebido),
           })
           .from(recursosGlosa)
-          .where(and(
-            estabIds.length > 0 ? inArray(recursosGlosa.estabelecimentoId, estabIds) : sql`1=1`,
+          .where(
+            and(
+              estabIds.length > 0
+                ? inArray(recursosGlosa.estabelecimentoId, estabIds)
+                : sql`1=1`,
             isNotNull(recursosGlosa.estabelecimentoId)
-          ))
+            )
+          )
           .groupBy(recursosGlosa.estabelecimentoId);
 
         // Agrupar por convênio (top 10)
@@ -5553,7 +5870,11 @@ export const appRouter = router({
             valorRecuperado: sum(recursosGlosa.valorRecuperado),
           })
           .from(recursosGlosa)
-          .where(estabIds.length > 0 ? inArray(recursosGlosa.estabelecimentoId, estabIds) : sql`1=1`)
+          .where(
+            estabIds.length > 0
+              ? inArray(recursosGlosa.estabelecimentoId, estabIds)
+              : sql`1=1`
+          )
           .groupBy(recursosGlosa.convenioId)
           .orderBy(sql`SUM(${recursosGlosa.valorGlosado}) DESC`)
           .limit(10);
@@ -5579,12 +5900,17 @@ export const appRouter = router({
             valorTotalRecebido: sum(lotesRecurso.valorTotalRecebido),
           })
           .from(lotesRecurso)
-          .where(estabIds.length > 0 ? inArray(lotesRecurso.estabelecimentoId, estabIds) : sql`1=1`);
+          .where(
+            estabIds.length > 0
+              ? inArray(lotesRecurso.estabelecimentoId, estabIds)
+              : sql`1=1`
+          );
 
         const valorGlosado = Number(kpisResult?.valorTotalGlosado || 0);
         const valorRecuperado = Number(kpisResult?.valorTotalRecuperado || 0);
         const valorRecebido = Number(kpisResult?.valorTotalRecebido || 0);
-        const taxaRecuperacao = valorGlosado > 0 ? ((valorRecuperado / valorGlosado) * 100) : 0;
+        const taxaRecuperacao =
+          valorGlosado > 0 ? (valorRecuperado / valorGlosado) * 100 : 0;
 
         return {
           kpis: {
@@ -5603,16 +5929,26 @@ export const appRouter = router({
           })),
           porEstabelecimento: porEstab.map(e => ({
             id: e.estabelecimentoId,
-            nome: estabMap.get(e.estabelecimentoId!) || `Estab. ${e.estabelecimentoId}`,
+            nome:
+              estabMap.get(e.estabelecimentoId!) ||
+              `Estab. ${e.estabelecimentoId}`,
             totalRecursos: Number(e.totalRecursos),
             valorGlosado: Number(e.valorGlosado || 0),
             valorRecuperado: Number(e.valorRecuperado || 0),
             valorRecebido: Number(e.valorRecebido || 0),
-            taxaRecuperacao: Number(e.valorGlosado || 0) > 0 ? Math.round((Number(e.valorRecuperado || 0) / Number(e.valorGlosado || 0)) * 10000) / 100 : 0,
+            taxaRecuperacao:
+              Number(e.valorGlosado || 0) > 0
+                ? Math.round(
+                    (Number(e.valorRecuperado || 0) /
+                      Number(e.valorGlosado || 0)) *
+                      10000
+                  ) / 100
+                : 0,
           })),
           porConvenio: porConvenio.map(c => ({
             convenioId: c.convenioId,
-            convenioNome: convMap.get(c.convenioId) || `Convênio ${c.convenioId}`,
+            convenioNome:
+              convMap.get(c.convenioId) || `Convênio ${c.convenioId}`,
             totalRecursos: Number(c.totalRecursos),
             valorGlosado: Number(c.valorGlosado || 0),
             valorRecuperado: Number(c.valorRecuperado || 0),
@@ -5630,9 +5966,13 @@ export const appRouter = router({
     // Buscar atendimentos consolidados de todos os estabelecimentos
     atendimentosConsolidados: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Visão consolidada disponível somente para administradores." });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Visão consolidada disponível somente para administradores.",
+        });
       }
-      const { getAtendimentosParadosUnificados, calcularDiasParadoUnificado } = await import("./atendimentosUnificados");
+      const { getAtendimentosParadosUnificados, calcularDiasParadoUnificado } =
+        await import("./atendimentosUnificados");
       const estabelecimentosList = await db.getEstabelecimentos();
       const estabMap = new Map(estabelecimentosList.map(e => [e.id, e.nome]));
 
@@ -5640,34 +5980,72 @@ export const appRouter = router({
 
       // KPIs gerais
       const total = todos.length;
-      const totalDias = todos.reduce((sum, a) => sum + calcularDiasParadoUnificado(a.data_entrada, a.data_saida || undefined, a.origemSistema, a.dtEntrega, a.dtEtapa), 0);
+      const totalDias = todos.reduce(
+        (sum, a) =>
+          sum +
+          calcularDiasParadoUnificado(
+            a.data_entrada,
+            a.data_saida || undefined,
+            a.origemSistema,
+            a.dtEntrega,
+            a.dtEtapa
+          ),
+        0
+      );
       const mediaDias = total > 0 ? Math.round(totalDias / total) : 0;
-      const valorTotal = todos.reduce((sum, a) => sum + Number(a.valorConta || 0), 0);
+      const valorTotal = todos.reduce(
+        (sum, a) => sum + Number(a.valorConta || 0),
+        0
+      );
 
       // Agrupar por estabelecimento
-      const porEstab: Record<number, { nome: string; total: number; valorTotal: number; semConta: number; aFaturar: number; internacao: number; ambulatorio: number; exame: number; outros: number }> = {};
+      const porEstab: Record<
+        number,
+        {
+          nome: string;
+          total: number;
+          valorTotal: number;
+          semConta: number;
+          aFaturar: number;
+          internacao: number;
+          ambulatorio: number;
+          exame: number;
+          outros: number;
+        }
+      > = {};
       todos.forEach(a => {
         const eid = a.estabelecimentoId;
         if (!porEstab[eid]) {
-          porEstab[eid] = { nome: estabMap.get(eid) || `Estab. ${eid}`, total: 0, valorTotal: 0, semConta: 0, aFaturar: 0, internacao: 0, ambulatorio: 0, exame: 0, outros: 0 };
+          porEstab[eid] = {
+            nome: estabMap.get(eid) || `Estab. ${eid}`,
+            total: 0,
+            valorTotal: 0,
+            semConta: 0,
+            aFaturar: 0,
+            internacao: 0,
+            ambulatorio: 0,
+            exame: 0,
+            outros: 0,
+          };
         }
         const e = porEstab[eid];
         e.total++;
         e.valorTotal += Number(a.valorConta || 0);
-        const desc = (a.descricao_atendimento || '').toLowerCase();
-        if (desc.includes('sem_conta') || desc.includes('sem conta')) e.semConta++;
+        const desc = (a.descricao_atendimento || "").toLowerCase();
+        if (desc.includes("sem_conta") || desc.includes("sem conta"))
+          e.semConta++;
         else e.aFaturar++;
-        const tipo = (a.tipo_atendimento || '').toLowerCase();
-        if (tipo.includes('internac')) e.internacao++;
-        else if (tipo.includes('ambulat')) e.ambulatorio++;
-        else if (tipo.includes('exame')) e.exame++;
+        const tipo = (a.tipo_atendimento || "").toLowerCase();
+        if (tipo.includes("internac")) e.internacao++;
+        else if (tipo.includes("ambulat")) e.ambulatorio++;
+        else if (tipo.includes("exame")) e.exame++;
         else e.outros++;
       });
 
       // Agrupar por convênio (top 15)
       const porConvenio: Record<string, number> = {};
       todos.forEach(a => {
-        const conv = a.convenio || 'Sem Convênio';
+        const conv = a.convenio || "Sem Convênio";
         porConvenio[conv] = (porConvenio[conv] || 0) + 1;
       });
       const topConvenios = Object.entries(porConvenio)
@@ -5678,15 +6056,21 @@ export const appRouter = router({
       // Agrupar por sistema de origem
       const porOrigem: Record<string, number> = {};
       todos.forEach(a => {
-        const orig = a.origemSistema || 'Desconhecido';
+        const orig = a.origemSistema || "Desconhecido";
         porOrigem[orig] = (porOrigem[orig] || 0) + 1;
       });
 
       return {
         kpis: { total, mediaDias, valorTotal },
-        porEstabelecimento: Object.entries(porEstab).map(([id, data]) => ({ id: Number(id), ...data })),
+        porEstabelecimento: Object.entries(porEstab).map(([id, data]) => ({
+          id: Number(id),
+          ...data,
+        })),
         topConvenios,
-        porOrigem: Object.entries(porOrigem).map(([origem, quantidade]) => ({ origem, quantidade })),
+        porOrigem: Object.entries(porOrigem).map(([origem, quantidade]) => ({
+          origem,
+          quantidade,
+        })),
       };
     }),
   }),
@@ -5695,71 +6079,92 @@ export const appRouter = router({
   motivosGlosa: router({
     // Listar motivos de glosa
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         tipoOrigem: z.enum(["tiss", "personalizado"]).optional(),
         ativo: z.enum(["sim", "nao"]).optional(),
         search: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getMotivosGlosa(input || {});
       }),
 
     // Buscar motivo por código (combinado banco + TISS)
     porCodigo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         codigo: z.string(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getMotivoGlosaCombinado(input.codigo, input.estabelecimentoId);
+        return db.getMotivoGlosaCombinado(
+          input.codigo,
+          input.estabelecimentoId
+        );
       }),
 
     // Listar grupos disponíveis
     grupos: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getGruposMotivosGlosa(input?.estabelecimentoId);
       }),
 
     // Criar novo motivo de glosa
     criar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         codigo: z.string().min(1, "Código é obrigatório"),
         grupo: z.string().min(1, "Grupo é obrigatório"),
         descricao: z.string().min(1, "Descrição é obrigatória"),
-        descricaoSimplificada: z.string().min(1, "Descrição simplificada é obrigatória"),
+          descricaoSimplificada: z
+            .string()
+            .min(1, "Descrição simplificada é obrigatória"),
         argumentoContestacao: z.string().optional(),
         acoesRecomendadas: z.array(z.string()).optional(),
         documentosSugeridos: z.array(z.string()).optional(),
         dificuldadeReversao: z.number().min(1).max(5).optional(),
         probabilidadeSucesso: z.number().min(0).max(100).optional(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         // Verificar se já existe um motivo com esse código
-        const existente = await db.getMotivoGlosaPorCodigo(input.codigo, input.estabelecimentoId);
+        const existente = await db.getMotivoGlosaPorCodigo(
+          input.codigo,
+          input.estabelecimentoId
+        );
         if (existente) {
           throw new TRPCError({
             code: "CONFLICT",
             message: `Já existe um motivo de glosa com o código ${input.codigo}`,
           });
         }
-        
+
         await db.criarMotivoGlosa({
           ...input,
           tipoOrigem: "personalizado",
           criadoPor: ctx.user.id,
         });
-        
+
         return { success: true };
       }),
 
     // Atualizar motivo de glosa
     atualizar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         codigo: z.string().optional(),
         grupo: z.string().optional(),
@@ -5771,7 +6176,8 @@ export const appRouter = router({
         dificuldadeReversao: z.number().min(1).max(5).optional(),
         probabilidadeSucesso: z.number().min(0).max(100).optional(),
         ativo: z.enum(["sim", "nao"]).optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await db.atualizarMotivoGlosa(id, data);
@@ -5787,8 +6193,7 @@ export const appRouter = router({
       }),
 
     // Popular tabela com códigos TISS oficiais
-    seedTiss: protectedProcedure
-      .mutation(async () => {
+    seedTiss: protectedProcedure.mutation(async () => {
         const { seedMotivosGlosa } = await import("./seedMotivosGlosa");
         return seedMotivosGlosa();
       }),
@@ -5798,59 +6203,81 @@ export const appRouter = router({
   ia: router({
     // Obter estatísticas por código de procedimento
     estatisticasPorCodigo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getEstatisticasPorCodigo(input.estabelecimentoId, input.convenioId);
+        return db.getEstatisticasPorCodigo(
+          input.estabelecimentoId,
+          input.convenioId
+        );
       }),
 
     // Identificar contas com valores fora da média (outliers)
     contasOutliers: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
         limiteDesvio: z.number().default(2),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getContasOutliers(input.estabelecimentoId, input.convenioId, input.limiteDesvio);
+        return db.getContasOutliers(
+          input.estabelecimentoId,
+          input.convenioId,
+          input.limiteDesvio
+        );
       }),
 
     // Detectar padrões de erro por funcionário
     padroesErroPorFuncionario: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getPadroesErroPorFuncionario(input.estabelecimentoId);
       }),
 
     // Buscar motivos de glosa por funcionário
     motivosGlosaPorFuncionario: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         userId: z.number(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getMotivosGlosaPorFuncionario(input.estabelecimentoId, input.userId);
+        return db.getMotivosGlosaPorFuncionario(
+          input.estabelecimentoId,
+          input.userId
+        );
       }),
 
     // Calcular risco de glosa para contas
     riscoGlosa: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         arquivoId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.calcularRiscoGlosa(input.estabelecimentoId, input.arquivoId);
       }),
 
     // Gerar alertas e recomendações da IA
     alertas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.gerarAlertasIA(input.estabelecimentoId);
       }),
@@ -5860,9 +6287,13 @@ export const appRouter = router({
   regrasIA: router({
     // Listar todas as regras de IA
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRegrasIA(input?.estabelecimentoId);
       }),
@@ -5876,24 +6307,34 @@ export const appRouter = router({
 
     // Buscar regra por código
     getPorCodigo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         codigo: z.string(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getRegraIAPorCodigo(input.codigo, input.estabelecimentoId);
       }),
 
     // Criar nova regra
     create: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
         codigo: z.string().min(1),
         nome: z.string().min(1),
         descricao: z.string().optional(),
-        categoria: z.enum(['outlier', 'padrao_erro', 'risco_glosa', 'tendencia', 'comparacao']),
-        tipoAlerta: z.enum(['critico', 'alerta', 'info']).optional(),
-        parametros: z.object({
+          categoria: z.enum([
+            "outlier",
+            "padrao_erro",
+            "risco_glosa",
+            "tendencia",
+            "comparacao",
+          ]),
+          tipoAlerta: z.enum(["critico", "alerta", "info"]).optional(),
+          parametros: z
+            .object({
           limiteDesvioAbaixo: z.number().optional(),
           limiteDesvioAcima: z.number().optional(),
           minimoContasHistorico: z.number().optional(),
@@ -5906,10 +6347,12 @@ export const appRouter = router({
           variacaoMinima: z.number().optional(),
           periodoComparacao: z.number().optional(),
           maxResultados: z.number().optional(),
-        }).optional(),
+            })
+            .optional(),
         prioridade: z.number().optional(),
-        ativo: z.enum(['sim', 'nao']).optional(),
-      }))
+          ativo: z.enum(["sim", "nao"]).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         return db.createRegraIA({
           ...input,
@@ -5919,12 +6362,14 @@ export const appRouter = router({
 
     // Atualizar regra existente
     update: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         nome: z.string().optional(),
         descricao: z.string().optional(),
-        tipoAlerta: z.enum(['critico', 'alerta', 'info']).optional(),
-        parametros: z.object({
+          tipoAlerta: z.enum(["critico", "alerta", "info"]).optional(),
+          parametros: z
+            .object({
           limiteDesvioAbaixo: z.number().optional(),
           limiteDesvioAcima: z.number().optional(),
           minimoContasHistorico: z.number().optional(),
@@ -5937,10 +6382,12 @@ export const appRouter = router({
           variacaoMinima: z.number().optional(),
           periodoComparacao: z.number().optional(),
           maxResultados: z.number().optional(),
-        }).optional(),
+            })
+            .optional(),
         prioridade: z.number().optional(),
-        ativo: z.enum(['sim', 'nao']).optional(),
-      }))
+          ativo: z.enum(["sim", "nao"]).optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
         return db.updateRegraIA(id, {
@@ -5958,20 +6405,24 @@ export const appRouter = router({
 
     // Ativar/desativar regra
     toggle: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
-        ativo: z.enum(['sim', 'nao']),
-      }))
+          ativo: z.enum(["sim", "nao"]),
+        })
+      )
       .mutation(async ({ input }) => {
         return db.toggleRegraIA(input.id, input.ativo);
       }),
 
     // Restaurar regra para valores padrão
     restaurarPadrao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         codigo: z.string(),
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         return db.restaurarRegraPadrao(input.codigo, input.estabelecimentoId);
       }),
@@ -5981,18 +6432,20 @@ export const appRouter = router({
   importacaoTasy: router({
     // Criar nova importação (simples, sem upload)
     criar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeArquivo: z.string(),
         tamanhoArquivo: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const importacao = await db.createImportacaoTasy({
           estabelecimentoId: input.estabelecimentoId,
           userId: ctx.user.id,
           nomeArquivo: input.nomeArquivo,
           tamanhoArquivo: input.tamanhoArquivo,
-          status: 'aguardando',
+          status: "aguardando",
           progresso: 0,
         });
         return { id: importacao.id };
@@ -6000,12 +6453,14 @@ export const appRouter = router({
 
     // Criar nova importação (upload de arquivo SQLite)
     upload: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeArquivo: z.string(),
         tamanhoArquivo: z.number().optional(),
         conteudoBase64: z.string(), // Arquivo SQLite em base64
-      }))
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Cria o registro de importação
         const importacao = await db.createImportacaoTasy({
@@ -6013,14 +6468,18 @@ export const appRouter = router({
           userId: ctx.user.id,
           nomeArquivo: input.nomeArquivo,
           tamanhoArquivo: input.tamanhoArquivo,
-          status: 'aguardando',
+          status: "aguardando",
           progresso: 0,
         });
 
         // Salva o arquivo no S3 para processamento posterior
         const s3Key = `tasy-imports/${input.estabelecimentoId}/${importacao.id}/${sanitizeFilename(input.nomeArquivo)}`;
-        const fileBuffer = Buffer.from(input.conteudoBase64, 'base64');
-        const { url } = await storagePut(s3Key, fileBuffer, 'application/x-sqlite3');
+        const fileBuffer = Buffer.from(input.conteudoBase64, "base64");
+        const { url } = await storagePut(
+          s3Key,
+          fileBuffer,
+          "application/x-sqlite3"
+        );
 
         // Atualiza com a URL do S3
         await db.updateImportacaoTasy(importacao.id, {
@@ -6033,9 +6492,11 @@ export const appRouter = router({
 
     // Processar importação (lê o SQLite e insere os dados)
     processar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           atendimento: z.string(),
           nrInternoConta: z.string().optional(),
           sequencia: z.string().optional(),
@@ -6054,25 +6515,27 @@ export const appRouter = router({
           setor: z.string().optional(),
           protocolo: z.string().optional(),
           statusProtocolo: z.string().optional(),
-          tipo: z.enum(['MATERIAL', 'HONORARIO']),
+              tipo: z.enum(["MATERIAL", "HONORARIO"]),
           medico: z.string().optional(),
           funcaoMedico: z.string().optional(),
           crm: z.string().optional(),
           valorMedico: z.number().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
         // Atualiza status para processando
         await db.updateImportacaoTasy(input.importacaoId, {
-          status: 'processando',
+          status: "processando",
           totalRegistros: input.dados.length,
         });
 
@@ -6112,18 +6575,28 @@ export const appRouter = router({
         );
 
         // Conta por tipo
-        const totalMateriais = input.dados.filter(d => d.tipo === 'MATERIAL').length;
-        const totalHonorarios = input.dados.filter(d => d.tipo === 'HONORARIO').length;
+        const totalMateriais = input.dados.filter(
+          d => d.tipo === "MATERIAL"
+        ).length;
+        const totalHonorarios = input.dados.filter(
+          d => d.tipo === "HONORARIO"
+        ).length;
 
         // Calcula datas
         const datas = input.dados
           .filter(d => d.dataFaturado)
           .map(d => new Date(d.dataFaturado!));
-        const dataInicio = datas.length > 0 ? new Date(Math.min(...datas.map(d => d.getTime()))) : null;
-        const dataFim = datas.length > 0 ? new Date(Math.max(...datas.map(d => d.getTime()))) : null;
+        const dataInicio =
+          datas.length > 0
+            ? new Date(Math.min(...datas.map(d => d.getTime())))
+            : null;
+        const dataFim =
+          datas.length > 0
+            ? new Date(Math.max(...datas.map(d => d.getTime())))
+            : null;
 
         // Atualiza estatísticas
-        const status = resultado.erros > 0 ? 'concluido_parcial' : 'concluido';
+        const status = resultado.erros > 0 ? "concluido_parcial" : "concluido";
         await db.updateImportacaoTasy(input.importacaoId, {
           status,
           progresso: 100,
@@ -6146,10 +6619,12 @@ export const appRouter = router({
 
     // Listar importações
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         limite: z.number().optional().default(50),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getImportacoesTasy(input.estabelecimentoId, input.limite);
       }),
@@ -6170,17 +6645,19 @@ export const appRouter = router({
 
     // Buscar dados importados
     dados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         convenio: z.string().optional(),
-        tipo: z.enum(['MATERIAL', 'HONORARIO']).optional(),
+          tipo: z.enum(["MATERIAL", "HONORARIO"]).optional(),
         atendimento: z.string().optional(),
         guia: z.string().optional(),
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         const filtros = {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6197,13 +6674,15 @@ export const appRouter = router({
 
     // Contar dados importados
     count: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         convenio: z.string().optional(),
-        tipo: z.enum(['MATERIAL', 'HONORARIO']).optional(),
-      }))
+          tipo: z.enum(["MATERIAL", "HONORARIO"]).optional(),
+        })
+      )
       .query(async ({ input }) => {
         const filtros = {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6230,12 +6709,14 @@ export const appRouter = router({
 
     // Upload automático via API (para script Python)
     uploadAutomatico: publicProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeArquivo: z.string(),
         tamanhoArquivo: z.number().optional(),
         apiKey: z.string(), // Chave de API para autenticação
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           atendimento: z.string(),
           nrInternoConta: z.string().optional(),
           sequencia: z.string().optional(),
@@ -6254,20 +6735,26 @@ export const appRouter = router({
           setor: z.string().optional(),
           protocolo: z.string().optional(),
           statusProtocolo: z.string().optional(),
-          tipo: z.enum(['MATERIAL', 'HONORARIO']),
+              tipo: z.enum(["MATERIAL", "HONORARIO"]),
           medico: z.string().optional(),
           funcaoMedico: z.string().optional(),
           crm: z.string().optional(),
           valorMedico: z.number().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         // Valida a chave de API
-        const apiKeyValida = await db.validarApiKey(input.apiKey, input.estabelecimentoId);
+        const apiKeyValida = await db.validarApiKey(
+          input.apiKey,
+          input.estabelecimentoId
+        );
         if (!apiKeyValida) {
           throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: 'Chave de API inválida ou sem permissão para este estabelecimento',
+            code: "UNAUTHORIZED",
+            message:
+              "Chave de API inválida ou sem permissão para este estabelecimento",
           });
         }
 
@@ -6277,7 +6764,7 @@ export const appRouter = router({
           userId: apiKeyValida.userId,
           nomeArquivo: input.nomeArquivo,
           tamanhoArquivo: input.tamanhoArquivo,
-          status: 'processando',
+          status: "processando",
           progresso: 0,
           totalRegistros: input.dados.length,
         });
@@ -6318,18 +6805,28 @@ export const appRouter = router({
         );
 
         // Conta por tipo
-        const totalMateriais = input.dados.filter(d => d.tipo === 'MATERIAL').length;
-        const totalHonorarios = input.dados.filter(d => d.tipo === 'HONORARIO').length;
+        const totalMateriais = input.dados.filter(
+          d => d.tipo === "MATERIAL"
+        ).length;
+        const totalHonorarios = input.dados.filter(
+          d => d.tipo === "HONORARIO"
+        ).length;
 
         // Calcula datas
         const datas = input.dados
           .filter(d => d.dataFaturado)
           .map(d => new Date(d.dataFaturado!));
-        const dataInicio = datas.length > 0 ? new Date(Math.min(...datas.map(d => d.getTime()))) : null;
-        const dataFim = datas.length > 0 ? new Date(Math.max(...datas.map(d => d.getTime()))) : null;
+        const dataInicio =
+          datas.length > 0
+            ? new Date(Math.min(...datas.map(d => d.getTime())))
+            : null;
+        const dataFim =
+          datas.length > 0
+            ? new Date(Math.max(...datas.map(d => d.getTime())))
+            : null;
 
         // Atualiza estatísticas
-        const status = resultado.erros > 0 ? 'concluido_parcial' : 'concluido';
+        const status = resultado.erros > 0 ? "concluido_parcial" : "concluido";
         await db.updateImportacaoTasy(importacao.id, {
           status,
           progresso: 100,
@@ -6353,10 +6850,12 @@ export const appRouter = router({
 
     // Conciliação Tasy x XML
     conciliar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         arquivoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         return db.compararTasyComXML(input.estabelecimentoId, input.arquivoId);
       }),
@@ -6370,14 +6869,16 @@ export const appRouter = router({
 
     // Buscar dados para conciliação
     dadosParaConciliacao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         convenio: z.string().optional(),
         guia: z.string().optional(),
         atendimento: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getDadosTasyParaConciliacao(input.estabelecimentoId, {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6390,23 +6891,27 @@ export const appRouter = router({
 
     // Marcar dados como processados
     marcarProcessados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         ids: z.array(z.number()),
         procedimentoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         return db.marcarDadosTasyProcessados(input.ids, input.procedimentoId);
       }),
 
     // Validar dados do Tasy com regras de negócio
     validarComRegras: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         convenio: z.string().optional(),
         atendimento: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.validarDadosTasyComRegras(input.estabelecimentoId, {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6425,14 +6930,18 @@ export const appRouter = router({
 
     // Comparativo entre dois períodos
     comparativo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         periodo1Mes: z.number().min(1).max(12),
         periodo1Ano: z.number().min(2000).max(2100),
         periodo2Mes: z.number().min(1).max(12),
         periodo2Ano: z.number().min(2000).max(2100),
-        agrupamento: z.enum(['convenio', 'setor', 'medico', 'tipo']).default('convenio'),
-      }))
+          agrupamento: z
+            .enum(["convenio", "setor", "medico", "tipo"])
+            .default("convenio"),
+        })
+      )
       .query(async ({ input }) => {
         return db.getDadosTasyComparativo(
           input.estabelecimentoId,
@@ -6443,12 +6952,14 @@ export const appRouter = router({
       }),
 
     // ============ CONTAS PAGAS E ITENS PAGOS ============
-    
+
     // Processar contas pagas do SQLite
     processarContasPagas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           dataRetorno: z.string().optional(),
           seqRetornoGeral: z.string().optional(),
           titulo: z.string().optional(),
@@ -6460,14 +6971,16 @@ export const appRouter = router({
           dataRecebimento: z.string().optional(),
           pagoConta: z.number().optional(),
           glosaConta: z.number().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
@@ -6482,7 +6995,9 @@ export const appRouter = router({
           nrConta: d.nrConta || null,
           convenio: d.convenio || null,
           nrProtocolo: d.nrProtocolo || null,
-          dataRecebimento: d.dataRecebimento ? new Date(d.dataRecebimento) : null,
+          dataRecebimento: d.dataRecebimento
+            ? new Date(d.dataRecebimento)
+            : null,
           pagoConta: d.pagoConta?.toString() || null,
           glosaConta: d.glosaConta?.toString() || null,
         }));
@@ -6501,9 +7016,11 @@ export const appRouter = router({
 
     // Processar itens pagos do SQLite
     processarItensPagos: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           titulo: z.string().optional(),
           guia: z.string().optional(),
           nrSeqConta: z.string().optional(),
@@ -6516,14 +7033,16 @@ export const appRouter = router({
           procedimento: z.string().optional(),
           material: z.string().optional(),
           setor: z.string().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
@@ -6535,7 +7054,9 @@ export const appRouter = router({
           nrSeqConta: d.nrSeqConta || null,
           conta: d.conta || null,
           nrProtocolo: d.nrProtocolo || null,
-          dataRecebimento: d.dataRecebimento ? new Date(d.dataRecebimento) : null,
+          dataRecebimento: d.dataRecebimento
+            ? new Date(d.dataRecebimento)
+            : null,
           glosaItem: d.glosaItem?.toString() || null,
           qndGlosaItem: d.qndGlosaItem?.toString() || null,
           motivoGlosa: d.motivoGlosa || null,
@@ -6558,7 +7079,8 @@ export const appRouter = router({
 
     // Buscar contas pagas
     contasPagas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
@@ -6566,7 +7088,8 @@ export const appRouter = router({
         guia: z.string().optional(),
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getContasPagasTasy(input.estabelecimentoId, {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6580,13 +7103,15 @@ export const appRouter = router({
 
     // Buscar itens pagos
     itensPagos: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         guia: z.string().optional(),
         conta: z.string().optional(),
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getItensPagosTasy(input.estabelecimentoId, {
           guia: input.guia,
@@ -6598,7 +7123,8 @@ export const appRouter = router({
 
     // Conciliação completa Tasy (faturado x pago x glosado)
     conciliacaoCompleta: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
@@ -6606,7 +7132,8 @@ export const appRouter = router({
         guia: z.string().optional(),
         atendimento: z.string().optional(),
         mesAno: z.string().optional(), // Formato: "2024-01" para filtrar por mês/ano
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getConciliacaoTasyCompleta(input.estabelecimentoId, {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -6636,9 +7163,11 @@ export const appRouter = router({
 
     // Processar procedimentos do Tasy (tabela separada)
     processarProcedimentos: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           atendimento: z.string(),
           nrInternoConta: z.string().optional(),
           guia: z.string().optional(),
@@ -6661,14 +7190,16 @@ export const appRouter = router({
           funcaoMedico: z.string().optional(),
           crm: z.string().optional(),
           valorMedico: z.number().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
@@ -6713,9 +7244,11 @@ export const appRouter = router({
 
     // Processar materiais/medicamentos do Tasy (tabela separada)
     processarMatMed: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           atendimento: z.string(),
           nrInternoConta: z.string().optional(),
           guia: z.string().optional(),
@@ -6734,15 +7267,17 @@ export const appRouter = router({
           setor: z.string().optional(),
           protocolo: z.string().optional(),
           statusProtocolo: z.string().optional(),
-          tipoItem: z.enum(['material', 'medicamento']).optional(),
-        })),
-      }))
+              tipoItem: z.enum(["material", "medicamento"]).optional(),
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
@@ -6767,7 +7302,7 @@ export const appRouter = router({
           setor: d.setor || null,
           protocolo: d.protocolo || null,
           statusProtocolo: d.statusProtocolo || null,
-          tipoItem: d.tipoItem || 'material',
+          tipoItem: d.tipoItem || "material",
         }));
 
         const resultado = await db.insertMatMedTasyBatch(
@@ -6784,15 +7319,17 @@ export const appRouter = router({
 
     // Gerar tabela contas_tasy unificada (junção de procedimentos + mat_med)
     gerarContasUnificadas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         importacaoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         const importacao = await db.getImportacaoTasyById(input.importacaoId);
         if (!importacao) {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Importação não encontrada',
+            code: "NOT_FOUND",
+            message: "Importação não encontrada",
           });
         }
 
@@ -6810,7 +7347,8 @@ export const appRouter = router({
 
     // Buscar contas unificadas
     contasUnificadas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenio: z.string().optional(),
         guia: z.string().optional(),
@@ -6822,9 +7360,10 @@ export const appRouter = router({
         anoReferencia: z.number().optional(), // Ex: 2025
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        console.log('[contasUnificadas] Input:', JSON.stringify(input));
+        console.log("[contasUnificadas] Input:", JSON.stringify(input));
         const result = await db.getContasTasy(input.estabelecimentoId, {
           convenio: input.convenio,
           guia: input.guia,
@@ -6837,7 +7376,7 @@ export const appRouter = router({
           limite: input.limite,
           offset: input.offset,
         });
-        console.log('[contasUnificadas] Result count:', result?.length || 0);
+        console.log("[contasUnificadas] Result count:", result?.length || 0);
         return result;
       }),
 
@@ -6850,7 +7389,8 @@ export const appRouter = router({
 
     // Buscar procedimentos separados
     procedimentosSeparados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         importacaoId: z.number().optional(),
         convenio: z.string().optional(),
@@ -6858,7 +7398,8 @@ export const appRouter = router({
         atendimento: z.string().optional(),
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getProcedimentosTasy(input.estabelecimentoId, {
           importacaoId: input.importacaoId,
@@ -6872,16 +7413,18 @@ export const appRouter = router({
 
     // Buscar mat/med separados
     matMedSeparados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         importacaoId: z.number().optional(),
         convenio: z.string().optional(),
         guia: z.string().optional(),
         atendimento: z.string().optional(),
-        tipoItem: z.enum(['material', 'medicamento']).optional(),
+          tipoItem: z.enum(["material", "medicamento"]).optional(),
         limite: z.number().optional().default(100),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getMatMedTasy(input.estabelecimentoId, {
           importacaoId: input.importacaoId,
@@ -6921,7 +7464,8 @@ export const appRouter = router({
 
     // Salvar novo dashboard
     salvar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nome: z.string().min(1).max(255),
         descricao: z.string().optional(),
@@ -6942,18 +7486,21 @@ export const appRouter = router({
         periodo1Ano: z.number().optional(),
         periodo2Mes: z.number().optional(),
         periodo2Ano: z.number().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return db.salvarDashboard(ctx.user.id, input.estabelecimentoId, input);
       }),
 
     // Atualizar dashboard existente
     atualizar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         nome: z.string().min(1).max(255).optional(),
         descricao: z.string().optional(),
-        configuracao: z.object({
+          configuracao: z
+            .object({
           tipoGrafico: z.string(),
           agrupamento: z.string(),
           colunasSelecionadas: z.array(z.string()),
@@ -6964,14 +7511,16 @@ export const appRouter = router({
             tipo: z.string().optional(),
             setor: z.string().optional(),
           }),
-        }).optional(),
+            })
+            .optional(),
         comparativoAtivo: z.boolean().optional(),
         periodo1Mes: z.number().optional(),
         periodo1Ano: z.number().optional(),
         periodo2Mes: z.number().optional(),
         periodo2Ano: z.number().optional(),
         favorito: z.boolean().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { id, ...dados } = input;
         return db.atualizarDashboard(id, ctx.user.id, dados);
@@ -6986,11 +7535,13 @@ export const appRouter = router({
 
     // Compartilhar dashboard com outro usuário
     compartilhar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         dashboardId: z.number(),
         usuarioId: z.number(),
-        permissao: z.enum(['visualizar', 'editar']).default('visualizar'),
-      }))
+          permissao: z.enum(["visualizar", "editar"]).default("visualizar"),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return db.compartilharDashboard(
           input.dashboardId,
@@ -7004,28 +7555,40 @@ export const appRouter = router({
     compartilhadosComigo: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number().optional() }))
       .query(async ({ ctx, input }) => {
-        return db.listarDashboardsCompartilhadosComigo(ctx.user.id, input.estabelecimentoId);
+        return db.listarDashboardsCompartilhadosComigo(
+          ctx.user.id,
+          input.estabelecimentoId
+        );
       }),
 
     // Listar compartilhamentos de um dashboard
     listarCompartilhamentos: protectedProcedure
       .input(z.object({ dashboardId: z.number() }))
       .query(async ({ ctx, input }) => {
-        return db.listarCompartilhamentosDashboard(input.dashboardId, ctx.user.id);
+        return db.listarCompartilhamentosDashboard(
+          input.dashboardId,
+          ctx.user.id
+        );
       }),
 
     // Remover compartilhamento
     removerCompartilhamento: protectedProcedure
       .input(z.object({ compartilhamentoId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        return db.removerCompartilhamentoDashboard(input.compartilhamentoId, ctx.user.id);
+        return db.removerCompartilhamentoDashboard(
+          input.compartilhamentoId,
+          ctx.user.id
+        );
       }),
 
     // Listar usuários para compartilhamento
     usuariosParaCompartilhamento: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ ctx, input }) => {
-        return db.listarUsuariosParaCompartilhamento(input.estabelecimentoId, ctx.user.id);
+        return db.listarUsuariosParaCompartilhamento(
+          input.estabelecimentoId,
+          ctx.user.id
+        );
       }),
   }),
 
@@ -7033,15 +7596,19 @@ export const appRouter = router({
   alertasVariacao: router({
     // Criar alerta
     criar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nome: z.string().min(1).max(255),
-        tipoAlerta: z.enum(['queda', 'aumento', 'ambos']).default('queda'),
+          tipoAlerta: z.enum(["queda", "aumento", "ambos"]).default("queda"),
         percentualLimite: z.number().min(1).max(100).default(20),
-        metrica: z.enum(['faturamento', 'quantidade', 'glosa']).default('faturamento'),
-        agrupamento: z.string().default('convenio'),
-        notificarEmail: z.enum(['sim', 'nao']).default('nao'),
-      }))
+          metrica: z
+            .enum(["faturamento", "quantidade", "glosa"])
+            .default("faturamento"),
+          agrupamento: z.string().default("convenio"),
+          notificarEmail: z.enum(["sim", "nao"]).default("nao"),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return db.criarAlertaVariacao({
           ...input,
@@ -7058,16 +7625,18 @@ export const appRouter = router({
 
     // Atualizar alerta
     atualizar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         nome: z.string().min(1).max(255).optional(),
-        tipoAlerta: z.enum(['queda', 'aumento', 'ambos']).optional(),
+          tipoAlerta: z.enum(["queda", "aumento", "ambos"]).optional(),
         percentualLimite: z.number().min(1).max(100).optional(),
-        metrica: z.enum(['faturamento', 'quantidade', 'glosa']).optional(),
+          metrica: z.enum(["faturamento", "quantidade", "glosa"]).optional(),
         agrupamento: z.string().optional(),
-        ativo: z.enum(['sim', 'nao']).optional(),
-        notificarEmail: z.enum(['sim', 'nao']).optional(),
-      }))
+          ativo: z.enum(["sim", "nao"]).optional(),
+          notificarEmail: z.enum(["sim", "nao"]).optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { id, ...dados } = input;
         return db.atualizarAlertaVariacao(id, ctx.user.id, dados);
@@ -7089,11 +7658,13 @@ export const appRouter = router({
 
     // Listar histórico de alertas disparados
     historico: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         limite: z.number().default(50),
         apenasNaoVisualizados: z.boolean().default(false),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.listarHistoricoAlertasVariacao(
           input.estabelecimentoId,
@@ -7114,7 +7685,8 @@ export const appRouter = router({
   historicoConciliacao: router({
     // Salvar resultado da conciliação
     salvar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().optional(),
@@ -7131,7 +7703,8 @@ export const appRouter = router({
         percentualGlosa: z.number(),
         percentualRecebido: z.number(),
         observacoes: z.string().optional(),
-        itens: z.array(z.object({
+          itens: z.array(
+            z.object({
           contaTasyId: z.number(),
           nrInternoConta: z.string(),
           guia: z.string(),
@@ -7141,23 +7714,34 @@ export const appRouter = router({
           valorPago: z.number(),
           valorGlosado: z.number(),
           valorDiferenca: z.number(),
-          statusConciliacao: z.enum(['ok', 'glosa', 'divergente', 'nao_encontrado']),
+              statusConciliacao: z.enum([
+                "ok",
+                "glosa",
+                "divergente",
+                "nao_encontrado",
+              ]),
           totalProcedimentos: z.number(),
           totalMatMed: z.number(),
           demonstrativoItemId: z.number().optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { itens, ...dados } = input;
-        
+
         // Função para converter data de forma segura
         const parseDate = (dateStr: string | undefined): Date | undefined => {
-          if (!dateStr || dateStr === '-' || dateStr === '') return undefined;
+          if (!dateStr || dateStr === "-" || dateStr === "") return undefined;
           try {
             // Tentar converter formato DD/MM/YYYY para Date
-            if (dateStr.includes('/')) {
-              const [day, month, year] = dateStr.split('/');
-              const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            if (dateStr.includes("/")) {
+              const [day, month, year] = dateStr.split("/");
+              const date = new Date(
+                parseInt(year),
+                parseInt(month) - 1,
+                parseInt(day)
+              );
               if (!isNaN(date.getTime())) return date;
             }
             // Tentar converter ISO ou outros formatos
@@ -7168,7 +7752,7 @@ export const appRouter = router({
             return undefined;
           }
         };
-        
+
         const result = await db.salvarResultadoConciliacao(
           { ...dados, userId: ctx.user.id },
           itens.map(item => ({
@@ -7182,27 +7766,31 @@ export const appRouter = router({
 
     // Listar histórico de conciliações
     listar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
         limite: z.number().optional().default(50),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.listarHistoricoConciliacoes(input.estabelecimentoId, input);
       }),
 
     // Buscar detalhes de uma conciliação
     detalhes: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         resultadoId: z.number(),
         statusConciliacao: z.string().optional(),
         busca: z.string().optional(),
         limite: z.number().optional().default(50),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         const { resultadoId, ...filtros } = input;
         return db.getDetalhesConciliacao(resultadoId, filtros);
@@ -7225,10 +7813,12 @@ export const appRouter = router({
 
     // Buscar evolução das conciliações
     evolucao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         meses: z.number().optional().default(6),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getEvolucaoConciliacoes(input.estabelecimentoId, input.meses);
       }),
@@ -7238,11 +7828,12 @@ export const appRouter = router({
   faturadoTasy: router({
     // Listar registros com filtros
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-        tipoItem: z.enum(['PROC/TAXA', 'MAT/MED']).optional(),
+          tipoItem: z.enum(["PROC/TAXA", "MAT/MED"]).optional(),
         protocolo: z.string().optional(),
         atend: z.string().optional(),
         conta: z.string().optional(),
@@ -7252,32 +7843,37 @@ export const appRouter = router({
         comPagamento: z.boolean().optional(),
         limite: z.number().optional(),
         offset: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getFaturadoTasy(input.estabelecimentoId, input);
       }),
 
     // Contar registros
     count: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-        tipoItem: z.enum(['PROC/TAXA', 'MAT/MED']).optional(),
+          tipoItem: z.enum(["PROC/TAXA", "MAT/MED"]).optional(),
         comGlosa: z.boolean().optional(),
         comPagamento: z.boolean().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.contarFaturadoTasy(input.estabelecimentoId, input);
       }),
 
     // Buscar estatísticas
     estatisticas: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getEstatisticasFaturadoTasy(input.estabelecimentoId, input);
       }),
@@ -7298,45 +7894,53 @@ export const appRouter = router({
 
     // Resumo por tipo de item
     resumoPorTipo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getResumoPorTipoFaturadoTasy(input.estabelecimentoId, input);
       }),
 
     // Itens glosados
     itensGlosados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
         limite: z.number().optional(),
         offset: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getItensGlosadosFaturadoTasy(input.estabelecimentoId, input);
       }),
 
     // Dados para Relatório BI
     dadosBI: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-        tipoItem: z.enum(['PROC/TAXA', 'MAT/MED']).optional(),
-      }))
+          tipoItem: z.enum(["PROC/TAXA", "MAT/MED"]).optional(),
+        })
+      )
       .query(async ({ input }) => {
         return db.getDadosBIFaturadoTasy(input.estabelecimentoId, input);
       }),
 
     // Importar dados do Excel ou SQLite
     importar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
-        dados: z.array(z.object({
+          dados: z.array(
+            z.object({
           sequencia: z.string().optional(),
           convenio: z.string().optional(),
           competencia: z.string().optional(),
@@ -7360,37 +7964,48 @@ export const appRouter = router({
           motivoGlosa: z.string().optional(),
           retorno: z.string().optional(),
           dtPgto: z.string().optional(),
-        })),
+            })
+          ),
         importacaoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         // Busca o estabelecimentoId da importação
         let estabelecimentoId: number = input.estabelecimentoId || 0;
-        
+
         // Sempre busca da importação para garantir consistência
         const importacoes = await db.getImportacoesTasy(0); // Busca todas
         const importacao = importacoes.find(i => i.id === input.importacaoId);
         if (importacao && importacao.estabelecimentoId) {
           estabelecimentoId = importacao.estabelecimentoId;
         }
-        
+
         if (!estabelecimentoId || estabelecimentoId === 0) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'EstabelecimentoId não encontrado na importação' });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "EstabelecimentoId não encontrado na importação",
+          });
         }
-        
+
         // Função para normalizar tipoItem
-        const normalizarTipoItem = (tipo: string | undefined): 'PROC/TAXA' | 'MAT/MED' => {
-          if (!tipo) return 'PROC/TAXA';
+        const normalizarTipoItem = (
+          tipo: string | undefined
+        ): "PROC/TAXA" | "MAT/MED" => {
+          if (!tipo) return "PROC/TAXA";
           const tipoUpper = tipo.toUpperCase();
           // Verifica se é mat/med
-          if (tipoUpper.includes('MAT') || tipoUpper.includes('MED') || 
-              tipoUpper.includes('MATERIAL') || tipoUpper.includes('MEDICAMENTO')) {
-            return 'MAT/MED';
+          if (
+            tipoUpper.includes("MAT") ||
+            tipoUpper.includes("MED") ||
+            tipoUpper.includes("MATERIAL") ||
+            tipoUpper.includes("MEDICAMENTO")
+          ) {
+            return "MAT/MED";
           }
           // Caso contrário, é proc/taxa
-          return 'PROC/TAXA';
+          return "PROC/TAXA";
         };
-        
+
         const registros = input.dados.map(d => ({
           estabelecimentoId: estabelecimentoId,
           importacaoId: input.importacaoId,
@@ -7419,7 +8034,10 @@ export const appRouter = router({
           dtPgto: d.dtPgto ? new Date(d.dtPgto) : null,
         }));
 
-        const resultado = await db.insertFaturadoTasyBatch(registros as any, estabelecimentoId || 0);
+        const resultado = await db.insertFaturadoTasyBatch(
+          registros as any,
+          estabelecimentoId || 0
+        );
         return resultado;
       }),
 
@@ -7427,22 +8045,26 @@ export const appRouter = router({
     excluirPorImportacao: protectedProcedure
       .input(z.object({ importacaoId: z.number() }))
       .mutation(async ({ input }) => {
-        const count = await db.excluirFaturadoTasyPorImportacao(input.importacaoId);
+        const count = await db.excluirFaturadoTasyPorImportacao(
+          input.importacaoId
+        );
         return { excluidos: count };
       }),
 
     // Dados para Relatório Tasy (formato compatível com importacaoTasy.dados)
     dadosRelatorio: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         competencia: z.string().optional(), // Competência específica (ex: "2025-12-01 00:00:00")
         convenio: z.string().optional(),
-        tipo: z.enum(['MATERIAL', 'HONORARIO']).optional(),
+          tipo: z.enum(["MATERIAL", "HONORARIO"]).optional(),
         limite: z.number().optional().default(10000),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         const filtros = {
           dataInicio: input.dataInicio ? new Date(input.dataInicio) : undefined,
@@ -7453,20 +8075,25 @@ export const appRouter = router({
           limite: input.limite,
           offset: input.offset,
         };
-        return db.getFaturadoTasyParaRelatorio(input.estabelecimentoId, filtros);
+        return db.getFaturadoTasyParaRelatorio(
+          input.estabelecimentoId,
+          filtros
+        );
       }),
 
     // Conciliação de contas - agrupado por conta
     conciliacao: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
         conta: z.string().optional(),
-        status: z.enum(['pago', 'parcial', 'glosado', 'pendente']).optional(),
+          status: z.enum(["pago", "parcial", "glosado", "pendente"]).optional(),
         limite: z.number().optional().default(500),
         offset: z.number().optional().default(0),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getConciliacaoFaturadoTasy(input.estabelecimentoId, {
           competencia: input.competencia,
@@ -7480,17 +8107,23 @@ export const appRouter = router({
 
     // Itens de uma conta específica
     itensPorConta: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         conta: z.string(),
         competencia: z.string().optional(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return db.getItensFaturadoTasyPorConta(input.estabelecimentoId, input.conta, {
+        return db.getItensFaturadoTasyPorConta(
+          input.estabelecimentoId,
+          input.conta,
+          {
           competencia: input.competencia,
           convenio: input.convenio,
-        });
+          }
+        );
       }),
 
     // Competências disponíveis para filtros
@@ -7507,7 +8140,8 @@ export const appRouter = router({
   relatoriosBI: router({
     // Buscar dados consolidados para BI
     dados: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
@@ -7518,7 +8152,8 @@ export const appRouter = router({
         procedimento: z.string().optional(),
         codigoPrestadorExecutante: z.string().optional(),
         receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getDadosBI(input);
       }),
@@ -7532,55 +8167,64 @@ export const appRouter = router({
 
     // Itens por categoria
     itemsPorCategoria: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
         convenioId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getItemsPorCategoria(input);
       }),
 
     // Glosas por motivo
     glosasPorMotivo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
         convenioId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getGlosasPorMotivo(input);
       }),
 
     // Performance por médico
     performanceMedico: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().optional(),
         anoReferencia: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getPerformanceMedico(input);
       }),
 
     // BI Faturado x Recebido (faturamento_unificado + recebimentos_excel)
     faturadoRecebido: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencias: z.array(z.string()).optional(),
         convenios: z.array(z.string()).optional(),
         tipoItem: z.string().optional(),
         setor: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return getDadosBIFaturadoRecebido(input);
       }),
 
     // BI Faturado x Recebido UNIFICADO (todas as fontes + filtros avançados)
     faturadoRecebidoUnificado: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencias: z.array(z.string()).optional(),
         convenios: z.array(z.string()).optional(),
@@ -7588,7 +8232,8 @@ export const appRouter = router({
         setor: z.string().optional(),
         origemSistema: z.string().optional(),
         prestador: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return getDadosFaturadoRecebidoUnificado(input);
       }),
@@ -7598,21 +8243,23 @@ export const appRouter = router({
   recebimentoTiss: router({
     // Importar dados de Excel para recebimento_tiss
     importarExcel: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         arquivoId: z.number(),
         estabelecimentoId: z.number(),
         conteudo: z.string(), // Base64 encoded
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         try {
           const buffer = Buffer.from(input.conteudo, "base64");
-          
+
           const result = await parseExcelRecebimentoTiss(
             buffer,
             input.arquivoId,
             input.estabelecimentoId
           );
-          
+
           if (!result.success) {
             return {
               success: false,
@@ -7620,10 +8267,10 @@ export const appRouter = router({
               totalImportados: 0,
             };
           }
-          
+
           // Inserir itens no banco de dados
           const totalImportados = await db.insertRecebimentoTiss(result.items);
-          
+
           return {
             success: true,
             totalImportados,
@@ -7633,15 +8280,20 @@ export const appRouter = router({
           console.error("[recebimentoTiss.importarExcel] Erro:", error);
           return {
             success: false,
-            error: error instanceof Error ? error.message : "Erro ao importar arquivo",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Erro ao importar arquivo",
             totalImportados: 0,
           };
         }
       }),
-    
+
     // Listar itens de recebimento_tiss
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         arquivoId: z.number().optional(),
         convenioId: z.number().optional(),
@@ -7652,32 +8304,42 @@ export const appRouter = router({
         dataInicio: z.string().optional(),
         dataFim: z.string().optional(),
         situacaoItem: z.string().optional(),
-        statusGlosa: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
+            statusGlosa: z
+              .enum(["todos", "pago", "glosado", "parcial"])
+              .optional(),
         codigoPrestadorExecutante: z.string().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRecebimentoTiss(input);
       }),
-    
+
     // Estatísticas de recebimento
     stats: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         arquivoId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRecebimentoTissStats(input || {});
       }),
-    
+
     // Excluir itens por arquivo
     excluirPorArquivo: protectedProcedure
       .input(z.object({ arquivoId: z.number() }))
       .mutation(async ({ input }) => {
-        const deleted = await db.deleteRecebimentoTissByArquivo(input.arquivoId);
+        const deleted = await db.deleteRecebimentoTissByArquivo(
+          input.arquivoId
+        );
         return { success: true, deleted };
       }),
   }),
@@ -7686,7 +8348,9 @@ export const appRouter = router({
   faturamentoTiss: router({
     // Listar itens de faturamento_tiss com filtros e paginação
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
@@ -7695,85 +8359,129 @@ export const appRouter = router({
         anoReferencia: z.number().min(2000).max(2100).optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         const result = await db.getFaturamentoTiss(input || {});
         return result;
       }),
-    
+
     // Resumo de faturamento
     resumo: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getFaturamentoTissResumo(input || {});
       }),
-    
+
     // Buscar itens individuais de uma guia específica (sem agrupamento)
     itensGuia: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
         numeroGuiaPrestador: z.string(),
         numeroLote: z.string().optional(),
         convenioId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getFaturamentoTissItensGuia(input);
       }),
-    
+
     // Buscar guias com múltiplos lotes (altas administrativas)
     guiasMultiplosLotes: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getGuiasMultiplosLotes(input || {});
       }),
-    
+
     // Excluir itens por arquivo
     excluirPorArquivo: protectedProcedure
       .input(z.object({ arquivoId: z.number() }))
       .mutation(async ({ input }) => {
-        const deleted = await db.deleteFaturamentoTissByArquivo(input.arquivoId);
-        
+        const deleted = await db.deleteFaturamentoTissByArquivo(
+          input.arquivoId
+        );
+
         // Limpar contas_convenio_itens também
         try {
-          const { contasConvenioItens: cciT, contasConvenioResumo: ccrT } = await import('../drizzle/schema');
-          const { eq, and } = await import('drizzle-orm');
+          const { contasConvenioItens: cciT, contasConvenioResumo: ccrT } =
+            await import("../drizzle/schema");
+          const { eq, and } = await import("drizzle-orm");
           const dbExcl = await getDb();
           if (dbExcl) {
-            const guiasAfetadas = await dbExcl.selectDistinct({ 
+            const guiasAfetadas = await dbExcl
+              .selectDistinct({
               numeroConta: cciT.numeroConta,
-              estabelecimentoId: cciT.estabelecimentoId 
-            }).from(cciT).where(eq(cciT.arquivoId, input.arquivoId));
-            
-            await dbExcl.delete(cciT).where(eq(cciT.arquivoId, input.arquivoId));
-            
+                estabelecimentoId: cciT.estabelecimentoId,
+              })
+              .from(cciT)
+              .where(eq(cciT.arquivoId, input.arquivoId));
+
+            await dbExcl
+              .delete(cciT)
+              .where(eq(cciT.arquivoId, input.arquivoId));
+
             for (const guia of guiasAfetadas) {
-              const restantes = await dbExcl.select().from(cciT).where(
-                and(eq(cciT.numeroConta, guia.numeroConta), eq(cciT.estabelecimentoId, guia.estabelecimentoId))
+              const restantes = await dbExcl
+                .select()
+                .from(cciT)
+                .where(
+                  and(
+                    eq(cciT.numeroConta, guia.numeroConta),
+                    eq(cciT.estabelecimentoId, guia.estabelecimentoId)
+                  )
               );
               if (restantes.length === 0) {
-                await dbExcl.delete(ccrT).where(
-                  and(eq(ccrT.numeroConta, guia.numeroConta), eq(ccrT.estabelecimentoId, guia.estabelecimentoId))
+                await dbExcl
+                  .delete(ccrT)
+                  .where(
+                    and(
+                      eq(ccrT.numeroConta, guia.numeroConta),
+                      eq(ccrT.estabelecimentoId, guia.estabelecimentoId)
+                    )
                 );
               } else {
                 let vt = 0;
-                for (const i of restantes) vt += parseFloat(String(i.valorTotal || 0));
-                await dbExcl.update(ccrT).set({ totalItens: restantes.length, valorTotal: String(vt.toFixed(2)) })
-                  .where(and(eq(ccrT.numeroConta, guia.numeroConta), eq(ccrT.estabelecimentoId, guia.estabelecimentoId)));
+                for (const i of restantes)
+                  vt += parseFloat(String(i.valorTotal || 0));
+                await dbExcl
+                  .update(ccrT)
+                  .set({
+                    totalItens: restantes.length,
+                    valorTotal: String(vt.toFixed(2)),
+                  })
+                  .where(
+                    and(
+                      eq(ccrT.numeroConta, guia.numeroConta),
+                      eq(ccrT.estabelecimentoId, guia.estabelecimentoId)
+                    )
+                  );
               }
             }
           }
-        } catch (e) { console.error('[excluirPorArquivo] Erro contas_convenio:', e); }
-        
+        } catch (e) {
+          console.error("[excluirPorArquivo] Erro contas_convenio:", e);
+        }
+
         return { success: true, deleted };
       }),
   }),
@@ -7783,7 +8491,9 @@ export const appRouter = router({
   demonstrativo: router({
     // Listar contas do demonstrativo (agrupadas por guia)
     contas: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
@@ -7791,29 +8501,37 @@ export const appRouter = router({
         anoReferencia: z.number().min(2000).max(2100).optional(),
         dataPagamento: z.string().optional(),
         search: z.string().optional(),
-        statusGlosa: z.enum(["todos", "pago", "glosado", "parcial"]).optional(),
+            statusGlosa: z
+              .enum(["todos", "pago", "glosado", "parcial"])
+              .optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoContas(input || {});
       }),
-    
+
     // Buscar itens de uma conta específica
     itensPorGuia: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         numeroGuia: z.string(),
         protocolo: z.string().optional(),
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoItensPorGuia(input);
       }),
-    
+
     // Buscar itens glosados para recurso
     itensGlosados: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
@@ -7822,59 +8540,80 @@ export const appRouter = router({
         search: z.string().optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoItensGlosados(input || {});
       }),
-    
+
     // Resumo do demonstrativo
     resumo: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
         dataPagamento: z.string().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoResumo(input || {});
       }),
 
     // Competências disponíveis (datas de referência do upload)
     competencias: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoCompetencias(input || {});
       }),
 
     // Datas de pagamento disponíveis
     datasPagamento: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getDemonstrativoDatasPagamento(input || {});
       }),
-    
+
     sincronizar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         arquivoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
         try {
-          const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-          const result = await syncDemonstrativoByArquivo(input.arquivoId, 'excel');
+          const { syncDemonstrativoByArquivo } = await import(
+            "./syncDemonstrativo"
+          );
+          const result = await syncDemonstrativoByArquivo(
+            input.arquivoId,
+            "excel"
+          );
           return result;
         } catch (error) {
-          console.error('[Demonstrativo.Sincronizar] Erro:', error);
+          console.error("[Demonstrativo.Sincronizar] Erro:", error);
           return {
             success: false,
             total: 0,
-            error: error instanceof Error ? error.message : 'Erro desconhecido'
+            error: error instanceof Error ? error.message : "Erro desconhecido",
           };
         }
       }),
@@ -7883,47 +8622,57 @@ export const appRouter = router({
   recebimentosExcel: router({
     // Importar dados de Excel para recebimentos_excel
     importarExcel: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         arquivoId: z.number(),
         estabelecimentoId: z.number(),
-      }))
+        })
+      )
       .mutation(async ({ input }) => {
-        const { parseExcelRecebimentosExcel } = await import('./recebimentosExcelParser');
-        
+        const { parseExcelRecebimentosExcel } = await import(
+          "./recebimentosExcelParser"
+        );
+
         // Buscar arquivo
         const arquivo = await db.getArquivoById(input.arquivoId);
         if (!arquivo) {
-          throw new Error('Arquivo não encontrado');
+          throw new Error("Arquivo não encontrado");
         }
-        
+
         // Baixar conteúdo do S3
         const response = await fetch(arquivo.s3Url);
         const buffer = Buffer.from(await response.arrayBuffer());
-        
+
         // Parsear Excel
         const records = parseExcelRecebimentosExcel(buffer, input.arquivoId);
-        
+
         if (records.length === 0) {
-          return { success: false, message: 'Nenhum registro encontrado no arquivo', imported: 0 };
+          return {
+            success: false,
+            message: "Nenhum registro encontrado no arquivo",
+            imported: 0,
+          };
         }
-        
+
         // Inserir no banco
         const imported = await db.insertRecebimentosExcelBatch(records);
-        
+
         // Atualizar status do arquivo
         await db.updateArquivo(input.arquivoId, {
-          status: 'processado',
+          status: "processado",
           totalItens: records.length,
           itensProcessados: records.length,
           progresso: 100,
         });
-        
+
         return { success: true, imported, total: records.length };
       }),
-    
+
     // Listar itens com filtros e paginação
     list: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         arquivoId: z.number().optional(),
@@ -7933,28 +8682,36 @@ export const appRouter = router({
         anoReferencia: z.number().min(2000).max(2100).optional(),
         page: z.number().optional(),
         limit: z.number().optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRecebimentosExcel(input || {});
       }),
-    
+
     // Resumo de recebimentos
     resumo: protectedProcedure
-      .input(z.object({
+      .input(
+        z
+          .object({
         estabelecimentoId: z.number().optional(),
         convenioId: z.number().optional(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
-      }).optional())
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getRecebimentosExcelResumo(input || {});
       }),
-    
+
     // Excluir itens por arquivo
     excluirPorArquivo: protectedProcedure
       .input(z.object({ arquivoId: z.number() }))
       .mutation(async ({ input }) => {
-        const deleted = await db.deleteRecebimentosExcelByArquivo(input.arquivoId);
+        const deleted = await db.deleteRecebimentosExcelByArquivo(
+          input.arquivoId
+        );
         return { success: true, deleted };
       }),
   }),
@@ -7969,57 +8726,93 @@ export const appRouter = router({
           // Buscar da tabela atendimentos_unificados filtrado por estabelecimento
           const dbInstance = await getDb();
           if (dbInstance) {
-            const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
-            const { eq, and, notLike, or, isNull, sql } = await import("drizzle-orm");
+            const { atendimentos: atendimentosUnificados } = await import(
+              "../drizzle/schema-integracao"
+            );
+            const { eq, and, notLike, or, isNull, sql } = await import(
+              "drizzle-orm"
+            );
             // Filtrar por estabelecimento e excluir os que são "A_FATURAR" (esses vão para outra tela)
-            let conditions = [eq(atendimentosUnificados.estabelecimentoId, estabId)];
+            let conditions = [
+              eq(atendimentosUnificados.estabelecimentoId, estabId),
+            ];
             conditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
-            conditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+            conditions.push(
+              notLike(
+                atendimentosUnificados.descricao_atendimento,
+                "%A_FATURAR%"
+              )
+            );
             // Para dados TASY: mostrar apenas os que NÃO têm protocolo (nomeProtocolo NULL ou vazio)
             // Os que têm protocolo vão para a tela "Atendimentos Sem Protocolo"
             conditions.push(
               or(
                 sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
                 isNull(atendimentosUnificados.nomeProtocolo),
-                eq(atendimentosUnificados.nomeProtocolo, '')
+                eq(atendimentosUnificados.nomeProtocolo, "")
               )!
             );
-            const dadosInternos = await dbInstance.select().from(atendimentosUnificados).where(and(...conditions));
-            
+            const dadosInternos = await dbInstance
+              .select()
+              .from(atendimentosUnificados)
+              .where(and(...conditions));
+
             // Buscar motivos de notificação do MySQL interno
-            const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
+            const numatends = dadosInternos
+              .map(d => d.numero_atendimento || "")
+              .filter(n => n !== "");
             let motivosMap: Record<string, string> = {};
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, estabId);
-              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(
+                numatends,
+                estabId
+              );
+              for (const [numatend, notif] of Object.entries(
+                notificacoesMySQL
+              )) {
                 motivosMap[numatend] = notif.motivo;
               }
             } catch (err) {
-              console.error("[atendimentos.listar] Erro ao buscar motivos de notificação do MySQL:", err);
+              console.error(
+                "[atendimentos.listar] Erro ao buscar motivos de notificação do MySQL:",
+                err
+              );
             }
-            
+
             return dadosInternos.map(d => ({
               numatend: d.numero_atendimento || "",
               nomeplaco: d.convenio || "",
               nomepac: d.paciente || "",
               carater: d.caracter_atendimento || "",
-              datatend: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
-              datasai: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+              datatend: d.data_entrada
+                ? new Date(d.data_entrada).toISOString()
+                : "",
+              datasai: d.data_saida
+                ? new Date(d.data_saida).toISOString()
+                : null,
               tipoatend: d.tipo_atendimento || "",
               tipoatendimentodescricao: d.descricao_atendimento || "",
               codserv: d.codigo_servico || "",
               procprin: d.codigo_procedimento || "",
               codcc_destino: d.destino_conta || "",
               motivo: motivosMap[d.numero_atendimento || ""] || null,
-              diasParado: (d.origemSistema === 'tasy' || d.origemSistema === 'tasy_hemolabor')
+              diasParado:
+                d.origemSistema === "tasy" ||
+                d.origemSistema === "tasy_hemolabor"
                 ? calcularDiasParadoUnificado(
-                    d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
-                    d.data_saida ? new Date(d.data_saida).toISOString() : null,
-                    d.origemSistema || '',
+                      d.data_entrada
+                        ? new Date(d.data_entrada).toISOString()
+                        : null,
+                      d.data_saida
+                        ? new Date(d.data_saida).toISOString()
+                        : null,
+                      d.origemSistema || "",
                     d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
                     d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
                   )
-                : calcularDiasParado(d.data_saida ? new Date(d.data_saida).toISOString() : null),
+                  : calcularDiasParado(
+                      d.data_saida ? new Date(d.data_saida).toISOString() : null
+                    ),
               origemSistema: d.origemSistema,
               // Novos campos Tasy
               dsCategoria: d.dsCategoria || "",
@@ -8029,11 +8822,15 @@ export const appRouter = router({
               protTasy: d.protTasy || "",
               nomeProtocolo: d.nomeProtocolo || "",
               protConv: d.protConv || "",
-              dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+              dtEntrega: d.dtEntrega
+                ? new Date(d.dtEntrega).toISOString()
+                : null,
               protStatus: d.protStatus || "",
               titulo: d.titulo || "",
               dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
-              dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+              dataVencimento: d.dataVencimento
+                ? new Date(d.dataVencimento).toISOString()
+                : null,
               dsSetorEntrada: d.dsSetorEntrada || "",
               dsSetorLeito: d.dsSetorLeito || "",
               etapaConta: d.etapaConta || "",
@@ -8074,36 +8871,69 @@ export const appRouter = router({
           const estabId = input.estabelecimentoId;
           const dbInstance = await getDb();
           if (dbInstance) {
-            const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
-            const { eq, and, notLike, isNotNull, ne, or } = await import("drizzle-orm");
-            let conditions = [eq(atendimentosUnificados.estabelecimentoId, estabId)];
+            const { atendimentos: atendimentosUnificados } = await import(
+              "../drizzle/schema-integracao"
+            );
+            const { eq, and, notLike, isNotNull, ne, or } = await import(
+              "drizzle-orm"
+            );
+            let conditions = [
+              eq(atendimentosUnificados.estabelecimentoId, estabId),
+            ];
             conditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
             // Apenas TASY com nomeProtocolo preenchido
-            conditions.push(or(eq(atendimentosUnificados.origemSistema, 'tasy'), eq(atendimentosUnificados.origemSistema, 'tasy_hemolabor'))!);
+            conditions.push(
+              or(
+                eq(atendimentosUnificados.origemSistema, "tasy"),
+                eq(atendimentosUnificados.origemSistema, "tasy_hemolabor")
+              )!
+            );
             conditions.push(isNotNull(atendimentosUnificados.nomeProtocolo));
-            conditions.push(ne(atendimentosUnificados.nomeProtocolo, ''));
-            conditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
-            const dadosInternos = await dbInstance.select().from(atendimentosUnificados).where(and(...conditions));
-            
+            conditions.push(ne(atendimentosUnificados.nomeProtocolo, ""));
+            conditions.push(
+              notLike(
+                atendimentosUnificados.descricao_atendimento,
+                "%A_FATURAR%"
+              )
+            );
+            const dadosInternos = await dbInstance
+              .select()
+              .from(atendimentosUnificados)
+              .where(and(...conditions));
+
             // Buscar motivos de notificação
-            const numatends = dadosInternos.map(d => d.numero_atendimento || "").filter(n => n !== "");
+            const numatends = dadosInternos
+              .map(d => d.numero_atendimento || "")
+              .filter(n => n !== "");
             let motivosMap: Record<string, string> = {};
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, estabId);
-              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(
+                numatends,
+                estabId
+              );
+              for (const [numatend, notif] of Object.entries(
+                notificacoesMySQL
+              )) {
                 motivosMap[numatend] = notif.motivo;
               }
             } catch (err) {
-              console.error("[atendimentos.listarComProtocolo] Erro ao buscar motivos:", err);
+              console.error(
+                "[atendimentos.listarComProtocolo] Erro ao buscar motivos:",
+                err
+              );
             }
-            
+
             return dadosInternos.map(d => ({
               numatend: d.numero_atendimento || "",
               nomeplaco: d.convenio || "",
               nomepac: d.paciente || "",
               carater: d.caracter_atendimento || "",
-              datatend: d.data_entrada ? new Date(d.data_entrada).toISOString() : "",
-              datasai: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+              datatend: d.data_entrada
+                ? new Date(d.data_entrada).toISOString()
+                : "",
+              datasai: d.data_saida
+                ? new Date(d.data_saida).toISOString()
+                : null,
               tipoatend: d.tipo_atendimento || "",
               tipoatendimentodescricao: d.descricao_atendimento || "",
               codserv: d.codigo_servico || "",
@@ -8113,7 +8943,7 @@ export const appRouter = router({
               diasParado: calcularDiasParadoUnificado(
                 d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
                 d.data_saida ? new Date(d.data_saida).toISOString() : null,
-                d.origemSistema || '',
+                d.origemSistema || "",
                 d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
                 d.dtEtapa ? new Date(d.dtEtapa).toISOString() : null
               ),
@@ -8125,11 +8955,15 @@ export const appRouter = router({
               protTasy: d.protTasy || "",
               nomeProtocolo: d.nomeProtocolo || "",
               protConv: d.protConv || "",
-              dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+              dtEntrega: d.dtEntrega
+                ? new Date(d.dtEntrega).toISOString()
+                : null,
               protStatus: d.protStatus || "",
               titulo: d.titulo || "",
               dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
-              dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+              dataVencimento: d.dataVencimento
+                ? new Date(d.dataVencimento).toISOString()
+                : null,
               dsSetorEntrada: d.dsSetorEntrada || "",
               dsSetorLeito: d.dsSetorLeito || "",
               etapaConta: d.etapaConta || "",
@@ -8162,20 +8996,31 @@ export const appRouter = router({
       }),
 
     registrarNotificacao: reportProcedure("atendimentos")
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().int().positive(),
         numatend: z.string(),
         observacao: z.string(),
-        notificacoes: z.array(z.object({
+          notificacoes: z.array(
+            z.object({
           motivo: z.string(),
           setor: z.string(),
           medico: z.string(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         try {
-          const pertence = await verificarAtendimentosDoEstabelecimento(input.estabelecimentoId, [input.numatend]);
-          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "Atendimento não pertence à unidade selecionada." });
+          const pertence = await verificarAtendimentosDoEstabelecimento(
+            input.estabelecimentoId,
+            [input.numatend]
+          );
+          if (!pertence)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Atendimento não pertence à unidade selecionada.",
+            });
           // Salvar no MySQL interno (fonte principal)
           const mysqlId = await salvarNotificacaoAtendimento({
             numatend: input.numatend,
@@ -8199,26 +9044,36 @@ export const appRouter = router({
         }
       }),
     registrarNotificacaoEmLote: reportProcedure("atendimentos")
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().int().positive(),
-        atendimentos: z.array(z.object({
+          atendimentos: z.array(
+            z.object({
           numatend: z.string(),
           nomepac: z.string(),
-        })),
+            })
+          ),
         observacao: z.string(),
-        notificacoes: z.array(z.object({
+          notificacoes: z.array(
+            z.object({
           motivo: z.string(),
           setor: z.string(),
           medico: z.string(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         try {
           const pertence = await verificarAtendimentosDoEstabelecimento(
             input.estabelecimentoId,
-            input.atendimentos.map((atendimento) => atendimento.numatend),
+            input.atendimentos.map(atendimento => atendimento.numatend)
           );
-          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "O lote contém atendimento de outra unidade." });
+          if (!pertence)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "O lote contém atendimento de outra unidade.",
+            });
           // Salvar no MySQL interno (fonte principal)
           const dadosLote = input.atendimentos.map(a => ({
             numatend: a.numatend,
@@ -8232,7 +9087,8 @@ export const appRouter = router({
             })),
           }));
 
-          const resultadoMySQL = await salvarNotificacoesAtendimentoEmLote(dadosLote);
+          const resultadoMySQL =
+            await salvarNotificacoesAtendimentoEmLote(dadosLote);
 
           return { success: true, ids: [], count: resultadoMySQL.salvos };
         } catch (err: any) {
@@ -8246,11 +9102,13 @@ export const appRouter = router({
 
     // Salvar histórico de notificação com dados completos dos atendimentos
     salvarHistorico: reportProcedure("atendimentos")
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().int().positive(),
         qtdAtendimentos: z.number(),
         observacao: z.string(),
-        atendimentos: z.array(z.object({
+          atendimentos: z.array(
+            z.object({
           numatend: z.string(),
           nomepac: z.string(),
           nomeplaco: z.string(),
@@ -8259,20 +9117,28 @@ export const appRouter = router({
           diasParado: z.number(),
           tipoatendimentodescricao: z.string(),
           codserv: z.string(),
-        })),
-        notificacoes: z.array(z.object({
+            })
+          ),
+          notificacoes: z.array(
+            z.object({
           motivo: z.string(),
           setor: z.string(),
           medico: z.string(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         try {
           const pertence = await verificarAtendimentosDoEstabelecimento(
             input.estabelecimentoId,
-            input.atendimentos.map((atendimento) => atendimento.numatend),
+            input.atendimentos.map(atendimento => atendimento.numatend)
           );
-          if (!pertence) throw new TRPCError({ code: "FORBIDDEN", message: "O histórico contém atendimento de outra unidade." });
+          if (!pertence)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "O histórico contém atendimento de outra unidade.",
+            });
           const id = await salvarHistoricoNotificacoesAtendimento({
             estabelecimentoId: input.estabelecimentoId,
             qtdAtendimentos: input.qtdAtendimentos,
@@ -8296,7 +9162,9 @@ export const appRouter = router({
       .input(z.object({ estabelecimentoId: z.number().int().positive() }))
       .query(async ({ input }) => {
         try {
-          return listarHistoricoNotificacoesAtendimento(input.estabelecimentoId);
+          return listarHistoricoNotificacoesAtendimento(
+            input.estabelecimentoId
+          );
         } catch (err: any) {
            console.error("[atendimentos.listarHistorico] Erro:", err.message);
           return [];
@@ -8306,10 +9174,18 @@ export const appRouter = router({
       .input(z.object({ estabelecimentoId: z.number().int().positive() }))
       .query(async ({ input }) => {
         try {
-          const dados = await getAtendimentosParadosPorEstabelecimento(input.estabelecimentoId);
+          const dados = await getAtendimentosParadosPorEstabelecimento(
+            input.estabelecimentoId
+          );
           return dados.map(d => ({
             ...d,
-            diasParado: calcularDiasParadoUnificado(d.data_entrada, d.data_saida, d.origemSistema, d.dtEntrega, d.dtEtapa),
+            diasParado: calcularDiasParadoUnificado(
+              d.data_entrada,
+              d.data_saida,
+              d.origemSistema,
+              d.dtEntrega,
+              d.dtEtapa
+            ),
           }));
         } catch (err: any) {
           throw new TRPCError({
@@ -8320,7 +9196,8 @@ export const appRouter = router({
       }),
 
     listarPaginado: reportProcedure("atendimentos")
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().int().positive(),
         page: z.number().min(1).default(1),
         pageSize: z.number().min(10).max(200).default(50),
@@ -8329,35 +9206,85 @@ export const appRouter = router({
         tipo: z.string().optional(),
         convenio: z.string().optional(),
         etapa: z.string().optional(),
-        mesEntrada: z.string().regex(/^(?:\d{4}-(?:0[1-9]|1[0-2])|__SEM_ENTRADA__)$/).optional(),
+          mesEntrada: z
+            .string()
+            .regex(/^(?:\d{4}-(?:0[1-9]|1[0-2])|__SEM_ENTRADA__)$/)
+            .optional(),
         setor: z.string().trim().min(1).max(255).optional(),
-        permanencia: z.enum(["0-14 DIAS", "15-30 DIAS", "31-60 DIAS", "61-90 DIAS", "90+ DIAS", "SEM REFERÊNCIA"]).optional(),
+          permanencia: z
+            .enum([
+              "0-14 DIAS",
+              "15-30 DIAS",
+              "31-60 DIAS",
+              "61-90 DIAS",
+              "90+ DIAS",
+              "SEM REFERÊNCIA",
+            ])
+            .optional(),
         protocolo: z.string().optional(),
-        situacao: z.enum(["pendentes", "finalizadas", "todos"]).default("pendentes"),
+          situacao: z
+            .enum(["pendentes", "finalizadas", "todos"])
+            .default("pendentes"),
         ano: z.string().optional(),
         mes: z.string().optional(),
         busca: z.string().optional(),
         descricao: z.string().optional(),
         sortColumn: z.string().default("data_entrada"),
         sortOrder: z.enum(["asc", "desc"]).default("desc"),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         try {
           const dbInstance = await getDb();
           if (!dbInstance) {
-            return { items: [], total: 0, page: input.page, pageSize: input.pageSize, totalPages: 0, paineisValor: input.paineisValor ? PAINEIS_VALOR_VAZIOS : undefined, aggregations: { tipos: [], servicos: [], convenios: [], etapas: [], origens: [], protocolos: [], anos: [], totalValor: 0 } };
+            return {
+              items: [],
+              total: 0,
+              page: input.page,
+              pageSize: input.pageSize,
+              totalPages: 0,
+              paineisValor: input.paineisValor
+                ? PAINEIS_VALOR_VAZIOS
+                : undefined,
+              aggregations: {
+                tipos: [],
+                servicos: [],
+                convenios: [],
+                etapas: [],
+                origens: [],
+                protocolos: [],
+                anos: [],
+                totalValor: 0,
+              },
+            };
           }
-          const { atendimentos: atendimentosUnificados } = await import("../drizzle/schema-integracao");
-          const { eq, and, notLike, or, isNull, like, sql, desc: descOrd, asc: ascOrd, count } = await import("drizzle-orm");
-          const { normalizedCategorySql, normalizedServiceSql } = buildAtendimentoNormalizationSql({
+          const { atendimentos: atendimentosUnificados } = await import(
+            "../drizzle/schema-integracao"
+          );
+          const {
+            eq,
+            and,
+            notLike,
+            or,
+            isNull,
+            like,
+            sql,
+            desc: descOrd,
+            asc: ascOrd,
+            count,
+          } = await import("drizzle-orm");
+          const { normalizedCategorySql, normalizedServiceSql } =
+            buildAtendimentoNormalizationSql({
             origemSistema: atendimentosUnificados.origemSistema,
             tipoAtendimento: atendimentosUnificados.tipo_atendimento,
-            descricaoAtendimento: atendimentosUnificados.descricao_atendimento,
+              descricaoAtendimento:
+                atendimentosUnificados.descricao_atendimento,
             dsCategoria: atendimentosUnificados.dsCategoria,
             codigoServico: atendimentosUnificados.codigo_servico,
             dsSetorEntrada: atendimentosUnificados.dsSetorEntrada,
           });
-          const { diasParadoSql, referenciaPermanenciaSql } = buildAtendimentoDiasParadoSql({
+          const { diasParadoSql, referenciaPermanenciaSql } =
+            buildAtendimentoDiasParadoSql({
             origemSistema: atendimentosUnificados.origemSistema,
             dataEntrada: atendimentosUnificados.data_entrada,
             dataSaida: atendimentosUnificados.data_saida,
@@ -8365,13 +9292,22 @@ export const appRouter = router({
             dtEntrega: atendimentosUnificados.dtEntrega,
             dtEtapa: atendimentosUnificados.dtEtapa,
           });
-          const permanenciaSql = buildAtendimentoPermanenciaSql(referenciaPermanenciaSql);
+          const permanenciaSql = buildAtendimentoPermanenciaSql(
+            referenciaPermanenciaSql
+          );
 
           // Condições base (mesmas da procedure listar)
           const baseConditions: any[] = [];
-          baseConditions.push(eq(atendimentosUnificados.estabelecimentoId, input.estabelecimentoId));
+          baseConditions.push(
+            eq(
+              atendimentosUnificados.estabelecimentoId,
+              input.estabelecimentoId
+            )
+          );
           baseConditions.push(eq(atendimentosUnificados.ativoNaFonte, true));
-          baseConditions.push(notLike(atendimentosUnificados.descricao_atendimento, '%A_FATURAR%'));
+          baseConditions.push(
+            notLike(atendimentosUnificados.descricao_atendimento, "%A_FATURAR%")
+          );
           baseConditions.push(
             or(
               sql`${atendimentosUnificados.origemSistema} NOT IN ('tasy', 'tasy_hemolabor')`,
@@ -8383,14 +9319,20 @@ export const appRouter = router({
 
           // Condições de filtro
           const filterConditions: any[] = [...baseConditions];
-          if (input.origemSistema && input.origemSistema !== 'all') {
-            filterConditions.push(eq(atendimentosUnificados.origemSistema, input.origemSistema));
+          if (input.origemSistema && input.origemSistema !== "all") {
+            filterConditions.push(
+              eq(atendimentosUnificados.origemSistema, input.origemSistema)
+            );
           }
           if (input.convenio) {
-            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.convenio} = ${input.convenio}`);
+            filterConditions.push(
+              sql`${ATENDIMENTOS_VALOR_SQL.convenio} = ${input.convenio}`
+            );
           }
           if (input.etapa) {
-            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.etapa} = ${input.etapa}`);
+            filterConditions.push(
+              sql`${ATENDIMENTOS_VALOR_SQL.etapa} = ${input.etapa}`
+            );
           }
           if (input.situacao === "pendentes") {
             filterConditions.push(
@@ -8407,15 +9349,29 @@ export const appRouter = router({
             );
           }
           if (input.descricao) {
-            filterConditions.push(sql`${normalizedServiceSql} = ${input.descricao}`);
+            filterConditions.push(
+              sql`${normalizedServiceSql} = ${input.descricao}`
+            );
           }
-          if (input.protocolo && input.protocolo !== 'all') {
-            if (input.protocolo === 'null' || input.protocolo === '__sem_protocolo__') {
-              filterConditions.push(or(isNull(atendimentosUnificados.nomeProtocolo), eq(atendimentosUnificados.nomeProtocolo, ''))!);
-            } else if (input.protocolo === 'com_protocolo') {
-              filterConditions.push(sql`${atendimentosUnificados.nomeProtocolo} IS NOT NULL AND ${atendimentosUnificados.nomeProtocolo} != ''`);
+          if (input.protocolo && input.protocolo !== "all") {
+            if (
+              input.protocolo === "null" ||
+              input.protocolo === "__sem_protocolo__"
+            ) {
+              filterConditions.push(
+                or(
+                  isNull(atendimentosUnificados.nomeProtocolo),
+                  eq(atendimentosUnificados.nomeProtocolo, "")
+                )!
+              );
+            } else if (input.protocolo === "com_protocolo") {
+              filterConditions.push(
+                sql`${atendimentosUnificados.nomeProtocolo} IS NOT NULL AND ${atendimentosUnificados.nomeProtocolo} != ''`
+              );
             } else {
-              filterConditions.push(eq(atendimentosUnificados.nomeProtocolo, input.protocolo));
+              filterConditions.push(
+                eq(atendimentosUnificados.nomeProtocolo, input.protocolo)
+              );
             }
           }
           if (input.ano || input.mes) {
@@ -8425,7 +9381,11 @@ export const appRouter = router({
                 or(
                   eq(atendimentosUnificados.competencia, compVal),
                   and(
-                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    or(
+                      isNull(atendimentosUnificados.competencia),
+                      eq(atendimentosUnificados.competencia, ""),
+                      eq(atendimentosUnificados.competencia, "NULL")
+                    )!,
                     sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`,
                     sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
                   )!
@@ -8436,7 +9396,11 @@ export const appRouter = router({
                 or(
                   like(atendimentosUnificados.competencia, `${input.ano}/%`),
                   and(
-                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    or(
+                      isNull(atendimentosUnificados.competencia),
+                      eq(atendimentosUnificados.competencia, ""),
+                      eq(atendimentosUnificados.competencia, "NULL")
+                    )!,
                     sql`YEAR(${atendimentosUnificados.data_entrada}) = ${parseInt(input.ano)}`
                   )!
                 )!
@@ -8446,7 +9410,11 @@ export const appRouter = router({
                 or(
                   like(atendimentosUnificados.competencia, `%/${input.mes}`),
                   and(
-                    or(isNull(atendimentosUnificados.competencia), eq(atendimentosUnificados.competencia, ''), eq(atendimentosUnificados.competencia, 'NULL'))!,
+                    or(
+                      isNull(atendimentosUnificados.competencia),
+                      eq(atendimentosUnificados.competencia, ""),
+                      eq(atendimentosUnificados.competencia, "NULL")
+                    )!,
                     sql`MONTH(${atendimentosUnificados.data_entrada}) = ${parseInt(input.mes)}`
                   )!
                 )!
@@ -8472,24 +9440,33 @@ export const appRouter = router({
             );
           }
           if (input.mesEntrada) {
-            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.mesEntrada} = ${input.mesEntrada}`);
+            filterConditions.push(
+              sql`${ATENDIMENTOS_VALOR_SQL.mesEntrada} = ${input.mesEntrada}`
+            );
           }
           if (input.setor) {
-            filterConditions.push(sql`${ATENDIMENTOS_VALOR_SQL.setor} = ${input.setor}`);
+            filterConditions.push(
+              sql`${ATENDIMENTOS_VALOR_SQL.setor} = ${input.setor}`
+            );
           }
           if (input.permanencia) {
-            filterConditions.push(sql`${permanenciaSql} = ${input.permanencia}`);
+            filterConditions.push(
+              sql`${permanenciaSql} = ${input.permanencia}`
+            );
           }
 
           const aggregationWhereClause = and(...filterConditions);
           if (input.tipo) {
             const normalizedType = input.tipo.toUpperCase();
-            const canonicalType = normalizedType === 'AMBULAT'
-              ? 'AMBULATORIO'
-              : normalizedType === 'PRONTO'
-              ? 'PRONTO SOCORRO'
+            const canonicalType =
+              normalizedType === "AMBULAT"
+                ? "AMBULATORIO"
+                : normalizedType === "PRONTO"
+                  ? "PRONTO SOCORRO"
               : normalizedType;
-            filterConditions.push(sql`${normalizedCategorySql} = ${canonicalType}`);
+            filterConditions.push(
+              sql`${normalizedCategorySql} = ${canonicalType}`
+            );
           }
           const whereClause = and(...filterConditions);
           const baseWhereClause = and(...baseConditions);
@@ -8515,21 +9492,54 @@ export const appRouter = router({
             conta: atendimentosUnificados.conta,
             matricula: atendimentosUnificados.matricula,
           };
-          const sortCol = sortColumnMap[input.sortColumn] || atendimentosUnificados.data_entrada;
-          const orderFn = input.sortOrder === 'asc' ? ascOrd : descOrd;
+          const sortCol =
+            sortColumnMap[input.sortColumn] ||
+            atendimentosUnificados.data_entrada;
+          const orderFn = input.sortOrder === "asc" ? ascOrd : descOrd;
 
           // Queries em paralelo
-          const [totalResult, dataResult, valorResult, valoresInformadosResult] = await Promise.all([
-            dbInstance.select({ count: count() }).from(atendimentosUnificados).where(whereClause),
-            dbInstance.select({ ...getTableColumns(atendimentosUnificados), diasParadoCalculado: diasParadoSql.as("diasParadoCalculado") }).from(atendimentosUnificados).where(whereClause).orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id)).limit(input.pageSize).offset((input.page - 1) * input.pageSize),
-            dbInstance.execute(sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(18,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`),
-            dbInstance.execute(sql`SELECT COUNT(valorConta) AS valoresInformados FROM atendimentos_unificados WHERE ${whereClause}`),
+          const [
+            totalResult,
+            dataResult,
+            valorResult,
+            valoresInformadosResult,
+          ] = await Promise.all([
+            dbInstance
+              .select({ count: count() })
+              .from(atendimentosUnificados)
+              .where(whereClause),
+            dbInstance
+              .select({
+                ...getTableColumns(atendimentosUnificados),
+                diasParadoCalculado: diasParadoSql.as("diasParadoCalculado"),
+              })
+              .from(atendimentosUnificados)
+              .where(whereClause)
+              .orderBy(orderFn(sortCol), orderFn(atendimentosUnificados.id))
+              .limit(input.pageSize)
+              .offset((input.page - 1) * input.pageSize),
+            dbInstance.execute(
+              sql`SELECT COALESCE(SUM(CAST(valorConta AS DECIMAL(18,2))), 0) as totalValor FROM atendimentos_unificados WHERE ${whereClause}`
+            ),
+            dbInstance.execute(
+              sql`SELECT COUNT(valorConta) AS valoresInformados FROM atendimentos_unificados WHERE ${whereClause}`
+            ),
           ]);
 
           const total = (totalResult[0] as any)?.count || 0;
           const totalPages = Math.ceil(total / input.pageSize);
-          const totalValor = parseFloat((valorResult as any)?.[0]?.[0]?.totalValor || (valorResult as any)?.[0]?.totalValor || '0');
-          const valoresInformados = parseInt((valoresInformadosResult as any)?.[0]?.[0]?.valoresInformados || (valoresInformadosResult as any)?.[0]?.valoresInformados || '0', 10) || 0;
+          const totalValor = parseFloat(
+            (valorResult as any)?.[0]?.[0]?.totalValor ||
+              (valorResult as any)?.[0]?.totalValor ||
+              "0"
+          );
+          const valoresInformados =
+            parseInt(
+              (valoresInformadosResult as any)?.[0]?.[0]?.valoresInformados ||
+                (valoresInformadosResult as any)?.[0]?.valoresInformados ||
+                "0",
+              10
+            ) || 0;
           const painelMetric = escolherMetricaPainel(valoresInformados);
           const paineisValor = input.paineisValor
             ? await getAtendimentosPaineisValor(dbInstance, whereClause!, {
@@ -8539,32 +9549,74 @@ export const appRouter = router({
             : undefined;
 
           // Agregações para filtros (sobre dados base, sem filtros de usuário)
-          const [tiposR, servicosR, conveniosR, etapasR, origensR, protocolosR, anosR] = await Promise.all([
-            dbInstance.execute(sql`SELECT ${normalizedCategorySql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC`),
-            dbInstance.execute(sql`SELECT ${normalizedServiceSql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC LIMIT 100`),
-            dbInstance.execute(sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`),
-            dbInstance.execute(sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`),
-            dbInstance.execute(sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`),
-            dbInstance.execute(sql`SELECT nomeProtocolo as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND nomeProtocolo IS NOT NULL AND nomeProtocolo != '' GROUP BY nomeProtocolo ORDER BY cnt DESC LIMIT 50`),
-            dbInstance.execute(sql`SELECT CASE WHEN competencia IS NOT NULL AND competencia != '' AND competencia != 'NULL' AND competencia LIKE '%/%' THEN SUBSTRING_INDEX(competencia, '/', 1) WHEN data_entrada IS NOT NULL THEN CAST(YEAR(data_entrada) AS CHAR) ELSE NULL END as ano, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY ano HAVING ano IS NOT NULL ORDER BY ano DESC`),
+          const [
+            tiposR,
+            servicosR,
+            conveniosR,
+            etapasR,
+            origensR,
+            protocolosR,
+            anosR,
+          ] = await Promise.all([
+            dbInstance.execute(
+              sql`SELECT ${normalizedCategorySql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC`
+            ),
+            dbInstance.execute(
+              sql`SELECT ${normalizedServiceSql} as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${aggregationWhereClause} GROUP BY val ORDER BY cnt DESC LIMIT 100`
+            ),
+            dbInstance.execute(
+              sql`SELECT convenio as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND convenio IS NOT NULL AND convenio != '' GROUP BY convenio ORDER BY cnt DESC LIMIT 50`
+            ),
+            dbInstance.execute(
+              sql`SELECT etapaConta as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND etapaConta IS NOT NULL AND etapaConta != '' GROUP BY etapaConta ORDER BY cnt DESC LIMIT 50`
+            ),
+            dbInstance.execute(
+              sql`SELECT origemSistema as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY origemSistema ORDER BY cnt DESC`
+            ),
+            dbInstance.execute(
+              sql`SELECT nomeProtocolo as val, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} AND nomeProtocolo IS NOT NULL AND nomeProtocolo != '' GROUP BY nomeProtocolo ORDER BY cnt DESC LIMIT 50`
+            ),
+            dbInstance.execute(
+              sql`SELECT CASE WHEN competencia IS NOT NULL AND competencia != '' AND competencia != 'NULL' AND competencia LIKE '%/%' THEN SUBSTRING_INDEX(competencia, '/', 1) WHEN data_entrada IS NOT NULL THEN CAST(YEAR(data_entrada) AS CHAR) ELSE NULL END as ano, COUNT(*) as cnt FROM atendimentos_unificados WHERE ${baseWhereClause} GROUP BY ano HAVING ano IS NOT NULL ORDER BY ano DESC`
+            ),
           ]);
 
           const parseAgg = (rows: any) => {
-            const data = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
-            return data.map((r: any) => ({ value: r.val || r.ano || '', count: parseInt(r.cnt) || 0 })).filter((r: any) => r.value);
+            const data =
+              Array.isArray(rows) && Array.isArray(rows[0])
+                ? rows[0]
+                : Array.isArray(rows)
+                  ? rows
+                  : [];
+            return data
+              .map((r: any) => ({
+                value: r.val || r.ano || "",
+                count: parseInt(r.cnt) || 0,
+              }))
+              .filter((r: any) => r.value);
           };
 
           // Buscar motivos de notificação para os registros da página
-          const numatends = dataResult.map(d => d.numero_atendimento || "").filter(n => n !== "");
+          const numatends = dataResult
+            .map(d => d.numero_atendimento || "")
+            .filter(n => n !== "");
           let motivosMap: Record<string, string> = {};
           if (numatends.length > 0) {
             try {
-              const notificacoesMySQL = await buscarNotificacoesAtendimento(numatends, input.estabelecimentoId);
-              for (const [numatend, notif] of Object.entries(notificacoesMySQL)) {
+              const notificacoesMySQL = await buscarNotificacoesAtendimento(
+                numatends,
+                input.estabelecimentoId
+              );
+              for (const [numatend, notif] of Object.entries(
+                notificacoesMySQL
+              )) {
                 motivosMap[numatend] = notif.motivo;
               }
             } catch (err) {
-              console.error("[atendimentos.listarPaginado] Erro ao buscar motivos da unidade:", err);
+              console.error(
+                "[atendimentos.listarPaginado] Erro ao buscar motivos da unidade:",
+                err
+              );
             }
           }
 
@@ -8582,17 +9634,24 @@ export const appRouter = router({
               codigoServico: d.codigo_servico,
               dsSetorEntrada: d.dsSetorEntrada,
             });
-            const isWarleine = d.origemSistema?.trim().toLowerCase() === "warleine";
-            const isTasy = ["tasy", "tasy_hemolabor"].includes(d.origemSistema?.trim().toLowerCase() || "");
+            const isWarleine =
+              d.origemSistema?.trim().toLowerCase() === "warleine";
+            const isTasy = ["tasy", "tasy_hemolabor"].includes(
+              d.origemSistema?.trim().toLowerCase() || ""
+            );
             const saidaEfetiva = isWarleine
               ? resolverSaidaEfetivaAtendimento({
-                  dataEntrada: d.data_entrada ? new Date(d.data_entrada).toISOString() : null,
-                  dataSaida: d.data_saida ? new Date(d.data_saida).toISOString() : null,
+                  dataEntrada: d.data_entrada
+                    ? new Date(d.data_entrada).toISOString()
+                    : null,
+                  dataSaida: d.data_saida
+                    ? new Date(d.data_saida).toISOString()
+                    : null,
                   origemSistema: d.origemSistema,
                   categoriaAtendimento,
                 })
               : null;
-            return ({
+            return {
             id: d.id,
             origemSistema: d.origemSistema,
             origemId: d.origemId,
@@ -8603,14 +9662,14 @@ export const appRouter = router({
             paciente: d.paciente || "",
             caracter_atendimento: d.caracter_atendimento || "",
             data_entrada: d.data_entrada
-              ? (isTasy
-                  ? (serializeTasyCivilDate(d.data_entrada) || "")
-                  : new Date(d.data_entrada).toISOString())
+                ? isTasy
+                  ? serializeTasyCivilDate(d.data_entrada) || ""
+                  : new Date(d.data_entrada).toISOString()
               : "",
             data_saida: d.data_saida
-              ? (isTasy
+                ? isTasy
                   ? serializeTasyCivilDate(d.data_saida)
-                  : new Date(d.data_saida).toISOString())
+                  : new Date(d.data_saida).toISOString()
               : null,
             tipo_atendimento: categoriaAtendimento,
             categoriaAtendimento,
@@ -8632,11 +9691,15 @@ export const appRouter = router({
             protTasy: d.protTasy || "",
             nomeProtocolo: d.nomeProtocolo || "",
             protConv: d.protConv || "",
-            dtEntrega: d.dtEntrega ? new Date(d.dtEntrega).toISOString() : null,
+              dtEntrega: d.dtEntrega
+                ? new Date(d.dtEntrega).toISOString()
+                : null,
             protStatus: d.protStatus || "",
             titulo: d.titulo || "",
             dtTitulo: d.dtTitulo ? new Date(d.dtTitulo).toISOString() : null,
-            dataVencimento: d.dataVencimento ? new Date(d.dataVencimento).toISOString() : null,
+              dataVencimento: d.dataVencimento
+                ? new Date(d.dataVencimento).toISOString()
+                : null,
             dsSetorEntrada: d.dsSetorEntrada || "",
             dsSetorLeito: d.dsSetorLeito || "",
             etapaConta: d.etapaConta || "",
@@ -8646,11 +9709,16 @@ export const appRouter = router({
             motivoDevolucao: d.motivoDevolucao || "",
             conta: d.conta || "",
             autorizacao: d.autorizacao || "",
-            valorConta: d.valorConta === null || d.valorConta === undefined ? "" : String(d.valorConta),
+              valorConta:
+                d.valorConta === null || d.valorConta === undefined
+                  ? ""
+                  : String(d.valorConta),
             statusConta: d.statusConta || "",
             ativoNaFonte: d.ativoNaFonte,
             ultimoLoteId: d.ultimoLoteId,
-            origemAtualizadaEm: d.origemAtualizadaEm ? new Date(d.origemAtualizadaEm).toISOString() : null,
+              origemAtualizadaEm: d.origemAtualizadaEm
+                ? new Date(d.origemAtualizadaEm).toISOString()
+                : null,
             matricula: d.matricula || "",
             sexo: d.sexo || "",
             idade: d.idade || "",
@@ -8661,8 +9729,10 @@ export const appRouter = router({
             dataFim: d.dataFim || "",
             codServico: d.codServico || "",
             centroCusto: d.centroCusto || "",
-            dataSincronizacao: d.dataSincronizacao ? new Date(d.dataSincronizacao).toISOString() : null,
-          });
+              dataSincronizacao: d.dataSincronizacao
+                ? new Date(d.dataSincronizacao).toISOString()
+                : null,
+            };
           });
 
           return {
@@ -8692,8 +9762,7 @@ export const appRouter = router({
         }
       }),
 
-    getKPIs: adminProcedure
-      .query(async ({ ctx }) => {
+    getKPIs: adminProcedure.query(async ({ ctx }) => {
         try {
           const kpis = await getKPIsPorTipo();
           return kpis;
@@ -8705,8 +9774,7 @@ export const appRouter = router({
         }
       }),
 
-    getQuantidadePorPlano: adminProcedure
-      .query(async ({ ctx }) => {
+    getQuantidadePorPlano: adminProcedure.query(async ({ ctx }) => {
         try {
           const dados = await getQuantidadePorPlano();
           return dados;
@@ -8718,8 +9786,7 @@ export const appRouter = router({
         }
       }),
 
-    getQuantidadePorServico: adminProcedure
-      .query(async ({ ctx }) => {
+    getQuantidadePorServico: adminProcedure.query(async ({ ctx }) => {
         try {
           const dados = await getQuantidadePorServico();
           return dados;
@@ -8732,19 +9799,21 @@ export const appRouter = router({
       }),
 
     // Verificar conexão SMTP
-    verificarSMTP: adminProcedure
-      .query(async () => {
+    verificarSMTP: adminProcedure.query(async () => {
         return await verificarConexaoSMTP();
       }),
 
     // Enviar notificação por e-mail
     enviarNotificacaoEmail: reportProcedure("atendimentos")
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().int().positive(),
         destinatarioEmail: z.string().email(),
         estabelecimentoNome: z.string(),
         mensagemPersonalizada: z.string().optional(),
-        atendimentos: z.array(z.object({
+          atendimentos: z
+            .array(
+              z.object({
           paciente: z.string(),
           numatend: z.string(),
           tipoAtendimento: z.string(),
@@ -8752,16 +9821,23 @@ export const appRouter = router({
           diasParado: z.number(),
           dataEntrada: z.string(),
           observacao: z.string().optional(),
-        })).min(1).max(200),
-      }))
+              })
+            )
+            .min(1)
+            .max(200),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         try {
           const pertence = await verificarAtendimentosDoEstabelecimento(
             input.estabelecimentoId,
-            input.atendimentos.map((atendimento) => atendimento.numatend),
+            input.atendimentos.map(atendimento => atendimento.numatend)
           );
           if (!pertence) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "O e-mail contém atendimento de outra unidade." });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "O e-mail contém atendimento de outra unidade.",
+            });
           }
           const html = gerarHtmlNotificacaoAtendimentos({
             estabelecimentoNome: input.estabelecimentoNome,
@@ -8775,13 +9851,15 @@ export const appRouter = router({
 
           const resultado = await enviarEmail({
             destinatario: input.destinatarioEmail,
-            assunto: `[Portal Safatle] Notificação de ${input.atendimentos.length} Atendimento${input.atendimentos.length > 1 ? 's' : ''} Parado${input.atendimentos.length > 1 ? 's' : ''} - ${input.estabelecimentoNome}`,
+            assunto: `[Portal Safatle] Notificação de ${input.atendimentos.length} Atendimento${input.atendimentos.length > 1 ? "s" : ""} Parado${input.atendimentos.length > 1 ? "s" : ""} - ${input.estabelecimentoNome}`,
             conteudoHtml: html,
             conteudoTexto: `Notificação de ${input.atendimentos.length} atendimentos parados no ${input.estabelecimentoNome}. Acesse o Portal Safatle para mais detalhes.`,
           });
 
           if (!resultado.ok) {
-            throw new Error(resultado.error || "Erro desconhecido ao enviar e-mail");
+            throw new Error(
+              resultado.error || "Erro desconhecido ao enviar e-mail"
+            );
           }
 
           return { success: true, messageId: resultado.messageId };
@@ -8805,7 +9883,9 @@ export const appRouter = router({
           // Buscar da tabela atendimentos_a_faturar (tabela própria, separada da unificados)
           const dbInstance = await getDb();
           if (dbInstance) {
-            const { atendimentosAFaturar } = await import("../drizzle/schema-integracao");
+            const { atendimentosAFaturar } = await import(
+              "../drizzle/schema-integracao"
+            );
             const { eq } = await import("drizzle-orm");
             const dadosInternos = await dbInstance
               .select()
@@ -8822,7 +9902,9 @@ export const appRouter = router({
               tipoatendimentodescricao: d.tipoatendimentodescricao || "",
               codserv: d.codserv || "",
               procprin: d.procprin || "",
-              diasParado: calcularDiasParado(d.datasai ? new Date(d.datasai).toISOString() : null),
+              diasParado: calcularDiasParado(
+                d.datasai ? new Date(d.datasai).toISOString() : null
+              ),
               origemSistema: d.origemSistema || "EASYVISION",
             }));
           }
@@ -8841,9 +9923,18 @@ export const appRouter = router({
     listar: publicProcedure.query(async () => {
       try {
         const feeds = [
-          { url: "https://news.google.com/rss/search?q=faturamento+hospitalar+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Faturamento Hospitalar" },
-          { url: "https://news.google.com/rss/search?q=gest%C3%A3o+hospitalar+plano+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Gestão Hospitalar" },
-          { url: "https://news.google.com/rss/search?q=ANS+conv%C3%AAnio+hospital&hl=pt-BR&gl=BR&ceid=BR:pt-419", categoria: "Regulação ANS" },
+          {
+            url: "https://news.google.com/rss/search?q=faturamento+hospitalar+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+            categoria: "Faturamento Hospitalar",
+          },
+          {
+            url: "https://news.google.com/rss/search?q=gest%C3%A3o+hospitalar+plano+sa%C3%BAde&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+            categoria: "Gestão Hospitalar",
+          },
+          {
+            url: "https://news.google.com/rss/search?q=ANS+conv%C3%AAnio+hospital&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+            categoria: "Regulação ANS",
+          },
         ];
 
         const allNoticias: Array<{
@@ -8868,20 +9959,30 @@ export const appRouter = router({
             // Parse RSS XML simples
             const items = xml.split("<item>").slice(1);
             for (const item of items.slice(0, 5)) {
-              const titulo = item.match(/<title><!\[CDATA\[(.+?)\]\]><\/title>/)?.[1]
-                || item.match(/<title>(.+?)<\/title>/)?.[1]
-                || "";
-              const link = item.match(/<link>(.+?)<\/link>/)?.[1]
-                || item.match(/<link\/>\s*(.+?)\s*</)?.[1]
-                || "";
-              const fonte = item.match(/<source[^>]*>(.+?)<\/source>/)?.[1]
-                || item.match(/<source[^>]*><!\[CDATA\[(.+?)\]\]><\/source>/)?.[1]
-                || "";
-              const pubDate = item.match(/<pubDate>(.+?)<\/pubDate>/)?.[1] || "";
+              const titulo =
+                item.match(/<title><!\[CDATA\[(.+?)\]\]><\/title>/)?.[1] ||
+                item.match(/<title>(.+?)<\/title>/)?.[1] ||
+                "";
+              const link =
+                item.match(/<link>(.+?)<\/link>/)?.[1] ||
+                item.match(/<link\/>\s*(.+?)\s*</)?.[1] ||
+                "";
+              const fonte =
+                item.match(/<source[^>]*>(.+?)<\/source>/)?.[1] ||
+                item.match(
+                  /<source[^>]*><!\[CDATA\[(.+?)\]\]><\/source>/
+                )?.[1] ||
+                "";
+              const pubDate =
+                item.match(/<pubDate>(.+?)<\/pubDate>/)?.[1] || "";
 
               if (titulo && link) {
                 allNoticias.push({
-                  titulo: titulo.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'),
+                  titulo: titulo
+                    .replace(/&amp;/g, "&")
+                    .replace(/&lt;/g, "<")
+                    .replace(/&gt;/g, ">")
+                    .replace(/&quot;/g, '"'),
                   link: link.trim(),
                   fonte: fonte.replace(/&amp;/g, "&"),
                   dataPublicacao: pubDate,
@@ -8955,10 +10056,12 @@ export const appRouter = router({
   recebimentoGeral: router({
     // Importar dados de integ_faturado_x_recebido para recebimento_geral
     importar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
         limparAntes: z.boolean().optional().default(false),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           const hasPermission = await db.verificarPermissaoEstabelecimento(
@@ -8967,7 +10070,10 @@ export const appRouter = router({
             "gerenciar"
           );
           if (!hasPermission) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para importar dados." });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Sem permissão para importar dados.",
+            });
           }
         }
         return await dbRecebGeral.importarIntegFaturadoRecebido(
@@ -8978,16 +10084,23 @@ export const appRouter = router({
 
     // Contar registros na recebimento_geral
     contar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return { total: await dbRecebGeral.contarRecebimentoGeral(input.estabelecimentoId) };
+        return {
+          total: await dbRecebGeral.contarRecebimentoGeral(
+            input.estabelecimentoId
+          ),
+        };
       }),
 
     // Listar registros com paginação e filtros
     listar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         convenio: z.string().optional(),
         mesProducao: z.string().optional(),
@@ -8996,30 +10109,38 @@ export const appRouter = router({
         receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
         page: z.number().optional().default(1),
         pageSize: z.number().optional().default(50),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return await dbRecebGeral.listarRecebimentoGeral(input);
       }),
 
     // Resumo/estatísticas
     resumo: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        return await dbRecebGeral.resumoRecebimentoGeral(input.estabelecimentoId, input.receberHospital);
+        return await dbRecebGeral.resumoRecebimentoGeral(
+          input.estabelecimentoId,
+          input.receberHospital
+        );
       }),
 
     // Dados agregados para Relatório BI de Recebimento
     dadosBI: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesProducao: z.string().optional(),
         convenio: z.string().optional(),
         setor: z.string().optional(),
         receberHospital: z.string().optional(), // 'S' = Hospital, 'N' = Terceiros
-      }))
+        })
+      )
       .query(async ({ input }) => {
         return await dbRecebGeral.dadosRecebimentoBI(input);
       }),
@@ -9033,21 +10154,29 @@ export const appRouter = router({
 
     listarTodos: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem gerenciar avisos." });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Apenas administradores podem gerenciar avisos.",
+        });
       }
       return await db.listarAvisosInternos();
     }),
 
     criar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         titulo: z.string().min(1, "Título é obrigatório"),
         conteudo: z.string().min(1, "Conteúdo é obrigatório"),
         tipo: z.enum(["informacao", "alerta", "urgente"]),
         expiraEm: z.string().nullable().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem criar avisos." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Apenas administradores podem criar avisos.",
+          });
         }
         await db.criarAvisoInterno({
           titulo: input.titulo,
@@ -9061,17 +10190,22 @@ export const appRouter = router({
       }),
 
     editar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         id: z.number(),
         titulo: z.string().min(1).optional(),
         conteudo: z.string().min(1).optional(),
         tipo: z.enum(["informacao", "alerta", "urgente"]).optional(),
         ativo: z.enum(["sim", "nao"]).optional(),
         expiraEm: z.string().nullable().optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem editar avisos." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Apenas administradores podem editar avisos.",
+          });
         }
         const { id, ...data } = input;
         const updateData: any = { ...data };
@@ -9086,7 +10220,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem excluir avisos." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Apenas administradores podem excluir avisos.",
+          });
         }
         await db.excluirAvisoInterno(input.id);
         return { success: true };
@@ -9099,7 +10236,9 @@ export const appRouter = router({
     naoMapeados: protectedProcedure
       .input(z.object({ estabelecimentoId: z.number() }))
       .query(async ({ input }) => {
-        return await dbConvMap.listarConveniosNaoMapeados(input.estabelecimentoId);
+        return await dbConvMap.listarConveniosNaoMapeados(
+          input.estabelecimentoId
+        );
       }),
 
     // Listar convênios do Safatle (globais + do estabelecimento)
@@ -9118,15 +10257,19 @@ export const appRouter = router({
 
     // Salvar um mapeamento individual
     salvar: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeOrigem: z.string().min(1),
         codigoOrigem: z.string().nullable().optional(),
         convenioId: z.number(),
-        fonte: z.enum(["tasy", "integracao", "xml", "excel", "manual"]).optional(),
+          fonte: z
+            .enum(["tasy", "integracao", "xml", "excel", "manual"])
+            .optional(),
         metodoMatch: z.enum(["automatico", "manual"]).optional(),
         confianca: z.number().min(0).max(100).optional(),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return await dbConvMap.salvarMapeamento({
           ...input,
@@ -9136,17 +10279,23 @@ export const appRouter = router({
 
     // Salvar múltiplos mapeamentos em batch
     salvarBatch: protectedProcedure
-      .input(z.object({
-        mapeamentos: z.array(z.object({
+      .input(
+        z.object({
+          mapeamentos: z.array(
+            z.object({
           estabelecimentoId: z.number(),
           nomeOrigem: z.string().min(1),
           codigoOrigem: z.string().nullable().optional(),
           convenioId: z.number(),
-          fonte: z.enum(["tasy", "integracao", "xml", "excel", "manual"]).optional(),
+              fonte: z
+                .enum(["tasy", "integracao", "xml", "excel", "manual"])
+                .optional(),
           metodoMatch: z.enum(["automatico", "manual"]).optional(),
           confianca: z.number().min(0).max(100).optional(),
-        })),
-      }))
+            })
+          ),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return await dbConvMap.salvarMapeamentosBatch(
           input.mapeamentos.map(m => ({ ...m, criadoPor: ctx.user.id }))
@@ -9170,10 +10319,12 @@ export const appRouter = router({
 
     // Aplicar mapeamentos automáticos com alta confiança
     aplicarAutomaticos: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         threshold: z.number().min(0).max(100).optional().default(80),
-      }))
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         return await dbConvMap.aplicarMapeamentosAutomaticos(
           input.estabelecimentoId,
@@ -9184,12 +10335,17 @@ export const appRouter = router({
 
     // Resolver convenioId para um nome de convênio do hospital
     resolver: protectedProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         nomeConvenio: z.string(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
-        const convenioId = await dbConvMap.resolverConvenioId(input.estabelecimentoId, input.nomeConvenio);
+        const convenioId = await dbConvMap.resolverConvenioId(
+          input.estabelecimentoId,
+          input.nomeConvenio
+        );
         return { convenioId };
       }),
 
@@ -9207,7 +10363,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
@@ -9230,22 +10386,29 @@ export const appRouter = router({
 
     // Dados do relatório
     dados: relatorioLaboratorioProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
         convenioId: z.number().optional(),
-        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
-      }))
+          statusFiltro: z
+            .enum(["todos", "pago", "glosado", "parcial"])
+            .optional(),
+        })
+      )
       .query(async ({ input }) => {
-        console.log('[relatorioLaboratorio.dados] Input:', JSON.stringify(input));
+        console.log(
+          "[relatorioLaboratorio.dados] Input:",
+          JSON.stringify(input)
+        );
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Filtro base: faixa TUSS de laboratório (402xx e 403xx)
-          let whereExtra = '';
+          let whereExtra = "";
           const params: any[] = [];
           if (input.mesReferencia && input.anoReferencia) {
             whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
@@ -9255,10 +10418,13 @@ export const appRouter = router({
             whereExtra += ` AND d.convenio_id = ?`;
             params.push(input.convenioId);
           }
-          if (input.statusFiltro && input.statusFiltro !== 'todos') {
-            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
-            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
-            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          if (input.statusFiltro && input.statusFiltro !== "todos") {
+            if (input.statusFiltro === "pago")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === "glosado")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === "parcial")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
           }
 
           const baseWhere = `d.estabelecimentoId = ? AND (REPLACE(d.codigo_item,'.','') LIKE '402%' OR REPLACE(d.codigo_item,'.','') LIKE '403%')`;
@@ -9270,7 +10436,7 @@ export const appRouter = router({
             [resumoRows],
             [competencias],
             [porSituacao],
-            [porConvenio]
+            [porConvenio],
           ] = await Promise.all([
             conn.execute(
               `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
@@ -9342,7 +10508,10 @@ export const appRouter = router({
           }
 
           const r = (resumoRows as any[])[0] || {};
-          console.log('[relatorioLaboratorio.dados] Resumo:', JSON.stringify(r));
+          console.log(
+            "[relatorioLaboratorio.dados] Resumo:",
+            JSON.stringify(r)
+          );
 
           return {
             itens,
@@ -9365,14 +10534,14 @@ export const appRouter = router({
             },
             competencias: (competencias as any[]).map((c: any) => ({
               value: `${c.mes}-${c.ano}`,
-              label: `${String(c.mes).padStart(2, '0')}/${c.ano}`,
+              label: `${String(c.mes).padStart(2, "0")}/${c.ano}`,
               total: Number(c.total),
               mes: Number(c.mes),
               ano: Number(c.ano),
             })),
           };
         } catch (err) {
-          console.error('[relatorioLaboratorio.dados] ERRO:', err);
+          console.error("[relatorioLaboratorio.dados] ERRO:", err);
           throw err;
     } finally {
           if (conn) await conn.end().catch(() => {});
@@ -9387,9 +10556,17 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         let conn: any = null;
         try {
-          const permitido = await db.verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar");
-          if (!permitido) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para visualizar este estabelecimento" });
-          const mysql2 = await import('mysql2/promise');
+          const permitido = await db.verificarPermissaoEstabelecimento(
+            ctx.user.id,
+            input.estabelecimentoId,
+            "visualizar"
+          );
+          if (!permitido)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Sem permissão para visualizar este estabelecimento",
+            });
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(db.getApplicationDatabaseUrl()!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
@@ -9411,19 +10588,23 @@ export const appRouter = router({
       }),
 
     dados: relatorioLaboratorioProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
         convenioId: z.number().optional(),
-        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
-      }))
+          statusFiltro: z
+            .enum(["todos", "pago", "glosado", "parcial"])
+            .optional(),
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
-          let whereExtra = '';
+          let whereExtra = "";
           const params: any[] = [];
           if (input.mesReferencia && input.anoReferencia) {
             whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
@@ -9433,10 +10614,13 @@ export const appRouter = router({
             whereExtra += ` AND d.convenio_id = ?`;
             params.push(input.convenioId);
           }
-          if (input.statusFiltro && input.statusFiltro !== 'todos') {
-            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
-            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
-            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          if (input.statusFiltro && input.statusFiltro !== "todos") {
+            if (input.statusFiltro === "pago")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === "glosado")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === "parcial")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
           }
 
           const baseWhere = `d.estabelecimentoId = ? AND (d.codigo_item = '10102019' OR REPLACE(d.codigo_item,'.','') LIKE '10102%')`;
@@ -9447,7 +10631,7 @@ export const appRouter = router({
             [resumoRows],
             [competencias],
             [porSituacao],
-            [porConvenio]
+            [porConvenio],
           ] = await Promise.all([
             conn.execute(
               `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
@@ -9494,13 +10678,26 @@ export const appRouter = router({
             porCodigo: porCodigo as any[],
             porSituacao: porSituacao as any[],
             porConvenio: (porConvenio as any[]).map((c: any) => ({
-              convenioId: c.convenio_id, convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`, qtd: Number(c.qtd), codigos: Number(c.codigos), totalPago: Number(c.total_pago || 0), totalGlosa: Number(c.total_glosa || 0),
+              convenioId: c.convenio_id,
+              convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`,
+              qtd: Number(c.qtd),
+              codigos: Number(c.codigos),
+              totalPago: Number(c.total_pago || 0),
+              totalGlosa: Number(c.total_glosa || 0),
             })),
             resumo: {
-              totalItens: Number(r.total_itens || 0), totalPago: Number(r.total_pago || 0), totalGlosa: Number(r.total_glosa || 0), totalInformado: Number(r.total_informado || 0), codigosUnicos: Number(r.codigos_unicos || 0),
+              totalItens: Number(r.total_itens || 0),
+              totalPago: Number(r.total_pago || 0),
+              totalGlosa: Number(r.total_glosa || 0),
+              totalInformado: Number(r.total_informado || 0),
+              codigosUnicos: Number(r.codigos_unicos || 0),
             },
             competencias: (competencias as any[]).map((c: any) => ({
-              value: `${c.mes}-${c.ano}`, label: `${String(c.mes).padStart(2, '0')}/${c.ano}`, total: Number(c.total), mes: Number(c.mes), ano: Number(c.ano),
+              value: `${c.mes}-${c.ano}`,
+              label: `${String(c.mes).padStart(2, "0")}/${c.ano}`,
+              total: Number(c.total),
+              mes: Number(c.mes),
+              ano: Number(c.ano),
             })),
           };
         } finally {
@@ -9516,7 +10713,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT s.convenioId, c.nome as convenio_nome
@@ -9542,7 +10739,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT competencia, COUNT(*) as total
@@ -9555,7 +10752,7 @@ export const appRouter = router({
             [input.estabelecimentoId, input.estabelecimentoId]
           );
           return (rows as any[]).map((r: any) => {
-            const parts = (r.competencia || '').split('/');
+            const parts = (r.competencia || "").split("/");
             return {
               value: r.competencia,
               label: r.competencia,
@@ -9570,20 +10767,25 @@ export const appRouter = router({
       }),
 
     dados: relatorioVisitaXmlProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         competencia: z.string().optional(),
         convenioId: z.number().optional(),
         medico: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          let whereExtra = '';
-          const params: any[] = [input.estabelecimentoId, input.estabelecimentoId];
+          let whereExtra = "";
+          const params: any[] = [
+            input.estabelecimentoId,
+            input.estabelecimentoId,
+          ];
 
           if (input.competencia) {
             whereExtra += ` AND s.competencia = ?`;
@@ -9601,12 +10803,8 @@ export const appRouter = router({
           const baseWhere = `(s.estabelecimentoId = ? OR s.estabelecimento_id = ?) AND REPLACE(s.codigo_item, '.', '') = '10102019'`;
 
           // Queries em paralelo
-          const [
-            [resumoRows],
-            [porMedico],
-            [porConvenio],
-            [itens]
-          ] = await Promise.all([
+          const [[resumoRows], [porMedico], [porConvenio], [itens]] =
+            await Promise.all([
             // Resumo geral
             conn.execute(
               `SELECT COUNT(*) as total_visitas,
@@ -9694,7 +10892,7 @@ export const appRouter = router({
             })),
           };
         } catch (err) {
-          console.error('[relatorioVisitaXml.dados] ERRO:', err);
+          console.error("[relatorioVisitaXml.dados] ERRO:", err);
           throw err;
         } finally {
           if (conn) await conn.end().catch(() => {});
@@ -9709,7 +10907,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT d.convenio_id, c.nome as convenio_nome
@@ -9731,19 +10929,23 @@ export const appRouter = router({
       }),
 
     dados: relatorioUltrassomProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesReferencia: z.number().min(1).max(12).optional(),
         anoReferencia: z.number().min(2000).max(2100).optional(),
         convenioId: z.number().optional(),
-        statusFiltro: z.enum(['todos', 'pago', 'glosado', 'parcial']).optional(),
-      }))
+          statusFiltro: z
+            .enum(["todos", "pago", "glosado", "parcial"])
+            .optional(),
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
-          let whereExtra = '';
+          let whereExtra = "";
           const params: any[] = [];
           if (input.mesReferencia && input.anoReferencia) {
             whereExtra += ` AND MONTH(data_referencia) = ? AND YEAR(data_referencia) = ?`;
@@ -9753,10 +10955,13 @@ export const appRouter = router({
             whereExtra += ` AND d.convenio_id = ?`;
             params.push(input.convenioId);
           }
-          if (input.statusFiltro && input.statusFiltro !== 'todos') {
-            if (input.statusFiltro === 'pago') whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
-            else if (input.statusFiltro === 'glosado') whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
-            else if (input.statusFiltro === 'parcial') whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
+          if (input.statusFiltro && input.statusFiltro !== "todos") {
+            if (input.statusFiltro === "pago")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PAGO'`;
+            else if (input.statusFiltro === "glosado")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'GLOSADO'`;
+            else if (input.statusFiltro === "parcial")
+              whereExtra += ` AND UPPER(d.situacao_item) = 'PARCIAL'`;
           }
 
           const baseWhere = `d.estabelecimentoId = ? AND d.codigo_item IN ('40901122', '40901351', '40901769', '40901033', '40901114', '40901386', '40901203', '40901211', '40901181')`;
@@ -9767,7 +10972,7 @@ export const appRouter = router({
             [resumoRows],
             [competencias],
             [porSituacao],
-            [porConvenio]
+            [porConvenio],
           ] = await Promise.all([
             conn.execute(
               `SELECT d.codigo_item, MIN(d.descricao_item) as descricao, d.situacao_item,
@@ -9814,13 +11019,26 @@ export const appRouter = router({
             porCodigo: porCodigo as any[],
             porSituacao: porSituacao as any[],
             porConvenio: (porConvenio as any[]).map((c: any) => ({
-              convenioId: c.convenio_id, convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`, qtd: Number(c.qtd), codigos: Number(c.codigos), totalPago: Number(c.total_pago || 0), totalGlosa: Number(c.total_glosa || 0),
+              convenioId: c.convenio_id,
+              convenioNome: c.convenio_nome || `Convênio ${c.convenio_id}`,
+              qtd: Number(c.qtd),
+              codigos: Number(c.codigos),
+              totalPago: Number(c.total_pago || 0),
+              totalGlosa: Number(c.total_glosa || 0),
             })),
             resumo: {
-              totalItens: Number(r.total_itens || 0), totalPago: Number(r.total_pago || 0), totalGlosa: Number(r.total_glosa || 0), totalInformado: Number(r.total_informado || 0), codigosUnicos: Number(r.codigos_unicos || 0),
+              totalItens: Number(r.total_itens || 0),
+              totalPago: Number(r.total_pago || 0),
+              totalGlosa: Number(r.total_glosa || 0),
+              totalInformado: Number(r.total_informado || 0),
+              codigosUnicos: Number(r.codigos_unicos || 0),
             },
             competencias: (competencias as any[]).map((c: any) => ({
-              value: `${c.mes}-${c.ano}`, label: `${String(c.mes).padStart(2, '0')}/${c.ano}`, total: Number(c.total), mes: Number(c.mes), ano: Number(c.ano),
+              value: `${c.mes}-${c.ano}`,
+              label: `${String(c.mes).padStart(2, "0")}/${c.ano}`,
+              total: Number(c.total),
+              mes: Number(c.mes),
+              ano: Number(c.ano),
             })),
           };
         } finally {
@@ -9839,7 +11057,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT DATE_FORMAT(data_referencia, '%Y-%m') as mes_ref
@@ -9860,7 +11078,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT DATE_FORMAT(data_pagamento, '%Y-%m') as mes_pag
@@ -9877,20 +11095,22 @@ export const appRouter = router({
 
     // Dados principais do relatório Ox UTI
     dados: relatorioOxUtiProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenioId: z.number().optional(),
         mesPagamento: z.string().optional(), // filtro por mês de pagamento do demonstrativo
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Filtro principal por competência (data_referencia)
-          const valores = sqlValoresRelatorioOxUti('d');
+          const valores = sqlValoresRelatorioOxUti("d");
           let baseWhere = `WHERE d.estabelecimentoId = ? AND DATE_FORMAT(d.data_referencia, '%Y-%m') = ?`;
           const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
           // Filtro adicional por mês de pagamento (se selecionado)
@@ -9898,7 +11118,9 @@ export const appRouter = router({
             baseWhere += ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`;
             baseParams.push(input.mesPagamento);
           }
-          const convenioFilter = input.convenioId ? ` AND d.convenio_id = ?` : '';
+          const convenioFilter = input.convenioId
+            ? ` AND d.convenio_id = ?`
+            : "";
           if (input.convenioId) baseParams.push(input.convenioId);
 
           // KPIs gerais
@@ -9989,8 +11211,12 @@ export const appRouter = router({
           const totalDiarias = Number(kpi.total_diarias);
           const totalPago = Number(kpi.total_pago);
           const totalInformado = Number(kpi.total_informado);
-          const ticketMedio = totalDiarias > 0 ? totalPago / totalDiarias : null;
-          const percGlosa = totalInformado > 0 ? (Number(kpi.total_glosado) / totalInformado) * 100 : 0;
+          const ticketMedio =
+            totalDiarias > 0 ? totalPago / totalDiarias : null;
+          const percGlosa =
+            totalInformado > 0
+              ? (Number(kpi.total_glosado) / totalInformado) * 100
+              : 0;
 
           return {
             kpi: {
@@ -10022,7 +11248,10 @@ export const appRouter = router({
               totalInformado: Number(r.total_informado),
               totalPago: Number(r.total_pago),
               totalGlosado: Number(r.total_glosado),
-              ticketMedioPaciente: Number(r.qtd_diarias) > 0 ? Number(r.total_pago) / Number(r.qtd_diarias) : null,
+              ticketMedioPaciente:
+                Number(r.qtd_diarias) > 0
+                  ? Number(r.total_pago) / Number(r.qtd_diarias)
+                  : null,
             })),
             porItem: (itemRows as any[]).map((r: any) => ({
               codigo: r.codigo as string,
@@ -10047,7 +11276,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT c.id, c.nome
@@ -10057,7 +11286,10 @@ export const appRouter = router({
              ORDER BY c.nome`,
             [input.estabelecimentoId]
           );
-          return (rows as any[]).map((r: any) => ({ id: Number(r.id), nome: r.nome as string }));
+          return (rows as any[]).map((r: any) => ({
+            id: Number(r.id),
+            nome: r.nome as string,
+          }));
         } finally {
           if (conn) await conn.end();
         }
@@ -10065,24 +11297,34 @@ export const appRouter = router({
 
     // Itens detalhados de um paciente específico para o modal
     itensPorPaciente: relatorioOxUtiProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         carteiraBeneficiario: z.string(),
         convenioId: z.number().optional(),
         mesPagamento: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          const valores = sqlValoresRelatorioOxUti('d');
-          const params: any[] = [input.estabelecimentoId, input.mesRef, input.carteiraBeneficiario];
-          const convenioFilter = input.convenioId ? ' AND d.convenio_id = ?' : '';
+          const valores = sqlValoresRelatorioOxUti("d");
+          const params: any[] = [
+            input.estabelecimentoId,
+            input.mesRef,
+            input.carteiraBeneficiario,
+          ];
+          const convenioFilter = input.convenioId
+            ? " AND d.convenio_id = ?"
+            : "";
           if (input.convenioId) params.push(input.convenioId);
-          const pagamentoFilter = input.mesPagamento ? ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?` : '';
+          const pagamentoFilter = input.mesPagamento
+            ? ` AND DATE_FORMAT(d.data_pagamento, '%Y-%m') = ?`
+            : "";
           if (input.mesPagamento) params.push(input.mesPagamento);
 
           const [rows] = await conn.execute(
@@ -10115,7 +11357,9 @@ export const appRouter = router({
           );
 
           // Agrupar por categoria
-          const porCategoria: Record<string, {
+          const porCategoria: Record<
+            string,
+            {
             categoria: string;
             itens: Array<{
               numeroGuia: string;
@@ -10130,12 +11374,20 @@ export const appRouter = router({
             totalPago: number;
             totalGlosa: number;
             totalQuantidade: number;
-          }> = {};
+            }
+          > = {};
 
           for (const r of rows as any[]) {
             const cat = r.categoria as string;
             if (!porCategoria[cat]) {
-              porCategoria[cat] = { categoria: cat, itens: [], totalInformado: 0, totalPago: 0, totalGlosa: 0, totalQuantidade: 0 };
+              porCategoria[cat] = {
+                categoria: cat,
+                itens: [],
+                totalInformado: 0,
+                totalPago: 0,
+                totalGlosa: 0,
+                totalQuantidade: 0,
+              };
             }
             porCategoria[cat].itens.push({
               numeroGuia: r.numero_guia as string,
@@ -10152,9 +11404,12 @@ export const appRouter = router({
             porCategoria[cat].totalQuantidade += Number(r.quantidade);
           }
 
-          const ordemCategoria = ['DIARIA', 'TAXA', 'MED', 'MAT', 'OUTROS'];
+          const ordemCategoria = ["DIARIA", "TAXA", "MED", "MAT", "OUTROS"];
           return Object.values(porCategoria).sort((a, b) => {
-            return ordemCategoria.indexOf(a.categoria) - ordemCategoria.indexOf(b.categoria);
+            return (
+              ordemCategoria.indexOf(a.categoria) -
+              ordemCategoria.indexOf(b.categoria)
+            );
           });
         } finally {
           if (conn) await conn.end();
@@ -10170,7 +11425,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT REPLACE(cci.competencia, '/', '-') as mes_ref
@@ -10191,7 +11446,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT convenio FROM contas_convenio_itens
@@ -10207,22 +11462,24 @@ export const appRouter = router({
 
     // Dados principais do relatório
     dados: relatorioOxUtiFaturadoProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Usa competencia (formato '2026/05') para filtrar por mês de faturamento
-          const mesRefFormatado = input.mesRef.replace('-', '/');
+          const mesRefFormatado = input.mesRef.replace("-", "/");
           const baseWhere = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
           const baseParams: any[] = [input.estabelecimentoId, mesRefFormatado];
-          const convenioFilter = input.convenio ? ` AND cci.convenio = ?` : '';
+          const convenioFilter = input.convenio ? ` AND cci.convenio = ?` : "";
           if (input.convenio) baseParams.push(input.convenio);
 
           // KPIs gerais
@@ -10290,7 +11547,8 @@ export const appRouter = router({
 
           const totalFaturado = Number(kpi.total_faturado);
           const totalDiarias = Number(kpi.total_diarias);
-          const ticketMedio = totalDiarias > 0 ? totalFaturado / totalDiarias : null;
+          const ticketMedio =
+            totalDiarias > 0 ? totalFaturado / totalDiarias : null;
 
           return {
             kpi: {
@@ -10317,7 +11575,10 @@ export const appRouter = router({
               qtdDiarias: Number(r.qtd_diarias),
               totalFaturado: Number(r.total_faturado),
               convenios: r.convenios as string,
-              ticketMedioPaciente: Number(r.qtd_diarias) > 0 ? Number(r.total_faturado) / Number(r.qtd_diarias) : null,
+              ticketMedioPaciente:
+                Number(r.qtd_diarias) > 0
+                  ? Number(r.total_faturado) / Number(r.qtd_diarias)
+                  : null,
             })),
             porItem: (itemRows as any[]).map((r: any) => ({
               codigo: r.codigo as string,
@@ -10340,7 +11601,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT DATE_FORMAT(re.dataPagto, '%Y-%m') as mes_pag
@@ -10357,23 +11618,25 @@ export const appRouter = router({
 
     // Cruzamento Faturado x Pago por guia (competência)
     faturadoXPago: relatorioOxUtiFaturadoProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenio: z.string().optional(),
         mesPagamento: z.string().optional(), // YYYY-MM para filtrar por mês de pagamento do demonstrativo
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Buscar guias faturadas (XML enviado) no mês
           const baseParams: any[] = [input.estabelecimentoId, input.mesRef];
-          let convenioFilter = '';
+          let convenioFilter = "";
           if (input.convenio) {
-            convenioFilter = ' AND cci.convenio = ?';
+            convenioFilter = " AND cci.convenio = ?";
             baseParams.push(input.convenio);
           }
 
@@ -10397,16 +11660,25 @@ export const appRouter = router({
 
           // Buscar pagamentos recebidos para essas guias
           // Usar recebimentos_excel que tem os dados dos demonstrativos de pagamento
-          const guias = (faturadoRows as any[]).map((r: any) => r.numero_guia).filter(Boolean);
-          
-          let pagamentoMap: Record<string, { dataPagamento: string | null; valorRecebido: number; valorGlosa: number }> = {};
-          
+          const guias = (faturadoRows as any[])
+            .map((r: any) => r.numero_guia)
+            .filter(Boolean);
+
+          let pagamentoMap: Record<
+            string,
+            {
+              dataPagamento: string | null;
+              valorRecebido: number;
+              valorGlosa: number;
+            }
+          > = {};
+
           if (guias.length > 0) {
             // Buscar em lotes de 500 para evitar query muito grande
             const batchSize = 500;
             for (let i = 0; i < guias.length; i += batchSize) {
               const batch = guias.slice(i, i + batchSize);
-              const placeholders = batch.map(() => '?').join(',');
+              const placeholders = batch.map(() => "?").join(",");
               const [recRows] = await conn.execute(
                 `SELECT
                    re.numeroGuia as numero_guia,
@@ -10415,13 +11687,19 @@ export const appRouter = router({
                    COALESCE(SUM(CAST(re.valorGlosa AS DECIMAL(12,2))), 0) as valor_glosa
                  FROM recebimentos_excel re
                  WHERE re.numeroGuia IN (${placeholders})
-                   AND re.estabelecimentoId = ?${input.mesPagamento ? ` AND DATE_FORMAT(re.dataPagto, '%Y-%m') = ?` : ''}
+                   AND re.estabelecimentoId = ?${input.mesPagamento ? ` AND DATE_FORMAT(re.dataPagto, '%Y-%m') = ?` : ""}
                  GROUP BY re.numeroGuia`,
-                [...batch, input.estabelecimentoId, ...(input.mesPagamento ? [input.mesPagamento] : [])]
+                [
+                  ...batch,
+                  input.estabelecimentoId,
+                  ...(input.mesPagamento ? [input.mesPagamento] : []),
+                ]
               );
               for (const r of recRows as any[]) {
                 pagamentoMap[r.numero_guia] = {
-                  dataPagamento: r.data_pagamento ? new Date(r.data_pagamento).toISOString().split('T')[0] : null,
+                  dataPagamento: r.data_pagamento
+                    ? new Date(r.data_pagamento).toISOString().split("T")[0]
+                    : null,
                   valorRecebido: Number(r.valor_recebido),
                   valorGlosa: Number(r.valor_glosa),
                 };
@@ -10439,25 +11717,42 @@ export const appRouter = router({
               numeroGuia: r.numero_guia as string,
               paciente: r.paciente as string,
               convenio: r.convenio as string,
-              dataFaturado: r.data_faturado ? new Date(r.data_faturado).toISOString().split('T')[0] : null,
+              dataFaturado: r.data_faturado
+                ? new Date(r.data_faturado).toISOString().split("T")[0]
+                : null,
               dataPagamento: pag?.dataPagamento ?? null,
               valorFaturado,
               valorRecebido,
               valorGlosa,
               diferenca: valorFaturado - valorRecebido,
-              status: valorRecebido > 0 ? (valorRecebido >= valorFaturado ? 'pago' : 'parcial') : 'pendente',
+              status:
+                valorRecebido > 0
+                  ? valorRecebido >= valorFaturado
+                    ? "pago"
+                    : "parcial"
+                  : "pendente",
               qtdItens: Number(r.qtd_itens),
             };
           });
 
           // Totais
-          const totalFaturado = resultado.reduce((s, r) => s + r.valorFaturado, 0);
-          const totalRecebido = resultado.reduce((s, r) => s + r.valorRecebido, 0);
+          const totalFaturado = resultado.reduce(
+            (s, r) => s + r.valorFaturado,
+            0
+          );
+          const totalRecebido = resultado.reduce(
+            (s, r) => s + r.valorRecebido,
+            0
+          );
           const totalGlosa = resultado.reduce((s, r) => s + r.valorGlosa, 0);
           const totalPendente = totalFaturado - totalRecebido;
-          const guiasPagas = resultado.filter(r => r.status === 'pago').length;
-          const guiasParciais = resultado.filter(r => r.status === 'parcial').length;
-          const guiasPendentes = resultado.filter(r => r.status === 'pendente').length;
+          const guiasPagas = resultado.filter(r => r.status === "pago").length;
+          const guiasParciais = resultado.filter(
+            r => r.status === "parcial"
+          ).length;
+          const guiasPendentes = resultado.filter(
+            r => r.status === "pendente"
+          ).length;
 
           return {
             resumo: {
@@ -10469,7 +11764,8 @@ export const appRouter = router({
               guiasPagas,
               guiasParciais,
               guiasPendentes,
-              percentualRecebido: totalFaturado > 0 ? (totalRecebido / totalFaturado) * 100 : 0,
+              percentualRecebido:
+                totalFaturado > 0 ? (totalRecebido / totalFaturado) * 100 : 0,
             },
             guias: resultado,
           };
@@ -10486,7 +11782,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT REPLACE(cci.competencia, '/', '-') as mes_ref
@@ -10506,7 +11802,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT convenio FROM contas_convenio_itens
@@ -10521,18 +11817,20 @@ export const appRouter = router({
       }),
 
     faturado: resumoPacienteOxUtiProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
-          const mesRefFormatado = input.mesRef.replace('-', '/');
+          const mesRefFormatado = input.mesRef.replace("-", "/");
           let whereClause = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
           const params: any[] = [input.estabelecimentoId, mesRefFormatado];
           if (input.convenio) {
@@ -10542,7 +11840,7 @@ export const appRouter = router({
 
           // Query faturado agrupado por carteira + guia + lote
           const [rows] = await conn.execute(
-            `SELECT 
+            `SELECT
                cci.carteiraBeneficiario,
                cci.pacienteNome,
                cci.numeroGuia,
@@ -10567,7 +11865,7 @@ export const appRouter = router({
             paciente: (r.pacienteNome || r.carteiraBeneficiario) as string,
             carteira: r.carteiraBeneficiario as string,
             guia: r.numeroGuia as string,
-            lote: (r.numeroLote || '') as string,
+            lote: (r.numeroLote || "") as string,
             convenio: r.convenio as string,
             dataEntrada: r.data_entrada,
             dataSaida: r.data_saida,
@@ -10579,18 +11877,32 @@ export const appRouter = router({
             vlTotal: Number(r.vl_total) || 0,
           }));
 
-          const totais = resultado.reduce((acc, r) => ({
+          const totais = resultado.reduce(
+            (acc, r) => ({
             vlDiaria: acc.vlDiaria + r.vlDiaria,
             vlMatmed: acc.vlMatmed + r.vlMatmed,
             vlGas: acc.vlGas + r.vlGas,
             vlTaxa: acc.vlTaxa + r.vlTaxa,
             vlTotal: acc.vlTotal + r.vlTotal,
             qtdDiarias: acc.qtdDiarias + r.qtdDiarias,
-          }), { vlDiaria: 0, vlMatmed: 0, vlGas: 0, vlTaxa: 0, vlTotal: 0, qtdDiarias: 0 });
+            }),
+            {
+              vlDiaria: 0,
+              vlMatmed: 0,
+              vlGas: 0,
+              vlTaxa: 0,
+              vlTotal: 0,
+              qtdDiarias: 0,
+            }
+          );
 
           return {
             dados: resultado,
-            totais: { ...totais, totalPacientes: new Set(resultado.map(r => r.carteira)).size, totalGuias: new Set(resultado.map(r => r.guia)).size },
+            totais: {
+              ...totais,
+              totalPacientes: new Set(resultado.map(r => r.carteira)).size,
+              totalGuias: new Set(resultado.map(r => r.guia)).size,
+            },
           };
         } finally {
           if (conn) await conn.end();
@@ -10598,20 +11910,25 @@ export const appRouter = router({
       }),
 
     recebido: resumoPacienteOxUtiProcedure
-      .input(z.object({
+      .input(
+        z.object({
         estabelecimentoId: z.number(),
         mesRef: z.string(),
         convenio: z.string().optional(),
-      }))
+        })
+      )
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          console.log('[ResumoPacienteOxUti.recebido] Input:', JSON.stringify(input));
-          const mysql2 = await import('mysql2/promise');
+          console.log(
+            "[ResumoPacienteOxUti.recebido] Input:",
+            JSON.stringify(input)
+          );
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
 
           // Primeiro buscar as guias da competência selecionada no faturamento
-          const mesRefFormatado = input.mesRef.replace('-', '/');
+          const mesRefFormatado = input.mesRef.replace("-", "/");
           let fatWhere = `WHERE cci.estabelecimentoId = ? AND cci.competencia = ?`;
           const fatParams: any[] = [input.estabelecimentoId, mesRefFormatado];
           if (input.convenio) {
@@ -10623,17 +11940,30 @@ export const appRouter = router({
             fatParams
           );
           const guias = (guiaRows as any[]).map((r: any) => r.numeroGuia);
-          console.log('[recebido] Guias:', guias.length, guias.slice(0,3));
+          console.log("[recebido] Guias:", guias.length, guias.slice(0, 3));
           if (guias.length === 0) {
-            return { dados: [], totais: { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0, totalPacientes: 0, totalGuias: 0 } };
+            return {
+              dados: [],
+              totais: {
+                vlDiaria: 0,
+                vlMatmed: 0,
+                vlOutros: 0,
+                vlTotal: 0,
+                vlGlosa: 0,
+                totalPacientes: 0,
+                totalGuias: 0,
+              },
+            };
           }
 
           // Buscar recebimentos dessas guias (usar conn.query para evitar problema com IN e prepared statements)
-          const guiasEscaped = guias.map((g: string) => conn.escape(g)).join(',');
+          const guiasEscaped = guias
+            .map((g: string) => conn.escape(g))
+            .join(",");
           let whereClause = `WHERE re.estabelecimentoId = ${conn.escape(input.estabelecimentoId)} AND re.numero_guia IN (${guiasEscaped})`;
 
           const [rows] = await conn.query(
-            `SELECT 
+            `SELECT
                re.beneficiario,
                re.nome_beneficiario,
                re.numero_guia,
@@ -10651,14 +11981,14 @@ export const appRouter = router({
              ORDER BY re.beneficiario, re.numero_guia, re.protocolo_tiss`
           );
 
-          console.log('[recebido] Rows:', (rows as any[]).length);
+          console.log("[recebido] Rows:", (rows as any[]).length);
           const resultado = (rows as any[]).map((r: any) => ({
-            paciente: (r.nome_beneficiario || r.beneficiario || '') as string,
-            carteira: (r.beneficiario || '') as string,
-            guia: (r.numero_guia || '') as string,
-            protocolo: (r.protocolo_tiss || '') as string,
-            lote: (r.lote_prestador || '') as string,
-            convenio: '' as string,
+            paciente: (r.nome_beneficiario || r.beneficiario || "") as string,
+            carteira: (r.beneficiario || "") as string,
+            guia: (r.numero_guia || "") as string,
+            protocolo: (r.protocolo_tiss || "") as string,
+            lote: (r.lote_prestador || "") as string,
+            convenio: "" as string,
             dataPagamento: r.data_pagamento,
             vlDiaria: Number(r.vl_diaria) || 0,
             vlMatmed: Number(r.vl_matmed) || 0,
@@ -10667,17 +11997,24 @@ export const appRouter = router({
             vlGlosa: Number(r.vl_glosa) || 0,
           }));
 
-          const totais = resultado.reduce((acc, r) => ({
+          const totais = resultado.reduce(
+            (acc, r) => ({
             vlDiaria: acc.vlDiaria + r.vlDiaria,
             vlMatmed: acc.vlMatmed + r.vlMatmed,
             vlOutros: acc.vlOutros + r.vlOutros,
             vlTotal: acc.vlTotal + r.vlTotal,
             vlGlosa: acc.vlGlosa + r.vlGlosa,
-          }), { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0 });
+            }),
+            { vlDiaria: 0, vlMatmed: 0, vlOutros: 0, vlTotal: 0, vlGlosa: 0 }
+          );
 
           return {
             dados: resultado,
-            totais: { ...totais, totalPacientes: new Set(resultado.map(r => r.carteira)).size, totalGuias: new Set(resultado.map(r => r.guia)).size },
+            totais: {
+              ...totais,
+              totalPacientes: new Set(resultado.map(r => r.carteira)).size,
+              totalGuias: new Set(resultado.map(r => r.guia)).size,
+            },
           };
         } finally {
           if (conn) await conn.end();
@@ -10689,7 +12026,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         let conn: any = null;
         try {
-          const mysql2 = await import('mysql2/promise');
+          const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
           const [rows] = await conn.execute(
             `SELECT DISTINCT DATE_FORMAT(dataPagto, '%Y-%m') as mes_ref

@@ -16,15 +16,18 @@
  * inserindo no banco a cada 500 registros (não acumula 2000).
  * Isso mantém o pico de memória baixo e distribui a carga de I/O.
  */
-import { Router } from 'express';
-import * as db from './db';
-import type { InsertFaturamentoTiss, InsertRecebimentoExcel } from '../drizzle/schema';
-import { deveLimparExcelRetorno } from './retornoUploadDispatch';
+import { Router } from "express";
+import * as db from "./db";
+import type {
+  InsertFaturamentoTiss,
+  InsertRecebimentoExcel,
+} from "../drizzle/schema";
+import { deveLimparExcelRetorno } from "./retornoUploadDispatch";
 
 const router = Router();
 
 // Segredo interno para evitar chamadas externas
-const INTERNAL_SECRET = process.env.JWT_SECRET || 'internal-process-secret';
+const INTERNAL_SECRET = process.env.JWT_SECRET || "internal-process-secret";
 
 // Log persistente no banco para diagnóstico em produção
 async function plog(arquivoId: number, level: string, message: string) {
@@ -32,7 +35,7 @@ async function plog(arquivoId: number, level: string, message: string) {
     const pool = await db.getRawPool();
     if (pool) {
       await pool.execute(
-        'INSERT INTO process_logs (arquivo_id, level, message) VALUES (?, ?, ?)',
+        "INSERT INTO process_logs (arquivo_id, level, message) VALUES (?, ?, ?)",
         [arquivoId, level, message.substring(0, 5000)]
       );
     }
@@ -42,16 +45,21 @@ async function plog(arquivoId: number, level: string, message: string) {
   console.log(`[PLog:${level}] [${arquivoId}] ${message}`);
 }
 
-router.post('/api/internal/process-file', async (req, res) => {
-  const { arquivoId, secret, skipContaConvenioSync = false, limparDadosAnteriores } = req.body;
+router.post("/api/internal/process-file", async (req, res) => {
+  const {
+    arquivoId,
+    secret,
+    skipContaConvenioSync = false,
+    limparDadosAnteriores,
+  } = req.body;
   
   // Validar segredo interno
   if (secret !== INTERNAL_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
+    return res.status(403).json({ error: "Forbidden" });
   }
   
   if (!arquivoId) {
-    return res.status(400).json({ error: 'arquivoId is required' });
+    return res.status(400).json({ error: "arquivoId is required" });
   }
   
   // PROCESSAMENTO SÍNCRONO: manter a request HTTP ativa durante todo o processamento.
@@ -59,93 +67,183 @@ router.post('/api/internal/process-file', async (req, res) => {
   // Se respondermos imediatamente, o Cloud Run pode reciclar a instância antes do parse terminar.
   // Com o parser streaming (26 MB heap, ~30s), cabe no timeout de 180s.
   try {
-    await plog(arquivoId, 'info', 'Iniciando processamento');
+    await plog(arquivoId, "info", "Iniciando processamento");
     
     const arquivo = await db.getArquivoById(arquivoId);
     if (!arquivo) {
-      await plog(arquivoId, 'error', 'Arquivo não encontrado no banco');
+      await plog(arquivoId, "error", "Arquivo não encontrado no banco");
       await db.updateArquivoStatus(arquivoId, "erro");
-      return res.status(404).json({ error: 'Arquivo não encontrado' });
+      return res.status(404).json({ error: "Arquivo não encontrado" });
     }
     
-    await plog(arquivoId, 'info', `Baixando do S3: ${arquivo.nome} (direcao: ${arquivo.direcao})`);
+    await plog(
+      arquivoId,
+      "info",
+      `Baixando arquivo para processamento (direção: ${arquivo.direcao})`
+    );
     const response = await fetch(arquivo.s3Url);
     if (!response.ok) {
-      await plog(arquivoId, 'error', `Erro HTTP ${response.status} ao baixar do S3`);
+      await plog(
+        arquivoId,
+        "error",
+        `Erro HTTP ${response.status} ao baixar do S3`
+      );
       await db.updateArquivoStatus(arquivoId, "erro");
-      return res.status(500).json({ error: 'Erro ao baixar arquivo do S3' });
+      return res.status(500).json({ error: "Erro ao baixar arquivo do S3" });
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     
     await db.updateArquivoProgresso(arquivoId, 10, 0);
-    await plog(arquivoId, 'info', `Download OK: ${(buffer.length / 1024 / 1024).toFixed(2)} MB | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB | RSS: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`);
+    await plog(
+      arquivoId,
+      "info",
+      `Download concluído: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`
+    );
     
     if (arquivo.direcao === "retornado") {
-      await processRetornado(arquivoId, arquivo, buffer, deveLimparExcelRetorno(limparDadosAnteriores));
+      await processRetornado(
+        arquivoId,
+        arquivo,
+        buffer,
+        deveLimparExcelRetorno(limparDadosAnteriores)
+      );
       
       // Aplicar padrões de aceite automático de glosa nos itens recém-importados
       try {
         await aplicarAceiteAutomaticoGlosa(
           arquivoId,
           arquivo.convenioId ?? undefined,
-          arquivo.estabelecimentoId ?? undefined,
+          arquivo.estabelecimentoId ?? undefined
         );
       } catch (aceiteErr: any) {
-        console.error('[FileProcessor] Erro ao aplicar aceite automático:', aceiteErr?.message);
-        await plog(arquivoId, 'info', `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`);
+        console.error(
+          "[FileProcessor] Erro ao aplicar aceite automático:",
+          aceiteErr?.message
+        );
+        await plog(
+          arquivoId,
+          "info",
+          `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`
+        );
       }
     } else {
-      await processEnvio(arquivoId, arquivo, buffer, Boolean(skipContaConvenioSync));
+      await processEnvio(
+        arquivoId,
+        arquivo,
+        buffer,
+        Boolean(skipContaConvenioSync)
+      );
     }
     
-    await plog(arquivoId, 'info', 'Processamento concluído com sucesso');
-    res.json({ success: true, message: 'Processing completed' });
-  } catch (error: any) {
-    await plog(arquivoId, 'error', `ERRO GERAL: ${error?.message || error} | Stack: ${error?.stack?.substring(0, 1000)}`);
+    await plog(arquivoId, "info", "Processamento concluído com sucesso");
+    res.json({ success: true, message: "Processing completed" });
+  } catch {
+    // Não propagar texto de falhas de storage, parser ou banco: ele pode conter
+    // detalhes de XML, URL, chave de storage, carteira ou valores.
+    await plog(
+      arquivoId,
+      "error",
+      "Processamento interrompido por falha interna"
+    );
     try {
       await db.updateArquivoStatus(arquivoId, "erro");
     } catch (e) {
       // ignore
     }
-    res.status(500).json({ error: 'Processing failed', message: error?.message });
+    res.status(500).json({ error: "Processing failed" });
   }
 });
 
-async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer, limparExcel = true) {
-  const nomeArquivo = arquivo.nome.toLowerCase();
-  const tipoArquivo = nomeArquivo.endsWith('.xml') ? 'xml' : nomeArquivo.endsWith('.csv') ? 'csv' : 'excel';
+async function conciliarRetornoSeAplicavel(
+  arquivo: any,
+  dataReferencia: Date | undefined
+) {
+  const competencia = dataReferencia
+    ? `${dataReferencia.getUTCFullYear()}-${String(dataReferencia.getUTCMonth() + 1).padStart(2, "0")}`
+    : undefined;
+  const estabelecimentoId = Number(arquivo.estabelecimentoId);
+  const convenioId = Number(arquivo.convenioId);
+  if (
+    !competencia ||
+    !Number.isSafeInteger(estabelecimentoId) ||
+    estabelecimentoId <= 0 ||
+    !Number.isSafeInteger(convenioId) ||
+    convenioId <= 0
+  )
+    return;
+  try {
+    const { executarConciliacaoAutomatica } = await import(
+      "./faturamentoUnificadoService"
+    );
+    await executarConciliacaoAutomatica({
+      estabelecimentoId,
+      competencia,
+      convenioId,
+    });
+  } catch {
+    // A importação e o demonstrativo permanecem válidos; a conciliação poderá
+    // ser repetida pela tela sem marcar o arquivo como falho.
+  }
+}
+
+async function processRetornado(
+  arquivoId: number,
+  arquivo: any,
+  buffer: Buffer,
+  limparExcel = true
+) {
+  const tipoArquivo = arquivo.tipoArquivo;
+  if (!["xml", "csv", "excel", "txt"].includes(tipoArquivo)) {
+    await db.updateArquivoStatus(arquivoId, "erro");
+    await plog(
+      arquivoId,
+      "error",
+      "Formato de retorno não possui processamento disponível."
+    );
+    return;
+  }
   // Corrigir timezone: extrair apenas a data (YYYY-MM-DD) para evitar que UTC-3 mude o dia
   const dataReferenciaUpload = arquivo.dataReferencia 
-    ? new Date(new Date(arquivo.dataReferencia).toISOString().split('T')[0] + 'T12:00:00Z') 
+    ? new Date(
+        new Date(arquivo.dataReferencia).toISOString().split("T")[0] +
+          "T12:00:00Z"
+      )
     : undefined;
   const dataPagamentoUpload = arquivo.dataPagamento 
-    ? new Date(new Date(arquivo.dataPagamento).toISOString().split('T')[0] + 'T12:00:00Z') 
+    ? new Date(
+        new Date(arquivo.dataPagamento).toISOString().split("T")[0] +
+          "T12:00:00Z"
+      )
     : undefined;
   
   let totalProcessados = 0;
   
   // CSV retornado - detectar formato IPASGO
-  if (tipoArquivo === 'csv') {
-    await plog(arquivoId, 'info', `Processando CSV retornado: ${arquivo.nome}`);
+  if (tipoArquivo === "csv") {
+    await plog(arquivoId, "info", `Processando CSV retornado: ${arquivo.nome}`);
 
     // Bradesco exporta um CSV hierárquico iniciado por "Extrato de Pagamento".
     // Esse formato já possui parser próprio, mas anteriormente não estava ligado
     // ao pipeline e era rejeitado como se todo CSV fosse IPASGO.
-    const csvUtf8 = buffer.toString('utf8').replace(/^\uFEFF/, '');
-    const isBradesco = csvUtf8.slice(0, 500).includes('Extrato de Pagamento');
+    const csvUtf8 = buffer.toString("utf8").replace(/^\uFEFF/, "");
+    const isBradesco = csvUtf8.slice(0, 500).includes("Extrato de Pagamento");
     if (isBradesco) {
-      const { parseBradescoCSV } = await import('./parsers/parseBradescoCSV');
+      const { parseBradescoCSV } = await import("./parsers/parseBradescoCSV");
       const result = parseBradescoCSV(
         csvUtf8,
         arquivoId,
         arquivo.convenioId,
         arquivo.estabelecimentoId || undefined,
         dataReferenciaUpload,
-        dataPagamentoUpload,
+        dataPagamentoUpload
       );
 
       if (!result.success || result.items.length === 0) {
-        await plog(arquivoId, 'error', `Bradesco CSV falhou: ${result.error || 'Nenhum item encontrado'}`);
+        await plog(
+          arquivoId,
+          "error",
+          `Bradesco CSV falhou: ${result.error || "Nenhum item encontrado"}`
+        );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
       }
@@ -159,34 +257,50 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
         const batch = result.items.slice(i, i + BATCH_SIZE);
         const inserted = await db.insertRecebimentosExcelBatch(batch);
         totalProcessados += inserted;
-        const progresso = Math.round(20 + (totalProcessados / result.items.length) * 60);
-        await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, result.items.length);
+        const progresso = Math.round(
+          20 + (totalProcessados / result.items.length) * 60
+        );
+        await db.updateArquivoProgresso(
+          arquivoId,
+          Math.min(progresso, 85),
+          totalProcessados,
+          result.items.length
+        );
       }
 
-      const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-      const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
+      const { syncDemonstrativoByArquivo } = await import(
+        "./syncDemonstrativo"
+      );
+      const syncResult = await syncDemonstrativoByArquivo(arquivoId, "excel");
       await plog(
         arquivoId,
-        'info',
-        `Bradesco CSV: ${result.totalItens} itens / ${result.totalGuias} guias / ${result.totalLotes} lotes; demonstrativo ${syncResult.total}`,
+        "info",
+        `Bradesco CSV: ${result.totalItens} itens / ${result.totalGuias} guias / ${result.totalLotes} lotes; demonstrativo ${syncResult.total}`
       );
+      await conciliarRetornoSeAplicavel(arquivo, dataReferenciaUpload);
       await db.updateArquivoStatus(arquivoId, "processado");
-      await db.updateArquivoProgresso(arquivoId, 100, totalProcessados, totalProcessados);
+      await db.updateArquivoProgresso(
+        arquivoId,
+        100,
+        totalProcessados,
+        totalProcessados
+      );
       return;
     }
     
-    const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } = await import('./parsers/parseIpasgoCSV');
+    const { decodeIpasgoBuffer, detectIpasgoFormat, parseIpasgoCSV } =
+      await import("./parsers/parseIpasgoCSV");
     
     // Decodificar buffer (pode ser UTF-16LE ou ISO-8859-1)
     let csvContent = decodeIpasgoBuffer(buffer);
     
     // Se não detectou como UTF-16LE, tentar ISO-8859-1
     if (!detectIpasgoFormat(csvContent)) {
-      csvContent = buffer.toString('latin1');
+      csvContent = buffer.toString("latin1");
     }
     
     if (detectIpasgoFormat(csvContent)) {
-      await plog(arquivoId, 'info', 'Formato IPASGO detectado, processando...');
+      await plog(arquivoId, "info", "Formato IPASGO detectado, processando...");
       
       // Excluir dados antigos
       await db.deleteRecebimentosExcelByArquivo(arquivoId);
@@ -202,7 +316,11 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
       );
       
       if (result.success && result.items.length > 0) {
-        await plog(arquivoId, 'info', `IPASGO parsed: ${result.items.length} itens, ${result.totalGuias} guias, ${result.totalLotes} lotes`);
+        await plog(
+          arquivoId,
+          "info",
+          `IPASGO parsed: ${result.items.length} itens, ${result.totalGuias} guias, ${result.totalLotes} lotes`
+        );
         await db.updateArquivoProgresso(arquivoId, 20, 0, result.items.length);
         
         // Inserir em batches
@@ -211,40 +329,134 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
           const batch = result.items.slice(i, i + BATCH_SIZE);
           const inserted = await db.insertRecebimentosExcelBatch(batch);
           totalProcessados += inserted;
-          const progresso = Math.round(20 + (totalProcessados / result.items.length) * 60);
-          await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, result.items.length);
+          const progresso = Math.round(
+            20 + (totalProcessados / result.items.length) * 60
+          );
+          await db.updateArquivoProgresso(
+            arquivoId,
+            Math.min(progresso, 85),
+            totalProcessados,
+            result.items.length
+          );
         }
         
         // Sincronizar demonstrativo
         if (totalProcessados > 0) {
-          await db.updateArquivoProgresso(arquivoId, 90, totalProcessados, totalProcessados);
+          await db.updateArquivoProgresso(
+            arquivoId,
+            90,
+            totalProcessados,
+            totalProcessados
+          );
           try {
-            const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-            const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-            await plog(arquivoId, 'info', `Demonstrativo sincronizado: ${syncResult.total} itens`);
+            const { syncDemonstrativoByArquivo } = await import(
+              "./syncDemonstrativo"
+            );
+            const syncResult = await syncDemonstrativoByArquivo(
+              arquivoId,
+              "excel"
+            );
+            await plog(
+              arquivoId,
+              "info",
+              `Demonstrativo sincronizado: ${syncResult.total} itens`
+            );
           } catch (syncError: any) {
-            await plog(arquivoId, 'error', `Erro ao sincronizar demonstrativo: ${syncError?.message}`);
+            await plog(
+              arquivoId,
+              "error",
+              `Erro ao sincronizar demonstrativo: ${syncError?.message}`
+            );
           }
         }
       } else {
-        await plog(arquivoId, 'error', `IPASGO parse falhou: ${result.error || 'Nenhum item encontrado'}`);
+        await plog(
+          arquivoId,
+          "error",
+          `IPASGO parse falhou: ${result.error || "Nenhum item encontrado"}`
+        );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
       }
     } else {
       // CSV não é IPASGO - tentar parser genérico
-      await plog(arquivoId, 'error', `CSV não reconhecido como formato IPASGO: ${arquivo.nome}`);
+      await plog(
+        arquivoId,
+        "error",
+        `CSV não reconhecido como formato IPASGO: ${arquivo.nome}`
+      );
       await db.updateArquivoStatus(arquivoId, "erro");
       return;
     }
     
+    await conciliarRetornoSeAplicavel(arquivo, dataReferenciaUpload);
     await db.updateArquivoStatus(arquivoId, "processado");
-    await db.updateArquivoProgresso(arquivoId, 100, totalProcessados, totalProcessados);
-    await plog(arquivoId, 'info', `CSV IPASGO concluído: ${totalProcessados} itens`);
+    await db.updateArquivoProgresso(
+      arquivoId,
+      100,
+      totalProcessados,
+      totalProcessados
+    );
+    await plog(
+      arquivoId,
+      "info",
+      `CSV IPASGO concluído: ${totalProcessados} itens`
+    );
+    return;
+  }
+
+  if (tipoArquivo === "txt") {
+    // TXT de retorno é um formato explícito (Unimed Cerrado), nunca tratado
+    // como planilha por exclusão. A limpeza é limitada ao próprio arquivo.
+    await db.deleteRecebimentoTissByArquivo(arquivoId);
+    await db.deleteDemonstrativoByArquivo(arquivoId);
+    const { parseUnimedCerradoTxt } = await import(
+      "./parsers/parseUnimedCerradoTxt"
+    );
+    const resultadoTxt = parseUnimedCerradoTxt(
+      buffer,
+      arquivoId,
+      arquivo.estabelecimentoId || 0,
+      arquivo.convenioId,
+      dataReferenciaUpload,
+      dataPagamentoUpload
+    );
+    if (!resultadoTxt.success || resultadoTxt.items.length === 0) {
+      await db.updateArquivoStatus(arquivoId, "erro");
+      await plog(arquivoId, "error", "TXT de retorno sem itens processáveis.");
+      return;
+    }
+    await db.updateArquivoProgresso(
+      arquivoId,
+      20,
+      0,
+      resultadoTxt.items.length
+    );
+    totalProcessados = await db.insertRecebimentoTiss(
+      resultadoTxt.items,
+      async (inseridos, total) => {
+        await db.updateArquivoProgresso(
+          arquivoId,
+          Math.round(20 + (inseridos / total) * 60),
+          inseridos,
+          total
+        );
+      }
+    );
+    const { syncDemonstrativoByArquivo } = await import("./syncDemonstrativo");
+    await syncDemonstrativoByArquivo(arquivoId, "xml");
+    await conciliarRetornoSeAplicavel(arquivo, dataReferenciaUpload);
+    await db.updateArquivoStatus(arquivoId, "processado");
+    await db.updateArquivoProgresso(
+      arquivoId,
+      100,
+      totalProcessados,
+      totalProcessados
+    );
     return;
   }
   
-  if (tipoArquivo === 'excel') {
+  if (tipoArquivo === "excel") {
     // Novos IDs Excel não possuem dados anteriores. Reprocessamentos e chamadas
     // antigas continuam limpando; sem índice por arquivo, o DELETE vazio é caro.
     if (limparExcel) {
@@ -258,33 +470,65 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
     
     // Para arquivos grandes com nome "demonstrativo", usar parser streaming Unimed
     let usedUnimedParser = false;
-    const isLikelyUnimed = arquivo.nome.toLowerCase().includes('demonstrativo');
+    const isLikelyUnimed = arquivo.nome.toLowerCase().includes("demonstrativo");
     
     if (isLargeFile && isLikelyUnimed) {
       try {
-        await plog(arquivoId, 'info', `Parser Unimed: arquivo ${(buffer.length / 1024 / 1024).toFixed(1)}MB | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB | RSS: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`);
+        await plog(
+          arquivoId,
+          "info",
+          `Parser Unimed: arquivo ${(buffer.length / 1024 / 1024).toFixed(1)}MB | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB | RSS: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`
+        );
         
-        const { parseUnimedExcelChunked } = await import('./parsers/unimedExcelParser');
-        await plog(arquivoId, 'info', 'Parser importado OK, iniciando parse streaming...');
+        const { parseUnimedExcelChunked } = await import(
+          "./parsers/unimedExcelParser"
+        );
+        await plog(
+          arquivoId,
+          "info",
+          "Parser importado OK, iniciando parse streaming..."
+        );
         
         const CHUNK_SIZE = 500;
         
         const result = await parseUnimedExcelChunked(
-          buffer, arquivoId, arquivo.convenioId,
-          dataReferenciaUpload, dataPagamentoUpload,
+          buffer,
+          arquivoId,
+          arquivo.convenioId,
+          dataReferenciaUpload,
+          dataPagamentoUpload,
           arquivo.estabelecimentoId || undefined,
           CHUNK_SIZE,
-          async (records: InsertRecebimentoExcel[], chunkIdx: number, totalRows: number) => {
+          async (
+            records: InsertRecebimentoExcel[],
+            chunkIdx: number,
+            totalRows: number
+          ) => {
             try {
               const inserted = await db.insertRecebimentosExcelBatch(records);
               totalProcessados += inserted;
-              const progresso = Math.round(12 + (totalProcessados / totalRows) * 73);
-              await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
+              const progresso = Math.round(
+                12 + (totalProcessados / totalRows) * 73
+              );
+              await db.updateArquivoProgresso(
+                arquivoId,
+                Math.min(progresso, 85),
+                totalProcessados,
+                totalRows
+              );
               if (chunkIdx % 10 === 0) {
-                await plog(arquivoId, 'info', `Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows}) | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB`);
+                await plog(
+                  arquivoId,
+                  "info",
+                  `Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows}) | Heap: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB`
+                );
               }
             } catch (insertErr: any) {
-              await plog(arquivoId, 'error', `ERRO INSERT chunk ${chunkIdx}: ${insertErr?.message} | records.length: ${records.length} | first record keys: ${records[0] ? Object.keys(records[0]).join(',') : 'N/A'}`);
+              await plog(
+                arquivoId,
+                "error",
+                `ERRO INSERT chunk ${chunkIdx}: ${insertErr?.message} | records.length: ${records.length} | first record keys: ${records[0] ? Object.keys(records[0]).join(",") : "N/A"}`
+              );
               throw insertErr; // Re-throw para parar o processamento
             }
           }
@@ -292,66 +536,124 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
         
         if (result.totalRecords >= 0) {
           usedUnimedParser = true;
-          await plog(arquivoId, 'info', `Parser concluído: ${result.totalRecords} registros inseridos`);
+          await plog(
+            arquivoId,
+            "info",
+            `Parser concluído: ${result.totalRecords} registros inseridos`
+          );
         }
       } catch (unimedErr: any) {
-        await plog(arquivoId, 'error', `ERRO FATAL parser Unimed: ${unimedErr?.message} | Stack: ${unimedErr?.stack?.substring(0, 1500)}`);
+        await plog(
+          arquivoId,
+          "error",
+          `ERRO FATAL parser Unimed: ${unimedErr?.message} | Stack: ${unimedErr?.stack?.substring(0, 1500)}`
+        );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
       }
     }
     
     if (!usedUnimedParser) {
-      const { parseExcelRecebimentosExcel, parseExcelRecebimentosExcelChunked } = await import('./recebimentosExcelParser');
+      const {
+        parseExcelRecebimentosExcel,
+        parseExcelRecebimentosExcelChunked,
+      } = await import("./recebimentosExcelParser");
       
       if (isLargeFile) {
-        console.log(`[FileProcessor] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`);
+        console.log(
+          `[FileProcessor] Arquivo grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB) - usando processamento em chunks`
+        );
         const CHUNK_SIZE = 500;
         
         const result = await parseExcelRecebimentosExcelChunked(
-          buffer, arquivoId, arquivo.convenioId,
-          dataReferenciaUpload, dataPagamentoUpload,
+          buffer,
+          arquivoId,
+          arquivo.convenioId,
+          dataReferenciaUpload,
+          dataPagamentoUpload,
           arquivo.estabelecimentoId || undefined,
           CHUNK_SIZE,
-          async (records: InsertRecebimentoExcel[], chunkIdx: number, totalRows: number) => {
+          async (
+            records: InsertRecebimentoExcel[],
+            chunkIdx: number,
+            totalRows: number
+          ) => {
             const inserted = await db.insertRecebimentosExcelBatch(records);
             totalProcessados += inserted;
-            const progresso = Math.round(12 + (totalProcessados / totalRows) * 73);
-            await db.updateArquivoProgresso(arquivoId, Math.min(progresso, 85), totalProcessados, totalRows);
-            console.log(`[FileProcessor] Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows})`);
+            const progresso = Math.round(
+              12 + (totalProcessados / totalRows) * 73
+            );
+            await db.updateArquivoProgresso(
+              arquivoId,
+              Math.min(progresso, 85),
+              totalProcessados,
+              totalRows
+            );
+            console.log(
+              `[FileProcessor] Chunk ${chunkIdx}: +${inserted} (total: ${totalProcessados}/${totalRows})`
+            );
           }
         );
         
-        console.log(`[FileProcessor] Excel chunked: ${result.totalRecords} registros`);
+        console.log(
+          `[FileProcessor] Excel chunked: ${result.totalRecords} registros`
+        );
       } else {
         // ARQUIVO NORMAL (< 2MB)
         const recordsExcel = parseExcelRecebimentosExcel(
-          buffer, arquivoId, arquivo.convenioId,
-          dataReferenciaUpload, dataPagamentoUpload,
+          buffer,
+          arquivoId,
+          arquivo.convenioId,
+          dataReferenciaUpload,
+          dataPagamentoUpload,
           arquivo.estabelecimentoId || undefined
         );
         
         await db.updateArquivoProgresso(arquivoId, 20, 0, recordsExcel.length);
-        console.log(`[FileProcessor] Excel parsed: ${recordsExcel.length} registros`);
+        console.log(
+          `[FileProcessor] Excel parsed: ${recordsExcel.length} registros`
+        );
         
         if (recordsExcel.length > 0) {
-          totalProcessados = await db.insertRecebimentosExcelBatch(recordsExcel, async (inserted: number, total: number) => {
+          totalProcessados = await db.insertRecebimentosExcelBatch(
+            recordsExcel,
+            async (inserted: number, total: number) => {
             const progresso = Math.round(20 + (inserted / total) * 60);
-            await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-          });
+              await db.updateArquivoProgresso(
+                arquivoId,
+                progresso,
+                inserted,
+                total
+              );
+            }
+          );
         }
       }
     }
     
     // Sincronizar demonstrativo
     if (totalProcessados > 0) {
-      await db.updateArquivoProgresso(arquivoId, 90, totalProcessados, totalProcessados);
+      await db.updateArquivoProgresso(
+        arquivoId,
+        90,
+        totalProcessados,
+        totalProcessados
+      );
       try {
-        const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-        const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'excel');
-        console.log('[FileProcessor] Demonstrativo sincronizado:', syncResult.total, 'itens');
+        const { syncDemonstrativoByArquivo } = await import(
+          "./syncDemonstrativo"
+        );
+        const syncResult = await syncDemonstrativoByArquivo(arquivoId, "excel");
+        console.log(
+          "[FileProcessor] Demonstrativo sincronizado:",
+          syncResult.total,
+          "itens"
+        );
       } catch (syncError) {
-        console.error('[FileProcessor] Erro ao sincronizar demonstrativo:', syncError);
+        console.error(
+          "[FileProcessor] Erro ao sincronizar demonstrativo:",
+          syncError
+        );
       }
     }
   } else {
@@ -359,85 +661,184 @@ async function processRetornado(arquivoId: number, arquivo: any, buffer: Buffer,
     await db.deleteRecebimentoTissByArquivo(arquivoId);
     await db.deleteDemonstrativoByArquivo(arquivoId);
     
-    const { parseXmlRecebimentoTiss } = await import('./recebimentoTissParser');
+    const { parseXmlRecebimentoTiss } = await import("./recebimentoTissParser");
     await db.updateArquivoProgresso(arquivoId, 10, 0);
     
     const recebimentoResult = await parseXmlRecebimentoTiss(
-      buffer, arquivoId, arquivo.estabelecimentoId || 0,
-      arquivo.convenioId, dataReferenciaUpload, dataPagamentoUpload
+      buffer,
+      arquivoId,
+      arquivo.estabelecimentoId || 0,
+      arquivo.convenioId,
+      dataReferenciaUpload,
+      dataPagamentoUpload
     );
     
-    if (recebimentoResult && recebimentoResult.success && recebimentoResult.items.length > 0) {
-      await db.updateArquivoProgresso(arquivoId, 20, 0, recebimentoResult.items.length);
+    if (
+      recebimentoResult &&
+      recebimentoResult.success &&
+      recebimentoResult.items.length > 0
+    ) {
+      await db.updateArquivoProgresso(
+        arquivoId,
+        20,
+        0,
+        recebimentoResult.items.length
+      );
       
-      totalProcessados = await db.insertRecebimentoTiss(recebimentoResult.items, async (inserted: number, total: number) => {
+      totalProcessados = await db.insertRecebimentoTiss(
+        recebimentoResult.items,
+        async (inserted: number, total: number) => {
         const progresso = Math.round(20 + (inserted / total) * 60);
-        await db.updateArquivoProgresso(arquivoId, progresso, inserted, total);
-      });
+          await db.updateArquivoProgresso(
+            arquivoId,
+            progresso,
+            inserted,
+            total
+          );
+        }
+      );
       
       // Sincronizar demonstrativo
       try {
-        const { syncDemonstrativoByArquivo } = await import('./syncDemonstrativo');
-        const syncResult = await syncDemonstrativoByArquivo(arquivoId, 'xml');
-        console.log('[FileProcessor] Demonstrativo sincronizado:', syncResult.total, 'itens');
+        const { syncDemonstrativoByArquivo } = await import(
+          "./syncDemonstrativo"
+        );
+        const syncResult = await syncDemonstrativoByArquivo(arquivoId, "xml");
+        console.log(
+          "[FileProcessor] Demonstrativo sincronizado:",
+          syncResult.total,
+          "itens"
+        );
       } catch (syncError) {
-        console.error('[FileProcessor] Erro ao sincronizar demonstrativo:', syncError);
+        console.error(
+          "[FileProcessor] Erro ao sincronizar demonstrativo:",
+          syncError
+        );
       }
     }
   }
   
+  if (totalProcessados > 0)
+    await conciliarRetornoSeAplicavel(arquivo, dataReferenciaUpload);
   await db.updateArquivoStatus(arquivoId, "processado");
-  await db.updateArquivoProgresso(arquivoId, 100, totalProcessados, totalProcessados);
-  console.log(`[FileProcessor] Concluído: ${totalProcessados} itens extraídos de arquivo retornado.`);
+  await db.updateArquivoProgresso(
+    arquivoId,
+    100,
+    totalProcessados,
+    totalProcessados
+  );
+  console.log(
+    `[FileProcessor] Concluído: ${totalProcessados} itens extraídos de arquivo retornado.`
+  );
 }
 
 async function processEnvio(
   arquivoId: number,
   arquivo: any,
   buffer: Buffer,
-  skipContaConvenioSync = false,
+  skipContaConvenioSync = false
 ) {
-  const { parseFile } = await import('./parsers');
-  const { getDb } = await import('./db');
-  
-  await db.deleteFaturamentoTissByArquivo(arquivoId);
-  
-  // Limpar contas_convenio_itens do arquivo
-  try {
-    const { contasConvenioItens: cciR, contasConvenioResumo: ccrR } = await import('../drizzle/schema');
-    const { eq, and } = await import('drizzle-orm');
-    const dbReproc = await getDb();
-    if (dbReproc) {
-      const guiasAf = await dbReproc.selectDistinct({ 
-        numeroConta: cciR.numeroConta, estabelecimentoId: cciR.estabelecimentoId 
-      }).from(cciR).where(eq(cciR.arquivoId, arquivoId));
-      await dbReproc.delete(cciR).where(eq(cciR.arquivoId, arquivoId));
-      for (const g of guiasAf) {
-        const rest = await dbReproc.select().from(cciR).where(
-          and(eq(cciR.numeroConta, g.numeroConta), eq(cciR.estabelecimentoId, g.estabelecimentoId))
+  // XMLs de honorários são classificados antes de qualquer DELETE/INSERT
+  // financeiro. Honorários puros seguem somente o contexto informativo; XML
+  // misto ou ambíguo falha fechado.
+  const eXml =
+    arquivo.tipoArquivo === "xml" ||
+    String(arquivo.nome || "")
+      .toLowerCase()
+      .endsWith(".xml");
+  if (eXml) {
+    const { rotearEnvioXmlParaContextoMedico } = await import(
+      "./importacaoAutomaticaContextoMedico"
         );
-        if (rest.length === 0) {
-          await dbReproc.delete(ccrR).where(
-            and(eq(ccrR.numeroConta, g.numeroConta), eq(ccrR.estabelecimentoId, g.estabelecimentoId))
+    const roteamento = await rotearEnvioXmlParaContextoMedico(
+      {
+        id: arquivoId,
+        tipoArquivo: "xml",
+        direcao: "enviado",
+        estabelecimentoId: arquivo.estabelecimentoId,
+        convenioId: arquivo.convenioId,
+      },
+      buffer
           );
-        } else {
-          let vt = 0;
-          for (const i of rest) vt += parseFloat(String(i.valorTotal || 0));
-          await dbReproc.update(ccrR).set({ totalItens: rest.length, valorTotal: String(vt.toFixed(2)) })
-            .where(and(eq(ccrR.numeroConta, g.numeroConta), eq(ccrR.estabelecimentoId, g.estabelecimentoId)));
-        }
+    if (roteamento.destino === "contexto_informativo") {
+      await db.updateArquivoStatus(arquivoId, "processado");
+      await db.updateArquivoProgresso(
+        arquivoId,
+        100,
+        roteamento.indexadas + roteamento.jaIndexadas,
+        roteamento.indexadas + roteamento.jaIndexadas
+      );
+      await plog(
+        arquivoId,
+        "info",
+        `XML de honorários associado ao contexto informativo: ${roteamento.indexadas} nova(s), ${roteamento.jaIndexadas} já existente(s)`
+      );
+      return;
       }
-      console.log(`[FileProcessor] contas_convenio limpo para ${guiasAf.length} guias`);
     }
-  } catch (e) { console.error('[FileProcessor] Erro contas_convenio:', e); }
   
-  console.log('[FileProcessor] Parsing file:', arquivo.nome);
+  // O parser e a escolha de unidade acontecem antes da primeira exclusão de
+  // reimportação. Assim um arquivo inválido ou sem estabelecimento aplicável
+  // não remove a versão financeira anterior.
+  const { parseFile } = await import("./parsers");
   const parseResult = await parseFile(buffer, arquivo.nome);
+  if (!parseResult.success) {
+    throw new Error("Falha ao interpretar o arquivo de envio");
+  }
+  if (parseResult.procedimentos.length === 0) {
+    await db.updateArquivoStatus(arquivoId, "processado");
+    await db.updateArquivoProgresso(arquivoId, 100, 0, 0);
+    await plog(arquivoId, "info", "Arquivo de envio sem itens processáveis");
+    return;
+  }
+
+  const estabelecimentoPadrao = Number(arquivo.estabelecimentoId);
+  if (
+    !Number.isSafeInteger(estabelecimentoPadrao) ||
+    estabelecimentoPadrao <= 0
+  ) {
+    throw new Error("Arquivo de envio sem estabelecimento válido");
+  }
+  if (
+    !Number.isSafeInteger(Number(arquivo.convenioId)) ||
+    Number(arquivo.convenioId) <= 0
+  ) {
+    throw new Error("Arquivo de envio sem convênio válido");
+  }
   
-  if (parseResult.success && parseResult.procedimentos.length > 0) {
-    const { mapTipoDespesaParaTipoItem } = await import('./routers');
+  // Um prestador só muda a unidade do item se houver vínculo ativo para o mesmo
+  // convênio. Sem vínculo, preservamos explicitamente a unidade escolhida no
+  // upload; nenhum código é copiado ou inferido entre hospitais.
+  const estabelecimentosPorPrestador = new Map<string, number>();
+  for (const procedimento of parseResult.procedimentos) {
+    const codigo = String(procedimento.codigoPrestadorExecutante || "").trim();
+    if (!codigo || estabelecimentosPorPrestador.has(codigo)) continue;
+    const vinculo = await db.getPrestadorPorCodigo(
+      codigo,
+      Number(arquivo.convenioId)
+    );
+    const estabelecimentoVinculado = Number(vinculo?.estabelecimentoId);
+    const usarVinculo =
+      vinculo?.ativo === "sim" &&
+      Number.isSafeInteger(estabelecimentoVinculado) &&
+      estabelecimentoVinculado > 0;
+    estabelecimentosPorPrestador.set(
+      codigo,
+      usarVinculo ? estabelecimentoVinculado : estabelecimentoPadrao
+    );
+  }
     
-    const faturamentoRecords: InsertFaturamentoTiss[] = parseResult.procedimentos.map((proc: any, idx: number) => ({
+  const { mapTipoDespesaParaTipoItem } = await import("./routers");
+  const faturamentoRecords: InsertFaturamentoTiss[] =
+    parseResult.procedimentos.map((proc: any, idx: number) => {
+      const codigoPrestador = String(
+        proc.codigoPrestadorExecutante || ""
+      ).trim();
+      const estabelecimentoId = codigoPrestador
+        ? (estabelecimentosPorPrestador.get(codigoPrestador) ??
+          estabelecimentoPadrao)
+        : estabelecimentoPadrao;
+      return {
       numeroLote: proc.numeroLote || undefined,
       sequencialTransacao: proc.sequencialTransacao || undefined,
       registroAns: proc.registroANS || undefined,
@@ -451,66 +852,146 @@ async function processEnvio(
       codigoTabela: proc.codigoDespesa || undefined,
       codigoItem: proc.codigo,
       descricaoItem: proc.descricao || undefined,
-      quantidade: proc.quantidade ? String(proc.quantidade) : '1',
-      valorUnitario: proc.valorUnitario ? String(proc.valorUnitario) : undefined,
+        quantidade: proc.quantidade ? String(proc.quantidade) : "1",
+        valorUnitario: proc.valorUnitario
+          ? String(proc.valorUnitario)
+          : undefined,
       valorFaturado: proc.valorTotal ? String(proc.valorTotal) : undefined,
       nomeProf: proc.nomeMedico || undefined,
       conselhoProf: proc.crmMedico || undefined,
       codigoPrestadorExecutante: proc.codigoPrestadorExecutante || undefined,
-      estabelecimentoId: arquivo.estabelecimentoId || undefined,
-      arquivoId: arquivoId,
+        estabelecimentoId,
+        arquivoId,
       convenioId: arquivo.convenioId,
       dataReferencia: arquivo.dataReferencia || undefined,
       competencia: arquivo.dataReferencia 
-        ? `${new Date(arquivo.dataReferencia).getUTCFullYear()}/${String(new Date(arquivo.dataReferencia).getUTCMonth() + 1).padStart(2, '0')}`
+          ? `${new Date(arquivo.dataReferencia).getUTCFullYear()}/${String(new Date(arquivo.dataReferencia).getUTCMonth() + 1).padStart(2, "0")}`
         : undefined,
-    }));
+      };
+    });
     
-    await db.insertFaturamentoTissBatch(faturamentoRecords);
+  await db.deleteFaturamentoTissByArquivo(arquivoId);
 
-    // A tela Conta Convênio usa tabelas próprias para permitir auditoria e
-    // análise por conta. Mantê-las sincronizadas automaticamente após o XML
-    // ser normalizado evita arquivos "processados" com a tela vazia.
-    try {
+  // Remove somente os itens derivados deste arquivo. Uma falha aqui interrompe
+  // a publicação do novo conjunto, para não prosseguir com reimportação parcial.
+  const { getDb } = await import("./db");
+  const { contasConvenioItens: cciR, contasConvenioResumo: ccrR } =
+    await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const dbReproc = await getDb();
+  if (!dbReproc)
+    throw new Error("Banco indisponível para reimportação da Conta Convênio");
+  const guiasAf = await dbReproc
+    .selectDistinct({
+      numeroConta: cciR.numeroConta,
+      estabelecimentoId: cciR.estabelecimentoId,
+    })
+    .from(cciR)
+    .where(eq(cciR.arquivoId, arquivoId));
+  await dbReproc.delete(cciR).where(eq(cciR.arquivoId, arquivoId));
+  for (const guia of guiasAf) {
+    const restantes = await dbReproc
+      .select()
+      .from(cciR)
+      .where(
+        and(
+          eq(cciR.numeroConta, guia.numeroConta),
+          eq(cciR.estabelecimentoId, guia.estabelecimentoId)
+        )
+      );
+    if (restantes.length === 0) {
+      await dbReproc
+        .delete(ccrR)
+        .where(
+          and(
+            eq(ccrR.numeroConta, guia.numeroConta),
+            eq(ccrR.estabelecimentoId, guia.estabelecimentoId)
+          )
+        );
+      continue;
+    }
+    const valorTotal = restantes.reduce(
+      (total, item) => total + parseFloat(String(item.valorTotal || 0)),
+      0
+    );
+    await dbReproc
+      .update(ccrR)
+      .set({
+        totalItens: restantes.length,
+        valorTotal: String(valorTotal.toFixed(2)),
+      })
+      .where(
+        and(
+          eq(ccrR.numeroConta, guia.numeroConta),
+          eq(ccrR.estabelecimentoId, guia.estabelecimentoId)
+        )
+      );
+  }
+
+  const totalProcessados = await db.insertFaturamentoTissBatch(
+    faturamentoRecords,
+    async (_percentual, inseridos, total) => {
+      const progresso = Math.min(90, 10 + Math.round((inseridos / total) * 80));
+      await db.updateArquivoProgresso(arquivoId, progresso, inseridos, total);
+    }
+  );
+
       if (skipContaConvenioSync) {
-        await plog(arquivoId, 'info', 'Sincronização imediata de Conta Convênio adiada para reconstrução em lote');
+    await plog(
+      arquivoId,
+      "info",
+      "Sincronização imediata de Conta Convênio adiada para reconstrução em lote"
+    );
       } else {
-      const { syncContaConvenioFromFaturamentoTiss } = await import('./syncContaConvenio');
+    const { syncContaConvenioFromFaturamentoTiss } = await import(
+      "./syncContaConvenio"
+    );
+    const estabelecimentosAfetados = [
+      ...new Set(
+        faturamentoRecords
+          .map(registro => Number(registro.estabelecimentoId))
+          .filter(id => Number.isSafeInteger(id) && id > 0)
+      ),
+    ];
+    let totalContas = 0;
+    for (const estabelecimentoId of estabelecimentosAfetados) {
       const syncResult = await syncContaConvenioFromFaturamentoTiss({
-        estabelecimentoId: arquivo.estabelecimentoId,
+        estabelecimentoId,
         arquivoId,
       });
+      totalContas += syncResult.totalContas;
+    }
       await plog(
         arquivoId,
-        'info',
-        `Conta Convênio sincronizada: ${syncResult.totalItens} itens / ${syncResult.totalContas} contas no estabelecimento`,
+      "info",
+      `Conta Convênio sincronizada para ${estabelecimentosAfetados.length} unidade(s) e ${totalContas} conta(s)`
       );
       }
-    } catch (syncError: any) {
-      await plog(arquivoId, 'error', `Erro ao sincronizar Conta Convênio: ${syncError?.message || syncError}`);
-      throw syncError;
-    }
 
     await db.updateArquivoStatus(arquivoId, "processado");
-    await db.updateArquivoProgresso(arquivoId, 100, faturamentoRecords.length, faturamentoRecords.length);
-    console.log(`[FileProcessor] Concluído: ${faturamentoRecords.length} itens extraídos de arquivo envio.`);
-  } else if (!parseResult.success) {
-    await db.updateArquivoStatus(arquivoId, "erro");
-    console.error('[FileProcessor] Erro no parse:', parseResult.error);
-  } else {
-    await db.updateArquivoStatus(arquivoId, "processado");
-    console.log('[FileProcessor] Arquivo processado, mas nenhum item encontrado.');
-  }
+  await db.updateArquivoProgresso(
+    arquivoId,
+    100,
+    totalProcessados,
+    faturamentoRecords.length
+  );
+  console.log(
+    `[FileProcessor] Concluído: ${totalProcessados} itens extraídos de arquivo enviado.`
+  );
 }
 
 /**
  * Aplica padrões de aceite automático de glosa nos itens recém-importados.
  * Verifica a tabela glosas_aceite_automatico e marca os itens correspondentes.
  */
-async function aplicarAceiteAutomaticoGlosa(arquivoId: number, convenioId?: number, estabelecimentoId?: number) {
-  const { getDb } = await import('./db');
-  const { glosasAceiteAutomatico } = await import('../drizzle/schema');
-  const { eq, and, or, isNull, sql } = await import('drizzle-orm');
+async function aplicarAceiteAutomaticoGlosa(
+  arquivoId: number,
+  convenioId?: number,
+  estabelecimentoId?: number
+) {
+  const { getDb } = await import("./db");
+  const { glosasAceiteAutomatico } = await import("../drizzle/schema");
+  const { eq, and, or, isNull, sql } = await import("drizzle-orm");
   
   const database = await getDb();
   if (!database) return;
@@ -532,7 +1013,12 @@ async function aplicarAceiteAutomaticoGlosa(arquivoId: number, convenioId?: numb
     // Verificar convênio: null = todos, ou deve bater
     if (p.convenioId && convenioId && p.convenioId !== convenioId) return false;
     // Verificar estabelecimento: null = todos, ou deve bater
-    if (p.estabelecimentoId && estabelecimentoId && p.estabelecimentoId !== estabelecimentoId) return false;
+    if (
+      p.estabelecimentoId &&
+      estabelecimentoId &&
+      p.estabelecimentoId !== estabelecimentoId
+    )
+      return false;
     return true;
   });
   
@@ -587,8 +1073,14 @@ async function aplicarAceiteAutomaticoGlosa(arquivoId: number, convenioId?: numb
   }
   
   if (totalAceitos > 0) {
-    console.log(`[AceiteAutomatico] ${totalAceitos} itens marcados como aceite automático no arquivo ${arquivoId}`);
-    await plog(arquivoId, 'info', `Aceite automático: ${totalAceitos} itens glosados aceitos automaticamente (${padroesAplicaveis.length} padrões aplicados)`);
+    console.log(
+      `[AceiteAutomatico] ${totalAceitos} itens marcados como aceite automático no arquivo ${arquivoId}`
+    );
+    await plog(
+      arquivoId,
+      "info",
+      `Aceite automático: ${totalAceitos} itens glosados aceitos automaticamente (${padroesAplicaveis.length} padrões aplicados)`
+    );
   }
 }
 

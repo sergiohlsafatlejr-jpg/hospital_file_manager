@@ -34,6 +34,31 @@ describe("montarScopeContaContextoMedico", () => {
     });
   });
 
+  it("preserva o escopo XML válido quando a conta também tem itens do banco", () => {
+    const result = montarScope([
+      itemXml,
+      {
+        origem: "BANCO_CLIENTE",
+        arquivoId: undefined,
+        convenioId: undefined,
+        numeroLote: "OUTRO-LOTE",
+        competencia: "2026/09",
+      },
+    ]);
+
+    expect(result).toEqual({
+      ready: true,
+      scope: {
+        estabelecimentoId: 7,
+        numeroConta: "CONTA-123",
+        arquivoHospitalId: 101,
+        convenioId: 22,
+        numeroLote: "LOTE-01",
+        competencia: "2026/10",
+      },
+    });
+  });
+
   it("bloqueia o contexto quando os itens XML têm mais de um lote ou competência", () => {
     const result = montarScope([
       itemXml,

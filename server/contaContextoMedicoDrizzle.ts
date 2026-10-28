@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   arquivos,
   contaContextoMedicoContextos,
@@ -664,6 +664,55 @@ export function criarContaContextoMedicoRepositorioDrizzle(
         // explicitamente pendente e não tenta nenhuma mutação.
         return false;
       }
+    },
+
+    async listarEscoposHospitalaresCandidatos(input) {
+      const db = await dbOuErro();
+      const referencias = [...new Set(input.referenciasGuias
+        .map(referencia => referencia.trim())
+        .filter(Boolean))];
+      if (!referencias.length) return [];
+      // Consulta mínima, exclusivamente de leitura: a conta, lote e competência
+      // usam as mesmas expressões canônicas do snapshot/materialização. Valores,
+      // carteira e dados clínicos não participam da descoberta automática.
+      const rows = await db.select({
+        arquivoHospitalId: faturamentoTiss.arquivoId,
+        numeroConta: contaCanonica(),
+        numeroLote: loteCanonico(),
+        competencia: competenciaCanonica(),
+      })
+        .from(faturamentoTiss)
+        .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
+        .where(and(
+          eq(faturamentoTiss.estabelecimentoId, input.estabelecimentoId),
+          eq(faturamentoTiss.convenioId, input.convenioId),
+          // A descoberta inclui os dois identificadores homólogos. O scope que
+          // retorna continua canônico (prestador antes de operadora), e o
+          // serviço ainda exige uma única correlação forte no snapshot.
+          or(
+            inArray(faturamentoTiss.numeroGuiaPrestador, referencias),
+            inArray(faturamentoTiss.numeroGuiaOperadora, referencias),
+          ),
+        ));
+      const candidatos = new Map<string, ScopeContaMedicaNormalizado>();
+      for (const row of rows) {
+        const arquivoHospitalId = inteiro(row.arquivoHospitalId);
+        const numeroConta = texto(row.numeroConta);
+        const numeroLote = texto(row.numeroLote) ?? "";
+        const competencia = texto(row.competencia) ?? "";
+        if (!arquivoHospitalId || !numeroConta) continue;
+        const scope: ScopeContaMedicaNormalizado = {
+          estabelecimentoId: input.estabelecimentoId,
+          convenioId: input.convenioId,
+          arquivoHospitalId,
+          numeroConta,
+          numeroLote,
+          competencia,
+        };
+        const chave = `${arquivoHospitalId}\u0000${numeroConta}\u0000${numeroLote}\u0000${competencia}`;
+        candidatos.set(chave, scope);
+      }
+      return [...candidatos.values()];
     },
 
     async resolverSnapshotHospitalar(scope) {
