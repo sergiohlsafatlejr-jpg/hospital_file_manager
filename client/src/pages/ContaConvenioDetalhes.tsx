@@ -306,6 +306,18 @@ function ContaConvenioDetalhesPadrao() {
     div: any;
   }>({ open: false, div: null });
   const [filtroFeedback, setFiltroFeedback] = useState<string>("todos");
+  const [resultadoContextoMedico, setResultadoContextoMedico] = useState<{
+    estado: "nao_solicitado" | "aplicado" | "incompleto";
+    mensagem: string | null;
+    fontes: number;
+    itensFaltantes: number;
+    divergencias: Array<{
+      codigoItem: string;
+      descricaoItem?: string;
+      severidade: "alerta" | "critico";
+      mensagem: string;
+    }>;
+  } | null>(null);
 
   // Estado para aba de Falhas de Prontuário
   const [falhaDialog, setFalhaDialog] = useState(false);
@@ -703,14 +715,27 @@ function ContaConvenioDetalhesPadrao() {
 
   const compararMutation = trpc.contasConvenio.compararComPadroes.useMutation({
     onSuccess: result => {
-      if (result.statusGeral === "conforme") {
-        toast.success(
-          `Conta conforme! ${result.totalItensAnalisados} itens analisados.`
-        );
+      setResultadoContextoMedico({
+        estado: result.contextoMedico.estado,
+        mensagem: result.contextoMedico.mensagem,
+        fontes: result.contextoMedico.fontes,
+        itensFaltantes: result.contextoMedico.itensFaltantes,
+        divergencias: result.contextoMedico.divergencias.map(divergencia => ({
+          codigoItem: divergencia.codigoItem,
+          descricaoItem: divergencia.descricaoItem,
+          severidade: divergencia.severidade,
+          mensagem: divergencia.mensagem,
+        })),
+      });
+      setActiveTab("divergencias");
+      if (result.statusGeral === "incompleta") {
+        toast.warning(result.contextoMedico.mensagem ?? "Comparação incompleta: revise o contexto médico da mesma versão hospitalar.");
+      } else if (result.contextoMedico.itensFaltantes > 0) {
+        toast.warning(`${result.contextoMedico.itensFaltantes} item(ns) médico(s) informativo(s) requer(em) revisão.`);
+      } else if (result.statusGeral === "conforme") {
+        toast.success(`Conta conforme! ${result.totalItensAnalisados} itens analisados.`);
       } else {
-        toast.warning(
-          `${result.totalDivergencias} divergência(s) encontrada(s)`
-        );
+        toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s)`);
       }
       refetch();
       refetchDivergencias();
@@ -730,6 +755,14 @@ function ContaConvenioDetalhesPadrao() {
       items: itensContaInteira.data?.items ?? [],
     });
   }, [estabelecimentoId, itensContaInteira.data?.items, numeroConta]);
+  const executarComparacaoComContextoMedico = () => {
+    if (!contextoMedicoScopeState.ready) {
+      toast.warning("Comparação bloqueada: abra uma versão hospitalar com escopo médico único antes de validar itens faltantes.");
+      return;
+    }
+    compararMutation.mutate({ numeroConta, estabelecimentoId, contextoMedicoScope: contextoMedicoScopeState.scope });
+  };
+
   const exibirContextoMedico = contextoMedicoScopeState.ready;
   const contextoMedicoConsultaInput = useMemo(
     () =>
@@ -1011,7 +1044,7 @@ function ContaConvenioDetalhesPadrao() {
               variant="outline"
               className="border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
               onClick={() => {
-                compararMutation.mutate({ numeroConta, estabelecimentoId });
+                executarComparacaoComContextoMedico();
               }}
               disabled={compararMutation.isPending}
             >
@@ -2129,7 +2162,37 @@ function ContaConvenioDetalhesPadrao() {
           </TabsContent>
 
           {/* Tab: Divergências */}
-          <TabsContent value="divergencias">
+          <TabsContent value="divergencias" className="space-y-4">
+            {resultadoContextoMedico ? (
+              <Card className={resultadoContextoMedico.estado === "incompleto" ? "border-amber-300 bg-amber-50/60" : resultadoContextoMedico.itensFaltantes > 0 ? "border-orange-300 bg-orange-50/60" : "border-emerald-300 bg-emerald-50/60"}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Stethoscope className="h-5 w-5 text-sky-700" />
+                    Resultado informativo do XML de honorários
+                  </CardTitle>
+                  <CardDescription>
+                    {resultadoContextoMedico.mensagem ?? "Resultado médico informativo."} Nenhum valor, status financeiro ou histórico da conta foi alterado.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {resultadoContextoMedico.estado === "incompleto" ? (
+                    <p className="text-sm text-amber-900">Revise o XML hospitalar e a associação médica antes de concluir a conta.</p>
+                  ) : resultadoContextoMedico.divergencias.length > 0 ? (
+                    <ul className="space-y-2">
+                      {resultadoContextoMedico.divergencias.map(divergencia => (
+                        <li key={`${divergencia.codigoItem}-${divergencia.severidade}`} className="rounded-md border border-orange-200 bg-white/80 px-3 py-2 text-sm">
+                          <span className="font-medium">{divergencia.descricaoItem || divergencia.codigoItem}</span>
+                          <span className="ml-2 text-muted-foreground">({divergencia.codigoItem})</span>
+                          <p className="mt-1 text-muted-foreground">{divergencia.mensagem}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-emerald-900">A composição foi conferida com a fonte médica informativa, sem pendência obrigatória ou condicional.</p>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -2208,10 +2271,7 @@ function ContaConvenioDetalhesPadrao() {
                     <Button 
                       variant="outline"
                       onClick={() =>
-                        compararMutation.mutate({
-                          numeroConta,
-                          estabelecimentoId,
-                        })
+                        executarComparacaoComContextoMedico()
                       }
                       disabled={compararMutation.isPending}
                     >

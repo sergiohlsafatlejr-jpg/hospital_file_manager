@@ -793,10 +793,8 @@ export default function ContaConvenio() {
                                 convenioChave: conta.convenioChave,
                               });
                             } else {
-                              compararMutation.mutate({
-                                numeroConta: conta.numeroConta,
-                                estabelecimentoId: conta.estabelecimentoId,
-                              });
+                              toast.message("Abra os detalhes da conta para comparar com contexto médico da versão hospitalar correta.");
+                              handleVerDetalhes(conta);
                             }
                           }}
                           disabled={compararMutation.isPending || compararWarleineMutation.isPending}
