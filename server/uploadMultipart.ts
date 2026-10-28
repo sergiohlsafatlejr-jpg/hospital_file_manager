@@ -8,18 +8,21 @@
  * - Cria/atualiza registro no banco
  * - Dispara processamento em background
  */
-import { Router, Request, Response, NextFunction } from 'express';
-import multer from 'multer';
-import { nanoid } from 'nanoid';
-import { mkdirSync, promises as fs } from 'node:fs';
-import { extname } from 'node:path';
-import * as db from './db';
-import { storagePut } from './storage';
-import { sdk } from './_core/sdk';
-import { importTasyCsvFile } from './tasyCsvImportService';
-import { hashWarleineFile, reserveWarleineImportJob } from './warleineFaturamentoImportService';
-import { encryptWarleineFile } from './warleineFileVault';
-import { delegarPlanilhaRetorno } from './retornoUploadDispatch';
+import { Router, Request, Response, NextFunction } from "express";
+import multer from "multer";
+import { nanoid } from "nanoid";
+import { mkdirSync, promises as fs } from "node:fs";
+import { extname } from "node:path";
+import * as db from "./db";
+import { storagePut } from "./storage";
+import { sdk } from "./_core/sdk";
+import { importTasyCsvFile } from "./tasyCsvImportService";
+import {
+  hashWarleineFile,
+  reserveWarleineImportJob,
+} from "./warleineFaturamentoImportService";
+import { encryptWarleineFile } from "./warleineFileVault";
+import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
 
 const router = Router();
 
@@ -30,26 +33,36 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
-const tasyUploadDir = '/tmp/portal-safatle-tasy';
+const tasyUploadDir = "/tmp/portal-safatle-tasy";
 mkdirSync(tasyUploadDir, { recursive: true });
 const uploadTasyCsv = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, callback) => callback(null, tasyUploadDir),
-    filename: (_req, file, callback) => callback(null, `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`),
+    filename: (_req, file, callback) =>
+      callback(
+        null,
+        `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`
+      ),
   }),
   limits: { fileSize: 512 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, callback) => callback(null, extname(file.originalname).toLowerCase() === '.csv'),
+  fileFilter: (_req, file, callback) =>
+    callback(null, extname(file.originalname).toLowerCase() === ".csv"),
 });
 
-const warleineUploadDir = '/tmp/portal-safatle-warleine';
+const warleineUploadDir = "/tmp/portal-safatle-warleine";
 mkdirSync(warleineUploadDir, { recursive: true });
 const uploadWarleineXlsx = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, callback) => callback(null, warleineUploadDir),
-    filename: (_req, file, callback) => callback(null, `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`),
+    filename: (_req, file, callback) =>
+      callback(
+        null,
+        `${Date.now()}-${nanoid()}-${sanitizeFilename(file.originalname)}`
+      ),
   }),
   limits: { fileSize: 128 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, callback) => callback(null, extname(file.originalname).toLowerCase() === '.xlsx'),
+  fileFilter: (_req, file, callback) =>
+    callback(null, extname(file.originalname).toLowerCase() === ".xlsx"),
 });
 
 type TasyUploadRequest = Request & {
@@ -64,26 +77,47 @@ type WarleineUploadRequest = Request & {
   warleineDeadlineAtMs?: number;
 };
 
-async function authorizeWarleineUpload(req: WarleineUploadRequest, res: Response, next: NextFunction) {
+async function authorizeWarleineUpload(
+  req: WarleineUploadRequest,
+  res: Response,
+  next: NextFunction
+) {
   try {
     let user: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
     try {
       user = await sdk.authenticateRequest(req);
     } catch {
-      res.status(401).json({ error: 'Não autenticado' });
+      res.status(401).json({ error: "Não autenticado" });
       return;
     }
-    const estabelecimentoId = Number(req.header('x-estabelecimento-id'));
+    const estabelecimentoId = Number(req.header("x-estabelecimento-id"));
     if (!Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) {
-      res.status(400).json({ error: 'Informe um estabelecimento válido antes do upload.' });
+      res
+        .status(400)
+        .json({ error: "Informe um estabelecimento válido antes do upload." });
       return;
     }
-    const allowedEstablishment = user.role === 'admin'
-      || await db.verificarPermissaoEstabelecimento(user.id, estabelecimentoId, 'gerenciar');
-    const allowedModule = user.role === 'admin'
-      || await db.verificarAcessoModulo(user.id, estabelecimentoId, 'contaConvenio');
+    const allowedEstablishment =
+      user.role === "admin" ||
+      (await db.verificarPermissaoEstabelecimento(
+        user.id,
+        estabelecimentoId,
+        "gerenciar"
+      ));
+    const allowedModule =
+      user.role === "admin" ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "contaConvenio"
+      ));
     if (!allowedEstablishment || !allowedModule) {
-      res.status(403).json({ error: 'Sem permissão para importar faturamento Warleine nesta unidade.' });
+      res
+        .status(403)
+        .json({
+          error:
+            "Sem permissão para importar faturamento Warleine nesta unidade.",
+        });
       return;
     }
     req.warleineUploadUser = user;
@@ -91,37 +125,61 @@ async function authorizeWarleineUpload(req: WarleineUploadRequest, res: Response
     req.warleineDeadlineAtMs = Date.now() + 13 * 60 * 1000;
     next();
   } catch (error) {
-    console.error('[Warleine XLSX] Erro ao autorizar upload:', error);
-    res.status(500).json({ error: 'Não foi possível autorizar o upload Warleine.' });
+    console.error("[Warleine XLSX] Erro ao autorizar upload:", error);
+    res
+      .status(500)
+      .json({ error: "Não foi possível autorizar o upload Warleine." });
   }
 }
 
-async function authorizeTasyUpload(req: TasyUploadRequest, res: Response, next: NextFunction) {
+async function authorizeTasyUpload(
+  req: TasyUploadRequest,
+  res: Response,
+  next: NextFunction
+) {
   try {
     let user: Awaited<ReturnType<typeof sdk.authenticateRequest>>;
     try {
       user = await sdk.authenticateRequest(req);
     } catch {
-      res.status(401).json({ error: 'Não autenticado' });
+      res.status(401).json({ error: "Não autenticado" });
       return;
     }
 
-    const estabelecimentoId = Number(req.header('x-estabelecimento-id'));
+    const estabelecimentoId = Number(req.header("x-estabelecimento-id"));
     if (!Number.isInteger(estabelecimentoId) || estabelecimentoId <= 0) {
-      res.status(400).json({ error: 'Informe um estabelecimento válido antes do upload.' });
+      res
+        .status(400)
+        .json({ error: "Informe um estabelecimento válido antes do upload." });
       return;
     }
 
-    const allowedEstablishment = user.role === 'admin'
-      || await db.verificarPermissaoEstabelecimento(user.id, estabelecimentoId, 'gerenciar');
+    const allowedEstablishment =
+      user.role === "admin" ||
+      (await db.verificarPermissaoEstabelecimento(
+        user.id,
+        estabelecimentoId,
+        "gerenciar"
+      ));
     if (!allowedEstablishment) {
-      res.status(403).json({ error: 'Sem permissão para importar dados nesta unidade.' });
+      res
+        .status(403)
+        .json({ error: "Sem permissão para importar dados nesta unidade." });
       return;
     }
-    const allowedModule = user.role === 'admin'
-      || await db.verificarAcessoModulo(user.id, estabelecimentoId, 'importacaoTasy');
+    const allowedModule =
+      user.role === "admin" ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "importacaoTasy"
+      ));
     if (!allowedModule) {
-      res.status(403).json({ error: 'Sem permissão para usar a importação Tasy nesta unidade.' });
+      res
+        .status(403)
+        .json({
+          error: "Sem permissão para usar a importação Tasy nesta unidade.",
+        });
       return;
     }
 
@@ -130,35 +188,40 @@ async function authorizeTasyUpload(req: TasyUploadRequest, res: Response, next: 
     req.tasyDeadlineAtMs = Date.now() + 13 * 60 * 1000;
     next();
   } catch (error) {
-    console.error('[Tasy CSV] Erro ao autorizar upload:', error);
-    res.status(500).json({ error: 'Não foi possível autorizar o upload Tasy.' });
+    console.error("[Tasy CSV] Erro ao autorizar upload:", error);
+    res
+      .status(500)
+      .json({ error: "Não foi possível autorizar o upload Tasy." });
   }
 }
 
 // Sanitizar nome do arquivo
 function sanitizeFilename(name: string): string {
   return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .replace(/_+/g, '_')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
     .substring(0, 200);
 }
 
-router.post('/api/upload-file', upload.single('file'), async (req: Request, res: Response) => {
+router.post(
+  "/api/upload-file",
+  upload.single("file"),
+  async (req: Request, res: Response) => {
   try {
     // Verificar autenticação via SDK (mesma lógica do tRPC context)
     let user;
     try {
       user = await sdk.authenticateRequest(req);
     } catch (e) {
-      return res.status(401).json({ error: 'Não autenticado' });
+        return res.status(401).json({ error: "Não autenticado" });
     }
     const userId = user.id;
 
     const file = req.file;
     if (!file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+        return res.status(400).json({ error: "Nenhum arquivo enviado" });
     }
 
     // Extrair metadados do body
@@ -173,21 +236,68 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
     } = req.body;
 
     if (!nome || !tipoArquivo || !direcao || !convenioId) {
-      return res.status(400).json({ error: 'Campos obrigatórios: nome, tipoArquivo, direcao, convenioId' });
+        return res
+          .status(400)
+          .json({
+            error:
+              "Campos obrigatórios: nome, tipoArquivo, direcao, convenioId",
+          });
     }
 
     const buffer = file.buffer;
     const sanitizedNome = sanitizeFilename(nome);
-    const convId = parseInt(convenioId);
-    const estabId = estabelecimentoId ? parseInt(estabelecimentoId) : undefined;
+      const convId = Number(convenioId);
+      const estabId = Number(estabelecimentoId);
+      if (
+        !Number.isSafeInteger(convId) ||
+        convId <= 0 ||
+        !Number.isSafeInteger(estabId) ||
+        estabId <= 0
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Informe convênio e estabelecimento válidos." });
+      }
+      const convenio = await db.getConvenioById(convId);
+      if (!convenio) {
+        return res.status(404).json({ error: "Convênio não encontrado." });
+      }
+      if (
+        convenio.estabelecimentoId &&
+        convenio.estabelecimentoId !== estabId
+      ) {
+        return res
+          .status(403)
+          .json({
+            error:
+              "O convênio informado não pertence ao estabelecimento selecionado.",
+          });
+      }
+      if (user.role !== "admin") {
+        const permitido = await db.verificarPermissaoEstabelecimento(
+          user.id,
+          estabId,
+          "editar"
+        );
+        if (!permitido) {
+          return res
+            .status(403)
+            .json({
+              error:
+                "Sem permissão para importar arquivos neste estabelecimento.",
+            });
+        }
+      }
 
-    console.log(`[UploadMultipart] Recebido: ${nome} (${(buffer.length / 1024 / 1024).toFixed(1)}MB) tipo=${tipoArquivo} direcao=${direcao}`);
+      console.log(
+        `[UploadMultipart] Recebido: ${(buffer.length / 1024 / 1024).toFixed(1)}MB tipo=${tipoArquivo} direcao=${direcao}`
+      );
 
     // Verificar se já existe um arquivo com mesmo nome, convênio e estabelecimento
     const arquivoExistente = await db.findArquivoExistente({
       nome,
       convenioId: convId,
-      estabelecimentoId: estabId || 0,
+        estabelecimentoId: estabId,
       userId,
       direcao,
     });
@@ -196,13 +306,22 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
     let s3Url: string;
     let isReimportacao = false;
 
-    const ext = tipoArquivo === "excel" ? "xlsx" : tipoArquivo === "csv" ? "csv" : tipoArquivo;
+      const ext =
+        tipoArquivo === "excel"
+          ? "xlsx"
+          : tipoArquivo === "csv"
+            ? "csv"
+            : tipoArquivo;
     const s3Key = `arquivos/${userId}/${nanoid()}-${sanitizedNome}.${ext}`;
     const contentType =
-      tipoArquivo === "xml" ? "application/xml"
-        : tipoArquivo === "excel" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        : tipoArquivo === "csv" ? "text/csv"
-        : tipoArquivo === "txt" ? "text/plain"
+        tipoArquivo === "xml"
+          ? "application/xml"
+          : tipoArquivo === "excel"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : tipoArquivo === "csv"
+              ? "text/csv"
+              : tipoArquivo === "txt"
+                ? "text/plain"
         : "application/pdf";
 
     // Upload to S3
@@ -213,7 +332,17 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
       // Reimportação
       isReimportacao = true;
       arquivoId = arquivoExistente.id;
-      await db.updateArquivo(arquivoId, { s3Url, s3Key, status: 'pendente' });
+        await db.updateArquivo(arquivoId, {
+          s3Url,
+          s3Key,
+          tamanho: buffer.length,
+          status: "pendente",
+          progresso: 0,
+          itensProcessados: 0,
+          totalItens: null,
+          dataReferencia: dataReferencia ? new Date(dataReferencia) : null,
+          dataPagamento: dataPagamento ? new Date(dataPagamento) : null,
+        });
       console.log(`[UploadMultipart] Reimportação do arquivo ${arquivoId}`);
     } else {
       // Novo arquivo
@@ -224,7 +353,7 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
         tipoArquivo,
         direcao,
         convenioId: convId,
-        estabelecimentoId: estabId || null,
+          estabelecimentoId: estabId,
         userId,
         s3Url,
         s3Key,
@@ -236,77 +365,101 @@ router.post('/api/upload-file', upload.single('file'), async (req: Request, res:
     }
 
     // Para arquivos retornados (Excel/CSV), delegar processamento em background
-    if (direcao === 'retornado' && (tipoArquivo === 'excel' || tipoArquivo === 'csv')) {
+      if (
+        direcao === "retornado" &&
+        (tipoArquivo === "excel" ||
+          tipoArquivo === "csv" ||
+          tipoArquivo === "txt")
+      ) {
       // Disparar processamento em background
-      const port = process.env.PORT || '3000';
+        const port = process.env.PORT || "3000";
       const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-      const secret = process.env.JWT_SECRET || 'internal-process-secret';
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
 
-      await delegarPlanilhaRetorno({
-        arquivoId, secret, reimportacao: isReimportacao, tipoArquivo,
-      }, {
-        marcarProcessando: () => db.updateArquivoStatus(arquivoId, "processando"),
-        atualizarProgresso: () => db.updateArquivoProgresso(arquivoId, 5, 0),
-        disparar: payload => fetch(internalUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        await delegarPlanilhaRetorno(
+          {
+            arquivoId,
+            secret,
+            reimportacao: isReimportacao,
+            tipoArquivo,
+          },
+          {
+            marcarProcessando: () =>
+              db.updateArquivoStatus(arquivoId, "processando"),
+            atualizarProgresso: () =>
+              db.updateArquivoProgresso(arquivoId, 5, 0),
+            disparar: payload =>
+              fetch(internalUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         }),
         marcarErro: () => db.updateArquivoStatus(arquivoId, "erro"),
-      });
+          }
+        );
 
-      console.log(`[UploadMultipart] Background processing disparado para ${arquivoId}`);
-    } else if (direcao === 'retornado' && tipoArquivo === 'xml') {
+        console.log(
+          `[UploadMultipart] Background processing disparado para ${arquivoId}`
+        );
+      } else if (direcao === "retornado" && tipoArquivo === "xml") {
       // XML retornado - também background
       await db.updateArquivoStatus(arquivoId, "processando");
       await db.updateArquivoProgresso(arquivoId, 5, 0);
 
-      const port = process.env.PORT || '3000';
+        const port = process.env.PORT || "3000";
       const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-      const secret = process.env.JWT_SECRET || 'internal-process-secret';
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
 
       fetch(internalUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ arquivoId, secret }),
       }).catch(err => {
-        console.error('[UploadMultipart] Erro ao disparar processamento XML:', err);
+          console.error(
+            "[UploadMultipart] Erro ao disparar processamento XML:",
+            err
+          );
         db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
       });
-    } else if (direcao === 'enviado') {
+      } else if (direcao === "enviado") {
       // Arquivo de envio - background
       await db.updateArquivoStatus(arquivoId, "processando");
       await db.updateArquivoProgresso(arquivoId, 5, 0);
 
-      const port = process.env.PORT || '3000';
+        const port = process.env.PORT || "3000";
       const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-      const secret = process.env.JWT_SECRET || 'internal-process-secret';
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
 
       fetch(internalUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ arquivoId, secret }),
       }).catch(err => {
-        console.error('[UploadMultipart] Erro ao disparar processamento envio:', err);
+          console.error(
+            "[UploadMultipart] Erro ao disparar processamento envio:",
+            err
+          );
         db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
       });
     }
 
+      // Não retornar URL/chave de storage: o acompanhamento usa somente o ID.
     res.json({
       success: true,
       id: arquivoId,
-      s3Url,
       reimportado: isReimportacao,
       processandoEmBackground: true,
     });
-  } catch (error: any) {
-    console.error('[UploadMultipart] Erro:', error);
-    res.status(500).json({ error: error.message || 'Erro interno no upload' });
+    } catch {
+      // A resposta não deve carregar detalhes internos de XML, storage ou banco.
+      console.error("[UploadMultipart] Falha interna ao receber upload");
+      res.status(500).json({ error: "Erro interno no upload" });
   }
-});
+  }
+);
 
 router.post(
-  '/api/tasy/importar-csv',
+  "/api/tasy/importar-csv",
   (req, res, next) => {
     // O lote piloto de 272 MB concluiu em cerca de quatro minutos; o limite da
     // hospedagem é de 15 minutos. O timeout precisa ser aplicado antes do multer.
@@ -315,28 +468,45 @@ router.post(
     next();
   },
   authorizeTasyUpload,
-  uploadTasyCsv.single('file'),
+  uploadTasyCsv.single("file"),
   async (req: TasyUploadRequest, res: Response) => {
   let tempPath = req.file?.path;
   try {
     const user = req.tasyUploadUser;
     const estabelecimentoId = req.tasyEstabelecimentoId;
     const configId = req.body.configId ? Number(req.body.configId) : null;
-    const validConfigId = typeof configId === 'number' && Number.isInteger(configId) && configId > 0 ? configId : null;
-    const substituirSnapshot = req.body.substituirSnapshot === 'true';
-    const confirmarSubstituicao = req.body.confirmarSubstituicao === 'true';
-    if (!req.file || !tempPath) return res.status(400).json({ error: 'Selecione um arquivo CSV.' });
+      const validConfigId =
+        typeof configId === "number" &&
+        Number.isInteger(configId) &&
+        configId > 0
+          ? configId
+          : null;
+      const substituirSnapshot = req.body.substituirSnapshot === "true";
+      const confirmarSubstituicao = req.body.confirmarSubstituicao === "true";
+      if (!req.file || !tempPath)
+        return res.status(400).json({ error: "Selecione um arquivo CSV." });
     if (!user || !estabelecimentoId) {
       await fs.unlink(tempPath).catch(() => undefined);
-      return res.status(401).json({ error: 'Autorização do upload não encontrada.' });
+        return res
+          .status(401)
+          .json({ error: "Autorização do upload não encontrada." });
     }
     if (Number(req.body.estabelecimentoId) !== estabelecimentoId) {
       await fs.unlink(tempPath).catch(() => undefined);
-      return res.status(400).json({ error: 'A unidade do formulário diverge da autorização do upload.' });
+        return res
+          .status(400)
+          .json({
+            error: "A unidade do formulário diverge da autorização do upload.",
+          });
     }
     if (substituirSnapshot && !confirmarSubstituicao) {
       await fs.unlink(tempPath).catch(() => undefined);
-      return res.status(400).json({ error: 'Confirme explicitamente que o arquivo representa o snapshot completo da unidade.' });
+        return res
+          .status(400)
+          .json({
+            error:
+              "Confirme explicitamente que o arquivo representa o snapshot completo da unidade.",
+          });
     }
 
     const originalName = req.file.originalname;
@@ -352,9 +522,14 @@ router.post(
         publish: true,
         replaceSnapshot: substituirSnapshot,
         deadlineAtMs: req.tasyDeadlineAtMs,
-        onProgress: (progress) => {
-          if (progress.processedRows > 0 && progress.processedRows % 100_000 === 0) {
-            console.log(`[Tasy CSV] estabelecimento=${estabelecimentoId} fase=${progress.phase} linhas=${progress.processedRows}`);
+          onProgress: progress => {
+            if (
+              progress.processedRows > 0 &&
+              progress.processedRows % 100_000 === 0
+            ) {
+              console.log(
+                `[Tasy CSV] estabelecimento=${estabelecimentoId} fase=${progress.phase} linhas=${progress.processedRows}`
+              );
           }
         },
       });
@@ -366,52 +541,74 @@ router.post(
         totalContas: result.totalAccounts,
         totalPublicadas: result.publishedAccounts,
         message: result.reusedExistingLot
-          ? 'Este arquivo já havia sido processado; o lote existente foi reutilizado.'
-          : 'CSV validado e publicado com sucesso.',
+            ? "Este arquivo já havia sido processado; o lote existente foi reutilizado."
+            : "CSV validado e publicado com sucesso.",
       });
     } finally {
       await fs.unlink(processingPath).catch(() => undefined);
     }
   } catch (error: any) {
     if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
-    console.error('[Tasy CSV] Erro ao receber arquivo:', error?.message || error);
-    return res.status(500).json({ error: error?.message || 'Erro interno no upload Tasy.' });
+      console.error(
+        "[Tasy CSV] Erro ao receber arquivo:",
+        error?.message || error
+      );
+      return res
+        .status(500)
+        .json({ error: error?.message || "Erro interno no upload Tasy." });
   }
-});
+  }
+);
 
 router.post(
-  '/api/warleine/importar-faturamento',
+  "/api/warleine/importar-faturamento",
   (req, res, next) => {
     req.setTimeout(15 * 60 * 1000);
     res.setTimeout(15 * 60 * 1000);
     next();
   },
   authorizeWarleineUpload,
-  uploadWarleineXlsx.single('file'),
+  uploadWarleineXlsx.single("file"),
   async (req: WarleineUploadRequest, res: Response) => {
     let tempPath = req.file?.path;
     try {
       const user = req.warleineUploadUser;
       const estabelecimentoId = req.warleineEstabelecimentoId;
-      if (!req.file || !tempPath) return res.status(400).json({ error: 'Selecione um arquivo XLSX do Warleine.' });
+      if (!req.file || !tempPath)
+        return res
+          .status(400)
+          .json({ error: "Selecione um arquivo XLSX do Warleine." });
       if (!user || !estabelecimentoId) {
         await fs.unlink(tempPath).catch(() => undefined);
-        return res.status(401).json({ error: 'Autorização do upload não encontrada.' });
+        return res
+          .status(401)
+          .json({ error: "Autorização do upload não encontrada." });
       }
       if (Number(req.body.estabelecimentoId) !== estabelecimentoId) {
         await fs.unlink(tempPath).catch(() => undefined);
-        return res.status(400).json({ error: 'A unidade do formulário diverge da autorização do upload.' });
+        return res
+          .status(400)
+          .json({
+            error: "A unidade do formulário diverge da autorização do upload.",
+          });
       }
-      if (req.body.confirmarSubstituicao !== 'true') {
+      if (req.body.confirmarSubstituicao !== "true") {
         await fs.unlink(tempPath).catch(() => undefined);
-        return res.status(400).json({ error: 'Confirme que o arquivo substitui as competências nele contidas.' });
+        return res
+          .status(400)
+          .json({
+            error:
+              "Confirme que o arquivo substitui as competências nele contidas.",
+          });
       }
 
       const processingPath = tempPath;
       const fileHash = await hashWarleineFile(processingPath);
       const storageKey = `warleine-faturamento/${estabelecimentoId}/${fileHash}.bin`;
-      const encryptedFile = encryptWarleineFile(await fs.readFile(processingPath));
-      await storagePut(storageKey, encryptedFile, 'application/octet-stream');
+      const encryptedFile = encryptWarleineFile(
+        await fs.readFile(processingPath)
+      );
+      await storagePut(storageKey, encryptedFile, "application/octet-stream");
       const job = await reserveWarleineImportJob({
         estabelecimentoId,
         userId: user.id,
@@ -422,22 +619,28 @@ router.post(
       });
       await fs.unlink(processingPath).catch(() => undefined);
       tempPath = undefined;
-      return res.status(job.status === 'publicado' ? 200 : 202).json({
+      return res.status(job.status === "publicado" ? 200 : 202).json({
         success: true,
-        processandoEmBackground: job.status !== 'publicado',
+        processandoEmBackground: job.status !== "publicado",
         loteId: job.loteId,
         reutilizado: job.reusedExistingLot,
         status: job.status,
-        message: job.status === 'publicado'
-          ? 'Este arquivo já havia sido publicado; o lote existente foi reutilizado.'
-          : 'Arquivo recebido com segurança e enfileirado para validação e publicação.',
+        message:
+          job.status === "publicado"
+            ? "Este arquivo já havia sido publicado; o lote existente foi reutilizado."
+            : "Arquivo recebido com segurança e enfileirado para validação e publicação.",
       });
     } catch (error: any) {
       if (tempPath) await fs.unlink(tempPath).catch(() => undefined);
-      console.error('[Warleine XLSX] Erro ao receber arquivo:', error?.message || error);
-      return res.status(500).json({ error: error?.message || 'Erro interno no upload Warleine.' });
+      console.error(
+        "[Warleine XLSX] Erro ao receber arquivo:",
+        error?.message || error
+      );
+      return res
+        .status(500)
+        .json({ error: error?.message || "Erro interno no upload Warleine." });
     }
-  },
+    }
 );
 
 export { router as uploadMultipartRouter };

@@ -360,7 +360,7 @@ export default function Upload() {
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Upload de Arquivos</h1>
           <p className="text-slate-500">
-            Envie até {MAX_FILES} arquivos XML, Excel ou PDF de uma vez
+            Envie até {MAX_FILES} arquivos XML, Excel ou PDF de uma vez. O processamento começa após o envio.
           </p>
         </div>
 
@@ -377,7 +377,7 @@ export default function Upload() {
                 )}
               </CardTitle>
               <CardDescription>
-                Arraste e solte os arquivos ou clique para selecionar
+                Arraste e solte os arquivos ou clique para selecionar. Após o envio, o processamento continua em segundo plano.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -431,6 +431,9 @@ export default function Upload() {
                   </div>
                 )}
               </div>
+              <p className="text-xs text-muted-foreground">
+                XML de honorários é somente informativo e aguarda associação segura à conta; não altera a cobrança no envio.
+              </p>
 
               {/* File List */}
               {selectedFiles.length > 0 && (
@@ -466,6 +469,15 @@ export default function Upload() {
                             <FileText className="h-4 w-4 shrink-0" />
                           )}
                           <span className="truncate">{item.file.name}</span>
+                          <span className="sr-only">
+                            {item.status === "uploading"
+                              ? "Enviando arquivo; o processamento ocorrerá após o envio."
+                              : item.status === "success"
+                                ? "Arquivo enviado; processamento posterior em andamento ou aguardando atualização."
+                                : item.status === "error"
+                                  ? "Não foi possível enviar o arquivo."
+                                  : "Arquivo aguardando envio."}
+                          </span>
                         </div>
                         {item.status === "pending" && (
                           <Button
@@ -501,10 +513,10 @@ export default function Upload() {
 
               {/* Upload Progress */}
               {isUploading && (
-                <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200" role="status" aria-live="polite">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span className="font-medium text-blue-900">Enviando arquivos...</span>
+                    <span className="font-medium text-blue-900">Enviando arquivos; o processamento começa após cada envio.</span>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm text-blue-700">
@@ -516,7 +528,7 @@ export default function Upload() {
                     <Progress value={uploadProgress} className="h-2" />
                   </div>
                   <p className="text-xs text-blue-600">
-                    O processamento dos itens continua em segundo plano após o upload. Você pode acompanhar o progresso na tela de Arquivos.
+                    O processamento dos itens ocorre em segundo plano após o upload. XML de honorários permanece apenas informativo e aguarda associação segura à conta. Você pode acompanhar o progresso na tela de Arquivos.
                   </p>
                 </div>
               )}
@@ -773,7 +785,7 @@ export default function Upload() {
                   <div>
                     <p className="font-medium text-slate-900">Processamento automático</p>
                     <p className="text-sm text-slate-500">
-                      O sistema extrairá automaticamente os procedimentos de cada arquivo
+                      Depois que o envio terminar, o sistema iniciará o processamento dos arquivos em segundo plano.
                     </p>
                   </div>
                 </div>
