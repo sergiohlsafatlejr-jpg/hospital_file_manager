@@ -17,13 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,7 +35,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  FileSearch,
   FileText,
   History,
   Info,
@@ -51,18 +43,12 @@ import {
   UserRound,
   XCircle,
 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 
 export type ContaContextoMedicoScopeState =
   | { ready: true; scope: ScopeContaMedica }
   | { ready: false; reason: string };
-
-export type ArquivoMedicoOption = {
-  id: number;
-  nome?: string | null;
-  dataReferencia?: string | null;
-};
 
 type ConfirmAction = {
   padraoId: number;
@@ -71,16 +57,10 @@ type ConfirmAction = {
 
 export type ContaContextoMedicoConteudoProps = {
   resultado?: ContaContextoMedicoResultado;
-  arquivos?: ArquivoMedicoOption[];
   isLoading?: boolean;
-  isLoadingArquivos?: boolean;
   errorMessage?: string;
-  arquivosErrorMessage?: string;
-  arquivoScopeKey?: string;
-  isIndexing?: boolean;
   isConfirming?: boolean;
   isInvalidating?: boolean;
-  onIndexar?: (arquivoMedicoId: number) => void;
   onConfirmar?: (padraoId: number, justificativa: string) => void;
   onInvalidar?: (justificativa: string) => void;
   onRecarregar?: () => void;
@@ -88,13 +68,6 @@ export type ContaContextoMedicoConteudoProps = {
 
 const MAX_PROCEDIMENTOS_VISIVEIS = 6;
 const MAX_CODIGOS_VISIVEIS = 2;
-
-function getArquivoLabel(arquivo: ArquivoMedicoOption): string {
-  const nome = arquivo.nome?.trim() || `Arquivo médico #${arquivo.id}`;
-  return arquivo.dataReferencia?.trim()
-    ? `${nome} — ${arquivo.dataReferencia}`
-    : nome;
-}
 
 function getStatusContexto(contexto: ContextoMedicoInfo | null | undefined) {
   if (!contexto) return null;
@@ -126,10 +99,13 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
-function mensagemPrecondicaoSnapshot(diagnostico: DiagnosticoSnapshotHospitalar | null | undefined): string | null {
+function mensagemPrecondicaoSnapshot(
+  diagnostico: DiagnosticoSnapshotHospitalar | null | undefined
+): string | null {
   if (!diagnostico) return null;
-  const total = (etapa: DiagnosticoSnapshotHospitalar["etapas"][number]["etapa"]) =>
-    diagnostico.etapas.find(item => item.etapa === etapa)?.totalLinhas ?? 0;
+  const total = (
+    etapa: DiagnosticoSnapshotHospitalar["etapas"][number]["etapa"]
+  ) => diagnostico.etapas.find(item => item.etapa === etapa)?.totalLinhas ?? 0;
   if (total("arquivo_hospitalar") === 0) {
     return "Os itens hospitalares ainda não estão disponíveis para preparar este contexto.";
   }
@@ -401,50 +377,14 @@ function CandidateCard({
 
 export function ContaContextoMedicoConteudo({
   resultado,
-  arquivos = [],
   isLoading = false,
-  isLoadingArquivos = false,
   errorMessage,
-  arquivosErrorMessage,
-  arquivoScopeKey,
-  isIndexing = false,
   isConfirming = false,
   isInvalidating = false,
-  onIndexar,
   onConfirmar,
   onInvalidar,
   onRecarregar,
 }: ContaContextoMedicoConteudoProps) {
-  const [arquivoSelecionado, setArquivoSelecionado] = useState<string>("");
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
-    null
-  );
-  const [justificativaConfirmacao, setJustificativaConfirmacao] = useState("");
-  const [invalidarAberto, setInvalidarAberto] = useState(false);
-  const [justificativaInvalidacao, setJustificativaInvalidacao] = useState("");
-  const contexto = resultado?.contexto;
-  const statusContexto = getStatusContexto(contexto);
-  const configuracaoPendente = resultado?.configuracaoPendente === true;
-  const mensagemSnapshot = mensagemPrecondicaoSnapshot(resultado?.diagnosticoSnapshot);
-  const temErroArquivos = Boolean(arquivosErrorMessage);
-  const arquivoSelecionadoAutorizado = arquivos.some(
-    arquivo => String(arquivo.id) === arquivoSelecionado
-  );
-  useEffect(() => {
-    setArquivoSelecionado("");
-  }, [arquivoScopeKey]);
-  useEffect(() => {
-    if (arquivoSelecionado && !arquivoSelecionadoAutorizado) {
-      setArquivoSelecionado("");
-    }
-  }, [arquivoSelecionado, arquivoSelecionadoAutorizado]);
-  const podeIndexar =
-    arquivoSelecionadoAutorizado &&
-    !isIndexing &&
-    Boolean(onIndexar) &&
-    !configuracaoPendente &&
-    !mensagemSnapshot &&
-    !temErroArquivos;
   const podeConfirmar =
     justificativaConfirmacao.trim().length > 0 &&
     Boolean(confirmAction) &&
@@ -475,8 +415,9 @@ export function ContaContextoMedicoConteudo({
                 Contexto médico informativo
               </CardTitle>
               <CardDescription className="mt-1">
-                Honorários: Informação médica — fora do financeiro. A
-                identificação do profissional é apenas informativa.
+                Informações médicas do XML são apenas informativas e não alteram
+                cobrança. A identificação do profissional fica fora do
+                financeiro.
               </CardDescription>
             </div>
             <Badge
@@ -495,7 +436,10 @@ export function ContaContextoMedicoConteudo({
                 Não foi possível consultar o contexto médico
               </AlertTitle>
               <AlertDescription className="space-y-3">
-                <p>Não foi possível carregar o contexto médico agora. Recarregue a tela e tente novamente.</p>
+                <p>
+                  Não foi possível carregar o contexto médico agora. Recarregue
+                  a tela e tente novamente.
+                </p>
                 {onRecarregar ? (
                   <Button variant="outline" size="sm" onClick={onRecarregar}>
                     Recarregar contexto
@@ -535,69 +479,16 @@ export function ContaContextoMedicoConteudo({
             </Alert>
           ))}
 
-          <div className="rounded-lg border border-dashed border-sky-200 bg-sky-50/50 p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-              <div className="flex-1 space-y-2">
-                <Label htmlFor="arquivo-medico">
-                  XML médico previamente importado
-                </Label>
-                <Select
-                  value={arquivoSelecionado}
-                  onValueChange={setArquivoSelecionado}
-                  disabled={isLoadingArquivos || temErroArquivos || arquivos.length === 0}
-                >
-                  <SelectTrigger
-                    id="arquivo-medico"
-                    className="w-full bg-background"
-                  >
-                    <SelectValue
-                      placeholder={
-                        isLoadingArquivos
-                          ? "Carregando arquivos autorizados..."
-                          : temErroArquivos
-                            ? "Não foi possível carregar os arquivos médicos"
-                            : arquivos.length
-                            ? "Selecione um arquivo médico"
-                            : "Nenhum arquivo médico elegível"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {arquivos.map(arquivo => (
-                      <SelectItem key={arquivo.id} value={String(arquivo.id)}>
-                        {getArquivoLabel(arquivo)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => onIndexar?.(Number(arquivoSelecionado))}
-                disabled={!podeIndexar}
-              >
-                {isIndexing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileSearch className="mr-2 h-4 w-4" />
-                )}
-                Indexar como informação
-              </Button>
-            </div>
-            {temErroArquivos ? (
-              <Alert variant="destructive" className="mt-3">
-                <AlertTriangle />
-                <AlertTitle>Não foi possível carregar os arquivos médicos</AlertTitle>
+          <Alert className="border-sky-200 bg-sky-50/50">
+            <Info />
+            <AlertTitle>Associação automática no upload</AlertTitle>
                 <AlertDescription>
-                  Revise a conta selecionada e tente carregar os arquivos novamente.
+              Ao importar um XML médico de honorários, o Portal associa as guias
+              somente quando encontra uma correspondência única no mesmo
+              hospital e convênio. Nenhum vínculo financeiro é criado. Arquivos
+              ambíguos ou sem correspondência ficam bloqueados para revisão.
                 </AlertDescription>
               </Alert>
-            ) : null}
-            <p className="mt-2 text-xs text-muted-foreground">
-              A indexação só ocorre após esta ação. O arquivo precisa pertencer
-              ao mesmo hospital e convênio da conta.
-            </p>
-          </div>
 
           {isLoading ? (
             <div className="space-y-3">
@@ -638,7 +529,10 @@ export function ContaContextoMedicoConteudo({
               {resultado.fontes.length > 0 ? (
                 <div className="space-y-3">
                   {resultado.fontes.map((fonte, indice) => (
-                    <FonteMedicaCard key={`${fonte.arquivoId}-${indice}`} fonte={fonte} />
+                    <FonteMedicaCard
+                      key={`${fonte.arquivoId}-${indice}`}
+                      fonte={fonte}
+                    />
                   ))}
                 </div>
               ) : (
@@ -646,8 +540,9 @@ export function ContaContextoMedicoConteudo({
                   <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
                   <p className="font-medium">Nenhum XML médico indexado</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Selecione um arquivo autorizado e indexe-o manualmente para
-                    visualizar procedimentos e profissionais.
+                    Importe o XML médico de honorários pela tela de Arquivos.
+                    Quando a correspondência for única, os procedimentos e
+                    profissionais aparecerão automaticamente nesta conta.
                   </p>
                 </div>
               )}
@@ -843,22 +738,11 @@ export function ContaContextoMedicoConteudo({
 function ContaContextoMedicoDisponivel({ scope }: { scope: ScopeContaMedica }) {
   const utils = trpc.useUtils();
   const consulta = trpc.contaContextoMedico.consultar.useQuery({ scope });
-  const arquivos = trpc.contaContextoMedico.listarArquivos.useQuery({ scope });
 
   const atualizar = async () => {
-    await Promise.all([
-      utils.contaContextoMedico.consultar.invalidate({ scope }),
-      utils.contaContextoMedico.listarArquivos.invalidate({ scope }),
-    ]);
+    await utils.contaContextoMedico.consultar.invalidate({ scope });
   };
 
-  const indexar = trpc.contaContextoMedico.indexar.useMutation({
-    onSuccess: async () => {
-      toast.success("XML médico indexado apenas como informação.");
-      await atualizar();
-    },
-    onError: error => toast.error(error.message),
-  });
   const confirmar = trpc.contaContextoMedico.confirmar.useMutation({
     onSuccess: async () => {
       toast.success("Composição informativa confirmada.");
@@ -877,17 +761,13 @@ function ContaContextoMedicoDisponivel({ scope }: { scope: ScopeContaMedica }) {
   return (
     <ContaContextoMedicoConteudo
       resultado={consulta.data}
-      arquivos={arquivos.data?.arquivos}
       isLoading={consulta.isLoading}
-      isLoadingArquivos={arquivos.isLoading}
       errorMessage={consulta.error?.message}
-      arquivosErrorMessage={arquivos.error?.message}
-      arquivoScopeKey={`${scope.estabelecimentoId}:${scope.convenioId}:${scope.arquivoHospitalId}:${scope.numeroConta}:${scope.numeroLote}:${scope.competencia}`}
-      isIndexing={indexar.isPending}
       isConfirming={confirmar.isPending}
       isInvalidating={invalidar.isPending}
-      onRecarregar={() => { void atualizar(); }}
-      onIndexar={arquivoMedicoId => indexar.mutate({ scope, arquivoMedicoId })}
+      onRecarregar={() => {
+        void atualizar();
+      }}
       onConfirmar={(padraoId, justificativa) =>
         confirmar.mutate({
           scope,
@@ -925,7 +805,8 @@ function ContaContextoMedicoIndisponivel({ reason }: { reason: string }) {
           <AlertTriangle />
           <AlertTitle>Contexto indisponível para esta conta</AlertTitle>
           <AlertDescription>
-            Não foi possível preparar o contexto médico para esta conta. Recarregue a tela e tente novamente.
+            Não foi possível preparar o contexto médico para esta conta.
+            Recarregue a tela e tente novamente.
           </AlertDescription>
         </Alert>
       </CardContent>

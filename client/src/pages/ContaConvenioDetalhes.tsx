@@ -1,7 +1,13 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -100,9 +106,16 @@ import React, { useMemo, useState, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { formatDateBR, formatDateTimeBR, toInputDateValue } from "@/lib/dateUtils";
+import {
+  formatDateBR,
+  formatDateTimeBR,
+  toInputDateValue,
+} from "@/lib/dateUtils";
 import ContaConvenioWarleineDetalhes from "./ContaConvenioWarleineDetalhes";
-import { ContaContextoMedico, type ContaContextoMedicoScopeState } from "@/components/contas/ContaContextoMedico";
+import {
+  ContaContextoMedico,
+  type ContaContextoMedicoScopeState,
+} from "@/components/contas/ContaContextoMedico";
 import { ProntuarioPdfAnexos } from "@/components/contas/ProntuarioPdfAnexos";
 import { montarScopeContaContextoMedico } from "@/lib/contaContextoMedicoScope";
 
@@ -123,11 +136,14 @@ const formatCurrency = (value: number | string | null | undefined) => {
 // Ícones por tipo de item
 const getTipoIcon = (tipo: string) => {
   const tipoLower = (tipo || "").toLowerCase();
-  if (tipoLower.includes("medicamento") || tipoLower.includes("med")) return Pill;
-  if (tipoLower.includes("material") || tipoLower.includes("mat")) return Package;
+  if (tipoLower.includes("medicamento") || tipoLower.includes("med"))
+    return Pill;
+  if (tipoLower.includes("material") || tipoLower.includes("mat"))
+    return Package;
   if (tipoLower.includes("diária") || tipoLower.includes("diaria")) return Bed;
   if (tipoLower.includes("taxa")) return Receipt;
-  if (tipoLower.includes("procedimento") || tipoLower.includes("proc")) return Stethoscope;
+  if (tipoLower.includes("procedimento") || tipoLower.includes("proc"))
+    return Stethoscope;
   if (tipoLower.includes("exame")) return Activity;
   if (tipoLower.includes("sadt")) return Syringe;
   return FileText;
@@ -136,11 +152,15 @@ const getTipoIcon = (tipo: string) => {
 // Cores por tipo de item
 const getTipoColor = (tipo: string) => {
   const tipoLower = (tipo || "").toLowerCase();
-  if (tipoLower.includes("medicamento") || tipoLower.includes("med")) return "bg-green-100 text-green-800";
-  if (tipoLower.includes("material") || tipoLower.includes("mat")) return "bg-blue-100 text-blue-800";
-  if (tipoLower.includes("diária") || tipoLower.includes("diaria")) return "bg-purple-100 text-purple-800";
+  if (tipoLower.includes("medicamento") || tipoLower.includes("med"))
+    return "bg-green-100 text-green-800";
+  if (tipoLower.includes("material") || tipoLower.includes("mat"))
+    return "bg-blue-100 text-blue-800";
+  if (tipoLower.includes("diária") || tipoLower.includes("diaria"))
+    return "bg-purple-100 text-purple-800";
   if (tipoLower.includes("taxa")) return "bg-yellow-100 text-yellow-800";
-  if (tipoLower.includes("procedimento") || tipoLower.includes("proc")) return "bg-red-100 text-red-800";
+  if (tipoLower.includes("procedimento") || tipoLower.includes("proc"))
+    return "bg-red-100 text-red-800";
   if (tipoLower.includes("exame")) return "bg-cyan-100 text-cyan-800";
   if (tipoLower.includes("sadt")) return "bg-orange-100 text-orange-800";
   return "bg-gray-100 text-gray-800";
@@ -150,13 +170,33 @@ const getTipoColor = (tipo: string) => {
 const StatusBadge = ({ status }: { status: string }) => {
   switch (status) {
     case "conforme":
-      return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle2 className="h-3 w-3 mr-1" />Conforme</Badge>;
+      return (
+        <Badge className="bg-green-100 text-green-800 border-green-200">
+          <CheckCircle2 className="h-3 w-3 mr-1" />
+          Conforme
+        </Badge>
+      );
     case "divergente":
-      return <Badge className="bg-red-100 text-red-800 border-red-200"><AlertTriangle className="h-3 w-3 mr-1" />Divergente</Badge>;
+      return (
+        <Badge className="bg-red-100 text-red-800 border-red-200">
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          Divergente
+        </Badge>
+      );
     case "revisado":
-      return <Badge className="bg-blue-100 text-blue-800 border-blue-200"><Eye className="h-3 w-3 mr-1" />Revisado</Badge>;
+      return (
+        <Badge className="bg-blue-100 text-blue-800 border-blue-200">
+          <Eye className="h-3 w-3 mr-1" />
+          Revisado
+        </Badge>
+      );
     default:
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pendente</Badge>;
+      return (
+        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
+          <Clock className="h-3 w-3 mr-1" />
+          Pendente
+        </Badge>
+      );
   }
 };
 
@@ -164,15 +204,43 @@ const StatusBadge = ({ status }: { status: string }) => {
 const SeveridadeBadge = ({ severidade }: { severidade: string }) => {
   switch (severidade) {
     case "critico":
-      return <Badge variant="destructive" className="text-sm px-3 py-1 font-bold shadow-sm"><XCircle className="h-4 w-4 mr-1.5" />Crítico</Badge>;
+      return (
+        <Badge
+          variant="destructive"
+          className="text-sm px-3 py-1 font-bold shadow-sm"
+        >
+          <XCircle className="h-4 w-4 mr-1.5" />
+          Crítico
+        </Badge>
+      );
     case "alerta":
-      return <Badge className="bg-orange-200 text-orange-900 border-orange-400 dark:bg-orange-900 dark:text-orange-100 dark:border-orange-600 text-sm px-3 py-1 font-bold shadow-sm"><AlertTriangle className="h-4 w-4 mr-1.5" />Alerta</Badge>;
+      return (
+        <Badge className="bg-orange-200 text-orange-900 border-orange-400 dark:bg-orange-900 dark:text-orange-100 dark:border-orange-600 text-sm px-3 py-1 font-bold shadow-sm">
+          <AlertTriangle className="h-4 w-4 mr-1.5" />
+          Alerta
+        </Badge>
+      );
     case "aviso":
-      return <Badge className="bg-yellow-200 text-yellow-900 border-yellow-400 dark:bg-yellow-900 dark:text-yellow-100 dark:border-yellow-600 text-sm px-3 py-1 font-bold shadow-sm"><AlertTriangle className="h-4 w-4 mr-1.5" />Aviso</Badge>;
+      return (
+        <Badge className="bg-yellow-200 text-yellow-900 border-yellow-400 dark:bg-yellow-900 dark:text-yellow-100 dark:border-yellow-600 text-sm px-3 py-1 font-bold shadow-sm">
+          <AlertTriangle className="h-4 w-4 mr-1.5" />
+          Aviso
+        </Badge>
+      );
     case "info":
-      return <Badge className="bg-blue-200 text-blue-900 border-blue-400 dark:bg-blue-900 dark:text-blue-100 dark:border-blue-600 text-sm px-3 py-1 font-bold shadow-sm"><Info className="h-4 w-4 mr-1.5" />Info</Badge>;
+      return (
+        <Badge className="bg-blue-200 text-blue-900 border-blue-400 dark:bg-blue-900 dark:text-blue-100 dark:border-blue-600 text-sm px-3 py-1 font-bold shadow-sm">
+          <Info className="h-4 w-4 mr-1.5" />
+          Info
+        </Badge>
+      );
     default:
-      return <Badge variant="outline" className="text-sm px-3 py-1 font-bold"><Info className="h-4 w-4 mr-1.5" />{severidade || "Info"}</Badge>;
+      return (
+        <Badge variant="outline" className="text-sm px-3 py-1 font-bold">
+          <Info className="h-4 w-4 mr-1.5" />
+          {severidade || "Info"}
+        </Badge>
+      );
   }
 };
 
@@ -182,23 +250,30 @@ const DecisaoBadge = ({ decisao }: { decisao: string }) => {
     case "aceitar":
       return (
         <Badge className="bg-green-200 text-green-900 border-green-400 dark:bg-green-900 dark:text-green-100 dark:border-green-600 text-sm px-3 py-1 font-bold shadow-sm">
-          <ThumbsUp className="h-4 w-4 mr-1.5" />Aceita
+          <ThumbsUp className="h-4 w-4 mr-1.5" />
+          Aceita
         </Badge>
       );
     case "rejeitar":
       return (
         <Badge className="bg-red-200 text-red-900 border-red-400 dark:bg-red-900 dark:text-red-100 dark:border-red-600 text-sm px-3 py-1 font-bold shadow-sm">
-          <ThumbsDown className="h-4 w-4 mr-1.5" />Rejeitada
+          <ThumbsDown className="h-4 w-4 mr-1.5" />
+          Rejeitada
         </Badge>
       );
     case "ignorar":
       return (
         <Badge className="bg-gray-200 text-gray-900 border-gray-400 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-500 text-sm px-3 py-1 font-bold shadow-sm">
-          <XCircle className="h-4 w-4 mr-1.5" />Ignorada
+          <XCircle className="h-4 w-4 mr-1.5" />
+          Ignorada
         </Badge>
       );
     default:
-      return <Badge variant="outline" className="text-sm px-3 py-1 font-bold">{decisao}</Badge>;
+      return (
+        <Badge variant="outline" className="text-sm px-3 py-1 font-bold">
+          {decisao}
+        </Badge>
+      );
   }
 };
 
@@ -210,7 +285,10 @@ function ContaConvenioDetalhesPadrao() {
   const params = new URLSearchParams(searchString);
   
   const numeroConta = params.get("numeroConta") || "";
-  const estabelecimentoId = parseInt(params.get("estabelecimentoId") || "0") || estabelecimentoAtual?.id || 0;
+  const estabelecimentoId =
+    parseInt(params.get("estabelecimentoId") || "0") ||
+    estabelecimentoAtual?.id ||
+    0;
   const numeroLote = params.get("numeroLote") || undefined;
   const competencia = params.get("competencia") || undefined;
 
@@ -223,7 +301,10 @@ function ContaConvenioDetalhesPadrao() {
   }>({ open: false, div: null, acao: "aceitar" });
   const [feedbackObs, setFeedbackObs] = useState("");
   const [feedbackValor, setFeedbackValor] = useState("");
-  const [historicoDialog, setHistoricoDialog] = useState<{ open: boolean; div: any }>({ open: false, div: null });
+  const [historicoDialog, setHistoricoDialog] = useState<{
+    open: boolean;
+    div: any;
+  }>({ open: false, div: null });
   const [filtroFeedback, setFiltroFeedback] = useState<string>("todos");
 
   // Estado para aba de Falhas de Prontuário
@@ -231,7 +312,9 @@ function ContaConvenioDetalhesPadrao() {
   const [falhaCategoria, setFalhaCategoria] = useState("");
   const [falhaTipo, setFalhaTipo] = useState("");
   const [falhaDescricao, setFalhaDescricao] = useState("");
-  const [falhaSeveridade, setFalhaSeveridade] = useState<"leve" | "moderada" | "grave" | "critica">("moderada");
+  const [falhaSeveridade, setFalhaSeveridade] = useState<
+    "leve" | "moderada" | "grave" | "critica"
+  >("moderada");
 
   // Estado para comparativo de reimportação
   const [comparativoReimport, setComparativoReimport] = useState<{
@@ -253,8 +336,18 @@ function ContaConvenioDetalhesPadrao() {
     valorItensAdicionados: number;
     valorItensRemovidos: number;
     diferencaAlteracoes: number;
-    listaItensAdicionados: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }>;
-    listaItensRemovidos: Array<{ codigoItem: string; descricaoItem: string; valorTotal: string; quantidade: string }>;
+    listaItensAdicionados: Array<{
+      codigoItem: string;
+      descricaoItem: string;
+      valorTotal: string;
+      quantidade: string;
+    }>;
+    listaItensRemovidos: Array<{
+      codigoItem: string;
+      descricaoItem: string;
+      valorTotal: string;
+      quantidade: string;
+    }>;
     statusAjustesAuditoria?: Array<{
       tipoAjuste: string;
       codigoItem: string;
@@ -277,7 +370,12 @@ function ContaConvenioDetalhesPadrao() {
   // Estado para aba de Ajustes de Itens
   const [ajusteDialog, setAjusteDialog] = useState<{
     open: boolean;
-    tipo: "ALTERAR_QUANTIDADE" | "ALTERAR_VALOR" | "ADICIONAR_ITEM" | "REMOVER_ITEM" | "ALTERAR_SETOR";
+    tipo:
+      | "ALTERAR_QUANTIDADE"
+      | "ALTERAR_VALOR"
+      | "ADICIONAR_ITEM"
+      | "REMOVER_ITEM"
+      | "ALTERAR_SETOR";
     item?: any;
   }>({ open: false, tipo: "ALTERAR_QUANTIDADE" });
   const [ajusteQtd, setAjusteQtd] = useState("");
@@ -293,10 +391,15 @@ function ContaConvenioDetalhesPadrao() {
   // Filtros para a tabela de itens na aba Ajustes
   const [filtroSetorAjuste, setFiltroSetorAjuste] = useState<string>("todos");
   const [filtroDataAjuste, setFiltroDataAjuste] = useState<string>("");
-  const [filtroTipoItemAjuste, setFiltroTipoItemAjuste] = useState<string>("todos");
+  const [filtroTipoItemAjuste, setFiltroTipoItemAjuste] =
+    useState<string>("todos");
 
   // Buscar itens da conta na nova tabela
-  const { data: itensData, isLoading, refetch } = trpc.contasConvenio.listarItens.useQuery(
+  const {
+    data: itensData,
+    isLoading,
+    refetch,
+  } = trpc.contasConvenio.listarItens.useQuery(
     {
       numeroConta,
       estabelecimentoId,
@@ -315,30 +418,43 @@ function ContaConvenioDetalhesPadrao() {
   );
 
   // Mutaçao para buscar/sincronizar Prontuários Médicos e Prescrições
-  const buscarProntuarioMutation = trpc.contasConvenio.buscarProntuario.useMutation({
-    onSuccess: (data) => {
+  const buscarProntuarioMutation =
+    trpc.contasConvenio.buscarProntuario.useMutation({
+      onSuccess: data => {
       if (data.fonte === "BANCO_REMOTO") {
-        toast.success(`Prontuários importados com sucesso! Encontradas ${data.prescricoes.length} prescrições.`);
+          toast.success(
+            `Prontuários importados com sucesso! Encontradas ${data.prescricoes.length} prescrições.`
+          );
         refetch(); // Recarrega divergências
       } else {
-        toast.success(`Prontuário carregado do cache local (${data.prescricoes.length} prescrições).`);
+          toast.success(
+            `Prontuário carregado do cache local (${data.prescricoes.length} prescrições).`
+          );
       }
     },
-    onError: (err) => {
+      onError: err => {
       toast.error(`Falha ao buscar prontuário: ${err.message}`);
-    }
+      },
   });
 
   // Query local do prontuário (apenas cache)
   // Como `buscarProntuario` é mutation, chamaremos on mount ou sob demanda.
   React.useEffect(() => {
     if (numeroConta && estabelecimentoId) {
-      buscarProntuarioMutation.mutate({ numeroConta, estabelecimentoId, forceRemote: false });
+      buscarProntuarioMutation.mutate({
+        numeroConta,
+        estabelecimentoId,
+        forceRemote: false,
+      });
     }
   }, [numeroConta, estabelecimentoId]);
 
   // Buscar divergências
-  const { data: divergenciasData, isLoading: isLoadingDiv, refetch: refetchDivergencias } = trpc.contasConvenio.getDivergencias.useQuery(
+  const {
+    data: divergenciasData,
+    isLoading: isLoadingDiv,
+    refetch: refetchDivergencias,
+  } = trpc.contasConvenio.getDivergencias.useQuery(
     {
       numeroConta,
       estabelecimentoId,
@@ -347,13 +463,15 @@ function ContaConvenioDetalhesPadrao() {
   );
 
   // Buscar falhas de prontuário
-  const { data: falhasData, refetch: refetchFalhas } = trpc.auditoria.listarFalhas.useQuery(
+  const { data: falhasData, refetch: refetchFalhas } =
+    trpc.auditoria.listarFalhas.useQuery(
     { numeroConta, estabelecimentoId },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
 
   // Buscar ajustes de auditoria
-  const { data: ajustesData, refetch: refetchAjustes } = trpc.auditoria.listarAjustes.useQuery(
+  const { data: ajustesData, refetch: refetchAjustes } =
+    trpc.auditoria.listarAjustes.useQuery(
     { numeroConta, estabelecimentoId },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
@@ -363,13 +481,19 @@ function ContaConvenioDetalhesPadrao() {
 
   // Buscar sugestões inteligentes de falhas
   const { data: sugestoesFalhas } = trpc.auditoria.sugestoesFalhas.useQuery(
-    { estabelecimentoId, convenio: itensData?.items?.[0]?.convenio || undefined },
+    {
+      estabelecimentoId,
+      convenio: itensData?.items?.[0]?.convenio || undefined,
+    },
     { enabled: !!estabelecimentoId }
   );
 
   // Buscar sugestões de ajustes
   const { data: sugestoesAjustes } = trpc.auditoria.sugestoesAjustes.useQuery(
-    { estabelecimentoId, convenio: itensData?.items?.[0]?.convenio || undefined },
+    {
+      estabelecimentoId,
+      convenio: itensData?.items?.[0]?.convenio || undefined,
+    },
     { enabled: !!estabelecimentoId }
   );
 
@@ -384,17 +508,24 @@ function ContaConvenioDetalhesPadrao() {
       setFalhaSeveridade("moderada");
       refetchFalhas();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
-  const atualizarStatusFalhaMutation = trpc.auditoria.atualizarStatusFalha.useMutation({
-    onSuccess: () => { toast.success("Status atualizado!"); refetchFalhas(); },
-    onError: (err) => toast.error(err.message),
+  const atualizarStatusFalhaMutation =
+    trpc.auditoria.atualizarStatusFalha.useMutation({
+      onSuccess: () => {
+        toast.success("Status atualizado!");
+        refetchFalhas();
+      },
+      onError: err => toast.error(err.message),
   });
 
   const removerFalhaMutation = trpc.auditoria.removerFalha.useMutation({
-    onSuccess: () => { toast.success("Falha removida!"); refetchFalhas(); },
-    onError: (err) => toast.error(err.message),
+    onSuccess: () => {
+      toast.success("Falha removida!");
+      refetchFalhas();
+    },
+    onError: err => toast.error(err.message),
   });
 
   // Mutations para ajustes
@@ -402,13 +533,18 @@ function ContaConvenioDetalhesPadrao() {
     onSuccess: () => {
       toast.success("Ajuste registrado com sucesso!");
       setAjusteDialog({ open: false, tipo: "ALTERAR_QUANTIDADE" });
-      setAjusteQtd(""); setAjusteValor(""); setAjusteCodigo("");
-      setAjusteDescricao(""); setAjusteJustificativa(""); setAjusteSetor("");
-      setAjusteSetorNovoItem(""); setAjusteDataNovoItem("");
+      setAjusteQtd("");
+      setAjusteValor("");
+      setAjusteCodigo("");
+      setAjusteDescricao("");
+      setAjusteJustificativa("");
+      setAjusteSetor("");
+      setAjusteSetorNovoItem("");
+      setAjusteDataNovoItem("");
       refetchAjustes();
       refetch(); // Recarregar itens
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   const reverterAjusteMutation = trpc.auditoria.reverterAjuste.useMutation({
@@ -417,11 +553,12 @@ function ContaConvenioDetalhesPadrao() {
       refetchAjustes();
       refetch();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   // Buscar feedbacks existentes para esta conta
-  const { data: feedbacksData, refetch: refetchFeedbacks } = trpc.contasConvenio.listarFeedbacks.useQuery(
+  const { data: feedbacksData, refetch: refetchFeedbacks } =
+    trpc.contasConvenio.listarFeedbacks.useQuery(
     {
       numeroConta,
       estabelecimentoId,
@@ -449,12 +586,15 @@ function ContaConvenioDetalhesPadrao() {
 
   // Resumo de feedbacks
   const feedbackResumo = useMemo(() => {
-    if (!feedbacksData) return { total: 0, aceitas: 0, rejeitadas: 0, ignoradas: 0 };
+    if (!feedbacksData)
+      return { total: 0, aceitas: 0, rejeitadas: 0, ignoradas: 0 };
     return {
       total: feedbacksData.length,
       aceitas: feedbacksData.filter((f: any) => f.decisao === "aceitar").length,
-      rejeitadas: feedbacksData.filter((f: any) => f.decisao === "rejeitar").length,
-      ignoradas: feedbacksData.filter((f: any) => f.decisao === "ignorar").length,
+      rejeitadas: feedbacksData.filter((f: any) => f.decisao === "rejeitar")
+        .length,
+      ignoradas: feedbacksData.filter((f: any) => f.decisao === "ignorar")
+        .length,
     };
   }, [feedbacksData]);
 
@@ -490,10 +630,13 @@ function ContaConvenioDetalhesPadrao() {
       setFeedbackValor("");
       refetchFeedbacks();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
-  const handleFeedback = (div: any, acao: "aceitar" | "rejeitar" | "ajustar") => {
+  const handleFeedback = (
+    div: any,
+    acao: "aceitar" | "rejeitar" | "ajustar"
+  ) => {
     if (acao === "aceitar") {
       // Aceitar direto sem dialog
       feedbackMutation.mutate({
@@ -522,25 +665,32 @@ function ContaConvenioDetalhesPadrao() {
       tipoDivergencia: feedbackDialog.div.tipo,
       acao: feedbackDialog.acao === "ajustar" ? "ajustar" : "rejeitar",
       observacao: feedbackObs || undefined,
-      valorSugerido: feedbackDialog.acao === "ajustar" ? feedbackValor : undefined,
+      valorSugerido:
+        feedbackDialog.acao === "ajustar" ? feedbackValor : undefined,
     });
   };
 
   // Mutation para comparar com padrões
   const gerarSnapshotMutation = trpc.conferencia.gerarSnapshot.useMutation({
-    onSuccess: (result) => {
-      toast.success(`Snapshot gerado! ${result.resumo.totalItens} itens, ${result.resumo.divergenciasAceitas} divergências, ${result.resumo.falhasAbertas} falhas, ${result.resumo.ajustes} ajustes salvos.`);
+    onSuccess: result => {
+      toast.success(
+        `Snapshot gerado! ${result.resumo.totalItens} itens, ${result.resumo.divergenciasAceitas} divergências, ${result.resumo.falhasAbertas} falhas, ${result.resumo.ajustes} ajustes salvos.`
+      );
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   // Mutation para reimportar conta diretamente do banco do hospital
   const reimportarMutation = trpc.contasConvenio.buscarConta.useMutation({
     onSuccess: (result: any) => {
       if (result.fonteDados === "CACHE_LOCAL") {
-        toast.warning(`Conta reimportada com ${result.totalItens} itens, mas os dados vieram do CACHE LOCAL (podem estar desatualizados). Verifique a conexão com o banco do hospital.`);
+        toast.warning(
+          `Conta reimportada com ${result.totalItens} itens, mas os dados vieram do CACHE LOCAL (podem estar desatualizados). Verifique a conexão com o banco do hospital.`
+        );
       } else {
-        toast.success(`Conta reimportada com sucesso! ${result.totalItens} itens atualizados diretamente do banco do hospital. Valor total: R$ ${result.valorTotal?.toFixed(2)}`);
+        toast.success(
+          `Conta reimportada com sucesso! ${result.totalItens} itens atualizados diretamente do banco do hospital. Valor total: R$ ${result.valorTotal?.toFixed(2)}`
+        );
       }
       // Salvar comparativo para exibição
       if (result.comparativo && result.comparativo.hadPreviousData) {
@@ -548,35 +698,69 @@ function ContaConvenioDetalhesPadrao() {
       }
       refetch();
     },
-    onError: (err) => toast.error(`Erro ao reimportar: ${err.message}`),
+    onError: err => toast.error(`Erro ao reimportar: ${err.message}`),
   });
 
   const compararMutation = trpc.contasConvenio.compararComPadroes.useMutation({
-    onSuccess: (result) => {
+    onSuccess: result => {
       if (result.statusGeral === "conforme") {
-        toast.success(`Conta conforme! ${result.totalItensAnalisados} itens analisados.`);
+        toast.success(
+          `Conta conforme! ${result.totalItensAnalisados} itens analisados.`
+        );
       } else {
-        toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s)`);
+        toast.warning(
+          `${result.totalDivergencias} divergência(s) encontrada(s)`
+        );
       }
       refetch();
       refetchDivergencias();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   // Dados da conta (primeiro item para info geral)
   const primeiroItem = itensData?.items?.[0];
   const resumoGeral = itensData?.resumoGeral;
   const resumoPorTipo = itensData?.resumoPorTipo || [];
-  const contextoMedicoScopeState = useMemo<ContaContextoMedicoScopeState>(() => {
+  const contextoMedicoScopeState =
+    useMemo<ContaContextoMedicoScopeState>(() => {
     return montarScopeContaContextoMedico({
       estabelecimentoId,
       numeroConta,
       items: itensContaInteira.data?.items ?? [],
     });
   }, [estabelecimentoId, itensContaInteira.data?.items, numeroConta]);
-  const itensContaCompleta = itensContaInteira.data?.items ?? [];
-  const exibirContextoMedico = itensContaCompleta.length > 0 && itensContaCompleta.every((item) => item.origem === "XML");
+  const exibirContextoMedico = contextoMedicoScopeState.ready;
+  const contextoMedicoConsultaInput = useMemo(
+    () =>
+      contextoMedicoScopeState.ready
+        ? { scope: contextoMedicoScopeState.scope }
+        : null,
+    [contextoMedicoScopeState]
+  );
+  const contextoMedicoItens = trpc.contaContextoMedico.consultar.useQuery(
+    contextoMedicoConsultaInput ?? {
+      scope: {
+        estabelecimentoId: 1,
+        convenioId: 1,
+        numeroConta: "_",
+        arquivoHospitalId: 1,
+      },
+    },
+    { enabled: Boolean(contextoMedicoConsultaInput) }
+  );
+  const procedimentosMedicosInformativos = useMemo(
+    () =>
+      (contextoMedicoItens.data?.fontes ?? []).flatMap(fonte =>
+        fonte.procedimentos.map(procedimento => ({
+          codigo: procedimento.codigo,
+          descricao: procedimento.descricao,
+          dataExecucao: procedimento.dataExecucao,
+          profissionais: procedimento.profissionais,
+        }))
+      ),
+    [contextoMedicoItens.data?.fontes]
+  );
 
   // ============================================================
   // DADOS CONSOLIDADOS PARA RELATÓRIO DO FATURISTA
@@ -598,30 +782,38 @@ function ContaConvenioDetalhesPadrao() {
     if (divergenciasData?.divergencias) {
       for (const div of divergenciasData.divergencias) {
         const fb = getFeedbackForDiv(div);
-        const diferenca = div.diferenca != null ? parseFloat(div.diferenca) : null;
+        const diferenca =
+          div.diferenca != null ? parseFloat(div.diferenca) : null;
         
-        let acaoNecessaria = 'Verificar e corrigir';
-        if (div.tipo === 'VALOR_ACIMA') acaoNecessaria = 'Revisar valor cobrado';
-        else if (div.tipo === 'VALOR_ABAIXO') acaoNecessaria = 'Verificar se valor está correto';
-        else if (div.tipo === 'QUANTIDADE_DIVERGENTE') acaoNecessaria = 'Corrigir quantidade';
-        else if (div.tipo === 'ITEM_NAO_PADRAO') acaoNecessaria = 'Verificar se item é procedente';
-        else if (div.tipo === 'ITEM_DUPLICADO') acaoNecessaria = 'Remover duplicidade';
-        else if (div.tipo === 'ITEM_FALTANTE') acaoNecessaria = 'Adicionar item faltante';
+        let acaoNecessaria = "Verificar e corrigir";
+        if (div.tipo === "VALOR_ACIMA")
+          acaoNecessaria = "Revisar valor cobrado";
+        else if (div.tipo === "VALOR_ABAIXO")
+          acaoNecessaria = "Verificar se valor está correto";
+        else if (div.tipo === "QUANTIDADE_DIVERGENTE")
+          acaoNecessaria = "Corrigir quantidade";
+        else if (div.tipo === "ITEM_NAO_PADRAO")
+          acaoNecessaria = "Verificar se item é procedente";
+        else if (div.tipo === "ITEM_DUPLICADO")
+          acaoNecessaria = "Remover duplicidade";
+        else if (div.tipo === "ITEM_FALTANTE")
+          acaoNecessaria = "Adicionar item faltante";
 
-        if (fb?.decisao === 'aceitar') {
-          acaoNecessaria = 'Corrigir conforme auditoria (aceita)';
-        } else if (fb?.decisao === 'rejeitar') {
-          acaoNecessaria = 'Sem ação (rejeitada pelo auditor)';
+        if (fb?.decisao === "aceitar") {
+          acaoNecessaria = "Corrigir conforme auditoria (aceita)";
+        } else if (fb?.decisao === "rejeitar") {
+          acaoNecessaria = "Sem ação (rejeitada pelo auditor)";
         }
 
         items.push({
-          origem: 'DIVERGÊNCIA',
-          codigo: div.codigoItem || '',
-          descricaoItem: div.descricaoItem || '',
-          descricaoApontamento: div.mensagem || div.descricao || div.tipo || '-',
-          severidade: div.severidade || 'info',
-          decisaoAuditor: fb?.decisao || '',
-          observacaoAuditor: fb?.justificativa || '',
+          origem: "DIVERGÊNCIA",
+          codigo: div.codigoItem || "",
+          descricaoItem: div.descricaoItem || "",
+          descricaoApontamento:
+            div.mensagem || div.descricao || div.tipo || "-",
+          severidade: div.severidade || "info",
+          decisaoAuditor: fb?.decisao || "",
+          observacaoAuditor: fb?.justificativa || "",
           impactoFinanceiro: diferenca,
           acaoNecessaria,
         });
@@ -631,18 +823,20 @@ function ContaConvenioDetalhesPadrao() {
     // 2. Falhas de prontuário
     if (falhasData) {
       for (const falha of falhasData) {
-        let acaoNecessaria = 'Providenciar documentação';
-        if (falha.status === 'corrigida') acaoNecessaria = 'Já corrigida';
-        else if (falha.status === 'justificada') acaoNecessaria = 'Justificada - verificar';
+        let acaoNecessaria = "Providenciar documentação";
+        if (falha.status === "corrigida") acaoNecessaria = "Já corrigida";
+        else if (falha.status === "justificada")
+          acaoNecessaria = "Justificada - verificar";
 
         items.push({
-          origem: 'FALHA PRONTUÁRIO',
-          codigo: '',
-          descricaoItem: falha.categoriaFalha || '',
-          descricaoApontamento: falha.tipoFalha + (falha.descricao ? ` - ${falha.descricao}` : ''),
-          severidade: falha.severidade || 'moderada',
-          decisaoAuditor: falha.status || 'aberta',
-          observacaoAuditor: '',
+          origem: "FALHA PRONTUÁRIO",
+          codigo: "",
+          descricaoItem: falha.categoriaFalha || "",
+          descricaoApontamento:
+            falha.tipoFalha + (falha.descricao ? ` - ${falha.descricao}` : ""),
+          severidade: falha.severidade || "moderada",
+          decisaoAuditor: falha.status || "aberta",
+          observacaoAuditor: "",
           impactoFinanceiro: null,
           acaoNecessaria,
         });
@@ -652,26 +846,33 @@ function ContaConvenioDetalhesPadrao() {
     // 3. Ajustes de auditoria aplicados
     if (ajustesData) {
       for (const ajuste of ajustesData) {
-        let descricao = '';
+        let descricao = "";
         let impacto: number | null = null;
 
-        if (ajuste.tipoAjuste === 'ALTERAR_QUANTIDADE') {
+        if (ajuste.tipoAjuste === "ALTERAR_QUANTIDADE") {
           descricao = `Quantidade alterada: ${ajuste.quantidadeOriginal} → ${ajuste.quantidadeAjustada}`;
-          const valorUnit = parseFloat(ajuste.valorOriginal || '0');
-          const qtdOrig = parseFloat(ajuste.quantidadeOriginal || '0');
-          const qtdAjust = parseFloat(ajuste.quantidadeAjustada || '0');
+          const valorUnit = parseFloat(ajuste.valorOriginal || "0");
+          const qtdOrig = parseFloat(ajuste.quantidadeOriginal || "0");
+          const qtdAjust = parseFloat(ajuste.quantidadeAjustada || "0");
           impacto = (qtdAjust - qtdOrig) * valorUnit;
-        } else if (ajuste.tipoAjuste === 'ALTERAR_VALOR') {
+        } else if (ajuste.tipoAjuste === "ALTERAR_VALOR") {
           descricao = `Valor alterado: ${formatCurrency(ajuste.valorOriginal)} → ${formatCurrency(ajuste.valorAjustado)}`;
-          impacto = parseFloat(ajuste.valorAjustado || '0') - parseFloat(ajuste.valorOriginal || '0');
-        } else if (ajuste.tipoAjuste === 'ADICIONAR_ITEM') {
+          impacto =
+            parseFloat(ajuste.valorAjustado || "0") -
+            parseFloat(ajuste.valorOriginal || "0");
+        } else if (ajuste.tipoAjuste === "ADICIONAR_ITEM") {
           descricao = `Item adicionado à conta`;
-          impacto = parseFloat(ajuste.valorAjustado || '0') * parseFloat(ajuste.quantidadeAjustada || '1');
-        } else if (ajuste.tipoAjuste === 'REMOVER_ITEM') {
+          impacto =
+            parseFloat(ajuste.valorAjustado || "0") *
+            parseFloat(ajuste.quantidadeAjustada || "1");
+        } else if (ajuste.tipoAjuste === "REMOVER_ITEM") {
           descricao = `Item removido da conta`;
-          impacto = -(parseFloat(ajuste.valorOriginal || '0') * parseFloat(ajuste.quantidadeOriginal || '1'));
-        } else if (ajuste.tipoAjuste === 'ALTERAR_SETOR') {
-          descricao = `Setor alterado: ${ajuste.setorOriginal || 'N/D'} → ${ajuste.setorAjustado || 'N/D'}`;
+          impacto = -(
+            parseFloat(ajuste.valorOriginal || "0") *
+            parseFloat(ajuste.quantidadeOriginal || "1")
+          );
+        } else if (ajuste.tipoAjuste === "ALTERAR_SETOR") {
+          descricao = `Setor alterado: ${ajuste.setorOriginal || "N/D"} → ${ajuste.setorAjustado || "N/D"}`;
           impacto = null;
         }
 
@@ -680,15 +881,20 @@ function ContaConvenioDetalhesPadrao() {
         }
 
         items.push({
-          origem: 'AJUSTE',
-          codigo: ajuste.codigoItem || '',
-          descricaoItem: ajuste.descricaoItem || '',
+          origem: "AJUSTE",
+          codigo: ajuste.codigoItem || "",
+          descricaoItem: ajuste.descricaoItem || "",
           descricaoApontamento: descricao,
-          severidade: 'info',
-          decisaoAuditor: ajuste.status || 'aplicado',
-          observacaoAuditor: ajuste.usuarioNome ? `Por ${ajuste.usuarioNome}` : '',
+          severidade: "info",
+          decisaoAuditor: ajuste.status || "aplicado",
+          observacaoAuditor: ajuste.usuarioNome
+            ? `Por ${ajuste.usuarioNome}`
+            : "",
           impactoFinanceiro: impacto,
-          acaoNecessaria: ajuste.status === 'revertido' ? 'Revertido - sem ação' : 'Aplicar no faturamento',
+          acaoNecessaria:
+            ajuste.status === "revertido"
+              ? "Revertido - sem ação"
+              : "Aplicar no faturamento",
         });
       }
     }
@@ -701,22 +907,23 @@ function ContaConvenioDetalhesPadrao() {
     if (!relatorioFaturistaData.length) return;
 
     const data = relatorioFaturistaData.map((item, index) => ({
-      '#': index + 1,
-      'Origem': item.origem,
-      'Código Item': item.codigo || '-',
-      'Descrição Item': item.descricaoItem || '-',
-      'Apontamento': item.descricaoApontamento,
-      'Severidade': item.severidade,
-      'Decisão Auditor': item.decisaoAuditor || 'Pendente',
-      'Observação Auditor': item.observacaoAuditor || '-',
-      'Impacto Financeiro': item.impactoFinanceiro != null ? item.impactoFinanceiro : '-',
-      'Ação Necessária': item.acaoNecessaria,
+      "#": index + 1,
+      Origem: item.origem,
+      "Código Item": item.codigo || "-",
+      "Descrição Item": item.descricaoItem || "-",
+      Apontamento: item.descricaoApontamento,
+      Severidade: item.severidade,
+      "Decisão Auditor": item.decisaoAuditor || "Pendente",
+      "Observação Auditor": item.observacaoAuditor || "-",
+      "Impacto Financeiro":
+        item.impactoFinanceiro != null ? item.impactoFinanceiro : "-",
+      "Ação Necessária": item.acaoNecessaria,
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
     
     // Ajustar largura das colunas
-    ws['!cols'] = [
+    ws["!cols"] = [
       { wch: 5 },   // #
       { wch: 18 },  // Origem
       { wch: 15 },  // Código
@@ -730,9 +937,12 @@ function ContaConvenioDetalhesPadrao() {
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Relatório Auditoria');
-    XLSX.writeFile(wb, `relatorio_auditoria_conta_${numeroConta}_${new Date().toISOString().split('T')[0]}.xlsx`);
-    toast.success('Relatório exportado com sucesso!');
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório Auditoria");
+    XLSX.writeFile(
+      wb,
+      `relatorio_auditoria_conta_${numeroConta}_${new Date().toISOString().split("T")[0]}.xlsx`
+    );
+    toast.success("Relatório exportado com sucesso!");
   };
 
   // Exportar para Excel
@@ -742,20 +952,23 @@ function ContaConvenioDetalhesPadrao() {
     const data = itensData.items.map((item: any) => ({
       "Nº Conta": item.numeroConta,
       "Tipo Item": item.tipoItem || "-",
-      "Código": item.codigoItem || "-",
-      "Descrição": item.descricaoItem || "-",
-      "Setor": item.setor || "-",
-      "Quantidade": parseFloat(item.quantidade || "1"),
+      Código: item.codigoItem || "-",
+      Descrição: item.descricaoItem || "-",
+      Setor: item.setor || "-",
+      Quantidade: parseFloat(item.quantidade || "1"),
       "Valor Unitário": parseFloat(item.valorUnitario || "0"),
       "Valor Total": parseFloat(item.valorTotal || "0"),
       "Data Execução": formatDateBR(item.dataExecucao),
-      "Status": item.statusAnalise || "pendente",
+      Status: item.statusAnalise || "pendente",
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Itens");
-    XLSX.writeFile(wb, `conta_${numeroConta}_${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `conta_${numeroConta}_${new Date().toISOString().split("T")[0]}.xlsx`
+    );
   };
 
   // Voltar para lista (preserva filtros via history)
@@ -778,7 +991,14 @@ function ContaConvenioDetalhesPadrao() {
               Voltar
             </Button>
             <div>
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">Conta {numeroConta}{numeroLote && <span className="text-lg text-muted-foreground ml-2">| Lote {numeroLote}</span>}</h1>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">
+                Conta {numeroConta}
+                {numeroLote && (
+                  <span className="text-lg text-muted-foreground ml-2">
+                    | Lote {numeroLote}
+                  </span>
+                )}
+              </h1>
               <p className="text-muted-foreground">
                 {primeiroItem?.convenio || "Convênio não identificado"} | 
                 Paciente: {primeiroItem?.pacienteNome || "-"}
@@ -811,7 +1031,11 @@ function ContaConvenioDetalhesPadrao() {
               variant="outline"
               className="border-blue-200 text-blue-700 hover:bg-blue-50"
               onClick={() => {
-                if (confirm("Reimportar conta do banco do hospital?\n\nIsso irá buscar os dados mais recentes diretamente do sistema do hospital, substituindo os dados atuais.")) {
+                if (
+                  confirm(
+                    "Reimportar conta do banco do hospital?\n\nIsso irá buscar os dados mais recentes diretamente do sistema do hospital, substituindo os dados atuais."
+                  )
+                ) {
                   reimportarMutation.mutate({
                     numeroConta,
                     estabelecimentoId,
@@ -840,7 +1064,9 @@ function ContaConvenioDetalhesPadrao() {
               size="sm"
               variant="outline"
               className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-              onClick={() => gerarSnapshotMutation.mutate({ numeroConta, estabelecimentoId })}
+              onClick={() =>
+                gerarSnapshotMutation.mutate({ numeroConta, estabelecimentoId })
+              }
               disabled={gerarSnapshotMutation.isPending}
             >
               {gerarSnapshotMutation.isPending ? (
@@ -866,7 +1092,9 @@ function ContaConvenioDetalhesPadrao() {
               <div className="flex items-start gap-3">
                 <Hash className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Número da Conta</p>
+                  <p className="text-sm text-muted-foreground">
+                    Número da Conta
+                  </p>
                   <p className="font-semibold font-mono">{numeroConta}</p>
                 </div>
               </div>
@@ -874,28 +1102,36 @@ function ContaConvenioDetalhesPadrao() {
                 <Package className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm text-muted-foreground">Convênio</p>
-                  <p className="font-semibold">{primeiroItem?.convenio || "-"}</p>
+                  <p className="font-semibold">
+                    {primeiroItem?.convenio || "-"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <User className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm text-muted-foreground">Paciente</p>
-                  <p className="font-semibold">{primeiroItem?.pacienteNome || "-"}</p>
+                  <p className="font-semibold">
+                    {primeiroItem?.pacienteNome || "-"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CreditCard className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm text-muted-foreground">Carteirinha</p>
-                  <p className="font-semibold">{primeiroItem?.carteiraBeneficiario || "-"}</p>
+                  <p className="font-semibold">
+                    {primeiroItem?.carteiraBeneficiario || "-"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm text-muted-foreground">Data Execução</p>
-                  <p className="font-semibold">{formatDateBR(primeiroItem?.dataExecucao)}</p>
+                  <p className="font-semibold">
+                    {formatDateBR(primeiroItem?.dataExecucao)}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -903,7 +1139,9 @@ function ContaConvenioDetalhesPadrao() {
                 <div>
                   <p className="text-sm text-muted-foreground">Origem</p>
                   <p className="font-semibold">
-                    {primeiroItem?.origem === "BANCO_CLIENTE" ? "Banco Hospital" : primeiroItem?.origem || "-"}
+                    {primeiroItem?.origem === "BANCO_CLIENTE"
+                      ? "Banco Hospital"
+                      : primeiroItem?.origem || "-"}
                   </p>
                 </div>
               </div>
@@ -911,14 +1149,20 @@ function ContaConvenioDetalhesPadrao() {
                 <DollarSign className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
                   <p className="text-sm text-muted-foreground">Valor Total</p>
-                  <p className="font-semibold text-green-600">{formatCurrency(resumoGeral?.valorTotal)}</p>
+                  <p className="font-semibold text-green-600">
+                    {formatCurrency(resumoGeral?.valorTotal)}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Total de Itens</p>
-                  <p className="font-semibold">{resumoGeral?.totalItens || 0}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Total de Itens
+                  </p>
+                  <p className="font-semibold">
+                    {resumoGeral?.totalItens || 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -941,7 +1185,9 @@ function ContaConvenioDetalhesPadrao() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Todos</p>
-                    <p className="text-2xl font-bold text-emerald-600">{formatCurrency(resumoGeral?.valorTotal)}</p>
+                    <p className="text-2xl font-bold text-emerald-600">
+                      {formatCurrency(resumoGeral?.valorTotal)}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {resumoGeral?.totalItens || 0} itens
                     </p>
@@ -966,10 +1212,15 @@ function ContaConvenioDetalhesPadrao() {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground">{kpi.tipoItem || "Outros"}</p>
-                        <p className="text-2xl font-bold text-emerald-600">{formatCurrency(kpi.valorTotal)}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {kpi.tipoItem || "Outros"}
+                        </p>
+                        <p className="text-2xl font-bold text-emerald-600">
+                          {formatCurrency(kpi.valorTotal)}
+                        </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {kpi.totalItens} {kpi.totalItens === 1 ? "item" : "itens"}
+                          {kpi.totalItens}{" "}
+                          {kpi.totalItens === 1 ? "item" : "itens"}
                         </p>
                       </div>
                       <div className={`p-3 rounded-full ${tipoColor}`}>
@@ -989,8 +1240,12 @@ function ContaConvenioDetalhesPadrao() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Total de Itens</p>
-                  <p className="text-3xl font-bold">{resumoGeral?.totalItens || 0}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Total de Itens
+                  </p>
+                  <p className="text-3xl font-bold">
+                    {resumoGeral?.totalItens || 0}
+                  </p>
                 </div>
                 <FileText className="h-10 w-10 text-blue-500" />
               </div>
@@ -1001,7 +1256,9 @@ function ContaConvenioDetalhesPadrao() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Conformes</p>
-                  <p className="text-3xl font-bold text-green-600">{Number(resumoGeral?.totalConformes || 0)}</p>
+                  <p className="text-3xl font-bold text-green-600">
+                    {Number(resumoGeral?.totalConformes || 0)}
+                  </p>
                 </div>
                 <CheckCircle2 className="h-10 w-10 text-green-500" />
               </div>
@@ -1012,25 +1269,40 @@ function ContaConvenioDetalhesPadrao() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Divergentes</p>
-                  <p className="text-3xl font-bold text-red-600">{Number(resumoGeral?.totalDivergentes || 0)}</p>
+                  <p className="text-3xl font-bold text-red-600">
+                    {Number(resumoGeral?.totalDivergentes || 0)}
+                  </p>
                 </div>
                 <AlertTriangle className="h-10 w-10 text-red-500" />
               </div>
-              {divergenciasData?.resumo?.porSeveridade && Number(resumoGeral?.totalDivergentes || 0) > 0 && (
+              {divergenciasData?.resumo?.porSeveridade &&
+                Number(resumoGeral?.totalDivergentes || 0) > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-red-200/50">
                   {divergenciasData.resumo.porSeveridade.critico > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-200/60 text-red-800">
-                      <XCircle className="h-3 w-3" />{divergenciasData.resumo.porSeveridade.critico} crítico{divergenciasData.resumo.porSeveridade.critico > 1 ? 's' : ''}
+                        <XCircle className="h-3 w-3" />
+                        {divergenciasData.resumo.porSeveridade.critico} crítico
+                        {divergenciasData.resumo.porSeveridade.critico > 1
+                          ? "s"
+                          : ""}
                     </span>
                   )}
                   {divergenciasData.resumo.porSeveridade.alerta > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-orange-200/60 text-orange-800">
-                      <AlertTriangle className="h-3 w-3" />{divergenciasData.resumo.porSeveridade.alerta} alerta{divergenciasData.resumo.porSeveridade.alerta > 1 ? 's' : ''}
+                        <AlertTriangle className="h-3 w-3" />
+                        {divergenciasData.resumo.porSeveridade.alerta} alerta
+                        {divergenciasData.resumo.porSeveridade.alerta > 1
+                          ? "s"
+                          : ""}
                     </span>
                   )}
                   {divergenciasData.resumo.porSeveridade.aviso > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-yellow-200/60 text-yellow-800">
-                      <AlertTriangle className="h-3 w-3" />{divergenciasData.resumo.porSeveridade.aviso} aviso{divergenciasData.resumo.porSeveridade.aviso > 1 ? 's' : ''}
+                        <AlertTriangle className="h-3 w-3" />
+                        {divergenciasData.resumo.porSeveridade.aviso} aviso
+                        {divergenciasData.resumo.porSeveridade.aviso > 1
+                          ? "s"
+                          : ""}
                     </span>
                   )}
                 </div>
@@ -1042,7 +1314,9 @@ function ContaConvenioDetalhesPadrao() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Valor Total</p>
-                  <p className="text-3xl font-bold text-emerald-600">{formatCurrency(resumoGeral?.valorTotal)}</p>
+                  <p className="text-3xl font-bold text-emerald-600">
+                    {formatCurrency(resumoGeral?.valorTotal)}
+                  </p>
                 </div>
                 <DollarSign className="h-10 w-10 text-emerald-500" />
               </div>
@@ -1069,32 +1343,52 @@ function ContaConvenioDetalhesPadrao() {
                 </Button>
               </div>
               <CardDescription className="text-amber-700 dark:text-amber-400">
-                Comparação entre os dados anteriores e os dados recém importados do banco do hospital
+                Comparação entre os dados anteriores e os dados recém importados
+                do banco do hospital
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Resumo Geral - Valores */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 rounded-lg bg-white/70 dark:bg-gray-800/50 border">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Anterior</p>
-                  <p className="text-xl font-bold text-gray-600 dark:text-gray-300">{formatCurrency(comparativoReimport.valorAnterior)}</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                    Valor Anterior
+                  </p>
+                  <p className="text-xl font-bold text-gray-600 dark:text-gray-300">
+                    {formatCurrency(comparativoReimport.valorAnterior)}
+                  </p>
                 </div>
                 <div className="p-4 rounded-lg bg-white/70 dark:bg-gray-800/50 border">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Atual</p>
-                  <p className="text-xl font-bold text-emerald-600">{formatCurrency(comparativoReimport.valorNovo)}</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                    Valor Atual
+                  </p>
+                  <p className="text-xl font-bold text-emerald-600">
+                    {formatCurrency(comparativoReimport.valorNovo)}
+                  </p>
                 </div>
-                <div className={`p-4 rounded-lg border ${
+                <div
+                  className={`p-4 rounded-lg border ${
+                    comparativoReimport.diferencaValor > 0
+                      ? "bg-green-50 dark:bg-green-950/30 border-green-200"
+                      : comparativoReimport.diferencaValor < 0
+                        ? "bg-red-50 dark:bg-red-950/30 border-red-200"
+                        : "bg-gray-50 dark:bg-gray-800/50 border-gray-200"
+                  }`}
+                >
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                    Diferença Total
+                  </p>
+                  <p
+                    className={`text-xl font-bold ${
                   comparativoReimport.diferencaValor > 0 
-                    ? 'bg-green-50 dark:bg-green-950/30 border-green-200' 
+                        ? "text-green-600"
                     : comparativoReimport.diferencaValor < 0 
-                      ? 'bg-red-50 dark:bg-red-950/30 border-red-200' 
-                      : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200'
-                }`}>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Diferença Total</p>
-                  <p className={`text-xl font-bold ${
-                    comparativoReimport.diferencaValor > 0 ? 'text-green-600' : comparativoReimport.diferencaValor < 0 ? 'text-red-600' : 'text-gray-500'
-                  }`}>
-                    {comparativoReimport.diferencaValor > 0 ? '+' : ''}{formatCurrency(comparativoReimport.diferencaValor)}
+                          ? "text-red-600"
+                          : "text-gray-500"
+                    }`}
+                  >
+                    {comparativoReimport.diferencaValor > 0 ? "+" : ""}
+                    {formatCurrency(comparativoReimport.diferencaValor)}
                   </p>
                 </div>
               </div>
@@ -1102,84 +1396,164 @@ function ContaConvenioDetalhesPadrao() {
               {/* Detalhamento da Diferença */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="p-4 rounded-lg bg-white/70 dark:bg-gray-800/50 border">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Itens</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                    Itens
+                  </p>
                   <p className="text-sm mt-1">
-                    <span className="font-semibold">{comparativoReimport.totalItensAnterior}</span>
+                    <span className="font-semibold">
+                      {comparativoReimport.totalItensAnterior}
+                    </span>
                     <span className="text-muted-foreground mx-2">→</span>
-                    <span className="font-semibold">{comparativoReimport.totalItensNovo}</span>
+                    <span className="font-semibold">
+                      {comparativoReimport.totalItensNovo}
+                    </span>
                   </p>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {comparativoReimport.itensAdicionados > 0 && (
-                      <Badge className="bg-green-100 text-green-800 text-xs">+{comparativoReimport.itensAdicionados} novo{comparativoReimport.itensAdicionados > 1 ? 's' : ''}</Badge>
+                      <Badge className="bg-green-100 text-green-800 text-xs">
+                        +{comparativoReimport.itensAdicionados} novo
+                        {comparativoReimport.itensAdicionados > 1 ? "s" : ""}
+                      </Badge>
                     )}
                     {comparativoReimport.itensRemovidos > 0 && (
-                      <Badge className="bg-red-100 text-red-800 text-xs">-{comparativoReimport.itensRemovidos} removido{comparativoReimport.itensRemovidos > 1 ? 's' : ''}</Badge>
+                      <Badge className="bg-red-100 text-red-800 text-xs">
+                        -{comparativoReimport.itensRemovidos} removido
+                        {comparativoReimport.itensRemovidos > 1 ? "s" : ""}
+                      </Badge>
                     )}
                     {comparativoReimport.itensAlterados.length > 0 && (
-                      <Badge className="bg-amber-100 text-amber-800 text-xs">{comparativoReimport.itensAlterados.length} alteraçõ{comparativoReimport.itensAlterados.length > 1 ? 'es' : 'ão'}</Badge>
+                      <Badge className="bg-amber-100 text-amber-800 text-xs">
+                        {comparativoReimport.itensAlterados.length} alteraçõ
+                        {comparativoReimport.itensAlterados.length > 1
+                          ? "es"
+                          : "ão"}
+                      </Badge>
                     )}
-                    {comparativoReimport.itensAlterados.length === 0 && comparativoReimport.itensAdicionados === 0 && comparativoReimport.itensRemovidos === 0 && (
-                      <Badge className="bg-gray-100 text-gray-600 text-xs">Nenhuma alteração detectada</Badge>
+                    {comparativoReimport.itensAlterados.length === 0 &&
+                      comparativoReimport.itensAdicionados === 0 &&
+                      comparativoReimport.itensRemovidos === 0 && (
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">
+                          Nenhuma alteração detectada
+                        </Badge>
                     )}
                   </div>
                 </div>
                 {comparativoReimport.valorItensRemovidos > 0 && (
                   <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200">
-                    <p className="text-xs text-red-600 uppercase tracking-wider">Valor Itens Excluídos</p>
-                    <p className="text-xl font-bold text-red-600">-{formatCurrency(comparativoReimport.valorItensRemovidos)}</p>
-                    <p className="text-xs text-red-500 mt-1">{comparativoReimport.itensRemovidos} {comparativoReimport.itensRemovidos === 1 ? 'item removido' : 'itens removidos'}</p>
+                    <p className="text-xs text-red-600 uppercase tracking-wider">
+                      Valor Itens Excluídos
+                    </p>
+                    <p className="text-xl font-bold text-red-600">
+                      -{formatCurrency(comparativoReimport.valorItensRemovidos)}
+                    </p>
+                    <p className="text-xs text-red-500 mt-1">
+                      {comparativoReimport.itensRemovidos}{" "}
+                      {comparativoReimport.itensRemovidos === 1
+                        ? "item removido"
+                        : "itens removidos"}
+                    </p>
                   </div>
                 )}
                 {comparativoReimport.valorItensAdicionados > 0 && (
                   <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200">
-                    <p className="text-xs text-green-600 uppercase tracking-wider">Valor Itens Adicionados</p>
-                    <p className="text-xl font-bold text-green-600">+{formatCurrency(comparativoReimport.valorItensAdicionados)}</p>
-                    <p className="text-xs text-green-500 mt-1">{comparativoReimport.itensAdicionados} {comparativoReimport.itensAdicionados === 1 ? 'item novo' : 'itens novos'}</p>
+                    <p className="text-xs text-green-600 uppercase tracking-wider">
+                      Valor Itens Adicionados
+                    </p>
+                    <p className="text-xl font-bold text-green-600">
+                      +
+                      {formatCurrency(
+                        comparativoReimport.valorItensAdicionados
+                      )}
+                    </p>
+                    <p className="text-xs text-green-500 mt-1">
+                      {comparativoReimport.itensAdicionados}{" "}
+                      {comparativoReimport.itensAdicionados === 1
+                        ? "item novo"
+                        : "itens novos"}
+                    </p>
                   </div>
                 )}
                 {comparativoReimport.diferencaAlteracoes !== 0 && (
-                  <div className={`p-4 rounded-lg border ${
-                    comparativoReimport.diferencaAlteracoes > 0 
-                      ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200' 
-                      : 'bg-orange-50 dark:bg-orange-950/30 border-orange-200'
-                  }`}>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Dif. Alterações de Valor</p>
-                    <p className={`text-xl font-bold ${
-                      comparativoReimport.diferencaAlteracoes > 0 ? 'text-blue-600' : 'text-orange-600'
-                    }`}>
-                      {comparativoReimport.diferencaAlteracoes > 0 ? '+' : ''}{formatCurrency(comparativoReimport.diferencaAlteracoes)}
+                  <div
+                    className={`p-4 rounded-lg border ${
+                      comparativoReimport.diferencaAlteracoes > 0
+                        ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200"
+                        : "bg-orange-50 dark:bg-orange-950/30 border-orange-200"
+                    }`}
+                  >
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                      Dif. Alterações de Valor
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">{comparativoReimport.itensAlterados.length} {comparativoReimport.itensAlterados.length === 1 ? 'item com valor alterado' : 'itens com valor alterado'}</p>
+                    <p
+                      className={`text-xl font-bold ${
+                    comparativoReimport.diferencaAlteracoes > 0 
+                          ? "text-blue-600"
+                          : "text-orange-600"
+                      }`}
+                    >
+                      {comparativoReimport.diferencaAlteracoes > 0 ? "+" : ""}
+                      {formatCurrency(comparativoReimport.diferencaAlteracoes)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {comparativoReimport.itensAlterados.length}{" "}
+                      {comparativoReimport.itensAlterados.length === 1
+                        ? "item com valor alterado"
+                        : "itens com valor alterado"}
+                    </p>
                   </div>
                 )}
               </div>
 
               {/* Tabela de Itens Excluídos */}
-              {comparativoReimport.listaItensRemovidos && comparativoReimport.listaItensRemovidos.length > 0 && (
+              {comparativoReimport.listaItensRemovidos &&
+                comparativoReimport.listaItensRemovidos.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-red-700 dark:text-red-400">
                     <Trash2 className="h-4 w-4" />
-                    Itens Excluídos ({comparativoReimport.itensRemovidos}) — Total: {formatCurrency(comparativoReimport.valorItensRemovidos)}
+                      Itens Excluídos ({comparativoReimport.itensRemovidos}) —
+                      Total:{" "}
+                      {formatCurrency(comparativoReimport.valorItensRemovidos)}
                   </h3>
                   <div className="rounded-md border border-red-200 overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-red-50 dark:bg-red-950/20">
-                          <TableHead className="font-semibold">Código</TableHead>
-                          <TableHead className="font-semibold">Descrição</TableHead>
-                          <TableHead className="font-semibold text-center">Qtd</TableHead>
-                          <TableHead className="font-semibold text-right">Valor</TableHead>
+                            <TableHead className="font-semibold">
+                              Código
+                            </TableHead>
+                            <TableHead className="font-semibold">
+                              Descrição
+                            </TableHead>
+                            <TableHead className="font-semibold text-center">
+                              Qtd
+                            </TableHead>
+                            <TableHead className="font-semibold text-right">
+                              Valor
+                            </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {comparativoReimport.listaItensRemovidos.map((item, idx) => (
-                          <TableRow key={idx} className="bg-red-50/30 dark:bg-red-950/10">
-                            <TableCell className="font-mono text-sm text-red-700">{item.codigoItem}</TableCell>
-                            <TableCell className="text-sm max-w-[250px] truncate text-red-700">{item.descricaoItem}</TableCell>
-                            <TableCell className="text-center text-red-600">{item.quantidade}</TableCell>
-                            <TableCell className="text-right font-mono text-red-600 font-semibold line-through">{item.valorTotal}</TableCell>
+                          {comparativoReimport.listaItensRemovidos.map(
+                            (item, idx) => (
+                              <TableRow
+                                key={idx}
+                                className="bg-red-50/30 dark:bg-red-950/10"
+                              >
+                                <TableCell className="font-mono text-sm text-red-700">
+                                  {item.codigoItem}
+                                </TableCell>
+                                <TableCell className="text-sm max-w-[250px] truncate text-red-700">
+                                  {item.descricaoItem}
+                                </TableCell>
+                                <TableCell className="text-center text-red-600">
+                                  {item.quantidade}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-red-600 font-semibold line-through">
+                                  {item.valorTotal}
+                                </TableCell>
                           </TableRow>
-                        ))}
+                            )
+                          )}
                       </TableBody>
                     </Table>
                   </div>
@@ -1187,31 +1561,57 @@ function ContaConvenioDetalhesPadrao() {
               )}
 
               {/* Tabela de Itens Adicionados */}
-              {comparativoReimport.listaItensAdicionados && comparativoReimport.listaItensAdicionados.length > 0 && (
+              {comparativoReimport.listaItensAdicionados &&
+                comparativoReimport.listaItensAdicionados.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-green-700 dark:text-green-400">
                     <Plus className="h-4 w-4" />
-                    Itens Adicionados ({comparativoReimport.itensAdicionados}) — Total: {formatCurrency(comparativoReimport.valorItensAdicionados)}
+                      Itens Adicionados ({comparativoReimport.itensAdicionados})
+                      — Total:{" "}
+                      {formatCurrency(
+                        comparativoReimport.valorItensAdicionados
+                      )}
                   </h3>
                   <div className="rounded-md border border-green-200 overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-green-50 dark:bg-green-950/20">
-                          <TableHead className="font-semibold">Código</TableHead>
-                          <TableHead className="font-semibold">Descrição</TableHead>
-                          <TableHead className="font-semibold text-center">Qtd</TableHead>
-                          <TableHead className="font-semibold text-right">Valor</TableHead>
+                            <TableHead className="font-semibold">
+                              Código
+                            </TableHead>
+                            <TableHead className="font-semibold">
+                              Descrição
+                            </TableHead>
+                            <TableHead className="font-semibold text-center">
+                              Qtd
+                            </TableHead>
+                            <TableHead className="font-semibold text-right">
+                              Valor
+                            </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {comparativoReimport.listaItensAdicionados.map((item, idx) => (
-                          <TableRow key={idx} className="bg-green-50/30 dark:bg-green-950/10">
-                            <TableCell className="font-mono text-sm text-green-700">{item.codigoItem}</TableCell>
-                            <TableCell className="text-sm max-w-[250px] truncate text-green-700">{item.descricaoItem}</TableCell>
-                            <TableCell className="text-center text-green-600">{item.quantidade}</TableCell>
-                            <TableCell className="text-right font-mono text-green-600 font-semibold">{item.valorTotal}</TableCell>
+                          {comparativoReimport.listaItensAdicionados.map(
+                            (item, idx) => (
+                              <TableRow
+                                key={idx}
+                                className="bg-green-50/30 dark:bg-green-950/10"
+                              >
+                                <TableCell className="font-mono text-sm text-green-700">
+                                  {item.codigoItem}
+                                </TableCell>
+                                <TableCell className="text-sm max-w-[250px] truncate text-green-700">
+                                  {item.descricaoItem}
+                                </TableCell>
+                                <TableCell className="text-center text-green-600">
+                                  {item.quantidade}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-green-600 font-semibold">
+                                  {item.valorTotal}
+                                </TableCell>
                           </TableRow>
-                        ))}
+                            )
+                          )}
                       </TableBody>
                     </Table>
                   </div>
@@ -1223,31 +1623,57 @@ function ContaConvenioDetalhesPadrao() {
                 <div>
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-amber-800 dark:text-amber-300">
                     <Pencil className="h-4 w-4" />
-                    Itens com Valor Alterado ({comparativoReimport.itensAlterados.length})
+                    Itens com Valor Alterado (
+                    {comparativoReimport.itensAlterados.length})
                   </h3>
                   <div className="rounded-md border overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-amber-50 dark:bg-amber-950/20">
-                          <TableHead className="font-semibold">Código</TableHead>
-                          <TableHead className="font-semibold">Descrição</TableHead>
+                          <TableHead className="font-semibold">
+                            Código
+                          </TableHead>
+                          <TableHead className="font-semibold">
+                            Descrição
+                          </TableHead>
                           <TableHead className="font-semibold">Campo</TableHead>
-                          <TableHead className="font-semibold text-right">Valor Anterior</TableHead>
-                          <TableHead className="font-semibold text-center">→</TableHead>
-                          <TableHead className="font-semibold text-right">Valor Atual</TableHead>
+                          <TableHead className="font-semibold text-right">
+                            Valor Anterior
+                          </TableHead>
+                          <TableHead className="font-semibold text-center">
+                            →
+                          </TableHead>
+                          <TableHead className="font-semibold text-right">
+                            Valor Atual
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {comparativoReimport.itensAlterados.map((item, idx) => (
-                          <TableRow key={idx} className="bg-white dark:bg-gray-900">
-                            <TableCell className="font-mono text-sm">{item.codigoItem}</TableCell>
-                            <TableCell className="text-sm max-w-[200px] truncate">{item.descricaoItem}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs">{item.campo}</Badge>
+                          <TableRow
+                            key={idx}
+                            className="bg-white dark:bg-gray-900"
+                          >
+                            <TableCell className="font-mono text-sm">
+                              {item.codigoItem}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-red-600 line-through">{item.valorAntigo}</TableCell>
-                            <TableCell className="text-center text-muted-foreground">→</TableCell>
-                            <TableCell className="text-right font-mono text-green-600 font-semibold">{item.valorNovo}</TableCell>
+                            <TableCell className="text-sm max-w-[200px] truncate">
+                              {item.descricaoItem}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {item.campo}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-red-600 line-through">
+                              {item.valorAntigo}
+                            </TableCell>
+                            <TableCell className="text-center text-muted-foreground">
+                              →
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-green-600 font-semibold">
+                              {item.valorNovo}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1257,29 +1683,47 @@ function ContaConvenioDetalhesPadrao() {
               )}
 
               {/* Status dos Ajustes da Auditoria */}
-              {comparativoReimport.statusAjustesAuditoria && comparativoReimport.statusAjustesAuditoria.length > 0 && (
+              {comparativoReimport.statusAjustesAuditoria &&
+                comparativoReimport.statusAjustesAuditoria.length > 0 && (
                 <div className="mt-6">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold flex items-center gap-2 text-purple-800 dark:text-purple-300">
                       <Shield className="h-4 w-4" />
-                      Verificação dos Ajustes da Auditoria ({comparativoReimport.statusAjustesAuditoria.length})
+                        Verificação dos Ajustes da Auditoria (
+                        {comparativoReimport.statusAjustesAuditoria.length})
                     </h3>
                     <div className="flex gap-2">
-                      {(comparativoReimport.totalAjustesCorrigidos || 0) > 0 && (
+                        {(comparativoReimport.totalAjustesCorrigidos || 0) >
+                          0 && (
                         <Badge className="bg-green-100 text-green-800 text-xs">
                           <CheckCircle2 className="h-3 w-3 mr-1" />
-                          {comparativoReimport.totalAjustesCorrigidos} corrigido{(comparativoReimport.totalAjustesCorrigidos || 0) > 1 ? 's' : ''}
+                            {comparativoReimport.totalAjustesCorrigidos}{" "}
+                            corrigido
+                            {(comparativoReimport.totalAjustesCorrigidos || 0) >
+                            1
+                              ? "s"
+                              : ""}
                         </Badge>
                       )}
-                      {(comparativoReimport.totalAjustesParciais || 0) > 0 && (
+                        {(comparativoReimport.totalAjustesParciais || 0) >
+                          0 && (
                         <Badge className="bg-amber-100 text-amber-800 text-xs">
-                          {comparativoReimport.totalAjustesParciais} parcial{(comparativoReimport.totalAjustesParciais || 0) > 1 ? 'is' : ''}
+                            {comparativoReimport.totalAjustesParciais} parcial
+                            {(comparativoReimport.totalAjustesParciais || 0) > 1
+                              ? "is"
+                              : ""}
                         </Badge>
                       )}
-                      {(comparativoReimport.totalAjustesNaoCorrigidos || 0) > 0 && (
+                        {(comparativoReimport.totalAjustesNaoCorrigidos || 0) >
+                          0 && (
                         <Badge className="bg-red-100 text-red-800 text-xs">
                           <XCircle className="h-3 w-3 mr-1" />
-                          {comparativoReimport.totalAjustesNaoCorrigidos} não corrigido{(comparativoReimport.totalAjustesNaoCorrigidos || 0) > 1 ? 's' : ''}
+                            {comparativoReimport.totalAjustesNaoCorrigidos} não
+                            corrigido
+                            {(comparativoReimport.totalAjustesNaoCorrigidos ||
+                              0) > 1
+                              ? "s"
+                              : ""}
                         </Badge>
                       )}
                     </div>
@@ -1288,86 +1732,144 @@ function ContaConvenioDetalhesPadrao() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-purple-100 dark:bg-purple-950/40">
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Status</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Tipo</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Código</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Data Exec.</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Descrição</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">Auditoria</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">Atual (Banco)</TableHead>
-                          <TableHead className="font-bold text-purple-900 dark:text-purple-200">Observação</TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Status
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Tipo
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Código
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Data Exec.
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Descrição
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">
+                              Auditoria
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200 text-center">
+                              Atual (Banco)
+                            </TableHead>
+                            <TableHead className="font-bold text-purple-900 dark:text-purple-200">
+                              Observação
+                            </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {comparativoReimport.statusAjustesAuditoria.map((aj, idx) => {
-                          const statusColor = aj.status === 'corrigido'
-                            ? 'text-green-700 bg-green-50 dark:bg-green-950/20'
-                            : aj.status === 'parcialmente_corrigido'
-                              ? 'text-amber-700 bg-amber-50 dark:bg-amber-950/20'
-                              : 'text-red-700 bg-red-50 dark:bg-red-950/20';
-                          const statusIcon = aj.status === 'corrigido'
-                            ? <CheckCircle2 className="h-4 w-4 text-green-600" />
-                            : aj.status === 'parcialmente_corrigido'
-                              ? <AlertTriangle className="h-4 w-4 text-amber-600" />
-                              : <XCircle className="h-4 w-4 text-red-600" />;
-                          const statusLabel = aj.status === 'corrigido' ? 'Corrigido'
-                            : aj.status === 'parcialmente_corrigido' ? 'Parcial'
-                              : aj.status === 'item_nao_encontrado' ? 'Não Encontrado'
-                                : 'Não Corrigido';
+                          {comparativoReimport.statusAjustesAuditoria.map(
+                            (aj, idx) => {
+                              const statusColor =
+                                aj.status === "corrigido"
+                                  ? "text-green-700 bg-green-50 dark:bg-green-950/20"
+                                  : aj.status === "parcialmente_corrigido"
+                                    ? "text-amber-700 bg-amber-50 dark:bg-amber-950/20"
+                                    : "text-red-700 bg-red-50 dark:bg-red-950/20";
+                              const statusIcon =
+                                aj.status === "corrigido" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                ) : aj.status === "parcialmente_corrigido" ? (
+                                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                ) : (
+                                  <XCircle className="h-4 w-4 text-red-600" />
+                                );
+                              const statusLabel =
+                                aj.status === "corrigido"
+                                  ? "Corrigido"
+                                  : aj.status === "parcialmente_corrigido"
+                                    ? "Parcial"
+                                    : aj.status === "item_nao_encontrado"
+                                      ? "Não Encontrado"
+                                      : "Não Corrigido";
 
                           // Formatar o que a auditoria pediu
-                          let auditoriaTexto = '';
-                          if (aj.tipoAjuste === 'ALTERAR_QUANTIDADE') {
-                            auditoriaTexto = `Qtd: ${aj.quantidadeOriginal || '?'} → ${aj.quantidadeAjustada || '?'}`;
-                          } else if (aj.tipoAjuste === 'ALTERAR_VALOR') {
-                            auditoriaTexto = `R$ ${parseFloat(aj.valorOriginal || '0').toFixed(2)} → R$ ${parseFloat(aj.valorAjustado || '0').toFixed(2)}`;
-                          } else if (aj.tipoAjuste === 'ADICIONAR_ITEM') {
-                            auditoriaTexto = `Adicionar (Qtd: ${aj.quantidadeAjustada || '?'})`;
-                          } else if (aj.tipoAjuste === 'REMOVER_ITEM') {
+                              let auditoriaTexto = "";
+                              if (aj.tipoAjuste === "ALTERAR_QUANTIDADE") {
+                                auditoriaTexto = `Qtd: ${aj.quantidadeOriginal || "?"} → ${aj.quantidadeAjustada || "?"}`;
+                              } else if (aj.tipoAjuste === "ALTERAR_VALOR") {
+                                auditoriaTexto = `R$ ${parseFloat(aj.valorOriginal || "0").toFixed(2)} → R$ ${parseFloat(aj.valorAjustado || "0").toFixed(2)}`;
+                              } else if (aj.tipoAjuste === "ADICIONAR_ITEM") {
+                                auditoriaTexto = `Adicionar (Qtd: ${aj.quantidadeAjustada || "?"})`;
+                              } else if (aj.tipoAjuste === "REMOVER_ITEM") {
                             auditoriaTexto = `Remover item`;
                           } else {
                             auditoriaTexto = aj.tipoAjuste;
                           }
 
                           // Valor atual do banco
-                          let atualTexto = '-';
-                          if (aj.quantidadeAtual !== null && aj.valorAtual !== null) {
-                            atualTexto = `Qtd: ${aj.quantidadeAtual} / R$ ${parseFloat(aj.valorAtual || '0').toFixed(2)}`;
+                              let atualTexto = "-";
+                              if (
+                                aj.quantidadeAtual !== null &&
+                                aj.valorAtual !== null
+                              ) {
+                                atualTexto = `Qtd: ${aj.quantidadeAtual} / R$ ${parseFloat(aj.valorAtual || "0").toFixed(2)}`;
                           } else if (aj.quantidadeAtual !== null) {
                             atualTexto = `Qtd: ${aj.quantidadeAtual}`;
                           } else if (aj.valorAtual !== null) {
-                            atualTexto = `R$ ${parseFloat(aj.valorAtual || '0').toFixed(2)}`;
+                                atualTexto = `R$ ${parseFloat(aj.valorAtual || "0").toFixed(2)}`;
                           }
 
                           // Tipo badge
-                          const tipoBadge = aj.tipoAjuste === 'ALTERAR_QUANTIDADE' ? 'Qtd'
-                            : aj.tipoAjuste === 'ALTERAR_VALOR' ? 'Valor'
-                              : aj.tipoAjuste === 'ADICIONAR_ITEM' ? '+ Item'
-                                : aj.tipoAjuste === 'REMOVER_ITEM' ? '- Item'
+                              const tipoBadge =
+                                aj.tipoAjuste === "ALTERAR_QUANTIDADE"
+                                  ? "Qtd"
+                                  : aj.tipoAjuste === "ALTERAR_VALOR"
+                                    ? "Valor"
+                                    : aj.tipoAjuste === "ADICIONAR_ITEM"
+                                      ? "+ Item"
+                                      : aj.tipoAjuste === "REMOVER_ITEM"
+                                        ? "- Item"
                                   : aj.tipoAjuste;
 
                           return (
-                            <TableRow key={idx} className={`${statusColor} border-b-2 border-opacity-30 ${aj.status === 'corrigido' ? 'border-green-400' : aj.status === 'parcialmente_corrigido' ? 'border-amber-400' : 'border-red-400'}`}>
+                                <TableRow
+                                  key={idx}
+                                  className={`${statusColor} border-b-2 border-opacity-30 ${aj.status === "corrigido" ? "border-green-400" : aj.status === "parcialmente_corrigido" ? "border-amber-400" : "border-red-400"}`}
+                                >
                               <TableCell>
                                 <div className="flex items-center gap-2 min-w-[120px]">
-                                  <div className={`p-1.5 rounded-full ${aj.status === 'corrigido' ? 'bg-green-200 dark:bg-green-900' : aj.status === 'parcialmente_corrigido' ? 'bg-amber-200 dark:bg-amber-900' : 'bg-red-200 dark:bg-red-900'}`}>
+                                      <div
+                                        className={`p-1.5 rounded-full ${aj.status === "corrigido" ? "bg-green-200 dark:bg-green-900" : aj.status === "parcialmente_corrigido" ? "bg-amber-200 dark:bg-amber-900" : "bg-red-200 dark:bg-red-900"}`}
+                                      >
                                     {statusIcon}
                                   </div>
-                                  <span className="text-sm font-bold">{statusLabel}</span>
+                                      <span className="text-sm font-bold">
+                                        {statusLabel}
+                                      </span>
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className={`text-xs font-bold px-2 py-1 ${aj.tipoAjuste === 'ADICIONAR_ITEM' ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900 dark:text-blue-200' : aj.tipoAjuste === 'REMOVER_ITEM' ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200' : 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200'}`}>{tipoBadge}</Badge>
-                              </TableCell>
-                              <TableCell className="font-mono text-sm font-bold">{aj.codigoItem}</TableCell>
-                              <TableCell className="text-sm font-medium text-blue-700 dark:text-blue-300">{aj.dataExecucao || '-'}</TableCell>
-                              <TableCell className="text-sm max-w-[200px] truncate font-medium">{aj.descricaoItem}</TableCell>
-                              <TableCell className="text-center text-sm font-bold">{auditoriaTexto}</TableCell>
-                              <TableCell className="text-center text-sm font-bold">{atualTexto}</TableCell>
-                              <TableCell className="text-sm max-w-[220px] font-medium">{aj.observacao}</TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs font-bold px-2 py-1 ${aj.tipoAjuste === "ADICIONAR_ITEM" ? "bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900 dark:text-blue-200" : aj.tipoAjuste === "REMOVER_ITEM" ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200" : "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200"}`}
+                                    >
+                                      {tipoBadge}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="font-mono text-sm font-bold">
+                                    {aj.codigoItem}
+                                  </TableCell>
+                                  <TableCell className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                    {aj.dataExecucao || "-"}
+                                  </TableCell>
+                                  <TableCell className="text-sm max-w-[200px] truncate font-medium">
+                                    {aj.descricaoItem}
+                                  </TableCell>
+                                  <TableCell className="text-center text-sm font-bold">
+                                    {auditoriaTexto}
+                                  </TableCell>
+                                  <TableCell className="text-center text-sm font-bold">
+                                    {atualTexto}
+                                  </TableCell>
+                                  <TableCell className="text-sm max-w-[220px] font-medium">
+                                    {aj.observacao}
+                                  </TableCell>
                             </TableRow>
                           );
-                        })}
+                            }
+                          )}
                       </TableBody>
                     </Table>
                   </div>
@@ -1379,21 +1881,32 @@ function ContaConvenioDetalhesPadrao() {
 
         {/* Tabs: Itens, Divergências e Auditoria */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${exibirContextoMedico ? "grid-cols-8 max-w-6xl" : "grid-cols-7 max-w-5xl"}`}>
+          <TabsList
+            className={`grid w-full ${exibirContextoMedico ? "grid-cols-8 max-w-6xl" : "grid-cols-7 max-w-5xl"}`}
+          >
             <TabsTrigger value="itens" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Itens ({itensData?.items?.length || 0})
             </TabsTrigger>
-            <TabsTrigger value="divergencias" className="flex items-center gap-2">
+            <TabsTrigger
+              value="divergencias"
+              className="flex items-center gap-2"
+            >
               <AlertTriangle className="h-4 w-4" />
               Divergências ({divergenciasData?.divergencias?.length || 0})
             </TabsTrigger>
-            <TabsTrigger value="prontuario-clinico" className="flex items-center gap-2 text-blue-700 bg-blue-50/50 hover:bg-blue-100 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 border-x border-white">
+            <TabsTrigger
+              value="prontuario-clinico"
+              className="flex items-center gap-2 text-blue-700 bg-blue-50/50 hover:bg-blue-100 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 border-x border-white"
+            >
               <Pill className="h-4 w-4" />
               Apoio Clínico
             </TabsTrigger>
             {exibirContextoMedico ? (
-              <TabsTrigger value="contexto-medico" className="flex items-center gap-2 text-sky-700 bg-sky-50/50 hover:bg-sky-100 data-[state=active]:bg-sky-100 data-[state=active]:text-sky-900 border-x border-white">
+              <TabsTrigger
+                value="contexto-medico"
+                className="flex items-center gap-2 text-sky-700 bg-sky-50/50 hover:bg-sky-100 data-[state=active]:bg-sky-100 data-[state=active]:text-sky-900 border-x border-white"
+              >
                 <Stethoscope className="h-4 w-4" />
                 Contexto médico
               </TabsTrigger>
@@ -1410,7 +1923,10 @@ function ContaConvenioDetalhesPadrao() {
               <ClipboardCheck className="h-4 w-4" />
               Auditoria ({feedbackResumo.total})
             </TabsTrigger>
-            <TabsTrigger value="relatorio-faturista" className="flex items-center gap-2">
+            <TabsTrigger
+              value="relatorio-faturista"
+              className="flex items-center gap-2"
+            >
               <ClipboardList className="h-4 w-4" />
               Rel. Faturista
             </TabsTrigger>
@@ -1435,7 +1951,9 @@ function ContaConvenioDetalhesPadrao() {
                 ) : !itensData?.items?.length ? (
                   <div className="text-center py-8">
                     <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">Nenhum item encontrado para esta conta</p>
+                    <p className="text-muted-foreground">
+                      Nenhum item encontrado para esta conta
+                    </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -1449,8 +1967,12 @@ function ContaConvenioDetalhesPadrao() {
                           <TableHead>Setor</TableHead>
                           <TableHead>Data Exec.</TableHead>
                           <TableHead className="text-right">Qtd</TableHead>
-                          <TableHead className="text-right">Valor Unit.</TableHead>
-                          <TableHead className="text-right">Valor Total</TableHead>
+                          <TableHead className="text-right">
+                            Valor Unit.
+                          </TableHead>
+                          <TableHead className="text-right">
+                            Valor Total
+                          </TableHead>
                           <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1458,36 +1980,61 @@ function ContaConvenioDetalhesPadrao() {
                         {itensData.items.map((item: any, index: number) => {
                           const TipoIcon = getTipoIcon(item.tipoItem);
                           const tipoColor = getTipoColor(item.tipoItem);
-                          const hasDivergencias = item.divergencias && (item.divergencias as any[]).length > 0;
+                          const hasDivergencias =
+                            item.divergencias &&
+                            (item.divergencias as any[]).length > 0;
                           
                           return (
-                            <TableRow key={item.id || index} className={hasDivergencias ? "bg-red-50/50" : ""}>
-                              <TableCell className="font-medium">{index + 1}</TableCell>
+                            <TableRow
+                              key={item.id || index}
+                              className={hasDivergencias ? "bg-red-50/50" : ""}
+                            >
+                              <TableCell className="font-medium">
+                                {index + 1}
+                              </TableCell>
                               <TableCell>
                                 <Badge variant="outline" className={tipoColor}>
                                   <TipoIcon className="h-3 w-3 mr-1" />
                                   {item.tipoItem || "-"}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="font-mono text-sm">{item.codigoItem || "-"}</TableCell>
-                              <TableCell className="max-w-xs truncate" title={item.descricaoItem}>
+                              <TableCell className="font-mono text-sm">
+                                {item.codigoItem || "-"}
+                              </TableCell>
+                              <TableCell
+                                className="max-w-xs truncate"
+                                title={item.descricaoItem}
+                              >
                                 {item.descricaoItem || "-"}
                               </TableCell>
                               <TableCell>
                                 {item.setor ? (
-                                  <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs bg-blue-50 text-blue-700 border-blue-200"
+                                  >
                                     {item.setor}
                                   </Badge>
-                                ) : "-"}
+                                ) : (
+                                  "-"
+                                )}
                               </TableCell>
-                              <TableCell>{formatDateBR(item.dataExecucao)}</TableCell>
-                              <TableCell className="text-right">{item.quantidade || 1}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
+                              <TableCell>
+                                {formatDateBR(item.dataExecucao)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {item.quantidade || 1}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency(item.valorUnitario)}
+                              </TableCell>
                               <TableCell className="text-right font-semibold text-emerald-600">
                                 {formatCurrency(item.valorTotal)}
                               </TableCell>
                               <TableCell>
-                                <StatusBadge status={item.statusAnalise || "pendente"} />
+                                <StatusBadge
+                                  status={item.statusAnalise || "pendente"}
+                                />
                               </TableCell>
                             </TableRow>
                           );
@@ -1498,6 +2045,87 @@ function ContaConvenioDetalhesPadrao() {
                 )}
               </CardContent>
             </Card>
+
+            {exibirContextoMedico ? (
+              <Card className="border-sky-200 bg-sky-50/40">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Stethoscope className="h-5 w-5 text-sky-700" />
+                    Itens médicos informativos
+                  </CardTitle>
+                  <CardDescription>
+                    Procedimentos do XML de honorários associados
+                    automaticamente por guia. São apenas informativos: não
+                    possuem valores e não alteram cobrança, conciliação ou
+                    ajustes.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {contextoMedicoItens.isLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-9 w-full" />
+                      <Skeleton className="h-9 w-full" />
+                    </div>
+                  ) : procedimentosMedicosInformativos.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum item médico associado com segurança a esta conta
+                      ainda.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Procedimento</TableHead>
+                            <TableHead>Data de execução</TableHead>
+                            <TableHead>Profissional</TableHead>
+                            <TableHead>Conselho/registro</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {procedimentosMedicosInformativos.map(
+                            (item, index) => (
+                              <TableRow
+                                key={`${item.codigo}-${item.dataExecucao ?? "sem-data"}-${index}`}
+                              >
+                                <TableCell>
+                                  <span className="mr-2 font-mono text-xs text-muted-foreground">
+                                    {item.codigo}
+                                  </span>
+                                  {item.descricao}
+                                </TableCell>
+                                <TableCell>
+                                  {formatDateBR(item.dataExecucao)}
+                                </TableCell>
+                                <TableCell>
+                                  {item.profissionais
+                                    .map(profissional => profissional.nome)
+                                    .filter(Boolean)
+                                    .join(", ") || "Não informado no XML"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.profissionais
+                                    .map(profissional =>
+                                      [
+                                        profissional.conselho,
+                                        profissional.numeroConselho,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" ")
+                                    )
+                                    .filter(Boolean)
+                                    .join(", ") || "Não informado no XML"}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
           </TabsContent>
 
           {/* Tab: Divergências */}
@@ -1512,21 +2140,48 @@ function ContaConvenioDetalhesPadrao() {
                   {/* Filtro por status de feedback */}
                   {divergenciasData?.divergencias?.length ? (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Filtrar:</span>
-                      <Select value={filtroFeedback} onValueChange={setFiltroFeedback}>
+                      <span className="text-sm text-muted-foreground">
+                        Filtrar:
+                      </span>
+                      <Select
+                        value={filtroFeedback}
+                        onValueChange={setFiltroFeedback}
+                      >
                         <SelectTrigger className="w-[180px] h-8">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="todos">Todas ({divergenciasData.divergencias.length})</SelectItem>
+                          <SelectItem value="todos">
+                            Todas ({divergenciasData.divergencias.length})
+                          </SelectItem>
                           <SelectItem value="pendente">
-                            Pendentes ({divergenciasData.divergencias.filter((d: any) => !getFeedbackForDiv(d)).length})
+                            Pendentes (
+                            {
+                              divergenciasData.divergencias.filter(
+                                (d: any) => !getFeedbackForDiv(d)
+                              ).length
+                            }
+                            )
                           </SelectItem>
                           <SelectItem value="aceitar">
-                            Aceitas ({divergenciasData.divergencias.filter((d: any) => getFeedbackForDiv(d)?.decisao === "aceitar").length})
+                            Aceitas (
+                            {
+                              divergenciasData.divergencias.filter(
+                                (d: any) =>
+                                  getFeedbackForDiv(d)?.decisao === "aceitar"
+                              ).length
+                            }
+                            )
                           </SelectItem>
                           <SelectItem value="rejeitar">
-                            Rejeitadas ({divergenciasData.divergencias.filter((d: any) => getFeedbackForDiv(d)?.decisao === "rejeitar").length})
+                            Rejeitadas (
+                            {
+                              divergenciasData.divergencias.filter(
+                                (d: any) =>
+                                  getFeedbackForDiv(d)?.decisao === "rejeitar"
+                              ).length
+                            }
+                            )
                           </SelectItem>
                         </SelectContent>
                       </Select>
@@ -1544,13 +2199,20 @@ function ContaConvenioDetalhesPadrao() {
                 ) : !divergenciasData?.divergencias?.length ? (
                   <div className="text-center py-8">
                     <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
-                    <h3 className="text-lg font-medium">Nenhuma divergência encontrada</h3>
+                    <h3 className="text-lg font-medium">
+                      Nenhuma divergência encontrada
+                    </h3>
                     <p className="text-muted-foreground mb-4">
                       Execute a comparação com padrões para verificar a conta.
                     </p>
                     <Button 
                       variant="outline"
-                      onClick={() => compararMutation.mutate({ numeroConta, estabelecimentoId })}
+                      onClick={() =>
+                        compararMutation.mutate({
+                          numeroConta,
+                          estabelecimentoId,
+                        })
+                      }
                       disabled={compararMutation.isPending}
                     >
                       {compararMutation.isPending ? (
@@ -1565,7 +2227,10 @@ function ContaConvenioDetalhesPadrao() {
                   <div className="space-y-6">
                     {/* Banner de Alerta para Itens Faltantes */}
                     {(() => {
-                      const itensFaltantes = divergenciasData.divergencias.filter((d: any) => d.tipo === 'ITEM_FALTANTE');
+                      const itensFaltantes =
+                        divergenciasData.divergencias.filter(
+                          (d: any) => d.tipo === "ITEM_FALTANTE"
+                        );
                       if (itensFaltantes.length === 0) return null;
                       return (
                         <div className="rounded-lg border-2 border-red-500 bg-red-50 p-4 shadow-md">
@@ -1575,27 +2240,44 @@ function ContaConvenioDetalhesPadrao() {
                             </div>
                             <div className="flex-1">
                               <h4 className="text-base font-bold text-red-800 flex items-center gap-2">
-                                ATENÇÃO: {itensFaltantes.length} Item(ns) Faltante(s) na Conta
+                                ATENÇÃO: {itensFaltantes.length} Item(ns)
+                                Faltante(s) na Conta
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-600 text-white">
                                   AÇÃO NECESSÁRIA
                                 </span>
                               </h4>
                               <p className="text-sm text-red-700 mt-1">
-                                Os seguintes itens estão definidos no gabarito/regra mas NÃO foram encontrados na conta:
+                                Os seguintes itens estão definidos no
+                                gabarito/regra mas NÃO foram encontrados na
+                                conta:
                               </p>
                               <div className="mt-2 space-y-1">
-                                {itensFaltantes.map((item: any, idx: number) => (
-                                  <div key={idx} className="flex items-center gap-2 bg-white/70 rounded px-3 py-1.5 border border-red-200">
+                                {itensFaltantes.map(
+                                  (item: any, idx: number) => (
+                                    <div
+                                      key={idx}
+                                      className="flex items-center gap-2 bg-white/70 rounded px-3 py-1.5 border border-red-200"
+                                    >
                                     <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                                    <span className="font-mono text-sm font-bold text-red-800">{item.codigoItem}</span>
-                                    <span className="text-sm text-red-700">{item.descricaoItem || item.descricao}</span>
-                                    {item.valorEsperado != null && (
+                                      <span className="font-mono text-sm font-bold text-red-800">
+                                        {item.codigoItem}
+                                      </span>
+                                      <span className="text-sm text-red-700">
+                                        {item.descricaoItem || item.descricao}
+                                      </span>
+                                      {item.valorEsperado != null && (
                                       <span className="ml-auto text-sm font-medium text-red-600">
-                                        Valor esperado: R$ {Number(item.valorEsperado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                          Valor esperado: R${" "}
+                                          {Number(
+                                            item.valorEsperado
+                                          ).toLocaleString("pt-BR", {
+                                            minimumFractionDigits: 2,
+                                          })}
                                       </span>
                                     )}
                                   </div>
-                                ))}
+                                  )
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1607,47 +2289,84 @@ function ContaConvenioDetalhesPadrao() {
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       {/* Score de Risco */}
                       {(() => {
-                        const score = divergenciasData.scoreRisco as number | null;
+                        const score = divergenciasData.scoreRisco as
+                          | number
+                          | null;
                         const detalhes = divergenciasData.detalhesRisco as any;
-                        const nivel = detalhes?.nivel || (score != null ? (score >= 70 ? 'CRÍTICO' : score >= 50 ? 'ALTO' : score >= 30 ? 'MÉDIO' : 'BAIXO') : null);
+                        const nivel =
+                          detalhes?.nivel ||
+                          (score != null
+                            ? score >= 70
+                              ? "CRÍTICO"
+                              : score >= 50
+                                ? "ALTO"
+                                : score >= 30
+                                  ? "MÉDIO"
+                                  : "BAIXO"
+                            : null);
                         if (score == null) return null;
                         return (
-                          <Card className={`border-2 ${
-                            score >= 70 ? 'border-red-500 bg-red-50/30' :
-                            score >= 40 ? 'border-orange-500 bg-orange-50/30' :
-                            'border-green-500 bg-green-50/30'
-                          }`}>
+                          <Card
+                            className={`border-2 ${
+                              score >= 70
+                                ? "border-red-500 bg-red-50/30"
+                                : score >= 40
+                                  ? "border-orange-500 bg-orange-50/30"
+                                  : "border-green-500 bg-green-50/30"
+                            }`}
+                          >
                             <CardContent className="p-4">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <p className="text-sm text-muted-foreground">Score de Risco</p>
-                                  <p className={`text-3xl font-bold ${
-                                    score >= 70 ? 'text-red-600' :
-                                    score >= 40 ? 'text-orange-600' :
-                                    'text-green-600'
-                                  }`}>
-                                    {score}
-                                    <span className="text-sm font-normal text-muted-foreground">/100</span>
+                                  <p className="text-sm text-muted-foreground">
+                                    Score de Risco
                                   </p>
-                                  <p className={`text-xs font-medium mt-1 ${
-                                    nivel === 'CRÍTICO' ? 'text-red-600' :
-                                    nivel === 'ALTO' ? 'text-orange-600' :
-                                    nivel === 'MÉDIO' ? 'text-yellow-600' :
-                                    'text-green-600'
-                                  }`}>
+                                  <p
+                                    className={`text-3xl font-bold ${
+                                      score >= 70
+                                        ? "text-red-600"
+                                        : score >= 40
+                                          ? "text-orange-600"
+                                          : "text-green-600"
+                                    }`}
+                                  >
+                                    {score}
+                                    <span className="text-sm font-normal text-muted-foreground">
+                                      /100
+                                    </span>
+                                  </p>
+                                  <p
+                                    className={`text-xs font-medium mt-1 ${
+                                      nivel === "CRÍTICO"
+                                        ? "text-red-600"
+                                        : nivel === "ALTO"
+                                          ? "text-orange-600"
+                                          : nivel === "MÉDIO"
+                                            ? "text-yellow-600"
+                                            : "text-green-600"
+                                    }`}
+                                  >
                                     {nivel}
                                   </p>
                                 </div>
-                                <div className={`h-12 w-12 rounded-full flex items-center justify-center ${
-                                  score >= 70 ? 'bg-red-100' :
-                                  score >= 40 ? 'bg-orange-100' :
-                                  'bg-green-100'
-                                }`}>
-                                  <Shield className={`h-6 w-6 ${
-                                    score >= 70 ? 'text-red-600' :
-                                    score >= 40 ? 'text-orange-600' :
-                                    'text-green-600'
-                                  }`} />
+                                <div
+                                  className={`h-12 w-12 rounded-full flex items-center justify-center ${
+                                    score >= 70
+                                      ? "bg-red-100"
+                                      : score >= 40
+                                        ? "bg-orange-100"
+                                        : "bg-green-100"
+                                  }`}
+                                >
+                                  <Shield
+                                    className={`h-6 w-6 ${
+                                      score >= 70
+                                        ? "text-red-600"
+                                        : score >= 40
+                                          ? "text-orange-600"
+                                          : "text-green-600"
+                                    }`}
+                                  />
                                 </div>
                               </div>
                             </CardContent>
@@ -1658,8 +2377,12 @@ function ContaConvenioDetalhesPadrao() {
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm text-muted-foreground">Total Divergências</p>
-                              <p className="text-2xl font-bold text-red-600">{divergenciasData.resumo.total}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Total Divergências
+                              </p>
+                              <p className="text-2xl font-bold text-red-600">
+                                {divergenciasData.resumo.total}
+                              </p>
                             </div>
                             <AlertTriangle className="h-8 w-8 text-red-500" />
                           </div>
@@ -1668,12 +2391,21 @@ function ContaConvenioDetalhesPadrao() {
                       <Card className="border-red-200">
                         <CardContent className="p-4">
                           <div>
-                            <p className="text-sm text-muted-foreground mb-2">Por Severidade</p>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Por Severidade
+                            </p>
                             <div className="flex flex-wrap gap-2">
-                              {Object.entries(divergenciasData.resumo.porSeveridade).map(([sev, count]) => (
-                                <div key={sev} className="flex items-center gap-1">
+                              {Object.entries(
+                                divergenciasData.resumo.porSeveridade
+                              ).map(([sev, count]) => (
+                                <div
+                                  key={sev}
+                                  className="flex items-center gap-1"
+                                >
                                   <SeveridadeBadge severidade={sev} />
-                                  <span className="text-sm font-medium">({count as number})</span>
+                                  <span className="text-sm font-medium">
+                                    ({count as number})
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -1683,10 +2415,18 @@ function ContaConvenioDetalhesPadrao() {
                       <Card className="border-orange-200">
                         <CardContent className="p-4">
                           <div>
-                            <p className="text-sm text-muted-foreground mb-2">Por Tipo</p>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Por Tipo
+                            </p>
                             <div className="flex flex-wrap gap-2">
-                              {Object.entries(divergenciasData.resumo.porTipo).map(([tipo, count]) => (
-                                <Badge key={tipo} variant="outline" className="text-xs">
+                              {Object.entries(
+                                divergenciasData.resumo.porTipo
+                              ).map(([tipo, count]) => (
+                                <Badge
+                                  key={tipo}
+                                  variant="outline"
+                                  className="text-xs"
+                                >
                                   {tipo}: {count as number}
                                 </Badge>
                               ))}
@@ -1704,14 +2444,18 @@ function ContaConvenioDetalhesPadrao() {
                             </p>
                             <div className="flex flex-wrap gap-2">
                               <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
-                                <ThumbsUp className="h-3 w-3 mr-1" />{feedbackResumo.aceitas}
+                                <ThumbsUp className="h-3 w-3 mr-1" />
+                                {feedbackResumo.aceitas}
                               </Badge>
                               <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
-                                <ThumbsDown className="h-3 w-3 mr-1" />{feedbackResumo.rejeitadas}
+                                <ThumbsDown className="h-3 w-3 mr-1" />
+                                {feedbackResumo.rejeitadas}
                               </Badge>
                               <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-xs">
                                 <Clock className="h-3 w-3 mr-1" />
-                                {(divergenciasData?.divergencias?.length || 0) - feedbackResumo.aceitas - feedbackResumo.rejeitadas}
+                                {(divergenciasData?.divergencias?.length || 0) -
+                                  feedbackResumo.aceitas -
+                                  feedbackResumo.rejeitadas}
                               </Badge>
                             </div>
                             {feedbackResumo.total > 0 && (
@@ -1720,12 +2464,18 @@ function ContaConvenioDetalhesPadrao() {
                                   <div 
                                     className="bg-indigo-600 h-1.5 rounded-full transition-all" 
                                     style={{ 
-                                      width: `${Math.round((feedbackResumo.total / (divergenciasData?.divergencias?.length || 1)) * 100)}%` 
+                                      width: `${Math.round((feedbackResumo.total / (divergenciasData?.divergencias?.length || 1)) * 100)}%`,
                                     }}
                                   />
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  {Math.round((feedbackResumo.total / (divergenciasData?.divergencias?.length || 1)) * 100)}% auditado
+                                  {Math.round(
+                                    (feedbackResumo.total /
+                                      (divergenciasData?.divergencias?.length ||
+                                        1)) *
+                                      100
+                                  )}
+                                  % auditado
                                 </p>
                               </div>
                             )}
@@ -1735,12 +2485,18 @@ function ContaConvenioDetalhesPadrao() {
                     </div>
 
                     {/* Log de Análise - Padrões/Gabaritos Usados */}
-                    {logsAnaliseQuery.data?.logs?.length ? (() => {
+                    {logsAnaliseQuery.data?.logs?.length
+                      ? (() => {
                       const logs = logsAnaliseQuery.data.logs;
                       const ultimaAnalise = logs[0];
-                      const logsUltimaAnalise = logs.filter((l: any) => 
-                        l.criadoEm && ultimaAnalise.criadoEm && 
-                        Math.abs(new Date(l.criadoEm).getTime() - new Date(ultimaAnalise.criadoEm).getTime()) < 5000
+                          const logsUltimaAnalise = logs.filter(
+                            (l: any) =>
+                              l.criadoEm &&
+                              ultimaAnalise.criadoEm &&
+                              Math.abs(
+                                new Date(l.criadoEm).getTime() -
+                                  new Date(ultimaAnalise.criadoEm).getTime()
+                              ) < 5000
                       );
                       return (
                         <Card className="border-indigo-200 bg-indigo-50/30 dark:bg-indigo-950/20">
@@ -1748,58 +2504,100 @@ function ContaConvenioDetalhesPadrao() {
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-2">
                                 <FileSearch className="h-4 w-4 text-indigo-600" />
-                                <h4 className="font-semibold text-sm">Log de Análise - Padrões Utilizados</h4>
+                                    <h4 className="font-semibold text-sm">
+                                      Log de Análise - Padrões Utilizados
+                                    </h4>
                               </div>
                               <span className="text-xs text-muted-foreground">
-                                Última análise: {ultimaAnalise.criadoEm ? formatDateTimeBR(ultimaAnalise.criadoEm) : '-'}
+                                    Última análise:{" "}
+                                    {ultimaAnalise.criadoEm
+                                      ? formatDateTimeBR(ultimaAnalise.criadoEm)
+                                      : "-"}
                               </span>
                             </div>
                             <div className="space-y-2">
-                              {logsUltimaAnalise.map((log: any, idx: number) => (
-                                <div key={idx} className="flex items-center gap-3 p-2 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-indigo-100 dark:border-indigo-800">
-                                  <div className={`px-2 py-1 rounded text-xs font-medium ${
+                                  {logsUltimaAnalise.map(
+                                    (log: any, idx: number) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-center gap-3 p-2 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-indigo-100 dark:border-indigo-800"
+                                      >
+                                        <div
+                                          className={`px-2 py-1 rounded text-xs font-medium ${
                                     log.isGabarito === 1 
-                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                                      : log.padraoTipo === 'nenhum'
-                                        ? 'bg-gray-100 text-gray-600 border border-gray-200'
-                                        : 'bg-blue-100 text-blue-800 border border-blue-200'
-                                  }`}>
-                                    {log.isGabarito === 1 ? 'Gabarito' : log.padraoTipo === 'nenhum' ? 'Nenhum' : 'Padrão'}
+                                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                              : log.padraoTipo === "nenhum"
+                                                ? "bg-gray-100 text-gray-600 border border-gray-200"
+                                                : "bg-blue-100 text-blue-800 border border-blue-200"
+                                          }`}
+                                        >
+                                          {log.isGabarito === 1
+                                            ? "Gabarito"
+                                            : log.padraoTipo === "nenhum"
+                                              ? "Nenhum"
+                                              : "Padrão"}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate">{log.padraoNome || '-'}</p>
+                                          <p className="text-sm font-medium truncate">
+                                            {log.padraoNome || "-"}
+                                          </p>
                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                      {log.setorPadrao && <span>Setor: {log.setorPadrao}</span>}
-                                      {log.convenioNome && <span>Convênio: {log.convenioNome}</span>}
-                                      {log.motivoSelecao && <span className="italic">{log.motivoSelecao}</span>}
+                                            {log.setorPadrao && (
+                                              <span>
+                                                Setor: {log.setorPadrao}
+                                              </span>
+                                            )}
+                                            {log.convenioNome && (
+                                              <span>
+                                                Convênio: {log.convenioNome}
+                                              </span>
+                                            )}
+                                            {log.motivoSelecao && (
+                                              <span className="italic">
+                                                {log.motivoSelecao}
+                                              </span>
+                                            )}
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
-                                    {(log.divergenciasCritico || 0) > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700">{log.divergenciasCritico} crít.</span>
+                                          {(log.divergenciasCritico || 0) >
+                                            0 && (
+                                            <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                                              {log.divergenciasCritico} crít.
+                                            </span>
                                     )}
-                                    {(log.divergenciasAlerta || 0) > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">{log.divergenciasAlerta} alerta</span>
+                                          {(log.divergenciasAlerta || 0) >
+                                            0 && (
+                                            <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">
+                                              {log.divergenciasAlerta} alerta
+                                            </span>
                                     )}
                                     {(log.divergenciasAviso || 0) > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">{log.divergenciasAviso} aviso</span>
+                                            <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">
+                                              {log.divergenciasAviso} aviso
+                                            </span>
                                     )}
                                     {log.scoreMatch ? (
-                                      <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Score: {log.scoreMatch}</span>
+                                            <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                                              Score: {log.scoreMatch}
+                                            </span>
                                     ) : null}
                                   </div>
                                 </div>
-                              ))}
+                                    )
+                                  )}
                             </div>
                             {logs.length > logsUltimaAnalise.length && (
                               <p className="text-xs text-muted-foreground mt-2">
-                                {logs.length - logsUltimaAnalise.length} análise(s) anterior(es) registrada(s)
+                                    {logs.length - logsUltimaAnalise.length}{" "}
+                                    análise(s) anterior(es) registrada(s)
                               </p>
                             )}
                           </CardContent>
                         </Card>
                       );
-                    })() : null}
+                        })()
+                      : null}
 
                     {/* Tabela de Divergências */}
                     <div className="overflow-x-auto">
@@ -1810,24 +2608,45 @@ function ContaConvenioDetalhesPadrao() {
                             <TableHead>Tipo</TableHead>
                             <TableHead>Item</TableHead>
                             <TableHead>Descrição da Divergência</TableHead>
-                            <TableHead className="text-right">Valor Cobrado</TableHead>
-                            <TableHead className="text-right">Valor Esperado</TableHead>
-                            <TableHead className="text-right">Diferença</TableHead>
-                            <TableHead className="text-center">Status Auditoria</TableHead>
+                            <TableHead className="text-right">
+                              Valor Cobrado
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Valor Esperado
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Diferença
+                            </TableHead>
+                            <TableHead className="text-center">
+                              Status Auditoria
+                            </TableHead>
                             <TableHead className="text-center">Ações</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {/* Ordenar: ITEM_FALTANTE e críticos primeiro */}
-                          {[...divergenciasFiltradas].sort((a: any, b: any) => {
-                            const sevOrder: Record<string, number> = { critico: 0, alerta: 1, aviso: 2, info: 3 };
-                            const tipoOrder = (t: string) => t === 'ITEM_FALTANTE' ? -1 : 0;
-                            const diff = tipoOrder(a.tipo) - tipoOrder(b.tipo);
+                          {[...divergenciasFiltradas]
+                            .sort((a: any, b: any) => {
+                              const sevOrder: Record<string, number> = {
+                                critico: 0,
+                                alerta: 1,
+                                aviso: 2,
+                                info: 3,
+                              };
+                              const tipoOrder = (t: string) =>
+                                t === "ITEM_FALTANTE" ? -1 : 0;
+                              const diff =
+                                tipoOrder(a.tipo) - tipoOrder(b.tipo);
                             if (diff !== 0) return diff;
-                            return (sevOrder[a.severidade] ?? 4) - (sevOrder[b.severidade] ?? 4);
-                          }).map((div: any, index: number) => {
+                              return (
+                                (sevOrder[a.severidade] ?? 4) -
+                                (sevOrder[b.severidade] ?? 4)
+                              );
+                            })
+                            .map((div: any, index: number) => {
                             const fb = getFeedbackForDiv(div);
-                            const isItemFaltante = div.tipo === 'ITEM_FALTANTE';
+                              const isItemFaltante =
+                                div.tipo === "ITEM_FALTANTE";
                             const rowBg = fb 
                               ? fb.decisao === "aceitar" 
                                 ? "bg-green-50/50" 
@@ -1851,7 +2670,9 @@ function ContaConvenioDetalhesPadrao() {
                                       </span>
                                     </div>
                                   ) : (
-                                    <SeveridadeBadge severidade={div.severidade} />
+                                      <SeveridadeBadge
+                                        severidade={div.severidade}
+                                      />
                                   )}
                                 </TableCell>
                                 <TableCell>
@@ -1861,34 +2682,60 @@ function ContaConvenioDetalhesPadrao() {
                                       ITEM FALTANTE
                                     </span>
                                   ) : (
-                                    <Badge variant="outline" className="text-xs">
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
                                       {div.tipo}
                                     </Badge>
                                   )}
                                 </TableCell>
                                 <TableCell>
                                   <div>
-                                    <p className={`font-mono text-sm ${isItemFaltante ? 'font-bold text-red-700' : ''}`}>{div.codigoItem || "-"}</p>
-                                    <p className={`text-xs truncate max-w-[200px] ${isItemFaltante ? 'text-red-600 font-medium' : 'text-muted-foreground'}`} title={div.descricaoItem}>
+                                      <p
+                                        className={`font-mono text-sm ${isItemFaltante ? "font-bold text-red-700" : ""}`}
+                                      >
+                                        {div.codigoItem || "-"}
+                                      </p>
+                                      <p
+                                        className={`text-xs truncate max-w-[200px] ${isItemFaltante ? "text-red-600 font-medium" : "text-muted-foreground"}`}
+                                        title={div.descricaoItem}
+                                      >
                                       {div.descricaoItem || "-"}
                                     </p>
                                   </div>
                                 </TableCell>
                                 <TableCell className="max-w-xs">
-                                  <p className={`text-sm ${isItemFaltante ? 'font-semibold text-red-700' : ''}`}>{div.mensagem || div.descricao || "-"}</p>
+                                    <p
+                                      className={`text-sm ${isItemFaltante ? "font-semibold text-red-700" : ""}`}
+                                    >
+                                      {div.mensagem || div.descricao || "-"}
+                                    </p>
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
-                                  {div.valorCobrado != null ? formatCurrency(div.valorCobrado) : "-"}
+                                    {div.valorCobrado != null
+                                      ? formatCurrency(div.valorCobrado)
+                                      : "-"}
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
-                                  {div.valorEsperado != null ? formatCurrency(div.valorEsperado) : "-"}
+                                    {div.valorEsperado != null
+                                      ? formatCurrency(div.valorEsperado)
+                                      : "-"}
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
                                   {div.diferenca != null ? (
-                                    <span className={parseFloat(div.diferenca) > 0 ? "text-red-600" : "text-green-600"}>
+                                      <span
+                                        className={
+                                          parseFloat(div.diferenca) > 0
+                                            ? "text-red-600"
+                                            : "text-green-600"
+                                        }
+                                      >
                                       {formatCurrency(div.diferenca)}
                                     </span>
-                                  ) : "-"}
+                                    ) : (
+                                      "-"
+                                    )}
                                 </TableCell>
                                 {/* Status de Auditoria */}
                                 <TableCell className="text-center">
@@ -1900,22 +2747,40 @@ function ContaConvenioDetalhesPadrao() {
                                           <TooltipTrigger asChild>
                                             <button 
                                               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5 cursor-pointer"
-                                              onClick={() => setHistoricoDialog({ open: true, div })}
+                                                onClick={() =>
+                                                  setHistoricoDialog({
+                                                    open: true,
+                                                    div,
+                                                  })
+                                                }
                                             >
                                               <UserCheck className="h-3 w-3" />
-                                              {fb.usuarioNome?.split(" ")[0] || "Auditor"}
+                                                {fb.usuarioNome?.split(
+                                                  " "
+                                                )[0] || "Auditor"}
                                             </button>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>{fb.usuarioNome} em {formatDateTimeBR(fb.createdAt)}</p>
-                                            {fb.justificativa && <p className="text-xs mt-1 max-w-xs">{fb.justificativa}</p>}
+                                              <p>
+                                                {fb.usuarioNome} em{" "}
+                                                {formatDateTimeBR(fb.createdAt)}
+                                              </p>
+                                              {fb.justificativa && (
+                                                <p className="text-xs mt-1 max-w-xs">
+                                                  {fb.justificativa}
+                                                </p>
+                                              )}
                                           </TooltipContent>
                                         </Tooltip>
                                       </TooltipProvider>
                                     </div>
                                   ) : (
-                                    <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300 bg-yellow-50">
-                                      <Clock className="h-3 w-3 mr-1" />Pendente
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs text-yellow-600 border-yellow-300 bg-yellow-50"
+                                      >
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        Pendente
                                     </Badge>
                                   )}
                                 </TableCell>
@@ -1926,15 +2791,23 @@ function ContaConvenioDetalhesPadrao() {
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
-                                            variant={fb?.decisao === "aceitar" ? "default" : "ghost"}
+                                              variant={
+                                                fb?.decisao === "aceitar"
+                                                  ? "default"
+                                                  : "ghost"
+                                              }
                                             size="icon"
                                             className={`h-7 w-7 ${
                                               fb?.decisao === "aceitar" 
                                                 ? "bg-green-600 text-white hover:bg-green-700" 
                                                 : "text-green-600 hover:text-green-700 hover:bg-green-50"
                                             }`}
-                                            onClick={() => handleFeedback(div, "aceitar")}
-                                            disabled={feedbackMutation.isPending}
+                                              onClick={() =>
+                                                handleFeedback(div, "aceitar")
+                                              }
+                                              disabled={
+                                                feedbackMutation.isPending
+                                              }
                                           >
                                             <ThumbsUp className="h-4 w-4" />
                                           </Button>
@@ -1950,15 +2823,23 @@ function ContaConvenioDetalhesPadrao() {
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <Button
-                                            variant={fb?.decisao === "rejeitar" ? "default" : "ghost"}
+                                              variant={
+                                                fb?.decisao === "rejeitar"
+                                                  ? "default"
+                                                  : "ghost"
+                                              }
                                             size="icon"
                                             className={`h-7 w-7 ${
                                               fb?.decisao === "rejeitar" 
                                                 ? "bg-red-600 text-white hover:bg-red-700" 
                                                 : "text-red-600 hover:text-red-700 hover:bg-red-50"
                                             }`}
-                                            onClick={() => handleFeedback(div, "rejeitar")}
-                                            disabled={feedbackMutation.isPending}
+                                              onClick={() =>
+                                                handleFeedback(div, "rejeitar")
+                                              }
+                                              disabled={
+                                                feedbackMutation.isPending
+                                              }
                                           >
                                             <ThumbsDown className="h-4 w-4" />
                                           </Button>
@@ -1977,13 +2858,19 @@ function ContaConvenioDetalhesPadrao() {
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                            onClick={() => handleFeedback(div, "ajustar")}
-                                            disabled={feedbackMutation.isPending}
+                                              onClick={() =>
+                                                handleFeedback(div, "ajustar")
+                                              }
+                                              disabled={
+                                                feedbackMutation.isPending
+                                              }
                                           >
                                             <Pencil className="h-4 w-4" />
                                           </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Ajustar valor esperado</TooltipContent>
+                                          <TooltipContent>
+                                            Ajustar valor esperado
+                                          </TooltipContent>
                                       </Tooltip>
                                     </TooltipProvider>
                                     {/* Botão de histórico */}
@@ -1995,12 +2882,19 @@ function ContaConvenioDetalhesPadrao() {
                                               variant="ghost"
                                               size="icon"
                                               className="h-7 w-7 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                                              onClick={() => setHistoricoDialog({ open: true, div })}
+                                                onClick={() =>
+                                                  setHistoricoDialog({
+                                                    open: true,
+                                                    div,
+                                                  })
+                                                }
                                             >
                                               <History className="h-4 w-4" />
                                             </Button>
                                           </TooltipTrigger>
-                                          <TooltipContent>Ver histórico de feedbacks</TooltipContent>
+                                            <TooltipContent>
+                                              Ver histórico de feedbacks
+                                            </TooltipContent>
                                         </Tooltip>
                                       </TooltipProvider>
                                     )}
@@ -2028,14 +2922,21 @@ function ContaConvenioDetalhesPadrao() {
                       Apoio Clínico: Prontuário & Prescrições
                     </CardTitle>
                     <CardDescription className="text-blue-700/80">
-                      Dados importados do sistema hospitalar para auxiliar na auditoria desta conta.
+                      Dados importados do sistema hospitalar para auxiliar na
+                      auditoria desta conta.
                     </CardDescription>
                   </div>
                   <Button 
                     variant="outline" 
                     size="sm" 
                     className="border-blue-300 text-blue-700 hover:bg-blue-100"
-                    onClick={() => buscarProntuarioMutation.mutate({ numeroConta, estabelecimentoId, forceRemote: true })}
+                    onClick={() =>
+                      buscarProntuarioMutation.mutate({
+                        numeroConta,
+                        estabelecimentoId,
+                        forceRemote: true,
+                      })
+                    }
                     disabled={buscarProntuarioMutation.isPending}
                   >
                     {buscarProntuarioMutation.isPending ? (
@@ -2051,15 +2952,20 @@ function ContaConvenioDetalhesPadrao() {
                 {buscarProntuarioMutation.isPending ? (
                   <div className="flex flex-col items-center justify-center py-10">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
-                    <p className="text-sm text-muted-foreground">Buscando informações clínicas no servidor...</p>
+                    <p className="text-sm text-muted-foreground">
+                      Buscando informações clínicas no servidor...
+                    </p>
                   </div>
                 ) : !buscarProntuarioMutation.data?.prescricoes?.length ? (
                   <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                     <Pill className="mx-auto h-12 w-12 text-gray-400 mb-4 opacity-50" />
-                    <h3 className="text-lg font-medium text-gray-900">Nenhuma prescrição encontrada</h3>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Nenhuma prescrição encontrada
+                    </h3>
                     <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-                      Não foram localizadas prescrições ou evoluções para este paciente na integração conectada.
-                      Clique em "Sincronizar Prontuário" para buscar novamente.
+                      Não foram localizadas prescrições ou evoluções para este
+                      paciente na integração conectada. Clique em "Sincronizar
+                      Prontuário" para buscar novamente.
                     </p>
                   </div>
                 ) : (
@@ -2067,8 +2973,15 @@ function ContaConvenioDetalhesPadrao() {
                     <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-md">
                       <Info className="h-4 w-4" />
                       <span>
-                        Sincronizou <strong>{buscarProntuarioMutation.data.prescricoes.length}</strong> prescrições 
-                        ({buscarProntuarioMutation.data.fonte === "CACHE_LOCAL" ? "Do Cache Local" : "Direto do Prontuário Eletrônico"})
+                        Sincronizou{" "}
+                        <strong>
+                          {buscarProntuarioMutation.data.prescricoes.length}
+                        </strong>{" "}
+                        prescrições (
+                        {buscarProntuarioMutation.data.fonte === "CACHE_LOCAL"
+                          ? "Do Cache Local"
+                          : "Direto do Prontuário Eletrônico"}
+                        )
                       </span>
                     </div>
                     
@@ -2076,31 +2989,53 @@ function ContaConvenioDetalhesPadrao() {
                       <Table>
                         <TableHeader className="bg-muted/50">
                           <TableRow>
-                            <TableHead className="w-[120px]">Data Reg.</TableHead>
+                            <TableHead className="w-[120px]">
+                              Data Reg.
+                            </TableHead>
                             <TableHead className="w-[100px]">Código</TableHead>
                             <TableHead>Descrição do Item</TableHead>
-                            <TableHead className="w-[80px] text-right">Qtd</TableHead>
+                            <TableHead className="w-[80px] text-right">
+                              Qtd
+                            </TableHead>
                             <TableHead>Via</TableHead>
                             <TableHead>Frequência</TableHead>
-                            <TableHead className="w-[180px]">Médico Solicitante</TableHead>
+                            <TableHead className="w-[180px]">
+                              Médico Solicitante
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {buscarProntuarioMutation.data.prescricoes.map((presc: any) => (
+                          {buscarProntuarioMutation.data.prescricoes.map(
+                            (presc: any) => (
                             <TableRow key={presc.id}>
                               <TableCell className="text-sm">
-                                {presc.dataPrescricao ? formatDateTimeBR(presc.dataPrescricao) : "-"}
+                                  {presc.dataPrescricao
+                                    ? formatDateTimeBR(presc.dataPrescricao)
+                                    : "-"}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {presc.codigoItem || "-"}
+                                </TableCell>
+                                <TableCell className="font-medium text-sm">
+                                  {presc.descricaoItem || "-"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {parseFloat(presc.quantidade || "1").toFixed(
+                                    2
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {presc.viaAdministracao || "-"}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {presc.frequencia || "-"}
                               </TableCell>
-                              <TableCell className="font-mono text-xs">{presc.codigoItem || "-"}</TableCell>
-                              <TableCell className="font-medium text-sm">{presc.descricaoItem || "-"}</TableCell>
-                              <TableCell className="text-right">{parseFloat(presc.quantidade || "1").toFixed(2)}</TableCell>
-                              <TableCell className="text-xs">{presc.viaAdministracao || "-"}</TableCell>
-                              <TableCell className="text-xs">{presc.frequencia || "-"}</TableCell>
                               <TableCell className="text-xs text-muted-foreground break-words max-w-[180px]">
                                 {presc.medico || "-"}
                               </TableCell>
                             </TableRow>
-                          ))}
+                            )
+                          )}
                         </TableBody>
                       </Table>
                     </div>
@@ -2129,7 +3064,8 @@ function ContaConvenioDetalhesPadrao() {
                       Falhas de Prontuário
                     </CardTitle>
                     <CardDescription>
-                      Registre falhas encontradas no prontuário do paciente durante a auditoria
+                      Registre falhas encontradas no prontuário do paciente
+                      durante a auditoria
                     </CardDescription>
                   </div>
                   <Button onClick={() => setFalhaDialog(true)} size="sm">
@@ -2144,7 +3080,9 @@ function ContaConvenioDetalhesPadrao() {
                   <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Brain className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm font-medium text-amber-800">Sugestões baseadas no aprendizado</span>
+                      <span className="text-sm font-medium text-amber-800">
+                        Sugestões baseadas no aprendizado
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {sugestoesFalhas.map((s: any, i: number) => (
@@ -2154,9 +3092,13 @@ function ContaConvenioDetalhesPadrao() {
                           size="sm"
                           className="text-xs border-amber-300 hover:bg-amber-100"
                           onClick={() => {
-                            setFalhaCategoria(s.dadosAprendizado?.categoriaFalha || "");
+                            setFalhaCategoria(
+                              s.dadosAprendizado?.categoriaFalha || ""
+                            );
                             setFalhaTipo(s.dadosAprendizado?.tipoFalha || "");
-                            setFalhaSeveridade(s.dadosAprendizado?.severidade || "moderada");
+                            setFalhaSeveridade(
+                              s.dadosAprendizado?.severidade || "moderada"
+                            );
                             setFalhaDialog(true);
                           }}
                         >
@@ -2175,41 +3117,73 @@ function ContaConvenioDetalhesPadrao() {
                 {!falhasData?.length ? (
                   <div className="text-center py-8">
                     <FileWarning className="mx-auto h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <h3 className="text-lg font-medium">Nenhuma falha registrada</h3>
-                    <p className="text-muted-foreground">Clique em "Registrar Falha" para documentar problemas encontrados no prontuário.</p>
+                    <h3 className="text-lg font-medium">
+                      Nenhuma falha registrada
+                    </h3>
+                    <p className="text-muted-foreground">
+                      Clique em "Registrar Falha" para documentar problemas
+                      encontrados no prontuário.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {falhasData.map((falha: any) => (
-                      <div key={falha.id} className={`p-4 rounded-lg border ${
-                        falha.status === "corrigida" ? "border-green-200 bg-green-50/50" :
-                        falha.status === "justificada" ? "border-blue-200 bg-blue-50/50" :
-                        falha.severidade === "critica" ? "border-red-300 bg-red-50/50" :
-                        falha.severidade === "grave" ? "border-orange-200 bg-orange-50/50" :
-                        "border-yellow-200 bg-yellow-50/50"
-                      }`}>
+                      <div
+                        key={falha.id}
+                        className={`p-4 rounded-lg border ${
+                          falha.status === "corrigida"
+                            ? "border-green-200 bg-green-50/50"
+                            : falha.status === "justificada"
+                              ? "border-blue-200 bg-blue-50/50"
+                              : falha.severidade === "critica"
+                                ? "border-red-300 bg-red-50/50"
+                                : falha.severidade === "grave"
+                                  ? "border-orange-200 bg-orange-50/50"
+                                  : "border-yellow-200 bg-yellow-50/50"
+                        }`}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <Badge variant="outline" className="text-xs">{falha.categoriaFalha}</Badge>
-                              <Badge className={`text-xs ${
-                                falha.severidade === "critica" ? "bg-red-100 text-red-800" :
-                                falha.severidade === "grave" ? "bg-orange-100 text-orange-800" :
-                                falha.severidade === "moderada" ? "bg-yellow-100 text-yellow-800" :
-                                "bg-gray-100 text-gray-800"
-                              }`}>{falha.severidade}</Badge>
-                              <Badge className={`text-xs ${
-                                falha.status === "corrigida" ? "bg-green-100 text-green-800" :
-                                falha.status === "justificada" ? "bg-blue-100 text-blue-800" :
-                                "bg-yellow-100 text-yellow-800"
-                              }`}>{falha.status}</Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {falha.categoriaFalha}
+                              </Badge>
+                              <Badge
+                                className={`text-xs ${
+                                  falha.severidade === "critica"
+                                    ? "bg-red-100 text-red-800"
+                                    : falha.severidade === "grave"
+                                      ? "bg-orange-100 text-orange-800"
+                                      : falha.severidade === "moderada"
+                                        ? "bg-yellow-100 text-yellow-800"
+                                        : "bg-gray-100 text-gray-800"
+                                }`}
+                              >
+                                {falha.severidade}
+                              </Badge>
+                              <Badge
+                                className={`text-xs ${
+                                  falha.status === "corrigida"
+                                    ? "bg-green-100 text-green-800"
+                                    : falha.status === "justificada"
+                                      ? "bg-blue-100 text-blue-800"
+                                      : "bg-yellow-100 text-yellow-800"
+                                }`}
+                              >
+                                {falha.status}
+                              </Badge>
                             </div>
-                            <p className="font-medium text-sm">{falha.tipoFalha}</p>
+                            <p className="font-medium text-sm">
+                              {falha.tipoFalha}
+                            </p>
                             {falha.descricao && (
-                              <p className="text-sm text-muted-foreground mt-1">{falha.descricao}</p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {falha.descricao}
+                              </p>
                             )}
                             <p className="text-xs text-muted-foreground mt-2">
-                              Registrado por {falha.usuarioNome} em {formatDateTimeBR(falha.createdAt)}
+                              Registrado por {falha.usuarioNome} em{" "}
+                              {formatDateTimeBR(falha.createdAt)}
                             </p>
                           </div>
                           <div className="flex items-center gap-1 ml-4">
@@ -2222,12 +3196,19 @@ function ContaConvenioDetalhesPadrao() {
                                         variant="ghost"
                                         size="icon"
                                         className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-100"
-                                        onClick={() => atualizarStatusFalhaMutation.mutate({ id: falha.id, status: "corrigida" })}
+                                        onClick={() =>
+                                          atualizarStatusFalhaMutation.mutate({
+                                            id: falha.id,
+                                            status: "corrigida",
+                                          })
+                                        }
                                       >
                                         <CheckCircle2 className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>Marcar como corrigida</TooltipContent>
+                                    <TooltipContent>
+                                      Marcar como corrigida
+                                    </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
                                 <TooltipProvider>
@@ -2237,12 +3218,19 @@ function ContaConvenioDetalhesPadrao() {
                                         variant="ghost"
                                         size="icon"
                                         className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-100"
-                                        onClick={() => atualizarStatusFalhaMutation.mutate({ id: falha.id, status: "justificada" })}
+                                        onClick={() =>
+                                          atualizarStatusFalhaMutation.mutate({
+                                            id: falha.id,
+                                            status: "justificada",
+                                          })
+                                        }
                                       >
                                         <MessageSquare className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent>Marcar como justificada</TooltipContent>
+                                    <TooltipContent>
+                                      Marcar como justificada
+                                    </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
                               </>
@@ -2254,7 +3242,11 @@ function ContaConvenioDetalhesPadrao() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-100"
-                                    onClick={() => removerFalhaMutation.mutate({ id: falha.id })}
+                                    onClick={() =>
+                                      removerFalhaMutation.mutate({
+                                        id: falha.id,
+                                      })
+                                    }
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -2283,10 +3275,16 @@ function ContaConvenioDetalhesPadrao() {
                       Ajustes de Auditoria
                     </CardTitle>
                     <CardDescription>
-                      Altere quantidades, valores ou adicione itens faltantes na conta
+                      Altere quantidades, valores ou adicione itens faltantes na
+                      conta
                     </CardDescription>
                   </div>
-                  <Button onClick={() => setAjusteDialog({ open: true, tipo: "ADICIONAR_ITEM" })} size="sm">
+                  <Button
+                    onClick={() =>
+                      setAjusteDialog({ open: true, tipo: "ADICIONAR_ITEM" })
+                    }
+                    size="sm"
+                  >
                     <Plus className="h-4 w-4 mr-2" />
                     Adicionar Item
                   </Button>
@@ -2298,14 +3296,23 @@ function ContaConvenioDetalhesPadrao() {
                   <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Brain className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-800">Ajustes frequentes aprendidos</span>
+                      <span className="text-sm font-medium text-blue-800">
+                        Ajustes frequentes aprendidos
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {sugestoesAjustes.map((s: any, i: number) => (
-                        <Badge key={i} variant="outline" className="text-xs border-blue-300 bg-blue-50">
+                        <Badge
+                          key={i}
+                          variant="outline"
+                          className="text-xs border-blue-300 bg-blue-50"
+                        >
                           <Lightbulb className="h-3 w-3 mr-1 text-blue-500" />
-                          {s.descricaoItem || s.codigoItem || "Item"}: {s.dadosAprendizado?.direcao || s.tipoAprendizado}
-                          <span className="ml-1 text-muted-foreground">({s.totalOcorrencias}x)</span>
+                          {s.descricaoItem || s.codigoItem || "Item"}:{" "}
+                          {s.dadosAprendizado?.direcao || s.tipoAprendizado}
+                          <span className="ml-1 text-muted-foreground">
+                            ({s.totalOcorrencias}x)
+                          </span>
                         </Badge>
                       ))}
                     </div>
@@ -2316,71 +3323,108 @@ function ContaConvenioDetalhesPadrao() {
                 <div className="mb-4">
                   <div className="flex flex-wrap items-end gap-3">
                     <div className="flex-1 min-w-[180px]">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Filtrar por Setor</Label>
-                      <Select value={filtroSetorAjuste} onValueChange={setFiltroSetorAjuste}>
+                      <Label className="text-xs text-muted-foreground mb-1 block">
+                        Filtrar por Setor
+                      </Label>
+                      <Select
+                        value={filtroSetorAjuste}
+                        onValueChange={setFiltroSetorAjuste}
+                      >
                         <SelectTrigger className="h-9">
                           <SelectValue placeholder="Todos os setores" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="todos">Todos os setores</SelectItem>
-                          <SelectItem value="sem_setor">Sem setor definido</SelectItem>
+                          <SelectItem value="todos">
+                            Todos os setores
+                          </SelectItem>
+                          <SelectItem value="sem_setor">
+                            Sem setor definido
+                          </SelectItem>
                           {(() => {
                             const setores = new Set<string>();
                             itensData?.items?.forEach((item: any) => {
                               if (item.setor) setores.add(item.setor);
                             });
-                            return Array.from(setores).sort().map(s => (
-                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            return Array.from(setores)
+                              .sort()
+                              .map(s => (
+                                <SelectItem key={s} value={s}>
+                                  {s}
+                                </SelectItem>
                             ));
                           })()}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="flex-1 min-w-[180px]">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Filtrar por Data</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">
+                        Filtrar por Data
+                      </Label>
                       <Input
                         type="date"
                         className="h-9"
                         value={filtroDataAjuste}
-                        onChange={(e) => setFiltroDataAjuste(e.target.value)}
+                        onChange={e => setFiltroDataAjuste(e.target.value)}
                       />
                     </div>
                     <div className="flex-1 min-w-[180px]">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Filtrar por Tipo de Item</Label>
-                      <Select value={filtroTipoItemAjuste} onValueChange={setFiltroTipoItemAjuste}>
+                      <Label className="text-xs text-muted-foreground mb-1 block">
+                        Filtrar por Tipo de Item
+                      </Label>
+                      <Select
+                        value={filtroTipoItemAjuste}
+                        onValueChange={setFiltroTipoItemAjuste}
+                      >
                         <SelectTrigger className="h-9">
                           <SelectValue placeholder="Todos os tipos" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="todos">Todos os tipos</SelectItem>
-                          <SelectItem value="sem_tipo">Sem tipo definido</SelectItem>
+                          <SelectItem value="sem_tipo">
+                            Sem tipo definido
+                          </SelectItem>
                           {(() => {
                             const tipos = new Set<string>();
                             itensData?.items?.forEach((item: any) => {
                               if (item.tipoItem) tipos.add(item.tipoItem);
                             });
                             const labelMap: Record<string, string> = {
-                              "PROCEDIMENTO": "Procedimento",
-                              "DIARIA": "Di\u00e1ria",
-                              "MAT_MED": "Mat/Med",
-                              "TAXA": "Taxa",
-                              "GASES": "G\u00e1s Medicinal",
-                              "procedimento": "Procedimento",
-                              "diaria": "Di\u00e1ria",
-                              "taxa": "Taxa",
-                              "medicamento": "Medicamento",
-                              "material": "Material",
-                              "gas": "G\u00e1s Medicinal",
+                              PROCEDIMENTO: "Procedimento",
+                              DIARIA: "Di\u00e1ria",
+                              MAT_MED: "Mat/Med",
+                              TAXA: "Taxa",
+                              GASES: "G\u00e1s Medicinal",
+                              procedimento: "Procedimento",
+                              diaria: "Di\u00e1ria",
+                              taxa: "Taxa",
+                              medicamento: "Medicamento",
+                              material: "Material",
+                              gas: "G\u00e1s Medicinal",
                             };
-                            return Array.from(tipos).sort().map(t => (
-                              <SelectItem key={t} value={t}>{labelMap[t] || t}</SelectItem>
+                            return Array.from(tipos)
+                              .sort()
+                              .map(t => (
+                                <SelectItem key={t} value={t}>
+                                  {labelMap[t] || t}
+                                </SelectItem>
                             ));
                           })()}
                         </SelectContent>
                       </Select>
                     </div>
-                    {(filtroSetorAjuste !== "todos" || filtroDataAjuste || filtroTipoItemAjuste !== "todos") && (
-                      <Button variant="ghost" size="sm" className="h-9" onClick={() => { setFiltroSetorAjuste("todos"); setFiltroDataAjuste(""); setFiltroTipoItemAjuste("todos"); }}>
+                    {(filtroSetorAjuste !== "todos" ||
+                      filtroDataAjuste ||
+                      filtroTipoItemAjuste !== "todos") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => {
+                          setFiltroSetorAjuste("todos");
+                          setFiltroDataAjuste("");
+                          setFiltroTipoItemAjuste("todos");
+                        }}
+                      >
                         <XCircle className="h-4 w-4 mr-1" /> Limpar filtros
                       </Button>
                     )}
@@ -2395,8 +3439,11 @@ function ContaConvenioDetalhesPadrao() {
                     {(() => {
                       const filtered = itensData?.items?.filter((item: any) => {
                         if (filtroSetorAjuste !== "todos") {
-                          if (filtroSetorAjuste === "sem_setor") { if (item.setor) return false; }
-                          else { if (item.setor !== filtroSetorAjuste) return false; }
+                          if (filtroSetorAjuste === "sem_setor") {
+                            if (item.setor) return false;
+                          } else {
+                            if (item.setor !== filtroSetorAjuste) return false;
+                          }
                         }
                         if (filtroDataAjuste && item.dataExecucao) {
                           const itemDate = toInputDateValue(item.dataExecucao);
@@ -2405,25 +3452,41 @@ function ContaConvenioDetalhesPadrao() {
                           return false;
                         }
                         if (filtroTipoItemAjuste !== "todos") {
-                          if (filtroTipoItemAjuste === "sem_tipo") { if (item.tipoItem) return false; }
-                          else { if (item.tipoItem !== filtroTipoItemAjuste) return false; }
+                          if (filtroTipoItemAjuste === "sem_tipo") {
+                            if (item.tipoItem) return false;
+                          } else {
+                            if (item.tipoItem !== filtroTipoItemAjuste)
+                              return false;
+                          }
                         }
                         return true;
                       });
                       const total = itensData?.items?.length || 0;
                       const shown = filtered?.length || 0;
-                      if (filtroSetorAjuste !== "todos" || filtroDataAjuste || filtroTipoItemAjuste !== "todos") {
-                        return <Badge variant="secondary" className="text-xs ml-2">{shown} de {total}</Badge>;
+                      if (
+                        filtroSetorAjuste !== "todos" ||
+                        filtroDataAjuste ||
+                        filtroTipoItemAjuste !== "todos"
+                      ) {
+                        return (
+                          <Badge variant="secondary" className="text-xs ml-2">
+                            {shown} de {total}
+                          </Badge>
+                        );
                       }
                       return null;
                     })()}
                   </h4>
                   {isLoading ? (
                     <div className="space-y-2">
-                      {[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+                      {[1, 2, 3].map(i => (
+                        <Skeleton key={i} className="h-10 w-full" />
+                      ))}
                     </div>
                   ) : !itensData?.items?.length ? (
-                    <p className="text-muted-foreground text-center py-4">Nenhum item na conta</p>
+                    <p className="text-muted-foreground text-center py-4">
+                      Nenhum item na conta
+                    </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <Table>
@@ -2435,8 +3498,12 @@ function ContaConvenioDetalhesPadrao() {
                             <TableHead>Setor</TableHead>
                             <TableHead>Data</TableHead>
                             <TableHead className="text-right">Qtd</TableHead>
-                            <TableHead className="text-right">Valor Unit.</TableHead>
-                            <TableHead className="text-right">Valor Total</TableHead>
+                            <TableHead className="text-right">
+                              Valor Unit.
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Valor Total
+                            </TableHead>
                             <TableHead>Ações</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2444,61 +3511,115 @@ function ContaConvenioDetalhesPadrao() {
                           {itensData.items
                             .filter((item: any) => {
                               if (filtroSetorAjuste !== "todos") {
-                                if (filtroSetorAjuste === "sem_setor") { if (item.setor) return false; }
-                                else { if (item.setor !== filtroSetorAjuste) return false; }
+                                if (filtroSetorAjuste === "sem_setor") {
+                                  if (item.setor) return false;
+                                } else {
+                                  if (item.setor !== filtroSetorAjuste)
+                                    return false;
+                                }
                               }
                               if (filtroDataAjuste && item.dataExecucao) {
-                                const itemDate = toInputDateValue(item.dataExecucao);
+                                const itemDate = toInputDateValue(
+                                  item.dataExecucao
+                                );
                                 if (itemDate !== filtroDataAjuste) return false;
-                              } else if (filtroDataAjuste && !item.dataExecucao) {
+                              } else if (
+                                filtroDataAjuste &&
+                                !item.dataExecucao
+                              ) {
                                 return false;
                               }
                               if (filtroTipoItemAjuste !== "todos") {
-                                if (filtroTipoItemAjuste === "sem_tipo") { if (item.tipoItem) return false; }
-                                else { if (item.tipoItem !== filtroTipoItemAjuste) return false; }
+                                if (filtroTipoItemAjuste === "sem_tipo") {
+                                  if (item.tipoItem) return false;
+                                } else {
+                                  if (item.tipoItem !== filtroTipoItemAjuste)
+                                    return false;
+                                }
                               }
                               return true;
                             })
                             .map((item: any, index: number) => (
                             <TableRow key={item.id || index}>
-                              <TableCell className="font-mono text-sm">{item.codigoItem || "-"}</TableCell>
-                              <TableCell className="max-w-[200px] truncate">{item.descricaoItem || "-"}</TableCell>
+                                <TableCell className="font-mono text-sm">
+                                  {item.codigoItem || "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate">
+                                  {item.descricaoItem || "-"}
+                                </TableCell>
                               <TableCell>
                                 {(() => {
                                   const labelMap: Record<string, string> = {
-                                    "PROCEDIMENTO": "Proc", "DIARIA": "Di\u00e1ria", "MAT_MED": "Mat/Med",
-                                    "TAXA": "Taxa", "GASES": "G\u00e1s", "procedimento": "Proc",
-                                    "diaria": "Di\u00e1ria", "taxa": "Taxa", "medicamento": "Med",
-                                    "material": "Mat", "gas": "G\u00e1s",
+                                      PROCEDIMENTO: "Proc",
+                                      DIARIA: "Di\u00e1ria",
+                                      MAT_MED: "Mat/Med",
+                                      TAXA: "Taxa",
+                                      GASES: "G\u00e1s",
+                                      procedimento: "Proc",
+                                      diaria: "Di\u00e1ria",
+                                      taxa: "Taxa",
+                                      medicamento: "Med",
+                                      material: "Mat",
+                                      gas: "G\u00e1s",
                                   };
                                   const colorMap: Record<string, string> = {
-                                    "PROCEDIMENTO": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-                                    "procedimento": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-                                    "DIARIA": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-                                    "diaria": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-                                    "MAT_MED": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-                                    "medicamento": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-                                    "material": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-                                    "TAXA": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-                                    "taxa": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-                                    "GASES": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-                                    "gas": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+                                      PROCEDIMENTO:
+                                        "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+                                      procedimento:
+                                        "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+                                      DIARIA:
+                                        "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+                                      diaria:
+                                        "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+                                      MAT_MED:
+                                        "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                                      medicamento:
+                                        "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                                      material:
+                                        "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+                                      TAXA: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                                      taxa: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                                      GASES:
+                                        "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+                                      gas: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
                                   };
                                   const tipo = item.tipoItem || "";
-                                  const label = labelMap[tipo] || tipo || "N/D";
-                                  const color = colorMap[tipo] || "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
-                                  return <Badge className={`text-xs font-normal whitespace-nowrap ${color}`}>{label}</Badge>;
+                                    const label =
+                                      labelMap[tipo] || tipo || "N/D";
+                                    const color =
+                                      colorMap[tipo] ||
+                                      "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+                                    return (
+                                      <Badge
+                                        className={`text-xs font-normal whitespace-nowrap ${color}`}
+                                      >
+                                        {label}
+                                      </Badge>
+                                    );
                                 })()}
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs font-normal whitespace-nowrap"
+                                  >
                                   {item.setor || "N/D"}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-sm whitespace-nowrap">{item.dataExecucao ? formatDateBR(item.dataExecucao) : "-"}</TableCell>
-                              <TableCell className="text-right">{item.quantidade || 1}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
-                              <TableCell className="text-right font-semibold">{formatCurrency(item.valorTotal)}</TableCell>
+                                <TableCell className="text-sm whitespace-nowrap">
+                                  {item.dataExecucao
+                                    ? formatDateBR(item.dataExecucao)
+                                    : "-"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {item.quantidade || 1}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(item.valorUnitario)}
+                                </TableCell>
+                                <TableCell className="text-right font-semibold">
+                                  {formatCurrency(item.valorTotal)}
+                                </TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-1">
                                   <TooltipProvider>
@@ -2509,15 +3630,27 @@ function ContaConvenioDetalhesPadrao() {
                                           size="icon"
                                           className="h-7 w-7"
                                           onClick={() => {
-                                            setAjusteDialog({ open: true, tipo: "ALTERAR_QUANTIDADE", item });
-                                            setAjusteQtd(item.quantidade?.toString() || "1");
-                                            setAjusteValor(item.valorUnitario?.toString() || "0");
+                                              setAjusteDialog({
+                                                open: true,
+                                                tipo: "ALTERAR_QUANTIDADE",
+                                                item,
+                                              });
+                                              setAjusteQtd(
+                                                item.quantidade?.toString() ||
+                                                  "1"
+                                              );
+                                              setAjusteValor(
+                                                item.valorUnitario?.toString() ||
+                                                  "0"
+                                              );
                                           }}
                                         >
                                           <Hash className="h-3.5 w-3.5" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>Alterar quantidade</TooltipContent>
+                                        <TooltipContent>
+                                          Alterar quantidade
+                                        </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
                                   <TooltipProvider>
@@ -2528,15 +3661,27 @@ function ContaConvenioDetalhesPadrao() {
                                           size="icon"
                                           className="h-7 w-7"
                                           onClick={() => {
-                                            setAjusteDialog({ open: true, tipo: "ALTERAR_VALOR", item });
-                                            setAjusteValor(item.valorUnitario?.toString() || "0");
-                                            setAjusteQtd(item.quantidade?.toString() || "1");
+                                              setAjusteDialog({
+                                                open: true,
+                                                tipo: "ALTERAR_VALOR",
+                                                item,
+                                              });
+                                              setAjusteValor(
+                                                item.valorUnitario?.toString() ||
+                                                  "0"
+                                              );
+                                              setAjusteQtd(
+                                                item.quantidade?.toString() ||
+                                                  "1"
+                                              );
                                           }}
                                         >
                                           <DollarSign className="h-3.5 w-3.5" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>Alterar valor</TooltipContent>
+                                        <TooltipContent>
+                                          Alterar valor
+                                        </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
                                   <TooltipProvider>
@@ -2547,14 +3692,20 @@ function ContaConvenioDetalhesPadrao() {
                                           size="icon"
                                           className="h-7 w-7"
                                           onClick={() => {
-                                            setAjusteDialog({ open: true, tipo: "ALTERAR_SETOR", item });
+                                              setAjusteDialog({
+                                                open: true,
+                                                tipo: "ALTERAR_SETOR",
+                                                item,
+                                              });
                                             setAjusteSetor(item.setor || "");
                                           }}
                                         >
                                           <Bed className="h-3.5 w-3.5" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>Alterar setor</TooltipContent>
+                                        <TooltipContent>
+                                          Alterar setor
+                                        </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
                                 </div>
@@ -2576,48 +3727,74 @@ function ContaConvenioDetalhesPadrao() {
                     </h4>
                     <div className="space-y-2">
                       {ajustesData.map((ajuste: any) => (
-                        <div key={ajuste.id} className={`p-3 rounded-lg border ${
-                          ajuste.status === "aplicado" ? "border-green-200 bg-green-50/50" :
-                          ajuste.status === "revertido" ? "border-gray-200 bg-gray-50/50 opacity-60" :
-                          "border-yellow-200 bg-yellow-50/50"
-                        }`}>
+                        <div
+                          key={ajuste.id}
+                          className={`p-3 rounded-lg border ${
+                            ajuste.status === "aplicado"
+                              ? "border-green-200 bg-green-50/50"
+                              : ajuste.status === "revertido"
+                                ? "border-gray-200 bg-gray-50/50 opacity-60"
+                                : "border-yellow-200 bg-yellow-50/50"
+                          }`}
+                        >
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
                                 <Badge variant="outline" className="text-xs">
-                                  {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE" ? "Qtd" :
-                                   ajuste.tipoAjuste === "ALTERAR_VALOR" ? "Valor" :
-                                   ajuste.tipoAjuste === "ADICIONAR_ITEM" ? "+ Item" :
-                                   ajuste.tipoAjuste === "ALTERAR_SETOR" ? "Setor" : "- Item"}
+                                  {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE"
+                                    ? "Qtd"
+                                    : ajuste.tipoAjuste === "ALTERAR_VALOR"
+                                      ? "Valor"
+                                      : ajuste.tipoAjuste === "ADICIONAR_ITEM"
+                                        ? "+ Item"
+                                        : ajuste.tipoAjuste === "ALTERAR_SETOR"
+                                          ? "Setor"
+                                          : "- Item"}
                                 </Badge>
-                                <Badge className={`text-xs ${
-                                  ajuste.status === "aplicado" ? "bg-green-100 text-green-800" :
-                                  ajuste.status === "revertido" ? "bg-gray-100 text-gray-800" :
-                                  "bg-yellow-100 text-yellow-800"
-                                }`}>{ajuste.status}</Badge>
-                                <span className="font-mono text-xs">{ajuste.codigoItem || "-"}</span>
+                                <Badge
+                                  className={`text-xs ${
+                                    ajuste.status === "aplicado"
+                                      ? "bg-green-100 text-green-800"
+                                      : ajuste.status === "revertido"
+                                        ? "bg-gray-100 text-gray-800"
+                                        : "bg-yellow-100 text-yellow-800"
+                                  }`}
+                                >
+                                  {ajuste.status}
+                                </Badge>
+                                <span className="font-mono text-xs">
+                                  {ajuste.codigoItem || "-"}
+                                </span>
                               </div>
-                              <p className="text-sm">{ajuste.descricaoItem || "Item sem descrição"}</p>
+                              <p className="text-sm">
+                                {ajuste.descricaoItem || "Item sem descrição"}
+                              </p>
                               {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE" && (
                                 <p className="text-xs text-muted-foreground">
-                                  Quantidade: {ajuste.quantidadeOriginal} → {ajuste.quantidadeAjustada}
+                                  Quantidade: {ajuste.quantidadeOriginal} →{" "}
+                                  {ajuste.quantidadeAjustada}
                                 </p>
                               )}
                               {ajuste.tipoAjuste === "ALTERAR_VALOR" && (
                                 <p className="text-xs text-muted-foreground">
-                                  Valor: {formatCurrency(ajuste.valorOriginal)} → {formatCurrency(ajuste.valorAjustado)}
+                                  Valor: {formatCurrency(ajuste.valorOriginal)}{" "}
+                                  → {formatCurrency(ajuste.valorAjustado)}
                                 </p>
                               )}
                               {ajuste.tipoAjuste === "ALTERAR_SETOR" && (
                                 <p className="text-xs text-muted-foreground">
-                                  Setor: {ajuste.setorOriginal || "N/D"} → {ajuste.setorAjustado || "N/D"}
+                                  Setor: {ajuste.setorOriginal || "N/D"} →{" "}
+                                  {ajuste.setorAjustado || "N/D"}
                                 </p>
                               )}
                               {ajuste.justificativa && (
-                                <p className="text-xs text-muted-foreground italic mt-1">"{ajuste.justificativa}"</p>
+                                <p className="text-xs text-muted-foreground italic mt-1">
+                                  "{ajuste.justificativa}"
+                                </p>
                               )}
                               <p className="text-xs text-muted-foreground mt-1">
-                                Por {ajuste.usuarioNome} em {formatDateTimeBR(ajuste.createdAt)}
+                                Por {ajuste.usuarioNome} em{" "}
+                                {formatDateTimeBR(ajuste.createdAt)}
                               </p>
                             </div>
                             {ajuste.status === "aplicado" && (
@@ -2628,12 +3805,18 @@ function ContaConvenioDetalhesPadrao() {
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-100"
-                                      onClick={() => reverterAjusteMutation.mutate({ id: ajuste.id })}
+                                      onClick={() =>
+                                        reverterAjusteMutation.mutate({
+                                          id: ajuste.id,
+                                        })
+                                      }
                                     >
                                       <Undo2 className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>Reverter ajuste</TooltipContent>
+                                  <TooltipContent>
+                                    Reverter ajuste
+                                  </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
                             )}
@@ -2656,16 +3839,20 @@ function ContaConvenioDetalhesPadrao() {
                   Histórico de Auditoria
                 </CardTitle>
                 <CardDescription>
-                  Registro de todos os feedbacks dos auditores sobre as divergências desta conta
+                  Registro de todos os feedbacks dos auditores sobre as
+                  divergências desta conta
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {!feedbacksData?.length ? (
                   <div className="text-center py-8">
                     <ClipboardCheck className="mx-auto h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <h3 className="text-lg font-medium">Nenhum feedback registrado</h3>
+                    <h3 className="text-lg font-medium">
+                      Nenhum feedback registrado
+                    </h3>
                     <p className="text-muted-foreground">
-                      Use os botões de ação na aba "Divergências" para registrar feedbacks de auditoria.
+                      Use os botões de ação na aba "Divergências" para registrar
+                      feedbacks de auditoria.
                     </p>
                   </div>
                 ) : (
@@ -2676,8 +3863,12 @@ function ContaConvenioDetalhesPadrao() {
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm text-muted-foreground">Total Feedbacks</p>
-                              <p className="text-2xl font-bold text-indigo-600">{feedbackResumo.total}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Total Feedbacks
+                              </p>
+                              <p className="text-2xl font-bold text-indigo-600">
+                                {feedbackResumo.total}
+                              </p>
                             </div>
                             <ClipboardCheck className="h-8 w-8 text-indigo-500" />
                           </div>
@@ -2687,8 +3878,12 @@ function ContaConvenioDetalhesPadrao() {
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm text-muted-foreground">Aceitas</p>
-                              <p className="text-2xl font-bold text-green-600">{feedbackResumo.aceitas}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Aceitas
+                              </p>
+                              <p className="text-2xl font-bold text-green-600">
+                                {feedbackResumo.aceitas}
+                              </p>
                             </div>
                             <ThumbsUp className="h-8 w-8 text-green-500" />
                           </div>
@@ -2698,8 +3893,12 @@ function ContaConvenioDetalhesPadrao() {
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm text-muted-foreground">Rejeitadas</p>
-                              <p className="text-2xl font-bold text-red-600">{feedbackResumo.rejeitadas}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Rejeitadas
+                              </p>
+                              <p className="text-2xl font-bold text-red-600">
+                                {feedbackResumo.rejeitadas}
+                              </p>
                             </div>
                             <ThumbsDown className="h-8 w-8 text-red-500" />
                           </div>
@@ -2709,9 +3908,13 @@ function ContaConvenioDetalhesPadrao() {
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm text-muted-foreground">Pendentes</p>
+                              <p className="text-sm text-muted-foreground">
+                                Pendentes
+                              </p>
                               <p className="text-2xl font-bold text-yellow-600">
-                                {(divergenciasData?.divergencias?.length || 0) - feedbackResumo.aceitas - feedbackResumo.rejeitadas}
+                                {(divergenciasData?.divergencias?.length || 0) -
+                                  feedbackResumo.aceitas -
+                                  feedbackResumo.rejeitadas}
                               </p>
                             </div>
                             <Clock className="h-8 w-8 text-yellow-500" />
@@ -2744,25 +3947,37 @@ function ContaConvenioDetalhesPadrao() {
                                   <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center">
                                     <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
                                   </div>
-                                  <span className="text-sm font-medium">{fb.usuarioNome || "Auditor"}</span>
+                                  <span className="text-sm font-medium">
+                                    {fb.usuarioNome || "Auditor"}
+                                  </span>
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <span className="font-mono text-sm">{fb.codigoItem || "-"}</span>
+                                <span className="font-mono text-sm">
+                                  {fb.codigoItem || "-"}
+                                </span>
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline" className="text-xs">{fb.tipoDivergencia}</Badge>
+                                <Badge variant="outline" className="text-xs">
+                                  {fb.tipoDivergencia}
+                                </Badge>
                               </TableCell>
                               <TableCell>
                                 <DecisaoBadge decisao={fb.decisao} />
                               </TableCell>
                               <TableCell className="max-w-xs">
-                                <p className="text-sm text-muted-foreground truncate" title={fb.justificativa}>
+                                <p
+                                  className="text-sm text-muted-foreground truncate"
+                                  title={fb.justificativa}
+                                >
                                   {fb.justificativa || "-"}
                                 </p>
                                 {fb.dadosDivergencia?.valorSugerido && (
                                   <p className="text-xs text-blue-600 mt-0.5">
-                                    Valor sugerido: {formatCurrency(fb.dadosDivergencia.valorSugerido)}
+                                    Valor sugerido:{" "}
+                                    {formatCurrency(
+                                      fb.dadosDivergencia.valorSugerido
+                                    )}
                                   </p>
                                 )}
                               </TableCell>
@@ -2788,7 +4003,8 @@ function ContaConvenioDetalhesPadrao() {
                       Relatório de Itens Auditados para Faturista
                     </CardTitle>
                     <CardDescription>
-                      Consolidação de todos os apontamentos da auditoria que precisam de ação do faturista
+                      Consolidação de todos os apontamentos da auditoria que
+                      precisam de ação do faturista
                     </CardDescription>
                   </div>
                   <Button 
@@ -2806,30 +4022,53 @@ function ContaConvenioDetalhesPadrao() {
                   // Filtrar para mostrar apenas: ajustes do auditor + divergências críticas/alerta
                   const dadosFiltrados = relatorioFaturistaData.filter(r => {
                     // Sempre mostrar ajustes realizados pelo auditor
-                    if (r.origem === 'AJUSTE') return true;
+                    if (r.origem === "AJUSTE") return true;
                     // Mostrar divergências apenas se forem críticas ou alerta
-                    if (r.origem === 'DIVERGÊNCIA') {
-                      return r.severidade === 'critico' || r.severidade === 'critica' || r.severidade === 'alerta' || r.severidade === 'grave';
+                    if (r.origem === "DIVERGÊNCIA") {
+                      return (
+                        r.severidade === "critico" ||
+                        r.severidade === "critica" ||
+                        r.severidade === "alerta" ||
+                        r.severidade === "grave"
+                      );
                     }
                     // Mostrar falhas de prontuário apenas se forem graves
-                    if (r.origem === 'FALHA PRONTUÁRIO') {
-                      return r.severidade === 'critica' || r.severidade === 'grave' || r.severidade === 'alta';
+                    if (r.origem === "FALHA PRONTUÁRIO") {
+                      return (
+                        r.severidade === "critica" ||
+                        r.severidade === "grave" ||
+                        r.severidade === "alta"
+                      );
                     }
                     return false;
                   });
 
-                  const totalAjustes = dadosFiltrados.filter(r => r.origem === 'AJUSTE').length;
-                  const totalDivCriticas = dadosFiltrados.filter(r => r.origem === 'DIVERGÊNCIA').length;
-                  const totalFalhasGraves = dadosFiltrados.filter(r => r.origem === 'FALHA PRONTUÁRIO').length;
-                  const totalOcultos = relatorioFaturistaData.length - dadosFiltrados.length;
+                  const totalAjustes = dadosFiltrados.filter(
+                    r => r.origem === "AJUSTE"
+                  ).length;
+                  const totalDivCriticas = dadosFiltrados.filter(
+                    r => r.origem === "DIVERGÊNCIA"
+                  ).length;
+                  const totalFalhasGraves = dadosFiltrados.filter(
+                    r => r.origem === "FALHA PRONTUÁRIO"
+                  ).length;
+                  const totalOcultos =
+                    relatorioFaturistaData.length - dadosFiltrados.length;
 
-                  if (!dadosFiltrados.length && !relatorioFaturistaData.length) {
+                  if (
+                    !dadosFiltrados.length &&
+                    !relatorioFaturistaData.length
+                  ) {
                     return (
                       <div className="text-center py-8">
                         <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                        <h3 className="text-lg font-medium">Nenhum apontamento de auditoria</h3>
+                        <h3 className="text-lg font-medium">
+                          Nenhum apontamento de auditoria
+                        </h3>
                         <p className="text-muted-foreground">
-                          Quando a auditoria registrar divergências, falhas de prontuário ou ajustes, eles aparecerão aqui consolidados.
+                          Quando a auditoria registrar divergências, falhas de
+                          prontuário ou ajustes, eles aparecerão aqui
+                          consolidados.
                         </p>
                       </div>
                     );
@@ -2842,8 +4081,13 @@ function ContaConvenioDetalhesPadrao() {
                         <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                           <Filter className="h-4 w-4 flex-shrink-0" />
                           <span>
-                            Exibindo <strong>{dadosFiltrados.length}</strong> apontamentos relevantes (ajustes do auditor + alertas críticos).
-                            {' '}<span className="text-blue-600">{totalOcultos} divergências de baixa severidade foram ocultadas.</span>
+                            Exibindo <strong>{dadosFiltrados.length}</strong>{" "}
+                            apontamentos relevantes (ajustes do auditor +
+                            alertas críticos).{" "}
+                            <span className="text-blue-600">
+                              {totalOcultos} divergências de baixa severidade
+                              foram ocultadas.
+                            </span>
                           </span>
                         </div>
                       )}
@@ -2854,8 +4098,12 @@ function ContaConvenioDetalhesPadrao() {
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="text-sm text-muted-foreground">Ajustes do Auditor</p>
-                                <p className="text-2xl font-bold text-blue-600">{totalAjustes}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Ajustes do Auditor
+                                </p>
+                                <p className="text-2xl font-bold text-blue-600">
+                                  {totalAjustes}
+                                </p>
                               </div>
                               <Wrench className="h-8 w-8 text-blue-500" />
                             </div>
@@ -2865,8 +4113,12 @@ function ContaConvenioDetalhesPadrao() {
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="text-sm text-muted-foreground">Divergências Críticas</p>
-                                <p className="text-2xl font-bold text-red-600">{totalDivCriticas}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Divergências Críticas
+                                </p>
+                                <p className="text-2xl font-bold text-red-600">
+                                  {totalDivCriticas}
+                                </p>
                               </div>
                               <AlertTriangle className="h-8 w-8 text-red-500" />
                             </div>
@@ -2876,8 +4128,12 @@ function ContaConvenioDetalhesPadrao() {
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="text-sm text-muted-foreground">Falhas Graves</p>
-                                <p className="text-2xl font-bold text-amber-600">{totalFalhasGraves}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Falhas Graves
+                                </p>
+                                <p className="text-2xl font-bold text-amber-600">
+                                  {totalFalhasGraves}
+                                </p>
                               </div>
                               <FileWarning className="h-8 w-8 text-amber-500" />
                             </div>
@@ -2887,10 +4143,16 @@ function ContaConvenioDetalhesPadrao() {
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="text-sm text-muted-foreground">Total Exibido</p>
-                                <p className="text-2xl font-bold text-violet-600">{dadosFiltrados.length}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  Total Exibido
+                                </p>
+                                <p className="text-2xl font-bold text-violet-600">
+                                  {dadosFiltrados.length}
+                                </p>
                                 {totalOcultos > 0 && (
-                                  <p className="text-xs text-muted-foreground">de {relatorioFaturistaData.length} total</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    de {relatorioFaturistaData.length} total
+                                  </p>
                                 )}
                               </div>
                               <ClipboardList className="h-8 w-8 text-violet-500" />
@@ -2902,10 +4164,14 @@ function ContaConvenioDetalhesPadrao() {
                       {!dadosFiltrados.length ? (
                         <div className="text-center py-8">
                           <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
-                          <h3 className="text-lg font-medium text-green-700">Nenhum apontamento crítico</h3>
+                          <h3 className="text-lg font-medium text-green-700">
+                            Nenhum apontamento crítico
+                          </h3>
                           <p className="text-muted-foreground">
-                            Não há ajustes do auditor nem divergências críticas para esta conta.
-                            {totalOcultos > 0 && ` (${totalOcultos} divergências de baixa severidade foram ocultadas)`}
+                            Não há ajustes do auditor nem divergências críticas
+                            para esta conta.
+                            {totalOcultos > 0 &&
+                              ` (${totalOcultos} divergências de baixa severidade foram ocultadas)`}
                           </p>
                         </div>
                       ) : (
@@ -2918,39 +4184,64 @@ function ContaConvenioDetalhesPadrao() {
                                   <TableHead className="w-[40px]">#</TableHead>
                                   <TableHead>Origem</TableHead>
                                   <TableHead>Item / Código</TableHead>
-                                  <TableHead>Descrição do Apontamento</TableHead>
+                                  <TableHead>
+                                    Descrição do Apontamento
+                                  </TableHead>
                                   <TableHead>Severidade</TableHead>
                                   <TableHead>Decisão Auditor</TableHead>
-                                  <TableHead className="text-right">Impacto Financeiro</TableHead>
+                                  <TableHead className="text-right">
+                                    Impacto Financeiro
+                                  </TableHead>
                                   <TableHead>Ação Necessária</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {dadosFiltrados.map((item, index) => (
-                                  <TableRow key={`${item.origem}-${index}`} className={`${
-                                    item.severidade === 'critico' || item.severidade === 'critica' ? 'bg-red-50/50' :
-                                    item.severidade === 'grave' || item.severidade === 'alerta' ? 'bg-orange-50/50' : ''
-                                  }`}>
-                                    <TableCell className="font-medium text-muted-foreground">{index + 1}</TableCell>
+                                  <TableRow
+                                    key={`${item.origem}-${index}`}
+                                    className={`${
+                                      item.severidade === "critico" ||
+                                      item.severidade === "critica"
+                                        ? "bg-red-50/50"
+                                        : item.severidade === "grave" ||
+                                            item.severidade === "alerta"
+                                          ? "bg-orange-50/50"
+                                          : ""
+                                    }`}
+                                  >
+                                    <TableCell className="font-medium text-muted-foreground">
+                                      {index + 1}
+                                    </TableCell>
                                     <TableCell>
-                                      <Badge className={`text-xs ${
-                                        item.origem === 'DIVERGÊNCIA' ? 'bg-red-100 text-red-800 border-red-200' :
-                                        item.origem === 'FALHA PRONTUÁRIO' ? 'bg-amber-100 text-amber-800 border-amber-200' :
-                                        'bg-blue-100 text-blue-800 border-blue-200'
-                                      }`}>
+                                      <Badge
+                                        className={`text-xs ${
+                                          item.origem === "DIVERGÊNCIA"
+                                            ? "bg-red-100 text-red-800 border-red-200"
+                                            : item.origem === "FALHA PRONTUÁRIO"
+                                              ? "bg-amber-100 text-amber-800 border-amber-200"
+                                              : "bg-blue-100 text-blue-800 border-blue-200"
+                                        }`}
+                                      >
                                         {item.origem}
                                       </Badge>
                                     </TableCell>
                                     <TableCell>
                                       <div>
-                                        <p className="font-mono text-sm">{item.codigo || '-'}</p>
-                                        <p className="text-xs text-muted-foreground truncate max-w-[180px]" title={item.descricaoItem}>
-                                          {item.descricaoItem || '-'}
+                                        <p className="font-mono text-sm">
+                                          {item.codigo || "-"}
+                                        </p>
+                                        <p
+                                          className="text-xs text-muted-foreground truncate max-w-[180px]"
+                                          title={item.descricaoItem}
+                                        >
+                                          {item.descricaoItem || "-"}
                                         </p>
                                       </div>
                                     </TableCell>
                                     <TableCell className="max-w-xs">
-                                      <p className="text-sm">{item.descricaoApontamento}</p>
+                                      <p className="text-sm">
+                                        {item.descricaoApontamento}
+                                      </p>
                                       {item.observacaoAuditor && (
                                         <p className="text-xs text-indigo-600 mt-1 italic">
                                           <UserCheck className="h-3 w-3 inline mr-1" />
@@ -2959,34 +4250,74 @@ function ContaConvenioDetalhesPadrao() {
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {item.severidade === 'critico' || item.severidade === 'critica' ? (
-                                        <Badge variant="destructive" className="text-xs"><XCircle className="h-3 w-3 mr-1" />Crítico</Badge>
-                                      ) : item.severidade === 'alerta' || item.severidade === 'grave' ? (
-                                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Alto</Badge>
-                                      ) : item.severidade === 'moderada' ? (
-                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs"><Info className="h-3 w-3 mr-1" />Médio</Badge>
+                                      {item.severidade === "critico" ||
+                                      item.severidade === "critica" ? (
+                                        <Badge
+                                          variant="destructive"
+                                          className="text-xs"
+                                        >
+                                          <XCircle className="h-3 w-3 mr-1" />
+                                          Crítico
+                                        </Badge>
+                                      ) : item.severidade === "alerta" ||
+                                        item.severidade === "grave" ? (
+                                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs">
+                                          <AlertTriangle className="h-3 w-3 mr-1" />
+                                          Alto
+                                        </Badge>
+                                      ) : item.severidade === "moderada" ? (
+                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs">
+                                          <Info className="h-3 w-3 mr-1" />
+                                          Médio
+                                        </Badge>
                                       ) : (
-                                        <Badge variant="outline" className="text-xs"><Info className="h-3 w-3 mr-1" />Info</Badge>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-xs"
+                                        >
+                                          <Info className="h-3 w-3 mr-1" />
+                                          Info
+                                        </Badge>
                                       )}
                                     </TableCell>
                                     <TableCell>
                                       {item.decisaoAuditor ? (
-                                        <DecisaoBadge decisao={item.decisaoAuditor} />
+                                        <DecisaoBadge
+                                          decisao={item.decisaoAuditor}
+                                        />
                                       ) : (
-                                        <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300">Pendente</Badge>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-xs text-yellow-600 border-yellow-300"
+                                        >
+                                          Pendente
+                                        </Badge>
                                       )}
                                     </TableCell>
                                     <TableCell className="text-right font-mono">
-                                      {item.impactoFinanceiro != null && item.impactoFinanceiro !== 0 ? (
-                                        <span className={item.impactoFinanceiro > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>
-                                          {formatCurrency(item.impactoFinanceiro)}
+                                      {item.impactoFinanceiro != null &&
+                                      item.impactoFinanceiro !== 0 ? (
+                                        <span
+                                          className={
+                                            item.impactoFinanceiro > 0
+                                              ? "text-red-600 font-semibold"
+                                              : "text-green-600"
+                                          }
+                                        >
+                                          {formatCurrency(
+                                            item.impactoFinanceiro
+                                          )}
                                         </span>
                                       ) : (
-                                        <span className="text-muted-foreground">-</span>
+                                        <span className="text-muted-foreground">
+                                          -
+                                        </span>
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      <p className="text-sm font-medium text-violet-700">{item.acaoNecessaria}</p>
+                                      <p className="text-sm font-medium text-violet-700">
+                                        {item.acaoNecessaria}
+                                      </p>
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -2996,11 +4327,18 @@ function ContaConvenioDetalhesPadrao() {
 
                           {/* Rodapé com total de impacto */}
                           {(() => {
-                            const totalImpacto = dadosFiltrados.reduce((acc, r) => acc + (r.impactoFinanceiro || 0), 0);
+                            const totalImpacto = dadosFiltrados.reduce(
+                              (acc, r) => acc + (r.impactoFinanceiro || 0),
+                              0
+                            );
                             return totalImpacto !== 0 ? (
                               <div className="flex items-center justify-end gap-4 p-4 bg-muted/50 rounded-lg">
-                                <span className="text-sm font-medium text-muted-foreground">Impacto Financeiro Total:</span>
-                                <span className={`text-xl font-bold ${totalImpacto > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                <span className="text-sm font-medium text-muted-foreground">
+                                  Impacto Financeiro Total:
+                                </span>
+                                <span
+                                  className={`text-xl font-bold ${totalImpacto > 0 ? "text-red-600" : "text-green-600"}`}
+                                >
                                   {formatCurrency(totalImpacto)}
                                 </span>
                               </div>
@@ -3017,14 +4355,22 @@ function ContaConvenioDetalhesPadrao() {
         </Tabs>
 
         {/* Dialog de Feedback */}
-        <Dialog open={feedbackDialog.open} onOpenChange={(open) => setFeedbackDialog(prev => ({ ...prev, open }))}>
+        <Dialog
+          open={feedbackDialog.open}
+          onOpenChange={open => setFeedbackDialog(prev => ({ ...prev, open }))}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {feedbackDialog.acao === "rejeitar" ? (
-                  <><ThumbsDown className="h-5 w-5 text-red-500" /> Rejeitar Divergência</>
+                  <>
+                    <ThumbsDown className="h-5 w-5 text-red-500" /> Rejeitar
+                    Divergência
+                  </>
                 ) : (
-                  <><Pencil className="h-5 w-5 text-blue-500" /> Ajustar Valor</>
+                  <>
+                    <Pencil className="h-5 w-5 text-blue-500" /> Ajustar Valor
+                  </>
                 )}
               </DialogTitle>
               <DialogDescription>
@@ -3037,19 +4383,30 @@ function ContaConvenioDetalhesPadrao() {
             {feedbackDialog.div && (
               <div className="space-y-4">
                 <div className="bg-muted/50 p-3 rounded-lg space-y-1">
-                  <p className="text-sm"><strong>Item:</strong> {feedbackDialog.div.codigoItem} - {feedbackDialog.div.descricaoItem}</p>
-                  <p className="text-sm"><strong>Tipo:</strong> {feedbackDialog.div.tipo}</p>
-                  <p className="text-sm"><strong>Mensagem:</strong> {feedbackDialog.div.mensagem || feedbackDialog.div.descricao}</p>
+                  <p className="text-sm">
+                    <strong>Item:</strong> {feedbackDialog.div.codigoItem} -{" "}
+                    {feedbackDialog.div.descricaoItem}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Tipo:</strong> {feedbackDialog.div.tipo}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Mensagem:</strong>{" "}
+                    {feedbackDialog.div.mensagem ||
+                      feedbackDialog.div.descricao}
+                  </p>
                 </div>
 
                 {feedbackDialog.acao === "ajustar" && (
                   <div className="space-y-2">
-                    <Label htmlFor="valor-sugerido">Valor Correto Esperado</Label>
+                    <Label htmlFor="valor-sugerido">
+                      Valor Correto Esperado
+                    </Label>
                     <Input
                       id="valor-sugerido"
                       type="text"
                       value={feedbackValor}
-                      onChange={(e) => setFeedbackValor(e.target.value)}
+                      onChange={e => setFeedbackValor(e.target.value)}
                       placeholder="Ex: 150.00"
                     />
                   </div>
@@ -3057,15 +4414,19 @@ function ContaConvenioDetalhesPadrao() {
 
                 <div className="space-y-2">
                   <Label htmlFor="observacao">
-                    {feedbackDialog.acao === "rejeitar" ? "Motivo da Rejeição" : "Observação"}
+                    {feedbackDialog.acao === "rejeitar"
+                      ? "Motivo da Rejeição"
+                      : "Observação"}
                   </Label>
                   <Textarea
                     id="observacao"
                     value={feedbackObs}
-                    onChange={(e) => setFeedbackObs(e.target.value)}
-                    placeholder={feedbackDialog.acao === "rejeitar"
+                    onChange={e => setFeedbackObs(e.target.value)}
+                    placeholder={
+                      feedbackDialog.acao === "rejeitar"
                       ? "Ex: Este item é cobrado separadamente neste convênio..."
-                      : "Ex: O valor correto conforme tabela do convênio é..."}
+                        : "Ex: O valor correto conforme tabela do convênio é..."
+                    }
                     rows={3}
                   />
                 </div>
@@ -3073,13 +4434,20 @@ function ContaConvenioDetalhesPadrao() {
             )}
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setFeedbackDialog({ open: false, div: null, acao: "aceitar" })}>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setFeedbackDialog({ open: false, div: null, acao: "aceitar" })
+                }
+              >
                 Cancelar
               </Button>
               <Button
                 onClick={submitFeedback}
                 disabled={feedbackMutation.isPending}
-                variant={feedbackDialog.acao === "rejeitar" ? "destructive" : "default"}
+                variant={
+                  feedbackDialog.acao === "rejeitar" ? "destructive" : "default"
+                }
               >
                 {feedbackMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3088,7 +4456,9 @@ function ContaConvenioDetalhesPadrao() {
                 ) : (
                   <Pencil className="mr-2 h-4 w-4" />
                 )}
-                {feedbackDialog.acao === "rejeitar" ? "Rejeitar" : "Salvar Ajuste"}
+                {feedbackDialog.acao === "rejeitar"
+                  ? "Rejeitar"
+                  : "Salvar Ajuste"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -3103,18 +4473,32 @@ function ContaConvenioDetalhesPadrao() {
                 Registrar Falha de Prontuário
               </DialogTitle>
               <DialogDescription>
-                Selecione a categoria e o tipo de falha encontrada no prontuário.
+                Selecione a categoria e o tipo de falha encontrada no
+                prontuário.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Categoria da Falha</Label>
-                <Select value={falhaCategoria} onValueChange={(v) => { setFalhaCategoria(v); setFalhaTipo(""); }}>
-                  <SelectTrigger><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+                <Select
+                  value={falhaCategoria}
+                  onValueChange={v => {
+                    setFalhaCategoria(v);
+                    setFalhaTipo("");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a categoria" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {categoriasFalhas && Object.entries(categoriasFalhas).map(([key, cat]: [string, any]) => (
-                      <SelectItem key={key} value={key}>{cat.label}</SelectItem>
-                    ))}
+                    {categoriasFalhas &&
+                      Object.entries(categoriasFalhas).map(
+                        ([key, cat]: [string, any]) => (
+                          <SelectItem key={key} value={key}>
+                            {cat.label}
+                          </SelectItem>
+                        )
+                      )}
                   </SelectContent>
                 </Select>
               </div>
@@ -3122,19 +4506,30 @@ function ContaConvenioDetalhesPadrao() {
                 <div className="space-y-2">
                   <Label>Tipo de Falha</Label>
                   <Select value={falhaTipo} onValueChange={setFalhaTipo}>
-                    <SelectTrigger><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o tipo" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {(categoriasFalhas as any)[falhaCategoria]?.falhas?.map((f: string) => (
-                        <SelectItem key={f} value={f}>{f}</SelectItem>
-                      ))}
+                      {(categoriasFalhas as any)[falhaCategoria]?.falhas?.map(
+                        (f: string) => (
+                          <SelectItem key={f} value={f}>
+                            {f}
+                          </SelectItem>
+                        )
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
               )}
               <div className="space-y-2">
                 <Label>Severidade</Label>
-                <Select value={falhaSeveridade} onValueChange={(v: any) => setFalhaSeveridade(v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={falhaSeveridade}
+                  onValueChange={(v: any) => setFalhaSeveridade(v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="leve">Leve</SelectItem>
                     <SelectItem value="moderada">Moderada</SelectItem>
@@ -3147,14 +4542,16 @@ function ContaConvenioDetalhesPadrao() {
                 <Label>Observações / Motivo</Label>
                 <Textarea
                   value={falhaDescricao}
-                  onChange={(e) => setFalhaDescricao(e.target.value)}
+                  onChange={e => setFalhaDescricao(e.target.value)}
                   placeholder="Descreva os motivos que levaram à marcação desta falha..."
                   rows={3}
                 />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setFalhaDialog(false)}>Cancelar</Button>
+              <Button variant="outline" onClick={() => setFalhaDialog(false)}>
+                Cancelar
+              </Button>
               <Button
                 onClick={() => {
                   if (!falhaCategoria || !falhaTipo) {
@@ -3172,7 +4569,9 @@ function ContaConvenioDetalhesPadrao() {
                 }}
                 disabled={registrarFalhaMutation.isPending}
               >
-                {registrarFalhaMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {registrarFalhaMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
                 Registrar Falha
               </Button>
             </DialogFooter>
@@ -3180,15 +4579,21 @@ function ContaConvenioDetalhesPadrao() {
         </Dialog>
 
         {/* Dialog de Ajuste de Item */}
-        <Dialog open={ajusteDialog.open} onOpenChange={(open) => setAjusteDialog(prev => ({ ...prev, open }))}>
+        <Dialog
+          open={ajusteDialog.open}
+          onOpenChange={open => setAjusteDialog(prev => ({ ...prev, open }))}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Wrench className="h-5 w-5 text-blue-500" />
-                {ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Adicionar Item Faltante" :
-                 ajusteDialog.tipo === "ALTERAR_QUANTIDADE" ? "Alterar Quantidade" :
-                 ajusteDialog.tipo === "ALTERAR_SETOR" ? "Alterar Setor" :
-                 "Alterar Valor"}
+                {ajusteDialog.tipo === "ADICIONAR_ITEM"
+                  ? "Adicionar Item Faltante"
+                  : ajusteDialog.tipo === "ALTERAR_QUANTIDADE"
+                    ? "Alterar Quantidade"
+                    : ajusteDialog.tipo === "ALTERAR_SETOR"
+                      ? "Alterar Setor"
+                      : "Alterar Valor"}
               </DialogTitle>
               <DialogDescription>
                 {ajusteDialog.tipo === "ADICIONAR_ITEM"
@@ -3201,11 +4606,25 @@ function ContaConvenioDetalhesPadrao() {
             <div className="space-y-4">
               {ajusteDialog.item && (
                 <div className="bg-muted/50 p-3 rounded-lg">
-                  <p className="text-sm"><strong>Item:</strong> {ajusteDialog.item.codigoItem} - {ajusteDialog.item.descricaoItem}</p>
+                  <p className="text-sm">
+                    <strong>Item:</strong> {ajusteDialog.item.codigoItem} -{" "}
+                    {ajusteDialog.item.descricaoItem}
+                  </p>
                   {ajusteDialog.tipo === "ALTERAR_SETOR" ? (
-                    <p className="text-sm"><strong>Setor atual:</strong> {ajusteDialog.item.setor || "Não definido"} | <strong>Data:</strong> {ajusteDialog.item.dataExecucao ? formatDateBR(ajusteDialog.item.dataExecucao) : "-"}</p>
+                    <p className="text-sm">
+                      <strong>Setor atual:</strong>{" "}
+                      {ajusteDialog.item.setor || "Não definido"} |{" "}
+                      <strong>Data:</strong>{" "}
+                      {ajusteDialog.item.dataExecucao
+                        ? formatDateBR(ajusteDialog.item.dataExecucao)
+                        : "-"}
+                    </p>
                   ) : (
-                    <p className="text-sm"><strong>Qtd atual:</strong> {ajusteDialog.item.quantidade} | <strong>Valor atual:</strong> {formatCurrency(ajusteDialog.item.valorUnitario)}</p>
+                    <p className="text-sm">
+                      <strong>Qtd atual:</strong> {ajusteDialog.item.quantidade}{" "}
+                      | <strong>Valor atual:</strong>{" "}
+                      {formatCurrency(ajusteDialog.item.valorUnitario)}
+                    </p>
                   )}
                 </div>
               )}
@@ -3213,10 +4632,17 @@ function ContaConvenioDetalhesPadrao() {
                 <>
                   <div className="space-y-2">
                     <Label>Tipo do Item</Label>
-                    <Select value={ajusteTipoItem} onValueChange={setAjusteTipoItem}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                    <Select
+                      value={ajusteTipoItem}
+                      onValueChange={setAjusteTipoItem}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PROCEDIMENTO">Procedimento</SelectItem>
+                        <SelectItem value="PROCEDIMENTO">
+                          Procedimento
+                        </SelectItem>
                         <SelectItem value="MEDICAMENTO">Medicamento</SelectItem>
                         <SelectItem value="MATERIAL">Material</SelectItem>
                         <SelectItem value="TAXA">Taxa</SelectItem>
@@ -3227,54 +4653,102 @@ function ContaConvenioDetalhesPadrao() {
                   </div>
                   <div className="space-y-2">
                     <Label>Código do Item</Label>
-                    <Input value={ajusteCodigo} onChange={(e) => setAjusteCodigo(e.target.value)} placeholder="Ex: 10101012" />
+                    <Input
+                      value={ajusteCodigo}
+                      onChange={e => setAjusteCodigo(e.target.value)}
+                      placeholder="Ex: 10101012"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Descrição</Label>
-                    <Input value={ajusteDescricao} onChange={(e) => setAjusteDescricao(e.target.value)} placeholder="Descrição do item" />
+                    <Input
+                      value={ajusteDescricao}
+                      onChange={e => setAjusteDescricao(e.target.value)}
+                      placeholder="Descrição do item"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>Setor</Label>
-                      <Input value={ajusteSetorNovoItem} onChange={(e) => setAjusteSetorNovoItem(e.target.value)} placeholder="Ex: Centro Cirúrgico, UTI..." />
+                      <Input
+                        value={ajusteSetorNovoItem}
+                        onChange={e => setAjusteSetorNovoItem(e.target.value)}
+                        placeholder="Ex: Centro Cirúrgico, UTI..."
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Data do Item</Label>
-                      <Input type="date" value={ajusteDataNovoItem} onChange={(e) => setAjusteDataNovoItem(e.target.value)} />
+                      <Input
+                        type="date"
+                        value={ajusteDataNovoItem}
+                        onChange={e => setAjusteDataNovoItem(e.target.value)}
+                      />
                     </div>
                   </div>
                 </>
               )}
-              {(ajusteDialog.tipo === "ALTERAR_QUANTIDADE" || ajusteDialog.tipo === "ADICIONAR_ITEM") && (
+              {(ajusteDialog.tipo === "ALTERAR_QUANTIDADE" ||
+                ajusteDialog.tipo === "ADICIONAR_ITEM") && (
                 <div className="space-y-2">
-                  <Label>{ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Quantidade" : "Nova Quantidade"}</Label>
-                  <Input type="number" value={ajusteQtd} onChange={(e) => setAjusteQtd(e.target.value)} placeholder="Ex: 2" />
+                  <Label>
+                    {ajusteDialog.tipo === "ADICIONAR_ITEM"
+                      ? "Quantidade"
+                      : "Nova Quantidade"}
+                  </Label>
+                  <Input
+                    type="number"
+                    value={ajusteQtd}
+                    onChange={e => setAjusteQtd(e.target.value)}
+                    placeholder="Ex: 2"
+                  />
                 </div>
               )}
-              {(ajusteDialog.tipo === "ALTERAR_VALOR" || ajusteDialog.tipo === "ADICIONAR_ITEM") && (
+              {(ajusteDialog.tipo === "ALTERAR_VALOR" ||
+                ajusteDialog.tipo === "ADICIONAR_ITEM") && (
                 <div className="space-y-2">
-                  <Label>{ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Valor Unitário" : "Novo Valor Unitário"}</Label>
-                  <Input type="number" step="0.01" value={ajusteValor} onChange={(e) => setAjusteValor(e.target.value)} placeholder="Ex: 150.00" />
+                  <Label>
+                    {ajusteDialog.tipo === "ADICIONAR_ITEM"
+                      ? "Valor Unitário"
+                      : "Novo Valor Unitário"}
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={ajusteValor}
+                    onChange={e => setAjusteValor(e.target.value)}
+                    placeholder="Ex: 150.00"
+                  />
                 </div>
               )}
               {ajusteDialog.tipo === "ALTERAR_SETOR" && (
                 <div className="space-y-2">
                   <Label>Novo Setor</Label>
-                  <Input value={ajusteSetor} onChange={(e) => setAjusteSetor(e.target.value)} placeholder="Ex: UTI, Centro Cirúrgico, Enfermaria..." />
+                  <Input
+                    value={ajusteSetor}
+                    onChange={e => setAjusteSetor(e.target.value)}
+                    placeholder="Ex: UTI, Centro Cirúrgico, Enfermaria..."
+                  />
                 </div>
               )}
               <div className="space-y-2">
                 <Label>Justificativa</Label>
                 <Textarea
                   value={ajusteJustificativa}
-                  onChange={(e) => setAjusteJustificativa(e.target.value)}
+                  onChange={e => setAjusteJustificativa(e.target.value)}
                   placeholder="Motivo do ajuste..."
                   rows={2}
                 />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setAjusteDialog({ open: false, tipo: "ALTERAR_QUANTIDADE" })}>Cancelar</Button>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setAjusteDialog({ open: false, tipo: "ALTERAR_QUANTIDADE" })
+                }
+              >
+                Cancelar
+              </Button>
               <Button
                 onClick={() => {
                   registrarAjusteMutation.mutate({
@@ -3282,31 +4756,62 @@ function ContaConvenioDetalhesPadrao() {
                     estabelecimentoId,
                     tipoAjuste: ajusteDialog.tipo,
                     itemId: ajusteDialog.item?.id,
-                    codigoItem: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteCodigo : ajusteDialog.item?.codigoItem,
-                    descricaoItem: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteDescricao : ajusteDialog.item?.descricaoItem,
-                    quantidadeOriginal: ajusteDialog.item?.quantidade?.toString(),
+                    codigoItem:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? ajusteCodigo
+                        : ajusteDialog.item?.codigoItem,
+                    descricaoItem:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? ajusteDescricao
+                        : ajusteDialog.item?.descricaoItem,
+                    quantidadeOriginal:
+                      ajusteDialog.item?.quantidade?.toString(),
                     valorOriginal: ajusteDialog.item?.valorUnitario?.toString(),
                     quantidadeAjustada: ajusteQtd || undefined,
                     valorAjustado: ajusteValor || undefined,
-                    tipoItemAdicionado: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteTipoItem : undefined,
-                    setorNovoItem: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteSetorNovoItem || undefined : undefined,
-                    dataNovoItem: ajusteDialog.tipo === "ADICIONAR_ITEM" ? ajusteDataNovoItem || undefined : undefined,
-                    setorOriginal: ajusteDialog.tipo === "ALTERAR_SETOR" ? (ajusteDialog.item?.setor || "") : undefined,
-                    setorAjustado: ajusteDialog.tipo === "ALTERAR_SETOR" ? ajusteSetor : undefined,
+                    tipoItemAdicionado:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? ajusteTipoItem
+                        : undefined,
+                    setorNovoItem:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? ajusteSetorNovoItem || undefined
+                        : undefined,
+                    dataNovoItem:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? ajusteDataNovoItem || undefined
+                        : undefined,
+                    setorOriginal:
+                      ajusteDialog.tipo === "ALTERAR_SETOR"
+                        ? ajusteDialog.item?.setor || ""
+                        : undefined,
+                    setorAjustado:
+                      ajusteDialog.tipo === "ALTERAR_SETOR"
+                        ? ajusteSetor
+                        : undefined,
                     justificativa: ajusteJustificativa || undefined,
                   });
                 }}
                 disabled={registrarAjusteMutation.isPending}
               >
-                {registrarAjusteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {ajusteDialog.tipo === "ADICIONAR_ITEM" ? "Adicionar Item" : ajusteDialog.tipo === "ALTERAR_SETOR" ? "Salvar Setor" : "Salvar Ajuste"}
+                {registrarAjusteMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {ajusteDialog.tipo === "ADICIONAR_ITEM"
+                  ? "Adicionar Item"
+                  : ajusteDialog.tipo === "ALTERAR_SETOR"
+                    ? "Salvar Setor"
+                    : "Salvar Ajuste"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
         {/* Dialog de Histórico de Feedbacks */}
-        <Dialog open={historicoDialog.open} onOpenChange={(open) => setHistoricoDialog(prev => ({ ...prev, open }))}>
+        <Dialog
+          open={historicoDialog.open}
+          onOpenChange={open => setHistoricoDialog(prev => ({ ...prev, open }))}
+        >
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -3315,19 +4820,25 @@ function ContaConvenioDetalhesPadrao() {
               </DialogTitle>
               <DialogDescription>
                 {historicoDialog.div && (
-                  <>Feedbacks para: {historicoDialog.div.codigoItem} - {historicoDialog.div.tipo}</>
+                  <>
+                    Feedbacks para: {historicoDialog.div.codigoItem} -{" "}
+                    {historicoDialog.div.tipo}
+                  </>
                 )}
               </DialogDescription>
             </DialogHeader>
 
-            {historicoDialog.div && (() => {
+            {historicoDialog.div &&
+              (() => {
               const key = `${historicoDialog.div.codigoItem || ""}_${historicoDialog.div.tipo}`;
               const feedbacks = feedbackMap.get(key) || [];
               
               if (feedbacks.length === 0) {
                 return (
                   <div className="text-center py-4">
-                    <p className="text-muted-foreground">Nenhum feedback registrado para esta divergência.</p>
+                      <p className="text-muted-foreground">
+                        Nenhum feedback registrado para esta divergência.
+                      </p>
                   </div>
                 );
               }
@@ -3335,21 +4846,30 @@ function ContaConvenioDetalhesPadrao() {
               return (
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
                   {feedbacks.map((fb: any, i: number) => (
-                    <div key={fb.id} className={`p-3 rounded-lg border ${
-                      fb.decisao === "aceitar" ? "border-green-200 bg-green-50/50" :
-                      fb.decisao === "rejeitar" ? "border-red-200 bg-red-50/50" :
-                      "border-gray-200 bg-gray-50/50"
-                    }`}>
+                      <div
+                        key={fb.id}
+                        className={`p-3 rounded-lg border ${
+                          fb.decisao === "aceitar"
+                            ? "border-green-200 bg-green-50/50"
+                            : fb.decisao === "rejeitar"
+                              ? "border-red-200 bg-red-50/50"
+                              : "border-gray-200 bg-gray-50/50"
+                        }`}
+                      >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center">
                             <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
                           </div>
-                          <span className="text-sm font-medium">{fb.usuarioNome || "Auditor"}</span>
+                            <span className="text-sm font-medium">
+                              {fb.usuarioNome || "Auditor"}
+                            </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <DecisaoBadge decisao={fb.decisao} />
-                          <span className="text-xs text-muted-foreground">{formatDateTimeBR(fb.createdAt)}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTimeBR(fb.createdAt)}
+                            </span>
                         </div>
                       </div>
                       {fb.justificativa && (
@@ -3359,7 +4879,8 @@ function ContaConvenioDetalhesPadrao() {
                       )}
                       {fb.dadosDivergencia?.valorSugerido && (
                         <p className="text-xs text-blue-600 mt-1 pl-8">
-                          Valor sugerido: {formatCurrency(fb.dadosDivergencia.valorSugerido)}
+                            Valor sugerido:{" "}
+                            {formatCurrency(fb.dadosDivergencia.valorSugerido)}
                         </p>
                       )}
                     </div>
@@ -3373,7 +4894,6 @@ function ContaConvenioDetalhesPadrao() {
     </DashboardLayout>
   );
 }
-
 
 export default function ContaConvenioDetalhes() {
   const search = useSearch();

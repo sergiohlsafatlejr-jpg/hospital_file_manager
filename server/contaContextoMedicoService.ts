@@ -40,7 +40,7 @@ export class ContaContextoMedicoErro extends Error {
       | "FORBIDDEN"
       | "PRECONDICAO"
       | "CONCORRENCIA",
-    message: string,
+    message: string
   ) {
     super(message);
     this.name = "ContaContextoMedicoErro";
@@ -105,7 +105,8 @@ export interface FonteMedicaPersistida {
   criadoEm?: Date | string;
 }
 
-export interface GabaritoManualInformativo extends GabaritoComposicaoInformativa {
+export interface GabaritoManualInformativo
+  extends GabaritoComposicaoInformativa {
   /** Deve ser verdade somente para gabaritos manuais já validados pelo adapter. */
   isGabarito: boolean;
   status: "ativo" | "aprendendo" | "revisao" | "inativo";
@@ -149,7 +150,8 @@ export interface EventoContextoMedicoNovo {
   };
 }
 
-export interface ContextoMedicoNovo extends Omit<ContextoMedicoPersistido, "id"> {}
+export interface ContextoMedicoNovo
+  extends Omit<ContextoMedicoPersistido, "id"> {}
 
 /**
  * A única fronteira de persistência. Implementações Drizzle devem usar:
@@ -161,40 +163,75 @@ export interface ContextoMedicoNovo extends Omit<ContextoMedicoPersistido, "id">
  */
 export interface ContaContextoMedicoRepositorio {
   configurado(): Promise<boolean>;
-  resolverSnapshotHospitalar(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado | null>;
+  /**
+   * Descobre somente escopos canônicos candidatos, sem valores e sem escrita em
+   * faturamento. A confirmação da correlação continua no serviço para cada
+   * snapshot exato.
+   */
+  listarEscoposHospitalaresCandidatos(input: {
+    estabelecimentoId: number;
+    convenioId: number;
+    referenciasGuias: readonly string[];
+  }): Promise<readonly ScopeContaMedicaNormalizado[]>;
+  resolverSnapshotHospitalar(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<SnapshotHospitalarAutorizado | null>;
   /** Diagnóstico agregado no mesmo arquivo/unidade/convênio já autorizados. */
-  diagnosticarSnapshotHospitalar(scope: ScopeContaMedicaNormalizado): Promise<DiagnosticoSnapshotHospitalar>;
-  listarArquivosMedicos(scope: ScopeContaMedicaNormalizado, page: number, pageSize: number): Promise<{
+  diagnosticarSnapshotHospitalar(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<DiagnosticoSnapshotHospitalar>;
+  listarArquivosMedicos(
+    scope: ScopeContaMedicaNormalizado,
+    page: number,
+    pageSize: number
+  ): Promise<{
     arquivos: readonly ArquivoMedicoInfoInterno[];
     temProximaPagina: boolean;
   }>;
   obterArquivoMedicoAutorizado(
     scope: ScopeContaMedicaNormalizado,
-    arquivoMedicoId: number,
+    arquivoMedicoId: number
   ): Promise<ArquivoMedicoAutorizado | null>;
   lerXmlMedicoAutorizado(arquivo: ArquivoMedicoAutorizado): Promise<Buffer>;
-  listarFontes(scope: ScopeContaMedicaNormalizado): Promise<readonly FonteMedicaPersistida[]>;
+  listarFontes(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<readonly FonteMedicaPersistida[]>;
   /** Insere apenas se a versão ainda não existir. Nunca faz overwrite em conflito. */
-  inserirFonteSeAusente(fonte: Omit<FonteMedicaPersistida, "id" | "criadoEm">): Promise<{
+  inserirFonteSeAusente(
+    fonte: Omit<FonteMedicaPersistida, "id" | "criadoEm">
+  ): Promise<{
     fonte: FonteMedicaPersistida;
     criada: boolean;
   }>;
-  listarGabaritosManuais(scope: ScopeContaMedicaNormalizado): Promise<readonly GabaritoManualInformativo[]>;
-  obterGabaritoManual(scope: ScopeContaMedicaNormalizado, padraoId: number): Promise<GabaritoManualInformativo | null>;
-  obterContexto(scope: ScopeContaMedicaNormalizado): Promise<ContextoMedicoPersistido | null>;
+  listarGabaritosManuais(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<readonly GabaritoManualInformativo[]>;
+  obterGabaritoManual(
+    scope: ScopeContaMedicaNormalizado,
+    padraoId: number
+  ): Promise<GabaritoManualInformativo | null>;
+  obterContexto(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<ContextoMedicoPersistido | null>;
   /** A implementação deve executar callback em transação de banco. */
-  transacionar<T>(callback: (tx: ContextoMedicoTransacao) => Promise<T>): Promise<T>;
+  transacionar<T>(
+    callback: (tx: ContextoMedicoTransacao) => Promise<T>
+  ): Promise<T>;
 }
 
 export interface ContextoMedicoTransacao {
-  obterContextoParaAtualizacao(scope: ScopeContaMedicaNormalizado): Promise<ContextoMedicoPersistido | null>;
+  obterContextoParaAtualizacao(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<ContextoMedicoPersistido | null>;
   /** INSERT inicial protegido pela unique scope; conflito deve resultar em false. */
-  inserirContextoInicial(contexto: ContextoMedicoNovo): Promise<ContextoMedicoPersistido | null>;
+  inserirContextoInicial(
+    contexto: ContextoMedicoNovo
+  ): Promise<ContextoMedicoPersistido | null>;
   /** UPDATE ... WHERE id = ? AND revisao = ?; false equivale a conflito otimista. */
   atualizarContextoComCas(
     contextoId: number,
     revisaoEsperada: number,
-    proximo: ContextoMedicoNovo,
+    proximo: ContextoMedicoNovo
   ): Promise<ContextoMedicoPersistido | null>;
   anexarEvento(evento: EventoContextoMedicoNovo): Promise<void>;
 }
@@ -212,34 +249,75 @@ const MAX_NUMERO_CONTA = 100;
 const MAX_NUMERO_LOTE = 100;
 const MAX_COMPETENCIA = 20;
 
-function erro(codigo: ContaContextoMedicoErro["codigo"], message: string): never {
+/**
+ * Identidade já lida do registro local de arquivos. Esta estrutura nunca é um
+ * DTO público e propositalmente não contém URL, chave de storage, XML, carteira
+ * ou valores.
+ */
+export interface ArquivoMedicoAutomatico {
+  id: number;
+  tipoArquivo: "xml";
+  direcao: "enviado";
+  estabelecimentoId: number | null | undefined;
+  convenioId: number | null | undefined;
+}
+
+function erro(
+  codigo: ContaContextoMedicoErro["codigo"],
+  message: string
+): never {
   throw new ContaContextoMedicoErro(codigo, message);
 }
 
-function inteiroPositivo(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) erro("ESCOPO_INVALIDO", `${label} inválido.`);
+function inteiroPositivo(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    erro("ESCOPO_INVALIDO", `${label} inválido.`);
+  }
   return value;
 }
 
-function textoChave(value: unknown, max: number, label: string, obrigatorio = false): string {
+function textoChave(
+  value: unknown,
+  max: number,
+  label: string,
+  obrigatorio = false
+): string {
   if (typeof value !== "string") {
     if (obrigatorio) erro("ESCOPO_INVALIDO", `${label} obrigatório.`);
     return "";
   }
   const text = value.trim();
-  if ((obrigatorio && !text) || text.length > max || /[\u0000-\u001F\u007F]/.test(text)) {
+  if (
+    (obrigatorio && !text) ||
+    text.length > max ||
+    /[\u0000-\u001F\u007F]/.test(text)
+  ) {
     erro("ESCOPO_INVALIDO", `${label} inválido.`);
   }
   return text;
 }
 
-export function normalizarScopeContaMedica(scope: ScopeContaMedica): ScopeContaMedicaNormalizado {
-  if (!scope || typeof scope !== "object") erro("ESCOPO_INVALIDO", "Escopo inválido.");
+export function normalizarScopeContaMedica(
+  scope: ScopeContaMedica
+): ScopeContaMedicaNormalizado {
+  if (!scope || typeof scope !== "object")
+    erro("ESCOPO_INVALIDO", "Escopo inválido.");
   return {
-    estabelecimentoId: inteiroPositivo(scope.estabelecimentoId, "Estabelecimento"),
+    estabelecimentoId: inteiroPositivo(
+      scope.estabelecimentoId,
+      "Estabelecimento"
+    ),
     convenioId: inteiroPositivo(scope.convenioId, "Convênio"),
-    arquivoHospitalId: inteiroPositivo(scope.arquivoHospitalId, "Arquivo hospitalar"),
-    numeroConta: textoChave(scope.numeroConta, MAX_NUMERO_CONTA, "Número da conta", true),
+    arquivoHospitalId: inteiroPositivo(
+      scope.arquivoHospitalId,
+      "Arquivo hospitalar"
+    ),
+    numeroConta: textoChave(
+      scope.numeroConta,
+      MAX_NUMERO_CONTA,
+      "Número da conta",
+      true
+    ),
     numeroLote: textoChave(scope.numeroLote, MAX_NUMERO_LOTE, "Número do lote"),
     competencia: textoChave(scope.competencia, MAX_COMPETENCIA, "Competência"),
   };
@@ -249,7 +327,10 @@ function stable(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stable(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${stable(record[key])}`)
+    .join(",")}}`;
 }
 
 function hashSemantico(value: unknown): string {
@@ -266,20 +347,31 @@ function diaCivil(value: string | null | undefined): string | null {
   return match ? match[1] : null;
 }
 
-function normalizarBeneficiario(value: string | null | undefined): string | null {
+function normalizarBeneficiario(
+  value: string | null | undefined
+): string | null {
   if (!value) return null;
-  const normalized = value.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "").toUpperCase();
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toUpperCase();
   return normalized || null;
 }
 
-function fontesVersoes(fontes: readonly FonteMedicaPersistida[]): FonteVersaoPrivada[] {
+function fontesVersoes(
+  fontes: readonly FonteMedicaPersistida[]
+): FonteVersaoPrivada[] {
   return fontes
     .map(fonte => ({
       fonteId: fonte.id,
       guiaReferencia: fonte.guiaReferencia,
       versaoSemantica: fonte.versaoSemantica,
     }))
-    .sort((a, b) => a.fonteId - b.fonteId || a.guiaReferencia.localeCompare(b.guiaReferencia));
+    .sort(
+      (a, b) =>
+        a.fonteId - b.fonteId ||
+        a.guiaReferencia.localeCompare(b.guiaReferencia)
+    );
 }
 
 function versaoFontes(fontes: readonly FonteMedicaPersistida[]): string {
@@ -287,15 +379,22 @@ function versaoFontes(fontes: readonly FonteMedicaPersistida[]): string {
 }
 
 /** Não inclui valores hospitalares: somente item/categoria/quantidade para composição. */
-export function versaoItensHospitalares(itens: readonly ItemHospitalarEscopo[]): string {
+export function versaoItensHospitalares(
+  itens: readonly ItemHospitalarEscopo[]
+): string {
   return hashSemantico(
-    itens.map(item => ({
+    itens
+      .map(item => ({
       codigo: codigoNormalizado(item.codigo),
       tipo: item.tipo,
-      quantidade: item.quantidade === undefined || item.quantidade === null ? null : String(item.quantidade).trim(),
+        quantidade:
+          item.quantidade === undefined || item.quantidade === null
+            ? null
+            : String(item.quantidade).trim(),
       guiaPrestador: codigoNormalizado(item.numeroGuiaPrestador),
       guiaOperadora: codigoNormalizado(item.numeroGuiaOperadora),
-    })).sort((a, b) => stable(a).localeCompare(stable(b))),
+      }))
+      .sort((a, b) => stable(a).localeCompare(stable(b)))
   );
 }
 
@@ -307,7 +406,9 @@ function versaoGabarito(gabarito: GabaritoManualInformativo): string {
     convenioId: gabarito.convenioId,
     isGabarito: gabarito.isGabarito,
     status: gabarito.status,
-    principais: gabarito.principais.map(item => ({ codigo: codigoNormalizado(item.codigo) })),
+    principais: gabarito.principais.map(item => ({
+      codigo: codigoNormalizado(item.codigo),
+    })),
     itensAssociados: gabarito.itensAssociados.map(item => ({
       codigo: codigoNormalizado(item.codigo),
       descricao: item.descricao,
@@ -343,22 +444,32 @@ function fonteDto(fonte: FonteMedicaPersistida): FonteMedicaInfo {
   };
 }
 
-function contextoDto(contexto: ContextoMedicoPersistido | null, statusEfetivo?: ContextoMedicoPersistido["status"]): ContextoMedicoInfo | null {
-  if (!contexto || contexto.padraoId === null || !contexto.nomePadrao) return null;
+function contextoDto(
+  contexto: ContextoMedicoPersistido | null,
+  statusEfetivo?: ContextoMedicoPersistido["status"]
+): ContextoMedicoInfo | null {
+  if (!contexto || contexto.padraoId === null || !contexto.nomePadrao)
+    return null;
   return {
     padraoId: contexto.padraoId,
     nomePadrao: contexto.nomePadrao,
     status: statusEfetivo ?? contexto.status,
     revisao: contexto.revisao,
-    confirmadoEm: contexto.confirmadoEm ? new Date(contexto.confirmadoEm).toISOString() : null,
+    confirmadoEm: contexto.confirmadoEm
+      ? new Date(contexto.confirmadoEm).toISOString()
+      : null,
     confirmadoPor: contexto.confirmadoPor,
     justificativa: contexto.justificativa,
     abrangencia: contexto.abrangencia,
   };
 }
 
-function guiasFontes(fontes: readonly FonteMedicaPersistida[]): Array<{ codigo: string }> {
-  return fontes.flatMap(fonte => fonte.procedimentos.map(procedimento => ({ codigo: procedimento.codigo })));
+function guiasFontes(
+  fontes: readonly FonteMedicaPersistida[]
+): Array<{ codigo: string }> {
+  return fontes.flatMap(fonte =>
+    fonte.procedimentos.map(procedimento => ({ codigo: procedimento.codigo }))
+  );
 }
 
 function candidatosAtuais(
@@ -366,13 +477,14 @@ function candidatosAtuais(
   fontes: readonly FonteMedicaPersistida[],
   hospital: SnapshotHospitalarAutorizado,
   gabaritos: readonly GabaritoManualInformativo[],
-  comparar: typeof compararComposicaoInformativa,
+  comparar: typeof compararComposicaoInformativa
 ): CandidatoGabarito[] {
-  const manuais = gabaritos.filter(gabarito =>
+  const manuais = gabaritos.filter(
+    gabarito =>
     gabarito.isGabarito &&
     gabarito.status === "ativo" &&
     gabarito.estabelecimentoId === scope.estabelecimentoId &&
-    gabarito.convenioId === scope.convenioId,
+      gabarito.convenioId === scope.convenioId
   );
   return comparar({
     scope,
@@ -383,48 +495,79 @@ function candidatosAtuais(
 }
 
 function principalSnapshot(gabarito: GabaritoManualInformativo): string[] {
-  return [...new Set(gabarito.principais.map(principal => codigoNormalizado(principal.codigo)).filter(Boolean))].sort();
+  return [
+    ...new Set(
+      gabarito.principais
+        .map(principal => codigoNormalizado(principal.codigo))
+        .filter(Boolean)
+    ),
+  ].sort();
 }
 
 function estadoContextoAtual(
   contexto: ContextoMedicoPersistido | null,
   fontes: readonly FonteMedicaPersistida[],
   hospital: SnapshotHospitalarAutorizado,
-  gabarito: GabaritoManualInformativo | null,
+  gabarito: GabaritoManualInformativo | null
 ): ContextoMedicoPersistido["status"] | undefined {
   if (!contexto) return undefined;
   if (contexto.status === "invalidado") return "invalidado";
-  if (!gabarito || !gabarito.isGabarito || gabarito.status !== "ativo") return "revisao_necessaria";
-  if (contexto.versaoPadrao !== versaoGabarito(gabarito)) return "revisao_necessaria";
-  if (hashSemantico(contexto.fontesVersoes) !== versaoFontes(fontes)) return "revisao_necessaria";
-  if (contexto.versaoItensHospitalares !== versaoItensHospitalares(hospital.itensHospitalares)) return "revisao_necessaria";
+  if (!gabarito || !gabarito.isGabarito || gabarito.status !== "ativo")
+    return "revisao_necessaria";
+  if (contexto.versaoPadrao !== versaoGabarito(gabarito))
+    return "revisao_necessaria";
+  if (hashSemantico(contexto.fontesVersoes) !== versaoFontes(fontes))
+    return "revisao_necessaria";
+  if (
+    contexto.versaoItensHospitalares !==
+    versaoItensHospitalares(hospital.itensHospitalares)
+  )
+    return "revisao_necessaria";
   return contexto.status;
 }
 
-function fontesProcedimentosSemanticos(guia: GuiaHonorariosParseada): readonly ProcedimentoMedicoInfo[] {
-  return guia.procedimentos.map(procedimento => ({
+function fontesProcedimentosSemanticos(
+  guia: GuiaHonorariosParseada
+): readonly ProcedimentoMedicoInfo[] {
+  return guia.procedimentos
+    .map(procedimento => ({
     codigo: codigoNormalizado(procedimento.codigo),
     descricao: procedimento.descricao.trim(),
     dataExecucao: diaCivil(procedimento.dataExecucao),
-    sequencial: procedimento.sequencial ? procedimento.sequencial.trim() : null,
-    profissionais: procedimento.profissionais.map(profissional => ({
+      sequencial: procedimento.sequencial
+        ? procedimento.sequencial.trim()
+        : null,
+      profissionais: procedimento.profissionais
+        .map(profissional => ({
       nome: profissional.nome.trim(),
       conselho: profissional.conselho ? profissional.conselho.trim() : null,
-      numeroConselho: profissional.numeroConselho ? profissional.numeroConselho.trim() : null,
-    })).sort((a, b) => stable(a).localeCompare(stable(b))),
-  })).filter(procedimento => Boolean(procedimento.codigo)).sort((a, b) => stable(a).localeCompare(stable(b)));
+          numeroConselho: profissional.numeroConselho
+            ? profissional.numeroConselho.trim()
+            : null,
+        }))
+        .sort((a, b) => stable(a).localeCompare(stable(b))),
+    }))
+    .filter(procedimento => Boolean(procedimento.codigo))
+    .sort((a, b) => stable(a).localeCompare(stable(b)));
 }
 
 function referenciaGuiaMedica(guia: GuiaHonorariosParseada): string | null {
-  return codigoNormalizado(guia.correlacao.numeroGuiaPrestador)
-    || codigoNormalizado(guia.correlacao.guiaSolicitacaoInternacao)
-    || codigoNormalizado(guia.correlacao.numeroGuiaOperadora)
-    || null;
+  return (
+    codigoNormalizado(guia.correlacao.numeroGuiaPrestador) ||
+    codigoNormalizado(guia.correlacao.guiaSolicitacaoInternacao) ||
+    codigoNormalizado(guia.correlacao.numeroGuiaOperadora) ||
+    null
+  );
 }
 
 function datasGuiaMedica(guia: GuiaHonorariosParseada): string[] {
-  const dates = [diaCivil(guia.correlacao.dataAtendimento), diaCivil(guia.correlacao.dataEmissaoGuia), ...guia.procedimentos.map(procedimento => diaCivil(procedimento.dataExecucao))]
-    .filter((value): value is string => Boolean(value));
+  const dates = [
+    diaCivil(guia.correlacao.dataAtendimento),
+    diaCivil(guia.correlacao.dataEmissaoGuia),
+    ...guia.procedimentos.map(procedimento =>
+      diaCivil(procedimento.dataExecucao)
+    ),
+  ].filter((value): value is string => Boolean(value));
   return [...new Set(dates)];
 }
 
@@ -435,25 +578,49 @@ function datasGuiaMedica(guia: GuiaHonorariosParseada): string[] {
  */
 function correlacionarGuia(
   guia: GuiaHonorariosParseada,
-  referencias: readonly ReferenciaGuiaHospitalar[],
-): { referencia: ReferenciaGuiaHospitalar; guiaReferencia: string; avisoData?: string } | null {
+  referencias: readonly ReferenciaGuiaHospitalar[]
+): {
+  referencia: ReferenciaGuiaHospitalar;
+  guiaReferencia: string;
+  avisoData?: string;
+} | null {
   const propria = codigoNormalizado(guia.correlacao.numeroGuiaPrestador);
-  const principal = codigoNormalizado(guia.correlacao.guiaSolicitacaoInternacao)
-    || codigoNormalizado(guia.correlacao.numeroGuiaOperadora);
-  const medicoBeneficiario = normalizarBeneficiario(guia.correlacao.numeroCarteira);
+  const principal =
+    codigoNormalizado(guia.correlacao.guiaSolicitacaoInternacao) ||
+    codigoNormalizado(guia.correlacao.numeroGuiaOperadora);
+  const medicoBeneficiario = normalizarBeneficiario(
+    guia.correlacao.numeroCarteira
+  );
   const datasMedicas = datasGuiaMedica(guia);
 
-  const encontrar = (referenciaBusca: string, usarOperadora: boolean): ReferenciaGuiaHospitalar | null => {
+  const encontrar = (
+    referenciaBusca: string,
+    usarOperadora: boolean
+  ): ReferenciaGuiaHospitalar | null => {
     if (!referenciaBusca) return null;
     const candidatos = referencias.filter(referencia => {
       const candidato = usarOperadora
         ? codigoNormalizado(referencia.numeroGuiaOperadora)
         : codigoNormalizado(referencia.numeroGuiaPrestador);
       if (!candidato || candidato !== referenciaBusca) return false;
-      const hospitalBeneficiario = normalizarBeneficiario(referencia.beneficiario);
-      if (medicoBeneficiario && hospitalBeneficiario && medicoBeneficiario !== hospitalBeneficiario) return false;
-      const datasHospitalares = referencia.datasExecucao.map(diaCivil).filter((value): value is string => Boolean(value));
-      if (datasMedicas.length && datasHospitalares.length && !datasMedicas.some(data => datasHospitalares.includes(data))) return false;
+      const hospitalBeneficiario = normalizarBeneficiario(
+        referencia.beneficiario
+      );
+      if (
+        medicoBeneficiario &&
+        hospitalBeneficiario &&
+        medicoBeneficiario !== hospitalBeneficiario
+      )
+        return false;
+      const datasHospitalares = referencia.datasExecucao
+        .map(diaCivil)
+        .filter((value): value is string => Boolean(value));
+      if (
+        datasMedicas.length &&
+        datasHospitalares.length &&
+        !datasMedicas.some(data => datasHospitalares.includes(data))
+      )
+        return false;
       return true;
     });
     return candidatos.length === 1 ? candidatos[0] : null;
@@ -464,15 +631,24 @@ function correlacionarGuia(
   if (!referencia && principal) {
     // guiaSolicitacaoInternacao pode apontar para a guia prestador; a guia
     // operadora só é comparada contra o identificador homólogo.
-    referencia = encontrar(principal, Boolean(guia.correlacao.numeroGuiaOperadora && !guia.correlacao.guiaSolicitacaoInternacao));
+    referencia = encontrar(
+      principal,
+      Boolean(
+        guia.correlacao.numeroGuiaOperadora &&
+          !guia.correlacao.guiaSolicitacaoInternacao
+      )
+    );
   }
   if (!referencia) return null;
   const guiaReferencia = propria || principal;
-  const possuiDatasHospitalares = referencia.datasExecucao.some(data => Boolean(diaCivil(data)));
+  const possuiDatasHospitalares = referencia.datasExecucao.some(data =>
+    Boolean(diaCivil(data))
+  );
   return {
     referencia,
     guiaReferencia,
-    avisoData: datasMedicas.length === 0 || !possuiDatasHospitalares
+    avisoData:
+      datasMedicas.length === 0 || !possuiDatasHospitalares
       ? "Datas de execução ausentes em uma das fontes; a correlação foi limitada à guia e ao beneficiário quando informado."
       : undefined,
   };
@@ -487,11 +663,15 @@ function pendente(): ContaContextoMedicoResultado {
     contexto: null,
     itensHospitalares: 0,
     setorInformado: false,
-    avisos: ["Contexto médico informativo ainda não está configurado para esta instalação."],
+    avisos: [
+      "Contexto médico informativo ainda não está configurado para esta instalação.",
+    ],
   };
 }
 
-function semSnapshot(diagnosticoSnapshot: DiagnosticoSnapshotHospitalar): ContaContextoMedicoResultado {
+function semSnapshot(
+  diagnosticoSnapshot: DiagnosticoSnapshotHospitalar
+): ContaContextoMedicoResultado {
   return {
     configuracaoPendente: false,
     diagnosticoSnapshot,
@@ -505,29 +685,42 @@ function semSnapshot(diagnosticoSnapshot: DiagnosticoSnapshotHospitalar): ContaC
 }
 
 function justificativaValida(value: string): string {
-  if (typeof value !== "string") erro("PRECONDICAO", "Justificativa obrigatória.");
+  if (typeof value !== "string")
+    erro("PRECONDICAO", "Justificativa obrigatória.");
   const text = value.trim().replace(/\s+/g, " ");
-  if (!text || text.length > MAX_JUSTIFICATIVA || /[\u0000-\u001F\u007F]/.test(text)) {
+  if (
+    !text ||
+    text.length > MAX_JUSTIFICATIVA ||
+    /[\u0000-\u001F\u007F]/.test(text)
+  ) {
     erro("PRECONDICAO", "Justificativa inválida.");
   }
   return text;
 }
 
 function revisarEsperada(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 0) erro("PRECONDICAO", "Revisão esperada inválida.");
+  if (!Number.isSafeInteger(value) || value < 0)
+    erro("PRECONDICAO", "Revisão esperada inválida.");
   return value;
 }
 
-function mesmoScope(a: ScopeContaMedicaNormalizado, b: ScopeContaMedicaNormalizado): boolean {
-  return a.estabelecimentoId === b.estabelecimentoId &&
+function mesmoScope(
+  a: ScopeContaMedicaNormalizado,
+  b: ScopeContaMedicaNormalizado
+): boolean {
+  return (
+    a.estabelecimentoId === b.estabelecimentoId &&
     a.convenioId === b.convenioId &&
     a.arquivoHospitalId === b.arquivoHospitalId &&
     a.numeroConta === b.numeroConta &&
     a.numeroLote === b.numeroLote &&
-    a.competencia === b.competencia;
+    a.competencia === b.competencia
+  );
 }
 
-export function criarContaContextoMedicoService(deps: ContaContextoMedicoDependencias) {
+export function criarContaContextoMedicoService(
+  deps: ContaContextoMedicoDependencias
+) {
   const parse = deps.parse ?? parseContaHonorarios;
   const comparar = deps.comparar ?? compararComposicaoInformativa;
 
@@ -535,7 +728,9 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
     return deps.repositorio.configurado();
   }
 
-  async function snapshot(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado | null> {
+  async function snapshot(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<SnapshotHospitalarAutorizado | null> {
     const result = await deps.repositorio.resolverSnapshotHospitalar(scope);
     if (!result || !mesmoScope(result.scope, scope)) {
       return null;
@@ -543,12 +738,73 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
     return result;
   }
 
-  async function snapshotObrigatorio(scope: ScopeContaMedicaNormalizado): Promise<SnapshotHospitalarAutorizado> {
+  async function snapshotObrigatorio(
+    scope: ScopeContaMedicaNormalizado
+  ): Promise<SnapshotHospitalarAutorizado> {
     const hospital = await snapshot(scope);
     if (!hospital) {
-      erro("PRECONDICAO", "O contexto hospitalar ainda não está pronto para esta conta. Atualize a tela e tente novamente.");
+      erro(
+        "PRECONDICAO",
+        "O contexto hospitalar ainda não está pronto para esta conta. Atualize a tela e tente novamente."
+      );
     }
     return hospital;
+  }
+
+  /**
+   * Único caminho de escrita de fontes, compartilhado pela indexação explícita
+   * da tela e pela associação automática no upload. Só chama
+   * `inserirFonteSeAusente`, cuja chave inclui a versão semântica; nunca apaga
+   * ou altera registros financeiros.
+   */
+  async function indexarGuiasNoScope(
+    scope: ScopeContaMedicaNormalizado,
+    arquivoMedicoId: number,
+    guias: readonly GuiaHonorariosParseada[],
+    hospital: SnapshotHospitalarAutorizado
+  ) {
+    const avisos = new Set<string>();
+    let correlacionadas = 0;
+    let criadas = 0;
+    const vistos = new Set<string>();
+    for (const guia of guias) {
+      const match = correlacionarGuia(guia, hospital.referenciasGuias);
+      if (!match) continue;
+      const procedimentos = fontesProcedimentosSemanticos(guia);
+      if (!procedimentos.length) continue;
+      const semantic = {
+        guiaReferencia: match.guiaReferencia,
+        procedimentos,
+        // Não persiste a correlação privada; só estabiliza mudança semântica relevante.
+        correlacao: {
+          guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
+          guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
+          guiaPrincipal: codigoNormalizado(
+            guia.correlacao.guiaSolicitacaoInternacao
+          ),
+          dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
+        },
+      };
+      const versaoSemantica = hashSemantico(semantic);
+      const dedupe = `${match.guiaReferencia}\u0000${versaoSemantica}`;
+      if (vistos.has(dedupe)) continue;
+      vistos.add(dedupe);
+      correlacionadas += 1;
+      const insertion = await deps.repositorio.inserirFonteSeAusente({
+        scope,
+        arquivoMedicoId,
+        guiaReferencia: match.guiaReferencia,
+        versaoSemantica,
+        registros: procedimentos.length,
+        codigosDistintos: new Set(
+          procedimentos.map(procedimento => procedimento.codigo)
+        ).size,
+        procedimentos,
+      });
+      if (insertion.criada) criadas += 1;
+      if (match.avisoData) avisos.add(match.avisoData);
+    }
+    return { correlacionadas, criadas, avisos: [...avisos] };
   }
 
   async function estado(scope: ScopeContaMedicaNormalizado) {
@@ -558,41 +814,89 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       deps.repositorio.listarGabaritosManuais(scope),
       deps.repositorio.obterContexto(scope),
     ]);
-    const gabaritoContexto = contexto?.padraoId === null || contexto?.padraoId === undefined
+    const gabaritoContexto =
+      contexto?.padraoId === null || contexto?.padraoId === undefined
       ? null
-      : gabaritos.find(gabarito => gabarito.padraoId === contexto.padraoId) ??
-        await deps.repositorio.obterGabaritoManual(scope, contexto.padraoId);
+        : (gabaritos.find(
+            gabarito => gabarito.padraoId === contexto.padraoId
+          ) ??
+          (await deps.repositorio.obterGabaritoManual(
+            scope,
+            contexto.padraoId
+          )));
     return { hospital, fontes, gabaritos, contexto, gabaritoContexto };
   }
 
   return {
-    async consultar(input: { scope: ScopeContaMedica }): Promise<ContaContextoMedicoResultado> {
-      if (!await configurado()) return pendente();
+    async consultar(input: {
+      scope: ScopeContaMedica;
+    }): Promise<ContaContextoMedicoResultado> {
+      if (!(await configurado())) return pendente();
       const scope = normalizarScopeContaMedica(input.scope);
       const hospital = await snapshot(scope);
       if (!hospital) {
-        return semSnapshot(await deps.repositorio.diagnosticarSnapshotHospitalar(scope));
+        return semSnapshot(
+          await deps.repositorio.diagnosticarSnapshotHospitalar(scope)
+        );
       }
       const [fontes, gabaritos, contexto] = await Promise.all([
         deps.repositorio.listarFontes(scope),
         deps.repositorio.listarGabaritosManuais(scope),
         deps.repositorio.obterContexto(scope),
       ]);
-      const gabaritoContexto = contexto?.padraoId === null || contexto?.padraoId === undefined
+      const gabaritoContexto =
+        contexto?.padraoId === null || contexto?.padraoId === undefined
         ? null
-        : gabaritos.find(gabarito => gabarito.padraoId === contexto.padraoId) ??
-          await deps.repositorio.obterGabaritoManual(scope, contexto.padraoId);
-      const current = { hospital, fontes, gabaritos, contexto, gabaritoContexto };
-      const candidatos = candidatosAtuais(scope, current.fontes, current.hospital, current.gabaritos, comparar);
+          : (gabaritos.find(
+              gabarito => gabarito.padraoId === contexto.padraoId
+            ) ??
+            (await deps.repositorio.obterGabaritoManual(
+              scope,
+              contexto.padraoId
+            )));
+      const current = {
+        hospital,
+        fontes,
+        gabaritos,
+        contexto,
+        gabaritoContexto,
+      };
+      const candidatos = candidatosAtuais(
+        scope,
+        current.fontes,
+        current.hospital,
+        current.gabaritos,
+        comparar
+      );
       const avisos: string[] = [];
-      if (!current.hospital.setorInformado) avisos.push("Setor não informado: a composição é avaliada sobre a conta inteira.");
-      if (current.fontes.some(fonte => fonte.procedimentos.some(procedimento => procedimento.dataExecucao))) {
-        avisos.push("Datas de execução são informativas e não são usadas como filtro de composição.");
+      if (!current.hospital.setorInformado)
+        avisos.push(
+          "Setor não informado: a composição é avaliada sobre a conta inteira."
+        );
+      if (
+        current.fontes.some(fonte =>
+          fonte.procedimentos.some(procedimento => procedimento.dataExecucao)
+        )
+      ) {
+        avisos.push(
+          "Datas de execução são informativas e não são usadas como filtro de composição."
+        );
       }
-      if (!current.fontes.length) avisos.push("Nenhum XML médico foi indexado para este escopo.");
-      const statusEfetivo = estadoContextoAtual(current.contexto, current.fontes, current.hospital, current.gabaritoContexto);
-      if (statusEfetivo === "revisao_necessaria" && current.contexto?.status === "confirmado") {
-        avisos.push("A fonte, os itens hospitalares ou o gabarito mudaram; a confirmação anterior precisa de revisão.");
+      if (!current.fontes.length)
+        avisos.push("Nenhum XML médico foi indexado para este escopo.");
+      const statusEfetivo = estadoContextoAtual(
+        current.contexto,
+        current.fontes,
+        current.hospital,
+        current.gabaritoContexto
+      );
+      if (
+        statusEfetivo === "revisao_necessaria" &&
+        current.contexto?.status === "confirmado"
+      ) {
+        avisos.push(
+          "A fonte, os itens hospitalares ou o gabarito mudaram; a confirmação anterior precisa de revisão."
+        );
       }
       return {
         configuracaoPendente: false,
@@ -607,20 +911,32 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
     },
 
     async listarArquivos(input: { scope: ScopeContaMedica; page?: number }) {
-      if (!await configurado()) return { configuracaoPendente: true, arquivos: [], page: 1, temProximaPagina: false };
+      if (!(await configurado()))
+        return {
+          configuracaoPendente: true,
+          arquivos: [],
+          page: 1,
+          temProximaPagina: false,
+        };
       const scope = normalizarScopeContaMedica(input.scope);
       // Garante que não se lista arquivo médico de um escopo hospitalar inexistente.
-      if (!await snapshot(scope)) {
+      if (!(await snapshot(scope))) {
         return {
           configuracaoPendente: false,
-          diagnosticoSnapshot: await deps.repositorio.diagnosticarSnapshotHospitalar(scope),
+          diagnosticoSnapshot:
+            await deps.repositorio.diagnosticarSnapshotHospitalar(scope),
           arquivos: [],
           page: 1,
           temProximaPagina: false,
         };
       }
-      const page = Number.isSafeInteger(input.page) && input.page! > 0 ? input.page! : 1;
-      const result = await deps.repositorio.listarArquivosMedicos(scope, page, PAGE_SIZE);
+      const page =
+        Number.isSafeInteger(input.page) && input.page! > 0 ? input.page! : 1;
+      const result = await deps.repositorio.listarArquivosMedicos(
+        scope,
+        page,
+        PAGE_SIZE
+      );
       return {
         configuracaoPendente: false,
         diagnosticoSnapshot: null,
@@ -630,69 +946,229 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
           id: arquivo.id,
           nome: arquivo.nome,
           tamanho: arquivo.tamanho,
-          dataReferencia: arquivo.dataReferencia ? new Date(arquivo.dataReferencia).toISOString() : null,
+          dataReferencia: arquivo.dataReferencia
+            ? new Date(arquivo.dataReferencia).toISOString()
+            : null,
         })),
       };
     },
 
     async indexar(input: { scope: ScopeContaMedica; arquivoMedicoId: number }) {
-      if (!await configurado()) erro("CONFIGURACAO_PENDENTE", "Contexto médico ainda não está configurado.");
+      if (!(await configurado()))
+        erro(
+          "CONFIGURACAO_PENDENTE",
+          "Contexto médico ainda não está configurado."
+        );
       const scope = normalizarScopeContaMedica(input.scope);
-      const arquivoMedicoId = inteiroPositivo(input.arquivoMedicoId, "Arquivo médico");
+      const arquivoMedicoId = inteiroPositivo(
+        input.arquivoMedicoId,
+        "Arquivo médico"
+      );
       const hospital = await snapshotObrigatorio(scope);
-      const arquivo = await deps.repositorio.obterArquivoMedicoAutorizado(scope, arquivoMedicoId);
-      if (!arquivo || arquivo.id !== arquivoMedicoId || arquivo.tipoArquivo !== "xml" || arquivo.direcao !== "enviado" ||
-          arquivo.estabelecimentoId !== scope.estabelecimentoId || arquivo.convenioId !== scope.convenioId) {
-        erro("FORBIDDEN", "Arquivo médico não autorizado para esta unidade e convênio.");
+      const arquivo = await deps.repositorio.obterArquivoMedicoAutorizado(
+        scope,
+        arquivoMedicoId
+      );
+      if (
+        !arquivo ||
+        arquivo.id !== arquivoMedicoId ||
+        arquivo.tipoArquivo !== "xml" ||
+        arquivo.direcao !== "enviado" ||
+        arquivo.estabelecimentoId !== scope.estabelecimentoId ||
+        arquivo.convenioId !== scope.convenioId
+      ) {
+        erro(
+          "FORBIDDEN",
+          "Arquivo médico não autorizado para esta unidade e convênio."
+        );
       }
       // A leitura só acontece nesta mutação explícita e recebe o arquivo obtido do DB,
       // nunca uma URL controlada pelo cliente.
       const xml = await deps.repositorio.lerXmlMedicoAutorizado(arquivo);
-      if (!Buffer.isBuffer(xml)) erro("PRECONDICAO", "Não foi possível abrir o XML médico autorizado.");
+      if (!Buffer.isBuffer(xml))
+        erro("PRECONDICAO", "Não foi possível abrir o XML médico autorizado.");
       const parsed = parse(xml);
-      if (!parsed.recognized) erro("PRECONDICAO", "O XML não contém guia de honorários reconhecida.");
+      if (!parsed.recognized)
+        erro("PRECONDICAO", "O XML não contém guia de honorários reconhecida.");
+      const resultado = await indexarGuiasNoScope(
+        scope,
+        arquivoMedicoId,
+        parsed.guias,
+        hospital
+      );
+      if (!resultado.correlacionadas) {
+        erro(
+          "PRECONDICAO",
+          "Nenhuma guia do XML médico corresponde de forma segura à conta selecionada."
+        );
+      }
+      return {
+        indexadas: resultado.criadas,
+        jaIndexadas: resultado.correlacionadas - resultado.criadas,
+        avisos: resultado.avisos,
+      };
+    },
 
-      const avisos = new Set<string>();
+    /**
+     * Associação disparada pelo upload de um documento classificado antes de
+     * qualquer fluxo financeiro. O XML fica somente nesta fronteira interna e
+     * não é exposto em DTO, log ou persistência de fonte; URL, chave de storage,
+     * carteira e valores também não saem deste fluxo. A descoberta é restrita à
+     * unidade e convênio já gravados no arquivo, e cada escopo é revalidado pelo
+     * snapshot canônico.
+     */
+    async indexarAutomaticamente(input: {
+      arquivo: ArquivoMedicoAutomatico;
+      xml: Buffer;
+    }) {
+      if (!(await configurado()))
+        erro(
+          "CONFIGURACAO_PENDENTE",
+          "Contexto médico ainda não está configurado."
+        );
+      const arquivoId = inteiroPositivo(input.arquivo?.id, "Arquivo médico");
+      if (
+        input.arquivo?.tipoArquivo !== "xml" ||
+        input.arquivo?.direcao !== "enviado"
+      ) {
+        erro(
+          "PRECONDICAO",
+          "Arquivo médico não elegível para associação automática."
+        );
+      }
+      const estabelecimentoId = inteiroPositivo(
+        input.arquivo.estabelecimentoId,
+        "Estabelecimento"
+      );
+      const convenioId = inteiroPositivo(input.arquivo.convenioId, "Convênio");
+      if (!Buffer.isBuffer(input.xml))
+        erro("PRECONDICAO", "Não foi possível abrir o XML médico autorizado.");
+      const parsed = parse(input.xml);
+      if (!parsed.recognized)
+        erro("PRECONDICAO", "O XML não contém guia de honorários reconhecida.");
+
+      const referenciasGuias = [
+        ...new Set(
+          parsed.guias
+            .map(referenciaGuiaMedica)
+            .filter((referencia): referencia is string => Boolean(referencia))
+        ),
+      ];
+      if (!referenciasGuias.length) {
+        erro(
+          "PRECONDICAO",
+          "O XML médico não possui referência suficiente para associação segura."
+        );
+      }
+
+      const candidatos =
+        await deps.repositorio.listarEscoposHospitalaresCandidatos({
+          estabelecimentoId,
+          convenioId,
+          referenciasGuias,
+        });
+
+      // Antes de escrever, cada guia deve apontar para exatamente um snapshot
+      // hospitalar canônico. Não escolhemos a primeira conta quando a mesma guia
+      // aparece em mais de um arquivo/lote/competência: ela fica sem associação.
+      const snapshots = new Map<
+        string,
+        {
+          scope: ScopeContaMedicaNormalizado;
+          hospital: SnapshotHospitalarAutorizado;
+        }
+      >();
+      for (const candidato of candidatos) {
+        if (
+          candidato.estabelecimentoId !== estabelecimentoId ||
+          candidato.convenioId !== convenioId
+        )
+          continue;
+        const scope = normalizarScopeContaMedica(candidato);
+        const hospital = await snapshot(scope);
+        if (!hospital) continue;
+        const key = [
+          scope.arquivoHospitalId,
+          scope.numeroConta,
+          scope.numeroLote,
+          scope.competencia,
+        ].join("\u0000");
+        snapshots.set(key, { scope, hospital });
+      }
+
+      const guiasPorScope = new Map<
+        string,
+        {
+          scope: ScopeContaMedicaNormalizado;
+          hospital: SnapshotHospitalarAutorizado;
+          guias: GuiaHonorariosParseada[];
+        }
+      >();
+      let semCorrespondencia = 0;
+      let ambiguas = 0;
+      for (const guia of parsed.guias) {
+        // Uma guia reconhecida sem procedimento semanticamente utilizável também
+        // bloqueia o arquivo inteiro: associar apenas as demais criaria contexto
+        // médico parcial para a mesma importação.
+        if (!fontesProcedimentosSemanticos(guia).length) {
+          semCorrespondencia += 1;
+          continue;
+        }
+        const correspondencias = [...snapshots.entries()].filter(
+          ([, candidato]) =>
+            Boolean(
+              correlacionarGuia(guia, candidato.hospital.referenciasGuias)
+            )
+        );
+        if (correspondencias.length === 0) {
+          semCorrespondencia += 1;
+          continue;
+        }
+        if (correspondencias.length !== 1) {
+          ambiguas += 1;
+          continue;
+        }
+        const [key, candidato] = correspondencias[0];
+        const grupo = guiasPorScope.get(key) ?? { ...candidato, guias: [] };
+        grupo.guias.push(guia);
+        guiasPorScope.set(key, grupo);
+      }
+
+      // Um único XML não pode ser parcialmente associado. Se uma guia não
+      // encontrou exatamente um contexto hospitalar, interrompemos antes da
+      // primeira escrita: o usuário vê o arquivo pendente/erro e nenhum item
+      // médico fica anexado a uma conta errada ou incompleta.
+      if (semCorrespondencia > 0 || ambiguas > 0) {
+        erro(
+          "PRECONDICAO",
+          "O XML médico possui guia sem correspondência única com a conta hospitalar."
+        );
+      }
+
       let correlacionadas = 0;
       let criadas = 0;
-      const vistos = new Set<string>();
-      for (const guia of parsed.guias) {
-        const match = correlacionarGuia(guia, hospital.referenciasGuias);
-        if (!match) continue; // Arquivo misto: somente a guia fortemente correlacionada entra.
-        const procedimentos = fontesProcedimentosSemanticos(guia);
-        if (!procedimentos.length) continue;
-        const semantic = {
-          guiaReferencia: match.guiaReferencia,
-          procedimentos,
-          // Não persiste a correlação privada; só estabiliza mudança semântica relevante.
-          correlacao: {
-            guiaPrestador: codigoNormalizado(guia.correlacao.numeroGuiaPrestador),
-            guiaOperadora: codigoNormalizado(guia.correlacao.numeroGuiaOperadora),
-            guiaPrincipal: codigoNormalizado(guia.correlacao.guiaSolicitacaoInternacao),
-            dataAtendimento: diaCivil(guia.correlacao.dataAtendimento),
-          },
-        };
-        const versaoSemantica = hashSemantico(semantic);
-        const dedupe = `${match.guiaReferencia}\u0000${versaoSemantica}`;
-        if (vistos.has(dedupe)) continue;
-        vistos.add(dedupe);
-        correlacionadas += 1;
-        const insertion = await deps.repositorio.inserirFonteSeAusente({
+      for (const { scope, hospital, guias } of guiasPorScope.values()) {
+        const resultado = await indexarGuiasNoScope(
           scope,
-          arquivoMedicoId,
-          guiaReferencia: match.guiaReferencia,
-          versaoSemantica,
-          registros: procedimentos.length,
-          codigosDistintos: new Set(procedimentos.map(procedimento => procedimento.codigo)).size,
-          procedimentos,
-        });
-        if (insertion.criada) criadas += 1;
-        if (match.avisoData) avisos.add(match.avisoData);
+          arquivoId,
+          guias,
+          hospital
+        );
+        correlacionadas += resultado.correlacionadas;
+        criadas += resultado.criadas;
       }
       if (!correlacionadas) {
-        erro("PRECONDICAO", "Nenhuma guia do XML médico corresponde de forma segura à conta selecionada.");
+        erro(
+          "PRECONDICAO",
+          "Nenhuma guia do XML médico corresponde de forma segura ao contexto hospitalar."
+        );
       }
-      return { indexadas: criadas, jaIndexadas: correlacionadas - criadas, avisos: [...avisos] };
+      return {
+        indexadas: criadas,
+        jaIndexadas: correlacionadas - criadas,
+        semCorrespondencia,
+        ambiguas,
+      };
     },
 
     async confirmar(input: {
@@ -702,7 +1178,11 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       revisaoEsperada: number;
       usuarioId: number;
     }): Promise<ContextoMedicoInfo> {
-      if (!await configurado()) erro("CONFIGURACAO_PENDENTE", "Contexto médico ainda não está configurado.");
+      if (!(await configurado()))
+        erro(
+          "CONFIGURACAO_PENDENTE",
+          "Contexto médico ainda não está configurado."
+        );
       const scope = normalizarScopeContaMedica(input.scope);
       const padraoId = inteiroPositivo(input.padraoId, "Gabarito");
       const justificativa = justificativaValida(input.justificativa);
@@ -710,33 +1190,71 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       const usuarioId = inteiroPositivo(input.usuarioId, "Usuário");
       // Recompõe tudo no instante da confirmação; nenhuma conclusão vinda do cliente é aceita.
       const current = await estado(scope);
-      const gabarito = await deps.repositorio.obterGabaritoManual(scope, padraoId);
-      if (!gabarito || !gabarito.isGabarito || gabarito.status !== "ativo" ||
-          gabarito.estabelecimentoId !== scope.estabelecimentoId || gabarito.convenioId !== scope.convenioId) {
-        erro("PRECONDICAO", "Gabarito manual ativo não pertence ao escopo informado.");
+      const gabarito = await deps.repositorio.obterGabaritoManual(
+        scope,
+        padraoId
+      );
+      if (
+        !gabarito ||
+        !gabarito.isGabarito ||
+        gabarito.status !== "ativo" ||
+        gabarito.estabelecimentoId !== scope.estabelecimentoId ||
+        gabarito.convenioId !== scope.convenioId
+      ) {
+        erro(
+          "PRECONDICAO",
+          "Gabarito manual ativo não pertence ao escopo informado."
+        );
       }
-      const candidatos = candidatosAtuais(scope, current.fontes, current.hospital, [gabarito], comparar);
+      const candidatos = candidatosAtuais(
+        scope,
+        current.fontes,
+        current.hospital,
+        [gabarito],
+        comparar
+      );
       const candidato = candidatos[0];
-      if (!candidato?.elegivel) erro("PRECONDICAO", "O gabarito não está elegível para confirmação nesta conta.");
+      if (!candidato?.elegivel)
+        erro(
+          "PRECONDICAO",
+          "O gabarito não está elegível para confirmação nesta conta."
+        );
       const principais = principalSnapshot(gabarito);
-      if (!principais.length || candidato.principaisEncontrados !== principais.length) {
-        erro("PRECONDICAO", "Nem todos os procedimentos principais foram confirmados no snapshot atual.");
+      if (
+        !principais.length ||
+        candidato.principaisEncontrados !== principais.length
+      ) {
+        erro(
+          "PRECONDICAO",
+          "Nem todos os procedimentos principais foram confirmados no snapshot atual."
+        );
       }
       const fontesAtuais = fontesVersoes(current.fontes);
-      if (!fontesAtuais.length) erro("PRECONDICAO", "Não há fonte médica indexada para confirmar.");
+      if (!fontesAtuais.length)
+        erro("PRECONDICAO", "Não há fonte médica indexada para confirmar.");
       const versaoPadraoAtual = versaoGabarito(gabarito);
-      const versaoItensAtual = versaoItensHospitalares(current.hospital.itensHospitalares);
-      const abrangencia = current.hospital.setorInformado ? "conta_inteira" : "conta_inteira_sem_setor";
+      const versaoItensAtual = versaoItensHospitalares(
+        current.hospital.itensHospitalares
+      );
+      const abrangencia = current.hospital.setorInformado
+        ? "conta_inteira"
+        : "conta_inteira_sem_setor";
 
       return deps.repositorio.transacionar(async tx => {
         // A transação relê a linha protegida. O adaptador deve também revalidar o
         // snapshot hospitalar no mesmo isolamento quando suportado.
         const existente = await tx.obterContextoParaAtualizacao(scope);
         if (existente && existente.revisao !== revisaoEsperada) {
-          erro("CONCORRENCIA", "O contexto foi alterado por outro usuário; atualize a tela.");
+          erro(
+            "CONCORRENCIA",
+            "O contexto foi alterado por outro usuário; atualize a tela."
+          );
         }
         if (!existente && revisaoEsperada !== 0) {
-          erro("CONCORRENCIA", "O contexto ainda não possui a revisão esperada; atualize a tela.");
+          erro(
+            "CONCORRENCIA",
+            "O contexto ainda não possui a revisão esperada; atualize a tela."
+          );
         }
         const proximaRevisao = (existente?.revisao ?? 0) + 1;
         const proximo: ContextoMedicoNovo = {
@@ -755,9 +1273,17 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
           abrangencia,
         };
         const salvo = existente
-          ? await tx.atualizarContextoComCas(existente.id, revisaoEsperada, proximo)
+          ? await tx.atualizarContextoComCas(
+              existente.id,
+              revisaoEsperada,
+              proximo
+            )
           : await tx.inserirContextoInicial(proximo);
-        if (!salvo) erro("CONCORRENCIA", "O contexto foi alterado por outro usuário; atualize a tela.");
+        if (!salvo)
+          erro(
+            "CONCORRENCIA",
+            "O contexto foi alterado por outro usuário; atualize a tela."
+          );
         await tx.anexarEvento({
           contextoId: salvo.id,
           revisao: salvo.revisao,
@@ -782,7 +1308,11 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       revisaoEsperada: number;
       usuarioId: number;
     }): Promise<ContextoMedicoInfo | null> {
-      if (!await configurado()) erro("CONFIGURACAO_PENDENTE", "Contexto médico ainda não está configurado.");
+      if (!(await configurado()))
+        erro(
+          "CONFIGURACAO_PENDENTE",
+          "Contexto médico ainda não está configurado."
+        );
       const scope = normalizarScopeContaMedica(input.scope);
       const justificativa = justificativaValida(input.justificativa);
       const revisaoEsperada = revisarEsperada(input.revisaoEsperada);
@@ -790,13 +1320,19 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
       // Verifica a conta exata antes de produzir qualquer evento.
       const current = await estado(scope);
       const fontesAtuais = fontesVersoes(current.fontes);
-      const versaoItensAtual = versaoItensHospitalares(current.hospital.itensHospitalares);
+      const versaoItensAtual = versaoItensHospitalares(
+        current.hospital.itensHospitalares
+      );
 
       return deps.repositorio.transacionar(async tx => {
         const existente = await tx.obterContextoParaAtualizacao(scope);
-        if (!existente) erro("NAO_ENCONTRADO", "Não há contexto para invalidar.");
+        if (!existente)
+          erro("NAO_ENCONTRADO", "Não há contexto para invalidar.");
         if (existente.revisao !== revisaoEsperada) {
-          erro("CONCORRENCIA", "O contexto foi alterado por outro usuário; atualize a tela.");
+          erro(
+            "CONCORRENCIA",
+            "O contexto foi alterado por outro usuário; atualize a tela."
+          );
         }
         const proximo: ContextoMedicoNovo = {
           ...existente,
@@ -809,8 +1345,16 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
           versaoItensHospitalares: versaoItensAtual,
           principaisSnapshot: existente.principaisSnapshot,
         };
-        const salvo = await tx.atualizarContextoComCas(existente.id, revisaoEsperada, proximo);
-        if (!salvo) erro("CONCORRENCIA", "O contexto foi alterado por outro usuário; atualize a tela.");
+        const salvo = await tx.atualizarContextoComCas(
+          existente.id,
+          revisaoEsperada,
+          proximo
+        );
+        if (!salvo)
+          erro(
+            "CONCORRENCIA",
+            "O contexto foi alterado por outro usuário; atualize a tela."
+          );
         await tx.anexarEvento({
           contextoId: salvo.id,
           revisao: salvo.revisao,
@@ -831,7 +1375,9 @@ export function criarContaContextoMedicoService(deps: ContaContextoMedicoDepende
   };
 }
 
-export type ContaContextoMedicoService = ReturnType<typeof criarContaContextoMedicoService>;
+export type ContaContextoMedicoService = ReturnType<
+  typeof criarContaContextoMedicoService
+>;
 
 /**
  * Fallback deliberadamente fechado. Enquanto o schema não for exportado e o
@@ -839,9 +1385,15 @@ export type ContaContextoMedicoService = ReturnType<typeof criarContaContextoMed
  * `configuracaoPendente` e mutações não fazem I/O nem escrita.
  */
 export function criarServicoContaContextoMedicoPendente(): ContaContextoMedicoService {
-  const bloqueado = async () => { erro("CONFIGURACAO_PENDENTE", "Contexto médico ainda não está configurado."); };
+  const bloqueado = async () => {
+    erro(
+      "CONFIGURACAO_PENDENTE",
+      "Contexto médico ainda não está configurado."
+    );
+  };
   const repositorio: ContaContextoMedicoRepositorio = {
     configurado: async () => false,
+    listarEscoposHospitalaresCandidatos: bloqueado as never,
     resolverSnapshotHospitalar: bloqueado as never,
     diagnosticarSnapshotHospitalar: bloqueado as never,
     listarArquivosMedicos: bloqueado as never,
