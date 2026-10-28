@@ -22,7 +22,7 @@ O demonstrativo original, o faturamento e os lotes externos não são atualizado
 
 ## Anexos e relatórios
 
-XMLs e PDFs de protocolo são cifrados com AES-256-GCM antes de ir para o armazenamento. A leitura passa por autenticação e escopo hospital/convênio, com tamanho limitado. O cliente não recebe chave de armazenamento, URL pública do original nem hashes internos. A chave dedicada `RETORNOS_RECURSOS_FILE_KEY` precisa ser configurada e preservada em gerenciador de segredos antes da ativação. Não usar a chave de sessão como substituta nem registrar segredos no GitHub.
+XMLs e PDFs de protocolo são cifrados com AES-256-GCM antes de ir para o armazenamento. A leitura passa por autenticação e escopo hospital/convênio, com tamanho limitado. O cliente não recebe chave de armazenamento, URL pública do original nem hashes internos. As duas chaves dedicadas precisam ser configuradas e preservadas em gerenciador de segredos antes da ativação: `RETORNOS_RECURSOS_FILE_KEY` (32 bytes em hexadecimal ou Base64) para os arquivos e `RETORNOS_RECURSOS_CONFIRMATION_SECRET` (pelo menos 32 bytes) para assinar a confirmação da prévia. Não usar a chave de sessão da plataforma como substituta nem registrar segredos no GitHub.
 
 O PDF desta entrega é um **protocolo/comprovante do recurso**; não implementa ainda o cadastro e a análise do contrato hospitalar.
 
@@ -49,7 +49,7 @@ Os 16 comandos gerados são quatro `CREATE TABLE`, cinco FKs `RESTRICT` entre as
 4. Sergio ou delegado formal autoriza **a aplicação restrita da 0137** com revisão/registro exatos. O pedido de desenvolvimento ou a autorização da PR #107 não substituem essa liberação.
 5. Aplicar somente os comandos dessa migração, pelo executor restrito revisado. **Não executar `pnpm db:migrate` geral**, que pode selecionar migrações antigas e a 0135. Não simular transação para DDL nem registrar o journal antes de comprovar todas as tabelas, índices e FKs. Em falha parcial, parar e recuperar pelo estado físico; não repetir cegamente os comandos.
 6. Conferir em conexão independente as quatro estruturas vazias e a entrada única de histórico com os dados do journal gerado. Registrar o resultado sanitizado na Issue #34.
-7. Configurar a chave de arquivos pelo canal seguro e publicar o código integrado. Checkpoint não é deploy; comprovar os arquivos/rotas publicados.
+7. Configurar `RETORNOS_RECURSOS_FILE_KEY` e `RETORNOS_RECURSOS_CONFIRMATION_SECRET` pelo canal seguro e publicar o código integrado. Checkpoint não é deploy; comprovar os arquivos/rotas publicados.
 8. Testar com dados sintéticos e verificar a interface e permissões. A primeira importação do XML CASSI real, a revisão de vínculos e qualquer lançamento financeiro continuam dependendo da seleção do lote e autorização específica. Não lançar pagamentos por inferência.
 
 Se o código estiver disponível antes da migração ou da chave, a tela deve mostrar configuração pendente e bloquear a confirmação, não fazer ajustes no banco automaticamente.
@@ -68,6 +68,6 @@ Validação concluída em 26/10/2026:
 
 O preflight de produção utilizou somente SELECTs e rollback. As quatro tabelas novas ainda não existem. O convênio CASSI ativo e aplicável ao COTEFI não tem registro ANS preenchido; também não foi encontrado um vínculo ativo de prestador compatível com o XML de exemplo. Confirmar essas identificações pelo cadastro administrativo antes de utilizar o arquivo real, sem presumir que o prestador de outro hospital pertence ao COTEFI.
 
-A chave dedicada não está configurada na sessão de desenvolvimento. Isso não comprova o estado do segredo de produção; sua disponibilidade e preservação precisam ser verificadas pelo canal seguro na implantação.
+As chaves dedicadas não estão configuradas na sessão de desenvolvimento. Isso não comprova o estado dos segredos de produção; sua disponibilidade e preservação precisam ser verificadas pelo canal seguro na implantação.
 
 Nenhuma mudança desta segunda etapa foi aplicada ao banco de produção. Não houve importação dos XMLs reais, aprovação de vínculos, cadastro de prestador nem lançamento financeiro. A publicação da primeira etapa da PR #107 foi comprovada separadamente e não libera a segunda etapa.
