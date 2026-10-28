@@ -1,10 +1,11 @@
+import { StringDecoder } from "node:string_decoder";
 import sax from "sax";
 
 /**
  * O classificador só decide se o documento pode entrar no fluxo informativo.
  * Não extrai nem registra conteúdo clínico, financeiro ou identificadores.
  */
-export const CONTA_HONORARIOS_CLASSIFICADOR_MAX_BYTES = 2 * 1024 * 1024;
+export const CONTA_HONORARIOS_CLASSIFICADOR_CHUNK_BYTES = 64 * 1024;
 
 export type ClassificacaoXmlHonorarios =
   | { tipo: "honorarios_puro" }
@@ -19,30 +20,26 @@ function nomeLocal(nome: string): string {
 /**
  * Classificação deliberadamente conservadora para o upload automático:
  *
- * - XML sem guia de honorários continua no fluxo normal de envio;
- * - somente `guiaHonorarios`, sem outra guia de faturamento, pode ser indexado;
- * - DTD/ENTITY, XML inválido, tamanho excessivo ou estrutura de guia desconhecida
- *   tornam o arquivo ambíguo e bloqueiam toda escrita financeira.
+ * - XML sem guia de honorários continua no fluxo financeiro normal, inclusive
+ *   quando possui uma guia hospitalar sob `guiasTISS`;
+ * - somente `guiaHonorarios`, sem guia hospitalar, pode ser indexado como
+ *   contexto médico informativo;
+ * - a coexistência de guia hospitalar e de honorários no mesmo documento,
+ *   DTD/ENTITY ou XML inválido bloqueia toda escrita financeira.
  *
- * A função não retorna detalhes da estrutura de entrada, evitando que conteúdo do
- * XML seja levado a DTOs ou logs.
+ * O documento é lido em blocos para não transformar o tamanho total de um XML
+ * hospitalar comum em motivo de bloqueio. A função não retorna detalhes da
+ * estrutura de entrada, evitando que conteúdo seja levado a DTOs ou logs.
  */
 export function classificarXmlHonorarios(
   xml: Buffer
 ): ClassificacaoXmlHonorarios {
-  if (
-    !Buffer.isBuffer(xml) ||
-    xml.length === 0 ||
-    xml.length > CONTA_HONORARIOS_CLASSIFICADOR_MAX_BYTES
-  ) {
+  if (!Buffer.isBuffer(xml) || xml.length === 0) {
     return { tipo: "misto_ou_ambiguo" };
   }
 
-  const texto = xml.toString("utf8");
-  if (/<!DOCTYPE|<!ENTITY/i.test(texto)) return { tipo: "misto_ou_ambiguo" };
-
   let encontrouHonorarios = false;
-  let encontrouOutraGuia = false;
+  let encontrouGuiaHospitalar = false;
   let invalido = false;
   const pilha: string[] = [];
   const parser = sax.parser(true, {
@@ -72,18 +69,17 @@ export function classificarXmlHonorarios(
 
     if (local === "guiaHonorarios") {
       if (pai !== "guiasTISS") {
-        encontrouOutraGuia = true;
+        invalido = true;
         return;
       }
       encontrouHonorarios = true;
       return;
     }
 
-    // Guias TISS são irmãs em `guiasTISS`. Qualquer irmã desconhecida é
-    // considerada ambígua em vez de se arriscar a tratá-la como honorários.
+    // Guias hospitalares são válidas no mesmo nível de `guiaHonorarios`.
+    // Só existe ambiguidade quando elas coexistem no mesmo XML com honorários.
     if (pai === "guiasTISS" && local.startsWith("guia")) {
-      encontrouOutraGuia = true;
-      return;
+      encontrouGuiaHospitalar = true;
     }
   };
   parser.onclosetag = () => {
@@ -91,12 +87,33 @@ export function classificarXmlHonorarios(
   };
 
   try {
-    parser.write(texto).close();
+    const decoder = new StringDecoder("utf8");
+    for (
+      let inicio = 0;
+      inicio < xml.length;
+      inicio += CONTA_HONORARIOS_CLASSIFICADOR_CHUNK_BYTES
+    ) {
+      if (invalido) break;
+      parser.write(
+        decoder.write(
+          xml.subarray(
+            inicio,
+            Math.min(
+              inicio + CONTA_HONORARIOS_CLASSIFICADOR_CHUNK_BYTES,
+              xml.length
+            )
+          )
+        )
+      );
+    }
+    if (!invalido) parser.write(decoder.end()).close();
   } catch {
     invalido = true;
   }
 
-  if (invalido || encontrouOutraGuia) return { tipo: "misto_ou_ambiguo" };
+  if (invalido || (encontrouHonorarios && encontrouGuiaHospitalar)) {
+    return { tipo: "misto_ou_ambiguo" };
+  }
   if (!encontrouHonorarios) return { tipo: "nao_honorarios" };
   return { tipo: "honorarios_puro" };
 }
