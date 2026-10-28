@@ -1,12 +1,31 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
@@ -69,7 +88,8 @@ export default function RecebimentosXml() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] = useState<string>("");
+  const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] =
+    useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Listagem state
@@ -87,28 +107,25 @@ export default function RecebimentosXml() {
   const { data: convenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
   const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery({});
   const uploadMutation = trpc.arquivos.upload.useMutation();
-  const detectarPrestadoresMutation = trpc.arquivos.detectarPrestadores.useMutation();
   const utils = trpc.useUtils();
-
-  // Prestador detection
-  const [prestadorDetectado, setPrestadorDetectado] = useState<{
-    codigoPrestador: string;
-    estabelecimentoId: number;
-    estabelecimentoNome: string;
-    convenioNome: string;
-  } | null>(null);
-  const [isDetectando, setIsDetectando] = useState(false);
 
   // Buscar dados de recebimento_tiss
   const mesReferencia = mesRef ? parseInt(mesRef) : undefined;
   const anoReferencia = anoRef ? parseInt(anoRef) : undefined;
 
-  const { data: recebimentoData, isLoading, refetch } = trpc.recebimentoTiss.list.useQuery(
+  const {
+    data: recebimentoData,
+    isLoading,
+    refetch,
+  } = trpc.recebimentoTiss.list.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id,
       convenioId: filtroConvenio ? parseInt(filtroConvenio) : undefined,
       search: buscaDebounced || undefined,
-      statusGlosa: filtroStatus !== "todos" ? filtroStatus as "pago" | "glosado" | "parcial" : undefined,
+      statusGlosa:
+        filtroStatus !== "todos"
+          ? (filtroStatus as "pago" | "glosado" | "parcial")
+          : undefined,
       mesReferencia,
       anoReferencia,
       page,
@@ -133,44 +150,9 @@ export default function RecebimentosXml() {
     return () => clearTimeout(timer);
   }, [busca]);
 
-  useEffect(() => { setPage(1); }, [filtroConvenio, filtroStatus, mesRef, anoRef]);
-
-  // Detectar prestador
-  const detectarPrestadorDoArquivo = useCallback(async (file: File) => {
-    if (!convenioId) return;
-    setIsDetectando(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const CHUNK_SIZE = 32768;
-      let base64 = '';
-      for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-        const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
-        base64 += String.fromCharCode.apply(null, Array.from(chunk));
-      }
-      base64 = btoa(base64);
-      const result = await detectarPrestadoresMutation.mutateAsync({
-        conteudo: base64,
-        convenioId: parseInt(convenioId),
-      });
-      if (result.success && result.estabelecimentoSugerido) {
-        setPrestadorDetectado(result.estabelecimentoSugerido);
-        setEstabelecimentoSelecionado(result.estabelecimentoSugerido.estabelecimentoId.toString());
-        toast.success(`Prestador detectado: ${result.estabelecimentoSugerido.codigoPrestador} - ${result.estabelecimentoSugerido.estabelecimentoNome}`);
-      }
-      // Mostrar mensagem sobre terceiros cadastrados automaticamente
-      if (result.prestadoresCadastradosAuto && result.prestadoresCadastradosAuto.length > 0) {
-        toast.success(
-          `${result.prestadoresCadastradosAuto.length} prestador(es) terceiro(s) cadastrado(s) automaticamente`,
-          { duration: 8000 }
-        );
-      }
-    } catch (error) {
-      console.error("Erro ao detectar prestador:", error);
-    } finally {
-      setIsDetectando(false);
-    }
-  }, [convenioId, detectarPrestadoresMutation]);
+  useEffect(() => {
+    setPage(1);
+  }, [filtroConvenio, filtroStatus, mesRef, anoRef]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -180,12 +162,17 @@ export default function RecebimentosXml() {
       return ext === "xml" || ext === "txt";
     });
     if (validFiles.length !== fileArray.length) {
-      toast.warning("Apenas arquivos XML e TXT são aceitos nesta tela. Outros formatos foram ignorados.");
+      toast.warning(
+        "Apenas arquivos XML e TXT são aceitos nesta tela. Outros formatos foram ignorados."
+      );
     }
     if (validFiles.length === 0) return;
 
     setSelectedFiles(prev => {
-      const newFiles = validFiles.map(file => ({ file, status: "pending" as const }));
+      const newFiles = validFiles.map(file => ({
+        file,
+        status: "pending" as const,
+      }));
       const combined = [...prev, ...newFiles];
       if (combined.length > MAX_FILES) {
         toast.error(`Máximo de ${MAX_FILES} arquivos permitidos.`);
@@ -193,12 +180,7 @@ export default function RecebimentosXml() {
       }
       return combined;
     });
-
-    // Detectar prestador do primeiro XML
-    if (convenioId) {
-      detectarPrestadorDoArquivo(validFiles[0]);
-    }
-  }, [convenioId, detectarPrestadorDoArquivo]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -206,15 +188,29 @@ export default function RecebimentosXml() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }, []);
-  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }, []);
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) addFiles(files);
-  }, [addFiles]);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) addFiles(files);
+    },
+    [addFiles]
+  );
 
-  const removeFile = (index: number) => setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  const removeFile = (index: number) =>
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   const clearAllFiles = () => setSelectedFiles([]);
 
   const handleUpload = async () => {
@@ -225,33 +221,44 @@ export default function RecebimentosXml() {
     setIsUploading(true);
     setUploadProgress(0);
 
-    const pendingFiles = selectedFiles.filter(f => f.status === "pending" || f.status === "error");
+    const pendingFiles = selectedFiles.filter(
+      f => f.status === "pending" || f.status === "error"
+    );
     let successCount = 0;
     let errorCount = 0;
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const fileItem = pendingFiles[i];
       const fileIndex = selectedFiles.findIndex(f => f.file === fileItem.file);
-      setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "uploading" as const } : f));
+      setSelectedFiles(prev =>
+        prev.map((f, idx) =>
+          idx === fileIndex ? { ...f, status: "uploading" as const } : f
+        )
+      );
 
       try {
         const buffer = await fileItem.file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         const CHUNK_SIZE = 32768;
-        let base64 = '';
+        let base64 = "";
         for (let j = 0; j < bytes.length; j += CHUNK_SIZE) {
-          const chunk = bytes.subarray(j, Math.min(j + CHUNK_SIZE, bytes.length));
+          const chunk = bytes.subarray(
+            j,
+            Math.min(j + CHUNK_SIZE, bytes.length)
+          );
           base64 += String.fromCharCode.apply(null, Array.from(chunk));
         }
         base64 = btoa(base64);
 
         const estabId = estabelecimentoSelecionado
           ? parseInt(estabelecimentoSelecionado)
-          : (prestadorDetectado?.estabelecimentoId || estabelecimentoAtual?.id || 0);
+          : estabelecimentoAtual?.id || 0;
 
         await uploadMutation.mutateAsync({
           nome: fileItem.file.name,
-          tipoArquivo: fileItem.file.name.toLowerCase().endsWith('.txt') ? "txt" as const : "xml" as const,
+          tipoArquivo: fileItem.file.name.toLowerCase().endsWith(".txt")
+            ? ("txt" as const)
+            : ("xml" as const),
           direcao: "retornado",
           convenioId: parseInt(convenioId),
           estabelecimentoId: estabId,
@@ -260,18 +267,32 @@ export default function RecebimentosXml() {
           dataPagamento: dataPagamento || undefined,
         });
 
-        setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "success" as const } : f));
+        setSelectedFiles(prev =>
+          prev.map((f, idx) =>
+            idx === fileIndex ? { ...f, status: "success" as const } : f
+          )
+        );
         successCount++;
       } catch (error) {
         console.error("Upload error:", error);
-        setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "error" as const, error: "Erro ao enviar" } : f));
+        setSelectedFiles(prev =>
+          prev.map((f, idx) =>
+            idx === fileIndex
+              ? { ...f, status: "error" as const, error: "Erro ao enviar" }
+              : f
+          )
+        );
         errorCount++;
       }
       setUploadProgress(Math.round(((i + 1) / pendingFiles.length) * 100));
     }
 
-    if (successCount > 0 && errorCount === 0) toast.success(`${successCount} arquivo(s) XML importado(s) com sucesso! Demonstrativo atualizado.`);
-    else if (successCount > 0) toast.warning(`${successCount} importado(s), ${errorCount} com erro`);
+    if (successCount > 0 && errorCount === 0)
+      toast.success(
+        `${successCount} arquivo(s) XML importado(s) com sucesso! Demonstrativo atualizado.`
+      );
+    else if (successCount > 0)
+      toast.warning(`${successCount} importado(s), ${errorCount} com erro`);
     else toast.error(`Erro ao importar ${errorCount} arquivo(s)`);
 
     // Invalidar queries
@@ -288,23 +309,22 @@ export default function RecebimentosXml() {
   };
 
   const formatCurrency = (value: number | string | null | undefined) => {
-    const num = typeof value === "string" ? parseFloat(value) : (value || 0);
+    const num = typeof value === "string" ? parseFloat(value) : value || 0;
     if (isNaN(num)) return "R$ 0,00";
     return `R$ ${num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  
   const handleExportExcel = () => {
     if (!recebimentoData?.items || recebimentoData.items.length === 0) {
       toast.error("Nenhum dado para exportar");
       return;
     }
     const excelData = (recebimentoData.items as any[]).map((item: any) => ({
-      "Protocolo": item.numeroProtocolo || "",
-      "Guia": item.numeroGuiaPrestador || "",
-      "Beneficiário": item.nomeBeneficiario || "",
-      "Código": item.codigoProcedimento || "",
-      "Descrição": item.descricaoProcedimento || "",
+      Protocolo: item.numeroProtocolo || "",
+      Guia: item.numeroGuiaPrestador || "",
+      Beneficiário: item.nomeBeneficiario || "",
+      Código: item.codigoProcedimento || "",
+      Descrição: item.descricaoProcedimento || "",
       "Valor Informado": parseFloat(item.valorInformado || "0"),
       "Valor Pago": parseFloat(item.valorLiberado || "0"),
       "Valor Processado": parseFloat(item.valorProcessado || "0"),
@@ -316,13 +336,20 @@ export default function RecebimentosXml() {
     const ws = XLSX.utils.json_to_sheet(excelData);
     ws["!cols"] = Array(10).fill({ wch: 18 });
     XLSX.utils.book_append_sheet(wb, ws, "Recebimentos XML");
-    XLSX.writeFile(wb, `recebimentos_xml_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `recebimentos_xml_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
     toast.success("Exportação concluída!");
   };
 
   const pendingCount = selectedFiles.filter(f => f.status === "pending").length;
-  const successCountFiles = selectedFiles.filter(f => f.status === "success").length;
-  const errorCountFiles = selectedFiles.filter(f => f.status === "error").length;
+  const successCountFiles = selectedFiles.filter(
+    f => f.status === "success"
+  ).length;
+  const errorCountFiles = selectedFiles.filter(
+    f => f.status === "error"
+  ).length;
 
   // Anos disponíveis para filtro
   const anos = useMemo(() => {
@@ -331,12 +358,18 @@ export default function RecebimentosXml() {
   }, []);
 
   const meses = [
-    { value: "1", label: "Janeiro" }, { value: "2", label: "Fevereiro" },
-    { value: "3", label: "Março" }, { value: "4", label: "Abril" },
-    { value: "5", label: "Maio" }, { value: "6", label: "Junho" },
-    { value: "7", label: "Julho" }, { value: "8", label: "Agosto" },
-    { value: "9", label: "Setembro" }, { value: "10", label: "Outubro" },
-    { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
+    { value: "1", label: "Janeiro" },
+    { value: "2", label: "Fevereiro" },
+    { value: "3", label: "Março" },
+    { value: "4", label: "Abril" },
+    { value: "5", label: "Maio" },
+    { value: "6", label: "Junho" },
+    { value: "7", label: "Julho" },
+    { value: "8", label: "Agosto" },
+    { value: "9", label: "Setembro" },
+    { value: "10", label: "Outubro" },
+    { value: "11", label: "Novembro" },
+    { value: "12", label: "Dezembro" },
   ];
 
   const items = recebimentoData?.items || [];
@@ -354,11 +387,19 @@ export default function RecebimentosXml() {
               Recebimentos XML
             </h1>
             <p className="text-slate-500 mt-1">
-              Importe arquivos XML/TXT de retorno dos convênios. Os dados populam automaticamente o Demonstrativo.
+              Importe arquivos XML/TXT de retorno dos convênios. Os dados
+              populam automaticamente o Demonstrativo.
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => { refetch(); toast.success("Dados atualizados"); }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                refetch();
+                toast.success("Dados atualizados");
+              }}
+            >
               <RefreshCw className="h-4 w-4 mr-2" /> Atualizar
             </Button>
             <Button variant="outline" size="sm" onClick={handleExportExcel}>
@@ -374,7 +415,9 @@ export default function RecebimentosXml() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Total Itens</p>
-                  <p className="text-2xl font-bold text-slate-900">{stats?.totalItens?.toLocaleString("pt-BR") || 0}</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {stats?.totalItens?.toLocaleString("pt-BR") || 0}
+                  </p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center">
                   <Layers2 className="h-6 w-6 text-blue-600" />
@@ -387,7 +430,11 @@ export default function RecebimentosXml() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Valor Pago</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(stats?.valorLiberado ?? stats?.valorProcessado)}</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {formatCurrency(
+                      stats?.valorLiberado ?? stats?.valorProcessado
+                    )}
+                  </p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-green-50 flex items-center justify-center">
                   <DollarSign className="h-6 w-6 text-green-600" />
@@ -400,7 +447,9 @@ export default function RecebimentosXml() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Valor Glosado</p>
-                  <p className="text-2xl font-bold text-red-600">{formatCurrency(stats?.valorGlosado || 0)}</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {formatCurrency(stats?.valorGlosado || 0)}
+                  </p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-red-50 flex items-center justify-center">
                   <TrendingDown className="h-6 w-6 text-red-600" />
@@ -413,7 +462,9 @@ export default function RecebimentosXml() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Itens Glosados</p>
-                  <p className="text-2xl font-bold text-slate-900">{stats?.itensGlosados || 0}</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {stats?.itensGlosados || 0}
+                  </p>
                 </div>
                 <div className="h-12 w-12 rounded-xl bg-purple-50 flex items-center justify-center">
                   <FileCode2 className="h-6 w-6 text-purple-600" />
@@ -443,19 +494,24 @@ export default function RecebimentosXml() {
                       <Input
                         placeholder="Buscar por guia, paciente, código..."
                         value={busca}
-                        onChange={(e) => setBusca(e.target.value)}
+                        onChange={e => setBusca(e.target.value)}
                         className="pl-10"
                       />
                     </div>
                   </div>
-                  <Select value={filtroConvenio} onValueChange={setFiltroConvenio}>
+                  <Select
+                    value={filtroConvenio}
+                    onValueChange={setFiltroConvenio}
+                  >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Todos Convênios" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos Convênios</SelectItem>
                       {convenios?.map((c: any) => (
-                        <SelectItem key={c.id} value={c.id.toString()}>{c.nome}</SelectItem>
+                        <SelectItem key={c.id} value={c.id.toString()}>
+                          {c.nome}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -466,7 +522,9 @@ export default function RecebimentosXml() {
                     <SelectContent>
                       <SelectItem value="all">Todos Meses</SelectItem>
                       {meses.map(m => (
-                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -477,7 +535,9 @@ export default function RecebimentosXml() {
                     <SelectContent>
                       <SelectItem value="all">Todos Anos</SelectItem>
                       {anos.map(a => (
-                        <SelectItem key={a} value={a.toString()}>{a}</SelectItem>
+                        <SelectItem key={a} value={a.toString()}>
+                          {a}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -506,9 +566,16 @@ export default function RecebimentosXml() {
                 ) : items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <FileCode2 className="h-16 w-16 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-medium text-slate-600">Nenhum recebimento XML encontrado</h3>
-                    <p className="text-sm text-slate-400 mt-1">Importe arquivos XML de retorno na aba "Importar XML"</p>
-                    <Button className="mt-4" onClick={() => setActiveTab("upload")}>
+                    <h3 className="text-lg font-medium text-slate-600">
+                      Nenhum recebimento XML encontrado
+                    </h3>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Importe arquivos XML de retorno na aba "Importar XML"
+                    </p>
+                    <Button
+                      className="mt-4"
+                      onClick={() => setActiveTab("upload")}
+                    >
                       <UploadIcon className="h-4 w-4 mr-2" /> Importar XML
                     </Button>
                   </div>
@@ -523,33 +590,73 @@ export default function RecebimentosXml() {
                             <TableHead>Beneficiário</TableHead>
                             <TableHead>Código</TableHead>
                             <TableHead>Descrição</TableHead>
-                            <TableHead className="text-right">Vl. Informado</TableHead>
-                            <TableHead className="text-right">Vl. Pago</TableHead>
-                            <TableHead className="text-right">Vl. Glosa</TableHead>
+                            <TableHead className="text-right">
+                              Vl. Informado
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Vl. Pago
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Vl. Glosa
+                            </TableHead>
                             <TableHead>Cód. Glosa</TableHead>
                             <TableHead>Data</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {items.map((item: any, idx: number) => {
-                            const valorGlosa = parseFloat(item.valorGlosa || "0");
-                            const valorPago = parseFloat(item.valorLiberado || "0");
+                            const valorGlosa = parseFloat(
+                              item.valorGlosa || "0"
+                            );
+                            const valorPago = parseFloat(
+                              item.valorLiberado || "0"
+                            );
                             return (
-                              <TableRow key={item.id || idx} className={valorGlosa > 0 ? "bg-red-50/50" : ""}>
-                                <TableCell className="font-mono text-xs">{item.numeroProtocolo || "-"}</TableCell>
-                                <TableCell className="font-mono text-xs">{item.numeroGuiaPrestador || "-"}</TableCell>
-                                <TableCell className="max-w-[150px] truncate text-sm">{item.nomeBeneficiario || "-"}</TableCell>
-                                <TableCell className="font-mono text-xs">{item.codigoProcedimento || "-"}</TableCell>
-                                <TableCell className="max-w-[200px] truncate text-sm">{item.descricaoProcedimento || "-"}</TableCell>
-                                <TableCell className="text-right text-sm">{formatCurrency(item.valorInformado)}</TableCell>
-                                <TableCell className="text-right text-sm font-medium text-green-700">{formatCurrency(item.valorLiberado)}</TableCell>
-                                <TableCell className="text-right text-sm font-medium text-red-600">{valorGlosa > 0 ? formatCurrency(valorGlosa) : "-"}</TableCell>
+                              <TableRow
+                                key={item.id || idx}
+                                className={valorGlosa > 0 ? "bg-red-50/50" : ""}
+                              >
+                                <TableCell className="font-mono text-xs">
+                                  {item.numeroProtocolo || "-"}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {item.numeroGuiaPrestador || "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[150px] truncate text-sm">
+                                  {item.nomeBeneficiario || "-"}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {item.codigoProcedimento || "-"}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate text-sm">
+                                  {item.descricaoProcedimento || "-"}
+                                </TableCell>
+                                <TableCell className="text-right text-sm">
+                                  {formatCurrency(item.valorInformado)}
+                                </TableCell>
+                                <TableCell className="text-right text-sm font-medium text-green-700">
+                                  {formatCurrency(item.valorLiberado)}
+                                </TableCell>
+                                <TableCell className="text-right text-sm font-medium text-red-600">
+                                  {valorGlosa > 0
+                                    ? formatCurrency(valorGlosa)
+                                    : "-"}
+                                </TableCell>
                                 <TableCell>
                                   {item.codigoGlosa ? (
-                                    <Badge variant="destructive" className="text-xs font-mono">{item.codigoGlosa}</Badge>
-                                  ) : "-"}
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs font-mono"
+                                    >
+                                      {item.codigoGlosa}
+                                    </Badge>
+                                  ) : (
+                                    "-"
+                                  )}
                                 </TableCell>
-                                <TableCell className="text-xs">{formatDateBR(item.dataRealizacao)}</TableCell>
+                                <TableCell className="text-xs">
+                                  {formatDateBR(item.dataRealizacao)}
+                                </TableCell>
                               </TableRow>
                             );
                           })}
@@ -560,14 +667,30 @@ export default function RecebimentosXml() {
                     {/* Paginação */}
                     <div className="flex items-center justify-between px-6 py-4 border-t">
                       <p className="text-sm text-slate-500">
-                        Mostrando {((page - 1) * pageSize) + 1} a {Math.min(page * pageSize, totalItems)} de {totalItems.toLocaleString("pt-BR")} itens
+                        Mostrando {(page - 1) * pageSize + 1} a{" "}
+                        {Math.min(page * pageSize, totalItems)} de{" "}
+                        {totalItems.toLocaleString("pt-BR")} itens
                       </p>
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPage(p => Math.max(1, p - 1))}
+                          disabled={page <= 1}
+                        >
                           <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        <span className="text-sm text-slate-600">Página {page} de {totalPages || 1}</span>
-                        <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                        <span className="text-sm text-slate-600">
+                          Página {page} de {totalPages || 1}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setPage(p => Math.min(totalPages, p + 1))
+                          }
+                          disabled={page >= totalPages}
+                        >
                           <ChevronRight className="h-4 w-4" />
                         </Button>
                       </div>
@@ -588,40 +711,63 @@ export default function RecebimentosXml() {
                     Importar XML de Retorno
                   </CardTitle>
                   <CardDescription>
-                    Arraste e solte arquivos XML/TXT de retorno dos convênios. Os dados serão processados e consolidados no Demonstrativo automaticamente.
+                    Arraste e solte arquivos XML/TXT de retorno dos convênios.
+                    Os dados serão processados e consolidados no Demonstrativo
+                    automaticamente.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
                   {/* Drop Zone */}
                   <div
                     className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
-                      isDragOver ? "border-blue-500 bg-blue-50 scale-[1.02]" :
-                      selectedFiles.length > 0 ? "border-green-300 bg-green-50" :
-                      "border-slate-200 hover:border-blue-400 hover:bg-slate-50"
+                      isDragOver
+                        ? "border-blue-500 bg-blue-50 scale-[1.02]"
+                        : selectedFiles.length > 0
+                          ? "border-green-300 bg-green-50"
+                          : "border-slate-200 hover:border-blue-400 hover:bg-slate-50"
                     }`}
                     onClick={() => fileInputRef.current?.click()}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                   >
-                    <input ref={fileInputRef} type="file" accept=".xml,.txt" onChange={handleFileChange} className="hidden" multiple />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xml,.txt"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      multiple
+                    />
                     {isDragOver ? (
                       <div className="flex flex-col items-center gap-3">
                         <Files className="h-12 w-12 text-blue-500 animate-bounce" />
-                        <p className="font-medium text-blue-600">Solte os arquivos XML/TXT aqui</p>
+                        <p className="font-medium text-blue-600">
+                          Solte os arquivos XML/TXT aqui
+                        </p>
                       </div>
                     ) : selectedFiles.length > 0 ? (
                       <div className="flex flex-col items-center gap-3">
                         <CheckCircle2 className="h-12 w-12 text-green-500" />
-                        <p className="font-medium text-slate-900">{selectedFiles.length} arquivo(s) selecionado(s)</p>
-                        <p className="text-sm text-slate-500">Clique ou arraste para adicionar mais</p>
+                        <p className="font-medium text-slate-900">
+                          {selectedFiles.length} arquivo(s) selecionado(s)
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Clique ou arraste para adicionar mais
+                        </p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-3">
                         <UploadIcon className="h-12 w-12 text-slate-400" />
-                        <p className="font-medium text-slate-900">Arraste e solte os arquivos XML aqui</p>
-                        <p className="text-sm text-slate-500">ou clique para selecionar</p>
-                        <p className="text-xs text-slate-400">Apenas arquivos XML de retorno dos convênios</p>
+                        <p className="font-medium text-slate-900">
+                          Arraste e solte os arquivos XML aqui
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          ou clique para selecionar
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          Apenas arquivos XML de retorno dos convênios
+                        </p>
                       </div>
                     )}
                   </div>
@@ -631,25 +777,51 @@ export default function RecebimentosXml() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label>Arquivos selecionados</Label>
-                        <Button variant="ghost" size="sm" onClick={clearAllFiles} className="text-xs h-auto py-1">Limpar todos</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearAllFiles}
+                          className="text-xs h-auto py-1"
+                        >
+                          Limpar todos
+                        </Button>
                       </div>
                       <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
                         {selectedFiles.map((item, index) => (
-                          <div key={index} className={`flex items-center justify-between p-2 rounded-lg text-sm ${
-                            item.status === "success" ? "bg-green-50 text-green-700" :
-                            item.status === "error" ? "bg-red-50 text-red-700" :
-                            item.status === "uploading" ? "bg-blue-50 text-blue-700" :
-                            "bg-slate-50 text-slate-700"
-                          }`}>
+                          <div
+                            key={index}
+                            className={`flex items-center justify-between p-2 rounded-lg text-sm ${
+                              item.status === "success"
+                                ? "bg-green-50 text-green-700"
+                                : item.status === "error"
+                                  ? "bg-red-50 text-red-700"
+                                  : item.status === "uploading"
+                                    ? "bg-blue-50 text-blue-700"
+                                    : "bg-slate-50 text-slate-700"
+                            }`}
+                          >
                             <div className="flex items-center gap-2 min-w-0">
-                              {item.status === "uploading" ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> :
-                               item.status === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> :
-                               item.status === "error" ? <AlertCircle className="h-4 w-4 shrink-0" /> :
-                               <FileText className="h-4 w-4 shrink-0" />}
+                              {item.status === "uploading" ? (
+                                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                              ) : item.status === "success" ? (
+                                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                              ) : item.status === "error" ? (
+                                <AlertCircle className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <FileText className="h-4 w-4 shrink-0" />
+                              )}
                               <span className="truncate">{item.file.name}</span>
                             </div>
                             {item.status === "pending" && (
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); removeFile(index); }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  removeFile(index);
+                                }}
+                              >
                                 <X className="h-3 w-3" />
                               </Button>
                             )}
@@ -658,9 +830,19 @@ export default function RecebimentosXml() {
                       </div>
                       {(successCountFiles > 0 || errorCountFiles > 0) && (
                         <div className="flex gap-4 text-xs text-slate-500 pt-2">
-                          {successCountFiles > 0 && <span className="text-green-600">✓ {successCountFiles} importado(s)</span>}
-                          {errorCountFiles > 0 && <span className="text-red-600">✗ {errorCountFiles} com erro</span>}
-                          {pendingCount > 0 && <span>• {pendingCount} pendente(s)</span>}
+                          {successCountFiles > 0 && (
+                            <span className="text-green-600">
+                              ✓ {successCountFiles} importado(s)
+                            </span>
+                          )}
+                          {errorCountFiles > 0 && (
+                            <span className="text-red-600">
+                              ✗ {errorCountFiles} com erro
+                            </span>
+                          )}
+                          {pendingCount > 0 && (
+                            <span>• {pendingCount} pendente(s)</span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -671,10 +853,15 @@ export default function RecebimentosXml() {
                     <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
                       <div className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                        <span className="font-medium text-blue-900">Importando XMLs...</span>
+                        <span className="font-medium text-blue-900">
+                          Importando XMLs...
+                        </span>
                       </div>
                       <Progress value={uploadProgress} className="h-2" />
-                      <p className="text-xs text-blue-600">Os dados serão sincronizados automaticamente com o Demonstrativo.</p>
+                      <p className="text-xs text-blue-600">
+                        Os dados serão sincronizados automaticamente com o
+                        Demonstrativo.
+                      </p>
                     </div>
                   )}
 
@@ -683,11 +870,17 @@ export default function RecebimentosXml() {
                     <div className="space-y-2">
                       <Label>Convênio</Label>
                       <Select value={convenioId} onValueChange={setConvenioId}>
-                        <SelectTrigger><SelectValue placeholder="Selecione um convênio" /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um convênio" />
+                        </SelectTrigger>
                         <SelectContent>
                           {convenios?.map((conv: any) => (
-                            <SelectItem key={conv.id} value={conv.id.toString()}>
-                              {conv.nome} {conv.codigo ? `(${conv.codigo})` : ""}
+                            <SelectItem
+                              key={conv.id}
+                              value={conv.id.toString()}
+                            >
+                              {conv.nome}{" "}
+                              {conv.codigo ? `(${conv.codigo})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -695,51 +888,71 @@ export default function RecebimentosXml() {
                     </div>
                     <div className="space-y-2">
                       <Label>Estabelecimento</Label>
-                      {prestadorDetectado ? (
-                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center gap-2 text-green-700 text-sm">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="font-medium">Detectado: {prestadorDetectado.estabelecimentoNome}</span>
-                          </div>
-                          <Button variant="ghost" size="sm" className="mt-1 h-auto py-0 px-1 text-xs text-green-700" onClick={() => { setPrestadorDetectado(null); setEstabelecimentoSelecionado(""); }}>
-                            Alterar
-                          </Button>
-                        </div>
-                      ) : (
-                        <Select value={estabelecimentoSelecionado || (estabelecimentoAtual?.id?.toString() || "")} onValueChange={setEstabelecimentoSelecionado}>
-                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                          <SelectContent>
-                            {estabelecimentos?.map((est: any) => (
-                              <SelectItem key={est.id} value={est.id.toString()}>{est.nome}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                      {isDetectando && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin" /> Detectando prestador...
-                        </div>
-                      )}
+                      <Select
+                        value={
+                          estabelecimentoSelecionado ||
+                          estabelecimentoAtual?.id?.toString() ||
+                          ""
+                        }
+                        onValueChange={setEstabelecimentoSelecionado}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {estabelecimentos?.map((est: any) => (
+                            <SelectItem key={est.id} value={est.id.toString()}>
+                              {est.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Data de Referência (opcional)</Label>
-                      <Input type="date" value={dataReferencia} onChange={(e) => setDataReferencia(e.target.value)} />
+                      <Input
+                        type="date"
+                        value={dataReferencia}
+                        onChange={e => setDataReferencia(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Data de Pagamento (opcional)</Label>
-                      <Input type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
-                      <p className="text-xs text-muted-foreground">Para cálculo do prazo de recurso de glosa</p>
+                      <Input
+                        type="date"
+                        value={dataPagamento}
+                        onChange={e => setDataPagamento(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Para cálculo do prazo de recurso de glosa
+                      </p>
                     </div>
                   </div>
 
-                  <Button className="w-full" size="lg" onClick={handleUpload} disabled={selectedFiles.length === 0 || !convenioId || isUploading || pendingCount === 0}>
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={handleUpload}
+                    disabled={
+                      selectedFiles.length === 0 ||
+                      !convenioId ||
+                      isUploading ||
+                      pendingCount === 0
+                    }
+                  >
                     {isUploading ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importando...</>
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />{" "}
+                        Importando...
+                      </>
                     ) : (
-                      <><UploadIcon className="h-4 w-4 mr-2" /> Importar {pendingCount > 0 ? `${pendingCount} XML(s)` : "XMLs"}</>
+                      <>
+                        <UploadIcon className="h-4 w-4 mr-2" /> Importar{" "}
+                        {pendingCount > 0 ? `${pendingCount} XML(s)` : "XMLs"}
+                      </>
                     )}
                   </Button>
                 </CardContent>
@@ -754,20 +967,33 @@ export default function RecebimentosXml() {
                   <CardContent className="space-y-4">
                     <div className="flex gap-3">
                       <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                        <span className="text-sm font-medium text-blue-600">1</span>
+                        <span className="text-sm font-medium text-blue-600">
+                          1
+                        </span>
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">Selecione os XMLs de retorno</p>
-                        <p className="text-sm text-slate-500">Arraste ou clique para selecionar até {MAX_FILES} arquivos XML de retorno do convênio</p>
+                        <p className="font-medium text-slate-900">
+                          Selecione os XMLs de retorno
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Arraste ou clique para selecionar até {MAX_FILES}{" "}
+                          arquivos XML de retorno do convênio
+                        </p>
                       </div>
                     </div>
                     <div className="flex gap-3">
                       <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                        <span className="text-sm font-medium text-blue-600">2</span>
+                        <span className="text-sm font-medium text-blue-600">
+                          2
+                        </span>
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">Informe o convênio</p>
-                        <p className="text-sm text-slate-500">Selecione o convênio que enviou o retorno</p>
+                        <p className="font-medium text-slate-900">
+                          Informe o convênio
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Selecione o convênio que enviou o retorno
+                        </p>
                       </div>
                     </div>
                     <div className="flex gap-3">
@@ -775,8 +1001,13 @@ export default function RecebimentosXml() {
                         <CheckCircle2 className="h-4 w-4 text-green-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">Demonstrativo atualizado</p>
-                        <p className="text-sm text-slate-500">Os dados são processados e o Demonstrativo é populado automaticamente com os valores de pagamento e glosa</p>
+                        <p className="font-medium text-slate-900">
+                          Demonstrativo atualizado
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Os dados são processados e o Demonstrativo é populado
+                          automaticamente com os valores de pagamento e glosa
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -787,12 +1018,17 @@ export default function RecebimentosXml() {
                     <div className="flex gap-3">
                       <AlertCircle className="h-5 w-5 text-blue-600 shrink-0" />
                       <div>
-                        <p className="font-medium text-blue-900">Fluxo de dados</p>
+                        <p className="font-medium text-blue-900">
+                          Fluxo de dados
+                        </p>
                         <p className="text-sm text-blue-700">
-                          XML de retorno → Recebimentos XML → <strong>Demonstrativo</strong> (consolidado automaticamente)
+                          XML de retorno → Recebimentos XML →{" "}
+                          <strong>Demonstrativo</strong> (consolidado
+                          automaticamente)
                         </p>
                         <p className="text-sm text-blue-700 mt-2">
-                          O Demonstrativo consolida dados de Recebimentos XML e Recebimentos Excel.
+                          O Demonstrativo consolida dados de Recebimentos XML e
+                          Recebimentos Excel.
                         </p>
                       </div>
                     </div>
@@ -836,7 +1072,11 @@ function ArquivosImportadosTab({
   formatDate: (v: any) => string;
   onDeleted: () => void;
 }) {
-  const { data: arquivos, isLoading, refetch } = trpc.arquivos.list.useQuery(
+  const {
+    data: arquivos,
+    isLoading,
+    refetch,
+  } = trpc.arquivos.list.useQuery(
     {
       estabelecimentoId,
       direcao: "retornado",
@@ -846,16 +1086,26 @@ function ArquivosImportadosTab({
 
   const deleteMutation = trpc.arquivos.delete.useMutation({
     onSuccess: () => {
-      toast.success("Arquivo e todos os dados relacionados foram excluídos com sucesso!");
+      toast.success(
+        "Arquivo e todos os dados relacionados foram excluídos com sucesso!"
+      );
       refetch();
       onDeleted();
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Erro ao excluir: ${error.message}`);
     },
   });
 
-  const arquivosList = (arquivos as any[])?.filter((a: any) => a.direcao === "retornado" && (a.tipoArquivo === "xml" || a.tipoArquivo === "txt" || a.nome?.toLowerCase().endsWith(".xml") || a.nome?.toLowerCase().endsWith(".txt"))) || [];
+  const arquivosList =
+    (arquivos as any[])?.filter(
+      (a: any) =>
+        a.direcao === "retornado" &&
+        (a.tipoArquivo === "xml" ||
+          a.tipoArquivo === "txt" ||
+          a.nome?.toLowerCase().endsWith(".xml") ||
+          a.nome?.toLowerCase().endsWith(".txt"))
+    ) || [];
 
   return (
     <Card className="border-0 shadow-sm">
@@ -865,7 +1115,9 @@ function ArquivosImportadosTab({
           Arquivos XML Importados
         </CardTitle>
         <CardDescription>
-          Lista de arquivos XML de retorno importados. Ao excluir um arquivo, todos os dados relacionados (recebimentos e demonstrativo) serão removidos automaticamente.
+          Lista de arquivos XML de retorno importados. Ao excluir um arquivo,
+          todos os dados relacionados (recebimentos e demonstrativo) serão
+          removidos automaticamente.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -877,7 +1129,9 @@ function ArquivosImportadosTab({
           <div className="text-center py-12 text-slate-500">
             <FileCode2 className="h-12 w-12 mx-auto mb-3 text-slate-300" />
             <p className="font-medium">Nenhum arquivo XML importado</p>
-            <p className="text-sm mt-1">Importe arquivos XML na aba "Importar XML"</p>
+            <p className="text-sm mt-1">
+              Importe arquivos XML na aba "Importar XML"
+            </p>
           </div>
         ) : (
           <Table>
@@ -900,23 +1154,40 @@ function ArquivosImportadosTab({
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <FileCode2 className="h-4 w-4 text-blue-500" />
-                      <span className="truncate max-w-[250px]">{arquivo.nome}</span>
+                      <span className="truncate max-w-[250px]">
+                        {arquivo.nome}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell>{arquivo.convenioNome || "-"}</TableCell>
                   <TableCell>{formatDateBR(arquivo.createdAt)}</TableCell>
-                  <TableCell className="text-right">{arquivo.totalItens || "-"}</TableCell>
+                  <TableCell className="text-right">
+                    {arquivo.totalItens || "-"}
+                  </TableCell>
                   <TableCell className="text-right text-sm font-medium">
-                    {arquivo.valorTotalInformado ? formatCurrency(arquivo.valorTotalInformado) : "-"}
+                    {arquivo.valorTotalInformado
+                      ? formatCurrency(arquivo.valorTotalInformado)
+                      : "-"}
                   </TableCell>
                   <TableCell className="text-right text-sm font-medium text-green-700">
-                    {arquivo.valorTotalLiberado ? formatCurrency(arquivo.valorTotalLiberado) : "-"}
+                    {arquivo.valorTotalLiberado
+                      ? formatCurrency(arquivo.valorTotalLiberado)
+                      : "-"}
                   </TableCell>
                   <TableCell className="text-right text-sm font-medium text-red-600">
-                    {arquivo.valorTotalGlosado > 0 ? formatCurrency(arquivo.valorTotalGlosado) : "-"}
+                    {arquivo.valorTotalGlosado > 0
+                      ? formatCurrency(arquivo.valorTotalGlosado)
+                      : "-"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={arquivo.status === "processado" ? "default" : "secondary"} className="text-xs">
+                    <Badge
+                      variant={
+                        arquivo.status === "processado"
+                          ? "default"
+                          : "secondary"
+                      }
+                      className="text-xs"
+                    >
                       {arquivo.status || "pendente"}
                     </Badge>
                   </TableCell>
@@ -938,21 +1209,29 @@ function ArquivosImportadosTab({
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Excluir arquivo e dados relacionados?</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            Excluir arquivo e dados relacionados?
+                          </AlertDialogTitle>
                           <AlertDialogDescription>
-                            Esta ação irá excluir o arquivo <strong>{arquivo.nome}</strong> e todos os dados relacionados:
+                            Esta ação irá excluir o arquivo{" "}
+                            <strong>{arquivo.nome}</strong> e todos os dados
+                            relacionados:
                             <ul className="list-disc ml-4 mt-2 space-y-1">
                               <li>Itens de recebimento TISS</li>
                               <li>Registros no demonstrativo</li>
                             </ul>
-                            <p className="mt-2 font-medium text-red-600">Esta ação não pode ser desfeita.</p>
+                            <p className="mt-2 font-medium text-red-600">
+                              Esta ação não pode ser desfeita.
+                            </p>
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancelar</AlertDialogCancel>
                           <AlertDialogAction
                             className="bg-red-600 hover:bg-red-700"
-                            onClick={() => deleteMutation.mutate({ id: arquivo.id })}
+                            onClick={() =>
+                              deleteMutation.mutate({ id: arquivo.id })
+                            }
                           >
                             Excluir
                           </AlertDialogAction>

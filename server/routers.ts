@@ -240,6 +240,44 @@ export function mapTipoDespesaParaTipoItem(tipoDespesa?: string): string {
   }
 }
 
+function arquivoEhLoteXmlProtegido(arquivo: {
+  s3Key?: string | null;
+  s3Url?: string | null;
+}): boolean {
+  return arquivo.s3Key === "xml-importacao-protegido" && !arquivo.s3Url;
+}
+
+async function obterArquivoAutorizado(
+  user: { id: number; role: string },
+  arquivoId: number,
+  permissao: "visualizar" | "editar" | "excluir"
+) {
+  const arquivo = await db.getArquivoById(arquivoId);
+  if (!arquivo) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Arquivo não encontrado",
+    });
+  }
+  const estabelecimentoId = Number(arquivo.estabelecimentoId);
+  const permitido =
+    user.role === "admin" ||
+    (Number.isSafeInteger(estabelecimentoId) &&
+      estabelecimentoId > 0 &&
+      (await db.verificarPermissaoEstabelecimento(
+        user.id,
+        estabelecimentoId,
+        permissao
+      )));
+  if (!permitido) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Sem acesso ao arquivo selecionado.",
+    });
+  }
+  return arquivo;
+}
+
 export const appRouter = router({
   system: systemRouter,
   relatorioAtendimentos: relatorioAtendimentosRouter,
@@ -619,9 +657,26 @@ export const appRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
+        const estabelecimentoId = input?.estabelecimentoId;
+        if (!Number.isSafeInteger(estabelecimentoId) || !estabelecimentoId) {
+          return [];
+        }
+        if (ctx.user.role !== "admin") {
+          const permitido = await db.verificarPermissaoEstabelecimento(
+            ctx.user.id,
+            estabelecimentoId,
+            "visualizar"
+          );
+          if (!permitido) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Sem acesso ao estabelecimento selecionado.",
+            });
+          }
+        }
         const arquivosList = await db.getArquivos({
           ...input,
-          estabelecimentoId: input?.estabelecimentoId,
+          estabelecimentoId,
           dataInicio: input?.dataInicio
             ? new Date(input.dataInicio)
             : undefined,
@@ -633,166 +688,61 @@ export const appRouter = router({
         if (arquivoIds.length > 0) {
           const totais = await db.getValorTotalPorArquivos(arquivoIds);
           return arquivosList.map((a: any) => ({
-            ...a,
+            ...(() => {
+              const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
+              return {
+                ...arquivoPublico,
+                loteProtegido: arquivoEhLoteXmlProtegido(a),
+              };
+            })(),
             valorTotalInformado: totais[a.id]?.valorInformado || 0,
             valorTotalLiberado: totais[a.id]?.valorLiberado || 0,
             valorTotalGlosado: totais[a.id]?.valorGlosado || 0,
           }));
         }
-        return arquivosList;
+        return arquivosList.map((a: any) => {
+          const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
+          return {
+            ...arquivoPublico,
+            loteProtegido: arquivoEhLoteXmlProtegido(a),
+          };
+        });
       }),
 
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return db.getArquivoById(input.id);
+      .query(async ({ input, ctx }) => {
+        const arquivo = await obterArquivoAutorizado(
+          ctx.user,
+          input.id,
+          "visualizar"
+        );
+        const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = arquivo;
+        return {
+          ...arquivoPublico,
+          loteProtegido: arquivoEhLoteXmlProtegido(arquivo),
+        };
       }),
 
     stats: protectedProcedure.query(async ({ ctx }) => {
       return db.getArquivosStats(ctx.user.id);
     }),
 
-    // Detectar prestadores de um XML antes da importação
+    // Descontinuada: XML de envio segue somente pelo lote multipart protegido.
     detectarPrestadores: protectedProcedure
       .input(
         z.object({
-        conteudo: z.string(), // Base64 encoded XML
+          conteudo: z.string(), // Contrato legado, não é mais processado.
         convenioId: z.number().optional(),
         })
       )
       .mutation(async ({ input }) => {
-        try {
-          // Decode base64 content
-          const buffer = Buffer.from(input.conteudo, "base64");
-          const xmlContent = buffer.toString("utf-8");
-
-          // Extrair códigos de prestadores do XML
-          const { extractPrestadoresFromXML } = await import("./parsers");
-          const codigosPrestadores =
-            await extractPrestadoresFromXML(xmlContent);
-
-          // Buscar estabelecimentos associados a cada código
-          const estabelecimentosEncontrados: Array<{
-            codigoPrestador: string;
-            estabelecimentoId: number;
-            estabelecimentoNome: string;
-            convenioNome: string;
-          }> = [];
-
-          for (const codigo of codigosPrestadores) {
-            const prestador = await db.getPrestadorPorCodigo(
-              codigo,
-              input.convenioId
-            );
-            if (prestador) {
-              estabelecimentosEncontrados.push({
-                codigoPrestador: codigo,
-                estabelecimentoId: prestador.estabelecimentoId,
-                estabelecimentoNome: prestador.estabelecimentoNome,
-                convenioNome: prestador.convenioNome,
-              });
-            }
-          }
-
-          // Determinar o estabelecimento sugerido (o mais frequente ou o primeiro)
-          const estabelecimentoSugerido =
-            estabelecimentosEncontrados.length > 0
-            ? estabelecimentosEncontrados[0]
-            : null;
-
-          // Identificar prestadores não cadastrados
-          const prestadoresNaoCadastrados = codigosPrestadores.filter(
-            codigo =>
-              !estabelecimentosEncontrados.find(
-                e => e.codigoPrestador === codigo
-              )
-          );
-
-          // Cadastrar automaticamente prestadores não cadastrados como "terceiros"
-          // Usa o mesmo convênio e estabelecimento do prestador principal detectado
-          const prestadoresCadastradosAuto: string[] = [];
-          if (
-            prestadoresNaoCadastrados.length > 0 &&
-            estabelecimentoSugerido &&
-            input.convenioId
-          ) {
-            const { convenioEstabelecimentoPrestador } = await import(
-              "../drizzle/schema"
-            );
-            const { getDb } = await import("./db");
-            const drizzleDb = await getDb();
-            if (!drizzleDb) throw new Error("Database não disponível");
-
-            for (const codigo of prestadoresNaoCadastrados) {
-              try {
-                // Verificar se já não existe (pode ter sido cadastrado entre a detecção e agora)
-                const existente = await drizzleDb
-                  .select()
-                  .from(convenioEstabelecimentoPrestador)
-                  .where(
-                    and(
-                      eq(
-                        convenioEstabelecimentoPrestador.codigoPrestador,
-                        codigo
-                      ),
-                      eq(
-                        convenioEstabelecimentoPrestador.convenioId,
-                        input.convenioId
-                      ),
-                      eq(
-                        convenioEstabelecimentoPrestador.estabelecimentoId,
-                        estabelecimentoSugerido.estabelecimentoId
-                      )
-                    )
-                  )
-                  .limit(1);
-
-                if (existente.length === 0) {
-                  await drizzleDb
-                    .insert(convenioEstabelecimentoPrestador)
-                    .values({
-                    convenioId: input.convenioId,
-                      estabelecimentoId:
-                        estabelecimentoSugerido.estabelecimentoId,
-                    codigoPrestador: codigo,
-                    nomePrestador: `Terceiro - ${codigo}`,
-                    tipoPrestador: "terceiro",
-                    ativo: "sim",
+        void input;
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A detecção automática por XML foi substituída pelo lote protegido. Selecione o estabelecimento e o convênio antes do envio.",
                   });
-                  prestadoresCadastradosAuto.push(codigo);
-                  console.log(
-                    `[detectarPrestadores] Prestador terceiro cadastrado automaticamente: ${codigo} (conv: ${input.convenioId}, estab: ${estabelecimentoSugerido.estabelecimentoId})`
-                  );
-                }
-              } catch (err) {
-                console.error(
-                  `[detectarPrestadores] Erro ao cadastrar prestador ${codigo}:`,
-                  err
-                );
-              }
-            }
-          }
-
-          return {
-            success: true,
-            codigosPrestadores,
-            estabelecimentosEncontrados,
-            estabelecimentoSugerido,
-            prestadoresNaoCadastrados,
-            prestadoresCadastradosAuto,
-          };
-        } catch (error) {
-          console.error("[detectarPrestadores] Erro:", error);
-          return {
-            success: false,
-            codigosPrestadores: [],
-            estabelecimentosEncontrados: [],
-            estabelecimentoSugerido: null,
-            prestadoresNaoCadastrados: [],
-            error:
-              error instanceof Error ? error.message : "Erro ao processar XML",
-          };
-        }
       }),
 
     upload: protectedProcedure
@@ -836,6 +786,14 @@ export const appRouter = router({
             input.estabelecimentoId,
             "editar"
           );
+        }
+
+        if (input.tipoArquivo === "xml" && input.direcao === "enviado") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Envie XMLs de guias pelo lote protegido na tela de Upload.",
+          });
         }
 
         // Decode base64 content
@@ -976,7 +934,13 @@ export const appRouter = router({
 
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 32) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "O processamento interno não está configurado.",
+          });
+        }
         fetch(internalUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -999,7 +963,8 @@ export const appRouter = router({
 
     procedimentos: protectedProcedure
       .input(z.object({ arquivoId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        await obterArquivoAutorizado(ctx.user, input.arquivoId, "visualizar");
         // Buscar de faturamento_tiss em vez da tabela procedimentos (removida)
         return db.getFaturamentoTissByArquivo(input.arquivoId);
       }),
@@ -1007,18 +972,16 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        // Verify the file belongs to the user
-        const arquivo = await db.getArquivoById(input.id);
-        if (!arquivo) {
+        const arquivo = await obterArquivoAutorizado(
+          ctx.user,
+          input.id,
+          "excluir"
+        );
+        if (arquivoEhLoteXmlProtegido(arquivo)) {
           throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Arquivo não encontrado",
-                    });
-                }
-        if (arquivo.userId !== ctx.user.id && ctx.user.role !== "admin") {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Você não tem permissão para excluir este arquivo",
+            code: "BAD_REQUEST",
+            message:
+              "O XML protegido pertence a um lote coordenado e não pode ser excluído por esta ação.",
           });
               }
         // Delete associated faturamento_tiss
@@ -1129,18 +1092,16 @@ export const appRouter = router({
     reprocessar: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        // Get the arquivo
-        const arquivo = await db.getArquivoById(input.id);
-        if (!arquivo) {
+        const arquivo = await obterArquivoAutorizado(
+          ctx.user,
+          input.id,
+          "editar"
+        );
+        if (arquivoEhLoteXmlProtegido(arquivo)) {
           throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Arquivo não encontrado",
-          });
-        }
-        if (arquivo.userId !== ctx.user.id) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Você não tem permissão para reprocessar este arquivo",
+            code: "BAD_REQUEST",
+            message:
+              "O XML protegido é retomado pelo worker do lote, não pelo reprocessamento legado.",
           });
         }
 
@@ -1152,7 +1113,13 @@ export const appRouter = router({
         // O Cloud Run mantém a instância viva enquanto há requests em andamento
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 32) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "O processamento interno não está configurado.",
+          });
+        }
 
         fetch(internalUrl, {
           method: "POST",
@@ -1192,9 +1159,12 @@ export const appRouter = router({
     // Verificar status de um arquivo específico
     status: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        const arquivo = await db.getArquivoById(input.id);
-        if (!arquivo) return null;
+      .query(async ({ input, ctx }) => {
+        const arquivo = await obterArquivoAutorizado(
+          ctx.user,
+          input.id,
+          "visualizar"
+        );
         return {
           id: arquivo.id,
           nome: arquivo.nome,

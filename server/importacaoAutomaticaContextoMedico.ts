@@ -31,6 +31,14 @@ export type DependenciasRoteamentoEnvioXml = {
   >;
 };
 
+export type OpcoesRoteamentoEnvioXml = {
+  /** Allowlist interna do lote, não aceita do navegador nem exposta em resposta. */
+  arquivoHospitalIdsPermitidos?: readonly number[];
+  loteImportacaoId?: number;
+  /** Fencing interno do worker; nunca vem de payload/DTO. */
+  loteClaim?: { id: number; claimToken: string };
+};
+
 /**
  * Fronteira única antes do fluxo financeiro de um XML de envio.
  *
@@ -42,7 +50,8 @@ export type DependenciasRoteamentoEnvioXml = {
 export async function rotearEnvioXmlParaContextoMedico(
   arquivo: ArquivoMedicoAutomatico,
   xml: Buffer,
-  deps: DependenciasRoteamentoEnvioXml = {}
+  deps: DependenciasRoteamentoEnvioXml = {},
+  opcoes: OpcoesRoteamentoEnvioXml = {}
 ): Promise<ResultadoRoteamentoEnvioXml> {
   const classificacao = classificarXmlHonorarios(xml);
   if (classificacao.tipo === "nao_honorarios") return { destino: "financeiro" };
@@ -52,7 +61,13 @@ export async function rotearEnvioXmlParaContextoMedico(
   const service =
     deps.criarServico?.() ?? criarServicoContaContextoMedicoParaUsuario(0);
   try {
-    const resultado = await service.indexarAutomaticamente({ arquivo, xml });
+    const resultado = await service.indexarAutomaticamente({
+      arquivo,
+      xml,
+      arquivoHospitalIdsPermitidos: opcoes.arquivoHospitalIdsPermitidos,
+      loteImportacaoId: opcoes.loteImportacaoId,
+      loteClaim: opcoes.loteClaim,
+    });
     return {
       destino: "contexto_informativo",
       indexadas: resultado.indexadas,

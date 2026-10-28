@@ -422,7 +422,7 @@ export async function updateArquivo(id: number, data: Partial<InsertArquivo>) {
 export async function getArquivos(filters?: {
   convenioId?: number;
   direcao?: "enviado" | "retornado";
-  tipoArquivo?: "xml" | "excel" | "pdf";
+  tipoArquivo?: "xml" | "excel" | "pdf" | "csv" | "txt";
   status?: "pendente" | "processado" | "erro";
   userId?: number;
   estabelecimentoId?: number;
@@ -18182,6 +18182,44 @@ export async function insertFaturamentoTissBatch(
 
   console.log(`[DB] Inserção faturamento_tiss concluída: ${inserted} registros em ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
   return inserted;
+}
+
+/**
+ * Substitui a versão materializada de um único XML hospitalar de forma atômica.
+ * Nunca deve ser usado para uma carga sem `arquivoId`: se qualquer INSERT
+ * falhar, o conjunto anterior do arquivo é preservado pela transação.
+ */
+export async function replaceFaturamentoTissByArquivo(
+  arquivoId: number,
+  records: InsertFaturamentoTiss[],
+  lote?: { id: number; claimToken: string },
+): Promise<number> {
+  if (!Number.isSafeInteger(arquivoId) || arquivoId <= 0) {
+    throw new Error("Arquivo inválido para substituição TISS");
+  }
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+  await db.transaction(async tx => {
+    if (lote) {
+      const lease = await tx.execute(sql`
+        SELECT id FROM xml_importacao_lotes
+        WHERE id = ${lote.id}
+          AND claim_token = ${lote.claimToken}
+          AND estado = 'processando'
+          AND lease_expires_at > NOW()
+        FOR UPDATE
+      `);
+      if (!(lease[0] as unknown as Array<{ id: number }>).length) {
+        throw new Error("LOTE_LEASE_PERDIDO");
+      }
+    }
+    await tx.delete(faturamentoTiss).where(eq(faturamentoTiss.arquivoId, arquivoId));
+    const batchSize = 1_000;
+    for (let start = 0; start < records.length; start += batchSize) {
+      await tx.insert(faturamentoTiss).values(records.slice(start, start + batchSize));
+    }
+  });
+  return records.length;
 }
 
 /**

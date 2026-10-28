@@ -16,6 +16,8 @@ import { atendimentosHopDiarioCallback } from "../atendimentosHopDiarioCallback"
 import { atendimentosHopProdutorRouter } from "../atendimentosHopProdutor";
 import { registrarDownloadProntuarioPdf } from "../prontuarioPdfDownload";
 import { registrarUploadProntuarioPdf } from "../prontuarioPdfUpload";
+import { xmlImportacaoLoteUploadRouter } from "../xmlImportacaoLoteUpload";
+import { initializeXmlImportacaoLoteWorker } from "../xmlImportacaoLoteWorker";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -54,6 +56,8 @@ async function startServer() {
   app.use(fileProcessorRouter);
   // Multipart upload route for large files (>16MB)
   app.use(uploadMultipartRouter);
+  // Lote XML coordenado: autentica antes do multipart e publica hospitalar antes de honorários.
+  app.use(xmlImportacaoLoteUploadRouter);
   // Callback agendado: identidade cron validada pelo SDK; nunca usa o body para escopo.
   app.post("/api/scheduled/easylocal-importar", easyLocalAgendamentoHandler);
   app.post("/api/scheduled/atendimentos-hop-diario", atendimentosHopDiarioCallback);
@@ -95,6 +99,7 @@ async function startServer() {
     console.error("Erro ao inicializar JobScheduler:", error);
   }
   initializeWarleineImportWorker();
+  initializeXmlImportacaoLoteWorker();
 }
 
 startServer().catch(console.error);

@@ -23,7 +23,7 @@ describe("sincronização da Conta Convênio", () => {
       "utf8"
     );
     const insertPosition = processor.indexOf(
-      "const totalProcessados = await db.insertFaturamentoTissBatch("
+      "const totalProcessados = await db.replaceFaturamentoTissByArquivo("
     );
     const syncPosition = processor.indexOf(
       "syncContaConvenioFromFaturamentoTiss"
@@ -46,5 +46,16 @@ describe("sincronização da Conta Convênio", () => {
     expect(processor).toContain("skipContaConvenioSync = false");
     expect(processor).toContain("if (skipContaConvenioSync)");
     expect(recoveryScript).toContain("skipContaConvenioSync: true");
+  });
+
+  it("preserva snapshots coordenados quando o caminho legado for executado", () => {
+    const source = readFileSync(
+      new URL("./syncContaConvenio.ts", import.meta.url),
+      "utf8"
+    );
+    expect(source).toContain("estrutura0142Completa(db)");
+    expect(source).toContain("const itemLegadoFiltro");
+    expect(source).toContain("AND loteImportacaoId IS NULL");
+    expect(source).toContain("const resumoLegadoFiltro");
   });
 });

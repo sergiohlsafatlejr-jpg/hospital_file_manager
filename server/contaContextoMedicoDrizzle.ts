@@ -14,6 +14,7 @@ import type {
 } from "../shared/contaContextoMedico";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
+import { estrutura0142Completa } from "./schema0142Capabilities";
 import { storageGet } from "./storage";
 import {
   ContaContextoMedicoErro,
@@ -35,7 +36,9 @@ const LIMITE_XML_BYTES = 16 * 1024 * 1024;
 const TIMEOUT_LEITURA_XML_MS = 15_000;
 
 type BancoDrizzle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
-type TransacaoDrizzle = Parameters<Parameters<BancoDrizzle["transaction"]>[0]>[0];
+type TransacaoDrizzle = Parameters<
+  Parameters<BancoDrizzle["transaction"]>[0]
+>[0];
 
 type ArquivoMedicoInterno = ArquivoMedicoAutorizado & { s3Url?: string | null };
 
@@ -45,11 +48,13 @@ type LinhaFonteDb = {
   convenioId: number;
   arquivoHospitalId: number;
   arquivoMedicoId: number;
+  loteImportacaoId: number | null;
   numeroConta: string;
   numeroLote: string;
   competencia: string;
   guiaReferencia: string;
   versaoSemantica: string;
+  versaoSnapshotHospitalar: string | null;
   registros: number;
   codigosDistintos: number;
   procedimentosJson: unknown;
@@ -87,27 +92,34 @@ export type LeitorXmlSeguroDependencias = {
   origensStoragePermitidas?: readonly string[];
 };
 
-export type ContaContextoMedicoDrizzleDependencias = LeitorXmlSeguroDependencias & {
-  /**
-   * Injeção para testes. A função padrão é lazy e só pede conexão em uma chamada
-   * do repositório, nunca ao importar ou construir o serviço.
-   */
-  getDb?: () => Promise<BancoDrizzle | null>;
-};
+export type ContaContextoMedicoDrizzleDependencias =
+  LeitorXmlSeguroDependencias & {
+    /**
+     * Injeção para testes. A função padrão é lazy e só pede conexão em uma chamada
+     * do repositório, nunca ao importar ou construir o serviço.
+     */
+    getDb?: () => Promise<BancoDrizzle | null>;
+  };
 
 function erroConfiguracao(): never {
   throw new ContaContextoMedicoErro(
     "CONFIGURACAO_PENDENTE",
-    "Contexto médico informativo ainda não está configurado para esta instalação.",
+    "Contexto médico informativo ainda não está configurado para esta instalação."
   );
 }
 
 function erroLeituraXml(): never {
-  throw new ContaContextoMedicoErro("PRECONDICAO", "Não foi possível abrir o XML médico autorizado.");
+  throw new ContaContextoMedicoErro(
+    "PRECONDICAO",
+    "Não foi possível abrir o XML médico autorizado."
+  );
 }
 
 function bancoIndisponivel(): never {
-  throw new ContaContextoMedicoErro("PRECONDICAO", "Não foi possível consultar o contexto médico no momento.");
+  throw new ContaContextoMedicoErro(
+    "PRECONDICAO",
+    "Não foi possível consultar o contexto médico no momento."
+  );
 }
 
 function texto(value: unknown): string | null {
@@ -119,7 +131,9 @@ function numero(value: unknown): number | null {
 }
 
 function inteiro(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : null;
 }
 
 function dataCivil(value: Date | string | null | undefined): string | null {
@@ -134,7 +148,7 @@ function dataCivil(value: Date | string | null | undefined): string | null {
 
 function registro(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -147,15 +161,19 @@ function procedimentosSanitizados(value: unknown): ProcedimentoMedicoInfo[] {
     const descricao = texto(source?.descricao);
     if (!source || !codigo || !descricao) continue;
     const profissionais = Array.isArray(source.profissionais)
-      ? source.profissionais.flatMap((profissional) => {
-        const raw = registro(profissional);
-        const nome = texto(raw?.nome);
-        return nome ? [{
-          nome,
-          conselho: texto(raw?.conselho),
-          numeroConselho: texto(raw?.numeroConselho),
-        }] : [];
-      })
+      ? source.profissionais.flatMap(profissional => {
+          const raw = registro(profissional);
+          const nome = texto(raw?.nome);
+          return nome
+            ? [
+                {
+                  nome,
+                  conselho: texto(raw?.conselho),
+                  numeroConselho: texto(raw?.numeroConselho),
+                },
+              ]
+            : [];
+        })
       : [];
     procedimentos.push({
       codigo,
@@ -168,9 +186,11 @@ function procedimentosSanitizados(value: unknown): ProcedimentoMedicoInfo[] {
   return procedimentos;
 }
 
-function fontesVersoesSanitizadas(value: unknown): ContextoMedicoPersistido["fontesVersoes"] {
+function fontesVersoesSanitizadas(
+  value: unknown
+): ContextoMedicoPersistido["fontesVersoes"] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
+  return value.flatMap(item => {
     const raw = registro(item);
     const fonteId = inteiro(raw?.fonteId);
     const guiaReferencia = texto(raw?.guiaReferencia);
@@ -198,8 +218,10 @@ function fonteDbParaDominio(row: LinhaFonteDb): FonteMedicaPersistida {
       competencia: row.competencia,
     },
     arquivoMedicoId: row.arquivoMedicoId,
+    loteImportacaoId: row.loteImportacaoId,
     guiaReferencia: row.guiaReferencia,
     versaoSemantica: row.versaoSemantica,
+    versaoSnapshotHospitalar: row.versaoSnapshotHospitalar,
     registros: row.registros,
     codigosDistintos: row.codigosDistintos,
     procedimentos: procedimentosSanitizados(row.procedimentosJson),
@@ -240,7 +262,7 @@ function condicaoFonte(scope: ScopeContaMedicaNormalizado) {
     eq(contaContextoMedicoFontes.arquivoHospitalId, scope.arquivoHospitalId),
     eq(contaContextoMedicoFontes.numeroConta, scope.numeroConta),
     eq(contaContextoMedicoFontes.numeroLote, scope.numeroLote),
-    eq(contaContextoMedicoFontes.competencia, scope.competencia),
+    eq(contaContextoMedicoFontes.competencia, scope.competencia)
   );
 }
 
@@ -251,7 +273,7 @@ function condicaoContexto(scope: ScopeContaMedicaNormalizado) {
     eq(contaContextoMedicoContextos.arquivoHospitalId, scope.arquivoHospitalId),
     eq(contaContextoMedicoContextos.numeroConta, scope.numeroConta),
     eq(contaContextoMedicoContextos.numeroLote, scope.numeroLote),
-    eq(contaContextoMedicoContextos.competencia, scope.competencia),
+    eq(contaContextoMedicoContextos.competencia, scope.competencia)
   );
 }
 
@@ -283,7 +305,7 @@ function condicaoArquivoHospitalar(scope: ScopeContaMedicaNormalizado) {
   return and(
     eq(faturamentoTiss.arquivoId, scope.arquivoHospitalId),
     eq(faturamentoTiss.estabelecimentoId, scope.estabelecimentoId),
-    eq(faturamentoTiss.convenioId, scope.convenioId),
+    eq(faturamentoTiss.convenioId, scope.convenioId)
   );
 }
 
@@ -298,11 +320,14 @@ function camposFonte() {
     convenioId: contaContextoMedicoFontes.convenioId,
     arquivoHospitalId: contaContextoMedicoFontes.arquivoHospitalId,
     arquivoMedicoId: contaContextoMedicoFontes.arquivoMedicoId,
+    loteImportacaoId: contaContextoMedicoFontes.loteImportacaoId,
     numeroConta: contaContextoMedicoFontes.numeroConta,
     numeroLote: contaContextoMedicoFontes.numeroLote,
     competencia: contaContextoMedicoFontes.competencia,
     guiaReferencia: contaContextoMedicoFontes.guiaReferencia,
     versaoSemantica: contaContextoMedicoFontes.versaoSemantica,
+    versaoSnapshotHospitalar:
+      contaContextoMedicoFontes.versaoSnapshotHospitalar,
     registros: contaContextoMedicoFontes.registros,
     codigosDistintos: contaContextoMedicoFontes.codigosDistintos,
     procedimentosJson: contaContextoMedicoFontes.procedimentosJson,
@@ -328,7 +353,8 @@ function camposContexto() {
     justificativa: contaContextoMedicoContextos.justificativa,
     versaoPadrao: contaContextoMedicoContextos.versaoPadrao,
     fontesVersoesJson: contaContextoMedicoContextos.fontesVersoesJson,
-    versaoItensHospitalares: contaContextoMedicoContextos.versaoItensHospitalares,
+    versaoItensHospitalares:
+      contaContextoMedicoContextos.versaoItensHospitalares,
     principaisSnapshotJson: contaContextoMedicoContextos.principaisSnapshotJson,
     abrangencia: contaContextoMedicoContextos.abrangencia,
   };
@@ -346,7 +372,9 @@ function valoresContexto(contexto: ContextoMedicoNovo) {
     nomePadrao: contexto.nomePadrao,
     status: contexto.status,
     revisao: contexto.revisao,
-    confirmadoEm: contexto.confirmadoEm ? new Date(contexto.confirmadoEm) : null,
+    confirmadoEm: contexto.confirmadoEm
+      ? new Date(contexto.confirmadoEm)
+      : null,
     confirmadoPor: contexto.confirmadoPor,
     justificativa: contexto.justificativa,
     versaoPadrao: contexto.versaoPadrao,
@@ -359,11 +387,15 @@ function valoresContexto(contexto: ContextoMedicoNovo) {
 
 function eConflitoUnico(error: unknown): boolean {
   const raw = registro(error);
-  return raw?.code === "ER_DUP_ENTRY" || raw?.code === "23505" || raw?.errno === 1062;
+  return (
+    raw?.code === "ER_DUP_ENTRY" || raw?.code === "23505" || raw?.errno === 1062
+  );
 }
 
 function tipoHospitalar(value: string | null): "procedimento" | "outro" {
-  return value?.trim().toUpperCase() === "PROCEDIMENTO" ? "procedimento" : "outro";
+  return value?.trim().toUpperCase() === "PROCEDIMENTO"
+    ? "procedimento"
+    : "outro";
 }
 
 function itemAssociadoSeguro(value: unknown): ItemAssociadoGabarito | null {
@@ -372,7 +404,8 @@ function itemAssociadoSeguro(value: unknown): ItemAssociadoGabarito | null {
   const descricao = texto(raw?.descricao);
   const frequencia = numero(raw?.frequencia);
   const quantidadeMedia = numero(raw?.quantidadeMedia);
-  if (!codigo || !descricao || frequencia === null || quantidadeMedia === null) return null;
+  if (!codigo || !descricao || frequencia === null || quantidadeMedia === null)
+    return null;
   const categoria = raw?.categoria;
   const quantidadeMin = numero(raw?.quantidadeMin);
   const quantidadeMax = numero(raw?.quantidadeMax);
@@ -384,9 +417,12 @@ function itemAssociadoSeguro(value: unknown): ItemAssociadoGabarito | null {
     quantidadeMedia,
     quantidadeMin: quantidadeMin ?? undefined,
     quantidadeMax: quantidadeMax ?? undefined,
-    categoria: categoria === "obrigatorio" || categoria === "condicional" || categoria === "opcional"
-      ? categoria
-      : undefined,
+    categoria:
+      categoria === "obrigatorio" ||
+      categoria === "condicional" ||
+      categoria === "opcional"
+        ? categoria
+        : undefined,
     grupo: texto(raw?.grupo) ?? undefined,
     grupoAlternativo: texto(raw?.grupoAlternativo) ?? undefined,
     grupoObrigatorio: raw?.grupoObrigatorio === true,
@@ -396,9 +432,9 @@ function itemAssociadoSeguro(value: unknown): ItemAssociadoGabarito | null {
 function itensAssociadosSeguros(value: unknown): ItemAssociadoGabarito[] {
   return Array.isArray(value)
     ? value.flatMap(item => {
-      const seguro = itemAssociadoSeguro(item);
-      return seguro ? [seguro] : [];
-    })
+        const seguro = itemAssociadoSeguro(item);
+        return seguro ? [seguro] : [];
+      })
     : [];
 }
 
@@ -412,11 +448,24 @@ function normalizarGabarito(row: {
   status: "aprendendo" | "ativo" | "revisao" | "inativo";
   isGabarito: number;
 }): GabaritoManualInformativo | null {
-  if (!row.estabelecimentoId || !row.convenioId || row.status !== "ativo" || row.isGabarito !== 1) return null;
+  if (
+    !row.estabelecimentoId ||
+    !row.convenioId ||
+    row.status !== "ativo" ||
+    row.isGabarito !== 1
+  )
+    return null;
   const codigo = texto(row.codigoProcedimentoPrincipal);
   if (!codigo) return null;
   const descricao = texto(row.descricaoProcedimentoPrincipal);
-  const principais = Array.from(new Set(codigo.split(/\s*\+\s*/u).map(parte => parte.trim()).filter(Boolean)));
+  const principais = Array.from(
+    new Set(
+      codigo
+        .split(/\s*\+\s*/u)
+        .map(parte => parte.trim())
+        .filter(Boolean)
+    )
+  );
   if (!principais.length) return null;
   return {
     padraoId: row.id,
@@ -430,13 +479,19 @@ function normalizarGabarito(row: {
   };
 }
 
-function origensStoragePermitidas(deps: LeitorXmlSeguroDependencias): Set<string> {
-  const candidatas = deps.origensStoragePermitidas ?? [ENV.forgeApiUrl, ENV.publicAppUrl];
+function origensStoragePermitidas(
+  deps: LeitorXmlSeguroDependencias
+): Set<string> {
+  const candidatas = deps.origensStoragePermitidas ?? [
+    ENV.forgeApiUrl,
+    ENV.publicAppUrl,
+  ];
   const origens = new Set<string>();
   for (const candidata of candidatas) {
     try {
       const url = new URL(candidata);
-      if (url.protocol === "https:" && !url.username && !url.password) origens.add(url.origin);
+      if (url.protocol === "https:" && !url.username && !url.password)
+        origens.add(url.origin);
     } catch {
       // Uma configuração inválida não abre a allowlist.
     }
@@ -451,26 +506,56 @@ function urlPublicaHttps(valor: string | null | undefined): string | null {
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
     // Um URL de leitura autenticado pelo storage pode usar origem/CDN distinta
     // do proxy. Não aceitar userinfo, hosts locais ou literais de rede privada.
-    if (url.protocol !== "https:" || url.username || url.password
-      || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")
-      || host === "::1" || host.startsWith("fc") && host.includes(":") || host.startsWith("fd") && host.includes(":")
-      || host.startsWith("fe80:") || host.includes(":")) return null;
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      host === "::1" ||
+      (host.startsWith("fc") && host.includes(":")) ||
+      (host.startsWith("fd") && host.includes(":")) ||
+      host.startsWith("fe80:") ||
+      host.includes(":")
+    )
+      return null;
     const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/u);
     if (ipv4) {
-      const a = Number(ipv4[1]), b = Number(ipv4[2]);
-      if (a === 0 || a === 10 || a === 127 || a === 169 && b === 254
-        || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168
-        || a === 100 && b >= 64 && b <= 127 || a >= 224) return null;
+      const a = Number(ipv4[1]),
+        b = Number(ipv4[2]);
+      if (
+        a === 0 ||
+        a === 10 ||
+        a === 127 ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        a >= 224
+      )
+        return null;
     }
     return url.toString();
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
-function urlHttpsSegura(valor: string | null | undefined, origensPermitidas: ReadonlySet<string>): string | null {
+function urlHttpsSegura(
+  valor: string | null | undefined,
+  origensPermitidas: ReadonlySet<string>
+): string | null {
   if (!valor) return null;
   try {
     const url = new URL(valor);
-    if (url.protocol !== "https:" || url.username || url.password || !origensPermitidas.has(url.origin)) return null;
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !origensPermitidas.has(url.origin)
+    )
+      return null;
     return url.toString();
   } catch {
     return null;
@@ -478,14 +563,22 @@ function urlHttpsSegura(valor: string | null | undefined, origensPermitidas: Rea
 }
 
 function chaveStorageSegura(value: string): boolean {
-  return /^arquivos\/[\w./-]+$/u.test(value) &&
+  return (
+    /^arquivos\/[\w./-]+$/u.test(value) &&
     !value.includes("..") &&
-    !value.includes("//");
+    !value.includes("//")
+  );
 }
 
-async function lerRespostaComLimite(response: Response, limite: number): Promise<Buffer> {
+async function lerRespostaComLimite(
+  response: Response,
+  limite: number
+): Promise<Buffer> {
   const tamanhoCabecalho = response.headers.get("content-length");
-  if (tamanhoCabecalho && (!/^\d+$/.test(tamanhoCabecalho) || Number(tamanhoCabecalho) > limite)) {
+  if (
+    tamanhoCabecalho &&
+    (!/^\d+$/.test(tamanhoCabecalho) || Number(tamanhoCabecalho) > limite)
+  ) {
     erroLeituraXml();
   }
   if (!response.body) erroLeituraXml();
@@ -511,7 +604,7 @@ async function lerRespostaComLimite(response: Response, limite: number): Promise
  */
 export async function lerXmlMedicoAutorizadoSeguro(
   arquivo: ArquivoMedicoInterno,
-  deps: LeitorXmlSeguroDependencias = {},
+  deps: LeitorXmlSeguroDependencias = {}
 ): Promise<Buffer> {
   const obterStorage = deps.storageGet ?? storageGet;
   const executarFetch = deps.fetch ?? fetch;
@@ -519,14 +612,16 @@ export async function lerXmlMedicoAutorizadoSeguro(
   const timeoutMs = deps.timeoutMs ?? TIMEOUT_LEITURA_XML_MS;
   const origensPermitidas = origensStoragePermitidas(deps);
   const urlPersistida = urlHttpsSegura(arquivo.s3Url, origensPermitidas);
-  if (!chaveStorageSegura(arquivo.s3Key) || !urlPublicaHttps(arquivo.s3Url)) erroLeituraXml();
+  if (!chaveStorageSegura(arquivo.s3Key) || !urlPublicaHttps(arquivo.s3Url))
+    erroLeituraXml();
 
   let urlLeitura: string | null = null;
   try {
     const assinatura = await obterStorage(arquivo.s3Key);
     // A autoridade vem do SDK autenticado e da chave exata já autorizada,
     // não da origem arbitrária de um URL persistido ou enviado pelo usuário.
-    if (assinatura.key === arquivo.s3Key) urlLeitura = urlPublicaHttps(assinatura.url);
+    if (assinatura.key === arquivo.s3Key)
+      urlLeitura = urlPublicaHttps(assinatura.url);
   } catch {
     // O fallback preserva o fail-closed: só utiliza a URL persistida HTTPS da
     // mesma origem conhecida do storage, nunca uma URL vinda da requisição.
@@ -548,7 +643,10 @@ export async function lerXmlMedicoAutorizadoSeguro(
     });
     if (!response.ok) erroLeituraXml();
     const contentType = response.headers.get("content-type");
-    if (contentType && !/^(application|text)\/(xml|[^;]+\+xml)(?:;|$)/i.test(contentType.trim())) {
+    if (
+      contentType &&
+      !/^(application|text)\/(xml|[^;]+\+xml)(?:;|$)/i.test(contentType.trim())
+    ) {
       erroLeituraXml();
     }
     return await lerRespostaComLimite(response, limite);
@@ -563,7 +661,8 @@ export async function lerXmlMedicoAutorizadoSeguro(
 function criarTransacao(tx: TransacaoDrizzle): ContextoMedicoTransacao {
   return {
     async obterContextoParaAtualizacao(scope) {
-      const [row] = await tx.select(camposContexto())
+      const [row] = await tx
+        .select(camposContexto())
         .from(contaContextoMedicoContextos)
         .where(condicaoContexto(scope))
         .for("update")
@@ -573,12 +672,15 @@ function criarTransacao(tx: TransacaoDrizzle): ContextoMedicoTransacao {
 
     async inserirContextoInicial(contexto) {
       try {
-        await tx.insert(contaContextoMedicoContextos).values(valoresContexto(contexto));
+        await tx
+          .insert(contaContextoMedicoContextos)
+          .values(valoresContexto(contexto));
       } catch (error) {
         if (eConflitoUnico(error)) return null;
         bancoIndisponivel();
       }
-      const [row] = await tx.select(camposContexto())
+      const [row] = await tx
+        .select(camposContexto())
         .from(contaContextoMedicoContextos)
         .where(condicaoContexto(contexto.scope))
         .limit(1);
@@ -586,19 +688,25 @@ function criarTransacao(tx: TransacaoDrizzle): ContextoMedicoTransacao {
     },
 
     async atualizarContextoComCas(contextoId, revisaoEsperada, proximo) {
-      const resultado = await tx.update(contaContextoMedicoContextos)
+      const resultado = await tx
+        .update(contaContextoMedicoContextos)
         .set(valoresContexto(proximo))
-        .where(and(
-          eq(contaContextoMedicoContextos.id, contextoId),
-          eq(contaContextoMedicoContextos.revisao, revisaoEsperada),
-        ));
+        .where(
+          and(
+            eq(contaContextoMedicoContextos.id, contextoId),
+            eq(contaContextoMedicoContextos.revisao, revisaoEsperada)
+          )
+        );
       if (Number(resultado[0]?.affectedRows ?? 0) !== 1) return null;
-      const [row] = await tx.select(camposContexto())
+      const [row] = await tx
+        .select(camposContexto())
         .from(contaContextoMedicoContextos)
-        .where(and(
-          eq(contaContextoMedicoContextos.id, contextoId),
-          eq(contaContextoMedicoContextos.revisao, proximo.revisao),
-        ))
+        .where(
+          and(
+            eq(contaContextoMedicoContextos.id, contextoId),
+            eq(contaContextoMedicoContextos.revisao, proximo.revisao)
+          )
+        )
         .limit(1);
       return row ? contextoDbParaDominio(row) : null;
     },
@@ -628,7 +736,7 @@ function criarTransacao(tx: TransacaoDrizzle): ContextoMedicoTransacao {
  * leitura com projeção mínima para correlação e composição.
  */
 export function criarContaContextoMedicoRepositorioDrizzle(
-  deps: ContaContextoMedicoDrizzleDependencias = {},
+  deps: ContaContextoMedicoDrizzleDependencias = {}
 ): ContaContextoMedicoRepositorio {
   const obterDb = deps.getDb ?? getDb;
 
@@ -648,17 +756,24 @@ export function criarContaContextoMedicoRepositorioDrizzle(
         // Se uma delas ainda não foi aplicada, consultas ficam pendentes e
         // mutações não alcançam nenhuma escrita parcial.
         await Promise.all([
-          db.select({ id: contaContextoMedicoContextos.id })
+          db
+            .select({ id: contaContextoMedicoContextos.id })
             .from(contaContextoMedicoContextos)
             .limit(1),
-          db.select({ id: contaContextoMedicoFontes.id })
+          db
+            .select({ id: contaContextoMedicoFontes.id })
             .from(contaContextoMedicoFontes)
             .limit(1),
-          db.select({ id: contaContextoMedicoEventos.id })
+          db
+            .select({ id: contaContextoMedicoEventos.id })
             .from(contaContextoMedicoEventos)
             .limit(1),
         ]);
-        return true;
+        // A versão de lote/snapshot é usada por todas as leituras e escritas
+        // seguintes. Enquanto a 0142 não existir, não declaramos a feature
+        // configurada para evitar consulta de colunas ausentes na janela entre
+        // deploy de código e DDL restrita.
+        return estrutura0142Completa(db);
       } catch {
         // Enquanto as três tabelas da migração não existirem, a feature fica
         // explicitamente pendente e não tenta nenhuma mutação.
@@ -668,32 +783,46 @@ export function criarContaContextoMedicoRepositorioDrizzle(
 
     async listarEscoposHospitalaresCandidatos(input) {
       const db = await dbOuErro();
-      const referencias = [...new Set(input.referenciasGuias
-        .map(referencia => referencia.trim())
-        .filter(Boolean))];
+      const referencias = [
+        ...new Set(
+          input.referenciasGuias
+            .map(referencia => referencia.trim())
+            .filter(Boolean)
+        ),
+      ];
       if (!referencias.length) return [];
       // Consulta mínima, exclusivamente de leitura: a conta, lote e competência
       // usam as mesmas expressões canônicas do snapshot/materialização. Valores,
       // carteira e dados clínicos não participam da descoberta automática.
-      const rows = await db.select({
-        arquivoHospitalId: faturamentoTiss.arquivoId,
-        numeroConta: contaCanonica(),
-        numeroLote: loteCanonico(),
-        competencia: competenciaCanonica(),
-      })
+      const rows = await db
+        .select({
+          arquivoHospitalId: faturamentoTiss.arquivoId,
+          numeroConta: contaCanonica(),
+          numeroLote: loteCanonico(),
+          competencia: competenciaCanonica(),
+        })
         .from(faturamentoTiss)
         .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
-        .where(and(
-          eq(faturamentoTiss.estabelecimentoId, input.estabelecimentoId),
-          eq(faturamentoTiss.convenioId, input.convenioId),
-          // A descoberta inclui os dois identificadores homólogos. O scope que
-          // retorna continua canônico (prestador antes de operadora), e o
-          // serviço ainda exige uma única correlação forte no snapshot.
-          or(
-            inArray(faturamentoTiss.numeroGuiaPrestador, referencias),
-            inArray(faturamentoTiss.numeroGuiaOperadora, referencias),
-          ),
-        ));
+        .where(
+          and(
+            eq(faturamentoTiss.estabelecimentoId, input.estabelecimentoId),
+            eq(faturamentoTiss.convenioId, input.convenioId),
+            ...(input.arquivoHospitalIdsPermitidos?.length
+              ? [
+                  inArray(faturamentoTiss.arquivoId, [
+                    ...new Set(input.arquivoHospitalIdsPermitidos),
+                  ]),
+                ]
+              : []),
+            // A descoberta inclui os dois identificadores homólogos. O scope que
+            // retorna continua canônico (prestador antes de operadora), e o
+            // serviço ainda exige uma única correlação forte no snapshot.
+            or(
+              inArray(faturamentoTiss.numeroGuiaPrestador, referencias),
+              inArray(faturamentoTiss.numeroGuiaOperadora, referencias)
+            )
+          )
+        );
       const candidatos = new Map<string, ScopeContaMedicaNormalizado>();
       for (const row of rows) {
         const arquivoHospitalId = inteiro(row.arquivoHospitalId);
@@ -717,36 +846,44 @@ export function criarContaContextoMedicoRepositorioDrizzle(
 
     async resolverSnapshotHospitalar(scope) {
       const db = await dbOuErro();
-      const linhas = await db.select({
-        // Projeção deliberadamente sem valor_unitario, valor_faturado ou totais.
-        numeroGuiaPrestador: faturamentoTiss.numeroGuiaPrestador,
-        numeroGuiaOperadora: faturamentoTiss.numeroGuiaOperadora,
-        carteiraBeneficiario: faturamentoTiss.carteiraBeneficiario,
-        dataExecucao: faturamentoTiss.dataExecucao,
-        codigoItem: faturamentoTiss.codigoItem,
-        descricaoItem: faturamentoTiss.descricaoItem,
-        quantidade: faturamentoTiss.quantidade,
-        tipoItem: faturamentoTiss.tipoItem,
-      })
+      const linhas = await db
+        .select({
+          // Projeção deliberadamente sem valor_unitario, valor_faturado ou totais.
+          numeroGuiaPrestador: faturamentoTiss.numeroGuiaPrestador,
+          numeroGuiaOperadora: faturamentoTiss.numeroGuiaOperadora,
+          carteiraBeneficiario: faturamentoTiss.carteiraBeneficiario,
+          dataExecucao: faturamentoTiss.dataExecucao,
+          codigoItem: faturamentoTiss.codigoItem,
+          descricaoItem: faturamentoTiss.descricaoItem,
+          quantidade: faturamentoTiss.quantidade,
+          tipoItem: faturamentoTiss.tipoItem,
+        })
         .from(faturamentoTiss)
         .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
-        .where(and(
-          condicaoArquivoHospitalar(scope),
-          // A conta XML materializa a guia prestador; só quando ela estiver
-          // ausente, a guia da operadora representa a mesma conta.
-          condicaoGuia(scope),
-          eq(loteCanonico(), scope.numeroLote),
-          eq(competenciaCanonica(), scope.competencia),
-        ));
+        .where(
+          and(
+            condicaoArquivoHospitalar(scope),
+            // A conta XML materializa a guia prestador; só quando ela estiver
+            // ausente, a guia da operadora representa a mesma conta.
+            condicaoGuia(scope),
+            eq(loteCanonico(), scope.numeroLote),
+            eq(competenciaCanonica(), scope.competencia)
+          )
+        );
       if (!linhas.length) return null;
 
-      const referencias = new Map<string, {
-        numeroGuiaPrestador: string | null;
-        numeroGuiaOperadora: string | null;
-        beneficiario: string | null;
-        datasExecucao: string[];
-      }>();
-      const itensHospitalares: Array<SnapshotHospitalarAutorizado["itensHospitalares"][number]> = [];
+      const referencias = new Map<
+        string,
+        {
+          numeroGuiaPrestador: string | null;
+          numeroGuiaOperadora: string | null;
+          beneficiario: string | null;
+          datasExecucao: string[];
+        }
+      >();
+      const itensHospitalares: Array<
+        SnapshotHospitalarAutorizado["itensHospitalares"][number]
+      > = [];
       for (const linha of linhas) {
         const guiaPrestador = texto(linha.numeroGuiaPrestador);
         const guiaOperadora = texto(linha.numeroGuiaOperadora);
@@ -759,7 +896,8 @@ export function criarContaContextoMedicoRepositorioDrizzle(
             datasExecucao: [],
           };
           const data = dataCivil(linha.dataExecucao);
-          if (data && !existente.datasExecucao.includes(data)) existente.datasExecucao.push(data);
+          if (data && !existente.datasExecucao.includes(data))
+            existente.datasExecucao.push(data);
           referencias.set(chave, existente);
         }
         const codigo = texto(linha.codigoItem);
@@ -788,12 +926,13 @@ export function criarContaContextoMedicoRepositorioDrizzle(
       // Cada contador adiciona uma única etapa canônica, sempre no mesmo
       // arquivo/unidade/convênio. A projeção não contém identificadores ou dados
       // clínicos/financeiros; é apropriada apenas para explicar a pré-condição.
-      const [totais] = await db.select({
-        arquivoHospitalar: sql<number>`COUNT(*)`,
-        identificacaoConta: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} THEN 1 ELSE 0 END)`,
-        lote: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} THEN 1 ELSE 0 END)`,
-        competencia: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} AND ${eq(competenciaCanonica(), scope.competencia)} THEN 1 ELSE 0 END)`,
-      })
+      const [totais] = await db
+        .select({
+          arquivoHospitalar: sql<number>`COUNT(*)`,
+          identificacaoConta: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} THEN 1 ELSE 0 END)`,
+          lote: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} THEN 1 ELSE 0 END)`,
+          competencia: sql<number>`SUM(CASE WHEN ${condicaoGuia(scope)} AND ${eq(loteCanonico(), scope.numeroLote)} AND ${eq(competenciaCanonica(), scope.competencia)} THEN 1 ELSE 0 END)`,
+        })
         .from(faturamentoTiss)
         .leftJoin(arquivos, eq(arquivos.id, faturamentoTiss.arquivoId))
         .where(condicaoArquivoHospitalar(scope));
@@ -803,66 +942,83 @@ export function criarContaContextoMedicoRepositorioDrizzle(
       };
       return {
         etapas: [
-          { etapa: "arquivo_hospitalar", totalLinhas: totalSeguro(totais?.arquivoHospitalar) },
-          { etapa: "identificacao_conta", totalLinhas: totalSeguro(totais?.identificacaoConta) },
+          {
+            etapa: "arquivo_hospitalar",
+            totalLinhas: totalSeguro(totais?.arquivoHospitalar),
+          },
+          {
+            etapa: "identificacao_conta",
+            totalLinhas: totalSeguro(totais?.identificacaoConta),
+          },
           { etapa: "lote", totalLinhas: totalSeguro(totais?.lote) },
-          { etapa: "competencia", totalLinhas: totalSeguro(totais?.competencia) },
+          {
+            etapa: "competencia",
+            totalLinhas: totalSeguro(totais?.competencia),
+          },
         ],
       } satisfies DiagnosticoSnapshotHospitalar;
     },
 
     async listarArquivosMedicos(scope, page, pageSize) {
       const db = await dbOuErro();
-      const rows = await db.select({
-        id: arquivos.id,
-        nome: arquivos.nome,
-        tamanho: arquivos.tamanho,
-        dataReferencia: arquivos.dataReferencia,
-      })
+      const rows = await db
+        .select({
+          id: arquivos.id,
+          nome: arquivos.nome,
+          tamanho: arquivos.tamanho,
+          dataReferencia: arquivos.dataReferencia,
+        })
         .from(arquivos)
-        .where(and(
-          eq(arquivos.estabelecimentoId, scope.estabelecimentoId),
-          eq(arquivos.convenioId, scope.convenioId),
-          eq(arquivos.tipoArquivo, "xml"),
-          eq(arquivos.direcao, "enviado"),
-        ))
+        .where(
+          and(
+            eq(arquivos.estabelecimentoId, scope.estabelecimentoId),
+            eq(arquivos.convenioId, scope.convenioId),
+            eq(arquivos.tipoArquivo, "xml"),
+            eq(arquivos.direcao, "enviado")
+          )
+        )
         .orderBy(desc(arquivos.createdAt), desc(arquivos.id))
         .limit(pageSize + 1)
         .offset((page - 1) * pageSize);
       const temProximaPagina = rows.length > pageSize;
       return {
-        arquivos: rows.slice(0, pageSize).map((row): ArquivoMedicoInfoInterno => ({
-          id: row.id,
-          nome: row.nome,
-          tamanho: row.tamanho,
-          dataReferencia: row.dataReferencia,
-        })),
+        arquivos: rows.slice(0, pageSize).map(
+          (row): ArquivoMedicoInfoInterno => ({
+            id: row.id,
+            nome: row.nome,
+            tamanho: row.tamanho,
+            dataReferencia: row.dataReferencia,
+          })
+        ),
         temProximaPagina,
       };
     },
 
     async obterArquivoMedicoAutorizado(scope, arquivoMedicoId) {
       const db = await dbOuErro();
-      const [row] = await db.select({
-        id: arquivos.id,
-        nome: arquivos.nome,
-        tamanho: arquivos.tamanho,
-        dataReferencia: arquivos.dataReferencia,
-        tipoArquivo: arquivos.tipoArquivo,
-        direcao: arquivos.direcao,
-        estabelecimentoId: arquivos.estabelecimentoId,
-        convenioId: arquivos.convenioId,
-        s3Key: arquivos.s3Key,
-        s3Url: arquivos.s3Url,
-      })
+      const [row] = await db
+        .select({
+          id: arquivos.id,
+          nome: arquivos.nome,
+          tamanho: arquivos.tamanho,
+          dataReferencia: arquivos.dataReferencia,
+          tipoArquivo: arquivos.tipoArquivo,
+          direcao: arquivos.direcao,
+          estabelecimentoId: arquivos.estabelecimentoId,
+          convenioId: arquivos.convenioId,
+          s3Key: arquivos.s3Key,
+          s3Url: arquivos.s3Url,
+        })
         .from(arquivos)
-        .where(and(
-          eq(arquivos.id, arquivoMedicoId),
-          eq(arquivos.estabelecimentoId, scope.estabelecimentoId),
-          eq(arquivos.convenioId, scope.convenioId),
-          eq(arquivos.tipoArquivo, "xml"),
-          eq(arquivos.direcao, "enviado"),
-        ))
+        .where(
+          and(
+            eq(arquivos.id, arquivoMedicoId),
+            eq(arquivos.estabelecimentoId, scope.estabelecimentoId),
+            eq(arquivos.convenioId, scope.convenioId),
+            eq(arquivos.tipoArquivo, "xml"),
+            eq(arquivos.direcao, "enviado")
+          )
+        )
         .limit(1);
       if (!row || row.estabelecimentoId === null) return null;
       return {
@@ -880,15 +1036,22 @@ export function criarContaContextoMedicoRepositorioDrizzle(
     },
 
     async lerXmlMedicoAutorizado(arquivo) {
-      return lerXmlMedicoAutorizadoSeguro(arquivo as ArquivoMedicoInterno, deps);
+      return lerXmlMedicoAutorizadoSeguro(
+        arquivo as ArquivoMedicoInterno,
+        deps
+      );
     },
 
     async listarFontes(scope) {
       const db = await dbOuErro();
-      const rows = await db.select(camposFonte())
+      const rows = await db
+        .select(camposFonte())
         .from(contaContextoMedicoFontes)
         .where(condicaoFonte(scope))
-        .orderBy(desc(contaContextoMedicoFontes.criadoEm), desc(contaContextoMedicoFontes.id));
+        .orderBy(
+          desc(contaContextoMedicoFontes.criadoEm),
+          desc(contaContextoMedicoFontes.id)
+        );
       // Reimportações são append-only; somente a versão mais recente por arquivo
       // médico + guia participa da composição atual. As anteriores permanecem na
       // tabela e nas evidências dos eventos já gravados.
@@ -903,65 +1066,128 @@ export function criarContaContextoMedicoRepositorioDrizzle(
 
     async inserirFonteSeAusente(fonte) {
       const db = await dbOuErro();
-      const valores = {
-        estabelecimentoId: fonte.scope.estabelecimentoId,
-        convenioId: fonte.scope.convenioId,
-        arquivoHospitalId: fonte.scope.arquivoHospitalId,
-        arquivoMedicoId: fonte.arquivoMedicoId,
-        numeroConta: fonte.scope.numeroConta,
-        numeroLote: fonte.scope.numeroLote,
-        competencia: fonte.scope.competencia,
-        guiaReferencia: fonte.guiaReferencia,
-        versaoSemantica: fonte.versaoSemantica,
-        registros: fonte.registros,
-        codigosDistintos: fonte.codigosDistintos,
-        procedimentosJson: [...fonte.procedimentos],
-      };
-      try {
-        const result = await db.insert(contaContextoMedicoFontes).values(valores);
-        const insertId = Number(result[0]?.insertId ?? 0);
-        if (Number.isSafeInteger(insertId) && insertId > 0) {
-          const [row] = await db.select(camposFonte())
-            .from(contaContextoMedicoFontes)
-            .where(eq(contaContextoMedicoFontes.id, insertId))
-            .limit(1);
-          if (row) return { fonte: fonteDbParaDominio(row), criada: true };
+      const executar = async (banco: BancoDrizzle) => {
+        const valores = {
+          estabelecimentoId: fonte.scope.estabelecimentoId,
+          convenioId: fonte.scope.convenioId,
+          arquivoHospitalId: fonte.scope.arquivoHospitalId,
+          arquivoMedicoId: fonte.arquivoMedicoId,
+          loteImportacaoId: fonte.loteImportacaoId ?? null,
+          numeroConta: fonte.scope.numeroConta,
+          numeroLote: fonte.scope.numeroLote,
+          competencia: fonte.scope.competencia,
+          guiaReferencia: fonte.guiaReferencia,
+          versaoSemantica: fonte.versaoSemantica,
+          versaoSnapshotHospitalar: fonte.versaoSnapshotHospitalar ?? "",
+          registros: fonte.registros,
+          codigosDistintos: fonte.codigosDistintos,
+          procedimentosJson: [...fonte.procedimentos],
+        };
+        try {
+          const result = await banco
+            .insert(contaContextoMedicoFontes)
+            .values(valores);
+          const insertId = Number(result[0]?.insertId ?? 0);
+          if (Number.isSafeInteger(insertId) && insertId > 0) {
+            const [row] = await banco
+              .select(camposFonte())
+              .from(contaContextoMedicoFontes)
+              .where(eq(contaContextoMedicoFontes.id, insertId))
+              .limit(1);
+            if (row) return { fonte: fonteDbParaDominio(row), criada: true };
+          }
+        } catch (error) {
+          if (!eConflitoUnico(error)) bancoIndisponivel();
         }
-      } catch (error) {
-        if (!eConflitoUnico(error)) bancoIndisponivel();
-      }
-      const [existente] = await db.select(camposFonte())
-        .from(contaContextoMedicoFontes)
-        .where(and(
-          condicaoFonte(fonte.scope),
-          eq(contaContextoMedicoFontes.arquivoMedicoId, fonte.arquivoMedicoId),
-          eq(contaContextoMedicoFontes.guiaReferencia, fonte.guiaReferencia),
-          eq(contaContextoMedicoFontes.versaoSemantica, fonte.versaoSemantica),
-        ))
-        .limit(1);
-      if (!existente) bancoIndisponivel();
-      return { fonte: fonteDbParaDominio(existente), criada: false };
+        const [existente] = await banco
+          .select(camposFonte())
+          .from(contaContextoMedicoFontes)
+          .where(
+            and(
+              condicaoFonte(fonte.scope),
+              eq(
+                contaContextoMedicoFontes.arquivoMedicoId,
+                fonte.arquivoMedicoId
+              ),
+              eq(
+                contaContextoMedicoFontes.guiaReferencia,
+                fonte.guiaReferencia
+              ),
+              eq(
+                contaContextoMedicoFontes.versaoSemantica,
+                fonte.versaoSemantica
+              )
+            )
+          )
+          .limit(1);
+        if (!existente) bancoIndisponivel();
+        const versaoSnapshotHospitalar = fonte.versaoSnapshotHospitalar ?? "";
+        if (
+          existente.versaoSnapshotHospitalar !== versaoSnapshotHospitalar ||
+          existente.loteImportacaoId !== (fonte.loteImportacaoId ?? null)
+        ) {
+          await banco
+            .update(contaContextoMedicoFontes)
+            .set({
+              versaoSnapshotHospitalar,
+              loteImportacaoId: fonte.loteImportacaoId ?? null,
+            })
+            .where(eq(contaContextoMedicoFontes.id, existente.id));
+        }
+        return {
+          fonte: fonteDbParaDominio({
+            ...existente,
+            versaoSnapshotHospitalar,
+            loteImportacaoId: fonte.loteImportacaoId ?? null,
+          }),
+          criada: false,
+        };
+      };
+
+      if (!fonte.loteClaim) return executar(db);
+      return db.transaction(async tx => {
+        const lease = await tx.execute(sql`
+          SELECT id FROM xml_importacao_lotes
+          WHERE id = ${fonte.loteClaim!.id}
+            AND claim_token = ${fonte.loteClaim!.claimToken}
+            AND estado = 'processando'
+            AND lease_expires_at > NOW()
+          FOR UPDATE
+        `);
+        if (!Array.isArray(lease[0]) || lease[0].length === 0) {
+          throw new ContaContextoMedicoErro(
+            "CONCORRENCIA",
+            "O processamento coordenado perdeu a reserva do lote."
+          );
+        }
+        return executar(tx as unknown as BancoDrizzle);
+      });
     },
 
     async listarGabaritosManuais(scope) {
       const db = await dbOuErro();
-      const rows = await db.select({
-        id: padroesCobranca.id,
-        estabelecimentoId: padroesCobranca.estabelecimentoId,
-        convenioId: padroesCobranca.convenioId,
-        codigoProcedimentoPrincipal: padroesCobranca.codigoProcedimentoPrincipal,
-        descricaoProcedimentoPrincipal: padroesCobranca.descricaoProcedimentoPrincipal,
-        itensAssociados: padroesCobranca.itensAssociados,
-        status: padroesCobranca.status,
-        isGabarito: padroesCobranca.isGabarito,
-      })
+      const rows = await db
+        .select({
+          id: padroesCobranca.id,
+          estabelecimentoId: padroesCobranca.estabelecimentoId,
+          convenioId: padroesCobranca.convenioId,
+          codigoProcedimentoPrincipal:
+            padroesCobranca.codigoProcedimentoPrincipal,
+          descricaoProcedimentoPrincipal:
+            padroesCobranca.descricaoProcedimentoPrincipal,
+          itensAssociados: padroesCobranca.itensAssociados,
+          status: padroesCobranca.status,
+          isGabarito: padroesCobranca.isGabarito,
+        })
         .from(padroesCobranca)
-        .where(and(
-          eq(padroesCobranca.estabelecimentoId, scope.estabelecimentoId),
-          eq(padroesCobranca.convenioId, scope.convenioId),
-          eq(padroesCobranca.status, "ativo"),
-          eq(padroesCobranca.isGabarito, 1),
-        ));
+        .where(
+          and(
+            eq(padroesCobranca.estabelecimentoId, scope.estabelecimentoId),
+            eq(padroesCobranca.convenioId, scope.convenioId),
+            eq(padroesCobranca.status, "ativo"),
+            eq(padroesCobranca.isGabarito, 1)
+          )
+        );
       return rows.flatMap(row => {
         const gabarito = normalizarGabarito(row);
         return gabarito ? [gabarito] : [];
@@ -970,31 +1196,37 @@ export function criarContaContextoMedicoRepositorioDrizzle(
 
     async obterGabaritoManual(scope, padraoId) {
       const db = await dbOuErro();
-      const [row] = await db.select({
-        id: padroesCobranca.id,
-        estabelecimentoId: padroesCobranca.estabelecimentoId,
-        convenioId: padroesCobranca.convenioId,
-        codigoProcedimentoPrincipal: padroesCobranca.codigoProcedimentoPrincipal,
-        descricaoProcedimentoPrincipal: padroesCobranca.descricaoProcedimentoPrincipal,
-        itensAssociados: padroesCobranca.itensAssociados,
-        status: padroesCobranca.status,
-        isGabarito: padroesCobranca.isGabarito,
-      })
+      const [row] = await db
+        .select({
+          id: padroesCobranca.id,
+          estabelecimentoId: padroesCobranca.estabelecimentoId,
+          convenioId: padroesCobranca.convenioId,
+          codigoProcedimentoPrincipal:
+            padroesCobranca.codigoProcedimentoPrincipal,
+          descricaoProcedimentoPrincipal:
+            padroesCobranca.descricaoProcedimentoPrincipal,
+          itensAssociados: padroesCobranca.itensAssociados,
+          status: padroesCobranca.status,
+          isGabarito: padroesCobranca.isGabarito,
+        })
         .from(padroesCobranca)
-        .where(and(
-          eq(padroesCobranca.id, padraoId),
-          eq(padroesCobranca.estabelecimentoId, scope.estabelecimentoId),
-          eq(padroesCobranca.convenioId, scope.convenioId),
-          eq(padroesCobranca.status, "ativo"),
-          eq(padroesCobranca.isGabarito, 1),
-        ))
+        .where(
+          and(
+            eq(padroesCobranca.id, padraoId),
+            eq(padroesCobranca.estabelecimentoId, scope.estabelecimentoId),
+            eq(padroesCobranca.convenioId, scope.convenioId),
+            eq(padroesCobranca.status, "ativo"),
+            eq(padroesCobranca.isGabarito, 1)
+          )
+        )
         .limit(1);
       return row ? normalizarGabarito(row) : null;
     },
 
     async obterContexto(scope) {
       const db = await dbOuErro();
-      const [row] = await db.select(camposContexto())
+      const [row] = await db
+        .select(camposContexto())
         .from(contaContextoMedicoContextos)
         .where(condicaoContexto(scope))
         .limit(1);
@@ -1016,7 +1248,7 @@ export function criarContaContextoMedicoRepositorioDrizzle(
 /** Cria a composição real sem tocar no banco até a primeira operação do serviço. */
 export function criarServicoContaContextoMedicoParaUsuario(
   _usuarioId: number,
-  deps: ContaContextoMedicoDrizzleDependencias = {},
+  deps: ContaContextoMedicoDrizzleDependencias = {}
 ) {
   return criarContaContextoMedicoService({
     repositorio: criarContaContextoMedicoRepositorioDrizzle(deps),

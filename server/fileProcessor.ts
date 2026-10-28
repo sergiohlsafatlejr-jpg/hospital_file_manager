@@ -26,8 +26,10 @@ import { deveLimparExcelRetorno } from "./retornoUploadDispatch";
 
 const router = Router();
 
-// Segredo interno para evitar chamadas externas
-const INTERNAL_SECRET = process.env.JWT_SECRET || "internal-process-secret";
+// Sem fallback: um endpoint interno nunca pode usar segredo previsível.
+function segredoInternoAtual(): string | undefined {
+  return process.env.JWT_SECRET;
+}
 
 // Log persistente no banco para diagnóstico em produção
 async function plog(arquivoId: number, level: string, message: string) {
@@ -54,7 +56,8 @@ router.post("/api/internal/process-file", async (req, res) => {
   } = req.body;
   
   // Validar segredo interno
-  if (secret !== INTERNAL_SECRET) {
+  const internalSecret = segredoInternoAtual();
+  if (!internalSecret || internalSecret.length < 32 || secret !== internalSecret) {
     return res.status(403).json({ error: "Forbidden" });
   }
   
@@ -736,7 +739,10 @@ async function processEnvio(
   arquivoId: number,
   arquivo: any,
   buffer: Buffer,
-  skipContaConvenioSync = false
+  skipContaConvenioSync = false,
+  ignorarRoteamentoContextoMedico = false,
+  restringirAoEscopoArquivo = false,
+  loteClaim?: { id: number; claimToken: string }
 ) {
   // XMLs de honorários são classificados antes de qualquer DELETE/INSERT
   // financeiro. Honorários puros seguem somente o contexto informativo; XML
@@ -746,7 +752,7 @@ async function processEnvio(
     String(arquivo.nome || "")
       .toLowerCase()
       .endsWith(".xml");
-  if (eXml) {
+  if (eXml && !ignorarRoteamentoContextoMedico) {
     const { rotearEnvioXmlParaContextoMedico } = await import(
       "./importacaoAutomaticaContextoMedico"
         );
@@ -786,8 +792,10 @@ async function processEnvio(
     throw new Error("Falha ao interpretar o arquivo de envio");
   }
   if (parseResult.procedimentos.length === 0) {
-    await db.updateArquivoStatus(arquivoId, "processado");
-    await db.updateArquivoProgresso(arquivoId, 100, 0, 0);
+    if (!loteClaim) {
+      await db.updateArquivoStatus(arquivoId, "processado");
+      await db.updateArquivoProgresso(arquivoId, 100, 0, 0);
+    }
     await plog(arquivoId, "info", "Arquivo de envio sem itens processáveis");
     return;
   }
@@ -822,6 +830,13 @@ async function processEnvio(
       vinculo?.ativo === "sim" &&
       Number.isSafeInteger(estabelecimentoVinculado) &&
       estabelecimentoVinculado > 0;
+    if (
+      restringirAoEscopoArquivo &&
+      usarVinculo &&
+      estabelecimentoVinculado !== estabelecimentoPadrao
+    ) {
+      throw new Error("PRESTADOR_FORA_ESCOPO_DO_LOTE");
+    }
     estabelecimentosPorPrestador.set(
       codigo,
       usarVinculo ? estabelecimentoVinculado : estabelecimentoPadrao
@@ -870,71 +885,22 @@ async function processEnvio(
       };
     });
     
-  await db.deleteFaturamentoTissByArquivo(arquivoId);
-
-  // Remove somente os itens derivados deste arquivo. Uma falha aqui interrompe
-  // a publicação do novo conjunto, para não prosseguir com reimportação parcial.
-  const { getDb } = await import("./db");
-  const { contasConvenioItens: cciR, contasConvenioResumo: ccrR } =
-    await import("../drizzle/schema");
-  const { eq, and } = await import("drizzle-orm");
-  const dbReproc = await getDb();
-  if (!dbReproc)
-    throw new Error("Banco indisponível para reimportação da Conta Convênio");
-  const guiasAf = await dbReproc
-    .selectDistinct({
-      numeroConta: cciR.numeroConta,
-      estabelecimentoId: cciR.estabelecimentoId,
-    })
-    .from(cciR)
-    .where(eq(cciR.arquivoId, arquivoId));
-  await dbReproc.delete(cciR).where(eq(cciR.arquivoId, arquivoId));
-  for (const guia of guiasAf) {
-    const restantes = await dbReproc
-      .select()
-      .from(cciR)
-      .where(
-        and(
-          eq(cciR.numeroConta, guia.numeroConta),
-          eq(cciR.estabelecimentoId, guia.estabelecimentoId)
-        )
-      );
-    if (restantes.length === 0) {
-      await dbReproc
-        .delete(ccrR)
-        .where(
-          and(
-            eq(ccrR.numeroConta, guia.numeroConta),
-            eq(ccrR.estabelecimentoId, guia.estabelecimentoId)
-          )
-        );
-      continue;
-    }
-    const valorTotal = restantes.reduce(
-      (total, item) => total + parseFloat(String(item.valorTotal || 0)),
-      0
-    );
-    await dbReproc
-      .update(ccrR)
-      .set({
-        totalItens: restantes.length,
-        valorTotal: String(valorTotal.toFixed(2)),
-      })
-      .where(
-        and(
-          eq(ccrR.numeroConta, guia.numeroConta),
-          eq(ccrR.estabelecimentoId, guia.estabelecimentoId)
-        )
-      );
-  }
-
-  const totalProcessados = await db.insertFaturamentoTissBatch(
+  // A publicação troca somente os itens TISS deste arquivo em uma transação.
+  // A projeção Conta Convênio é reconstruída depois por arquivo, lote e
+  // competência, sem recalcular ou excluir snapshots de outras versões.
+  const totalProcessados = await db.replaceFaturamentoTissByArquivo(
+    arquivoId,
     faturamentoRecords,
-    async (_percentual, inseridos, total) => {
-      const progresso = Math.min(90, 10 + Math.round((inseridos / total) * 80));
-      await db.updateArquivoProgresso(arquivoId, progresso, inseridos, total);
-    }
+    loteClaim
   );
+  if (!loteClaim) {
+    await db.updateArquivoProgresso(
+      arquivoId,
+      90,
+      totalProcessados,
+      faturamentoRecords.length,
+    );
+  }
 
       if (skipContaConvenioSync) {
     await plog(
@@ -968,15 +934,49 @@ async function processEnvio(
       );
       }
 
-    await db.updateArquivoStatus(arquivoId, "processado");
-  await db.updateArquivoProgresso(
-    arquivoId,
-    100,
-    totalProcessados,
-    faturamentoRecords.length
-  );
+    if (!loteClaim) {
+      await db.updateArquivoStatus(arquivoId, "processado");
+      await db.updateArquivoProgresso(
+        arquivoId,
+        100,
+        totalProcessados,
+        faturamentoRecords.length,
+      );
+    }
   console.log(
     `[FileProcessor] Concluído: ${totalProcessados} itens extraídos de arquivo enviado.`
+  );
+}
+
+/**
+ * Fronteira exclusivamente interna do lote coordenado. O item já foi
+ * classificado como hospitalar e seu buffer foi lido do cofre cifrado; portanto
+ * não reclassifica nem permite que o vínculo de prestador desloque a unidade.
+ * A materialização de Conta Convênio ocorre em fase posterior do lote.
+ */
+export async function processarArquivoHospitalarDeLote(input: {
+  arquivoId: number;
+  buffer: Buffer;
+  loteClaim: { id: number; claimToken: string };
+}) {
+  const arquivo = await db.getArquivoById(input.arquivoId);
+  if (
+    !arquivo ||
+    arquivo.tipoArquivo !== "xml" ||
+    arquivo.direcao !== "enviado" ||
+    !Number.isSafeInteger(Number(arquivo.estabelecimentoId)) ||
+    !Number.isSafeInteger(Number(arquivo.convenioId))
+  ) {
+    throw new Error("ARQUIVO_HOSPITALAR_DE_LOTE_INVALIDO");
+  }
+  await processEnvio(
+    input.arquivoId,
+    arquivo,
+    input.buffer,
+    true,
+    true,
+    true,
+    input.loteClaim
   );
 }
 
