@@ -14,6 +14,8 @@ import { ENV } from "../_core/env";
 import { logger } from "../_core/logger";
 import { compararContaComPadroes } from "../services/comparadorPadroes";
 import { agruparResumosContaXml } from "../contasConvenioResumoUtils";
+import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
+import { exigirAcessoEstabelecimento, exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
 
 /**
  * Router para Contas Convênio - Gestão Operacional
@@ -1849,13 +1851,29 @@ export const contasConvenioRouter = router({
   // ============================================================
   compararComPadroes: protectedProcedure
     .input(z.object({
-      numeroConta: z.string(),
-      estabelecimentoId: z.number(),
-    }))
-    .mutation(async ({ input }) => {
+      numeroConta: z.string().trim().min(1).max(100),
+      estabelecimentoId: z.number().int().positive(),
+      contextoMedicoScope: z.object({
+        estabelecimentoId: z.number().int().positive(),
+        convenioId: z.number().int().positive(),
+        numeroConta: z.string().trim().min(1).max(100),
+        arquivoHospitalId: z.number().int().positive(),
+        numeroLote: z.string().trim().max(100).optional(),
+        competencia: z.string().trim().max(20).optional(),
+      }).strict().optional(),
+    }).strict())
+    .mutation(async ({ input, ctx }) => {
       const { executarComparacaoESalvar } = await import("../services/comparadorPadroes");
-      const resultado = await executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId);
-      return resultado;
+      if (!input.contextoMedicoScope) return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId);
+      const scope = input.contextoMedicoScope;
+      if (scope.estabelecimentoId !== input.estabelecimentoId || scope.numeroConta !== input.numeroConta) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O escopo médico não corresponde à conta selecionada." });
+      }
+      await exigirAcessoEstabelecimento(ctx.user.id, scope.estabelecimentoId, "visualizar");
+      await exigirConvenioDoEstabelecimento(ctx.user.id, scope.convenioId, scope.estabelecimentoId, "visualizar");
+      // A consulta não lê XML nem devolve valores: somente fontes já indexadas e composição sanitizada.
+      const contextoMedico = await criarServicoContaContextoMedicoParaUsuario(ctx.user.id).consultar({ scope });
+      return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId, { escopoContextoMedico: scope, contextoMedico });
     }),
 
   // ============================================================

@@ -2,6 +2,11 @@ import { getDb } from "../db";
 import { contasConvenioItens, contasConvenioResumo, padraoPrecoConvenio, padraoGlosaConvenio, padraoQuantidadeItem, padroesCobranca, logAnaliseComparacao, convenios } from "../../drizzle/schema";
 import { eq, and, sql, or, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
+import type { ContaContextoMedicoResultado } from "../../shared/contaContextoMedico";
+import {
+  avaliarContextoMedicoInformativo,
+  type ResultadoContextoMedicoNaComparacao,
+} from "./comparadorContextoMedicoInformativo";
 
 /**
  * Motor de Comparação de Padrões de Cobrança (com suporte a Gabarito e Setor)
@@ -59,7 +64,9 @@ export interface ResultadoComparacao {
   totalCriticos: number;
   divergencias: Divergencia[];
   resumoPorTipo: Record<string, number>;
-  statusGeral: "conforme" | "divergente";
+  statusGeral: "conforme" | "divergente" | "incompleta";
+  /** Estado sanitizado da evidência médica; jamais inclui XML, valores ou profissionais. */
+  contextoMedico: ResultadoContextoMedicoNaComparacao;
   gabaritosUsados: number;
   padroesUsados: number;
   setoresAnalisados: string[];
@@ -71,6 +78,15 @@ export interface ResultadoComparacao {
  * Forma mínima exigida pelo motor. A origem permanece externa: essa interface
  * permite analisar a publicação Warleine sem copiar itens para a fonte XML.
  */
+export interface EscopoContextoMedicoParaComparacao {
+  estabelecimentoId: number;
+  convenioId: number;
+  numeroConta: string;
+  arquivoHospitalId: number;
+  numeroLote?: string;
+  competencia?: string;
+}
+
 export interface ItemParaComparacao {
   codigoItem?: string | null;
   descricaoItem?: string | null;
@@ -120,25 +136,36 @@ function selecionarMelhorPadrao(
  */
 export async function compararContaComPadroes(
   numeroConta: string,
-  estabelecimentoId: number
+  estabelecimentoId: number,
+  opcoes?: {
+    escopoContextoMedico?: EscopoContextoMedicoParaComparacao;
+    contextoMedico?: ContaContextoMedicoResultado;
+  },
 ): Promise<ResultadoComparacao> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
   // 1. Buscar itens da conta
+  const conditions = [
+    eq(contasConvenioItens.numeroConta, numeroConta),
+    eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
+  ];
+  if (opcoes?.escopoContextoMedico) {
+    // Nunca usa fontes médicas para outra versão do XML hospitalar.
+    conditions.push(eq(contasConvenioItens.arquivoId, opcoes.escopoContextoMedico.arquivoHospitalId));
+    conditions.push(eq(contasConvenioItens.convenioId, opcoes.escopoContextoMedico.convenioId));
+  }
   const itens = await db
     .select()
     .from(contasConvenioItens)
-    .where(and(
-      eq(contasConvenioItens.numeroConta, numeroConta),
-      eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
-    ));
+    .where(and(...conditions));
 
   return compararItensComPadroes({
     numeroConta,
     estabelecimentoId,
     convenio: itens[0]?.convenio ?? null,
     itens: itens as unknown as ItemParaComparacao[],
+    contextoMedico: opcoes?.contextoMedico,
   });
 }
 
@@ -152,14 +179,17 @@ export async function compararItensComPadroes({
   estabelecimentoId,
   convenio,
   itens,
+  contextoMedico,
 }: {
   numeroConta: string;
   estabelecimentoId: number;
   convenio: string | null | undefined;
   itens: ItemParaComparacao[];
+  contextoMedico?: ContaContextoMedicoResultado;
 }): Promise<ResultadoComparacao> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
+  const contextoMedicoComparacao = avaliarContextoMedicoInformativo(contextoMedico);
 
   if (itens.length === 0) {
     return {
@@ -170,7 +200,8 @@ export async function compararItensComPadroes({
       totalCriticos: 0,
       divergencias: [],
       resumoPorTipo: {},
-      statusGeral: "conforme",
+      statusGeral: contextoMedicoComparacao.estado === "incompleto" ? "incompleta" : "conforme",
+      contextoMedico: contextoMedicoComparacao,
       gabaritosUsados: 0,
       padroesUsados: 0,
       setoresAnalisados: [],
@@ -197,7 +228,8 @@ export async function compararItensComPadroes({
         mensagem: "Convênio não identificado na conta. Não é possível comparar com padrões.",
       }],
       resumoPorTipo: { COMPOSICAO: 1 },
-      statusGeral: "conforme",
+      statusGeral: contextoMedicoComparacao.estado === "incompleto" ? "incompleta" : "conforme",
+      contextoMedico: contextoMedicoComparacao,
       gabaritosUsados: 0,
       padroesUsados: 0,
       setoresAnalisados: setoresNaConta,
@@ -611,7 +643,11 @@ export async function compararItensComPadroes({
     }
   }
 
-  // 9. Calcular resumo
+  // 9. Acrescentar somente os itens faltantes já deduzidos pelo Contexto médico.
+  // Não há valor, lançamento, recebimento ou alteração da fonte médica neste passo.
+  divergencias.push(...contextoMedicoComparacao.divergencias);
+
+  // 10. Calcular resumo
   const resumoPorTipo: Record<string, number> = {};
   let totalAlertas = 0;
   let totalCriticos = 0;
@@ -622,9 +658,11 @@ export async function compararItensComPadroes({
     if (div.severidade === "critico") totalCriticos++;
   }
 
-  const statusGeral = divergencias.some(d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso")
-    ? "divergente" as const
-    : "conforme" as const;
+  const statusGeral = contextoMedicoComparacao.estado === "incompleto"
+    ? "incompleta" as const
+    : divergencias.some(d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso")
+      ? "divergente" as const
+      : "conforme" as const;
 
   // 10. Calcular Score de Risco
   const scoreRisco = calcularScoreRisco(divergencias, resumoPorTipo, itens.length);
@@ -638,6 +676,7 @@ export async function compararItensComPadroes({
     divergencias,
     resumoPorTipo,
     statusGeral,
+    contextoMedico: contextoMedicoComparacao,
     gabaritosUsados,
     padroesUsados,
     setoresAnalisados: setoresNaConta,
@@ -889,12 +928,19 @@ function processarPadraoComposicao(
  */
 export async function executarComparacaoESalvar(
   numeroConta: string,
-  estabelecimentoId: number
+  estabelecimentoId: number,
+  opcoes?: {
+    escopoContextoMedico?: EscopoContextoMedicoParaComparacao;
+    contextoMedico?: ContaContextoMedicoResultado;
+  },
 ): Promise<ResultadoComparacao> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  const resultado = await compararContaComPadroes(numeroConta, estabelecimentoId);
+  const resultado = await compararContaComPadroes(numeroConta, estabelecimentoId, opcoes);
+  // A análise com contexto médico é estritamente informativa: não sobrescreve
+  // status, divergências legadas, resumo ou qualquer dado financeiro da conta.
+  if (resultado.statusGeral === "incompleta" || opcoes?.escopoContextoMedico) return resultado;
 
   // Separar divergências: as que têm item correspondente na conta vs as órfãs (ITEM_FALTANTE)
   const divPorItem = new Map<string, Divergencia[]>();
