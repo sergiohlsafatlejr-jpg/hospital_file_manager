@@ -1,15 +1,15 @@
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { auditLogs } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, like, sql } from "drizzle-orm";
 
 export const auditSystemRouter = router({
-  getLogs: publicProcedure
+  getLogs: protectedProcedure
     .input(
       z.object({
-        page: z.number().default(1),
-        pageSize: z.number().default(20),
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(1).max(200).default(20),
         userId: z.number().optional(),
         acao: z.enum(["CRIAR", "EDITAR", "EXCLUIR", "ACESSO", "SISTEMA"]).optional(),
         entidade: z.string().optional(),

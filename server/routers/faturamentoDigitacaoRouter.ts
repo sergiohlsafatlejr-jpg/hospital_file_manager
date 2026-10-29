@@ -848,12 +848,19 @@ export const faturamentoDigitacaoRouter = router({
         })),
       }))
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
 
       const [lote] = await db.select().from(lotesFaturamento).where(eq(lotesFaturamento.id, input.loteId));
       if (!lote) throw new Error("Remessa / Lote não encontrado");
+      if (ctx.user.role !== "admin") {
+        const { verificarPermissaoEstabelecimento } = await import("../db");
+        const autorizado = await verificarPermissaoEstabelecimento(ctx.user.id, lote.estabelecimentoId, "editar");
+        if (!autorizado) {
+          throw new Error("Sem permissão para importar guias neste estabelecimento");
+        }
+      }
 
       const estabelecimentoId = lote.estabelecimentoId;
       const convenioId = lote.convenioId;

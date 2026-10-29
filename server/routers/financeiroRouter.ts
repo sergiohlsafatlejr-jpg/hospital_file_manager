@@ -233,7 +233,16 @@ const tiposRecebivelRouter = router({
 const bancosRouter = router({
   listar: protectedProcedure.query(async () => {
     const db = (await getDb())!;
-    return db.select().from(finBancos).orderBy(finBancos.nome);
+    return db.select({
+      id: finBancos.id,
+      nome: finBancos.nome,
+      cor: finBancos.cor,
+      saldoInicial: finBancos.saldoInicial,
+      userId: finBancos.userId,
+      interContaCorrente: finBancos.interContaCorrente,
+      interBaseUrl: finBancos.interBaseUrl,
+      createdAt: finBancos.createdAt,
+    }).from(finBancos).orderBy(finBancos.nome);
   }),
   criar: protectedProcedure.input(z.object({ nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
     const db = (await getDb())!;
@@ -992,7 +1001,7 @@ const recebiveisRouter = router({
 
   gerarBoleto: protectedProcedure
     .input(z.object({
-      recebivelId: z.number(),
+      recebivelId: z.number().int().positive(),
       pagador: z.object({
         cpfCnpj: z.string(),
         tipoPessoa: z.enum(["FISICA", "JURIDICA"]),
@@ -1009,10 +1018,13 @@ const recebiveisRouter = router({
         telefone: z.string().optional(),
       })
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
 
       const dataVenc = new Date(recebivel.dataVencimento);
       const dataVencimentoStr = dataVenc.toISOString().split("T")[0];
@@ -1056,10 +1068,10 @@ const recebiveisRouter = router({
             let base64Nf: string | undefined = undefined;
             if (recebivel.notaFiscalKey) {
               try {
-                const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+                const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
                 const nfBuffer = await fs.readFile(filePath);
-                base64Nf = nfBuffer.toString('base64');
-              } catch(e) { console.error("Erro nf:", e); }
+                base64Nf = nfBuffer.toString("base64");
+              } catch (e) { console.error("Erro nf:", e); }
             }
             enviarBoletoPorEmail(input.pagador.email, pdfResult.pdf, result.codigoSolicitacao, recebivel.valor, base64Nf).then(async (success) => {
               if (success) await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
@@ -1074,11 +1086,14 @@ const recebiveisRouter = router({
     }),
 
   baixarBoleto: protectedProcedure
-    .input(z.object({ recebivelId: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ recebivelId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
       
       const result = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
       if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
@@ -1086,11 +1101,14 @@ const recebiveisRouter = router({
     }),
 
   enviarEmailBoleto: protectedProcedure
-    .input(z.object({ recebivelId: z.number(), email: z.string().email() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ recebivelId: z.number().int().positive(), email: z.string().email() }))
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
       
       const pdfResult = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
       if (!pdfResult || !pdfResult.pdf) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar o PDF do Banco Inter" });
@@ -1098,10 +1116,10 @@ const recebiveisRouter = router({
       let base64Nf: string | undefined = undefined;
       if (recebivel.notaFiscalKey) {
         try {
-          const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+          const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
           const nfBuffer = await fs.readFile(filePath);
-          base64Nf = nfBuffer.toString('base64');
-        } catch(e) { console.error("Erro nf:", e); }
+          base64Nf = nfBuffer.toString("base64");
+        } catch (e) { console.error("Erro nf:", e); }
       }
 
       const enviado = await enviarBoletoPorEmail(input.email, pdfResult.pdf, recebivel.boletoSolicitacaoId, recebivel.valor, base64Nf);
@@ -1113,16 +1131,22 @@ const recebiveisRouter = router({
 
   anexarNotaFiscal: protectedProcedure
     .input(z.object({
-      recebivelId: z.number(),
+      recebivelId: z.number().int().positive(),
       base64File: z.string(),
       fileName: z.string()
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
+
       const key = `nf_${input.recebivelId}_${Date.now()}.pdf`;
-      const buffer = Buffer.from(input.base64File, 'base64');
+      const buffer = Buffer.from(input.base64File, "base64");
       
-      const dirPath = path.join(process.cwd(), 'uploads');
+      const dirPath = path.join(process.cwd(), "uploads");
       await fs.mkdir(dirPath, { recursive: true });
       await fs.writeFile(path.join(dirPath, key), buffer);
       
@@ -1131,18 +1155,21 @@ const recebiveisRouter = router({
     }),
 
   enviarEmailNF: protectedProcedure
-    .input(z.object({ recebivelId: z.number(), email: z.string().email() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ recebivelId: z.number().int().positive(), email: z.string().email() }))
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma Nota Fiscal anexada para enviar." });
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
       
       let base64Nf: string | undefined = undefined;
       try {
-        const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+        const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
         const nfBuffer = await fs.readFile(filePath);
-        base64Nf = nfBuffer.toString('base64');
-      } catch(e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar a NF original dos arquivos locais." }); }
+        base64Nf = nfBuffer.toString("base64");
+      } catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar a NF original dos arquivos locais." }); }
 
       const enviado = await enviarNotaFiscalPorEmail(input.email, base64Nf, recebivel.valor);
       if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via SMTP." });
@@ -1152,14 +1179,19 @@ const recebiveisRouter = router({
     }),
 
   baixarNotaFiscal: protectedProcedure
-    .input(z.object({ recebivelId: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({ recebivelId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nota Fiscal não encontrada" });
-      const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+      const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
+      if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
+      await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
+
+      const safeFileName = path.basename(recebivel.notaFiscalKey);
+      const filePath = path.join(process.cwd(), "uploads", safeFileName);
       const buffer = await fs.readFile(filePath);
-      return { base64: buffer.toString('base64'), fileName: recebivel.notaFiscalKey };
+      return { base64: buffer.toString("base64"), fileName: safeFileName };
     }),
 });
 
