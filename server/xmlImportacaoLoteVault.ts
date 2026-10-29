@@ -213,13 +213,8 @@ function encrypt(plain: Buffer, scope: XmlImportacaoVaultScope): Buffer {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv("aes-256-gcm", key(), iv);
   cipher.setAAD(aad(scope));
-  return Buffer.concat([
-    PREFIX,
-    iv,
-    cipher.getAuthTag(),
-    cipher.update(plain),
-    cipher.final(),
-  ]);
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([PREFIX, iv, cipher.getAuthTag(), ciphertext]);
 }
 
 function decrypt(encrypted: Buffer, scope: XmlImportacaoVaultScope): Buffer {
