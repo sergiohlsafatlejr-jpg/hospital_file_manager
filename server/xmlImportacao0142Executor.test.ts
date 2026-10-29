@@ -51,6 +51,7 @@ type FakeOptions = {
   tlsVerified?: boolean;
   databaseName?: string;
   preexisting0142Object?: boolean;
+  legacyBaselineMetadataDrift?: boolean;
 };
 
 let temporaryDirectories: string[] = [];
@@ -101,6 +102,20 @@ class FakeDatabase {
       for (const item of definition.indexes) {
         if (!options.missingBaselineIndex || item.name !== "idx_pront_pdf_arquivo_hospitalar") this.indexes.set(`${table}:${item.name}`, clone(item));
       }
+    }
+    if (options.legacyBaselineMetadataDrift) {
+      const table = "prontuario_pdf_anexo_eventos";
+      const columns = this.columns.get(table);
+      if (!columns?.length) throw new Error("synthetic_baseline_missing");
+      columns[0] = { ...columns[0], type: "legacy_incompatible_type", default: "legacy-default" };
+      columns.reverse();
+      this.indexes.set(`${table}:idx_legacy_baseline_metadata`, {
+        name: "idx_legacy_baseline_metadata",
+        unique: false,
+        columns: [columns[0].name],
+        primary: false,
+        prefixes: [null],
+      });
     }
     if (options.preexisting0142Object) this.addTable("xml_importacao_itens");
   }
@@ -280,6 +295,16 @@ describe("executor restrito 0142", () => {
     const database = new FakeDatabase(contracts, await baselineLedger());
     await expect(runRestricted0142({ root, connectionFactory: database, canonicalTarget: target })).resolves.toMatchObject({
       ok: true, mode: "preflight", phase: "preflight-read-only", ddlCount: 0, tables: 2, alteredTables: 3, addedColumns: 5, primaryKeys: 2, uniqueIndexes: 5, nonUniqueIndexes: 6,
+    });
+    expect(ddls(database)).toEqual([]);
+    expect(journalWrites(database)).toEqual([]);
+    expect(database.purposes).toEqual(["0142-preflight-a", "0142-preflight-b"]);
+  });
+
+  it("tolera apenas metadados legados divergentes do baseline no preflight", async () => {
+    const database = new FakeDatabase(contracts, await baselineLedger(), { legacyBaselineMetadataDrift: true });
+    await expect(runRestricted0142({ root, connectionFactory: database, canonicalTarget: target })).resolves.toMatchObject({
+      ok: true, mode: "preflight", phase: "preflight-read-only", ddlCount: 0,
     });
     expect(ddls(database)).toEqual([]);
     expect(journalWrites(database)).toEqual([]);
