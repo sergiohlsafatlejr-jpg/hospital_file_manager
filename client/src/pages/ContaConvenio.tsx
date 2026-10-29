@@ -278,7 +278,12 @@ export default function ContaConvenio() {
   // Mutation para comparar com padrões
   const compararMutation = trpc.contasConvenio.compararComPadroes.useMutation({
     onSuccess: (result) => {
-      if (result.statusGeral === "conforme") {
+      if (result.statusGeral === "incompleta") {
+        toast.warning(
+          result.contextoMedico?.mensagem ||
+            "Análise incompleta para o contexto médico informativo.",
+        );
+      } else if (result.statusGeral === "conforme") {
         toast.success(`Conta conforme! ${result.totalItensAnalisados} itens analisados, nenhuma divergência crítica.`);
       } else {
         toast.warning(`${result.totalDivergencias} divergência(s) encontrada(s) (${result.totalCriticos} crítica(s), ${result.totalAlertas} alerta(s))`);
@@ -793,8 +798,20 @@ export default function ContaConvenio() {
                                 convenioChave: conta.convenioChave,
                               });
                             } else {
-                              toast.message("Abra os detalhes da conta para comparar com contexto médico da versão hospitalar correta.");
-                              handleVerDetalhes(conta);
+                              compararMutation.mutate({
+                                numeroConta: conta.numeroConta,
+                                estabelecimentoId: estabelecimentoAtual.id,
+                                ...(conta.origem === "XML" && conta.arquivoHospitalId && conta.convenioId
+                                  ? {
+                                      contextoMedicoScope: {
+                                        arquivoHospitalId: Number(conta.arquivoHospitalId),
+                                        convenioId: Number(conta.convenioId),
+                                        numeroLote: conta.numeroLote || undefined,
+                                        competencia: conta.competencia || undefined,
+                                      },
+                                    }
+                                  : {}),
+                              });
                             }
                           }}
                           disabled={compararMutation.isPending || compararWarleineMutation.isPending}

@@ -6,6 +6,8 @@ import { rotearEnvioXmlParaContextoMedico } from "./importacaoAutomaticaContexto
 import { processarArquivoHospitalarDeLote } from "./fileProcessor";
 import { syncContaConvenioFromFaturamentoTiss } from "./syncContaConvenio";
 import { lerXmlImportacaoProtegido } from "./xmlImportacaoLoteVault";
+import { criarServicoContaContextoMedicoParaUsuario } from "./contaContextoMedicoDrizzle";
+import { executarComparacaoESalvar } from "./services/comparadorPadroes";
 
 type SqlRow = RowDataPacket & Record<string, unknown>;
 
@@ -360,6 +362,57 @@ async function bloquearClassificadosPorFalhaNoLote(
   }
 }
 
+async function analisarContasMaterializadasDoLote(
+  connection: PoolConnection,
+  lote: LoteClaim,
+  arquivoHospitalIds: readonly number[]
+) {
+  if (!arquivoHospitalIds.length) return;
+  try {
+    const placeholders = arquivoHospitalIds.map(() => "?").join(", ");
+    const [rows] = await connection.query<SqlRow[]>(
+      `SELECT numeroConta, arquivoHospitalId, convenioId, numeroLote, competencia
+       FROM contas_convenio_resumo
+       WHERE estabelecimentoId = ?
+         AND origem = 'XML'
+         AND arquivoHospitalId IN (${placeholders})`,
+      [lote.estabelecimentoId, ...arquivoHospitalIds]
+    );
+    if (!rows.length) return;
+
+    const servicoContexto = criarServicoContaContextoMedicoParaUsuario(0);
+    for (const row of rows) {
+      const numeroConta = text(row.numeroConta).trim();
+      const arquivoHospitalId = numberId(row.arquivoHospitalId);
+      const convenioId = numberId(row.convenioId) || lote.convenioId;
+      if (!numeroConta || !arquivoHospitalId || !convenioId) continue;
+
+      const scope = {
+        estabelecimentoId: lote.estabelecimentoId,
+        convenioId,
+        numeroConta,
+        arquivoHospitalId,
+        numeroLote: text(row.numeroLote).trim(),
+        competencia: text(row.competencia).trim(),
+      };
+
+      try {
+        const contextoMedico = await servicoContexto
+          .consultar({ scope })
+          .catch(() => undefined);
+        await executarComparacaoESalvar(numeroConta, lote.estabelecimentoId, {
+          escopoContextoMedico: scope,
+          contextoMedico,
+        });
+      } catch {
+        // Falha na análise de uma guia específica não bloqueia a finalização do lote.
+      }
+    }
+  } catch {
+    // Análise automática pós-lote é best-effort e nunca impede a publicação do lote.
+  }
+}
+
 async function executar(lote: LoteClaim): Promise<void> {
   const pool = await getRawPool();
   if (!pool) throw new Error("XML_IMPORTACAO_DATABASE_UNAVAILABLE");
@@ -564,6 +617,11 @@ async function executar(lote: LoteClaim): Promise<void> {
     for (const { item } of honorarios) {
       await finalizarHonorario(connection, lote, item.id);
     }
+    await analisarContasMaterializadasDoLote(
+      connection,
+      lote,
+      arquivoHospitalIdsPermitidos
+    );
     await finalize(lote);
   } finally {
     connection.release();

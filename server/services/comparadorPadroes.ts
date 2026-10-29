@@ -643,9 +643,38 @@ export async function compararItensComPadroes({
     }
   }
 
-  // 9. Acrescentar somente os itens faltantes já deduzidos pelo Contexto médico.
-  // Não há valor, lançamento, recebimento ou alteração da fonte médica neste passo.
-  divergencias.push(...contextoMedicoComparacao.divergencias);
+  // 9. Acrescentar os alertas de composição (itens faltantes e quantidade) deduzidos pelo Contexto médico,
+  // sem duplicar itens já apontados na análise hospitalar.
+  const chavesDivergenciasExistentes = new Set(
+    divergencias.map(d => `${d.tipo}|${d.codigoItem || ""}|${d.padraoId || ""}`)
+  );
+  for (const divMed of contextoMedicoComparacao.divergencias) {
+    const chave = `${divMed.tipo}|${divMed.codigoItem || ""}|${divMed.padraoId || ""}`;
+    if (!chavesDivergenciasExistentes.has(chave)) {
+      chavesDivergenciasExistentes.add(chave);
+      divergencias.push(divMed);
+    }
+  }
+
+  // Registrar o gabarito do contexto médico em padroesDetalhados para rastreabilidade no log de análise
+  if (
+    contextoMedicoComparacao.estado === "aplicado" &&
+    contextoMedicoComparacao.gabaritoSelecionado
+  ) {
+    const gabMed = contextoMedicoComparacao.gabaritoSelecionado;
+    if (!padroesDetalhados.some(p => p.padraoId === gabMed.padraoId)) {
+      gabaritosUsados++;
+      padroesDetalhados.push({
+        padraoId: gabMed.padraoId,
+        padraoNome: gabMed.nome,
+        isGabarito: true,
+        convenioNome: convenioNormalizado,
+        setor: "CONTEXTO_MEDICO",
+        scoreMatch: 200,
+        motivoSelecao: "Gabarito aplicado via procedimentos do XML de honorários médicos",
+      });
+    }
+  }
 
   // 10. Calcular resumo
   const resumoPorTipo: Record<string, number> = {};
@@ -658,10 +687,14 @@ export async function compararItensComPadroes({
     if (div.severidade === "critico") totalCriticos++;
   }
 
-  const statusGeral = contextoMedicoComparacao.estado === "incompleto"
-    ? "incompleta" as const
-    : divergencias.some(d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso")
-      ? "divergente" as const
+  const temDivergenciaRelevante = divergencias.some(
+    d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso"
+  );
+
+  const statusGeral = temDivergenciaRelevante
+    ? "divergente" as const
+    : contextoMedicoComparacao.estado === "incompleto" && gabaritosUsados === 0 && padroesUsados === 0
+      ? "incompleta" as const
       : "conforme" as const;
 
   // 10. Calcular Score de Risco
@@ -938,9 +971,27 @@ export async function executarComparacaoESalvar(
   if (!db) throw new Error("Database não disponível");
 
   const resultado = await compararContaComPadroes(numeroConta, estabelecimentoId, opcoes);
-  // A análise com contexto médico é estritamente informativa: não sobrescreve
-  // status, divergências legadas, resumo ou qualquer dado financeiro da conta.
-  if (resultado.statusGeral === "incompleta" || opcoes?.escopoContextoMedico) return resultado;
+  if (resultado.totalItensAnalisados === 0 || resultado.statusGeral === "incompleta") return resultado;
+
+  // Condições de escopo para atualizar apenas a versão hospitalar analisada quando aplicável
+  const itemScopeConditions = [
+    eq(contasConvenioItens.numeroConta, numeroConta),
+    eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
+  ];
+  const resumoScopeConditions = [
+    eq(contasConvenioResumo.numeroConta, numeroConta),
+    eq(contasConvenioResumo.estabelecimentoId, estabelecimentoId),
+  ];
+  if (opcoes?.escopoContextoMedico) {
+    itemScopeConditions.push(eq(contasConvenioItens.arquivoId, opcoes.escopoContextoMedico.arquivoHospitalId));
+    itemScopeConditions.push(eq(contasConvenioItens.convenioId, opcoes.escopoContextoMedico.convenioId));
+    resumoScopeConditions.push(
+      or(
+        eq(contasConvenioResumo.arquivoHospitalId, opcoes.escopoContextoMedico.arquivoHospitalId),
+        sql`${contasConvenioResumo.arquivoHospitalId} IS NULL`,
+      )!,
+    );
+  }
 
   // Separar divergências: as que têm item correspondente na conta vs as órfãs (ITEM_FALTANTE)
   const divPorItem = new Map<string, Divergencia[]>();
@@ -950,10 +1001,7 @@ export async function executarComparacaoESalvar(
   const itensExistentes = await db
     .select({ codigoItem: contasConvenioItens.codigoItem })
     .from(contasConvenioItens)
-    .where(and(
-      eq(contasConvenioItens.numeroConta, numeroConta),
-      eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
-    ));
+    .where(and(...itemScopeConditions));
   const codigosExistentes = new Set(itensExistentes.map(i => i.codigoItem).filter(Boolean));
   
   for (const div of resultado.divergencias) {
@@ -973,10 +1021,7 @@ export async function executarComparacaoESalvar(
   const itens = await db
     .select({ id: contasConvenioItens.id, codigoItem: contasConvenioItens.codigoItem })
     .from(contasConvenioItens)
-    .where(and(
-      eq(contasConvenioItens.numeroConta, numeroConta),
-      eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
-    ));
+    .where(and(...itemScopeConditions));
 
   for (const item of itens) {
     const divs = item.codigoItem ? divPorItem.get(item.codigoItem) : undefined;
@@ -996,20 +1041,23 @@ export async function executarComparacaoESalvar(
       .where(eq(contasConvenioItens.id, item.id));
   }
 
+  const statusResumo =
+    resultado.statusGeral === "divergente" ||
+    resultado.divergencias.some(d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso")
+      ? ("divergente" as const)
+      : ("conforme" as const);
+
   // Atualizar resumo da conta (com score de risco e divergências gerais)
   await db.update(contasConvenioResumo)
     .set({
-      statusAnalise: resultado.statusGeral,
+      statusAnalise: statusResumo,
       totalDivergencias: resultado.totalDivergencias,
       totalAlertas: resultado.totalAlertas + resultado.totalCriticos,
       scoreRisco: resultado.scoreRisco.score,
       detalhesRisco: resultado.scoreRisco,
       divergenciasGerais: divergenciasGerais.length > 0 ? divergenciasGerais : null,
     })
-    .where(and(
-      eq(contasConvenioResumo.numeroConta, numeroConta),
-      eq(contasConvenioResumo.estabelecimentoId, estabelecimentoId),
-    ));
+    .where(and(...resumoScopeConditions));
 
   // Salvar log de análise para rastreabilidade
   const divCritico = resultado.divergencias.filter(d => d.severidade === "critico").length;
@@ -1039,7 +1087,7 @@ export async function executarComparacaoESalvar(
           divergenciasInfo: divInfo,
           scoreMatch: pd.scoreMatch,
           motivoSelecao: pd.motivoSelecao,
-          statusGeral: resultado.statusGeral,
+          statusGeral: statusResumo,
         });
       } catch (e) {
         logger.warn({ message: "Erro ao salvar log de análise", error: e });
@@ -1060,7 +1108,7 @@ export async function executarComparacaoESalvar(
         divergenciasAlerta: divAlerta,
         divergenciasAviso: divAviso,
         divergenciasInfo: divInfo,
-        statusGeral: resultado.statusGeral,
+        statusGeral: statusResumo,
       });
     } catch (e) {
       logger.warn({ message: "Erro ao salvar log de análise (sem padrão)", error: e });
