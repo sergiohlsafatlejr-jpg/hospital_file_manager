@@ -4153,18 +4153,23 @@ export type InsertFinTipoRecebivel = typeof finTiposRecebivel.$inferInsert;
  */
 export const finBancos = mysqlTable("fin_bancos", {
   id: int("id").autoincrement().primaryKey(),
+  // Nulo apenas para cadastros legados; a API Inter exige estabelecimento explícito.
+  estabelecimentoId: int("estabelecimentoId"),
   nome: varchar("nome", { length: 255 }).notNull(),
   cor: varchar("cor", { length: 20 }).default("#3b82f6"),
   saldoInicial: decimal("saldoInicial", { precision: 15, scale: 2 }).default("0"),
   userId: int("userId"),
   interClientId: varchar("interClientId", { length: 100 }),
-  interClientSecret: varchar("interClientSecret", { length: 100 }),
+  // Segredos/certificados guardam envelope AES-GCM; nunca texto claro.
+  interClientSecret: text("interClientSecret"),
   interCertPem: text("interCertPem"),
   interKeyPem: text("interKeyPem"),
-  interContaCorrente: varchar("interContaCorrente", { length: 50 }),
+  interContaCorrente: text("interContaCorrente"),
   interBaseUrl: varchar("interBaseUrl", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  estabelecimentoIdx: index("idx_fin_bancos_estabelecimento").on(table.estabelecimentoId),
+}));
 
 export type FinBanco = typeof finBancos.$inferSelect;
 export type InsertFinBanco = typeof finBancos.$inferInsert;

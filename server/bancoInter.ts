@@ -19,11 +19,11 @@
  */
 
 import https from "https";
-import fs from "fs";
-import path from "path";
+import type { IncomingHttpHeaders } from "node:http";
 import { getDb } from "./db";
 import { finBancos } from "../drizzle/schema";
-import { eq, isNotNull, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { decryptBancoInterField } from "./bancoInterVault";
 
 export interface InterConfig {
   bancoId?: number;
@@ -36,103 +36,37 @@ export interface InterConfig {
   baseUrl: string;
 }
 
-// Cache de tokens OAuth2 por clientId
+// Cache de tokens OAuth2 por banco, sem serializar credenciais.
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
  * Obtém as credenciais e certificados do Banco Inter.
- * Prioridade:
- * 1. Banco específico por bancoId (em fin_bancos)
- * 2. Qualquer banco cadastrado com credenciais Inter completas em fin_bancos
- * 3. Variáveis de ambiente (.env) e arquivos certs/inter.crt / certs/inter.key
+ * Um banco específico é obrigatório; não há fallback global nem credenciais em ambiente.
+ * Segredo, certificado, chave e conta são aceitos somente como envelopes AES-GCM válidos.
  */
 export async function getInterConfig(bancoId?: number): Promise<InterConfig | null> {
+  if (!Number.isSafeInteger(bancoId) || !bancoId || bancoId <= 0) return null;
   try {
     const db = await getDb();
-    if (db) {
-      if (bancoId) {
-        const [banco] = await db
-          .select()
-          .from(finBancos)
-          .where(eq(finBancos.id, bancoId))
-          .limit(1);
-
-        if (banco && banco.interClientId && banco.interClientSecret && banco.interCertPem && banco.interKeyPem) {
-          return {
-            bancoId: banco.id,
-            bancoNome: banco.nome,
-            clientId: banco.interClientId,
-            clientSecret: banco.interClientSecret,
-            certPem: banco.interCertPem,
-            keyPem: banco.interKeyPem,
-            contaCorrente: banco.interContaCorrente || undefined,
-            baseUrl: banco.interBaseUrl || "https://cdpj.partners.bancointer.com.br",
-          };
-        }
-      }
-
-      // Se bancoId não especificado ou banco sem credenciais, busca o primeiro banco configurado
-      const bancosConfigurados = await db
-        .select()
-        .from(finBancos)
-        .where(
-          and(
-            isNotNull(finBancos.interCertPem),
-            isNotNull(finBancos.interKeyPem),
-            isNotNull(finBancos.interClientId),
-            isNotNull(finBancos.interClientSecret)
-          )
-        )
-        .limit(1);
-
-      if (bancosConfigurados.length > 0) {
-        const banco = bancosConfigurados[0];
-        return {
-          bancoId: banco.id,
-          bancoNome: banco.nome,
-          clientId: banco.interClientId!,
-          clientSecret: banco.interClientSecret!,
-          certPem: banco.interCertPem!,
-          keyPem: banco.interKeyPem!,
-          contaCorrente: banco.interContaCorrente || undefined,
-          baseUrl: banco.interBaseUrl || "https://cdpj.partners.bancointer.com.br",
-        };
-      }
+    if (!db) return null;
+    const [banco] = await db.select().from(finBancos).where(eq(finBancos.id, bancoId)).limit(1);
+    if (!banco || !banco.interClientId || !banco.interClientSecret || !banco.interCertPem || !banco.interKeyPem) {
+      return null;
     }
-  } catch (err) {
-    console.error("[BancoInter] Erro ao consultar configurações no banco de dados:", err);
-  }
-
-  // Fallback: Variáveis de ambiente e arquivos locais
-  const clientId = process.env.INTER_CLIENT_ID;
-  const clientSecret = process.env.INTER_CLIENT_SECRET;
-  let certPem = process.env.INTER_CERT_PEM;
-  let keyPem = process.env.INTER_KEY_PEM;
-  const contaCorrente = process.env.INTER_CONTA_CORRENTE;
-  const baseUrl = process.env.INTER_BASE_URL || "https://cdpj.partners.bancointer.com.br";
-
-  const certPath = process.env.INTER_CERT_PATH || path.join(process.cwd(), "certs", "inter.crt");
-  const keyPath = process.env.INTER_KEY_PATH || path.join(process.cwd(), "certs", "inter.key");
-
-  if (!certPem && fs.existsSync(certPath)) {
-    try { certPem = fs.readFileSync(certPath, "utf-8"); } catch (e) { console.error("Erro ao ler certPath:", e); }
-  }
-  if (!keyPem && fs.existsSync(keyPath)) {
-    try { keyPem = fs.readFileSync(keyPath, "utf-8"); } catch (e) { console.error("Erro ao ler keyPath:", e); }
-  }
-
-  if (clientId && clientSecret && certPem && keyPem) {
     return {
-      clientId,
-      clientSecret,
-      certPem,
-      keyPem,
-      contaCorrente: contaCorrente || undefined,
-      baseUrl,
+      bancoId: banco.id,
+      bancoNome: banco.nome,
+      clientId: banco.interClientId,
+      clientSecret: decryptBancoInterField(banco.id, "clientSecret", banco.interClientSecret),
+      certPem: decryptBancoInterField(banco.id, "certPem", banco.interCertPem),
+      keyPem: decryptBancoInterField(banco.id, "keyPem", banco.interKeyPem),
+      contaCorrente: banco.interContaCorrente ? decryptBancoInterField(banco.id, "contaCorrente", banco.interContaCorrente) : undefined,
+      baseUrl: banco.interBaseUrl || "https://cdpj.partners.bancointer.com.br",
     };
+  } catch {
+    // Falha fechada: envelope, chave ou banco inválido não habilita chamada externa.
+    return null;
   }
-
-  return null;
 }
 
 /**
@@ -147,7 +81,7 @@ function doHttpsRequest(opts: {
   cert: string;
   key: string;
   body?: string;
-}): Promise<{ status: number; data: string; headers: https.IncomingHttpHeaders }> {
+}): Promise<{ status: number; data: string; headers: IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const reqOptions: https.RequestOptions = {
       method: opts.method || "GET",
@@ -178,7 +112,8 @@ function doHttpsRequest(opts: {
  * Obtém token de acesso OAuth2 usando o certificado mTLS
  */
 async function getAccessToken(config: InterConfig): Promise<string> {
-  const cached = tokenCache.get(config.clientId);
+  const cacheKey = String(config.bancoId);
+  const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now() + 300000) {
     return cached.token;
   }
@@ -205,12 +140,10 @@ async function getAccessToken(config: InterConfig): Promise<string> {
     body,
   });
 
-  if (res.status !== 200) {
-    throw new Error(`Erro ao obter token Inter (${res.status}): ${res.data}`);
-  }
+  if (res.status !== 200) throw new Error(`inter_oauth_http_${res.status}`);
 
   const data = JSON.parse(res.data) as { access_token: string; expires_in: number };
-  tokenCache.set(config.clientId, {
+  tokenCache.set(cacheKey, {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in * 1000),
   });
@@ -237,9 +170,7 @@ async function interRequest(
     config = await getInterConfig(typeof bancoIdOrConfig === "number" ? bancoIdOrConfig : undefined);
   }
 
-  if (!config) {
-    throw new Error("API do Banco Inter não configurada. Configure as credenciais em Bancos ou .env.");
-  }
+  if (!config) throw new Error("inter_not_configured");
 
   const token = await getAccessToken(config);
   const method = options?.method || "GET";
@@ -276,14 +207,7 @@ async function interRequest(
     body: postBody,
   });
 
-  if (res.status >= 400) {
-    let errMsg = res.data;
-    try {
-      const parsed = JSON.parse(res.data);
-      errMsg = parsed.message || parsed.detail || parsed.title || (parsed.violacoes ? JSON.stringify(parsed.violacoes) : res.data);
-    } catch {}
-    throw new Error(`Erro API Inter (${pathStr}): HTTP ${res.status} - ${errMsg}`);
-  }
+  if (res.status >= 400) throw new Error(`inter_api_http_${res.status}`);
 
   if (res.data) {
     try {
@@ -306,11 +230,11 @@ export async function getInterStatus(bancoId?: number) {
     hasClientSecret: !!config?.clientSecret,
     hasCert: !!config?.certPem,
     hasKey: !!config?.keyPem,
-    contaCorrente: config?.contaCorrente || null,
-    baseUrl: config?.baseUrl || "https://cdpj.partners.bancointer.com.br",
-    bancoId: config?.bancoId || null,
-    bancoNome: config?.bancoNome || null,
   };
+}
+
+function operationFailure() {
+  return { configured: true, error: "Não foi possível concluir a operação com o Banco Inter." };
 }
 
 // ==================== BANKING ====================
@@ -319,8 +243,8 @@ export async function consultarSaldo(bancoId?: number | InterConfig) {
   try {
     const data = await interRequest("/banking/v2/saldo", undefined, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -328,8 +252,8 @@ export async function consultarExtrato(dataInicio: string, dataFim: string, banc
   try {
     const data = await interRequest("/banking/v2/extrato", { params: { dataInicio, dataFim } }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -346,8 +270,8 @@ export async function consultarExtratoCompleto(
     if (tamanhoPagina !== undefined) params.tamanhoPagina = String(tamanhoPagina);
     const data = await interRequest("/banking/v2/extrato/completo", { params }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -355,8 +279,8 @@ export async function exportarExtratoPdf(dataInicio: string, dataFim: string, ba
   try {
     const data = await interRequest("/banking/v2/extrato/exportar", { params: { dataInicio, dataFim } }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -454,8 +378,8 @@ export async function emitirBoleto(input: EmitirBoletoInput, bancoIdParam?: numb
     }
 
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -463,8 +387,8 @@ export async function consultarBoleto(codigoSolicitacao: string, bancoId?: numbe
   try {
     const data = await interRequest(`/cobranca/v3/cobrancas/${codigoSolicitacao}`, undefined, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -483,8 +407,8 @@ export async function listarBoletos(
     if (itensPorPagina !== undefined) params["paginacao.itensPorPagina"] = String(itensPorPagina);
     const data = await interRequest("/cobranca/v3/cobrancas", { params }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -492,8 +416,8 @@ export async function downloadBoletoPdf(codigoSolicitacao: string, bancoId?: num
   try {
     const data = await interRequest(`/cobranca/v3/cobrancas/${codigoSolicitacao}/pdf`, undefined, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -504,8 +428,8 @@ export async function cancelarBoleto(codigoSolicitacao: string, motivoCancelamen
       body: { motivoCancelamento },
     }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }
 
@@ -515,7 +439,7 @@ export async function sumarioBoletos(dataInicial: string, dataFinal: string, ban
       params: { dataInicial, dataFinal },
     }, bancoId);
     return { configured: true, ...data };
-  } catch (error: any) {
-    return { configured: true, error: error.message };
+  } catch {
+    return operationFailure();
   }
 }

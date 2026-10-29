@@ -9,7 +9,7 @@ export const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  tls: { rejectUnauthorized: false }
+  tls: { rejectUnauthorized: true }
 });
 
 export async function enviarBoletoPorEmail(to: string, base64Pdf: string, codigoBoleto: string, valor: string, base64Nf?: string) {
@@ -53,8 +53,8 @@ export async function enviarBoletoPorEmail(to: string, base64Pdf: string, codigo
     });
     console.log("E-mail enviado com sucesso:", info.messageId);
     return true;
-  } catch (error) {
-    console.error("Erro ao enviar e-mail no nodemailer:", error);
+  } catch {
+    console.error("[EmailService] Falha no envio de e-mail");
     return false;
   }
 }
@@ -89,8 +89,8 @@ export async function enviarNotaFiscalPorEmail(to: string, base64Nf: string, val
     });
     console.log("E-mail com NF isolada enviado com sucesso:", info.messageId);
     return true;
-  } catch (error) {
-    console.error("Erro ao enviar e-mail com NF Isolada no nodemailer:", error);
+  } catch {
+    console.error("[EmailService] Falha no envio de e-mail com nota fiscal");
     return false;
   }
 }
