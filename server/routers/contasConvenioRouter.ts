@@ -1864,7 +1864,59 @@ export const contasConvenioRouter = router({
     }).strict())
     .mutation(async ({ input, ctx }) => {
       const { executarComparacaoESalvar } = await import("../services/comparadorPadroes");
-      if (!input.contextoMedicoScope) return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId);
+      if (!input.contextoMedicoScope) {
+        try {
+          const db = await getDb();
+          if (db) {
+            const resumosXml = await db
+              .select({
+                arquivoHospitalId: contasConvenioResumo.arquivoHospitalId,
+                convenioId: contasConvenioResumo.convenioId,
+                numeroLote: contasConvenioResumo.numeroLote,
+                competencia: contasConvenioResumo.competencia,
+              })
+              .from(contasConvenioResumo)
+              .where(
+                and(
+                  eq(contasConvenioResumo.numeroConta, input.numeroConta),
+                  eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
+                  eq(contasConvenioResumo.origem, "XML"),
+                ),
+              )
+              .orderBy(desc(contasConvenioResumo.id))
+              .limit(2);
+
+            if (
+              resumosXml.length === 1 &&
+              resumosXml[0].arquivoHospitalId &&
+              resumosXml[0].convenioId
+            ) {
+              const autoScope = {
+                estabelecimentoId: input.estabelecimentoId,
+                convenioId: resumosXml[0].convenioId,
+                numeroConta: input.numeroConta,
+                arquivoHospitalId: resumosXml[0].arquivoHospitalId,
+                numeroLote: resumosXml[0].numeroLote ?? "",
+                competencia: resumosXml[0].competencia ?? "",
+              };
+              const contextoMedico = await criarServicoContaContextoMedicoParaUsuario(ctx.user.id).consultar({
+                scope: autoScope,
+              });
+              return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId, {
+                escopoContextoMedico: autoScope,
+                contextoMedico,
+              });
+            }
+          }
+        } catch (err) {
+          logger.warn({
+            message: "Não foi possível resolver contexto médico automático em compararComPadroes",
+            numeroConta: input.numeroConta,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId);
+      }
       const scope = input.contextoMedicoScope;
       if (scope.estabelecimentoId !== input.estabelecimentoId || scope.numeroConta !== input.numeroConta) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O escopo médico não corresponde à conta selecionada." });
@@ -1948,6 +2000,7 @@ export const contasConvenioRouter = router({
           eq(contasConvenioResumo.numeroConta, input.numeroConta),
           eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
         ))
+        .orderBy(desc(contasConvenioResumo.atualizadoEm))
         .limit(1);
 
       // Incluir divergências gerais (ITEM_FALTANTE, etc.) que não estão vinculadas a itens

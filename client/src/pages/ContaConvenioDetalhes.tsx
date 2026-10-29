@@ -736,6 +736,9 @@ function ContaConvenioDetalhesPadrao() {
       }
       refetch();
       refetchDivergencias();
+      logsAnaliseQuery.refetch();
+      itensContaInteira.refetch();
+      contextoMedicoItens.refetch();
     },
     onError: err => toast.error(err.message),
   });
@@ -744,6 +747,13 @@ function ContaConvenioDetalhesPadrao() {
   const primeiroItem = itensData?.items?.[0];
   const resumoGeral = itensData?.resumoGeral;
   const resumoPorTipo = itensData?.resumoPorTipo || [];
+  const totalDivergenciasSalvas = Number(
+    divergenciasData?.resumo?.total ?? divergenciasData?.divergencias?.length ?? 0
+  );
+  const totalDivergentesExibido = Math.max(
+    Number(resumoGeral?.totalDivergentes || 0),
+    totalDivergenciasSalvas
+  );
   const contextoMedicoScopeState =
     useMemo<ContaContextoMedicoScopeState>(() => {
     return montarScopeContaContextoMedico({
@@ -753,11 +763,35 @@ function ContaConvenioDetalhesPadrao() {
     });
   }, [estabelecimentoId, itensContaInteira.data?.items, numeroConta]);
   const executarComparacaoComContextoMedico = () => {
-    if (!contextoMedicoScopeState.ready) {
-      toast.warning("Comparação bloqueada: abra uma versão hospitalar com escopo médico único antes de validar itens faltantes.");
+    if (contextoMedicoScopeState.ready) {
+      compararMutation.mutate({
+        numeroConta,
+        estabelecimentoId,
+        contextoMedicoScope: contextoMedicoScopeState.scope,
+      });
       return;
     }
-    compararMutation.mutate({ numeroConta, estabelecimentoId, contextoMedicoScope: contextoMedicoScopeState.scope });
+    if (primeiroItem?.origem === "BANCO_CLIENTE") {
+      compararMutation.mutate({ numeroConta, estabelecimentoId });
+      return;
+    }
+    toast.warning("Comparação bloqueada: abra uma versão hospitalar com escopo médico único antes de validar itens faltantes.");
+  };
+
+  const handleCobrarItemFaltante = (div: any) => {
+    setAjusteCodigo(div.codigoItem || "");
+    setAjusteDescricao(div.descricaoItem || div.descricao || "");
+    setAjusteQtd(String(div.detalhes?.quantidadeMedia || 1));
+    setAjusteValor(
+      div.detalhes?.valorMedio ? String(div.detalhes.valorMedio) : ""
+    );
+    setAjusteTipoItem("MATERIAL");
+    setAjusteSetorNovoItem(div.setor || "");
+    setAjusteDataNovoItem(toInputDateValue(primeiroItem?.dataExecucao));
+    setAjusteJustificativa(
+      `Inclusão de item obrigatório apontado pelo gabarito (${div.codigoItem || ""})`
+    );
+    setAjusteDialog({ open: true, tipo: "ADICIONAR_ITEM" });
   };
 
   const exibirContextoMedico = contextoMedicoScopeState.ready;
@@ -791,6 +825,54 @@ function ContaConvenioDetalhesPadrao() {
       ),
     [contextoMedicoItens.data?.fontes]
   );
+
+  // Mantém o resumo do contexto médico visível mesmo após sair e voltar na conta
+  const resumoContextoMedicoExibido = useMemo(() => {
+    if (resultadoContextoMedico) return resultadoContextoMedico;
+    if (!exibirContextoMedico || !contextoMedicoItens.data) return null;
+
+    const divsMedicasSalvas = (divergenciasData?.divergencias ?? []).filter(
+      (d: any) => d.detalhes?.origem === "contexto_medico_informativo"
+    );
+    const elegiveis = (contextoMedicoItens.data.candidatos ?? []).filter(
+      c => c.elegivel
+    );
+    const confirmado =
+      contextoMedicoItens.data.contexto?.status === "confirmado"
+        ? elegiveis.find(
+            c => c.padraoId === contextoMedicoItens.data?.contexto?.padraoId
+          )
+        : undefined;
+    const gabaritoAtivo =
+      confirmado ?? (elegiveis.length === 1 ? elegiveis[0] : undefined);
+
+    if (divsMedicasSalvas.length === 0 && !gabaritoAtivo) return null;
+
+    const faltantesCount = divsMedicasSalvas.filter(
+      (d: any) => d.tipo === "ITEM_FALTANTE"
+    ).length;
+
+    return {
+      estado: "aplicado" as const,
+      mensagem:
+        divsMedicasSalvas.length > 0
+          ? `Composição comparada com procedimentos médicos informativos${gabaritoAtivo ? ` (${gabaritoAtivo.nome})` : ""}; ${divsMedicasSalvas.length} apontamento(s) salvo(s) na conta.`
+          : `Composição comparada com procedimentos médicos informativos${gabaritoAtivo ? ` (${gabaritoAtivo.nome})` : ""}, sem item obrigatório ou condicional pendente.`,
+      fontes: contextoMedicoItens.data.fontes.length,
+      itensFaltantes: faltantesCount,
+      divergencias: divsMedicasSalvas.map((d: any) => ({
+        codigoItem: d.codigoItem,
+        descricaoItem: d.descricaoItem,
+        severidade: d.severidade,
+        mensagem: d.mensagem,
+      })),
+    };
+  }, [
+    resultadoContextoMedico,
+    exibirContextoMedico,
+    contextoMedicoItens.data,
+    divergenciasData?.divergencias,
+  ]);
 
   // ============================================================
   // DADOS CONSOLIDADOS PARA RELATÓRIO DO FATURISTA
@@ -1300,13 +1382,13 @@ function ContaConvenioDetalhesPadrao() {
                 <div>
                   <p className="text-sm text-muted-foreground">Divergentes</p>
                   <p className="text-3xl font-bold text-red-600">
-                    {Number(resumoGeral?.totalDivergentes || 0)}
+                    {totalDivergentesExibido}
                   </p>
                 </div>
                 <AlertTriangle className="h-10 w-10 text-red-500" />
               </div>
               {divergenciasData?.resumo?.porSeveridade &&
-                Number(resumoGeral?.totalDivergentes || 0) > 0 && (
+                totalDivergentesExibido > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-red-200/50">
                   {divergenciasData.resumo.porSeveridade.critico > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-200/60 text-red-800">
@@ -1333,6 +1415,14 @@ function ContaConvenioDetalhesPadrao() {
                         {divergenciasData.resumo.porSeveridade.aviso > 1
                           ? "s"
                           : ""}
+                    </span>
+                  )}
+                  {(divergenciasData.resumo.porTipo?.ITEM_FALTANTE || 0) > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-600 text-white font-semibold">
+                      {divergenciasData.resumo.porTipo.ITEM_FALTANTE} faltante
+                      {divergenciasData.resumo.porTipo.ITEM_FALTANTE > 1
+                        ? "s"
+                        : ""}
                     </span>
                   )}
                 </div>
@@ -2143,34 +2233,36 @@ function ContaConvenioDetalhesPadrao() {
 
           {/* Tab: Divergências */}
           <TabsContent value="divergencias" className="space-y-4">
-            {resultadoContextoMedico ? (
-              <Card className={resultadoContextoMedico.estado === "incompleto" ? "border-amber-300 bg-amber-50/60" : resultadoContextoMedico.itensFaltantes > 0 ? "border-orange-300 bg-orange-50/60" : "border-emerald-300 bg-emerald-50/60"}>
+            {resumoContextoMedicoExibido ? (
+              <Card className={resumoContextoMedicoExibido.estado === "incompleto" ? "border-amber-300 bg-amber-50/60" : resumoContextoMedicoExibido.itensFaltantes > 0 ? "border-orange-300 bg-orange-50/60" : "border-emerald-300 bg-emerald-50/60"}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Stethoscope className="h-5 w-5 text-sky-700" />
                     Resultado informativo do XML de honorários
                   </CardTitle>
                   <CardDescription>
-                    {resultadoContextoMedico.mensagem ?? "Resultado médico informativo."} Nenhum valor, status financeiro ou histórico da conta foi alterado.
+                    {resumoContextoMedicoExibido.mensagem ?? "Resultado médico informativo."} Os apontamentos de composição ficam salvos na tabela de divergências abaixo para auditoria.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  {resultadoContextoMedico.estado === "incompleto" ? (
-                    <p className="text-sm text-amber-900">Revise o XML hospitalar e a associação médica antes de concluir a conta.</p>
-                  ) : resultadoContextoMedico.divergencias.length > 0 ? (
-                    <ul className="space-y-2">
-                      {resultadoContextoMedico.divergencias.map(divergencia => (
-                        <li key={`${divergencia.codigoItem}-${divergencia.severidade}`} className="rounded-md border border-orange-200 bg-white/80 px-3 py-2 text-sm">
-                          <span className="font-medium">{divergencia.descricaoItem || divergencia.codigoItem}</span>
-                          <span className="ml-2 text-muted-foreground">({divergencia.codigoItem})</span>
-                          <p className="mt-1 text-muted-foreground">{divergencia.mensagem}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-emerald-900">A composição foi conferida com a fonte médica informativa, sem pendência obrigatória ou condicional.</p>
-                  )}
-                </CardContent>
+                {resumoContextoMedicoExibido.estado === "incompleto" ||
+                (!divergenciasData?.divergencias?.length &&
+                  resumoContextoMedicoExibido.divergencias.length > 0) ? (
+                  <CardContent>
+                    {resumoContextoMedicoExibido.estado === "incompleto" ? (
+                      <p className="text-sm text-amber-900">Revise o XML hospitalar e a associação médica na aba "Contexto médico" antes de concluir a conta.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {resumoContextoMedicoExibido.divergencias.map(divergencia => (
+                          <li key={`${divergencia.codigoItem}-${divergencia.severidade}`} className="rounded-md border border-orange-200 bg-white/80 px-3 py-2 text-sm">
+                            <span className="font-medium">{divergencia.descricaoItem || divergencia.codigoItem}</span>
+                            <span className="ml-2 text-muted-foreground">({divergencia.codigoItem})</span>
+                            <p className="mt-1 text-muted-foreground">{divergencia.mensagem}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                ) : null}
               </Card>
             ) : null}
             <Card>
@@ -2315,6 +2407,17 @@ function ContaConvenioDetalhesPadrao() {
                                           })}
                                       </span>
                                     )}
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="ml-auto h-7 text-xs border-red-300 text-red-700 hover:bg-red-100"
+                                        onClick={() =>
+                                          handleCobrarItemFaltante(item)
+                                        }
+                                      >
+                                        <Plus className="h-3 w-3 mr-1" />
+                                        Cobrar Item
+                                      </Button>
                                   </div>
                                   )
                                 )}
@@ -2913,6 +3016,27 @@ function ContaConvenioDetalhesPadrao() {
                                           </TooltipContent>
                                       </Tooltip>
                                     </TooltipProvider>
+                                    {isItemFaltante && (
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-7 w-7 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                                              onClick={() =>
+                                                handleCobrarItemFaltante(div)
+                                              }
+                                            >
+                                              <Plus className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Cobrar item faltante (abrir ajuste de inclusão)
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    )}
                                     {/* Botão de histórico */}
                                     {fb && (
                                       <TooltipProvider>
