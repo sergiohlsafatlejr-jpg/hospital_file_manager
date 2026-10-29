@@ -2,10 +2,11 @@ import { z } from "zod";
 import pdfParse from "pdf-parse";
 import path from "path";
 import fs from "fs/promises";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos } from "../bancoInter";
+import { bancoInterEncryptionKeyAvailable, encryptBancoInterField } from "../bancoInterVault";
 import { enviarBoletoPorEmail, enviarNotaFiscalPorEmail } from "../services/emailService";
 import {
   finEmpresas, finClientes, finCategorias, finTiposPagamento,
@@ -20,6 +21,17 @@ import { clienteDaUnidade, exigirClienteDaEmpresa, exigirEmpresaDaUnidade, exigi
 
 // Para filtrar DATE, compare DATE com DATE: usar Date (meio-dia) excluiria o dia inicial.
 const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
+
+async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Base financeira indisponível" });
+  const [banco] = await db.select({ id: finBancos.id })
+    .from(finBancos)
+    .where(and(eq(finBancos.id, bancoId), eq(finBancos.estabelecimentoId, estabelecimentoId)))
+    .limit(1);
+  if (!banco) throw new TRPCError({ code: "FORBIDDEN", message: "Banco não pertence ao estabelecimento informado" });
+  return banco;
+}
 
 // ============================================================
 // EMPRESAS
@@ -231,32 +243,65 @@ const tiposRecebivelRouter = router({
 // BANCOS
 // ============================================================
 const bancosRouter = router({
-  listar: protectedProcedure.query(async () => {
+  listar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
     const db = (await getDb())!;
     return db.select({
       id: finBancos.id,
+      estabelecimentoId: finBancos.estabelecimentoId,
       nome: finBancos.nome,
       cor: finBancos.cor,
       saldoInicial: finBancos.saldoInicial,
       userId: finBancos.userId,
-      interContaCorrente: finBancos.interContaCorrente,
-      interBaseUrl: finBancos.interBaseUrl,
       createdAt: finBancos.createdAt,
-    }).from(finBancos).orderBy(finBancos.nome);
+    }).from(finBancos).where(eq(finBancos.estabelecimentoId, input.estabelecimentoId)).orderBy(finBancos.nome);
   }),
-  criar: protectedProcedure.input(z.object({ nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
+  criar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive(), nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
     const db = (await getDb())!;
-    const [result] = await db.insert(finBancos).values({ nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0", userId: ctx.user.id });
+    const [result] = await db.insert(finBancos).values({ estabelecimentoId: input.estabelecimentoId, nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0", userId: ctx.user.id });
     return { id: result.insertId };
   }),
-  atualizar: protectedProcedure.input(z.object({ id: z.number(), nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input }) => {
+  atualizar: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await exigirBancoDaUnidade(input.id, input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.update(finBancos).set({ nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0" }).where(eq(finBancos.id, input.id));
+    await db.update(finBancos).set({ nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0" }).where(and(eq(finBancos.id, input.id), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
     return { success: true };
   }),
-  excluir: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await exigirBancoDaUnidade(input.id, input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.delete(finBancos).where(eq(finBancos.id, input.id));
+    await db.delete(finBancos).where(and(eq(finBancos.id, input.id), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
+    return { success: true };
+  }),
+  configurarInter: adminProcedure.input(z.object({
+    bancoId: z.number().int().positive(),
+    estabelecimentoId: z.number().int().positive(),
+    clientId: z.string().min(1).max(100),
+    clientSecret: z.string().min(1).max(4096),
+    certPem: z.string().min(1).max(65535),
+    keyPem: z.string().min(1).max(65535),
+    contaCorrente: z.string().min(1).max(255).optional(),
+    baseUrl: z.enum([
+      "https://cdpj.partners.bancointer.com.br",
+      "https://cdpj-sandbox.partners.bancointer.com.br",
+    ]).optional(),
+  })).mutation(async ({ input }) => {
+    if (!bancoInterEncryptionKeyAvailable()) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A chave exclusiva da integração bancária ainda não está configurada" });
+    }
+    await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
+    const db = (await getDb())!;
+    await db.update(finBancos).set({
+      interClientId: input.clientId,
+      interClientSecret: encryptBancoInterField(input.bancoId, "clientSecret", input.clientSecret),
+      interCertPem: encryptBancoInterField(input.bancoId, "certPem", input.certPem),
+      interKeyPem: encryptBancoInterField(input.bancoId, "keyPem", input.keyPem),
+      interContaCorrente: input.contaCorrente ? encryptBancoInterField(input.bancoId, "contaCorrente", input.contaCorrente) : null,
+      interBaseUrl: input.baseUrl || null,
+    }).where(and(eq(finBancos.id, input.bancoId), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
     return { success: true };
   }),
 });
@@ -1025,6 +1070,8 @@ const recebiveisRouter = router({
       const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
+      if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Selecione um banco do estabelecimento antes de gerar boleto" });
+      await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
 
       const dataVenc = new Date(recebivel.dataVencimento);
       const dataVencimentoStr = dataVenc.toISOString().split("T")[0];
@@ -1033,7 +1080,7 @@ const recebiveisRouter = router({
       const cleanCep = input.pagador.cep.replace(/\D/g, "");
 
       const interInput = {
-        bancoId: recebivel.bancoId || undefined,
+        bancoId: recebivel.bancoId,
         seuNumero: `REC-${recebivel.id}-${Date.now()}`.substring(0, 15),
         valorNominal: parseFloat(recebivel.valor),
         dataVencimento: dataVencimentoStr,
@@ -1042,7 +1089,7 @@ const recebiveisRouter = router({
         formasRecebimento: ["BOLETO", "PIX"] as Array<"BOLETO" | "PIX">
       };
 
-      const result = await emitirBoleto(interInput, recebivel.bancoId || undefined);
+      const result = await emitirBoleto(interInput, recebivel.bancoId);
       if (!result.configured) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -1063,7 +1110,7 @@ const recebiveisRouter = router({
       // Se houver email, tenta baixar e disparar o anexo
       if (input.pagador.email) {
         try {
-          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, recebivel.bancoId || undefined);
+          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, recebivel.bancoId);
           if (pdfResult && pdfResult.pdf) {
             let base64Nf: string | undefined = undefined;
             if (recebivel.notaFiscalKey) {
@@ -1094,8 +1141,10 @@ const recebiveisRouter = router({
       const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
+      if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Recebível sem banco vinculado" });
+      await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
       
-      const result = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
+      const result = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId);
       if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
       return result;
     }),
@@ -1109,8 +1158,10 @@ const recebiveisRouter = router({
       const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
+      if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Recebível sem banco vinculado" });
+      await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
       
-      const pdfResult = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
+      const pdfResult = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId);
       if (!pdfResult || !pdfResult.pdf) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar o PDF do Banco Inter" });
       
       let base64Nf: string | undefined = undefined;
@@ -1977,55 +2028,56 @@ const importadorRouter = router({
 // ============================================================
 
 const bancoInterRouter = router({
-  status: protectedProcedure
-    .input(z.object({ bancoId: z.number().optional() }).optional())
+  status: adminProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      return getInterStatus(input?.bancoId);
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
+      return getInterStatus(input.bancoId);
     }),
 
-  saldo: protectedProcedure
-    .input(z.object({ bancoId: z.number().optional() }).optional())
+  saldo: adminProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      return consultarSaldo(input?.bancoId);
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
+      return consultarSaldo(input.bancoId);
     }),
 
-  extrato: protectedProcedure
+  extrato: adminProcedure
     .input(z.object({
-      dataInicio: z.string(),
-      dataFim: z.string(),
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
+      dataInicio: z.string(), dataFim: z.string(),
     }))
     .query(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return consultarExtrato(input.dataInicio, input.dataFim, input.bancoId);
     }),
 
-  extratoCompleto: protectedProcedure
+  extratoCompleto: adminProcedure
     .input(z.object({
-      dataInicio: z.string(),
-      dataFim: z.string(),
-      pagina: z.number().optional(),
-      tamanhoPagina: z.number().optional(),
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
+      dataInicio: z.string(), dataFim: z.string(), pagina: z.number().optional(), tamanhoPagina: z.number().optional(),
     }))
     .query(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return consultarExtratoCompleto(input.dataInicio, input.dataFim, input.pagina, input.tamanhoPagina, input.bancoId);
     }),
 
-  extratoPdf: protectedProcedure
+  extratoPdf: adminProcedure
     .input(z.object({
-      dataInicio: z.string(),
-      dataFim: z.string(),
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
+      dataInicio: z.string(), dataFim: z.string(),
     }))
     .mutation(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return exportarExtratoPdf(input.dataInicio, input.dataFim, input.bancoId);
     }),
 
   // ---- COBRANÇA (BOLETO COM PIX) ----
 
-  emitirBoleto: protectedProcedure
+  emitirBoleto: adminProcedure
     .input(z.object({
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(),
+      bancoId: z.number().int().positive(),
       seuNumero: z.string().max(15),
       valorNominal: z.number().min(2.5).max(99999999.99),
       dataVencimento: z.string(), // YYYY-MM-DD
@@ -2068,18 +2120,20 @@ const bancoInterRouter = router({
       formasRecebimento: z.array(z.enum(["BOLETO", "PIX"])).optional(),
     }))
     .mutation(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return emitirBoleto(input, input.bancoId);
     }),
 
-  consultarBoleto: protectedProcedure
-    .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
+  consultarBoleto: adminProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(), codigoSolicitacao: z.string() }))
     .query(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return consultarBoleto(input.codigoSolicitacao, input.bancoId);
     }),
 
-  listarBoletos: protectedProcedure
+  listarBoletos: adminProcedure
     .input(z.object({
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
       dataInicial: z.string(),
       dataFinal: z.string(),
       situacao: z.string().optional(),
@@ -2087,32 +2141,36 @@ const bancoInterRouter = router({
       itensPorPagina: z.number().optional(),
     }))
     .query(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return listarBoletos(input.dataInicial, input.dataFinal, input.situacao, input.pagina, input.itensPorPagina, input.bancoId);
     }),
 
-  downloadBoletoPdf: protectedProcedure
-    .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
+  downloadBoletoPdf: adminProcedure
+    .input(z.object({ estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(), codigoSolicitacao: z.string() }))
     .mutation(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return downloadBoletoPdf(input.codigoSolicitacao, input.bancoId);
     }),
 
-  cancelarBoleto: protectedProcedure
+  cancelarBoleto: adminProcedure
     .input(z.object({
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
       codigoSolicitacao: z.string(),
       motivoCancelamento: z.string().max(50),
     }))
     .mutation(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento, input.bancoId);
     }),
 
-  sumarioBoletos: protectedProcedure
+  sumarioBoletos: adminProcedure
     .input(z.object({
-      bancoId: z.number().optional(),
+      estabelecimentoId: z.number().int().positive(), bancoId: z.number().int().positive(),
       dataInicial: z.string(),
       dataFinal: z.string(),
     }))
     .query(async ({ input }) => {
+      await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       return sumarioBoletos(input.dataInicial, input.dataFinal, input.bancoId);
     }),
 });

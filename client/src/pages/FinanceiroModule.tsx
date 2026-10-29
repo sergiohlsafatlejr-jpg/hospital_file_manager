@@ -24,6 +24,7 @@ import * as XLSX from "xlsx";
 import { CustoReceitaUnidade } from "./financeiro/CustoReceitaUnidade";
 import { formatDateBR } from "@/lib/dateUtils";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { parseContasPagarRows, parseDataCivil, parseValorConta, normalizarNome, type ContaPagarImportItem, type ImportIssue } from "@shared/contasPagarImport";
 import { formatarDataCivilBR, paraInputDataCivil, hojeCivilBrasil } from "@shared/financeiroCivilDate";
 
@@ -583,7 +584,7 @@ function ContasPagar() {
   }, { enabled: Boolean(estabelecimentoId) });
   const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
-  const bancos = trpc.financeiro.bancos.listar.useQuery();
+  const bancos = trpc.financeiro.bancos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const centrosCusto = trpc.financeiro.centrosCusto.listar.useQuery();
 
   const criar = trpc.financeiro.transacoes.criar.useMutation({
@@ -1025,7 +1026,7 @@ function ContasReceber() {
   }, { enabled: Boolean(estabelecimentoId) });
   const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const clientes = trpc.financeiro.clientes.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
-  const bancos = trpc.financeiro.bancos.listar.useQuery();
+  const bancos = trpc.financeiro.bancos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const tiposServicoDistintos = trpc.financeiro.recebiveis.tiposServicoDistintos.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
 
   const criar = trpc.financeiro.recebiveis.criar.useMutation({
@@ -1468,9 +1469,11 @@ function ContasReceber() {
 
 // ==================== BANCOS ====================
 function BancosView() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
   const [dialogOpen, setDialogOpen] = useState(false);
   const utils = trpc.useUtils();
-  const bancos = trpc.financeiro.bancos.listar.useQuery();
+  const bancos = trpc.financeiro.bancos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const criar = trpc.financeiro.bancos.criar.useMutation({
     onSuccess: () => { utils.financeiro.bancos.invalidate(); toast.success("Banco criado!"); setDialogOpen(false); },
   });
@@ -1480,8 +1483,9 @@ function BancosView() {
 
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!estabelecimentoId) { toast.error("Selecione um estabelecimento antes de cadastrar um banco."); return; }
     const fd = new FormData(e.currentTarget);
-    criar.mutate({ nome: fd.get("nome") as string, cor: (fd.get("cor") as string) || "#3b82f6", saldoInicial: (fd.get("saldoInicial") as string) || "0" });
+    criar.mutate({ estabelecimentoId, nome: fd.get("nome") as string, cor: (fd.get("cor") as string) || "#3b82f6", saldoInicial: (fd.get("saldoInicial") as string) || "0" });
   };
 
   return (
@@ -1504,14 +1508,14 @@ function BancosView() {
         </Dialog>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {bancos.isLoading ? <div className="col-span-3 text-center py-8 text-muted-foreground">Carregando...</div> : (bancos.data || []).length === 0 ? (
+        {!estabelecimentoId ? <div className="col-span-3 text-center py-8 text-muted-foreground">Selecione um estabelecimento para visualizar contas bancárias.</div> : bancos.isLoading ? <div className="col-span-3 text-center py-8 text-muted-foreground">Carregando...</div> : (bancos.data || []).length === 0 ? (
           <div className="col-span-3 text-center py-12"><Landmark className="h-10 w-10 text-muted-foreground mx-auto mb-2" /><p className="text-sm text-muted-foreground">Nenhuma conta bancária cadastrada</p></div>
         ) : (bancos.data || []).map((b: any) => (
           <Card key={b.id} className="border-l-4" style={{ borderLeftColor: b.cor || "#3b82f6" }}>
             <CardContent className="pt-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2"><Landmark className="h-4 w-4" style={{ color: b.cor || "#3b82f6" }} /><span className="font-semibold">{b.nome}</span></div>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (confirm("Excluir?")) excluir.mutate({ id: b.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (estabelecimentoId && confirm("Excluir?")) excluir.mutate({ id: b.id, estabelecimentoId }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
               <p className="text-lg font-bold">{formatCurrency(b.saldoInicial)}</p>
               <p className="text-xs text-muted-foreground">Saldo inicial</p>
@@ -1687,7 +1691,7 @@ function ImportadorExcel() {
   const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
   const centrosCusto = trpc.financeiro.centrosCusto.listar.useQuery();
-  const bancos = trpc.financeiro.bancos.listar.useQuery();
+  const bancos = trpc.financeiro.bancos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const clientes = trpc.financeiro.clientes.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
 
   const [tipo, setTipo] = useState<"pagar" | "receber">("pagar");
@@ -2159,483 +2163,35 @@ function Cadastros() {
 
 // ==================== BANCO INTER ====================
 function BancoInterView() {
-  const [subTab, setSubTab] = useState("extrato");
-  const [periodo, setPeriodo] = useState(() => {
-    const hoje = new Date();
-    const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    return {
-      dataInicio: inicio.toISOString().split('T')[0],
-      dataFim: hoje.toISOString().split('T')[0],
-    };
-  });
-  const [boletoPeriodo, setBoletoPeriodo] = useState(() => {
-    const hoje = new Date();
-    const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - 3, 1);
-    return {
-      dataInicial: inicio.toISOString().split('T')[0],
-      dataFinal: hoje.toISOString().split('T')[0],
-    };
-  });
-  const [showEmitirDialog, setShowEmitirDialog] = useState(false);
-  const [showCancelarDialog, setShowCancelarDialog] = useState(false);
-  const [boletoSelecionado, setBoletoSelecionado] = useState<string | null>(null);
-  const [motivoCancelamento, setMotivoCancelamento] = useState("");
-  const [filtroSituacao, setFiltroSituacao] = useState("");
-  const [bancoBoletoBusca, setBancoBoletoBusca] = useState<number | "todas">("todas");
-  const [novoBoleto, setNovoBoleto] = useState({
-    bancoId: undefined as number | undefined,
-    seuNumero: "",
-    valorNominal: 0,
-    dataVencimento: "",
-    numDiasAgenda: 30,
-    pagador: {
-      cpfCnpj: "", tipoPessoa: "FISICA" as "FISICA" | "JURIDICA",
-      nome: "", endereco: "", bairro: "", cidade: "", uf: "", cep: "",
-      email: "", ddd: "", telefone: "",
-    },
-    multaTaxa: 2, moraTaxa: 1,
-    mensagem: "",
-  });
-
-  const statusQuery = trpc.financeiro.bancoInter.status.useQuery();
-  const bancos = trpc.financeiro.bancos.listar.useQuery();
-  const saldoQuery = trpc.financeiro.bancoInter.saldo.useQuery(undefined, {
-    enabled: statusQuery.data?.configured === true,
-  });
-  const extratoQuery = trpc.financeiro.bancoInter.extrato.useQuery(periodo, {
-    enabled: statusQuery.data?.configured === true && subTab === "extrato",
-  });
-  const boletosQuery = trpc.financeiro.bancoInter.listarBoletos.useQuery({
-    ...boletoPeriodo,
-    situacao: filtroSituacao || undefined,
-    bancoId: bancoBoletoBusca === "todas" ? undefined : bancoBoletoBusca,
-  }, {
-    enabled: statusQuery.data?.configured === true && subTab === "boletos",
-  });
-
-  const emitirMutation = trpc.financeiro.bancoInter.emitirBoleto.useMutation({
-    onSuccess: (data: any) => {
-      if (data.error) { toast.error(data.error); return; }
-      toast.success(`Boleto emitido! Código: ${data.codigoSolicitacao}`);
-      setShowEmitirDialog(false);
-      boletosQuery.refetch();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const cancelarMutation = trpc.financeiro.bancoInter.cancelarBoleto.useMutation({
-    onSuccess: (data: any) => {
-      if (data.error) { toast.error(data.error); return; }
-      toast.success("Boleto cancelado com sucesso");
-      setShowCancelarDialog(false);
-      boletosQuery.refetch();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const downloadPdfMutation = trpc.financeiro.bancoInter.downloadBoletoPdf.useMutation({
-    onSuccess: (data: any) => {
-      if (data.error) { toast.error(data.error); return; }
-      if (data.pdf) {
-        const byteChars = atob(data.pdf);
-        const byteNums = new Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-        const blob = new Blob([new Uint8Array(byteNums)], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      }
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const isConfigured = statusQuery.data?.configured;
-
-  if (statusQuery.isLoading) {
-    return <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
-  }
-
-  if (!isConfigured) {
-    return (
-      <div className="space-y-6">
-        <Card className="border-amber-500/30 bg-amber-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-full bg-amber-500/10"><WifiOff className="h-8 w-8 text-amber-500" /></div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">API do Banco Inter Não Configurada</h3>
-                <p className="text-sm text-muted-foreground">Para utilizar a integração com o Banco Inter, configure as credenciais de acesso:</p>
-                <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1 mt-2">
-                  <li><strong>Client ID</strong> e <strong>Client Secret</strong> - Internet Banking do Inter</li>
-                  <li><strong>Certificado Digital (.crt)</strong> e <strong>Chave Privada (.key)</strong> - mTLS em PEM</li>
-                  <li><strong>Conta Corrente</strong> (opcional) - Para múltiplas contas</li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-base">Status da Configuração</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              {[
-                { label: "Client ID", ok: statusQuery.data?.hasClientId },
-                { label: "Client Secret", ok: statusQuery.data?.hasClientSecret },
-                { label: "Certificado", ok: statusQuery.data?.hasCert },
-                { label: "Chave Privada", ok: statusQuery.data?.hasKey },
-                { label: "Conta Corrente", ok: !!statusQuery.data?.contaCorrente },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center gap-2 p-3 rounded-lg border">
-                  {item.ok ? <CheckCircle className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-red-500" />}
-                  <span className="text-sm">{item.label}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const situacaoColors: Record<string, string> = {
-    RECEBIDO: "bg-green-500/10 text-green-600",
-    A_RECEBER: "bg-blue-500/10 text-blue-600",
-    MARCADO_RECEBIDO: "bg-green-500/10 text-green-500",
-    ATRASADO: "bg-red-500/10 text-red-600",
-    CANCELADO: "bg-gray-500/10 text-gray-500",
-    EXPIRADO: "bg-orange-500/10 text-orange-600",
-    EM_PROCESSAMENTO: "bg-yellow-500/10 text-yellow-600",
-    FALHA_EMISSAO: "bg-red-500/10 text-red-500",
-    PROTESTO: "bg-purple-500/10 text-purple-600",
-  };
-
-  const situacaoLabels: Record<string, string> = {
-    RECEBIDO: "Recebido", A_RECEBER: "A Receber", MARCADO_RECEBIDO: "Marcado Recebido",
-    ATRASADO: "Atrasado", CANCELADO: "Cancelado", EXPIRADO: "Expirado",
-    EM_PROCESSAMENTO: "Processando", FALHA_EMISSAO: "Falha", PROTESTO: "Protesto",
-  };
-
-  function handleEmitir() {
-    if (!novoBoleto.seuNumero || !novoBoleto.valorNominal || !novoBoleto.dataVencimento || !novoBoleto.pagador.cpfCnpj || !novoBoleto.pagador.nome) {
-      toast.error("Preencha todos os campos obrigatórios"); return;
-    }
-    emitirMutation.mutate({
-      seuNumero: novoBoleto.seuNumero,
-      valorNominal: novoBoleto.valorNominal,
-      dataVencimento: novoBoleto.dataVencimento,
-      numDiasAgenda: novoBoleto.numDiasAgenda,
-      pagador: novoBoleto.pagador,
-      multa: novoBoleto.multaTaxa > 0 ? { taxa: novoBoleto.multaTaxa, codigo: "PERCENTUAL" } : undefined,
-      mora: novoBoleto.moraTaxa > 0 ? { taxa: novoBoleto.moraTaxa, codigo: "TAXAMENSAL" } : undefined,
-      mensagem: novoBoleto.mensagem ? { linha1: novoBoleto.mensagem } : undefined,
-      formasRecebimento: ["BOLETO", "PIX"],
-    });
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Status e Saldo */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-green-500/30">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div><p className="text-xs text-muted-foreground">Status</p><p className="text-lg font-bold text-green-500">Conectado</p></div>
-              <CheckCircle className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div><p className="text-xs text-muted-foreground">Saldo Disponível</p>
-                <p className="text-lg font-bold">{saldoQuery.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : saldoQuery.data?.error ? <span className="text-red-500 text-sm">Erro</span> : formatCurrency(saldoQuery.data?.disponivel || 0)}</p>
-              </div>
-              <DollarSign className="h-8 w-8 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div><p className="text-xs text-muted-foreground">Bloqueado</p>
-                <p className="text-lg font-bold">{saldoQuery.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : formatCurrency(saldoQuery.data?.bloqueadoCheque || 0)}</p>
-              </div>
-              <CreditCard className="h-8 w-8 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div><p className="text-xs text-muted-foreground">Limite</p>
-                <p className="text-lg font-bold">{saldoQuery.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : formatCurrency(saldoQuery.data?.limite || 0)}</p>
-              </div>
-              <Wallet className="h-8 w-8 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sub-abas: Extrato / Boletos */}
-      <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList>
-          <TabsTrigger value="extrato"><List className="h-4 w-4 mr-1" /> Extrato</TabsTrigger>
-          <TabsTrigger value="boletos"><FileText className="h-4 w-4 mr-1" /> Boletos</TabsTrigger>
-        </TabsList>
-
-        {/* ---- EXTRATO ---- */}
-        <TabsContent value="extrato">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-base">Extrato Bancário</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Input type="date" value={periodo.dataInicio} onChange={(e) => setPeriodo(p => ({ ...p, dataInicio: e.target.value }))} className="w-40" />
-                  <span className="text-muted-foreground">até</span>
-                  <Input type="date" value={periodo.dataFim} onChange={(e) => setPeriodo(p => ({ ...p, dataFim: e.target.value }))} className="w-40" />
-                  <Button variant="outline" size="sm" onClick={() => { extratoQuery.refetch(); saldoQuery.refetch(); }}>
-                    <RefreshCw className="h-4 w-4 mr-1" /> Atualizar
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {extratoQuery.isLoading ? (
-                <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /><span className="ml-2 text-muted-foreground">Consultando extrato...</span></div>
-              ) : extratoQuery.data?.error ? (
-                <div className="text-center py-8"><AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" /><p className="text-sm text-red-500">{extratoQuery.data.error}</p></div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="border-b"><th className="text-left p-2">Data</th><th className="text-left p-2">Descrição</th><th className="text-left p-2">Tipo</th><th className="text-right p-2">Valor</th></tr></thead>
-                    <tbody>
-                      {(extratoQuery.data?.transacoes || []).length === 0 ? (
-                        <tr><td colSpan={4} className="text-center py-8 text-muted-foreground">Nenhuma transação encontrada no período.</td></tr>
-                      ) : (
-                        (extratoQuery.data?.transacoes || []).map((t: any, i: number) => (
-                          <tr key={i} className="border-b hover:bg-muted/50">
-                            <td className="p-2">{t.dataEntrada || t.dataMovimento || '-'}</td>
-                            <td className="p-2">{t.titulo || t.descricao || '-'}</td>
-                            <td className="p-2"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", t.tipoOperacao === 'C' || t.tipo === 'C' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500")}>{t.tipoOperacao === 'C' || t.tipo === 'C' ? 'Crédito' : 'Débito'}</span></td>
-                            <td className={cn("p-2 text-right font-medium", t.tipoOperacao === 'C' || t.tipo === 'C' ? "text-green-500" : "text-red-500")}>{t.tipoOperacao === 'C' || t.tipo === 'C' ? '+' : '-'}{formatCurrency(Math.abs(t.valor || 0))}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ---- BOLETOS ---- */}
-        <TabsContent value="boletos">
-          <div className="space-y-4">
-            {/* Filtros e Ações */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-2">
-                    <Input type="date" value={boletoPeriodo.dataInicial} onChange={(e) => setBoletoPeriodo(p => ({ ...p, dataInicial: e.target.value }))} className="w-40" />
-                    <span className="text-muted-foreground">até</span>
-                    <Input type="date" value={boletoPeriodo.dataFinal} onChange={(e) => setBoletoPeriodo(p => ({ ...p, dataFinal: e.target.value }))} className="w-40" />
-                    <Select value={filtroSituacao} onValueChange={setFiltroSituacao}>
-                      <SelectTrigger className="w-44"><SelectValue placeholder="Todas situações" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todas">Todas</SelectItem>
-                        <SelectItem value="A_RECEBER">A Receber</SelectItem>
-                        <SelectItem value="RECEBIDO">Recebido</SelectItem>
-                        <SelectItem value="ATRASADO">Atrasado</SelectItem>
-                        <SelectItem value="CANCELADO">Cancelado</SelectItem>
-                        <SelectItem value="EM_PROCESSAMENTO">Processando</SelectItem>
-                        <SelectItem value="EXPIRADO">Expirado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={String(bancoBoletoBusca)} onValueChange={(v) => setBancoBoletoBusca(v === "todas" ? "todas" : Number(v))}>
-                      <SelectTrigger className="w-56"><SelectValue placeholder="Banco Emissor (Todos)" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todas">Todos os Bancos</SelectItem>
-                        {(bancos.data || []).map((b: any) => (
-                          <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button variant="outline" size="sm" onClick={() => boletosQuery.refetch()}>
-                      <RefreshCw className="h-4 w-4 mr-1" /> Atualizar
-                    </Button>
-                  </div>
-                  <Button onClick={() => setShowEmitirDialog(true)}>
-                    <Plus className="h-4 w-4 mr-1" /> Emitir Boleto
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Lista de Boletos */}
-            <Card>
-              <CardHeader><CardTitle className="text-base">Boletos Emitidos</CardTitle></CardHeader>
-              <CardContent>
-                {boletosQuery.isLoading ? (
-                  <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /><span className="ml-2 text-muted-foreground">Consultando boletos...</span></div>
-                ) : boletosQuery.data?.error ? (
-                  <div className="text-center py-8"><AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" /><p className="text-sm text-red-500">{boletosQuery.data.error}</p></div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left p-2">Seu Número</th>
-                          <th className="text-left p-2">Pagador</th>
-                          <th className="text-left p-2">Vencimento</th>
-                          <th className="text-right p-2">Valor</th>
-                          <th className="text-center p-2">Situação</th>
-                          <th className="text-center p-2">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(boletosQuery.data?.cobrancas || []).length === 0 ? (
-                          <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum boleto encontrado no período.</td></tr>
-                        ) : (
-                          (boletosQuery.data?.cobrancas || []).map((b: any, i: number) => (
-                            <tr key={i} className="border-b hover:bg-muted/50">
-                              <td className="p-2 font-mono text-xs">{b.seuNumero || '-'}</td>
-                              <td className="p-2">{b.pagador?.nome || '-'}</td>
-                              <td className="p-2">{b.dataVencimento ? formatDateBR(b.dataVencimento) : '-'}</td>
-                              <td className="p-2 text-right font-medium">{formatCurrency(b.valorNominal || 0)}</td>
-                              <td className="p-2 text-center">
-                                <span className={cn("px-2 py-0.5 rounded text-xs font-medium", situacaoColors[b.situacao] || "bg-gray-500/10 text-gray-500")}>
-                                  {situacaoLabels[b.situacao] || b.situacao}
-                                </span>
-                              </td>
-                              <td className="p-2 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  <Button variant="ghost" size="sm" title="Download PDF" onClick={() => downloadPdfMutation.mutate({ codigoSolicitacao: b.codigoSolicitacao })}>
-                                    <Download className="h-4 w-4" />
-                                  </Button>
-                                  {(b.situacao === 'A_RECEBER' || b.situacao === 'EM_PROCESSAMENTO') && (
-                                    <Button variant="ghost" size="sm" title="Cancelar" className="text-red-500 hover:text-red-600" onClick={() => { setBoletoSelecionado(b.codigoSolicitacao); setShowCancelarDialog(true); }}>
-                                      <XCircle className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    {boletosQuery.data?.totalElementos > 0 && (
-                      <div className="flex items-center justify-between mt-4 text-xs text-muted-foreground">
-                        <span>{boletosQuery.data.totalElementos} boleto(s) encontrado(s)</span>
-                        <span>Página {(boletosQuery.data.paginaAtual || 0) + 1} de {boletosQuery.data.totalPaginas || 1}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Dialog Emitir Boleto */}
-      <Dialog open={showEmitirDialog} onOpenChange={setShowEmitirDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Emitir Novo Boleto</DialogTitle>
-            <DialogDescription>Preencha os dados para emissão do boleto com código de barras e QR Code Pix.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <Label>Banco Emissor (Opcional - usa padrão se não selecionado)</Label>
-                <Select value={novoBoleto.bancoId ? String(novoBoleto.bancoId) : "padrao"} onValueChange={(v) => setNovoBoleto(p => ({ ...p, bancoId: v === "padrao" ? undefined : Number(v) }))}>
-                  <SelectTrigger><SelectValue placeholder="Padrão (.env)" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="padrao">Padrão (.env)</SelectItem>
-                    {(bancos.data || []).map((b: any) => (
-                      <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label>Seu Número *</Label><Input value={novoBoleto.seuNumero} onChange={(e) => setNovoBoleto(p => ({ ...p, seuNumero: e.target.value }))} placeholder="Número de referência" maxLength={15} /></div>
-              <div><Label>Valor Nominal (R$) *</Label><Input type="number" step="0.01" min="2.50" value={novoBoleto.valorNominal || ''} onChange={(e) => setNovoBoleto(p => ({ ...p, valorNominal: parseFloat(e.target.value) || 0 }))} placeholder="0,00" /></div>
-              <div><Label>Data Vencimento *</Label><Input type="date" value={novoBoleto.dataVencimento} onChange={(e) => setNovoBoleto(p => ({ ...p, dataVencimento: e.target.value }))} /></div>
-              <div><Label>Dias p/ Cancelamento Auto</Label><Input type="number" min={0} max={60} value={novoBoleto.numDiasAgenda} onChange={(e) => setNovoBoleto(p => ({ ...p, numDiasAgenda: parseInt(e.target.value) || 0 }))} /></div>
-            </div>
-            <div className="border-t pt-4">
-              <h4 className="font-semibold text-sm mb-3">Dados do Pagador</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>Nome *</Label><Input value={novoBoleto.pagador.nome} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, nome: e.target.value } }))} /></div>
-                <div><Label>CPF/CNPJ *</Label><Input value={novoBoleto.pagador.cpfCnpj} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, cpfCnpj: e.target.value } }))} placeholder="Somente números" /></div>
-                <div>
-                  <Label>Tipo Pessoa</Label>
-                  <Select value={novoBoleto.pagador.tipoPessoa} onValueChange={(v) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, tipoPessoa: v as "FISICA" | "JURIDICA" } }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="FISICA">Pessoa Física</SelectItem>
-                      <SelectItem value="JURIDICA">Pessoa Jurídica</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div><Label>E-mail</Label><Input value={novoBoleto.pagador.email} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, email: e.target.value } }))} /></div>
-                <div className="col-span-2"><Label>Endereço *</Label><Input value={novoBoleto.pagador.endereco} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, endereco: e.target.value } }))} /></div>
-                <div><Label>Bairro *</Label><Input value={novoBoleto.pagador.bairro} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, bairro: e.target.value } }))} /></div>
-                <div><Label>Cidade *</Label><Input value={novoBoleto.pagador.cidade} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, cidade: e.target.value } }))} /></div>
-                <div><Label>UF *</Label><Input value={novoBoleto.pagador.uf} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, uf: e.target.value.toUpperCase() } }))} maxLength={2} /></div>
-                <div><Label>CEP *</Label><Input value={novoBoleto.pagador.cep} onChange={(e) => setNovoBoleto(p => ({ ...p, pagador: { ...p.pagador, cep: e.target.value } }))} placeholder="Somente números" /></div>
-              </div>
-            </div>
-            <div className="border-t pt-4">
-              <h4 className="font-semibold text-sm mb-3">Encargos (opcional)</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>Multa (%)</Label><Input type="number" step="0.01" min={0} value={novoBoleto.multaTaxa} onChange={(e) => setNovoBoleto(p => ({ ...p, multaTaxa: parseFloat(e.target.value) || 0 }))} /></div>
-                <div><Label>Mora Mensal (%)</Label><Input type="number" step="0.01" min={0} value={novoBoleto.moraTaxa} onChange={(e) => setNovoBoleto(p => ({ ...p, moraTaxa: parseFloat(e.target.value) || 0 }))} /></div>
-              </div>
-            </div>
-            <div><Label>Mensagem no Boleto</Label><Textarea value={novoBoleto.mensagem} onChange={(e) => setNovoBoleto(p => ({ ...p, mensagem: e.target.value }))} placeholder="Mensagem opcional no corpo do boleto" rows={2} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEmitirDialog(false)}>Cancelar</Button>
-            <Button onClick={handleEmitir} disabled={emitirMutation.isPending}>
-              {emitirMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Emitindo...</> : <><FileText className="h-4 w-4 mr-1" /> Emitir Boleto</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog Cancelar Boleto */}
-      <Dialog open={showCancelarDialog} onOpenChange={setShowCancelarDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancelar Boleto</DialogTitle>
-            <DialogDescription>Informe o motivo do cancelamento. Esta ação não pode ser desfeita.</DialogDescription>
-          </DialogHeader>
-          <div><Label>Motivo do Cancelamento *</Label><Input value={motivoCancelamento} onChange={(e) => setMotivoCancelamento(e.target.value)} placeholder="Ex: Pagamento realizado por outra forma" maxLength={50} /></div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCancelarDialog(false)}>Voltar</Button>
-            <Button variant="destructive" onClick={() => { if (!motivoCancelamento.trim()) { toast.error("Informe o motivo"); return; } if (boletoSelecionado) cancelarMutation.mutate({ codigoSolicitacao: boletoSelecionado, motivoCancelamento }); }} disabled={cancelarMutation.isPending}>
-              {cancelarMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <XCircle className="h-4 w-4 mr-1" />} Cancelar Boleto
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Info */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <CheckCircle className="h-3 w-3 text-green-500" />
-            <span>Integração ativa com Banco Inter</span>
-            <span className="mx-2">|</span>
-            <span>Base URL: {statusQuery.data?.baseUrl}</span>
-            {statusQuery.data?.contaCorrente && (<><span className="mx-2">|</span><span>Conta: {statusQuery.data.contaCorrente}</span></>)}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+  const { estabelecimentoAtual } = useEstabelecimento();
+  const { user } = useAuth();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const [bancoId, setBancoId] = useState<number | null>(null);
+  const bancos = trpc.financeiro.bancos.listar.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0 },
+    { enabled: Boolean(estabelecimentoId) }
   );
+  const status = trpc.financeiro.bancoInter.status.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0, bancoId: bancoId || 0 },
+    { enabled: Boolean(estabelecimentoId && bancoId && user?.role === "admin") }
+  );
+
+  if (!estabelecimentoId) return <div className="py-12 text-center text-muted-foreground">Selecione um estabelecimento antes de acessar a integração bancária.</div>;
+  if (user?.role !== "admin") {
+    return <Card className="border-amber-500/30 bg-amber-500/5"><CardContent className="pt-6 flex gap-3"><AlertCircle className="h-5 w-5 text-amber-600 shrink-0" /><div><h2 className="font-semibold">Acesso administrativo necessário</h2><p className="text-sm text-muted-foreground mt-1">A configuração e as operações diretas do Banco Inter ficam restritas ao administrador do Portal.</p></div></CardContent></Card>;
+  }
+  return <div className="space-y-5">
+    <Card><CardHeader><CardTitle className="text-base">Banco Inter — configuração segura</CardTitle></CardHeader><CardContent className="space-y-4">
+      <p className="text-sm text-muted-foreground">Selecione a conta bancária do estabelecimento. O Portal não exibe nem devolve segredo, certificado, chave privada ou conta de cobrança.</p>
+      <div className="max-w-md space-y-2"><Label>Conta bancária do estabelecimento</Label><Select value={bancoId ? String(bancoId) : ""} onValueChange={(value) => setBancoId(Number(value))}><SelectTrigger><SelectValue placeholder="Selecione uma conta" /></SelectTrigger><SelectContent>{(bancos.data || []).map((b: any) => <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>)}</SelectContent></Select></div>
+      {bancos.isLoading && <p className="text-sm text-muted-foreground">Carregando contas bancárias...</p>}
+      {!bancos.isLoading && (bancos.data || []).length === 0 && <p className="text-sm text-muted-foreground">Nenhuma conta bancária cadastrada para este estabelecimento.</p>}
+    </CardContent></Card>
+    {bancoId && <Card className={status.data?.configured ? "border-green-500/30" : "border-amber-500/30 bg-amber-500/5"}><CardContent className="pt-6 flex items-start gap-3">
+      {status.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" /> : status.data?.configured ? <CheckCircle className="h-5 w-5 text-green-600 shrink-0" /> : <WifiOff className="h-5 w-5 text-amber-600 shrink-0" />}
+      <div className="space-y-1"><h3 className="font-semibold">{status.data?.configured ? "Credenciais protegidas configuradas" : "Integração ainda não configurada"}</h3><p className="text-sm text-muted-foreground">As operações de saldo, extrato, emissão, download e cancelamento permanecem desativadas nesta entrega. Elas exigem chave exclusiva configurada fora do banco, credenciais gravadas pelo endpoint administrativo cifrado e uma autorização operacional separada para chamadas ao Banco Inter.</p></div>
+    </CardContent></Card>}
+  </div>;
 }
 
 // ==================== DRE ====================
