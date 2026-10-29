@@ -435,6 +435,13 @@
       "when": 1793297372715,
       "tag": "0143_banco_inter_seguranca",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "5",
+      "when": 1793303472606,
+      "tag": "0144_fabrica_faturamento_safatle",
+      "breakpoints": true
     }
   ]
 }

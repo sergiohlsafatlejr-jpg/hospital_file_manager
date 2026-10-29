@@ -1,7 +1,8 @@
 import { getDb } from "./db";
 import { logger } from "./_core/logger";
 import { regrasNegocio, itensRegraNegocio } from "../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull, or } from "drizzle-orm";
+import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "./hospitalScope";
 
 export interface ItemConta {
   codigoItem: string;
@@ -16,7 +17,7 @@ export interface ContaParaAuditar {
   codigoProcedimento: string;
   descricaoProcedimento: string;
   convenioId: number;
-  estabelecimentoId?: number;
+  estabelecimentoId: number;
   itens: ItemConta[];
   valorTotal: number;
 }
@@ -56,27 +57,92 @@ export interface RelatorioConformidade {
  * Compara itens de uma conta contra padrões esperados
  */
 export class AnalisadorConformidadePadrao {
+  private static validarEscopoConta(conta: ContaParaAuditar): void {
+    if (
+      !Number.isSafeInteger(conta.estabelecimentoId) ||
+      conta.estabelecimentoId <= 0 ||
+      conta.estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE
+    ) {
+      throw new Error("A auditoria exige o hospital de origem concreto da conta.");
+    }
+    if (!Number.isSafeInteger(conta.convenioId) || conta.convenioId <= 0) {
+      throw new Error("A auditoria exige o convênio da conta.");
+    }
+  }
+
+  /**
+   * A origem concreta sempre prevalece sobre o template central. Em uma mesma
+   * origem, o padrão específico do convênio prevalece sobre o padrão genérico.
+   */
+  private static ordenarCandidatosPorEscopo<
+    T extends { id: number; estabelecimentoId: number | null; convenioId: number | null },
+  >(
+    candidatos: T[],
+    conta: ContaParaAuditar,
+  ): T[] {
+    return candidatos.sort((esquerda, direita) => {
+      const prioridade = (regra: T) => [
+        regra.estabelecimentoId === conta.estabelecimentoId ? 0 : 1,
+        regra.convenioId === conta.convenioId ? 0 : 1,
+        regra.id,
+      ];
+      const esquerdaPrioridade = prioridade(esquerda);
+      const direitaPrioridade = prioridade(direita);
+      for (let indice = 0; indice < esquerdaPrioridade.length; indice++) {
+        if (esquerdaPrioridade[indice] !== direitaPrioridade[indice]) {
+          return esquerdaPrioridade[indice] - direitaPrioridade[indice];
+        }
+      }
+      return 0;
+    });
+  }
+
   /**
    * Auditar uma conta contra padrões de procedimentos
    */
   static async auditarConta(conta: ContaParaAuditar): Promise<RelatorioConformidade> {
     try {
+      this.validarEscopoConta(conta);
       const db = await getDb();
       if (!db) {
         throw new Error("Database connection failed");
       }
 
       // 1. Buscar padrão de procedimento
-      const padrao = await db
+      const padroes = await db
         .select()
         .from(regrasNegocio)
         .where(
           and(
             eq(regrasNegocio.codigoProcedimento, conta.codigoProcedimento),
-            eq(regrasNegocio.tipoRegra, "padrao_procedimento" as any)
+            eq(regrasNegocio.tipoRegra, "padrao_procedimento" as any),
+            or(
+              and(
+                eq(regrasNegocio.estabelecimentoId, conta.estabelecimentoId),
+                or(
+                  eq(regrasNegocio.convenioId, conta.convenioId),
+                  isNull(regrasNegocio.convenioId),
+                ),
+              ),
+              and(
+                eq(regrasNegocio.estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE),
+                isNull(regrasNegocio.convenioId),
+              ),
+            ),
           )
-        )
-        .limit(1);
+        );
+
+      // Defesa em profundidade: nenhum resultado fora do escopo pode se tornar
+      // elegível, inclusive se uma implementação de repositório ignorar o filtro.
+      const padrao = this.ordenarCandidatosPorEscopo(
+        padroes.filter((regra) =>
+          ((regra.estabelecimentoId === conta.estabelecimentoId &&
+            (regra.convenioId === conta.convenioId || regra.convenioId === null)) ||
+            (regra.estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE &&
+              regra.convenioId === null)),
+        ),
+        conta,
+      );
 
       if (!padrao || padrao.length === 0) {
         return {

@@ -119,6 +119,86 @@ const OrigemBadge = ({ origem }: { origem: string }) => {
   );
 };
 
+const SAFATLE_CENTRAL_ID = 2160001;
+
+type ContaComHospitalOrigem = {
+  numeroConta?: unknown;
+  estabelecimentoId?: unknown;
+  hospitalEstabelecimentoId?: unknown;
+  sourceHospitalId?: unknown;
+  sourceHospital?: unknown;
+  origem?: unknown;
+  arquivoHospitalId?: unknown;
+  arquivoId?: unknown;
+  convenioId?: unknown;
+  numeroLote?: unknown;
+  competencia?: unknown;
+};
+
+const toHospitalId = (value: unknown): number | undefined => {
+  const id = toPositiveId(value);
+  return id !== SAFATLE_CENTRAL_ID ? id : undefined;
+};
+
+const toPositiveId = (value: unknown): number | undefined => {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
+};
+
+/**
+ * Em uma visão centralizada, a conta sempre opera no hospital de origem —
+ * nunca no estabelecimento central SAFATLE.
+ */
+export function obterHospitalOrigemConta(
+  conta: ContaComHospitalOrigem,
+): number | undefined {
+  const sourceHospital = conta.sourceHospital;
+  const sourceHospitalId =
+    sourceHospital && typeof sourceHospital === "object"
+      ? (sourceHospital as { id?: unknown; estabelecimentoId?: unknown }).id ??
+        (sourceHospital as { estabelecimentoId?: unknown }).estabelecimentoId
+      : sourceHospital;
+
+  return (
+    toHospitalId(sourceHospitalId) ??
+    toHospitalId(conta.sourceHospitalId) ??
+    toHospitalId(conta.hospitalEstabelecimentoId) ??
+    toHospitalId(conta.estabelecimentoId)
+  );
+}
+
+/** Monta a comparação com o escopo da versão pertencente ao hospital de origem. */
+export function montarPayloadComparacaoConta(conta: ContaComHospitalOrigem) {
+  const estabelecimentoId = obterHospitalOrigemConta(conta);
+  const numeroConta = typeof conta.numeroConta === "string" ? conta.numeroConta : "";
+  if (!estabelecimentoId || !numeroConta) return null;
+
+  const arquivoHospitalId = toPositiveId(conta.arquivoHospitalId ?? conta.arquivoId);
+  const convenioId = toPositiveId(conta.convenioId);
+  if (conta.origem !== "XML" || !arquivoHospitalId || !convenioId) {
+    return { numeroConta, estabelecimentoId };
+  }
+
+  return {
+    numeroConta,
+    estabelecimentoId,
+    contextoMedicoScope: {
+      estabelecimentoId,
+      numeroConta,
+      arquivoHospitalId,
+      convenioId,
+      numeroLote:
+        typeof conta.numeroLote === "string" && conta.numeroLote.trim()
+          ? conta.numeroLote
+          : undefined,
+      competencia:
+        typeof conta.competencia === "string" && conta.competencia.trim()
+          ? conta.competencia
+          : undefined,
+    },
+  };
+}
+
 export default function ContaConvenio() {
   const { user } = useAuth();
   const { estabelecimentoAtual, estabelecimentos } = useEstabelecimento();
@@ -324,9 +404,15 @@ export default function ContaConvenio() {
 
   // Navegar para detalhes da conta
   const handleVerDetalhes = (conta: any) => {
+    const hospitalOrigemId = obterHospitalOrigemConta(conta);
+    if (!hospitalOrigemId) {
+      toast.error("Não foi possível identificar o hospital de origem desta conta.");
+      return;
+    }
     const params = new URLSearchParams({
       numeroConta: conta.numeroConta,
-      estabelecimentoId: String(conta.estabelecimentoId),
+      estabelecimentoId: String(hospitalOrigemId),
+      sourceHospitalId: String(hospitalOrigemId),
     });
     if (conta.numeroLote) {
       params.set('numeroLote', conta.numeroLote);
@@ -826,31 +912,25 @@ export default function ContaConvenio() {
                           variant="outline" 
                           size="sm"
                           onClick={() => {
-                            if (!estabelecimentoAtual?.id) return;
+                            const hospitalOrigemId = obterHospitalOrigemConta(conta);
+                            if (!hospitalOrigemId) {
+                              toast.error("Não foi possível identificar o hospital de origem desta conta.");
+                              return;
+                            }
                             if (isWarleine) {
                               compararWarleineMutation.mutate({
-                                estabelecimentoId: estabelecimentoAtual.id,
+                                estabelecimentoId: hospitalOrigemId,
                                 competencia: conta.competencia,
                                 numeroConta: conta.numeroConta,
                                 convenioChave: conta.convenioChave,
                               });
                             } else {
-                              compararMutation.mutate({
-                                numeroConta: conta.numeroConta,
-                                estabelecimentoId: estabelecimentoAtual.id,
-                                ...(conta.origem === "XML" && conta.arquivoHospitalId && conta.convenioId
-                                  ? {
-                                      contextoMedicoScope: {
-                                        estabelecimentoId: estabelecimentoAtual.id,
-                                        numeroConta: conta.numeroConta,
-                                        arquivoHospitalId: Number(conta.arquivoHospitalId),
-                                        convenioId: Number(conta.convenioId),
-                                        numeroLote: conta.numeroLote || undefined,
-                                        competencia: conta.competencia || undefined,
-                                      },
-                                    }
-                                  : {}),
-                              });
+                              const payload = montarPayloadComparacaoConta(conta);
+                              if (!payload) {
+                                toast.error("Não foi possível montar o escopo da comparação desta conta.");
+                                return;
+                              }
+                              compararMutation.mutate(payload);
                             }
                           }}
                           disabled={compararMutation.isPending || compararWarleineMutation.isPending}
@@ -875,9 +955,14 @@ export default function ContaConvenio() {
                           className="text-red-500 hover:text-red-700 hover:bg-red-50"
                           onClick={() => {
                             if (confirm(`Excluir conta ${conta.numeroConta}?`)) {
+                              const hospitalOrigemId = obterHospitalOrigemConta(conta);
+                              if (!hospitalOrigemId) {
+                                toast.error("Não foi possível identificar o hospital de origem desta conta.");
+                                return;
+                              }
                               excluirContaMutation.mutate({
                                 numeroConta: conta.numeroConta,
-                                estabelecimentoId: conta.estabelecimentoId,
+                                estabelecimentoId: hospitalOrigemId,
                               });
                             }
                           }}

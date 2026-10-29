@@ -3,6 +3,10 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { logger } from "../_core/logger";
 import { sql } from "drizzle-orm";
+import {
+  exigirHospitalProprietario,
+  resolverHospitaisAutorizados,
+} from "../hospitalScope";
 import { AnalisadorRiscoGlosa } from "../analisadorRiscoGlosa";
 import { AnalisadorConformidadePadrao } from "../analisadorConformidadePadrao";
 import {
@@ -13,6 +17,10 @@ import {
 } from "../_core/cache";
 
 const ENABLE_MOTOR_REGRAS = process.env.ENABLE_MODULO_MOTOR_REGRAS === "true";
+
+function filtroHospitaisSql(hospitalIds: readonly number[]) {
+  return sql`estabelecimentoId IN (${sql.join(hospitalIds.map((id) => sql`${id}`), sql`, `)})`;
+}
 
 /**
  * Router do Motor de Regras
@@ -36,6 +44,7 @@ export const motorRegrasRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
         const db = await getDb();
         if (!db) throw new Error("Database not available");
 
@@ -68,7 +77,7 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao salvar validação XML",
           error: String(error),
-          input,
+          estabelecimentoId: input.estabelecimentoId,
         });
         throw error;
       }
@@ -86,6 +95,7 @@ export const motorRegrasRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "gerenciar");
         const db = await getDb();
         if (!db) throw new Error("Database not available");
 
@@ -108,11 +118,8 @@ export const motorRegrasRouter = router({
             GROUP_CONCAT(DISTINCT usuarioId) as usuarioIds
           FROM faturamento_tiss
           WHERE nomeArquivo IS NOT NULL AND nomeArquivo != ''
+            AND ${filtroHospitaisSql(hospitaisAutorizados)}
         `;
-
-        if (input.estabelecimentoId) {
-          query = sql`${query} AND estabelecimentoId = ${input.estabelecimentoId}`;
-        }
 
         query = sql`${query} GROUP BY estabelecimentoId, nomeArquivo ORDER BY dataProcessamento DESC`;
 
@@ -247,8 +254,8 @@ export const motorRegrasRouter = router({
         }
 
         // 3. Invalidar cache
-        if (input.estabelecimentoId) {
-          await invalidateMotorRegrasCache(input.estabelecimentoId);
+        for (const estabelecimentoId of hospitaisAutorizados) {
+          await invalidateMotorRegrasCache(estabelecimentoId);
         }
 
         logger.info({
@@ -267,7 +274,6 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao popular histórico",
           error: String(error),
-          input,
         });
         throw error;
       }
@@ -287,11 +293,9 @@ export const motorRegrasRouter = router({
         offset: z.number().min(0).default(0),
       })
     )
-    .query(async ({ input }) => {
-      const cacheKey = generateMotorRegrasKey(
-        input.estabelecimentoId,
-        "historico"
-      );
+    .query(async ({ input, ctx }) => {
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const cacheKey = `${generateMotorRegrasKey(input.estabelecimentoId, "historico")}:u${ctx.user.id}:h${hospitaisAutorizados.join(",")}`;
 
       return cacheGetOrSet(
         cacheKey,
@@ -299,9 +303,7 @@ export const motorRegrasRouter = router({
           const db = await getDb();
           if (!db) return [];
 
-          let query = input.estabelecimentoId === 2160001
-            ? sql`SELECT * FROM historicoValidacaoXml WHERE 1=1`
-            : sql`SELECT * FROM historicoValidacaoXml WHERE estabelecimentoId = ${input.estabelecimentoId}`;
+          let query = sql`SELECT * FROM historicoValidacaoXml WHERE ${filtroHospitaisSql(hospitaisAutorizados)}`;
 
           if (input.dataInicio) {
             query = sql`${query} AND dataProcessamento >= ${input.dataInicio}`;
@@ -330,25 +332,16 @@ export const motorRegrasRouter = router({
    */
   obterValidacao: protectedProcedure
     .input(z.object({ id: z.number().positive() }))
-    .query(async ({ input }) => {
-      const cacheKey = `validacao-xml:${input.id}`;
-
-      return cacheGetOrSet(
-        cacheKey,
-        async () => {
-          const db = await getDb();
-          if (!db) return null;
-
-          const resultado = await db.execute(
-            sql`SELECT * FROM historicoValidacaoXml WHERE id = ${input.id} LIMIT 1`
-          );
-
-          return Array.isArray(resultado) && resultado.length > 0
-            ? resultado[0]
-            : null;
-        },
-        CACHE_TTL.MOTOR_REGRAS
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const resultado = await db.execute(
+        sql`SELECT * FROM historicoValidacaoXml WHERE id = ${input.id} LIMIT 1`
       );
+      const validacao = Array.isArray(resultado) && resultado.length > 0 ? resultado[0] as any : null;
+      if (!validacao) return null;
+      await exigirHospitalProprietario(ctx.user, Number(validacao.estabelecimentoId), "visualizar");
+      return validacao;
     }),
 
   /**
@@ -362,11 +355,9 @@ export const motorRegrasRouter = router({
         dataFim: z.date().optional(),
       })
     )
-    .query(async ({ input }) => {
-      const cacheKey = generateMotorRegrasKey(
-        input.estabelecimentoId,
-        "estatisticas"
-      );
+    .query(async ({ input, ctx }) => {
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const cacheKey = `${generateMotorRegrasKey(input.estabelecimentoId, "estatisticas")}:u${ctx.user.id}:h${hospitaisAutorizados.join(",")}`;
 
       return cacheGetOrSet(
         cacheKey,
@@ -382,9 +373,6 @@ export const motorRegrasRouter = router({
               taxaConformidade: 0,
             };
 
-          const filtroEstab = input.estabelecimentoId === 2160001
-            ? sql`1=1`
-            : sql`estabelecimentoId = ${input.estabelecimentoId}`;
           let query = sql`SELECT 
             COUNT(*) as totalValidacoes,
             SUM(totalContas) as totalContas,
@@ -392,7 +380,7 @@ export const motorRegrasRouter = router({
             SUM(contasInvalidas) as contasInvalidas,
             AVG(scoreConformidadeMedio) as scoreConformidadeMedia
             FROM historicoValidacaoXml 
-            WHERE ${filtroEstab}`;
+            WHERE ${filtroHospitaisSql(hospitaisAutorizados)}`;
 
           if (input.dataInicio) {
             query = sql`${query} AND dataProcessamento >= ${input.dataInicio}`;
@@ -455,6 +443,8 @@ export const motorRegrasRouter = router({
           throw new Error("Validação não encontrada");
         }
 
+        await exigirHospitalProprietario(ctx.user, Number((validacao[0] as any).estabelecimentoId), "excluir");
+
         await db.execute(
           sql`DELETE FROM historicoValidacaoXml WHERE id = ${input.id}`
         );
@@ -475,7 +465,7 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao deletar validação",
           error: String(error),
-          input,
+          id: input.id,
         });
         throw error;
       }
@@ -493,8 +483,9 @@ export const motorRegrasRouter = router({
         mesesHistorico: z.number().default(12),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
         logger.info({
           message: "Iniciando análise de padrões de recebimento",
           estabelecimentoId: input.estabelecimentoId,
@@ -517,7 +508,7 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao analisar padrões de recebimento",
           error: String(error),
-          input,
+          estabelecimentoId: input.estabelecimentoId,
         });
         throw error;
       }
@@ -544,8 +535,9 @@ export const motorRegrasRouter = router({
         mesesHistorico: z.number().default(12),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
         logger.info({
           message: "Iniciando análise de risco de conta",
           numeroGuia: input.numeroGuia,
@@ -565,7 +557,7 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao analisar risco de conta",
           error: String(error),
-          numeroGuia: input.numeroGuia,
+          estabelecimentoId: input.estabelecimentoId,
         });
         throw error;
       }
@@ -584,8 +576,9 @@ export const motorRegrasRouter = router({
         limiteRisco: z.enum(["alto_critico", "critico"]).default("alto_critico"),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
         logger.info({
           message: "Identificando contas com risco",
           arquivoId: input.arquivoId,
@@ -607,7 +600,7 @@ export const motorRegrasRouter = router({
         logger.error({
           message: "Erro ao identificar contas com risco",
           error: String(error),
-          arquivoId: input.arquivoId,
+          estabelecimentoId: input.estabelecimentoId,
         });
         throw error;
       }
@@ -623,7 +616,7 @@ export const motorRegrasRouter = router({
         contaId: z.number().positive(),
         codigoProcedimento: z.string().min(1),
         convenioId: z.number().positive(),
-        estabelecimentoId: z.number().positive().optional(),
+        estabelecimentoId: z.number().positive(),
         itens: z.array(
           z.object({
             codigoItem: z.string().min(1),
@@ -638,6 +631,7 @@ export const motorRegrasRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
         const relatorio = await AnalisadorConformidadePadrao.auditarConta({
           id: input.contaId,
           codigoProcedimento: input.codigoProcedimento,
@@ -680,7 +674,7 @@ export const motorRegrasRouter = router({
             contaId: z.number().positive(),
             codigoProcedimento: z.string().min(1),
             convenioId: z.number().positive(),
-            estabelecimentoId: z.number().positive().optional(),
+            estabelecimentoId: z.number().positive(),
             itens: z.array(
               z.object({
                 codigoItem: z.string().min(1),
@@ -697,6 +691,9 @@ export const motorRegrasRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        for (const estabelecimentoId of new Set(input.contas.map((conta) => conta.estabelecimentoId))) {
+          await exigirHospitalProprietario(ctx.user, estabelecimentoId, "visualizar");
+        }
         const resultado = await AnalisadorConformidadePadrao.auditarArquivo(
           input.contas.map((c) => ({
             id: c.contaId,
@@ -740,8 +737,9 @@ export const motorRegrasRouter = router({
         dataFim: z.date().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
+        await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
         const db = await getDb();
         if (!db) throw new Error("Database not available");
 
