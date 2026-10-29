@@ -804,6 +804,8 @@ export default function ContaConvenio() {
                                 ...(conta.origem === "XML" && conta.arquivoHospitalId && conta.convenioId
                                   ? {
                                       contextoMedicoScope: {
+                                        estabelecimentoId: estabelecimentoAtual.id,
+                                        numeroConta: conta.numeroConta,
                                         arquivoHospitalId: Number(conta.arquivoHospitalId),
                                         convenioId: Number(conta.convenioId),
                                         numeroLote: conta.numeroLote || undefined,

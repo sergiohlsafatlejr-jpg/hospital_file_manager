@@ -1854,9 +1854,9 @@ export const contasConvenioRouter = router({
       numeroConta: z.string().trim().min(1).max(100),
       estabelecimentoId: z.number().int().positive(),
       contextoMedicoScope: z.object({
-        estabelecimentoId: z.number().int().positive(),
+        estabelecimentoId: z.number().int().positive().optional(),
         convenioId: z.number().int().positive(),
-        numeroConta: z.string().trim().min(1).max(100),
+        numeroConta: z.string().trim().min(1).max(100).optional(),
         arquivoHospitalId: z.number().int().positive(),
         numeroLote: z.string().trim().max(100).optional(),
         competencia: z.string().trim().max(20).optional(),
@@ -1899,6 +1899,8 @@ export const contasConvenioRouter = router({
                 numeroLote: resumosXml[0].numeroLote ?? "",
                 competencia: resumosXml[0].competencia ?? "",
               };
+              await exigirAcessoEstabelecimento(ctx.user.id, autoScope.estabelecimentoId, "visualizar");
+              await exigirConvenioDoEstabelecimento(ctx.user.id, autoScope.convenioId, autoScope.estabelecimentoId, "visualizar");
               const contextoMedico = await criarServicoContaContextoMedicoParaUsuario(ctx.user.id).consultar({
                 scope: autoScope,
               });
@@ -1917,7 +1919,11 @@ export const contasConvenioRouter = router({
         }
         return executarComparacaoESalvar(input.numeroConta, input.estabelecimentoId);
       }
-      const scope = input.contextoMedicoScope;
+      const scope = {
+        ...input.contextoMedicoScope,
+        estabelecimentoId: input.contextoMedicoScope.estabelecimentoId ?? input.estabelecimentoId,
+        numeroConta: input.contextoMedicoScope.numeroConta ?? input.numeroConta,
+      };
       if (scope.estabelecimentoId !== input.estabelecimentoId || scope.numeroConta !== input.numeroConta) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O escopo médico não corresponde à conta selecionada." });
       }
