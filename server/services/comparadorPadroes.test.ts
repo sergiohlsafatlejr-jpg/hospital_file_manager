@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db", () => ({
@@ -194,5 +196,22 @@ describe("compararItensComPadroes", () => {
         statusGeral: "divergente",
       }),
     );
+  });
+
+  it("envia estabelecimentoId e numeroConta no contextoMedicoScope ao comparar na listagem de contas XML", () => {
+    const contaConvenioSource = readFileSync(
+      resolve(__dirname, "../../client/src/pages/ContaConvenio.tsx"),
+      "utf-8",
+    );
+    const routerSource = readFileSync(
+      resolve(__dirname, "../routers/contasConvenioRouter.ts"),
+      "utf-8",
+    );
+
+    expect(contaConvenioSource).toContain("contextoMedicoScope: {");
+    expect(contaConvenioSource).toContain("estabelecimentoId: estabelecimentoAtual.id,");
+    expect(contaConvenioSource).toContain("numeroConta: conta.numeroConta,");
+    expect(routerSource).toContain("estabelecimentoId: input.contextoMedicoScope.estabelecimentoId ?? input.estabelecimentoId");
+    expect(routerSource).toContain("numeroConta: input.contextoMedicoScope.numeroConta ?? input.numeroConta");
   });
 });
