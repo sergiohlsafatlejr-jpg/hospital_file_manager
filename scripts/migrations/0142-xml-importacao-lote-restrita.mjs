@@ -383,18 +383,56 @@ export function createInjectedMysql2TlsFactory({ mysql, connectionOptions }) {
     }
   } };
 }
-function actualTableNames(catalog) { return catalog.allTables.filter(item => [...BASELINE_TABLES, ...TARGET_TABLES].includes(item.name)).map(item => item.name).sort(); }
 function actualColumns(catalog, table) { return catalog.columns.filter(item => item.table === table).map(({ table: ignored, position, ...item }) => item); }
 function actualIndexes(catalog, table) { return catalog.indexes.filter(item => item.table === table).map(item => ({ name: item.name, unique: item.unique, columns: item.columns.map(columnItem => columnItem.name), primary: item.name === "PRIMARY", prefixes: item.columns.map(columnItem => columnItem.subPart) })).sort((a, b) => a.name.localeCompare(b.name)); }
+function countNamed(items, name) { return items.filter(item => item.name === name).length; }
+function hasExactlyOneBaseTable(catalog, table) { return catalog.allTables.filter(item => item.name === table && item.type === "BASE TABLE").length === 1; }
+function baselineNamesArePresent(catalog, contracts) {
+  return BASELINE_TABLES.every(table => {
+    const expected = contracts.baseline[table];
+    return hasExactlyOneBaseTable(catalog, table) &&
+      expected.columns.every(item => countNamed(actualColumns(catalog, table), item.name) === 1) &&
+      expected.indexes.every(item => countNamed(actualIndexes(catalog, table), item.name) === 1);
+  });
+}
+function deltaIsAbsent(catalog) {
+  return TARGET_TABLES.every(table => !catalog.allTables.some(item => item.name === table)) &&
+    COLUMN_ADDITIONS.every(item => countNamed(actualColumns(catalog, item.table), item.column) === 0) &&
+    INDEX_ADDITIONS.every(item => countNamed(actualIndexes(catalog, item.table), item.index) === 0);
+}
+function targetTableMatches(catalog, expected, table, created) {
+  const actualTables = catalog.allTables.filter(item => item.name === table);
+  if (!created) return actualTables.length === 0 && actualColumns(catalog, table).length === 0 && actualIndexes(catalog, table).length === 0;
+  return actualTables.length === 1 && actualTables[0].type === "BASE TABLE" &&
+    same(actualColumns(catalog, table), expected[table].columns) &&
+    same(actualIndexes(catalog, table), expected[table].indexes);
+}
+function deltaMatchesStep(catalog, contracts, statementCount) {
+  for (const addition of COLUMN_ADDITIONS) {
+    const present = actualColumns(catalog, addition.table).filter(item => item.name === addition.column);
+    if (addition.step > statementCount ? present.length !== 0 : present.length !== 1 || !same(present[0], tableColumn(contracts.target, addition.table, addition.column))) return false;
+  }
+  for (const addition of INDEX_ADDITIONS) {
+    const present = actualIndexes(catalog, addition.table).filter(item => item.name === addition.index);
+    if (addition.step > statementCount ? present.length !== 0 : present.length !== 1 || !same(present[0], tableIndex(contracts.target, addition.table, addition.index))) return false;
+  }
+  return true;
+}
+function preflightCatalogIsSafe(catalog, contracts) {
+  // O baseline é histórico: exige os objetos e nomes atestados, sem equiparar
+  // sua ordem, tipos/defaults ou metadados extras ao snapshot antigo.
+  return baselineNamesArePresent(catalog, contracts) && deltaIsAbsent(catalog);
+}
 function catalogMatchesStep(catalog, baselineCatalog, contracts, statementCount) {
   const expected = contractAtStep(contracts, statementCount);
-  const expectedNames = Object.keys(expected).sort();
   const expectedAllTables = baselineCatalog.allTables.concat(
     statementCount >= 1 ? [{ name: TARGET_TABLES[0], type: "BASE TABLE" }] : [],
     statementCount >= 2 ? [{ name: TARGET_TABLES[1], type: "BASE TABLE" }] : [],
   ).sort((a, b) => a.name.localeCompare(b.name));
-  if (!same(catalog.allTables, expectedAllTables) || !same(actualTableNames(catalog), expectedNames)) return false;
-  return expectedNames.every(table => same(actualColumns(catalog, table), expected[table].columns) && same(actualIndexes(catalog, table), expected[table].indexes));
+  if (!same(catalog.allTables, expectedAllTables) || !baselineNamesArePresent(catalog, contracts)) return false;
+  return targetTableMatches(catalog, expected, TARGET_TABLES[0], statementCount >= 1) &&
+    targetTableMatches(catalog, expected, TARGET_TABLES[1], statementCount >= 2) &&
+    deltaMatchesStep(catalog, contracts, statementCount);
 }
 async function targetTablesAreEmpty(connection) {
   const results = await Promise.all(TARGET_TABLES.map((table, position) => query(connection, `/* 0142:empty-target-${position + 1} */ SELECT COUNT(*) AS \`row_count\` FROM \`${table}\``)));
@@ -402,7 +440,7 @@ async function targetTablesAreEmpty(connection) {
 }
 async function inspectPreflight(connection, artifacts) {
   const [identity, historyLayout, ledger, catalog] = await Promise.all([readIdentity(connection), readHistoryLayout(connection), readLedger(connection), readCatalog(connection)]);
-  return { identity, historyLayout, ledger, catalog, safe: Boolean(identity) && historyLayoutIsExpected(historyLayout) && ledgerIs0142Baseline(ledger, artifacts) && catalogMatchesStep(catalog, catalog, artifacts.contracts, 0) };
+  return { identity, historyLayout, ledger, catalog, safe: Boolean(identity) && historyLayoutIsExpected(historyLayout) && ledgerIs0142Baseline(ledger, artifacts) && preflightCatalogIsSafe(catalog, artifacts.contracts) };
 }
 async function inspectAfterDdl(connection, artifacts, baseline) {
   const [catalog, ledger, empty] = await Promise.all([readCatalog(connection), readLedger(connection), targetTablesAreEmpty(connection)]);
