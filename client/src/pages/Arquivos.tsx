@@ -49,6 +49,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateBR } from "@/lib/dateUtils";
+import { criarUrlReenvioIntegralXml } from "@/lib/xmlImportacaoReenvio";
 
 export default function Arquivos() {
   const [, setLocation] = useLocation();
@@ -123,6 +124,20 @@ export default function Arquivos() {
     reprocessarArquivo.mutate({ id: arquivoId });
   };
 
+  const handleReenviarSelecaoProtegida = (arquivo: any) => {
+    toast.info(
+      "Selecione novamente todos os XMLs desta seleção. O escopo foi mantido."
+    );
+    setLocation(
+      criarUrlReenvioIntegralXml({
+        estabelecimentoId,
+        convenioId: arquivo.convenioId,
+        dataReferencia: arquivo.dataReferencia,
+        dataPagamento: arquivo.dataPagamento,
+      })
+    );
+  };
+
   const gerarInsights = trpc.insightsIA.gerar.useMutation({
     onSuccess: (result) => {
       const count = result?.length || 0;
@@ -160,6 +175,18 @@ export default function Arquivos() {
 
   const getStatusBadge = (arquivo: any) => {
     const { status, progresso, itensProcessados, totalItens } = arquivo;
+    if (arquivo.loteAcao === "reenvio_completo_necessario") {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
+            Erro de armazenamento
+          </Badge>
+          <span className="text-xs text-red-600">
+            Reenvie a seleção completa
+          </span>
+        </div>
+      );
+    }
     switch (status) {
       case "processado":
         return (
@@ -409,20 +436,33 @@ export default function Arquivos() {
                                 <Sparkles className="h-4 w-4" />
                               )}
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                              onClick={() => handleReprocessar(arquivo.id)}
-                              disabled={isReprocessing === arquivo.id || arquivo.loteProtegido}
-                              title={arquivo.loteProtegido ? "O lote protegido é retomado automaticamente" : "Reprocessar arquivo"}
-                            >
-                              {isReprocessing === arquivo.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <RefreshCw className="h-4 w-4" />
-                              )}
-                            </Button>
+                            {arquivo.loteAcao === "reenvio_completo_necessario" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={() => handleReenviarSelecaoProtegida(arquivo)}
+                                title="Reenviar todos os XMLs desta seleção"
+                              >
+                                <RefreshCw className="mr-1 h-4 w-4" />
+                                Reenviar lote
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                onClick={() => handleReprocessar(arquivo.id)}
+                                disabled={isReprocessing === arquivo.id || arquivo.loteProtegido}
+                                title={arquivo.loteProtegido ? "O lote protegido é retomado pelo worker coordenado" : "Reprocessar arquivo"}
+                              >
+                                {isReprocessing === arquivo.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
                             <Button 
                               variant="ghost" 
                               size="sm"

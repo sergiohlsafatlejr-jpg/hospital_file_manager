@@ -4,6 +4,7 @@ import {
   confirmarEnvioLote,
   confirmarEnvioLoteSchema,
 } from "./recursoLoteEnvioService";
+import { consultarAcoesPublicasLoteXmlPorArquivos } from "./xmlImportacaoLoteService";
 import {
   dadosPagamentoManual,
   pagamentoRecursoManualSchema,
@@ -683,28 +684,36 @@ export const appRouter = router({
           dataFim: input?.dataFim ? new Date(input.dataFim) : undefined,
         });
 
-        // Enriquecer com valor total importado por arquivo
+        // Enriquecer com totais e com uma ação sanitizada do lote protegido.
+        // A lista não recebe identificação de lote, XML, hashes, URLs ou chaves.
         const arquivoIds = arquivosList.map((a: any) => a.id).filter(Boolean);
-        if (arquivoIds.length > 0) {
-          const totais = await db.getValorTotalPorArquivos(arquivoIds);
-          return arquivosList.map((a: any) => ({
-            ...(() => {
-              const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
-              return {
-                ...arquivoPublico,
-                loteProtegido: arquivoEhLoteXmlProtegido(a),
-              };
-            })(),
+        const idsLoteProtegido = arquivosList
+          .filter((a: any) => arquivoEhLoteXmlProtegido(a))
+          .map((a: any) => a.id)
+          .filter(Boolean);
+        const totaisPromise: ReturnType<typeof db.getValorTotalPorArquivos> =
+          arquivoIds.length
+            ? db.getValorTotalPorArquivos(arquivoIds)
+            : Promise.resolve({});
+        const [totais, acoesLote] = await Promise.all([
+          totaisPromise,
+          consultarAcoesPublicasLoteXmlPorArquivos({
+            arquivoIds: idsLoteProtegido,
+            estabelecimentoId,
+          }),
+        ]);
+        return arquivosList.map((a: any) => {
+          const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
+          const loteProtegido = arquivoEhLoteXmlProtegido(a);
+          return {
+            ...arquivoPublico,
+            loteProtegido,
+            loteAcao: loteProtegido
+              ? acoesLote.get(a.id) ?? "sem_acao_manual"
+              : null,
             valorTotalInformado: totais[a.id]?.valorInformado || 0,
             valorTotalLiberado: totais[a.id]?.valorLiberado || 0,
             valorTotalGlosado: totais[a.id]?.valorGlosado || 0,
-          }));
-        }
-        return arquivosList.map((a: any) => {
-          const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
-          return {
-            ...arquivoPublico,
-            loteProtegido: arquivoEhLoteXmlProtegido(a),
           };
         });
       }),
@@ -718,9 +727,23 @@ export const appRouter = router({
           "visualizar"
         );
         const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = arquivo;
+        const estabelecimentoArquivoId = Number(arquivo.estabelecimentoId);
+        const loteProtegido =
+          arquivoEhLoteXmlProtegido(arquivo) &&
+          Number.isSafeInteger(estabelecimentoArquivoId) &&
+          estabelecimentoArquivoId > 0;
+        const acoesLote = loteProtegido
+          ? await consultarAcoesPublicasLoteXmlPorArquivos({
+              arquivoIds: [arquivo.id],
+              estabelecimentoId: estabelecimentoArquivoId,
+            })
+          : new Map();
         return {
           ...arquivoPublico,
-          loteProtegido: arquivoEhLoteXmlProtegido(arquivo),
+          loteProtegido,
+          loteAcao: loteProtegido
+            ? acoesLote.get(arquivo.id) ?? "sem_acao_manual"
+            : null,
         };
       }),
 

@@ -42,6 +42,34 @@ export type XmlImportacaoItemFalho = {
   codigo: XmlImportacaoStorageFailureCode;
 };
 
+/**
+ * Ação de apresentação derivada apenas de estado operacional do lote. Nunca
+ * contém chaves, URLs, hashes, nomes de arquivo ou mensagens do storage.
+ */
+export type XmlImportacaoLoteAcaoPublica =
+  | "reenvio_completo_necessario"
+  | "processamento_em_andamento"
+  | "sem_acao_manual";
+
+export function mapearAcaoPublicaLoteXml(
+  row: Record<string, unknown>
+): XmlImportacaoLoteAcaoPublica {
+  const estado = asText(row.estado);
+  const fase = asText(row.fase);
+  const erroCodigo = asText(row.erro_codigo);
+  if (
+    estado === "recebendo" &&
+    fase === "persistir_selecao" &&
+    erroCodigo.startsWith("STORAGE_")
+  ) {
+    return "reenvio_completo_necessario";
+  }
+  if (estado === "enfileirado" || estado === "processando") {
+    return "processamento_em_andamento";
+  }
+  return "sem_acao_manual";
+}
+
 function asId(value: unknown): number {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : 0;
@@ -376,17 +404,33 @@ export async function confirmarPersistenciaLoteXml(input: {
     if (failedIds.length) {
       for (const itemId of failedIds) {
         const codigo = falhasPorItem.get(itemId) ?? "STORAGE_WRITE_FAILED";
-        const [result] = await connection.execute(
+        // Os IDs foram bloqueados e validados acima. Uma nova falha idêntica
+        // pode atualizar um item que já está em erro e retornar zero linhas
+        // alteradas no MySQL; isso deve continuar reenviável, não gerar rollback.
+        await connection.execute(
           `UPDATE xml_importacao_itens
            SET estado='erro',erro_codigo=?,erro_resumo='Não foi possível armazenar o documento de forma protegida.'
            WHERE lote_id=? AND id=?`,
           [codigo, input.loteId, itemId]
         );
-        if (Number((result as ResultSetHeader).affectedRows) !== 1) {
-          throw new Error("XML_IMPORTACAO_CONFIRMACAO_INCOMPLETA");
-        }
       }
     }
+
+    // A tabela genérica Arquivos é a superfície exibida ao usuário. Ela deve
+    // refletir o resultado do lote inteiro: se faltar um byte, nenhum XML pode
+    // ser reprocessado individualmente; se todos estiverem confirmados, a fila
+    // volta a pendente para o worker coordenado.
+    const statusArquivo = failedIds.length ? "erro" : "pendente";
+    // Os itens já foram bloqueados e validados acima. Não se deve exigir
+    // affectedRows aqui: um segundo erro de cofre pode atualizar "erro" para
+    // "erro" sem mudar a linha, mas ainda precisa permanecer reenviável.
+    await connection.execute(
+      `UPDATE arquivos a
+       INNER JOIN xml_importacao_itens i ON i.arquivo_id=a.id
+       SET a.status=?,a.progresso=0,a.itensProcessados=0
+       WHERE i.lote_id=?`,
+      [statusArquivo, input.loteId]
+    );
 
     const estado = failedIds.length ? "recebendo" : "enfileirado";
     const fase = failedIds.length ? "persistir_selecao" : "classificar";
@@ -420,6 +464,32 @@ export async function confirmarPersistenciaLoteXml(input: {
   } finally {
     connection.release();
   }
+}
+
+/**
+ * Retorna somente a ação operacional que a lista de Arquivos pode exibir para
+ * itens de lote protegido. A autorização por estabelecimento é exigida pelo
+ * chamador; nenhum identificador de lote ou detalhe de cofre sai deste helper.
+ */
+export async function consultarAcoesPublicasLoteXmlPorArquivos(input: {
+  arquivoIds: readonly number[];
+  estabelecimentoId: number;
+}): Promise<Map<number, XmlImportacaoLoteAcaoPublica>> {
+  const arquivoIds = [...new Set(input.arquivoIds.map(asId).filter(Boolean))];
+  if (!arquivoIds.length || !asId(input.estabelecimentoId)) return new Map();
+  const pool = await getRawPool();
+  if (!pool) throw new Error("XML_IMPORTACAO_DATABASE_UNAVAILABLE");
+  const [rows] = await pool.query<SqlRow[]>(
+    `SELECT i.arquivo_id,l.estado,l.fase,l.erro_codigo
+     FROM xml_importacao_itens i
+     INNER JOIN xml_importacao_lotes l ON l.id=i.lote_id
+     WHERE l.estabelecimento_id=?
+       AND i.arquivo_id IN (${arquivoIds.map(() => "?").join(",")})`,
+    [input.estabelecimentoId, ...arquivoIds]
+  );
+  return new Map(
+    rows.map(row => [asId(row.arquivo_id), mapearAcaoPublicaLoteXml(row)])
+  );
 }
 
 export async function consultarLoteXmlImportacao(input: {
