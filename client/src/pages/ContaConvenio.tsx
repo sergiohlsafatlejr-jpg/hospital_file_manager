@@ -121,7 +121,7 @@ const OrigemBadge = ({ origem }: { origem: string }) => {
 
 export default function ContaConvenio() {
   const { user } = useAuth();
-  const { estabelecimentoAtual } = useEstabelecimento();
+  const { estabelecimentoAtual, estabelecimentos } = useEstabelecimento();
   const [, setLocation] = useLocation();
   const searchString = useSearch();
   const urlParams = new URLSearchParams(searchString);
@@ -131,6 +131,7 @@ export default function ContaConvenio() {
   const [fonteDados, setFonteDados] = useState<"PADRAO" | "WARLEINE">(
     urlParams.get("fonte") === "WARLEINE" ? "WARLEINE" : "PADRAO",
   );
+  const [hospitalFiltro, setHospitalFiltro] = useState(urlParams.get("hospital") || "");
   const [convenioFiltro, setConvenioFiltro] = useState(urlParams.get("convenio") || "");
   const [origemFiltro, setOrigemFiltro] = useState(urlParams.get("origem") || "");
   const [statusFiltro, setStatusFiltro] = useState(urlParams.get("status") || "");
@@ -139,12 +140,14 @@ export default function ContaConvenio() {
   const [page, setPage] = useState(parseInt(urlParams.get("page") || "1"));
   const pageSize = 20;
   const isWarleine = fonteDados === "WARLEINE";
+  const isSafatle = estabelecimentoAtual?.id === 2160001;
 
   // Sincronizar filtros com a URL para preservar ao navegar e voltar
   useEffect(() => {
     const params = new URLSearchParams();
     if (fonteDados === "WARLEINE") params.set("fonte", "WARLEINE");
     if (searchTerm) params.set("search", searchTerm);
+    if (hospitalFiltro) params.set("hospital", hospitalFiltro);
     if (convenioFiltro) params.set("convenio", convenioFiltro);
     if (!isWarleine && origemFiltro) params.set("origem", origemFiltro);
     if (statusFiltro) params.set("status", statusFiltro);
@@ -154,7 +157,7 @@ export default function ContaConvenio() {
     const qs = params.toString();
     const newUrl = qs ? `/conta-convenio?${qs}` : "/conta-convenio";
     window.history.replaceState(null, "", newUrl);
-  }, [fonteDados, searchTerm, convenioFiltro, origemFiltro, statusFiltro, anoFiltro, mesFiltro, page]);
+  }, [fonteDados, searchTerm, hospitalFiltro, convenioFiltro, origemFiltro, statusFiltro, anoFiltro, mesFiltro, page]);
 
   // Buscar competências disponíveis
   const { data: competenciasData } = trpc.contasConvenio.listarCompetencias.useQuery(
@@ -192,6 +195,7 @@ export default function ContaConvenio() {
   const contasPadraoQuery = trpc.contasConvenio.listarContas.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || undefined,
+      hospitalFiltroId: hospitalFiltro && hospitalFiltro !== "all" ? parseInt(hospitalFiltro) : undefined,
       convenio: convenioFiltro && convenioFiltro !== "all" ? convenioFiltro : undefined,
       origem: origemFiltro && origemFiltro !== "all" ? origemFiltro as any : undefined,
       statusAnalise: statusFiltro && statusFiltro !== "all" ? statusFiltro as any : undefined,
@@ -363,6 +367,7 @@ export default function ContaConvenio() {
 
   // Limpar filtros
   const handleLimparFiltros = () => {
+    setHospitalFiltro("");
     setConvenioFiltro("");
     setOrigemFiltro("");
     setStatusFiltro("");
@@ -372,7 +377,8 @@ export default function ContaConvenio() {
     setPage(1);
   };
 
-  const temFiltrosAtivos = (convenioFiltro && convenioFiltro !== "all") ||
+  const temFiltrosAtivos = (hospitalFiltro && hospitalFiltro !== "all") ||
+    (convenioFiltro && convenioFiltro !== "all") ||
     (!isWarleine && origemFiltro && origemFiltro !== "all") ||
     (statusFiltro && statusFiltro !== "all") ||
     (anoFiltro && anoFiltro !== "all") ||
@@ -389,10 +395,21 @@ export default function ContaConvenio() {
             <p className="text-muted-foreground">
               {isWarleine
                 ? "Faturamento publicado do Warleine, analisado na mesma tela e pelo mesmo motor de regras"
-                : "Contas importadas do banco do hospital e XML para análise e comparação com padrões"}
+                : isSafatle
+                  ? "Visão centralizada SAFATLE: Contas de todos os hospitais importadas via XML ou banco para auditoria e motor de regras"
+                  : "Contas importadas do banco do hospital e XML para análise e comparação com padrões"}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              onClick={() => setLocation("/fabrica-faturamento")}
+            >
+              <Layers2 className="mr-2 h-4 w-4" />
+              Esteira Fábrica de Faturamento
+            </Button>
             {!isWarleine && <Button
               variant="default" 
               size="sm" 
@@ -490,6 +507,26 @@ export default function ContaConvenio() {
               </div>
 
               {/* Convênio */}
+              {isSafatle && !isWarleine && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Hospital</label>
+                  <Select value={hospitalFiltro} onValueChange={(v) => { setHospitalFiltro(v); setPage(1); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Todos os hospitais" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Hospitais</SelectItem>
+                      {(estabelecimentos || [])
+                        .filter((est: any) => est.id !== 2160001)
+                        .map((est: any) => (
+                          <SelectItem key={est.id} value={String(est.id)}>
+                            {est.nomeFantasia || est.razaoSocial}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Convênio</label>
                 <Select value={convenioFiltro} onValueChange={(v) => { setConvenioFiltro(v); setPage(1); }}>

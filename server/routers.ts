@@ -97,6 +97,7 @@ import { relatoriosGlosasBiRouter } from "./routers/relatoriosGlosasBiRouter";
 import { medComparaRouter } from "./routers/medComparaRouter";
 import { tasyRouter } from "./routers/tasyRouter";
 import { tasyImportacaoRouter } from "./routers/tasyImportacaoRouter";
+import { fabricaFaturamentoRouter } from "./routers/fabricaFaturamentoRouter";
 import { serializeTasyCivilDate } from "./tasyCivilDate";
 import {
   buildAtendimentoNormalizationSql,
@@ -312,6 +313,7 @@ export const appRouter = router({
   passwordAuth: passwordAuthRouter,
   retornosRecursos: retornosRecursosRouter,
   prontuarioPdf: prontuarioPdfRouter,
+  fabricaFaturamento: fabricaFaturamentoRouter,
 
   auth: router({
     me: publicProcedure.query(({ ctx }) => {

@@ -89,6 +89,9 @@ import {
   Bot,
   ShieldCheck,
   Crown,
+  Factory,
+  Sparkles,
+  Target,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -114,6 +117,18 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
   // Início
   { icon: Home, label: "Início", path: "/" },
+
+  // Fábrica de Faturamento Safatle (Esteira 6 Setores)
+  { icon: Factory, label: "Fábrica de Faturamento", path: "/fabrica-faturamento", children: [
+    { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao" },
+    { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento" },
+    { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna" },
+    { icon: Stethoscope, label: "4. Auditoria Externa", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_externa" },
+    { icon: Sparkles, label: "5. Limpeza e Envio XML", path: "/fabrica-faturamento?aba=esteira&setor=limpeza_prontuario" },
+    { icon: Gavel, label: "6. Setor de Recursos", path: "/fabrica-faturamento?aba=esteira&setor=enviado_convenio" },
+    { icon: List, label: "Contas Feitas (Conta Convênio)", path: "/conta-convenio" },
+    { icon: BarChart3, label: "Relatórios & Metas Safatle", path: "/fabrica-faturamento?aba=relatorios" },
+  ]},
 
   // Módulo 7 - Gerenciamento
   { icon: Gauge, label: "Gerenciamento", path: "/dashboard", modulo: "dashboard", children: [

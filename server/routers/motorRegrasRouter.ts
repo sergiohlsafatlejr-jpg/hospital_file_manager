@@ -299,7 +299,9 @@ export const motorRegrasRouter = router({
           const db = await getDb();
           if (!db) return [];
 
-          let query = sql`SELECT * FROM historicoValidacaoXml WHERE estabelecimentoId = ${input.estabelecimentoId}`;
+          let query = input.estabelecimentoId === 2160001
+            ? sql`SELECT * FROM historicoValidacaoXml WHERE 1=1`
+            : sql`SELECT * FROM historicoValidacaoXml WHERE estabelecimentoId = ${input.estabelecimentoId}`;
 
           if (input.dataInicio) {
             query = sql`${query} AND dataProcessamento >= ${input.dataInicio}`;
@@ -380,6 +382,9 @@ export const motorRegrasRouter = router({
               taxaConformidade: 0,
             };
 
+          const filtroEstab = input.estabelecimentoId === 2160001
+            ? sql`1=1`
+            : sql`estabelecimentoId = ${input.estabelecimentoId}`;
           let query = sql`SELECT 
             COUNT(*) as totalValidacoes,
             SUM(totalContas) as totalContas,
@@ -387,7 +392,7 @@ export const motorRegrasRouter = router({
             SUM(contasInvalidas) as contasInvalidas,
             AVG(scoreConformidadeMedio) as scoreConformidadeMedia
             FROM historicoValidacaoXml 
-            WHERE estabelecimentoId = ${input.estabelecimentoId}`;
+            WHERE ${filtroEstab}`;
 
           if (input.dataInicio) {
             query = sql`${query} AND dataProcessamento >= ${input.dataInicio}`;

@@ -5179,3 +5179,5 @@ export * from "./schema-prontuario-pdf";
 // Controle de lote e agenda do snapshot Hop, sem migração automática.
 export * from "./schema-atendimentos-hop-diario";
 export * from "./schema-xml-importacao-lote";
+
+export * from "./schema-fabrica-faturamento";
