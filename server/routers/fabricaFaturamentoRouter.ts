@@ -1,7 +1,17 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
+import { exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
+import {
+  autorizarLoteHospitalar,
+  exigirAcessoFabrica,
+  exigirHospitalProprietario,
+  resolverHospitaisAutorizados,
+  ESTABELECIMENTO_CENTRAL_SAFATLE,
+  type HospitalAcao,
+  type UsuarioHospital,
+} from "../hospitalScope";
 import {
   fabricaContas,
   fabricaHistoricoFluxo,
@@ -18,210 +28,132 @@ import {
   contasConvenioItens,
   contasConvenioResumo,
 } from "../../drizzle/schema";
-import { eq, and, sql, desc, or, like, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { parseXML } from "../parsers";
 import { compararContaComPadroes } from "../services/comparadorPadroes";
 import { logger } from "../_core/logger";
 
-let tablesInitialized = false;
-
-export async function ensureFabricaTables(db: any) {
-  if (tablesInitialized) return;
-  try {
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS fabrica_contas (
-        id int NOT NULL AUTO_INCREMENT,
-        hospital_estabelecimento_id int NOT NULL,
-        convenio_id int DEFAULT NULL,
-        convenio_nome varchar(255) DEFAULT NULL,
-        numero_atendimento varchar(64) DEFAULT NULL,
-        numero_conta_hospital varchar(64) DEFAULT NULL,
-        numero_guia varchar(64) DEFAULT NULL,
-        numero_lote varchar(64) DEFAULT NULL,
-        senha_autorizacao varchar(64) DEFAULT NULL,
-        nome_paciente varchar(255) NOT NULL,
-        tipo_atendimento enum('internacao','pronto_socorro','ambulatorio_sadt','hospital_dia','cirurgico') NOT NULL DEFAULT 'internacao',
-        data_entrada date NOT NULL,
-        data_alta date DEFAULT NULL,
-        data_recebimento_safatle datetime NOT NULL,
-        setor_atual enum('recepcao','faturamento','auditoria_interna','auditoria_externa','limpeza_prontuario','enviado_convenio','recursos','finalizado') NOT NULL DEFAULT 'recepcao',
-        status_setor enum('fila','em_andamento','devolvido_erro','aguardando_terceiro','concluido') NOT NULL DEFAULT 'fila',
-        entrada_setor_atual_em timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        recepcionado_por_id int DEFAULT NULL,
-        recepcionado_por_nome varchar(255) DEFAULT NULL,
-        responsavel_atual_id int DEFAULT NULL,
-        responsavel_atual_nome varchar(255) DEFAULT NULL,
-        faturista_id int DEFAULT NULL,
-        faturista_nome varchar(255) DEFAULT NULL,
-        auditor_interno_id int DEFAULT NULL,
-        auditor_interno_nome varchar(255) DEFAULT NULL,
-        auditor_externo_nome varchar(255) DEFAULT NULL,
-        limpeza_por_id int DEFAULT NULL,
-        limpeza_por_nome varchar(255) DEFAULT NULL,
-        valor_faturado_inicial decimal(14,2) DEFAULT '0.00',
-        valor_faturado_final decimal(14,2) DEFAULT '0.00',
-        total_itens_xml int DEFAULT 0,
-        arquivo_xml_faturamento_id int DEFAULT NULL,
-        arquivo_xml_final_id int DEFAULT NULL,
-        conta_convenio_resumo_id int DEFAULT NULL,
-        status_auditoria_regras enum('pendente','conforme','divergente','revisado') DEFAULT 'pendente',
-        total_divergencias_regras int DEFAULT 0,
-        score_risco_auditoria int DEFAULT 0,
-        protocolo_envio_convenio varchar(120) DEFAULT NULL,
-        metodo_envio_convenio enum('manual','rpa_portal','webservice_tiss') DEFAULT NULL,
-        data_envio_convenio datetime DEFAULT NULL,
-        qtd_retrabalhos int NOT NULL DEFAULT 0,
-        observacoes text,
-        ultimo_motivo_retorno text,
-        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_fab_contas_hosp (hospital_estabelecimento_id),
-        KEY idx_fab_contas_conv (convenio_id),
-        KEY idx_fab_contas_setor (setor_atual, status_setor),
-        KEY idx_fab_contas_paciente (nome_paciente),
-        KEY idx_fab_contas_guia (numero_guia),
-        KEY idx_fab_contas_atend (numero_atendimento),
-        KEY idx_fab_contas_receb (data_recebimento_safatle)
-      )
-    `);
-
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS fabrica_historico_fluxo (
-        id int NOT NULL AUTO_INCREMENT,
-        fabrica_conta_id int NOT NULL,
-        hospital_estabelecimento_id int NOT NULL,
-        setor_origem varchar(50) DEFAULT NULL,
-        setor_destino varchar(50) NOT NULL,
-        acao varchar(64) NOT NULL,
-        usuario_id int DEFAULT NULL,
-        usuario_nome varchar(255) DEFAULT NULL,
-        data_entrada_setor datetime DEFAULT NULL,
-        data_saida_setor datetime NOT NULL,
-        duracao_segundos int NOT NULL DEFAULT 0,
-        valor_movimentado decimal(14,2) DEFAULT '0.00',
-        observacao text,
-        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_fab_hist_conta (fabrica_conta_id),
-        KEY idx_fab_hist_user (usuario_id, created_at),
-        KEY idx_fab_hist_setor (setor_origem, setor_destino)
-      )
-    `);
-
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS fabrica_erros_conta (
-        id int NOT NULL AUTO_INCREMENT,
-        fabrica_conta_id int NOT NULL,
-        hospital_estabelecimento_id int NOT NULL,
-        convenio_id int DEFAULT NULL,
-        faturista_id int DEFAULT NULL,
-        faturista_nome varchar(255) DEFAULT NULL,
-        auditor_id int DEFAULT NULL,
-        auditor_nome varchar(255) DEFAULT NULL,
-        setor_origem_erro enum('auditoria_interna','auditoria_externa','limpeza_prontuario') NOT NULL DEFAULT 'auditoria_interna',
-        tipo_erro enum('regra_gabarito','item_faltante','quantidade_divergente','preco_divergente','falha_prontuario','dados_cadastrais','autorizacao_senha','outro') NOT NULL DEFAULT 'regra_gabarito',
-        codigo_item varchar(64) DEFAULT NULL,
-        descricao_erro text NOT NULL,
-        impacto_financeiro decimal(14,2) DEFAULT '0.00',
-        corrigido enum('sim','nao') NOT NULL DEFAULT 'nao',
-        data_correcao datetime DEFAULT NULL,
-        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_fab_erros_conta (fabrica_conta_id),
-        KEY idx_fab_erros_faturista (faturista_id),
-        KEY idx_fab_erros_hosp (hospital_estabelecimento_id)
-      )
-    `);
-
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS fabrica_metas (
-        id int NOT NULL AUTO_INCREMENT,
-        competencia varchar(7) NOT NULL,
-        setor enum('recepcao','faturamento','auditoria_interna','auditoria_externa','limpeza_prontuario','enviado_convenio','recursos','finalizado') NOT NULL DEFAULT 'faturamento',
-        usuario_id int DEFAULT NULL,
-        usuario_nome varchar(255) DEFAULT NULL,
-        hospital_estabelecimento_id int DEFAULT NULL,
-        meta_quantidade_contas int NOT NULL DEFAULT 0,
-        meta_valor_faturado decimal(14,2) DEFAULT '0.00',
-        meta_sla_horas int DEFAULT 48,
-        observacao text,
-        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_fab_metas_comp (competencia, setor),
-        KEY idx_fab_metas_user (usuario_id)
-      )
-    `);
-
-    tablesInitialized = true;
-  } catch (err) {
-    logger.warn({
-      message: "Aviso ao inicializar tabelas da Fábrica de Faturamento",
-      error: String(err),
-    });
-  }
-}
 
 function toMysqlDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function usuarioFabrica(ctx: { user: UsuarioHospital | null }): UsuarioHospital {
+  if (!ctx.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário autenticado obrigatório." });
+  }
+  return { id: ctx.user.id, role: ctx.user.role };
+}
+
+async function obterDbFabrica() {
+  const db = await getDb();
+  if (!db) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Configuração da Fábrica de Faturamento indisponível.",
+    });
+  }
+  return db;
+}
+
+function erroDeEstruturaFabrica(error: unknown): boolean {
+  const candidate = error as { code?: string; message?: string; cause?: unknown } | undefined;
+  const code = candidate?.code || "";
+  const message = String(candidate?.message || "");
+  return ["ER_NO_SUCH_TABLE", "ER_BAD_TABLE_ERROR", "ER_NO_SUCH_COLUMN", "ER_BAD_FIELD_ERROR"].includes(code)
+    || /(?:table|column).*(?:doesn't exist|not found|unknown)/i.test(message)
+    || (candidate?.cause ? erroDeEstruturaFabrica(candidate.cause) : false);
+}
+
+const fabricaProcedure = protectedProcedure.use(async ({ next }) => {
+  try {
+    const result = await next();
+    if (!result.ok && erroDeEstruturaFabrica(result.error)) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Configuração da Fábrica de Faturamento ausente ou incompatível.",
+      });
+    }
+    return result;
+  } catch (error) {
+    if (!erroDeEstruturaFabrica(error)) throw error;
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Configuração da Fábrica de Faturamento ausente ou incompatível.",
+    });
+  }
+});
+
+async function resolverEscopoFabrica(
+  usuario: UsuarioHospital,
+  hospitalId?: number | null,
+  acao: HospitalAcao = "visualizar",
+): Promise<number[]> {
+  await exigirAcessoFabrica(usuario);
+  return resolverHospitaisAutorizados(usuario, hospitalId, acao);
+}
+
+function filtroHospitaisSql(coluna: string, hospitalIds: readonly number[]) {
+  if (!hospitalIds.length) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Nenhum hospital autorizado para esta operação." });
+  }
+  return sql`${sql.raw(coluna)} IN (${sql.join(hospitalIds.map((id) => sql`${id}`), sql`, `)})`;
+}
+
+async function exigirColaboradorNoEscopo(
+  colaboradorId: number,
+  hospitalIds: readonly number[],
+): Promise<void> {
+  for (const hospitalId of [...new Set(hospitalIds)]) {
+    const autorizado = await verificarPermissaoEstabelecimento(colaboradorId, hospitalId, "visualizar");
+    if (!autorizado) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "O colaborador informado não está autorizado no hospital de origem.",
+      });
+    }
+  }
+}
+
+async function podeGerenciarMetaGlobal(usuario: UsuarioHospital): Promise<boolean> {
+  return verificarPermissaoEstabelecimento(usuario.id, ESTABELECIMENTO_CENTRAL_SAFATLE, "gerenciar");
 }
 
 export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 1. LISTAR DADOS AUXILIARES (HOSPITAIS, CONVÊNIOS, COLABORADORES)
   // ============================================================
-  dadosAuxiliares: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-    await ensureFabricaTables(db);
-
-    const [hospitais, listaConvenios, colaboradores] = await Promise.all([
-      db
-        .select({
-          id: estabelecimentos.id,
-          nome: estabelecimentos.nome,
-          cnpj: estabelecimentos.cnpj,
-          cnes: estabelecimentos.cnes,
-        })
-        .from(estabelecimentos)
-        .where(eq(estabelecimentos.ativo, "sim")),
-      db
-        .select({
-          id: convenios.id,
-          nome: convenios.nome,
-          codigo: convenios.codigo,
-          registroAns: convenios.registroAns,
-          estabelecimentoId: convenios.estabelecimentoId,
-        })
-        .from(convenios)
-        .where(eq(convenios.ativo, "sim")),
-      db
-        .select({
-          id: users.id,
-          name: users.name,
-          email: users.email,
-          role: users.role,
-        })
-        .from(users),
+  dadosAuxiliares: fabricaProcedure.query(async ({ ctx }) => {
+    const usuario = usuarioFabrica(ctx);
+    const hospitalIds = await resolverEscopoFabrica(usuario, null, "visualizar");
+    const db = await obterDbFabrica();
+    const hospitaisScope = filtroHospitaisSql("e.id", hospitalIds);
+    const conveniosScope = filtroHospitaisSql("c.estabelecimentoId", hospitalIds);
+    const colaboradoresScope = filtroHospitaisSql("pe.estabelecimentoId", hospitalIds);
+    const [hospitaisResult, conveniosResult, colaboradoresResult] = await Promise.all([
+      db.execute(sql`SELECT e.id, e.nome, e.cnpj, e.cnes FROM estabelecimentos e
+        WHERE e.ativo = 'sim' AND ${hospitaisScope} ORDER BY e.nome`),
+      db.execute(sql`SELECT c.id, c.nome, c.codigo, c.registro_ans as registroAns,
+          c.estabelecimentoId FROM convenios c
+        WHERE c.ativo = 'sim' AND (c.estabelecimentoId IS NULL OR ${conveniosScope}) ORDER BY c.nome`),
+      db.execute(sql`SELECT DISTINCT u.id, u.name, u.role FROM users u
+        INNER JOIN permissoesEstabelecimento pe ON pe.userId = u.id
+        WHERE pe.podeVisualizar = 'sim' AND ${colaboradoresScope} ORDER BY u.name, u.id`),
     ]);
-
+    const hospitais = (hospitaisResult as any)[0] || [];
+    const conveniosAutorizados = (conveniosResult as any)[0] || [];
+    const colaboradores = (colaboradoresResult as any)[0] || [];
     return {
       hospitais,
-      convenios: listaConvenios,
-      colaboradores: colaboradores.map((u) => ({
-        id: u.id,
-        nome: u.name || u.email || `Usuário #${u.id}`,
-        email: u.email,
-        role: u.role,
-      })),
+      convenios: conveniosAutorizados,
+      colaboradores: colaboradores.map((u: any) => ({ id: Number(u.id), nome: u.name || `Usuário #${u.id}`, role: u.role })),
     };
   }),
 
   // ============================================================
   // 2. RECEPÇÃO DE CONTAS: CADASTRAR NOVA CONTA
   // ============================================================
-  cadastrarContaRecepcao: protectedProcedure
+  cadastrarContaRecepcao: fabricaProcedure
     .input(
       z.object({
         hospitalEstabelecimentoId: z.number().positive("Selecione o hospital"),
@@ -241,32 +173,21 @@ export const fabricaFaturamentoRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      // Resolver nome do convênio se convenioId foi informado
+      const usuario = usuarioFabrica(ctx);
+      await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "editar");
+      const db = await obterDbFabrica();
       let nomeConv = input.convenioNome || null;
-      if (input.convenioId && !nomeConv) {
-        const [conv] = await db
-          .select({ nome: convenios.nome })
-          .from(convenios)
-          .where(eq(convenios.id, input.convenioId))
-          .limit(1);
-        nomeConv = conv?.nome || null;
+      if (input.convenioId) {
+        const convenio = await exigirConvenioDoEstabelecimento(usuario.id, input.convenioId, input.hospitalEstabelecimentoId, "editar");
+        nomeConv = convenio.nome || nomeConv;
       }
-
-      // Resolver faturista se encaminhado com responsável
       let faturistaNome: string | null = null;
       if (input.faturistaId) {
-        const [fat] = await db
-          .select({ name: users.name, email: users.email })
-          .from(users)
-          .where(eq(users.id, input.faturistaId))
-          .limit(1);
-        faturistaNome = fat?.name || fat?.email || null;
+        await exigirColaboradorNoEscopo(input.faturistaId, [input.hospitalEstabelecimentoId]);
+        const [fat] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.faturistaId)).limit(1);
+        if (!fat) throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
+        faturistaNome = fat.name || `Usuário #${input.faturistaId}`;
       }
-
       const dataRecebNorm =
         input.dataRecebimentoSafatle.length === 10
           ? `${input.dataRecebimentoSafatle} 08:00:00`
@@ -349,81 +270,68 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // EDITAR / EXCLUIR CONTA DA FÁBRICA
   // ============================================================
-  editarConta: protectedProcedure
-    .input(
-      z.object({
-        id: z.number(),
-        hospitalEstabelecimentoId: z.number().optional(),
-        convenioId: z.number().optional().nullable(),
-        numeroAtendimento: z.string().optional().nullable(),
-        numeroContaHospital: z.string().optional().nullable(),
-        numeroGuia: z.string().optional().nullable(),
-        nomePaciente: z.string().optional(),
-        tipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(),
-        dataEntrada: z.string().optional(),
-        dataAlta: z.string().optional().nullable(),
-        dataRecebimentoSafatle: z.string().optional(),
-        observacoes: z.string().optional().nullable(),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
+  editarConta: fabricaProcedure
+    .input(z.object({
+      id: z.number().positive(), hospitalEstabelecimentoId: z.number().positive().optional(), convenioId: z.number().optional().nullable(),
+      numeroAtendimento: z.string().optional().nullable(), numeroContaHospital: z.string().optional().nullable(), numeroGuia: z.string().optional().nullable(),
+      nomePaciente: z.string().optional(), tipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(), dataEntrada: z.string().optional(),
+      dataAlta: z.string().optional().nullable(), dataRecebimentoSafatle: z.string().optional(), observacoes: z.string().optional().nullable(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId })
+        .from(fabricaContas).where(eq(fabricaContas.id, input.id)).limit(1);
+      if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
+      await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
+      const hospitalDestino = input.hospitalEstabelecimentoId ?? conta.hospitalEstabelecimentoId;
+      if (hospitalDestino !== conta.hospitalEstabelecimentoId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O hospital proprietário da conta não pode ser alterado por edição." });
+      }
       const updates: Record<string, any> = {};
-      if (input.hospitalEstabelecimentoId !== undefined)
-        updates.hospitalEstabelecimentoId = input.hospitalEstabelecimentoId;
+      if (input.hospitalEstabelecimentoId !== undefined) updates.hospitalEstabelecimentoId = hospitalDestino;
       if (input.convenioId !== undefined) {
         updates.convenioId = input.convenioId;
         if (input.convenioId) {
-          const [conv] = await db
-            .select({ nome: convenios.nome })
-            .from(convenios)
-            .where(eq(convenios.id, input.convenioId))
-            .limit(1);
-          updates.convenioNome = conv?.nome || null;
-        }
+          const convenio = await exigirConvenioDoEstabelecimento(usuario.id, input.convenioId, hospitalDestino, "editar");
+          updates.convenioNome = convenio.nome || null;
+        } else updates.convenioNome = null;
       }
-      if (input.numeroAtendimento !== undefined)
-        updates.numeroAtendimento = input.numeroAtendimento;
-      if (input.numeroContaHospital !== undefined)
-        updates.numeroContaHospital = input.numeroContaHospital;
-      if (input.numeroGuia !== undefined) updates.numeroGuia = input.numeroGuia;
-      if (input.nomePaciente !== undefined) updates.nomePaciente = input.nomePaciente;
+      if (input.numeroAtendimento !== undefined) updates.numeroAtendimento = input.numeroAtendimento?.trim() || null;
+      if (input.numeroContaHospital !== undefined) updates.numeroContaHospital = input.numeroContaHospital?.trim() || null;
+      if (input.numeroGuia !== undefined) updates.numeroGuia = input.numeroGuia?.trim() || null;
+      if (input.nomePaciente !== undefined) updates.nomePaciente = input.nomePaciente.trim();
       if (input.tipoAtendimento !== undefined) updates.tipoAtendimento = input.tipoAtendimento;
       if (input.dataEntrada !== undefined) updates.dataEntrada = input.dataEntrada.slice(0, 10);
-      if (input.dataAlta !== undefined)
-        updates.dataAlta = input.dataAlta ? input.dataAlta.slice(0, 10) : null;
-      if (input.dataRecebimentoSafatle !== undefined) {
-        updates.dataRecebimentoSafatle =
-          input.dataRecebimentoSafatle.length === 10
-            ? `${input.dataRecebimentoSafatle} 08:00:00`
-            : input.dataRecebimentoSafatle.replace("T", " ").slice(0, 19);
-      }
-      if (input.observacoes !== undefined) updates.observacoes = input.observacoes;
-
-      await db.update(fabricaContas).set(updates).where(eq(fabricaContas.id, input.id));
+      if (input.dataAlta !== undefined) updates.dataAlta = input.dataAlta ? input.dataAlta.slice(0, 10) : null;
+      if (input.dataRecebimentoSafatle !== undefined) updates.dataRecebimentoSafatle = input.dataRecebimentoSafatle.length === 10 ? `${input.dataRecebimentoSafatle} 08:00:00` : input.dataRecebimentoSafatle.replace("T", " ").slice(0, 19);
+      if (input.observacoes !== undefined) updates.observacoes = input.observacoes?.trim() || null;
+      if (!Object.keys(updates).length) return { sucesso: true };
+      await db.update(fabricaContas).set(updates).where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
       return { sucesso: true };
     }),
 
-  excluirConta: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      await db.delete(fabricaHistoricoFluxo).where(eq(fabricaHistoricoFluxo.fabricaContaId, input.id));
-      await db.delete(fabricaErrosConta).where(eq(fabricaErrosConta.fabricaContaId, input.id));
-      await db.delete(fabricaContas).where(eq(fabricaContas.id, input.id));
+  excluirConta: fabricaProcedure
+    .input(z.object({ id: z.number().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId })
+        .from(fabricaContas).where(eq(fabricaContas.id, input.id)).limit(1);
+      if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
+      await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "excluir");
+      await db.delete(fabricaHistoricoFluxo).where(and(eq(fabricaHistoricoFluxo.fabricaContaId, conta.id), eq(fabricaHistoricoFluxo.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
+      await db.delete(fabricaErrosConta).where(and(eq(fabricaErrosConta.fabricaContaId, conta.id), eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
+      await db.delete(fabricaContas).where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
       return { sucesso: true };
     }),
 
   // ============================================================
   // 3. RESUMO DOS 6 SETORES DA ESTEIRA (KPIs em Tempo Real)
   // ============================================================
-  resumoSetores: protectedProcedure
+  resumoSetores: fabricaProcedure
     .input(
       z
         .object({
@@ -434,15 +342,11 @@ export const fabricaFaturamentoRouter = router({
         })
         .optional()
     )
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      let whereSql = sql`1=1`;
-      if (input?.hospitalEstabelecimentoId) {
-        whereSql = sql`${whereSql} AND hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}`;
-      }
+    .query(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(usuario, input?.hospitalEstabelecimentoId, "visualizar");
+      const db = await obterDbFabrica();
+      let whereSql = filtroHospitaisSql("hospital_estabelecimento_id", hospitalIds);
       if (input?.convenioId) {
         whereSql = sql`${whereSql} AND convenio_id = ${input.convenioId}`;
       }
@@ -524,7 +428,7 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 4. LISTAR CONTAS NA ESTEIRA (COM FILTROS POR SETOR, HOSPITAL, ETC.)
   // ============================================================
-  listarContas: protectedProcedure
+  listarContas: fabricaProcedure
     .input(
       z
         .object({
@@ -542,24 +446,19 @@ export const fabricaFaturamentoRouter = router({
         })
         .optional()
     )
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
+    .query(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(usuario, input?.hospitalEstabelecimentoId, "visualizar");
+      const db = await obterDbFabrica();
       const page = input?.page ?? 1;
-      const pageSize = input?.pageSize ?? 30;
+      const pageSize = Math.min(100, Math.max(1, input?.pageSize ?? 30));
       const offset = (page - 1) * pageSize;
-
-      let whereSql = sql`1=1`;
+      let whereSql = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds);
       if (input?.setorAtual) {
         whereSql = sql`${whereSql} AND fc.setor_atual = ${input.setorAtual}`;
       }
       if (input?.statusSetor) {
         whereSql = sql`${whereSql} AND fc.status_setor = ${input.statusSetor}`;
-      }
-      if (input?.hospitalEstabelecimentoId) {
-        whereSql = sql`${whereSql} AND fc.hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}`;
       }
       if (input?.convenioId) {
         whereSql = sql`${whereSql} AND fc.convenio_id = ${input.convenioId}`;
@@ -679,367 +578,135 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 5. OBTER CONTA DA FÁBRICA VINCULADA AO CONTA CONVÊNIO (por numeroConta + estabelecimentoId)
   // ============================================================
-  obterPorNumeroConta: protectedProcedure
-    .input(
-      z.object({
-        numeroConta: z.string(),
-        estabelecimentoId: z.number().optional(),
-      })
-    )
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      let whereSql = sql`(
-        fc.numero_guia = ${input.numeroConta}
-        OR fc.numero_conta_hospital = ${input.numeroConta}
-        OR fc.numero_atendimento = ${input.numeroConta}
-      )`;
-      if (input.estabelecimentoId && input.estabelecimentoId !== 2160001) {
-        whereSql = sql`${whereSql} AND fc.hospital_estabelecimento_id = ${input.estabelecimentoId}`;
-      }
-
-      const [rowsResult] = await db.execute(sql`
-        SELECT fc.*, e.nome as hospitalNome
-        FROM fabrica_contas fc
-        LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id
-        WHERE ${whereSql}
-        ORDER BY fc.id DESC
-        LIMIT 1
-      `);
-
-      const row = ((rowsResult as any)[0] || [])[0];
+  obterPorNumeroConta: fabricaProcedure
+    .input(z.object({ numeroConta: z.string().min(1), estabelecimentoId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(usuario, input.estabelecimentoId, "visualizar");
+      const db = await obterDbFabrica();
+      const whereSql = sql`(fc.numero_guia = ${input.numeroConta} OR fc.numero_conta_hospital = ${input.numeroConta} OR fc.numero_atendimento = ${input.numeroConta})
+        AND ${filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds)}`;
+      const [rowsResult] = await db.execute(sql`SELECT fc.*, e.nome as hospitalNome FROM fabrica_contas fc
+        LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id WHERE ${whereSql} ORDER BY fc.id DESC LIMIT 1`);
+      const row = ((rowsResult as any) || [])[0];
       if (!row) return null;
-
+      const hospitalId = Number(row.hospital_estabelecimento_id);
       const [historico, erros] = await Promise.all([
-        db
-          .select()
-          .from(fabricaHistoricoFluxo)
-          .where(eq(fabricaHistoricoFluxo.fabricaContaId, Number(row.id)))
-          .orderBy(desc(fabricaHistoricoFluxo.id)),
-        db
-          .select()
-          .from(fabricaErrosConta)
-          .where(eq(fabricaErrosConta.fabricaContaId, Number(row.id)))
-          .orderBy(desc(fabricaErrosConta.id)),
+        db.select().from(fabricaHistoricoFluxo).where(and(eq(fabricaHistoricoFluxo.fabricaContaId, Number(row.id)), eq(fabricaHistoricoFluxo.hospitalEstabelecimentoId, hospitalId))).orderBy(desc(fabricaHistoricoFluxo.id)),
+        db.select().from(fabricaErrosConta).where(and(eq(fabricaErrosConta.fabricaContaId, Number(row.id)), eq(fabricaErrosConta.hospitalEstabelecimentoId, hospitalId))).orderBy(desc(fabricaErrosConta.id)),
       ]);
-
-      return {
-        id: Number(row.id),
-        hospitalEstabelecimentoId: Number(row.hospital_estabelecimento_id),
-        hospitalNome: row.hospitalNome,
-        convenioId: row.convenio_id,
-        convenioNome: row.convenio_nome,
-        numeroAtendimento: row.numero_atendimento,
-        numeroContaHospital: row.numero_conta_hospital,
-        numeroGuia: row.numero_guia,
-        nomePaciente: row.nome_paciente,
-        setorAtual: row.setor_atual,
-        statusSetor: row.status_setor,
-        faturistaId: row.faturista_id,
-        faturistaNome: row.faturista_nome,
-        auditorInternoNome: row.auditor_interno_nome,
-        qtdRetrabalhos: Number(row.qtd_retrabalhos) || 0,
-        ultimoMotivoRetorno: row.ultimo_motivo_retorno,
-        protocoloEnvioConvenio: row.protocolo_envio_convenio,
-        historico,
-        erros,
-      };
+      return { id: Number(row.id), hospitalEstabelecimentoId: hospitalId, hospitalNome: row.hospitalNome, convenioId: row.convenio_id,
+        convenioNome: row.convenio_nome, numeroAtendimento: row.numero_atendimento, numeroContaHospital: row.numero_conta_hospital,
+        numeroGuia: row.numero_guia, nomePaciente: row.nome_paciente, setorAtual: row.setor_atual, statusSetor: row.status_setor,
+        faturistaId: row.faturista_id, faturistaNome: row.faturista_nome, auditorInternoNome: row.auditor_interno_nome,
+        qtdRetrabalhos: Number(row.qtd_retrabalhos) || 0, ultimoMotivoRetorno: row.ultimo_motivo_retorno,
+        protocoloEnvioConvenio: row.protocolo_envio_convenio, historico, erros };
     }),
 
   // ============================================================
   // 6. ASSUMIR CONTA NO SETOR ATUAL (INICIAR TRABALHO)
   // ============================================================
-  assumirConta: protectedProcedure
-    .input(
-      z.object({
-        contaIds: z.array(z.number()).min(1),
-        responsavelId: z.number().optional(),
-      })
-    )
+  assumirConta: fabricaProcedure
+    .input(z.object({ contaIds: z.array(z.number().positive()).min(1), responsavelId: z.number().positive().optional() }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const contaIds = [...new Set(input.contaIds)];
+      const contas = await db.select().from(fabricaContas).where(inArray(fabricaContas.id, contaIds));
+      if (contas.length !== contaIds.length) throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais contas não foram encontradas." });
+      await autorizarLoteHospitalar(usuario, contas, "editar");
 
-      const targetUserId = input.responsavelId || ctx.user.id;
-      let targetUserName = ctx.user.name || ctx.user.email || `Usuário #${ctx.user.id}`;
-
-      if (input.responsavelId && input.responsavelId !== ctx.user.id) {
-        const [u] = await db
-          .select({ name: users.name, email: users.email })
-          .from(users)
-          .where(eq(users.id, input.responsavelId))
-          .limit(1);
-        targetUserName = u?.name || u?.email || `Usuário #${input.responsavelId}`;
+      const targetUserId = input.responsavelId || usuario.id;
+      await exigirColaboradorNoEscopo(targetUserId, contas.map((conta) => conta.hospitalEstabelecimentoId));
+      let targetUserName = ctx.user.name || `Usuário #${usuario.id}`;
+      if (targetUserId !== usuario.id) {
+        const [responsavel] = await db.select({ name: users.name }).from(users).where(eq(users.id, targetUserId)).limit(1);
+        if (!responsavel) throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
+        targetUserName = responsavel.name || `Usuário #${targetUserId}`;
       }
-
-      const contas = await db
-        .select()
-        .from(fabricaContas)
-        .where(inArray(fabricaContas.id, input.contaIds));
 
       const nowStr = toMysqlDateTime();
-
       for (const conta of contas) {
-        const updates: Record<string, any> = {
-          statusSetor: "em_andamento",
-          responsavelAtualId: targetUserId,
-          responsavelAtualNome: targetUserName,
-        };
-        if (conta.setorAtual === "faturamento") {
-          updates.faturistaId = targetUserId;
-          updates.faturistaNome = targetUserName;
-        } else if (conta.setorAtual === "auditoria_interna") {
-          updates.auditorInternoId = targetUserId;
-          updates.auditorInternoNome = targetUserName;
-        } else if (conta.setorAtual === "limpeza_prontuario") {
-          updates.limpezaPorId = targetUserId;
-          updates.limpezaPorNome = targetUserName;
-        }
-
-        await db
-          .update(fabricaContas)
-          .set(updates)
-          .where(eq(fabricaContas.id, conta.id));
-
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: conta.id,
-          hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-          setorOrigem: conta.setorAtual,
-          setorDestino: conta.setorAtual,
-          acao: "assumido",
-          usuarioId: targetUserId,
-          usuarioNome: targetUserName,
-          dataEntradaSetor: nowStr,
-          dataSaidaSetor: nowStr,
-          duracaoSegundos: 0,
-          observacao: `Conta assumida no setor ${conta.setorAtual} por ${targetUserName}`,
-        });
+        const updates: Record<string, any> = { statusSetor: "em_andamento", responsavelAtualId: targetUserId, responsavelAtualNome: targetUserName };
+        if (conta.setorAtual === "faturamento") { updates.faturistaId = targetUserId; updates.faturistaNome = targetUserName; }
+        else if (conta.setorAtual === "auditoria_interna") { updates.auditorInternoId = targetUserId; updates.auditorInternoNome = targetUserName; }
+        else if (conta.setorAtual === "limpeza_prontuario") { updates.limpezaPorId = targetUserId; updates.limpezaPorNome = targetUserName; }
+        await db.update(fabricaContas).set(updates).where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
+        await db.insert(fabricaHistoricoFluxo).values({ fabricaContaId: conta.id, hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
+          setorOrigem: conta.setorAtual, setorDestino: conta.setorAtual, acao: "assumido", usuarioId: targetUserId, usuarioNome: targetUserName,
+          dataEntradaSetor: nowStr, dataSaidaSetor: nowStr, duracaoSegundos: 0, observacao: `Conta assumida no setor ${conta.setorAtual}.` });
       }
-
-      return {
-        sucesso: true,
-        mensagem: `${contas.length} conta(s) assumida(s) por ${targetUserName}.`,
-      };
+      return { sucesso: true, mensagem: `${contas.length} conta(s) assumida(s).` };
     }),
 
   // ============================================================
   // 7. TRANSICIONAR CONTA DE SETOR (PASSAGEM DE BASTÃO + REGISTRO DE ERRO/SLA)
   // ============================================================
-  transicionarSetor: protectedProcedure
-    .input(
-      z.object({
-        contaIds: z.array(z.number()).min(1),
-        setorDestino: z.enum(fabricaSetorEnum),
-        statusDestino: z.enum(fabricaStatusSetorEnum).default("fila"),
-        responsavelDestinoId: z.number().optional().nullable(),
-        auditorExternoNome: z.string().optional().nullable(),
-        observacao: z.string().optional().nullable(),
-        // Caso seja devolução por erro da auditoria para o faturamento
-        registrarErro: z
-          .object({
-            tipoErro: z.enum([
-              "regra_gabarito",
-              "item_faltante",
-              "quantidade_divergente",
-              "preco_divergente",
-              "falha_prontuario",
-              "dados_cadastrais",
-              "autorizacao_senha",
-              "outro",
-            ]),
-            codigoItem: z.string().optional().nullable(),
-            descricaoErro: z.string().min(2),
-            impactoFinanceiro: z.number().optional().default(0),
-          })
-          .optional()
-          .nullable(),
-        // Caso seja envio ao convênio (na etapa de limpeza)
-        dadosEnvioConvenio: z
-          .object({
-            protocoloEnvio: z.string().optional().nullable(),
-            metodoEnvio: z
-              .enum(["manual", "rpa_portal", "webservice_tiss"])
-              .default("manual"),
-          })
-          .optional()
-          .nullable(),
-      })
-    )
+  transicionarSetor: fabricaProcedure
+    .input(z.object({
+      contaIds: z.array(z.number().positive()).min(1), setorDestino: z.enum(fabricaSetorEnum), statusDestino: z.enum(fabricaStatusSetorEnum).default("fila"),
+      responsavelDestinoId: z.number().positive().optional().nullable(), auditorExternoNome: z.string().max(255).optional().nullable(), observacao: z.string().max(4000).optional().nullable(),
+      registrarErro: z.object({ tipoErro: z.enum(["regra_gabarito", "item_faltante", "quantidade_divergente", "preco_divergente", "falha_prontuario", "dados_cadastrais", "autorizacao_senha", "outro"]), codigoItem: z.string().max(64).optional().nullable(), descricaoErro: z.string().min(2).max(4000), impactoFinanceiro: z.number().optional().default(0) }).optional().nullable(),
+      dadosEnvioConvenio: z.object({ protocoloEnvio: z.string().max(120).optional().nullable(), metodoEnvio: z.enum(["manual", "rpa_portal", "webservice_tiss"]).default("manual") }).optional().nullable(),
+    }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const contaIds = [...new Set(input.contaIds)];
+      const contas = await db.select().from(fabricaContas).where(inArray(fabricaContas.id, contaIds));
+      if (contas.length !== contaIds.length) throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais contas não foram encontradas." });
+      await autorizarLoteHospitalar(usuario, contas, "editar");
+      if (input.responsavelDestinoId) await exigirColaboradorNoEscopo(input.responsavelDestinoId, contas.map((conta) => conta.hospitalEstabelecimentoId));
 
-      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${ctx.user.id}`;
+      const usuarioNome = ctx.user.name || `Usuário #${usuario.id}`;
       let respDestinoNome: string | null = null;
       if (input.responsavelDestinoId) {
-        const [u] = await db
-          .select({ name: users.name, email: users.email })
-          .from(users)
-          .where(eq(users.id, input.responsavelDestinoId))
-          .limit(1);
-        respDestinoNome = u?.name || u?.email || null;
+        const [responsavel] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.responsavelDestinoId)).limit(1);
+        if (!responsavel) throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
+        respDestinoNome = responsavel.name || `Usuário #${input.responsavelDestinoId}`;
       }
 
-      const contas = await db
-        .select()
-        .from(fabricaContas)
-        .where(inArray(fabricaContas.id, input.contaIds));
-
-      const now = new Date();
-      const nowStr = toMysqlDateTime(now);
-
+      const now = new Date(); const nowStr = toMysqlDateTime(now);
       for (const conta of contas) {
-        const entradaAnterior = conta.entradaSetorAtualEm
-          ? new Date(conta.entradaSetorAtualEm)
-          : new Date();
-        const duracaoSegundos = Math.max(
-          0,
-          Math.floor((now.getTime() - entradaAnterior.getTime()) / 1000)
-        );
-
-        const isDevolucaoErro =
-          input.setorDestino === "faturamento" &&
-          (conta.setorAtual === "auditoria_interna" ||
-            conta.setorAtual === "auditoria_externa" ||
-            conta.setorAtual === "limpeza_prontuario");
-
-        const novoStatus: any = isDevolucaoErro
-          ? "devolvido_erro"
-          : input.responsavelDestinoId
-            ? "em_andamento"
-            : input.statusDestino;
-
+        const entradaAnterior = conta.entradaSetorAtualEm ? new Date(conta.entradaSetorAtualEm) : now;
+        const duracaoSegundos = Math.max(0, Math.floor((now.getTime() - entradaAnterior.getTime()) / 1000));
+        const isDevolucaoErro = input.setorDestino === "faturamento" && ["auditoria_interna", "auditoria_externa", "limpeza_prontuario"].includes(conta.setorAtual);
         const updates: Record<string, any> = {
           setorAtual: input.setorDestino,
-          statusSetor: novoStatus,
+          statusSetor: isDevolucaoErro ? "devolvido_erro" : input.responsavelDestinoId ? "em_andamento" : input.statusDestino,
           entradaSetorAtualEm: now,
           responsavelAtualId: input.responsavelDestinoId || (isDevolucaoErro ? conta.faturistaId : null),
-          responsavelAtualNome:
-            respDestinoNome || (isDevolucaoErro ? conta.faturistaNome : null),
+          responsavelAtualNome: respDestinoNome || (isDevolucaoErro ? conta.faturistaNome : null),
         };
-
-        if (input.setorDestino === "faturamento" && input.responsavelDestinoId) {
-          updates.faturistaId = input.responsavelDestinoId;
-          updates.faturistaNome = respDestinoNome;
-        }
-        if (input.auditorExternoNome) {
-          updates.auditorExternoNome = input.auditorExternoNome;
-        }
-        if (conta.setorAtual === "auditoria_interna") {
-          updates.auditorInternoId = ctx.user.id;
-          updates.auditorInternoNome = usuarioNome;
-        }
-        if (conta.setorAtual === "limpeza_prontuario") {
-          updates.limpezaPorId = ctx.user.id;
-          updates.limpezaPorNome = usuarioNome;
-        }
-
-        if (isDevolucaoErro) {
-          updates.qtdRetrabalhos = (conta.qtdRetrabalhos || 0) + 1;
-          updates.ultimoMotivoRetorno =
-            input.registrarErro?.descricaoErro ||
-            input.observacao ||
-            "Devolvido pela auditoria para correção";
-        } else if (
-          conta.setorAtual === "faturamento" &&
-          input.setorDestino === "auditoria_interna"
-        ) {
-          // Quando o faturista reenvia para auditoria interna, marca erros anteriores como corrigidos
-          await db
-            .update(fabricaErrosConta)
-            .set({ corrigido: "sim", dataCorrecao: nowStr })
-            .where(
-              and(
-                eq(fabricaErrosConta.fabricaContaId, conta.id),
-                eq(fabricaErrosConta.corrigido, "nao")
-              )
-            );
-        }
-
+        if (input.setorDestino === "faturamento" && input.responsavelDestinoId) { updates.faturistaId = input.responsavelDestinoId; updates.faturistaNome = respDestinoNome; }
+        if (input.auditorExternoNome) updates.auditorExternoNome = input.auditorExternoNome;
+        if (conta.setorAtual === "auditoria_interna") { updates.auditorInternoId = usuario.id; updates.auditorInternoNome = usuarioNome; }
+        if (conta.setorAtual === "limpeza_prontuario") { updates.limpezaPorId = usuario.id; updates.limpezaPorNome = usuarioNome; }
+        if (isDevolucaoErro) { updates.qtdRetrabalhos = (conta.qtdRetrabalhos || 0) + 1; updates.ultimoMotivoRetorno = input.registrarErro?.descricaoErro || input.observacao || "Devolvido pela auditoria para correção"; }
         if (input.setorDestino === "enviado_convenio") {
-          const proto =
-            input.dadosEnvioConvenio?.protocoloEnvio?.trim() ||
-            `PROT-SAF-${conta.hospitalEstabelecimentoId}-${Date.now().toString().slice(-6)}`;
-          updates.protocoloEnvioConvenio = proto;
-          updates.metodoEnvioConvenio =
-            input.dadosEnvioConvenio?.metodoEnvio || "manual";
-          updates.dataEnvioConvenio = nowStr;
-          updates.statusSetor = "concluido";
+          updates.protocoloEnvioConvenio = input.dadosEnvioConvenio?.protocoloEnvio?.trim() || `PROT-SAF-${conta.hospitalEstabelecimentoId}-${Date.now().toString().slice(-6)}`;
+          updates.metodoEnvioConvenio = input.dadosEnvioConvenio?.metodoEnvio || "manual"; updates.dataEnvioConvenio = nowStr; updates.statusSetor = "concluido";
         }
-
-        await db
-          .update(fabricaContas)
-          .set(updates)
-          .where(eq(fabricaContas.id, conta.id));
-
-        // Gravar histórico de fluxo
-        const valorMov =
-          Number(conta.valorFaturadoFinal) > 0
-            ? String(conta.valorFaturadoFinal)
-            : String(conta.valorFaturadoInicial || "0.00");
-
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: conta.id,
-          hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-          setorOrigem: conta.setorAtual,
-          setorDestino: input.setorDestino,
-          acao: isDevolucaoErro
-            ? "devolvido_erro"
-            : input.setorDestino === "enviado_convenio"
-              ? "enviado_convenio"
-              : "encaminhado",
-          usuarioId: ctx.user.id,
-          usuarioNome,
-          dataEntradaSetor: toMysqlDateTime(entradaAnterior),
-          dataSaidaSetor: nowStr,
-          duracaoSegundos,
-          valorMovimentado: valorMov,
-          observacao:
-            input.registrarErro?.descricaoErro ||
-            input.observacao ||
-            `Movido de ${conta.setorAtual} para ${input.setorDestino}`,
-        });
-
-        // Se houve registro de erro na devolução, inserir em fabrica_erros_conta
+        if (conta.setorAtual === "faturamento" && input.setorDestino === "auditoria_interna") {
+          await db.update(fabricaErrosConta).set({ corrigido: "sim", dataCorrecao: nowStr }).where(and(eq(fabricaErrosConta.fabricaContaId, conta.id), eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId), eq(fabricaErrosConta.corrigido, "nao")));
+        }
+        await db.update(fabricaContas).set(updates).where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
+        const valorMov = Number(conta.valorFaturadoFinal) > 0 ? String(conta.valorFaturadoFinal) : String(conta.valorFaturadoInicial || "0.00");
+        await db.insert(fabricaHistoricoFluxo).values({ fabricaContaId: conta.id, hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
+          setorOrigem: conta.setorAtual, setorDestino: input.setorDestino, acao: isDevolucaoErro ? "devolvido_erro" : input.setorDestino === "enviado_convenio" ? "enviado_convenio" : "encaminhado",
+          usuarioId: usuario.id, usuarioNome, dataEntradaSetor: toMysqlDateTime(entradaAnterior), dataSaidaSetor: nowStr, duracaoSegundos, valorMovimentado: valorMov,
+          observacao: input.registrarErro?.descricaoErro || input.observacao || `Movido de ${conta.setorAtual} para ${input.setorDestino}` });
         if (isDevolucaoErro) {
-          const setorErro =
-            conta.setorAtual === "auditoria_externa"
-              ? "auditoria_externa"
-              : conta.setorAtual === "limpeza_prontuario"
-                ? "limpeza_prontuario"
-                : "auditoria_interna";
-
-          await db.insert(fabricaErrosConta).values({
-            fabricaContaId: conta.id,
-            hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-            convenioId: conta.convenioId,
-            faturistaId: conta.faturistaId,
-            faturistaNome: conta.faturistaNome || "Não atribuído",
-            auditorId: ctx.user.id,
-            auditorNome: usuarioNome,
-            setorOrigemErro: setorErro,
-            tipoErro: input.registrarErro?.tipoErro || "regra_gabarito",
-            codigoItem: input.registrarErro?.codigoItem || null,
-            descricaoErro:
-              input.registrarErro?.descricaoErro ||
-              input.observacao ||
-              "Divergência apontada na auditoria",
-            impactoFinanceiro: String(
-              input.registrarErro?.impactoFinanceiro || 0
-            ),
-            corrigido: "nao",
-          });
+          const setorErro = conta.setorAtual === "auditoria_externa" ? "auditoria_externa" : conta.setorAtual === "limpeza_prontuario" ? "limpeza_prontuario" : "auditoria_interna";
+          await db.insert(fabricaErrosConta).values({ fabricaContaId: conta.id, hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId, convenioId: conta.convenioId,
+            faturistaId: conta.faturistaId, faturistaNome: conta.faturistaNome || "Não atribuído", auditorId: usuario.id, auditorNome: usuarioNome,
+            setorOrigemErro: setorErro, tipoErro: input.registrarErro?.tipoErro || "regra_gabarito", codigoItem: input.registrarErro?.codigoItem || null,
+            descricaoErro: input.registrarErro?.descricaoErro || input.observacao || "Divergência apontada na auditoria", impactoFinanceiro: String(input.registrarErro?.impactoFinanceiro || 0), corrigido: "nao" });
         }
       }
-
-      return {
-        sucesso: true,
-        mensagem: `${contas.length} conta(s) movimentada(s) para ${input.setorDestino} com sucesso!`,
-      };
+      return { sucesso: true, mensagem: `${contas.length} conta(s) movimentada(s) com sucesso.` };
     }),
 
   // ============================================================
@@ -1049,7 +716,7 @@ export const fabricaFaturamentoRouter = router({
   //    - Executa Motor de Regras (compararContaComPadroes)
   //    - Encaminha para Auditoria Interna (se estiver no Faturamento)
   // ============================================================
-  importarXmlNaConta: protectedProcedure
+  importarXmlNaConta: fabricaProcedure
     .input(
       z.object({
         fabricaContaId: z.number(),
@@ -1060,32 +727,23 @@ export const fabricaFaturamentoRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
       const [conta] = await db
         .select()
         .from(fabricaContas)
         .where(eq(fabricaContas.id, input.fabricaContaId))
         .limit(1);
-
-      if (!conta) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Conta não encontrada na Fábrica de Faturamento.",
-        });
-      }
-
+      if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
+      await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
       const xmlBuffer = Buffer.from(input.conteudoBase64, "base64");
       const parseResult = await parseXML(xmlBuffer);
 
       if (!parseResult.success || parseResult.procedimentos.length === 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            parseResult.error ||
-            "Não foi possível extrair procedimentos deste XML TISS. Verifique se é um XML de guias válido.",
+          message: "Não foi possível extrair procedimentos deste XML TISS. Verifique se é um XML de guias válido.",
         });
       }
 
@@ -1106,9 +764,11 @@ export const fabricaFaturamentoRouter = router({
               conta.nomePaciente &&
               p.pacienteNome.toUpperCase().includes(conta.nomePaciente.toUpperCase().split(" ")[0]))
         );
-        if (matchGuia.length > 0) {
-          procsConta = matchGuia;
+        const guiasCorrespondentes = new Set(matchGuia.map((procedimento) => procedimento.guiaNumero).filter(Boolean));
+        if (!matchGuia.length || guiasCorrespondentes.size !== 1) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O XML possui correspondência ambígua para esta conta." });
         }
+        procsConta = matchGuia;
       }
 
       const primeiroProc = procsConta[0];
@@ -1146,13 +806,21 @@ export const fabricaFaturamentoRouter = router({
       }
 
       const hospitalEstabId = conta.hospitalEstabelecimentoId;
+      if (!convenioIdFinal) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não foi possível identificar um convênio autorizado para esta conta.",
+        });
+      }
+      const convenio = await exigirConvenioDoEstabelecimento(usuario.id, convenioIdFinal, hospitalEstabId, "editar");
+      convenioNomeFinal = convenio.nome || convenioNomeFinal;
 
       // 1. Criar registro em `arquivos` vinculado ao estabelecimento do HOSPITAL
       const [arqRes] = await db.insert(arquivos).values({
         nome: input.nomeArquivo,
         tipoArquivo: "xml",
         direcao: "enviado",
-        convenioId: convenioIdFinal || 1,
+        convenioId: convenioIdFinal,
         estabelecimentoId: hospitalEstabId,
         userId: ctx.user.id,
         s3Key: `fabrica/${hospitalEstabId}/${Date.now()}-${input.nomeArquivo}`,
@@ -1180,7 +848,7 @@ export const fabricaFaturamentoRouter = router({
 
         return {
           arquivoId,
-          convenioId: convenioIdFinal || 1,
+          convenioId: convenioIdFinal,
           estabelecimentoId: hospitalEstabId,
           numeroLote: numeroLoteExtraido,
           numeroGuiaPrestador: numeroGuiaExtraido,
@@ -1209,15 +877,7 @@ export const fabricaFaturamentoRouter = router({
 
       // 3. Popular `contas_convenio_itens` e `contas_convenio_resumo` no estabelecimento do HOSPITAL
       //    para que apareça imediatamente na tela de Conta Convênio e rode o Motor de Regras!
-      await db
-        .delete(contasConvenioItens)
-        .where(
-          and(
-            eq(contasConvenioItens.numeroConta, numeroGuiaExtraido),
-            eq(contasConvenioItens.estabelecimentoId, hospitalEstabId),
-            eq(contasConvenioItens.origem, "XML")
-          )
-        );
+      // Cada upload materializa uma versão própria; não apagar versões anteriores.
 
       const ccItensValues = procsConta.map((p) => {
         const qtd = Number(p.quantidade) || 1;
@@ -1255,20 +915,12 @@ export const fabricaFaturamentoRouter = router({
         await db.insert(contasConvenioItens).values(ccItensValues as any);
       }
 
-      await db
-        .delete(contasConvenioResumo)
-        .where(
-          and(
-            eq(contasConvenioResumo.numeroConta, numeroGuiaExtraido),
-            eq(contasConvenioResumo.estabelecimentoId, hospitalEstabId),
-            eq(contasConvenioResumo.origem, "XML")
-          )
-        );
-
       const [resumoInsert] = await db.insert(contasConvenioResumo).values({
         numeroConta: numeroGuiaExtraido,
+        numeroLote: numeroLoteExtraido,
         estabelecimentoId: hospitalEstabId,
         origem: "XML",
+        arquivoHospitalId: arquivoId,
         convenio: convenioNomeFinal,
         convenioId: convenioIdFinal || null,
         pacienteNome: conta.nomePaciente,
@@ -1285,19 +937,25 @@ export const fabricaFaturamentoRouter = router({
       const contaConvenioResumoId = Number((resumoInsert as any).insertId);
 
       // 4. Executar o Motor de Regras e Padrões (Gabaritos do Hospital + Safatle) automaticamente!
-      let statusAuditoriaRegras: "pendente" | "conforme" | "divergente" | "revisado" = "conforme";
+      let statusAuditoriaRegras: "pendente" | "conforme" | "divergente" | "revisado" = "pendente";
       let totalDivergencias = 0;
       let scoreRisco = 0;
 
       try {
         const resultadoComparacao = await compararContaComPadroes(
           numeroGuiaExtraido,
-          hospitalEstabId
+          hospitalEstabId,
+          { escopoContextoMedico: {
+            estabelecimentoId: hospitalEstabId, numeroConta: numeroGuiaExtraido,
+            arquivoHospitalId: arquivoId, convenioId: convenioIdFinal,
+            numeroLote: numeroLoteExtraido, competencia: competenciaStr,
+          } },
         );
         totalDivergencias = resultadoComparacao.totalDivergencias || 0;
         scoreRisco = resultadoComparacao.scoreRisco?.score || 0;
         statusAuditoriaRegras =
-          resultadoComparacao.statusGeral === "divergente" ? "divergente" : "conforme";
+          resultadoComparacao.statusGeral === "divergente" ? "divergente"
+            : resultadoComparacao.statusGeral === "conforme" ? "conforme" : "pendente";
 
         // Atualizar statusAnalise em contasConvenioResumo
         await db
@@ -1311,11 +969,11 @@ export const fabricaFaturamentoRouter = router({
                 ? resultadoComparacao.divergencias
                 : null,
           })
-          .where(eq(contasConvenioResumo.id, contaConvenioResumoId));
+          .where(and(eq(contasConvenioResumo.id, contaConvenioResumoId), eq(contasConvenioResumo.estabelecimentoId, hospitalEstabId)));
       } catch (err) {
         logger.warn({
           message: "Aviso na comparação automática de padrões ao importar XML na Fábrica",
-          error: String(err),
+          error: "comparacao_indisponivel",
         });
       }
 
@@ -1369,7 +1027,7 @@ export const fabricaFaturamentoRouter = router({
       await db
         .update(fabricaContas)
         .set(updatesConta)
-        .where(eq(fabricaContas.id, conta.id));
+        .where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId)));
 
       await db.insert(fabricaHistoricoFluxo).values({
         fabricaContaId: conta.id,
@@ -1403,103 +1061,48 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 9. VINCULAR AUTOMATICAMENTE CONTAS EM FILA COM XMLs DE LOTE JÁ IMPORTADOS
   // ============================================================
-  vincularAutomaticoComContaConvenio: protectedProcedure
-    .input(
-      z
-        .object({
-          hospitalEstabelecimentoId: z.number().optional(),
-        })
-        .optional()
-    )
+  vincularAutomaticoComContaConvenio: fabricaProcedure
+    .input(z.object({ hospitalEstabelecimentoId: z.number().optional() }).optional())
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      // Buscar contas da fábrica em Recepção ou Faturamento que ainda não têm XML vinculado
-      let whereSql = sql`fc.setor_atual IN ('recepcao', 'faturamento') AND fc.conta_convenio_resumo_id IS NULL`;
-      if (input?.hospitalEstabelecimentoId) {
-        whereSql = sql`${whereSql} AND fc.hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}`;
-      }
-
-      const [contasPendentesRes] = await db.execute(sql`
-        SELECT * FROM fabrica_contas fc WHERE ${whereSql}
-      `);
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(usuario, input?.hospitalEstabelecimentoId, "editar");
+      const db = await obterDbFabrica();
+      const whereSql = sql`fc.setor_atual IN ('recepcao', 'faturamento') AND fc.conta_convenio_resumo_id IS NULL
+        AND ${filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds)}`;
+      const [contasPendentesRes] = await db.execute(sql`SELECT * FROM fabrica_contas fc WHERE ${whereSql}`);
       const pendentes = (contasPendentesRes as any) || [];
-
+      if (!pendentes.length) return { sucesso: true, totalVinculadas: 0, mensagem: "Nenhuma correspondência inequívoca encontrada." };
+      await autorizarLoteHospitalar(usuario, pendentes.map((conta: any) => ({ hospitalEstabelecimentoId: Number(conta.hospital_estabelecimento_id) })), "editar");
       let totalVinculadas = 0;
-      const nowStr = toMysqlDateTime();
-      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${ctx.user.id}`;
-
+      const nowStr = toMysqlDateTime(); const usuarioNome = ctx.user.name || `Usuário #${usuario.id}`;
       for (const conta of pendentes) {
         const hospId = Number(conta.hospital_estabelecimento_id);
         const guia = conta.numero_guia || conta.numero_conta_hospital || conta.numero_atendimento;
-        const pacNome = String(conta.nome_paciente || "").trim();
-
+        const paciente = String(conta.nome_paciente || "").trim();
+        if (!guia && !paciente) continue;
         let matchQuery = sql`estabelecimentoId = ${hospId}`;
-        if (guia && pacNome) {
-          matchQuery = sql`${matchQuery} AND (numeroConta = ${guia} OR pacienteNome LIKE ${`%${pacNome}%`})`;
-        } else if (guia) {
-          matchQuery = sql`${matchQuery} AND numeroConta = ${guia}`;
-        } else if (pacNome) {
-          matchQuery = sql`${matchQuery} AND pacienteNome LIKE ${`%${pacNome}%`}`;
-        } else {
-          continue;
-        }
-
-        const [resumoMatchRes] = await db.execute(sql`
-          SELECT * FROM contas_convenio_resumo
-          WHERE ${matchQuery}
-          ORDER BY criadoEm DESC
-          LIMIT 1
-        `);
-        const resumoMatch = ((resumoMatchRes as any) || [])[0];
-        if (!resumoMatch) continue;
-
-        await db
-          .update(fabricaContas)
-          .set({
-            contaConvenioResumoId: Number(resumoMatch.id),
-            numeroGuia: resumoMatch.numeroConta || conta.numero_guia,
-            convenioId: resumoMatch.convenioId || conta.convenio_id,
-            convenioNome: resumoMatch.convenio || conta.convenio_nome,
-            valorFaturadoInicial: String(resumoMatch.valorTotal || "0.00"),
-            valorFaturadoFinal: String(resumoMatch.valorTotal || "0.00"),
-            totalItensXml: Number(resumoMatch.totalItens) || 0,
-            statusAuditoriaRegras: resumoMatch.statusAnalise || "pendente",
-            scoreRiscoAuditoria: Number(resumoMatch.scoreRisco) || 0,
-            setorAtual: "auditoria_interna",
-            statusSetor: "fila",
-            entradaSetorAtualEm: new Date(),
-          })
-          .where(eq(fabricaContas.id, Number(conta.id)));
-
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: Number(conta.id),
-          hospitalEstabelecimentoId: hospId,
-          setorOrigem: conta.setor_atual,
-          setorDestino: "auditoria_interna",
-          acao: "xml_importado",
-          usuarioId: ctx.user.id,
-          usuarioNome,
-          dataEntradaSetor: nowStr,
-          dataSaidaSetor: nowStr,
-          duracaoSegundos: 0,
-          valorMovimentado: String(resumoMatch.valorTotal || "0.00"),
-          observacao: `Vinculado automaticamente à Conta Convênio #${resumoMatch.numeroConta} (R$ ${resumoMatch.valorTotal}) e encaminhado à Auditoria Interna.`,
-        });
-
+        if (guia && paciente) matchQuery = sql`${matchQuery} AND (numeroConta = ${guia} OR pacienteNome LIKE ${`%${paciente}%`})`;
+        else if (guia) matchQuery = sql`${matchQuery} AND numeroConta = ${guia}`;
+        else matchQuery = sql`${matchQuery} AND pacienteNome LIKE ${`%${paciente}%`}`;
+        const [resumoMatchRes] = await db.execute(sql`SELECT * FROM contas_convenio_resumo WHERE ${matchQuery} ORDER BY criadoEm DESC LIMIT 2`);
+        const matches = (resumoMatchRes as any) || [];
+        if (matches.length !== 1) continue;
+        const resumo = matches[0];
+        if (Number(resumo.estabelecimentoId) !== hospId) continue;
+        if (resumo.convenioId) await exigirConvenioDoEstabelecimento(usuario.id, Number(resumo.convenioId), hospId, "editar");
+        await db.update(fabricaContas).set({ contaConvenioResumoId: Number(resumo.id), numeroGuia: resumo.numeroConta || conta.numero_guia,
+          convenioId: resumo.convenioId || conta.convenio_id, convenioNome: resumo.convenio || conta.convenio_nome,
+          valorFaturadoInicial: String(resumo.valorTotal || "0.00"), valorFaturadoFinal: String(resumo.valorTotal || "0.00"),
+          totalItensXml: Number(resumo.totalItens) || 0, statusAuditoriaRegras: resumo.statusAnalise || "pendente",
+          scoreRiscoAuditoria: Number(resumo.scoreRisco) || 0, setorAtual: "auditoria_interna", statusSetor: "fila", entradaSetorAtualEm: new Date() })
+          .where(and(eq(fabricaContas.id, Number(conta.id)), eq(fabricaContas.hospitalEstabelecimentoId, hospId)));
+        await db.insert(fabricaHistoricoFluxo).values({ fabricaContaId: Number(conta.id), hospitalEstabelecimentoId: hospId,
+          setorOrigem: conta.setor_atual, setorDestino: "auditoria_interna", acao: "xml_importado", usuarioId: usuario.id, usuarioNome,
+          dataEntradaSetor: nowStr, dataSaidaSetor: nowStr, duracaoSegundos: 0, valorMovimentado: String(resumo.valorTotal || "0.00"),
+          observacao: "Vinculado automaticamente a uma Conta Convênio do mesmo hospital." });
         totalVinculadas++;
       }
-
-      return {
-        sucesso: true,
-        totalVinculadas,
-        mensagem:
-          totalVinculadas > 0
-            ? `${totalVinculadas} conta(s) vinculada(s) automaticamente aos XMLs importados e encaminhadas para Auditoria Interna!`
-            : "Nenhuma nova correspondência encontrada nos lotes de XML importados.",
-      };
+      return { sucesso: true, totalVinculadas, mensagem: totalVinculadas ? `${totalVinculadas} conta(s) vinculada(s).` : "Nenhuma correspondência inequívoca encontrada." };
     }),
 
   // ============================================================
@@ -1509,7 +1112,7 @@ export const fabricaFaturamentoRouter = router({
   //     C) ERROS DE CONTAS (QUALIDADE / RETRABALHO)
   //     D) TEMPO DE ENTREGA DE CONTAS (SLA / LEAD TIME)
   // ============================================================
-  relatoriosGerenciais: protectedProcedure
+  relatoriosGerenciais: fabricaProcedure
     .input(
       z.object({
         competencia: z.string().optional(), // YYYY-MM
@@ -1518,22 +1121,19 @@ export const fabricaFaturamentoRouter = router({
         hospitalEstabelecimentoId: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
+    .query(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "visualizar");
+      const db = await obterDbFabrica();
       const comp = input.competencia || new Date().toISOString().slice(0, 7);
       const dataIni = input.dataInicio || `${comp}-01`;
       const dataFim = input.dataFim || `${comp}-31`;
-
-      let filtroHosp = sql`1=1`;
-      let filtroHospFc = sql`1=1`;
-      if (input.hospitalEstabelecimentoId) {
-        filtroHosp = sql`hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}`;
-        filtroHospFc = sql`fc.hospital_estabelecimento_id = ${input.hospitalEstabelecimentoId}`;
-      }
-
+      const filtroHosp = filtroHospitaisSql("hospital_estabelecimento_id", hospitalIds);
+      const filtroHospFc = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds);
+      const filtroHospMeta = filtroHospitaisSql("m.hospital_estabelecimento_id", hospitalIds);
+      const metasScope = await podeGerenciarMetaGlobal(usuario)
+        ? sql`(${filtroHospMeta} OR m.hospital_estabelecimento_id IS NULL)`
+        : filtroHospMeta;
       // A) Produção por Funcionário
       const [producaoRows] = await db.execute(sql`
         SELECT 
@@ -1562,7 +1162,7 @@ export const fabricaFaturamentoRouter = router({
           e.nome as hospitalNome
         FROM fabrica_metas m
         LEFT JOIN estabelecimentos e ON e.id = m.hospital_estabelecimento_id
-        WHERE m.competencia = ${comp}
+        WHERE m.competencia = ${comp} AND ${metasScope}
         ORDER BY m.setor, m.usuario_nome
       `);
 
@@ -1748,57 +1348,42 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 11. SALVAR / EXCLUIR META DE FATURAMENTO
   // ============================================================
-  salvarMeta: protectedProcedure
-    .input(
-      z.object({
-        competencia: z.string().min(7).max(7),
-        setor: z.enum(fabricaSetorEnum).default("faturamento"),
-        usuarioId: z.number().optional().nullable(),
-        hospitalEstabelecimentoId: z.number().optional().nullable(),
-        metaQuantidadeContas: z.number().min(0),
-        metaValorFaturado: z.number().min(0).default(0),
-        metaSlaHoras: z.number().min(1).default(48),
-        observacao: z.string().optional().nullable(),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
+  salvarMeta: fabricaProcedure
+    .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/), setor: z.enum(fabricaSetorEnum).default("faturamento"), usuarioId: z.number().positive().optional().nullable(),
+      hospitalEstabelecimentoId: z.number().positive().optional().nullable(), metaQuantidadeContas: z.number().min(0), metaValorFaturado: z.number().min(0).default(0), metaSlaHoras: z.number().min(1).default(48), observacao: z.string().max(4000).optional().nullable() }))
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx); await exigirAcessoFabrica(usuario);
+      if (!input.hospitalEstabelecimentoId && !(await podeGerenciarMetaGlobal(usuario))) throw new TRPCError({ code: "FORBIDDEN", message: "Meta global exige gestor central autorizado." });
+      if (input.hospitalEstabelecimentoId) await exigirHospitalProprietario(usuario, input.hospitalEstabelecimentoId, "gerenciar");
+      const db = await obterDbFabrica();
       let usuarioNome: string | null = null;
       if (input.usuarioId) {
-        const [u] = await db
-          .select({ name: users.name, email: users.email })
-          .from(users)
-          .where(eq(users.id, input.usuarioId))
-          .limit(1);
-        usuarioNome = u?.name || u?.email || null;
+        if (input.hospitalEstabelecimentoId) await exigirColaboradorNoEscopo(input.usuarioId, [input.hospitalEstabelecimentoId]);
+        const [colaborador] = await db.select({ name: users.name }).from(users).where(eq(users.id, input.usuarioId)).limit(1);
+        if (!colaborador) throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
+        usuarioNome = colaborador.name || `Usuário #${input.usuarioId}`;
       }
-
-      await db.insert(fabricaMetas).values({
-        competencia: input.competencia,
-        setor: input.setor,
-        usuarioId: input.usuarioId || null,
-        usuarioNome,
-        hospitalEstabelecimentoId: input.hospitalEstabelecimentoId || null,
-        metaQuantidadeContas: input.metaQuantidadeContas,
-        metaValorFaturado: String(input.metaValorFaturado.toFixed(2)),
-        metaSlaHoras: input.metaSlaHoras,
-        observacao: input.observacao || null,
-      });
-
+      await db.insert(fabricaMetas).values({ competencia: input.competencia, setor: input.setor, usuarioId: input.usuarioId || null, usuarioNome,
+        hospitalEstabelecimentoId: input.hospitalEstabelecimentoId || null, metaQuantidadeContas: input.metaQuantidadeContas,
+        metaValorFaturado: String(input.metaValorFaturado.toFixed(2)), metaSlaHoras: input.metaSlaHoras, observacao: input.observacao || null });
       return { sucesso: true };
     }),
 
-  excluirMeta: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
-      await ensureFabricaTables(db);
-
-      await db.delete(fabricaMetas).where(eq(fabricaMetas.id, input.id));
+  excluirMeta: fabricaProcedure
+    .input(z.object({ id: z.number().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx); await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const [meta] = await db.select({ id: fabricaMetas.id, hospitalEstabelecimentoId: fabricaMetas.hospitalEstabelecimentoId }).from(fabricaMetas).where(eq(fabricaMetas.id, input.id)).limit(1);
+      if (!meta) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
+      if (!meta.hospitalEstabelecimentoId) {
+        if (!(await podeGerenciarMetaGlobal(usuario))) throw new TRPCError({ code: "FORBIDDEN", message: "Meta global exige gestor central autorizado." });
+      } else {
+        await exigirHospitalProprietario(usuario, meta.hospitalEstabelecimentoId, "gerenciar");
+        await exigirHospitalProprietario(usuario, meta.hospitalEstabelecimentoId, "excluir");
+      }
+      await db.delete(fabricaMetas).where(and(eq(fabricaMetas.id, meta.id), meta.hospitalEstabelecimentoId ? eq(fabricaMetas.hospitalEstabelecimentoId, meta.hospitalEstabelecimentoId) : sql`hospital_estabelecimento_id IS NULL`));
       return { sucesso: true };
     }),
+
 });

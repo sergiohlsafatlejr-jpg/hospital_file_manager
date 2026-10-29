@@ -1,7 +1,7 @@
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { contasConvenioItens, contasConvenioResumo, integracaoMapeamentos, integracaoConexoes, feedbackDivergencias, padroesCobranca, logAnaliseComparacao, ajustesAuditoria, prontuarioPrescricoes, prontuarioEvolucoes } from "../../drizzle/schema";
 import { queryConfiguracoes } from "../../drizzle/schema-integracao";
 import { eq, and, sql, desc, like, or, inArray } from "drizzle-orm";
@@ -16,6 +16,11 @@ import { compararContaComPadroes } from "../services/comparadorPadroes";
 import { agruparResumosContaXml } from "../contasConvenioResumoUtils";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
 import { exigirAcessoEstabelecimento, exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
+import {
+  ESTABELECIMENTO_CENTRAL_SAFATLE,
+  exigirHospitalProprietario,
+  resolverHospitaisAutorizados,
+} from "../hospitalScope";
 
 /**
  * Router para Contas Convênio - Gestão Operacional
@@ -38,6 +43,7 @@ export const contasConvenioRouter = router({
       forceRemote: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
@@ -1131,14 +1137,12 @@ export const contasConvenioRouter = router({
       page: z.number().default(1),
       pageSize: z.number().default(20),
     }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const rawEstabelecimentoId = input?.estabelecimentoId;
-      const estabelecimentoId =
-        input?.hospitalFiltroId ||
-        (rawEstabelecimentoId && rawEstabelecimentoId !== 2160001 ? rawEstabelecimentoId : undefined);
+      const hospitalSolicitado = input?.hospitalFiltroId ?? input?.estabelecimentoId ?? null;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, hospitalSolicitado, "visualizar");
       const convenio = input?.convenio;
       const origem = input?.origem;
       const statusAnalise = input?.statusAnalise;
@@ -1150,9 +1154,7 @@ export const contasConvenioRouter = router({
 
       const conditions: any[] = [];
 
-      if (estabelecimentoId) {
-        conditions.push(eq(contasConvenioResumo.estabelecimentoId, estabelecimentoId));
-      }
+      conditions.push(inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados));
       if (convenio) {
         conditions.push(eq(contasConvenioResumo.convenio, convenio));
       }
@@ -1205,10 +1207,7 @@ export const contasConvenioRouter = router({
       // valores financeiros devem sempre ser recalculados a partir dos itens que
       // atendem exatamente aos filtros atuais.
       const buildItemConditions = () => {
-        const itemConditions: any[] = [];
-        if (estabelecimentoId) {
-          itemConditions.push(eq(contasConvenioItens.estabelecimentoId, estabelecimentoId));
-        }
+        const itemConditions: any[] = [inArray(contasConvenioItens.estabelecimentoId, hospitaisAutorizados)];
         if (convenio) {
           itemConditions.push(eq(contasConvenioItens.convenio, convenio));
         }
@@ -1330,6 +1329,7 @@ export const contasConvenioRouter = router({
         // Buscar detalhes por lote para contas com múltiplos lotes
         const lotesRows = await db
           .select({
+            estabelecimentoId: contasConvenioItens.estabelecimentoId,
             numeroConta: contasConvenioItens.numeroConta,
             numeroLote: contasConvenioItens.numeroLote,
             totalItens: sql<number>`COUNT(*)`,
@@ -1343,25 +1343,26 @@ export const contasConvenioRouter = router({
             sql`${contasConvenioItens.numeroLote} <> ''`,
             sql`${contasConvenioItens.numeroLote} <> 'null'`,
           ))
-          .groupBy(contasConvenioItens.numeroConta, contasConvenioItens.numeroLote)
-          .orderBy(contasConvenioItens.numeroConta, contasConvenioItens.numeroLote);
+          .groupBy(contasConvenioItens.estabelecimentoId, contasConvenioItens.numeroConta, contasConvenioItens.numeroLote)
+          .orderBy(contasConvenioItens.estabelecimentoId, contasConvenioItens.numeroConta, contasConvenioItens.numeroLote);
         if (lotesRows && Array.isArray(lotesRows)) {
           // Agrupar por numeroConta
           const lotesMap = new Map<string, Array<{ numeroLote: string; totalItens: number; valorLote: number }>>();
           for (const row of lotesRows) {
             if (!row.numeroLote) continue;
-            const arr = lotesMap.get(row.numeroConta) || [];
+            const chaveConta = `${row.estabelecimentoId}|${row.numeroConta}`;
+            const arr = lotesMap.get(chaveConta) || [];
             arr.push({
               numeroLote: row.numeroLote,
               totalItens: Number(row.totalItens),
               valorLote: parseFloat(row.valorLote || "0"),
             });
-            lotesMap.set(row.numeroConta, arr);
+            lotesMap.set(chaveConta, arr);
           }
           // Apenas contas com mais de 1 lote são "Alta Administrativa"
-          for (const [nc, lotes] of lotesMap) {
+          for (const [chaveConta, lotes] of lotesMap) {
             if (lotes.length > 1) {
-              contasComAltaAdm.set(nc, { totalLotes: lotes.length, lotes });
+              contasComAltaAdm.set(chaveConta, { totalLotes: lotes.length, lotes });
             }
           }
         }
@@ -1375,13 +1376,14 @@ export const contasConvenioRouter = router({
       const contasJaExpandidas = new Set<string>();
       
       for (const conta of contas) {
-        const altaAdm = contasComAltaAdm.get(conta.numeroConta);
+        const chaveConta = `${conta.estabelecimentoId}|${conta.numeroConta}`;
+        const altaAdm = contasComAltaAdm.get(chaveConta);
         if (altaAdm && altaAdm.lotes.length > 1) {
           // Deduplicar: se já expandimos esta numeroConta, pular
-          if (contasJaExpandidas.has(conta.numeroConta)) {
+          if (contasJaExpandidas.has(chaveConta)) {
             continue;
           }
-          contasJaExpandidas.add(conta.numeroConta);
+          contasJaExpandidas.add(chaveConta);
           // Expandir: uma linha por lote
           for (const lote of altaAdm.lotes) {
             contasExpandidas.push({
@@ -1408,24 +1410,33 @@ export const contasConvenioRouter = router({
         }
       }
 
-      // Detectar outliers de valor total por convênio
-      const conveniosNaPagina = [...new Set(contas.map(c => c.convenio).filter(Boolean))];
+      // Detectar outliers de valor total por convênio e hospital de origem.
+      // A conta já foi limitada a hospitaisAutorizados acima; ainda assim, a
+      // estatística recebe o estabelecimento persistido da própria conta, nunca
+      // um filtro informado pelo cliente ou uma agregação global.
+      const conveniosNaPagina = [...new Map(
+        contas
+          .filter((conta) => Boolean(conta.convenio))
+          .map((conta) => [`${conta.estabelecimentoId}|${conta.convenio}`, conta]),
+      ).values()];
       const statsConvenio = new Map<string, { media: number; desvio: number }>();
       
       if (conveniosNaPagina.length > 0) {
-        for (const conv of conveniosNaPagina) {
-          if (!conv) continue;
+        for (const conta of conveniosNaPagina) {
+          if (!conta.convenio) continue;
+          const cacheKey = `${conta.estabelecimentoId}|${conta.convenio}`;
           const statsResult = await db.execute(
             sql`SELECT 
                   AVG(CAST(valorTotal AS DECIMAL(14,2))) as media,
                   STDDEV(CAST(valorTotal AS DECIMAL(14,2))) as desvio
                 FROM contas_convenio_resumo
-                WHERE convenio = ${conv}
+                WHERE convenio = ${conta.convenio}
+                  AND estabelecimentoId = ${conta.estabelecimentoId}
                   AND valorTotal IS NOT NULL AND CAST(valorTotal AS DECIMAL(14,2)) > 0`
           );
           const row = (statsResult as any)[0]?.[0];
           if (row && row.media) {
-            statsConvenio.set(conv, {
+            statsConvenio.set(cacheKey, {
               media: parseFloat(row.media),
               desvio: parseFloat(row.desvio || "0"),
             });
@@ -1435,7 +1446,9 @@ export const contasConvenioRouter = router({
 
       const contasComFlag = contasExpandidas.map(conta => {
         const valorConta = parseFloat(conta.valorTotal || "0");
-        const stats = conta.convenio ? statsConvenio.get(conta.convenio) : undefined;
+        const stats = conta.convenio
+          ? statsConvenio.get(`${conta.estabelecimentoId}|${conta.convenio}`)
+          : undefined;
         let isOutlier = false;
         let outlierTipo: "acima" | "abaixo" | null = null;
         let outlierPercent = 0;
@@ -1481,16 +1494,15 @@ export const contasConvenioRouter = router({
       numeroLote: z.string().optional(),
       competencia: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const conditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
       ];
-      if (input.estabelecimentoId && input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
-      }
+      conditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
 
       if (input.tipoItem) {
         conditions.push(eq(contasConvenioItens.tipoItem, input.tipoItem));
@@ -1512,9 +1524,7 @@ export const contasConvenioRouter = router({
       const resumoConditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
       ];
-      if (input.estabelecimentoId && input.estabelecimentoId !== 2160001) {
-        resumoConditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
-      }
+      resumoConditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
       if (input.numeroLote) {
         resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
@@ -1560,7 +1570,8 @@ export const contasConvenioRouter = router({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "excluir");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -1592,6 +1603,7 @@ export const contasConvenioRouter = router({
       estabelecimentoId: z.number(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -1739,14 +1751,12 @@ export const contasConvenioRouter = router({
     .input(z.object({
       estabelecimentoId: z.number().optional(),
     }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input?.estabelecimentoId && input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input?.estabelecimentoId ?? null, "visualizar");
+      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados)];
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -1810,14 +1820,12 @@ export const contasConvenioRouter = router({
     .input(z.object({
       estabelecimentoId: z.number().optional(),
     }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input?.estabelecimentoId && input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input?.estabelecimentoId ?? null, "visualizar");
+      const conditions: any[] = [inArray(contasConvenioResumo.estabelecimentoId, hospitaisAutorizados)];
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -1843,9 +1851,17 @@ export const contasConvenioRouter = router({
       itemId: z.number(),
       statusAnalise: z.enum(["pendente", "conforme", "divergente", "revisado"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+
+      const [item] = await db
+        .select({ estabelecimentoId: contasConvenioItens.estabelecimentoId })
+        .from(contasConvenioItens)
+        .where(eq(contasConvenioItens.id, input.itemId))
+        .limit(1);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+      await exigirHospitalProprietario(ctx.user, item.estabelecimentoId, "editar");
 
       await db.update(contasConvenioItens)
         .set({ statusAnalise: input.statusAnalise })
@@ -1871,6 +1887,7 @@ export const contasConvenioRouter = router({
       }).strict().optional(),
     }).strict())
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const { executarComparacaoESalvar } = await import("../services/comparadorPadroes");
       if (!input.contextoMedicoScope) {
         try {
@@ -1919,9 +1936,9 @@ export const contasConvenioRouter = router({
             }
           }
         } catch (err) {
+          if (err instanceof TRPCError && err.code === "FORBIDDEN") throw err;
           logger.warn({
             message: "Não foi possível resolver contexto médico automático em compararComPadroes",
-            numeroConta: input.numeroConta,
             error: err instanceof Error ? err.message : String(err),
           });
         }
@@ -1935,7 +1952,7 @@ export const contasConvenioRouter = router({
       if (scope.estabelecimentoId !== input.estabelecimentoId || scope.numeroConta !== input.numeroConta) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O escopo médico não corresponde à conta selecionada." });
       }
-      await exigirAcessoEstabelecimento(ctx.user.id, scope.estabelecimentoId, "visualizar");
+      await exigirHospitalProprietario(ctx.user, scope.estabelecimentoId, "editar");
       await exigirConvenioDoEstabelecimento(ctx.user.id, scope.convenioId, scope.estabelecimentoId, "visualizar");
       // A consulta não lê XML nem devolve valores: somente fontes já indexadas e composição sanitizada.
       const contextoMedico = await criarServicoContaContextoMedicoParaUsuario(ctx.user.id).consultar({ scope });
@@ -1950,7 +1967,8 @@ export const contasConvenioRouter = router({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -2063,8 +2081,50 @@ export const contasConvenioRouter = router({
       valorSugerido: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+
+      // A decisão só pode referenciar um padrão do hospital que originou a
+      // conta. O padrão central é reutilizável, mas feedbacks de hospitais sem
+      // gestão central ficam estritamente informativos e não mudam seu status.
+      const [padrao] = input.padraoId ? await db
+        .select({
+          estabelecimentoId: padroesCobranca.estabelecimentoId,
+          status: padroesCobranca.status,
+          isGabarito: padroesCobranca.isGabarito,
+        })
+        .from(padroesCobranca)
+        .where(eq(padroesCobranca.id, input.padraoId)) : [undefined];
+
+      let podeAlterarStatusPadrao = false;
+      let estabelecimentoPadraoId: number | undefined;
+      if (input.padraoId) {
+        if (!padrao) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+        }
+
+        if (
+          typeof padrao.estabelecimentoId !== "number"
+          || !Number.isSafeInteger(padrao.estabelecimentoId)
+          || padrao.estabelecimentoId <= 0
+        ) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Padrão sem hospital proprietário válido." });
+        }
+        estabelecimentoPadraoId = padrao.estabelecimentoId;
+
+        const padraoCentral = estabelecimentoPadraoId === ESTABELECIMENTO_CENTRAL_SAFATLE;
+        if (!padraoCentral && estabelecimentoPadraoId !== input.estabelecimentoId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O padrão não pertence ao hospital de origem do feedback.",
+          });
+        }
+
+        podeAlterarStatusPadrao = padraoCentral
+          ? await verificarPermissaoEstabelecimento(ctx.user.id, ESTABELECIMENTO_CENTRAL_SAFATLE, "gerenciar")
+          : true;
+      }
 
       // 1. Registrar o feedback
       // Mapear "ajustar" para "aceitar" no banco (schema só aceita aceitar/rejeitar/ignorar)
@@ -2085,36 +2145,36 @@ export const contasConvenioRouter = router({
 
       // 2. Se a ação é "rejeitar" uma divergência, significa que o padrão está incorreto
       // Incrementar um contador de rejeições no padrão para futuro refinamento
-      if (input.padraoId && input.acao === "rejeitar") {
-        // Buscar o padrão
-        const [padrao] = await db
-          .select()
-          .from(padroesCobranca)
-          .where(eq(padroesCobranca.id, input.padraoId));
+      if (input.padraoId && input.acao === "rejeitar" && padrao && estabelecimentoPadraoId !== undefined && podeAlterarStatusPadrao) {
+        // O contador é limitado ao hospital fonte da conta. Para um padrão
+        // hospitalar ele coincide com seu proprietário; para um padrão central
+        // autorizado, evita que feedbacks de hospitais distintos se agreguem.
+        const countResults = await db
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(feedbackDivergencias)
+          .where(and(
+            eq(feedbackDivergencias.padraoId, input.padraoId),
+            eq(feedbackDivergencias.estabelecimentoId, input.estabelecimentoId),
+            eq(feedbackDivergencias.decisao, "rejeitar")
+          ));
+        const totalRejeicoes = Number(countResults[0]?.total || 0);
 
-        if (padrao) {
-          // Contar quantas rejeições esse padrão tem
-          const countResults = await db
-            .select({ total: sql<number>`COUNT(*)` })
-            .from(feedbackDivergencias)
+        // Se muitas rejeições (>5), sugerir revisão do padrão. A atualização
+        // fixa tanto o ID quanto o proprietário lido do banco para não permitir
+        // troca de escopo entre a leitura e a escrita.
+        if (totalRejeicoes >= 5 && padrao.status === "ativo" && padrao.isGabarito !== 1) {
+          await db.update(padroesCobranca)
+            .set({ status: "revisao" })
             .where(and(
-              eq(feedbackDivergencias.padraoId, input.padraoId),
-              eq(feedbackDivergencias.decisao, "rejeitar")
+              eq(padroesCobranca.id, input.padraoId),
+              eq(padroesCobranca.estabelecimentoId, estabelecimentoPadraoId),
             ));
-          const totalRejeicoes = Number(countResults[0]?.total || 0);
 
-          // Se muitas rejeições (>5), sugerir revisão do padrão
-          if (totalRejeicoes >= 5 && padrao.status === "ativo" && padrao.isGabarito !== 1) {
-            await db.update(padroesCobranca)
-              .set({ status: "revisao" })
-              .where(eq(padroesCobranca.id, input.padraoId));
-
-            logger.info({
-              message: "Padrão movido para revisão por excesso de rejeições",
-              padraoId: input.padraoId,
-              totalRejeicoes,
-            });
-          }
+          logger.info({
+            message: "Padrão movido para revisão por excesso de rejeições",
+            padraoId: input.padraoId,
+            totalRejeicoes,
+          });
         }
       }
 
@@ -2147,7 +2207,8 @@ export const contasConvenioRouter = router({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -2168,7 +2229,8 @@ export const contasConvenioRouter = router({
     .input(z.object({
       estabelecimentoId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -2195,6 +2257,7 @@ export const contasConvenioRouter = router({
       estabelecimentoId: z.number(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco de dados indisponível" });
 
@@ -2454,7 +2517,8 @@ export const contasConvenioRouter = router({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database não disponível" });
 
@@ -2480,7 +2544,8 @@ export const contasConvenioRouter = router({
       estabelecimentoId: z.number(),
       forceRemote: z.boolean().default(false),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database indisponível" });
 

@@ -1,7 +1,8 @@
 import { getDb } from "../db";
 import { contasConvenioItens, contasConvenioResumo, padraoPrecoConvenio, padraoGlosaConvenio, padraoQuantidadeItem, padroesCobranca, logAnaliseComparacao, convenios } from "../../drizzle/schema";
-import { eq, and, sql, or, inArray } from "drizzle-orm";
+import { eq, and, sql, or, inArray, isNull } from "drizzle-orm";
 import { logger } from "../_core/logger";
+import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
 import type { ContaContextoMedicoResultado } from "../../shared/contaContextoMedico";
 import {
   avaliarContextoMedicoInformativo,
@@ -87,6 +88,26 @@ export interface EscopoContextoMedicoParaComparacao {
   competencia?: string;
 }
 
+function filtrosItensSnapshot(scope: EscopoContextoMedicoParaComparacao) {
+  return [
+    eq(contasConvenioItens.origem, "XML"),
+    eq(contasConvenioItens.arquivoId, scope.arquivoHospitalId),
+    eq(contasConvenioItens.convenioId, scope.convenioId),
+    scope.numeroLote == null ? isNull(contasConvenioItens.numeroLote) : eq(contasConvenioItens.numeroLote, scope.numeroLote),
+    scope.competencia == null ? isNull(contasConvenioItens.competencia) : eq(contasConvenioItens.competencia, scope.competencia),
+  ];
+}
+
+function filtrosResumoSnapshot(scope: EscopoContextoMedicoParaComparacao) {
+  return [
+    eq(contasConvenioResumo.origem, "XML"),
+    eq(contasConvenioResumo.arquivoHospitalId, scope.arquivoHospitalId),
+    eq(contasConvenioResumo.convenioId, scope.convenioId),
+    scope.numeroLote == null ? isNull(contasConvenioResumo.numeroLote) : eq(contasConvenioResumo.numeroLote, scope.numeroLote),
+    scope.competencia == null ? isNull(contasConvenioResumo.competencia) : eq(contasConvenioResumo.competencia, scope.competencia),
+  ];
+}
+
 export interface ItemParaComparacao {
   codigoItem?: string | null;
   descricaoItem?: string | null;
@@ -145,28 +166,34 @@ export async function compararContaComPadroes(
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  // 1. Buscar itens da conta (se estabelecimentoId for SAFATLE 2160001, permite buscar a conta de qualquer hospital)
-  const conditions: any[] = [
-    eq(contasConvenioItens.numeroConta, numeroConta),
-  ];
-  if (estabelecimentoId && estabelecimentoId !== 2160001) {
-    conditions.push(eq(contasConvenioItens.estabelecimentoId, estabelecimentoId));
+  if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
+    throw new Error("A comparação exige o hospital de origem concreto da conta.");
   }
+  if (opcoes?.escopoContextoMedico && (
+    opcoes.escopoContextoMedico.estabelecimentoId !== estabelecimentoId ||
+    opcoes.escopoContextoMedico.numeroConta !== numeroConta
+  )) {
+    throw new Error("O contexto médico deve pertencer ao mesmo hospital e conta.");
+  }
+
+  // A conta sempre é lida no hospital de origem. Nunca use o identificador
+  // central para procurar uma guia que possa existir em mais de um hospital.
+  const conditions = [
+    eq(contasConvenioItens.numeroConta, numeroConta),
+    eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
+  ];
   if (opcoes?.escopoContextoMedico) {
     // Nunca usa fontes médicas para outra versão do XML hospitalar.
-    conditions.push(eq(contasConvenioItens.arquivoId, opcoes.escopoContextoMedico.arquivoHospitalId));
-    conditions.push(eq(contasConvenioItens.convenioId, opcoes.escopoContextoMedico.convenioId));
+    conditions.push(...filtrosItensSnapshot(opcoes.escopoContextoMedico));
   }
   const itens = await db
     .select()
     .from(contasConvenioItens)
     .where(and(...conditions));
 
-  const hospitalEstabReal = itens[0]?.estabelecimentoId || estabelecimentoId;
-
   return compararItensComPadroes({
     numeroConta,
-    estabelecimentoId: hospitalEstabReal,
+    estabelecimentoId,
     convenio: itens[0]?.convenio ?? null,
     itens: itens as unknown as ItemParaComparacao[],
     contextoMedico: opcoes?.contextoMedico,
@@ -193,6 +220,9 @@ export async function compararItensComPadroes({
 }): Promise<ResultadoComparacao> {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
+  if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
+    throw new Error("A comparação exige o hospital de origem concreto da conta.");
+  }
   const contextoMedicoComparacao = avaliarContextoMedicoInformativo(contextoMedico);
 
   if (itens.length === 0) {
@@ -243,15 +273,16 @@ export async function compararItensComPadroes({
   }
 
   const divergencias: Divergencia[] = [];
-  const isSafatleGlobal = estabelecimentoId === 2160001;
-  const estabIdsPadrao = Array.from(new Set([estabelecimentoId, 2160001]));
+  // A central fornece somente templates. Dados aprendidos de outro hospital
+  // nunca são elegíveis para a comparação desta conta.
+  const estabIdsPadrao = [estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE];
 
   // 3. Buscar padrões de preço para este convênio (com suporte a setor e unificação Safatle)
   const padroesPreco = await db
     .select()
     .from(padraoPrecoConvenio)
     .where(and(
-      isSafatleGlobal ? sql`1=1` : inArray(padraoPrecoConvenio.estabelecimentoId, estabIdsPadrao),
+      inArray(padraoPrecoConvenio.estabelecimentoId, estabIdsPadrao),
       eq(padraoPrecoConvenio.convenio, convenioNormalizado),
     ));
 
@@ -267,7 +298,7 @@ export async function compararItensComPadroes({
   const padroesQtd = await db
     .select()
     .from(padraoQuantidadeItem)
-    .where(isSafatleGlobal ? sql`1=1` : inArray(padraoQuantidadeItem.estabelecimentoId, estabIdsPadrao));
+    .where(inArray(padraoQuantidadeItem.estabelecimentoId, estabIdsPadrao));
 
   const padroesQtdFiltrados = padroesQtd.filter(p => 
     p.convenio === convenioNormalizado || !p.convenio
@@ -286,7 +317,7 @@ export async function compararItensComPadroes({
     .select()
     .from(padraoGlosaConvenio)
     .where(and(
-      isSafatleGlobal ? sql`1=1` : inArray(padraoGlosaConvenio.estabelecimentoId, estabIdsPadrao),
+      inArray(padraoGlosaConvenio.estabelecimentoId, estabIdsPadrao),
       eq(padraoGlosaConvenio.convenio, convenioNormalizado),
     ));
 
@@ -297,7 +328,7 @@ export async function compararItensComPadroes({
     .select()
     .from(padroesCobranca)
     .where(and(
-      isSafatleGlobal ? sql`1=1` : inArray(padroesCobranca.estabelecimentoId, estabIdsPadrao),
+      inArray(padroesCobranca.estabelecimentoId, estabIdsPadrao),
       eq(padroesCobranca.status, "ativo"),
     ));
 
@@ -989,14 +1020,8 @@ export async function executarComparacaoESalvar(
     eq(contasConvenioResumo.estabelecimentoId, estabelecimentoId),
   ];
   if (opcoes?.escopoContextoMedico) {
-    itemScopeConditions.push(eq(contasConvenioItens.arquivoId, opcoes.escopoContextoMedico.arquivoHospitalId));
-    itemScopeConditions.push(eq(contasConvenioItens.convenioId, opcoes.escopoContextoMedico.convenioId));
-    resumoScopeConditions.push(
-      or(
-        eq(contasConvenioResumo.arquivoHospitalId, opcoes.escopoContextoMedico.arquivoHospitalId),
-        sql`${contasConvenioResumo.arquivoHospitalId} IS NULL`,
-      )!,
-    );
+    itemScopeConditions.push(...filtrosItensSnapshot(opcoes.escopoContextoMedico));
+    resumoScopeConditions.push(...filtrosResumoSnapshot(opcoes.escopoContextoMedico));
   }
 
   // Separar divergências: as que têm item correspondente na conta vs as órfãs (ITEM_FALTANTE)
@@ -1044,7 +1069,7 @@ export async function executarComparacaoESalvar(
         statusAnalise: status,
         divergencias: divs || null,
       })
-      .where(eq(contasConvenioItens.id, item.id));
+      .where(and(eq(contasConvenioItens.id, item.id), ...itemScopeConditions));
   }
 
   const statusResumo =

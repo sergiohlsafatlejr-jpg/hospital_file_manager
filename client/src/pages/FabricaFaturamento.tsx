@@ -1425,11 +1425,11 @@ export default function FabricaFaturamento() {
                                         variant="outline"
                                         onClick={() =>
                                           setLocation(
-                                            `/conta-convenio-detalhes?conta=${encodeURIComponent(
+                                            `/conta-convenio-detalhes?numeroConta=${encodeURIComponent(
                                               conta.numeroGuia
-                                            )}&origem=XML&estabelecimentoId=${
+                                            )}&origem=XML&sourceHospitalId=${
                                               conta.hospitalEstabelecimentoId
-                                            }`
+                                            }&estabelecimentoId=${conta.hospitalEstabelecimentoId}`
                                           )
                                         }
                                         className="h-8 gap-1 text-xs"
@@ -1544,11 +1544,11 @@ export default function FabricaFaturamento() {
                                         variant="outline"
                                         onClick={() =>
                                           setLocation(
-                                            `/conta-convenio-detalhes?conta=${encodeURIComponent(
+                                            `/conta-convenio-detalhes?numeroConta=${encodeURIComponent(
                                               conta.numeroGuia
-                                            )}&origem=XML&estabelecimentoId=${
+                                            )}&origem=XML&sourceHospitalId=${
                                               conta.hospitalEstabelecimentoId
-                                            }`
+                                            }&estabelecimentoId=${conta.hospitalEstabelecimentoId}`
                                           )
                                         }
                                         className="h-8 gap-1 text-xs"

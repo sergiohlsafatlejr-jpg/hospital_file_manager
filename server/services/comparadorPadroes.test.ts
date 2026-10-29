@@ -105,6 +105,8 @@ describe("compararItensComPadroes", () => {
 
     const resultado = await executarComparacaoESalvar("76696626", 1, {
       escopoContextoMedico: {
+        estabelecimentoId: 1,
+        numeroConta: "76696626",
         arquivoHospitalId: 50,
         convenioId: 10,
       },
@@ -209,8 +211,9 @@ describe("compararItensComPadroes", () => {
     );
 
     expect(contaConvenioSource).toContain("contextoMedicoScope: {");
-    expect(contaConvenioSource).toContain("estabelecimentoId: estabelecimentoAtual.id,");
-    expect(contaConvenioSource).toContain("numeroConta: conta.numeroConta,");
+    expect(contaConvenioSource).toContain("const estabelecimentoId = obterHospitalOrigemConta(conta);");
+    expect(contaConvenioSource).toMatch(/contextoMedicoScope:\s*\{\s*estabelecimentoId,\s*numeroConta,/);
+    expect(contaConvenioSource).toContain("montarPayloadComparacaoConta(conta)");
     expect(routerSource).toContain("estabelecimentoId: input.contextoMedicoScope.estabelecimentoId ?? input.estabelecimentoId");
     expect(routerSource).toContain("numeroConta: input.contextoMedicoScope.numeroConta ?? input.numeroConta");
   });

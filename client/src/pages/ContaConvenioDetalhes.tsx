@@ -285,7 +285,9 @@ function ContaConvenioDetalhesPadrao() {
   const params = new URLSearchParams(searchString);
   
   const numeroConta = params.get("numeroConta") || "";
+  const sourceHospitalId = parseInt(params.get("sourceHospitalId") || "0");
   const estabelecimentoId =
+    sourceHospitalId ||
     parseInt(params.get("estabelecimentoId") || "0") ||
     estabelecimentoAtual?.id ||
     0;
@@ -1239,9 +1241,9 @@ function ContaConvenioDetalhesPadrao() {
                       Faturista: <strong>{contaFabrica.faturistaNome}</strong>
                     </span>
                   )}
-                  {(contaFabrica.qtdRetornosErro || 0) > 0 && (
+                  {(contaFabrica.qtdRetrabalhos || 0) > 0 && (
                     <Badge variant="destructive" className="text-xs">
-                      {contaFabrica.qtdRetornosErro}x Retorno(s) p/ Faturamento
+                      {contaFabrica.qtdRetrabalhos}x Retorno(s) p/ Faturamento
                     </Badge>
                   )}
                 </div>
@@ -1268,10 +1270,13 @@ function ContaConvenioDetalhesPadrao() {
                       transicionarFabricaMutation.mutate({
                         contaIds: [contaFabrica.id],
                         setorDestino: "faturamento",
-                        motivoRetornoErro: true,
-                        categoriaErro: "erro_lancamento",
-                        severidadeErro: "moderada",
-                        descricaoErro: descricaoErro.trim(),
+                        statusDestino: "devolvido_erro",
+                        registrarErro: {
+                          tipoErro: "outro",
+                          codigoItem: null,
+                          descricaoErro: descricaoErro.trim(),
+                          impactoFinanceiro: 0,
+                        },
                         observacao: `Devolvido via Conta Convênio: ${descricaoErro.trim()}`,
                       });
                     }}

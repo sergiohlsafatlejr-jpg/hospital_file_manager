@@ -9,12 +9,40 @@ import {
   padroesCobranca,
   feedbackDivergencias,
 } from "../../drizzle/schema";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
+import {
+  exigirHospitalProprietario,
+  resolverHospitaisAutorizados,
+} from "../hospitalScope";
+
+function exigirProprietarioDoPadrao<T extends { estabelecimentoId: number | null }>(padrao: T): T & { estabelecimentoId: number } {
+  if (!Number.isSafeInteger(padrao.estabelecimentoId) || (padrao.estabelecimentoId ?? 0) <= 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Padrão sem hospital proprietário válido; regularize o cadastro antes da operação." });
+  }
+  return padrao as T & { estabelecimentoId: number };
+}
+
+function filtroHospitaisSql(hospitalIds: readonly number[]) {
+  return sql`estabelecimentoId IN (${sql.join(hospitalIds.map((id) => sql`${id}`), sql`, `)})`;
+}
+
+function criarFiltroFaturamento(
+  hospitalIds: readonly number[],
+  filtros: { convenio?: string; setor?: string; competenciaInicio?: string; competenciaFim?: string },
+  condicoesBase: any[],
+) {
+  const condicoes: any[] = [filtroHospitaisSql(hospitalIds), ...condicoesBase];
+  if (filtros.convenio) condicoes.push(sql`convenio = ${filtros.convenio}`);
+  if (filtros.setor) condicoes.push(sql`setor = ${filtros.setor}`);
+  if (filtros.competenciaInicio) condicoes.push(sql`competencia >= ${filtros.competenciaInicio}`);
+  if (filtros.competenciaFim) condicoes.push(sql`competencia <= ${filtros.competenciaFim}`);
+  return sql`WHERE ${sql.join(condicoes, sql` AND `)}`;
+}
 
 /**
  * Router para Padrões de Cobrança por Convênio
- * 4 tipos de análise baseados na tabela faturamento_unificado (SQL raw)
+ * 4 tipos de análise baseados na tabela faturamento_unificado
  */
 export const padroesCobrancaRouter = router({
   /**
@@ -22,10 +50,11 @@ export const padroesCobrancaRouter = router({
    */
   listarConvenios: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
-      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const filtroEstab = filtroHospitaisSql(hospitaisAutorizados);
 
       const result = await db.execute(sql`
         SELECT 
@@ -48,10 +77,11 @@ export const padroesCobrancaRouter = router({
    */
   listarCompetencias: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
-      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const filtroEstab = filtroHospitaisSql(hospitaisAutorizados);
 
       const result = await db.execute(sql`
         SELECT competencia, COUNT(*) as total
@@ -69,10 +99,11 @@ export const padroesCobrancaRouter = router({
    */
   listarSetores: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
-      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const filtroEstab = filtroHospitaisSql(hospitaisAutorizados);
 
       const result = await db.execute(sql`
         SELECT setor, COUNT(*) as total
@@ -88,10 +119,11 @@ export const padroesCobrancaRouter = router({
 
   listarProfissionais: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
-      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const filtroEstab = filtroHospitaisSql(hospitaisAutorizados);
 
       const result = await db.execute(sql`
         SELECT profissionalExecutante as profissional, COUNT(*) as total
@@ -120,35 +152,24 @@ export const padroesCobrancaRouter = router({
         agruparPorSetor: z.boolean().default(true),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      let whereClause = `WHERE estabelecimentoId = ${input.estabelecimentoId}
-        AND codigoItem IS NOT NULL AND codigoItem != ''
-        AND convenio IS NOT NULL AND convenio != ''
-        AND tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`;
-
-      if (input.convenio) {
-        whereClause += ` AND convenio = ${escapeSql(input.convenio)}`;
-      }
-      if (input.setor) {
-        whereClause += ` AND setor = ${escapeSql(input.setor)}`;
-      }
-      if (input.competenciaInicio) {
-        whereClause += ` AND competencia >= ${escapeSql(input.competenciaInicio)}`;
-      }
-      if (input.competenciaFim) {
-        whereClause += ` AND competencia <= ${escapeSql(input.competenciaFim)}`;
-      }
-
-      const setorSelect = input.agruparPorSetor ? `COALESCE(setor, 'TODOS') as setor,` : ``;
-      const setorGroup = input.agruparPorSetor ? `COALESCE(setor, 'TODOS'),` : ``;
-
-      const statsResult = await db.execute(sql.raw(`
-        SELECT 
+      const whereClause = criarFiltroFaturamento(
+        [input.estabelecimentoId],
+        input,
+        [
+          sql`codigoItem IS NOT NULL AND codigoItem != ''`,
+          sql`convenio IS NOT NULL AND convenio != ''`,
+          sql`tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`,
+        ],
+      );
+      const statsResult = await db.execute(input.agruparPorSetor ? sql`
+        SELECT
           convenio,
-          ${setorSelect}
+          COALESCE(setor, 'TODOS') as setor,
           codigoItem,
           MAX(descricaoItem) as descricaoItem,
           MAX(tipoItem) as tipoItem,
@@ -166,9 +187,31 @@ export const padroesCobrancaRouter = router({
           MAX(competencia) as competenciaFim
         FROM faturamento_unificado
         ${whereClause}
-        GROUP BY convenio, ${setorGroup} codigoItem
+        GROUP BY convenio, COALESCE(setor, 'TODOS'), codigoItem
         HAVING COUNT(*) >= 3
-      `));
+      ` : sql`
+        SELECT
+          convenio,
+          codigoItem,
+          MAX(descricaoItem) as descricaoItem,
+          MAX(tipoItem) as tipoItem,
+          ROUND(AVG(CAST(valorUnitario AS DECIMAL(12,4))), 4) as mediaUnitario,
+          ROUND(MIN(CAST(valorUnitario AS DECIMAL(12,4))), 4) as minUnitario,
+          ROUND(MAX(CAST(valorUnitario AS DECIMAL(12,4))), 4) as maxUnitario,
+          ROUND(STDDEV(CAST(valorUnitario AS DECIMAL(12,4))), 4) as desvioUnitario,
+          ROUND(AVG(CAST(valorFaturado AS DECIMAL(12,4))), 4) as mediaFaturado,
+          ROUND(MIN(CAST(valorFaturado AS DECIMAL(12,4))), 4) as minFaturado,
+          ROUND(MAX(CAST(valorFaturado AS DECIMAL(12,4))), 4) as maxFaturado,
+          ROUND(STDDEV(CAST(valorFaturado AS DECIMAL(12,4))), 4) as desvioFaturado,
+          COUNT(*) as totalOcorrencias,
+          COUNT(DISTINCT contaNumero) as totalContas,
+          MIN(competencia) as competenciaInicio,
+          MAX(competencia) as competenciaFim
+        FROM faturamento_unificado
+        ${whereClause}
+        GROUP BY convenio, codigoItem
+        HAVING COUNT(*) >= 3
+      `);
 
       const stats = (statsResult as any)[0] || [];
       if (stats.length === 0) {
@@ -228,14 +271,12 @@ export const padroesCobrancaRouter = router({
         limit: z.number().default(50),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const conditions: any[] = [inArray(padraoPrecoConvenio.estabelecimentoId, hospitaisAutorizados)];
       if (input.convenio) conditions.push(eq(padraoPrecoConvenio.convenio, input.convenio));
       if (input.setor) conditions.push(eq(padraoPrecoConvenio.setor, input.setor));
       if (input.tipoItem) conditions.push(eq(padraoPrecoConvenio.tipoItem, input.tipoItem));
@@ -279,16 +320,17 @@ export const padroesCobrancaRouter = router({
         codigoItem: z.string(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const result = await db
         .select()
         .from(padraoPrecoConvenio)
         .where(
           and(
-            eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId),
+            inArray(padraoPrecoConvenio.estabelecimentoId, hospitaisAutorizados),
             eq(padraoPrecoConvenio.codigoItem, input.codigoItem)
           )
         )
@@ -313,35 +355,28 @@ export const padroesCobrancaRouter = router({
         agruparPorProfissional: z.boolean().default(false), // Agrupar padrões por profissional executante
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      let whereClause = `WHERE estabelecimentoId = ${input.estabelecimentoId}
-        AND codigoItem IS NOT NULL AND codigoItem != ''
-        AND contaNumero IS NOT NULL AND contaNumero != ''`;
+      const whereClause = criarFiltroFaturamento(
+        [input.estabelecimentoId],
+        input,
+        [
+          sql`codigoItem IS NOT NULL AND codigoItem != ''`,
+          sql`contaNumero IS NOT NULL AND contaNumero != ''`,
+        ],
+      );
 
-      if (input.convenio) {
-        whereClause += ` AND convenio = ${escapeSql(input.convenio)}`;
-      }
-      if (input.setor) {
-        whereClause += ` AND setor = ${escapeSql(input.setor)}`;
-      }
-      if (input.competenciaInicio) {
-        whereClause += ` AND competencia >= ${escapeSql(input.competenciaInicio)}`;
-      }
-      if (input.competenciaFim) {
-        whereClause += ` AND competencia <= ${escapeSql(input.competenciaFim)}`;
-      }
-
-      // Buscar todos os itens agrupados por conta E setor (se agruparPorSetor) E profissional (se agruparPorProfissional)
-      const setorSelect = input.agruparPorSetor ? `COALESCE(setor, 'GERAL') as setor,` : `'GERAL' as setor,`;
-      const setorGroupBy = input.agruparPorSetor ? `, COALESCE(setor, 'GERAL')` : ``;
-      const profSelect = input.agruparPorProfissional ? `MAX(profissionalExecutante) as profissionalExecutante,` : `NULL as profissionalExecutante,`;
-      const itensResult = await db.execute(sql.raw(`
-        SELECT contaNumero, codigoItem, 
-          ${setorSelect}
-          ${profSelect}
+      // Buscar todos os itens agrupados por conta e, opcionalmente, setor e profissional.
+      const setorSelect = input.agruparPorSetor ? sql`COALESCE(setor, 'GERAL') as setor` : sql`'GERAL' as setor`;
+      const setorGroupBy = input.agruparPorSetor ? sql`, COALESCE(setor, 'GERAL')` : sql``;
+      const profSelect = input.agruparPorProfissional ? sql`MAX(profissionalExecutante) as profissionalExecutante` : sql`NULL as profissionalExecutante`;
+      const itensResult = await db.execute(sql`
+        SELECT contaNumero, codigoItem,
+          ${setorSelect},
+          ${profSelect},
           SUBSTRING(MAX(descricaoItem), 1, 500) as descricaoItem,
           MAX(tipoItem) as tipoItem,
           SUM(CAST(quantidade AS DECIMAL(10,4))) as quantidade,
@@ -350,7 +385,7 @@ export const padroesCobrancaRouter = router({
         FROM faturamento_unificado
         ${whereClause}
         GROUP BY contaNumero, codigoItem${setorGroupBy}
-      `));
+      `);
 
       const itens = (itensResult as any)[0] || [];
       if (itens.length === 0) {
@@ -368,13 +403,13 @@ export const padroesCobrancaRouter = router({
       // Se agruparPorProfissional, buscar profissional por conta
       const profissionalPorConta = new Map<string, string>();
       if (input.agruparPorProfissional) {
-        const profResult = await db.execute(sql.raw(`
+        const profResult = await db.execute(sql`
           SELECT DISTINCT contaNumero, profissionalExecutante
           FROM faturamento_unificado
           ${whereClause}
             AND profissionalExecutante IS NOT NULL AND profissionalExecutante != ''
             AND tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC')
-        `));
+        `);
         const profRows = (profResult as any)[0] || [];
         for (const row of profRows) {
           if (row.contaNumero && row.profissionalExecutante) {
@@ -550,14 +585,12 @@ export const padroesCobrancaRouter = router({
         limit: z.number().default(50),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const conditions: any[] = [inArray(padroesCobranca.estabelecimentoId, hospitaisAutorizados)];
       if (input.status) conditions.push(eq(padroesCobranca.status, input.status));
       if (input.setor) conditions.push(eq(padroesCobranca.setor, input.setor));
       if (input.profissional) conditions.push(eq(padroesCobranca.profissionalExecutante, input.profissional));
@@ -603,28 +636,24 @@ export const padroesCobrancaRouter = router({
         competenciaFim: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      let whereClause = `WHERE estabelecimentoId = ${input.estabelecimentoId}
-        AND codigoItem IS NOT NULL AND codigoItem != ''
-        AND convenio IS NOT NULL AND convenio != ''
-        AND tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`;
-
-      if (input.convenio) {
-        whereClause += ` AND convenio = ${escapeSql(input.convenio)}`;
-      }
-      if (input.competenciaInicio) {
-        whereClause += ` AND competencia >= ${escapeSql(input.competenciaInicio)}`;
-      }
-      if (input.competenciaFim) {
-        whereClause += ` AND competencia <= ${escapeSql(input.competenciaFim)}`;
-      }
+      const whereClause = criarFiltroFaturamento(
+        [input.estabelecimentoId],
+        input,
+        [
+          sql`codigoItem IS NOT NULL AND codigoItem != ''`,
+          sql`convenio IS NOT NULL AND convenio != ''`,
+          sql`tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`,
+        ],
+      );
 
       // Estatísticas de glosa por convênio + item
-      const statsResult = await db.execute(sql.raw(`
-        SELECT 
+      const statsResult = await db.execute(sql`
+        SELECT
           convenio,
           codigoItem,
           SUBSTRING(MAX(descricaoItem), 1, 500) as descricaoItem,
@@ -640,7 +669,7 @@ export const padroesCobrancaRouter = router({
         ${whereClause}
         GROUP BY convenio, codigoItem
         HAVING COUNT(*) >= 3
-      `));
+      `);
 
       const stats = (statsResult as any)[0] || [];
       if (stats.length === 0) {
@@ -648,15 +677,15 @@ export const padroesCobrancaRouter = router({
       }
 
       // Buscar códigos de glosa frequentes
-      const glosaResult = await db.execute(sql.raw(`
-        SELECT convenio, codigoItem, codigoGlosa, 
+      const glosaResult = await db.execute(sql`
+        SELECT convenio, codigoItem, codigoGlosa,
           SUBSTRING(MAX(motivoGlosa), 1, 255) as motivoGlosa,
           COUNT(*) as freq
         FROM faturamento_unificado
         ${whereClause}
           AND codigoGlosa IS NOT NULL AND codigoGlosa != ''
         GROUP BY convenio, codigoItem, codigoGlosa
-      `));
+      `);
 
       const codigosGlosa = (glosaResult as any)[0] || [];
       const glosaMap = new Map<string, any[]>();
@@ -731,14 +760,12 @@ export const padroesCobrancaRouter = router({
         limit: z.number().default(50),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const conditions: any[] = [inArray(padraoGlosaConvenio.estabelecimentoId, hospitaisAutorizados)];
       if (input.convenio) conditions.push(eq(padraoGlosaConvenio.convenio, input.convenio));
       if (input.nivelRisco) conditions.push(eq(padraoGlosaConvenio.nivelRisco, input.nivelRisco));
       if (input.apenasComGlosa) conditions.push(sql`${padraoGlosaConvenio.totalGlosado} > 0`);
@@ -785,29 +812,22 @@ export const padroesCobrancaRouter = router({
         competenciaFim: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      let whereClause = `WHERE estabelecimentoId = ${input.estabelecimentoId}
-        AND codigoItem IS NOT NULL AND codigoItem != ''
-        AND tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`;
+      const whereClause = criarFiltroFaturamento(
+        [input.estabelecimentoId],
+        input,
+        [
+          sql`codigoItem IS NOT NULL AND codigoItem != ''`,
+          sql`tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC', 'PROC/TAXA')`,
+        ],
+      );
 
-      if (input.convenio) {
-        whereClause += ` AND convenio = ${escapeSql(input.convenio)}`;
-      }
-      if (input.setor) {
-        whereClause += ` AND setor = ${escapeSql(input.setor)}`;
-      }
-      if (input.competenciaInicio) {
-        whereClause += ` AND competencia >= ${escapeSql(input.competenciaInicio)}`;
-      }
-      if (input.competenciaFim) {
-        whereClause += ` AND competencia <= ${escapeSql(input.competenciaFim)}`;
-      }
-
-      const statsResult = await db.execute(sql.raw(`
-        SELECT 
+      const statsResult = await db.execute(sql`
+        SELECT
           COALESCE(convenio, 'TODOS') as convenio,
           COALESCE(setor, 'TODOS') as setor,
           codigoItem,
@@ -825,7 +845,7 @@ export const padroesCobrancaRouter = router({
         ${whereClause}
         GROUP BY COALESCE(convenio, 'TODOS'), COALESCE(setor, 'TODOS'), codigoItem
         HAVING COUNT(*) >= 3
-      `));
+      `);
 
       const stats = (statsResult as any)[0] || [];
       if (stats.length === 0) {
@@ -888,14 +908,12 @@ export const padroesCobrancaRouter = router({
         limit: z.number().default(50),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [];
-      if (input.estabelecimentoId !== 2160001) {
-        conditions.push(eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId));
-      }
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
+      const conditions: any[] = [inArray(padraoQuantidadeItem.estabelecimentoId, hospitaisAutorizados)];
       if (input.convenio) conditions.push(eq(padraoQuantidadeItem.convenio, input.convenio));
       if (input.setor) conditions.push(eq(padraoQuantidadeItem.setor, input.setor));
       if (input.tipoItem) conditions.push(eq(padraoQuantidadeItem.tipoItem, input.tipoItem));
@@ -934,41 +952,41 @@ export const padroesCobrancaRouter = router({
   // ============================================================
   resumo: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const isSafatle = input.estabelecimentoId === 2160001;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const [precoCount, composicaoCount, glosaCount, quantidadeCount] = await Promise.all([
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoPrecoConvenio)
-          .where(isSafatle ? sql`1=1` : eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId)),
+          .where(inArray(padraoPrecoConvenio.estabelecimentoId, hospitaisAutorizados)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padroesCobranca)
-          .where(isSafatle ? sql`1=1` : eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId)),
+          .where(inArray(padroesCobranca.estabelecimentoId, hospitaisAutorizados)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoGlosaConvenio)
-          .where(isSafatle ? sql`1=1` : eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId)),
+          .where(inArray(padraoGlosaConvenio.estabelecimentoId, hospitaisAutorizados)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoQuantidadeItem)
-          .where(isSafatle ? sql`1=1` : eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId)),
+          .where(inArray(padraoQuantidadeItem.estabelecimentoId, hospitaisAutorizados)),
       ]);
 
-      // Dados de faturamento disponíveis
-      const fatResult = await db.execute(sql.raw(`
-        SELECT 
+      // Dados de faturamento disponíveis no subconjunto finito autorizado.
+      const fatResult = await db.execute(sql`
+        SELECT
           COUNT(*) as totalItens,
           COUNT(DISTINCT contaNumero) as totalContas,
           COUNT(DISTINCT convenio) as totalConvenios,
           MIN(competencia) as competenciaMin,
           MAX(competencia) as competenciaMax
         FROM faturamento_unificado
-        ${isSafatle ? "" : `WHERE estabelecimentoId = ${input.estabelecimentoId}`}
-      `));
+        WHERE ${filtroHospitaisSql(hospitaisAutorizados)}
+      `);
 
       const fatStats = ((fatResult as any)[0] || [{}])[0];
 
@@ -998,22 +1016,26 @@ export const padroesCobrancaRouter = router({
    */
   getPadraoDetalhes: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const [padrao] = await db
         .select()
         .from(padroesCobranca)
-        .where(eq(padroesCobranca.id, input.id));
+        .where(eq(padroesCobranca.id, input.id)).then((rows) => rows.map(exigirProprietarioDoPadrao));
 
       if (!padrao) throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+      await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "visualizar");
 
-      // Buscar feedbacks anteriores deste padrão
+      // Buscar feedbacks anteriores deste padrão no mesmo hospital proprietário.
       const feedbacks = await db
         .select()
         .from(feedbackDivergencias)
-        .where(eq(feedbackDivergencias.padraoId, input.id))
+        .where(and(
+          eq(feedbackDivergencias.padraoId, input.id),
+          eq(feedbackDivergencias.estabelecimentoId, padrao.estabelecimentoId),
+        ))
         .orderBy(desc(feedbackDivergencias.createdAt))
         .limit(20);
 
@@ -1033,6 +1055,11 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const [padrao] = await db.select({ estabelecimentoId: padroesCobranca.estabelecimentoId })
+        .from(padroesCobranca).where(eq(padroesCobranca.id, input.id)).then((rows) => rows.map(exigirProprietarioDoPadrao));
+      if (!padrao) throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+      await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "editar");
+
       const novoStatus = input.acao === "aprovar" ? "ativo" as const
         : input.acao === "rejeitar" ? "inativo" as const
         : "revisao" as const;
@@ -1045,9 +1072,12 @@ export const padroesCobrancaRouter = router({
           observacoesValidacao: input.observacoes || null,
           confianca: input.acao === "aprovar" ? 100 : input.acao === "rejeitar" ? 0 : 50,
         })
-        .where(eq(padroesCobranca.id, input.id));
+        .where(and(
+          eq(padroesCobranca.id, input.id),
+          eq(padroesCobranca.estabelecimentoId, padrao.estabelecimentoId),
+        ));
 
-      logger.info({ message: `Padrão ${input.id} ${input.acao}`, userId: ctx.user.id });
+      logger.info({ message: "Padrão validado", userId: ctx.user.id });
       return { success: true, novoStatus };
     }),
 
@@ -1081,6 +1111,11 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const [padrao] = await db.select({ estabelecimentoId: padroesCobranca.estabelecimentoId })
+        .from(padroesCobranca).where(eq(padroesCobranca.id, input.id)).then((rows) => rows.map(exigirProprietarioDoPadrao));
+      if (!padrao) throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+      await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "editar");
+
       const updateData: any = {
         itensAssociados: input.itensAssociados,
         convenioId: input.convenioId !== undefined ? (input.convenioId || null) : undefined,
@@ -1103,9 +1138,12 @@ export const padroesCobrancaRouter = router({
 
       await db.update(padroesCobranca)
         .set(updateData)
-        .where(eq(padroesCobranca.id, input.id));
+        .where(and(
+          eq(padroesCobranca.id, input.id),
+          eq(padroesCobranca.estabelecimentoId, padrao.estabelecimentoId),
+        ));
 
-      logger.info({ message: `Padrão ${input.id} editado manualmente`, userId: ctx.user.id });
+      logger.info({ message: "Padrão editado manualmente", userId: ctx.user.id });
       return { success: true };
     }),
 
@@ -1140,6 +1178,7 @@ export const padroesCobrancaRouter = router({
       observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
@@ -1173,7 +1212,10 @@ export const padroesCobrancaRouter = router({
             status: "ativo",
             confianca: 100,
           })
-          .where(eq(padroesCobranca.id, existente[0].id));
+          .where(and(
+            eq(padroesCobranca.id, existente[0].id),
+            eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId),
+          ));
 
         return { success: true, id: existente[0].id, atualizado: true };
       }
@@ -1196,7 +1238,7 @@ export const padroesCobrancaRouter = router({
         observacoesValidacao: input.observacoes || null,
       });
 
-      logger.info({ message: `Gabarito manual criado para ${input.codigoProcedimentoPrincipal}`, userId: ctx.user.id });
+      logger.info({ message: "Gabarito manual criado", userId: ctx.user.id });
       return { success: true, id: result.insertId, atualizado: false };
     }),
 
@@ -1212,13 +1254,14 @@ export const padroesCobrancaRouter = router({
       page: z.number().default(1),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const conditions: any[] = [
-        eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId),
-        sql`isGabarito = 1`,
+        inArray(padroesCobranca.estabelecimentoId, hospitaisAutorizados),
+        eq(padroesCobranca.isGabarito, 1),
       ];
       if (input.setor) conditions.push(eq(padroesCobranca.setor, input.setor));
       if (input.profissional) conditions.push(eq(padroesCobranca.profissionalExecutante, input.profissional));
@@ -1258,15 +1301,21 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      // Verificar se é gabarito
-      const [padrao] = await db.select({ isGabarito: padroesCobranca.isGabarito })
-        .from(padroesCobranca).where(eq(padroesCobranca.id, input.id));
+      // Verificar se é gabarito e autorizar o hospital proprietário persistido.
+      const [padrao] = await db.select({
+        isGabarito: padroesCobranca.isGabarito,
+        estabelecimentoId: padroesCobranca.estabelecimentoId,
+      }).from(padroesCobranca).where(eq(padroesCobranca.id, input.id)).then((rows) => rows.map(exigirProprietarioDoPadrao));
       if (!padrao || padrao.isGabarito !== 1) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas gabaritos manuais podem ser excluídos" });
       }
+      await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "excluir");
 
-      await db.delete(padroesCobranca).where(eq(padroesCobranca.id, input.id));
-      logger.info({ message: `Gabarito ${input.id} excluído`, userId: ctx.user.id });
+      await db.delete(padroesCobranca).where(and(
+        eq(padroesCobranca.id, input.id),
+        eq(padroesCobranca.estabelecimentoId, padrao.estabelecimentoId),
+      ));
+      logger.info({ message: "Gabarito excluído", userId: ctx.user.id });
       return { success: true };
     }),
 
@@ -1285,21 +1334,23 @@ export const padroesCobrancaRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       // Buscar gabarito original
-      const [original] = await db.select().from(padroesCobranca).where(eq(padroesCobranca.id, input.id));
+      const [original] = await db.select().from(padroesCobranca).where(eq(padroesCobranca.id, input.id)).then((rows) => rows.map(exigirProprietarioDoPadrao));
       if (!original) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Gabarito original não encontrado" });
       }
-      // Permitir duplicar tanto gabaritos quanto composições
-      // A cópia sempre será criada como gabarito (isGabarito = 1)
+      // A cópia sempre será criada como gabarito (isGabarito = 1). A origem
+      // precisa ser visível e o mesmo hospital de destino precisa ser editável.
+      await exigirHospitalProprietario(ctx.user, original.estabelecimentoId, "visualizar");
+      await exigirHospitalProprietario(ctx.user, original.estabelecimentoId, "editar");
 
       const novoConvenioId = input.novoConvenioId !== undefined ? (input.novoConvenioId || null) : original.convenioId;
       const novoSetor = input.novoSetor !== undefined ? (input.novoSetor || null) : original.setor;
 
       // Verificar se já existe gabarito para este procedimento+convênio+setor
       const existenteConditions: any[] = [
-        sql`estabelecimentoId = ${original.estabelecimentoId}`,
-        sql`codigoProcedimentoPrincipal = ${original.codigoProcedimentoPrincipal}`,
-        sql`isGabarito = 1`,
+        eq(padroesCobranca.estabelecimentoId, original.estabelecimentoId),
+        eq(padroesCobranca.codigoProcedimentoPrincipal, original.codigoProcedimentoPrincipal),
+        eq(padroesCobranca.isGabarito, 1),
       ];
       if (novoConvenioId) {
         existenteConditions.push(eq(padroesCobranca.convenioId, novoConvenioId));
@@ -1339,7 +1390,7 @@ export const padroesCobrancaRouter = router({
         observacoesValidacao: input.observacoes || `Duplicado do gabarito #${original.id}`,
       });
 
-      logger.info({ message: `Padrão #${original.id} duplicado para novo gabarito #${result.insertId}`, userId: ctx.user.id });
+      logger.info({ message: "Gabarito duplicado", userId: ctx.user.id });
       return { success: true, id: result.insertId, originalId: original.id };
     }),
 
@@ -1359,10 +1410,19 @@ export const padroesCobrancaRouter = router({
 
       const resultados: { originalId: number; novoId: number; codigo: string }[] = [];
       const erros: { originalId: number; codigo: string; motivo: string }[] = [];
+      const originais = await db.select().from(padroesCobranca)
+        .where(inArray(padroesCobranca.id, [...new Set(input.ids)])).then((rows) => rows.map(exigirProprietarioDoPadrao));
+      const originaisPorId = new Map(originais.map((padrao) => [padrao.id, padrao]));
+
+      // Autorizar todas as origens e destinos antes da primeira mutação do lote.
+      for (const original of originais) {
+        await exigirHospitalProprietario(ctx.user, original.estabelecimentoId, "visualizar");
+        await exigirHospitalProprietario(ctx.user, original.estabelecimentoId, "editar");
+      }
 
       for (const id of input.ids) {
         try {
-          const [original] = await db.select().from(padroesCobranca).where(eq(padroesCobranca.id, id));
+          const original = originaisPorId.get(id);
           if (!original) {
             erros.push({ originalId: id, codigo: "?", motivo: "Padrão não encontrado" });
             continue;
@@ -1373,9 +1433,9 @@ export const padroesCobrancaRouter = router({
 
           // Verificar duplicata
           const existenteConditions: any[] = [
-            sql`estabelecimentoId = ${original.estabelecimentoId}`,
-            sql`codigoProcedimentoPrincipal = ${original.codigoProcedimentoPrincipal}`,
-            sql`isGabarito = 1`,
+            eq(padroesCobranca.estabelecimentoId, original.estabelecimentoId),
+            eq(padroesCobranca.codigoProcedimentoPrincipal, original.codigoProcedimentoPrincipal),
+            eq(padroesCobranca.isGabarito, 1),
           ];
           if (novoConvenioId) {
             existenteConditions.push(eq(padroesCobranca.convenioId, novoConvenioId));
@@ -1421,7 +1481,7 @@ export const padroesCobrancaRouter = router({
         }
       }
 
-      logger.info({ message: `Duplicação em lote: ${resultados.length} sucesso, ${erros.length} erros`, userId: ctx.user.id });
+      logger.info({ message: "Duplicação de gabaritos em lote concluída", userId: ctx.user.id });
       return {
         sucesso: resultados.length,
         erros: erros.length,
@@ -1450,8 +1510,21 @@ export const padroesCobrancaRouter = router({
       dadosDivergencia: z.any().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+
+      const [padrao] = input.padraoId ? await db.select({
+        estabelecimentoId: padroesCobranca.estabelecimentoId,
+        confianca: padroesCobranca.confianca,
+      }).from(padroesCobranca).where(eq(padroesCobranca.id, input.padraoId)).then((rows) => rows.map(exigirProprietarioDoPadrao)) : [undefined];
+      if (input.padraoId) {
+        if (!padrao) throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+        await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "editar");
+        if (padrao.estabelecimentoId !== input.estabelecimentoId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O padrão não pertence ao hospital do feedback." });
+        }
+      }
 
       // Registrar feedback
       await db.insert(feedbackDivergencias).values({
@@ -1475,6 +1548,7 @@ export const padroesCobrancaRouter = router({
           .from(feedbackDivergencias)
           .where(and(
             eq(feedbackDivergencias.padraoId, input.padraoId),
+            eq(feedbackDivergencias.estabelecimentoId, padrao!.estabelecimentoId),
             eq(feedbackDivergencias.decisao, "aceitar"),
           ));
 
@@ -1484,25 +1558,29 @@ export const padroesCobrancaRouter = router({
         if (totalAceitos >= 3) {
           await db.update(padroesCobranca)
             .set({ status: "revisao" })
-            .where(eq(padroesCobranca.id, input.padraoId));
+            .where(and(
+              eq(padroesCobranca.id, input.padraoId),
+              eq(padroesCobranca.estabelecimentoId, padrao!.estabelecimentoId),
+            ));
 
-          logger.info({ message: `Padrão ${input.padraoId} movido para revisão após ${totalAceitos} feedbacks de aceite`, userId: ctx.user.id });
+          logger.info({ message: "Padrão movido para revisão após feedbacks", userId: ctx.user.id });
         }
       }
 
       // Se "rejeitar" (falso positivo) e tem padrãoId, aumentar confiança
       if (input.decisao === "rejeitar" && input.padraoId) {
-        const [padrao] = await db.select({ confianca: padroesCobranca.confianca })
-          .from(padroesCobranca).where(eq(padroesCobranca.id, input.padraoId));
         if (padrao) {
           const novaConfianca = Math.min(100, (padrao.confianca || 50) + 5);
           await db.update(padroesCobranca)
             .set({ confianca: novaConfianca })
-            .where(eq(padroesCobranca.id, input.padraoId));
+            .where(and(
+              eq(padroesCobranca.id, input.padraoId),
+              eq(padroesCobranca.estabelecimentoId, padrao.estabelecimentoId),
+            ));
         }
       }
 
-      logger.info({ message: `Feedback registrado: ${input.decisao} para ${input.tipoDivergencia}`, userId: ctx.user.id });
+      logger.info({ message: "Feedback registrado", userId: ctx.user.id });
       return { success: true };
     }),
 
@@ -1516,14 +1594,24 @@ export const padroesCobrancaRouter = router({
       page: z.number().default(1),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const conditions: any[] = [
-        eq(feedbackDivergencias.estabelecimentoId, input.estabelecimentoId),
+        inArray(feedbackDivergencias.estabelecimentoId, hospitaisAutorizados),
       ];
-      if (input.padraoId) conditions.push(eq(feedbackDivergencias.padraoId, input.padraoId));
+      if (input.padraoId) {
+        const [padrao] = await db.select({ estabelecimentoId: padroesCobranca.estabelecimentoId })
+          .from(padroesCobranca).where(eq(padroesCobranca.id, input.padraoId)).then((rows) => rows.map(exigirProprietarioDoPadrao));
+        if (!padrao) throw new TRPCError({ code: "NOT_FOUND", message: "Padrão não encontrado" });
+        await exigirHospitalProprietario(ctx.user, padrao.estabelecimentoId, "visualizar");
+        if (!hospitaisAutorizados.includes(padrao.estabelecimentoId)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Padrão fora do escopo solicitado." });
+        }
+        conditions.push(eq(feedbackDivergencias.padraoId, input.padraoId));
+      }
 
       const offset = (input.page - 1) * input.limit;
 
@@ -1556,10 +1644,11 @@ export const padroesCobrancaRouter = router({
       busca: z.string().min(2),
       limit: z.number().default(20),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const buscaLike = `%${input.busca}%`;
 
       const result = await db.execute(sql`
@@ -1571,7 +1660,7 @@ export const padroesCobrancaRouter = router({
           ROUND(AVG(CAST(COALESCE(NULLIF(quantidade, ''), '1') AS DECIMAL(12,2))), 2) as quantidadeMedia,
           ROUND(AVG(CAST(COALESCE(NULLIF(valorFaturado, ''), '0') AS DECIMAL(14,2))), 2) as valorMedio
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroHospitaisSql(hospitaisAutorizados)}
           AND codigoItem IS NOT NULL AND codigoItem != ''
           AND (
             codigoItem LIKE ${buscaLike}
@@ -1597,10 +1686,11 @@ export const padroesCobrancaRouter = router({
    */
   estatisticasFeedback: protectedProcedure
     .input(z.object({ estabelecimentoId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(ctx.user, input.estabelecimentoId, "visualizar");
       const stats = await db.execute(sql`
         SELECT 
           padraoId,
@@ -1609,7 +1699,7 @@ export const padroesCobrancaRouter = router({
           SUM(CASE WHEN decisao = 'ignorar' THEN 1 ELSE 0 END) as totalIgnorados,
           COUNT(*) as totalFeedbacks
         FROM feedback_divergencias
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroHospitaisSql(hospitaisAutorizados)}
           AND padraoId IS NOT NULL
         GROUP BY padraoId
       `);
@@ -1633,7 +1723,8 @@ export const padroesCobrancaRouter = router({
         competencia: z.string().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const { analisarPadroesCobrancaTasy } = await import("../db");
       return analisarPadroesCobrancaTasy(input);
     }),
@@ -1649,7 +1740,8 @@ export const padroesCobrancaRouter = router({
         competencia: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const { salvarPadroesCobrancaTasy } = await import("../db");
       return salvarPadroesCobrancaTasy(input);
     }),
@@ -1660,9 +1752,6 @@ export const padroesCobrancaRouter = router({
 // Funções auxiliares
 // ============================================================
 
-function escapeSql(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
 
 function calcularConfianca(totalOcorrencias: number): number {
   if (totalOcorrencias >= 100) return 95;
