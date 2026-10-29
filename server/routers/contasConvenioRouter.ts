@@ -1121,6 +1121,7 @@ export const contasConvenioRouter = router({
   listarContas: protectedProcedure
     .input(z.object({
       estabelecimentoId: z.number().optional(),
+      hospitalFiltroId: z.number().optional(),
       convenio: z.string().optional(),
       origem: z.enum(["XML", "BANCO_CLIENTE"]).optional(),
       statusAnalise: z.enum(["pendente", "conforme", "divergente", "revisado"]).optional(),
@@ -1134,7 +1135,10 @@ export const contasConvenioRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const estabelecimentoId = input?.estabelecimentoId;
+      const rawEstabelecimentoId = input?.estabelecimentoId;
+      const estabelecimentoId =
+        input?.hospitalFiltroId ||
+        (rawEstabelecimentoId && rawEstabelecimentoId !== 2160001 ? rawEstabelecimentoId : undefined);
       const convenio = input?.convenio;
       const origem = input?.origem;
       const statusAnalise = input?.statusAnalise;
@@ -1483,8 +1487,10 @@ export const contasConvenioRouter = router({
 
       const conditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
-        eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
       ];
+      if (input.estabelecimentoId && input.estabelecimentoId !== 2160001) {
+        conditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
+      }
 
       if (input.tipoItem) {
         conditions.push(eq(contasConvenioItens.tipoItem, input.tipoItem));
@@ -1505,8 +1511,10 @@ export const contasConvenioRouter = router({
       // Condições base para resumo (inclui filtro de lote se fornecido)
       const resumoConditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
-        eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
       ];
+      if (input.estabelecimentoId && input.estabelecimentoId !== 2160001) {
+        resumoConditions.push(eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.numeroLote) {
         resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
@@ -1736,7 +1744,7 @@ export const contasConvenioRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const conditions: any[] = [];
-      if (input?.estabelecimentoId) {
+      if (input?.estabelecimentoId && input.estabelecimentoId !== 2160001) {
         conditions.push(eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId));
       }
 
@@ -1807,7 +1815,7 @@ export const contasConvenioRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
       const conditions: any[] = [];
-      if (input?.estabelecimentoId) {
+      if (input?.estabelecimentoId && input.estabelecimentoId !== 2160001) {
         conditions.push(eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId));
       }
 

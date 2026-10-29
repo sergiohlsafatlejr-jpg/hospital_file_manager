@@ -25,6 +25,7 @@ export const padroesCobrancaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
 
       const result = await db.execute(sql`
         SELECT 
@@ -33,7 +34,7 @@ export const padroesCobrancaRouter = router({
           COUNT(DISTINCT contaNumero) as totalContas,
           ROUND(SUM(CAST(valorFaturado AS DECIMAL(14,2))), 2) as totalFaturado
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroEstab}
           AND convenio IS NOT NULL AND convenio != ''
         GROUP BY convenio
         ORDER BY COUNT(*) DESC
@@ -50,11 +51,12 @@ export const padroesCobrancaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
 
       const result = await db.execute(sql`
         SELECT competencia, COUNT(*) as total
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroEstab}
         GROUP BY competencia
         ORDER BY competencia DESC
       `);
@@ -70,11 +72,12 @@ export const padroesCobrancaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
 
       const result = await db.execute(sql`
         SELECT setor, COUNT(*) as total
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroEstab}
           AND setor IS NOT NULL AND setor != ''
         GROUP BY setor
         ORDER BY COUNT(*) DESC
@@ -88,11 +91,12 @@ export const padroesCobrancaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+      const filtroEstab = input.estabelecimentoId === 2160001 ? sql`1=1` : sql`estabelecimentoId = ${input.estabelecimentoId}`;
 
       const result = await db.execute(sql`
         SELECT profissionalExecutante as profissional, COUNT(*) as total
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        WHERE ${filtroEstab}
           AND profissionalExecutante IS NOT NULL AND profissionalExecutante != ''
           AND tipoItem IN ('P', 'C', 'PROCEDIMENTO', 'O', '01', 'PROC')
         GROUP BY profissionalExecutante
@@ -228,9 +232,10 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [
-        eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId),
-      ];
+      const conditions: any[] = [];
+      if (input.estabelecimentoId !== 2160001) {
+        conditions.push(eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.convenio) conditions.push(eq(padraoPrecoConvenio.convenio, input.convenio));
       if (input.setor) conditions.push(eq(padraoPrecoConvenio.setor, input.setor));
       if (input.tipoItem) conditions.push(eq(padraoPrecoConvenio.tipoItem, input.tipoItem));
@@ -549,9 +554,10 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [
-        eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId),
-      ];
+      const conditions: any[] = [];
+      if (input.estabelecimentoId !== 2160001) {
+        conditions.push(eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.status) conditions.push(eq(padroesCobranca.status, input.status));
       if (input.setor) conditions.push(eq(padroesCobranca.setor, input.setor));
       if (input.profissional) conditions.push(eq(padroesCobranca.profissionalExecutante, input.profissional));
@@ -729,9 +735,10 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [
-        eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId),
-      ];
+      const conditions: any[] = [];
+      if (input.estabelecimentoId !== 2160001) {
+        conditions.push(eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.convenio) conditions.push(eq(padraoGlosaConvenio.convenio, input.convenio));
       if (input.nivelRisco) conditions.push(eq(padraoGlosaConvenio.nivelRisco, input.nivelRisco));
       if (input.apenasComGlosa) conditions.push(sql`${padraoGlosaConvenio.totalGlosado} > 0`);
@@ -885,9 +892,10 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
-      const conditions: any[] = [
-        eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId),
-      ];
+      const conditions: any[] = [];
+      if (input.estabelecimentoId !== 2160001) {
+        conditions.push(eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId));
+      }
       if (input.convenio) conditions.push(eq(padraoQuantidadeItem.convenio, input.convenio));
       if (input.setor) conditions.push(eq(padraoQuantidadeItem.setor, input.setor));
       if (input.tipoItem) conditions.push(eq(padraoQuantidadeItem.tipoItem, input.tipoItem));
@@ -930,23 +938,24 @@ export const padroesCobrancaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
 
+      const isSafatle = input.estabelecimentoId === 2160001;
       const [precoCount, composicaoCount, glosaCount, quantidadeCount] = await Promise.all([
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoPrecoConvenio)
-          .where(eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId)),
+          .where(isSafatle ? sql`1=1` : eq(padraoPrecoConvenio.estabelecimentoId, input.estabelecimentoId)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padroesCobranca)
-          .where(eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId)),
+          .where(isSafatle ? sql`1=1` : eq(padroesCobranca.estabelecimentoId, input.estabelecimentoId)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoGlosaConvenio)
-          .where(eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId)),
+          .where(isSafatle ? sql`1=1` : eq(padraoGlosaConvenio.estabelecimentoId, input.estabelecimentoId)),
         db
           .select({ total: sql<number>`COUNT(*)` })
           .from(padraoQuantidadeItem)
-          .where(eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId)),
+          .where(isSafatle ? sql`1=1` : eq(padraoQuantidadeItem.estabelecimentoId, input.estabelecimentoId)),
       ]);
 
       // Dados de faturamento disponíveis
@@ -958,7 +967,7 @@ export const padroesCobrancaRouter = router({
           MIN(competencia) as competenciaMin,
           MAX(competencia) as competenciaMax
         FROM faturamento_unificado
-        WHERE estabelecimentoId = ${input.estabelecimentoId}
+        ${isSafatle ? "" : `WHERE estabelecimentoId = ${input.estabelecimentoId}`}
       `));
 
       const fatStats = ((fatResult as any)[0] || [{}])[0];

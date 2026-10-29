@@ -145,11 +145,13 @@ export async function compararContaComPadroes(
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  // 1. Buscar itens da conta
-  const conditions = [
+  // 1. Buscar itens da conta (se estabelecimentoId for SAFATLE 2160001, permite buscar a conta de qualquer hospital)
+  const conditions: any[] = [
     eq(contasConvenioItens.numeroConta, numeroConta),
-    eq(contasConvenioItens.estabelecimentoId, estabelecimentoId),
   ];
+  if (estabelecimentoId && estabelecimentoId !== 2160001) {
+    conditions.push(eq(contasConvenioItens.estabelecimentoId, estabelecimentoId));
+  }
   if (opcoes?.escopoContextoMedico) {
     // Nunca usa fontes médicas para outra versão do XML hospitalar.
     conditions.push(eq(contasConvenioItens.arquivoId, opcoes.escopoContextoMedico.arquivoHospitalId));
@@ -160,9 +162,11 @@ export async function compararContaComPadroes(
     .from(contasConvenioItens)
     .where(and(...conditions));
 
+  const hospitalEstabReal = itens[0]?.estabelecimentoId || estabelecimentoId;
+
   return compararItensComPadroes({
     numeroConta,
-    estabelecimentoId,
+    estabelecimentoId: hospitalEstabReal,
     convenio: itens[0]?.convenio ?? null,
     itens: itens as unknown as ItemParaComparacao[],
     contextoMedico: opcoes?.contextoMedico,
@@ -239,13 +243,15 @@ export async function compararItensComPadroes({
   }
 
   const divergencias: Divergencia[] = [];
+  const isSafatleGlobal = estabelecimentoId === 2160001;
+  const estabIdsPadrao = Array.from(new Set([estabelecimentoId, 2160001]));
 
-  // 3. Buscar padrões de preço para este convênio (com suporte a setor)
+  // 3. Buscar padrões de preço para este convênio (com suporte a setor e unificação Safatle)
   const padroesPreco = await db
     .select()
     .from(padraoPrecoConvenio)
     .where(and(
-      eq(padraoPrecoConvenio.estabelecimentoId, estabelecimentoId),
+      isSafatleGlobal ? sql`1=1` : inArray(padraoPrecoConvenio.estabelecimentoId, estabIdsPadrao),
       eq(padraoPrecoConvenio.convenio, convenioNormalizado),
     ));
 
@@ -257,11 +263,11 @@ export async function compararItensComPadroes({
     mapPrecoPorCodigo.get(p.codigoItem)!.push(p);
   }
 
-  // 4. Buscar padrões de quantidade (agora com setor)
+  // 4. Buscar padrões de quantidade (agora com setor e unificação Safatle)
   const padroesQtd = await db
     .select()
     .from(padraoQuantidadeItem)
-    .where(eq(padraoQuantidadeItem.estabelecimentoId, estabelecimentoId));
+    .where(isSafatleGlobal ? sql`1=1` : inArray(padraoQuantidadeItem.estabelecimentoId, estabIdsPadrao));
 
   const padroesQtdFiltrados = padroesQtd.filter(p => 
     p.convenio === convenioNormalizado || !p.convenio
@@ -280,18 +286,18 @@ export async function compararItensComPadroes({
     .select()
     .from(padraoGlosaConvenio)
     .where(and(
-      eq(padraoGlosaConvenio.estabelecimentoId, estabelecimentoId),
+      isSafatleGlobal ? sql`1=1` : inArray(padraoGlosaConvenio.estabelecimentoId, estabIdsPadrao),
       eq(padraoGlosaConvenio.convenio, convenioNormalizado),
     ));
 
   const mapGlosa = new Map(padroesGlosa.map(p => [p.codigoItem, p]));
 
-  // 6. Buscar padrões de composição - APENAS ATIVOS (inclui gabaritos)
+  // 6. Buscar padrões de composição - APENAS ATIVOS (inclui gabaritos do hospital + Safatle)
   const padroesComposicao = await db
     .select()
     .from(padroesCobranca)
     .where(and(
-      eq(padroesCobranca.estabelecimentoId, estabelecimentoId),
+      isSafatleGlobal ? sql`1=1` : inArray(padroesCobranca.estabelecimentoId, estabIdsPadrao),
       eq(padroesCobranca.status, "ativo"),
     ));
 

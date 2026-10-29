@@ -118,6 +118,7 @@ const FaturamentoRemessasFechadas = lazy(() => import("./pages/FaturamentoRemess
 const LoginSenha = lazy(() => import("./pages/LoginSenha"));
 const EsqueciSenha = lazy(() => import("./pages/EsqueciSenha"));
 const RedefinirSenha = lazy(() => import("./pages/RedefinirSenha"));
+const FabricaFaturamento = lazy(() => import("./pages/FabricaFaturamento"));
 
 function PageLoader() {
   return (
@@ -264,6 +265,7 @@ function Router() {
         <Route path={"/faturamento/remessas-fechadas"} component={FaturamentoRemessasFechadas} />
         <Route path={"/faturamento/nova-guia"} component={FaturamentoGuiaEditor} />
         <Route path={"/faturamento/guia/:id"} component={FaturamentoGuiaEditor} />
+        <Route path={"/fabrica-faturamento"} component={FabricaFaturamento} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

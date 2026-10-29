@@ -485,6 +485,22 @@ function ContaConvenioDetalhesPadrao() {
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
 
+  // Buscar status na Esteira da Fábrica de Faturamento Safatle
+  const { data: contaFabrica, refetch: refetchContaFabrica } =
+    trpc.fabricaFaturamento.obterPorNumeroConta.useQuery(
+      { numeroConta, estabelecimentoId },
+      { enabled: !!numeroConta }
+    );
+
+  const transicionarFabricaMutation =
+    trpc.fabricaFaturamento.transicionarSetor.useMutation({
+      onSuccess: () => {
+        toast.success("Setor da conta atualizado na Fábrica de Faturamento!");
+        refetchContaFabrica();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
   // Buscar categorias de falhas
   const { data: categoriasFalhas } = trpc.auditoria.categoriasFalhas.useQuery();
 
@@ -1190,6 +1206,129 @@ function ContaConvenioDetalhesPadrao() {
             </Button>
           </div>
         </div>
+
+        {/* Banner da Esteira da Fábrica de Faturamento Safatle */}
+        {contaFabrica && (
+          <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/80 via-white to-violet-50/80 dark:from-indigo-950/30 dark:to-violet-950/30">
+            <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-indigo-600 text-white">
+                    Fábrica Safatle • Setor:{" "}
+                    {contaFabrica.setorAtual === "recepcao"
+                      ? "1. Recepção"
+                      : contaFabrica.setorAtual === "faturamento"
+                        ? "2. Faturamento"
+                        : contaFabrica.setorAtual === "auditoria_interna"
+                          ? "3. Auditoria Interna"
+                          : contaFabrica.setorAtual === "auditoria_externa"
+                            ? "4. Auditoria Externa"
+                            : contaFabrica.setorAtual === "limpeza_prontuario"
+                              ? "5. Limpeza e Envio"
+                              : contaFabrica.setorAtual === "recursos"
+                                ? "6. Setor de Recursos"
+                                : "Finalizada"}
+                  </Badge>
+                  {contaFabrica.hospitalNome && (
+                    <Badge variant="outline" className="border-indigo-300 text-indigo-800">
+                      Hospital: {contaFabrica.hospitalNome}
+                    </Badge>
+                  )}
+                  {contaFabrica.faturistaNome && (
+                    <span className="text-xs text-muted-foreground">
+                      Faturista: <strong>{contaFabrica.faturistaNome}</strong>
+                    </span>
+                  )}
+                  {(contaFabrica.qtdRetornosErro || 0) > 0 && (
+                    <Badge variant="destructive" className="text-xs">
+                      {contaFabrica.qtdRetornosErro}x Retorno(s) p/ Faturamento
+                    </Badge>
+                  )}
+                </div>
+                {contaFabrica.ultimoMotivoRetorno && (
+                  <p className="text-xs text-red-600 font-medium">
+                    Último erro apontado: {contaFabrica.ultimoMotivoRetorno}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {(contaFabrica.setorAtual === "auditoria_interna" ||
+                  contaFabrica.setorAtual === "auditoria_externa") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-red-300 text-red-700 hover:bg-red-50"
+                    disabled={transicionarFabricaMutation.isPending}
+                    onClick={() => {
+                      const descricaoErro = window.prompt(
+                        "Descreva o erro encontrado para devolver ao Faturamento (será contabilizado no Relatório de Erros do Faturista):"
+                      );
+                      if (!descricaoErro || !descricaoErro.trim()) return;
+                      transicionarFabricaMutation.mutate({
+                        contaIds: [contaFabrica.id],
+                        setorDestino: "faturamento",
+                        motivoRetornoErro: true,
+                        categoriaErro: "erro_lancamento",
+                        severidadeErro: "moderada",
+                        descricaoErro: descricaoErro.trim(),
+                        observacao: `Devolvido via Conta Convênio: ${descricaoErro.trim()}`,
+                      });
+                    }}
+                  >
+                    <Undo2 className="h-3.5 w-3.5 mr-1.5" />
+                    Devolver p/ Faturamento (Erro)
+                  </Button>
+                )}
+
+                {contaFabrica.setorAtual === "auditoria_interna" && (
+                  <Button
+                    size="sm"
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                    disabled={transicionarFabricaMutation.isPending}
+                    onClick={() =>
+                      transicionarFabricaMutation.mutate({
+                        contaIds: [contaFabrica.id],
+                        setorDestino: "auditoria_externa",
+                        observacao: "Aprovado na Auditoria Interna via Conta Convênio",
+                      })
+                    }
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Aprovar → Auditoria Externa
+                  </Button>
+                )}
+
+                {contaFabrica.setorAtual === "auditoria_externa" && (
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                    disabled={transicionarFabricaMutation.isPending}
+                    onClick={() =>
+                      transicionarFabricaMutation.mutate({
+                        contaIds: [contaFabrica.id],
+                        setorDestino: "limpeza_prontuario",
+                        observacao: "Aprovado na Auditoria Externa → Limpeza de Prontuários",
+                      })
+                    }
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Aprovar → Limpeza de Prontuários
+                  </Button>
+                )}
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-indigo-700 hover:bg-indigo-100"
+                  onClick={() => setLocation("/fabrica-faturamento")}
+                >
+                  Abrir Fábrica
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Informações da Conta */}
         <Card>
