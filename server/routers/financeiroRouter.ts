@@ -1,9 +1,12 @@
 import { z } from "zod";
 import pdfParse from "pdf-parse";
+import path from "path";
+import fs from "fs/promises";
 import { protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos } from "../bancoInter";
+import { enviarBoletoPorEmail, enviarNotaFiscalPorEmail } from "../services/emailService";
 import {
   finEmpresas, finClientes, finCategorias, finTiposPagamento,
   finTiposRecebivel, finBancos, finCustos, finTransacoes,
@@ -529,6 +532,11 @@ const recebiveisRouter = router({
           recebido: finRecebiveis.recebido,
           tipoServico: finRecebiveis.tipoServico,
           descricaoServico: finRecebiveis.descricaoServico,
+          boletoSolicitacaoId: finRecebiveis.boletoSolicitacaoId,
+          boletoLinhaDigitavel: finRecebiveis.boletoLinhaDigitavel,
+          boletoPixCopiaCola: finRecebiveis.boletoPixCopiaCola,
+          notaFiscalKey: finRecebiveis.notaFiscalKey,
+          emailEnviado: finRecebiveis.emailEnviado,
           observacoes: finRecebiveis.observacoes,
           userId: finRecebiveis.userId,
           createdAt: finRecebiveis.createdAt,
@@ -630,17 +638,21 @@ const recebiveisRouter = router({
     });
     return { id: result.insertId };
   }),
-  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+  duplicarEmLote: protectedProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(500), estabelecimentoId: z.number().int().positive(), avancarMeses: z.number().optional() })).mutation(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
     await exigirRecebiveisDaUnidade(input.ids, input.estabelecimentoId);
     const db = (await getDb())!;
     const originais = await db.select().from(finRecebiveis).where(and(inArray(finRecebiveis.id, input.ids), recebivelDaUnidade(input.estabelecimentoId)));
     if (originais.length === 0) throw new Error("Nenhum registro encontrado");
     await db.transaction(async (tx) => { for (const original of originais) {
+      let dataVenc = new Date(original.dataVencimento);
+      if (input.avancarMeses) {
+        dataVenc.setMonth(dataVenc.getMonth() + input.avancarMeses);
+      }
       await tx.insert(finRecebiveis).values({
         empresaId: original.empresaId, clienteId: original.clienteId, tipoId: original.tipoId,
         bancoId: original.bancoId, descricao: `${original.descricao} (cópia)`, valor: original.valor,
-        dataVencimento: original.dataVencimento, dataRecebimento: null,
+        dataVencimento: dataVenc, dataRecebimento: null,
         recebido: "nao", tipoServico: original.tipoServico, descricaoServico: original.descricaoServico,
         observacoes: original.observacoes, userId: ctx.user.id,
       });
@@ -976,6 +988,178 @@ const recebiveisRouter = router({
       }
 
       return { success: true, arquivoId };
+    }),
+
+  gerarBoleto: protectedProcedure
+    .input(z.object({
+      recebivelId: z.number(),
+      pagador: z.object({
+        cpfCnpj: z.string(),
+        tipoPessoa: z.enum(["FISICA", "JURIDICA"]),
+        nome: z.string(),
+        endereco: z.string(),
+        numero: z.string().optional(),
+        complemento: z.string().optional(),
+        bairro: z.string(),
+        cidade: z.string(),
+        uf: z.string(),
+        cep: z.string(),
+        email: z.string().optional(),
+        ddd: z.string().optional(),
+        telefone: z.string().optional(),
+      })
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
+
+      const dataVenc = new Date(recebivel.dataVencimento);
+      const dataVencimentoStr = dataVenc.toISOString().split("T")[0];
+
+      // Remover caracteres não numéricos do CEP
+      const cleanCep = input.pagador.cep.replace(/\D/g, "");
+
+      const interInput = {
+        bancoId: recebivel.bancoId || undefined,
+        seuNumero: `REC-${recebivel.id}-${Date.now()}`.substring(0, 15),
+        valorNominal: parseFloat(recebivel.valor),
+        dataVencimento: dataVencimentoStr,
+        numDiasAgenda: 30,
+        pagador: { ...input.pagador, cep: cleanCep },
+        formasRecebimento: ["BOLETO", "PIX"] as Array<"BOLETO" | "PIX">
+      };
+
+      const result = await emitirBoleto(interInput, recebivel.bancoId || undefined);
+      if (!result.configured) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: result.message || "A API do Banco Inter não está totalmente configurada."
+        });
+      }
+      if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+      if (!result.codigoSolicitacao) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O Banco Inter não retornou o código de solicitação do boleto." });
+      }
+
+      await db.update(finRecebiveis).set({
+        boletoSolicitacaoId: result.codigoSolicitacao,
+        boletoLinhaDigitavel: result.boleto?.linhaDigitavel || null,
+        boletoPixCopiaCola: result.pix?.pixCopiaECola || null
+      }).where(eq(finRecebiveis.id, input.recebivelId));
+
+      // Se houver email, tenta baixar e disparar o anexo
+      if (input.pagador.email) {
+        try {
+          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, recebivel.bancoId || undefined);
+          if (pdfResult && pdfResult.pdf) {
+            let base64Nf: string | undefined = undefined;
+            if (recebivel.notaFiscalKey) {
+              try {
+                const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+                const nfBuffer = await fs.readFile(filePath);
+                base64Nf = nfBuffer.toString('base64');
+              } catch(e) { console.error("Erro nf:", e); }
+            }
+            enviarBoletoPorEmail(input.pagador.email, pdfResult.pdf, result.codigoSolicitacao, recebivel.valor, base64Nf).then(async (success) => {
+              if (success) await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+            });
+          }
+        } catch (err) {
+          console.error("Falha ao enviar email do boleto gerado:", err);
+        }
+      }
+
+      return { success: true, codigoSolicitacao: result.codigoSolicitacao };
+    }),
+
+  baixarBoleto: protectedProcedure
+    .input(z.object({ recebivelId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
+      
+      const result = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
+      if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+      return result;
+    }),
+
+  enviarEmailBoleto: protectedProcedure
+    .input(z.object({ recebivelId: z.number(), email: z.string().email() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel || !recebivel.boletoSolicitacaoId) throw new TRPCError({ code: "NOT_FOUND", message: "Boleto não encontrado para o recebível" });
+      
+      const pdfResult = await downloadBoletoPdf(recebivel.boletoSolicitacaoId, recebivel.bancoId || undefined);
+      if (!pdfResult || !pdfResult.pdf) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar o PDF do Banco Inter" });
+      
+      let base64Nf: string | undefined = undefined;
+      if (recebivel.notaFiscalKey) {
+        try {
+          const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+          const nfBuffer = await fs.readFile(filePath);
+          base64Nf = nfBuffer.toString('base64');
+        } catch(e) { console.error("Erro nf:", e); }
+      }
+
+      const enviado = await enviarBoletoPorEmail(input.email, pdfResult.pdf, recebivel.boletoSolicitacaoId, recebivel.valor, base64Nf);
+      if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via provedor. Verifique as credenciais SMTP." });
+      
+      await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+      return { success: true };
+    }),
+
+  anexarNotaFiscal: protectedProcedure
+    .input(z.object({
+      recebivelId: z.number(),
+      base64File: z.string(),
+      fileName: z.string()
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const key = `nf_${input.recebivelId}_${Date.now()}.pdf`;
+      const buffer = Buffer.from(input.base64File, 'base64');
+      
+      const dirPath = path.join(process.cwd(), 'uploads');
+      await fs.mkdir(dirPath, { recursive: true });
+      await fs.writeFile(path.join(dirPath, key), buffer);
+      
+      await db.update(finRecebiveis).set({ notaFiscalKey: key }).where(eq(finRecebiveis.id, input.recebivelId));
+      return { success: true, key };
+    }),
+
+  enviarEmailNF: protectedProcedure
+    .input(z.object({ recebivelId: z.number(), email: z.string().email() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhuma Nota Fiscal anexada para enviar." });
+      
+      let base64Nf: string | undefined = undefined;
+      try {
+        const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+        const nfBuffer = await fs.readFile(filePath);
+        base64Nf = nfBuffer.toString('base64');
+      } catch(e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar a NF original dos arquivos locais." }); }
+
+      const enviado = await enviarNotaFiscalPorEmail(input.email, base64Nf, recebivel.valor);
+      if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via SMTP." });
+      
+      await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+      return { success: true };
+    }),
+
+  baixarNotaFiscal: protectedProcedure
+    .input(z.object({ recebivelId: z.number() }))
+    .query(async ({ input }) => {
+      const db = (await getDb())!;
+      const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
+      if (!recebivel || !recebivel.notaFiscalKey) throw new TRPCError({ code: "NOT_FOUND", message: "Nota Fiscal não encontrada" });
+      const filePath = path.join(process.cwd(), 'uploads', recebivel.notaFiscalKey);
+      const buffer = await fs.readFile(filePath);
+      return { base64: buffer.toString('base64'), fileName: recebivel.notaFiscalKey };
     }),
 });
 
@@ -1761,21 +1945,26 @@ const importadorRouter = router({
 // ============================================================
 
 const bancoInterRouter = router({
-  status: protectedProcedure.query(async () => {
-    return getInterStatus();
-  }),
+  status: protectedProcedure
+    .input(z.object({ bancoId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      return getInterStatus(input?.bancoId);
+    }),
 
-  saldo: protectedProcedure.query(async () => {
-    return consultarSaldo();
-  }),
+  saldo: protectedProcedure
+    .input(z.object({ bancoId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      return consultarSaldo(input?.bancoId);
+    }),
 
   extrato: protectedProcedure
     .input(z.object({
       dataInicio: z.string(),
       dataFim: z.string(),
+      bancoId: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      return consultarExtrato(input.dataInicio, input.dataFim);
+      return consultarExtrato(input.dataInicio, input.dataFim, input.bancoId);
     }),
 
   extratoCompleto: protectedProcedure
@@ -1784,18 +1973,20 @@ const bancoInterRouter = router({
       dataFim: z.string(),
       pagina: z.number().optional(),
       tamanhoPagina: z.number().optional(),
+      bancoId: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      return consultarExtratoCompleto(input.dataInicio, input.dataFim, input.pagina, input.tamanhoPagina);
+      return consultarExtratoCompleto(input.dataInicio, input.dataFim, input.pagina, input.tamanhoPagina, input.bancoId);
     }),
 
   extratoPdf: protectedProcedure
     .input(z.object({
       dataInicio: z.string(),
       dataFim: z.string(),
+      bancoId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
-      return exportarExtratoPdf(input.dataInicio, input.dataFim);
+      return exportarExtratoPdf(input.dataInicio, input.dataFim, input.bancoId);
     }),
 
   // ---- COBRANÇA (BOLETO COM PIX) ----
@@ -1845,17 +2036,13 @@ const bancoInterRouter = router({
       formasRecebimento: z.array(z.enum(["BOLETO", "PIX"])).optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return emitirBoleto(input, config);
+      return emitirBoleto(input, input.bancoId);
     }),
 
   consultarBoleto: protectedProcedure
     .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
     .query(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return consultarBoleto(input.codigoSolicitacao, config);
+      return consultarBoleto(input.codigoSolicitacao, input.bancoId);
     }),
 
   listarBoletos: protectedProcedure
@@ -1868,17 +2055,13 @@ const bancoInterRouter = router({
       itensPorPagina: z.number().optional(),
     }))
     .query(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return listarBoletos(input.dataInicial, input.dataFinal, input.situacao, input.pagina, input.itensPorPagina, config);
+      return listarBoletos(input.dataInicial, input.dataFinal, input.situacao, input.pagina, input.itensPorPagina, input.bancoId);
     }),
 
   downloadBoletoPdf: protectedProcedure
     .input(z.object({ codigoSolicitacao: z.string(), bancoId: z.number().optional() }))
     .mutation(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return downloadBoletoPdf(input.codigoSolicitacao, config);
+      return downloadBoletoPdf(input.codigoSolicitacao, input.bancoId);
     }),
 
   cancelarBoleto: protectedProcedure
@@ -1888,9 +2071,7 @@ const bancoInterRouter = router({
       motivoCancelamento: z.string().max(50),
     }))
     .mutation(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento, config);
+      return cancelarBoleto(input.codigoSolicitacao, input.motivoCancelamento, input.bancoId);
     }),
 
   sumarioBoletos: protectedProcedure
@@ -1900,14 +2081,8 @@ const bancoInterRouter = router({
       dataFinal: z.string(),
     }))
     .query(async ({ input }) => {
-      const db = (await getDb())!;
-      const config = await obterInterConfigPorBanco(db, input.bancoId);
-      return sumarioBoletos(input.dataInicial, input.dataFinal, config);
+      return sumarioBoletos(input.dataInicial, input.dataFinal, input.bancoId);
     }),
-// end of banco inter router (was at bottom of previous block)
-// wait, the previous block wasn't a separate router, it was in `bancoInter: protectedProcedure`?
-// No, looking at lines 1954-2043, it's just exported under `financeiroRouter` itself.
-// Let me just replace the inline fields instead of wrapping them in a subrouter.
 });
 
 // ============================================================

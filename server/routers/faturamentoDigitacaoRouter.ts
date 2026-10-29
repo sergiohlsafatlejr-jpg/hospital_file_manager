@@ -751,4 +751,232 @@ export const faturamentoDigitacaoRouter = router({
       const valor = await getPrecoItem(input.convenioId, input.codigo, input.tipo);
       return { valor };
     }),
+
+  // ========== IMPORTAÇÃO INTELIGENTE DE FOLHAS TEA (PDF / IA) ==========
+  processarPdfFolhasTea: protectedProcedure
+    .input(z.object({
+      pdfBase64: z.string(),
+      convenioId: z.number().optional(),
+      estabelecimentoId: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { extrairFolhasTea } = await import("../services/teaOcrService");
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+
+      const guiasExtraidas = await extrairFolhasTea(input.pdfBase64);
+
+      // Cruzamento inteligente com a base de pacientes
+      const guiasProcessadas = await Promise.all(
+        guiasExtraidas.map(async (guia) => {
+          let pacienteEncontrado: any = null;
+
+          // 1. Tentar busca por CPF se houver
+          if (guia.cpf) {
+            const cpfLimpo = guia.cpf.replace(/\D/g, "");
+            const [pCpf] = await db.select().from(pacientes)
+              .where(
+                or(
+                  eq(pacientes.cpf, guia.cpf),
+                  eq(pacientes.cpf, cpfLimpo)
+                )
+              )
+              .limit(1);
+            if (pCpf) {
+              pacienteEncontrado = pCpf;
+            }
+          }
+
+          // 2. Se não encontrou por CPF, buscar por Nome
+          if (!pacienteEncontrado && guia.nomePaciente) {
+            const nomeFormatado = guia.nomePaciente.trim();
+            const [pNome] = await db.select().from(pacientes)
+              .where(
+                or(
+                  eq(sql`LOWER(${pacientes.nome})`, nomeFormatado.toLowerCase()),
+                  like(pacientes.nome, `%${nomeFormatado}%`)
+                )
+              )
+              .limit(1);
+            if (pNome) {
+              pacienteEncontrado = pNome;
+            }
+          }
+
+          // Preenche carteirinha se já cadastrada
+          const carteirinhaFinal = guia.carteirinha || pacienteEncontrado?.carteirinha || "";
+          const cpfFinal = guia.cpf || pacienteEncontrado?.cpf || "";
+          const pacienteIdFinal = pacienteEncontrado?.id || null;
+          const statusMatch: "pronto" | "novo_paciente" = carteirinhaFinal ? "pronto" : "novo_paciente";
+
+          return {
+            ...guia,
+            carteirinha: carteirinhaFinal,
+            cpf: cpfFinal,
+            pacienteId: pacienteIdFinal,
+            statusMatch,
+          };
+        })
+      );
+
+      return { guias: guiasProcessadas };
+    }),
+
+  confirmarImportacaoLoteFolhas: protectedProcedure
+    .input(z.object({
+      loteId: z.number(),
+      guias: z.array(z.object({
+        nomePaciente: z.string().min(1),
+        carteirinha: z.string().optional(),
+        cpf: z.string().optional(),
+        dataNascimento: z.string().optional(),
+        numeroGuia: z.string().optional(),
+        senha: z.string().optional(),
+        especialidade: z.string().optional(),
+        codigoProcedimento: z.string().optional(),
+        nomeProfissional: z.string().optional(),
+        conselhoProfissional: z.string().optional(),
+        numeroConselhoProfissional: z.string().optional(),
+        ufConselhoProfissional: z.string().optional(),
+        cid10: z.string().optional(),
+        valorUnitarioSessao: z.string().optional(),
+        sessoes: z.array(z.object({
+          dia: z.string().optional(),
+          data: z.string().optional(),
+          horario: z.string().optional(),
+          quantidade: z.number().default(1),
+        })),
+      }))
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+
+      const [lote] = await db.select().from(lotesFaturamento).where(eq(lotesFaturamento.id, input.loteId));
+      if (!lote) throw new Error("Remessa / Lote não encontrado");
+
+      const estabelecimentoId = lote.estabelecimentoId;
+      const convenioId = lote.convenioId;
+      let guiasCriadasCount = 0;
+
+      for (const itemGuia of input.guias) {
+        // 1. Salvar ou atualizar cadastro de paciente
+        let pacienteId: number | null = null;
+        if (itemGuia.carteirinha || itemGuia.cpf) {
+          const conditions = [];
+          if (itemGuia.carteirinha) conditions.push(eq(pacientes.carteirinha, itemGuia.carteirinha));
+          if (itemGuia.cpf) conditions.push(eq(pacientes.cpf, itemGuia.cpf));
+
+          const [pacienteExistente] = await db.select().from(pacientes)
+            .where(
+              and(
+                or(...conditions),
+                eq(pacientes.convenioId, convenioId)
+              )
+            ).limit(1);
+
+          if (pacienteExistente) {
+            pacienteId = pacienteExistente.id;
+            await db.update(pacientes).set({
+              carteirinha: itemGuia.carteirinha || pacienteExistente.carteirinha,
+              cpf: itemGuia.cpf || pacienteExistente.cpf,
+              dataNascimento: itemGuia.dataNascimento || pacienteExistente.dataNascimento,
+            }).where(eq(pacientes.id, pacienteExistente.id));
+          } else {
+            const [novoPac] = await db.insert(pacientes).values({
+              nome: itemGuia.nomePaciente,
+              carteirinha: itemGuia.carteirinha || null,
+              cpf: itemGuia.cpf || null,
+              dataNascimento: itemGuia.dataNascimento || null,
+              convenioId,
+              estabelecimentoId,
+            });
+            pacienteId = novoPac.insertId;
+          }
+        }
+
+        // 2. Criar a guia
+        const [guiaResult] = await db.insert(guiasFaturamento).values({
+          estabelecimentoId,
+          convenioId,
+          pacienteId,
+          tipoGuia: "sadt",
+          nomePaciente: itemGuia.nomePaciente,
+          carteirinha: itemGuia.carteirinha || null,
+          numeroGuiaPrestador: itemGuia.numeroGuia || null,
+          numeroGuiaOperadora: itemGuia.numeroGuia || null,
+          senha: itemGuia.senha || null,
+          nomeExecutante: itemGuia.nomeProfissional || null,
+          conselhoProfExecutante: itemGuia.conselhoProfissional || "CREFITO",
+          numeroConselhoProfExecutante: itemGuia.numeroConselhoProfissional || null,
+          ufConselhoProfExecutante: itemGuia.ufConselhoProfissional || "GO",
+          cid10Principal: itemGuia.cid10 || "F84.0",
+          caraterAtendimento: "eletivo",
+          tipoServico: itemGuia.especialidade || "TERAPIA",
+          status: "finalizada",
+          loteId: input.loteId,
+        });
+        const novaGuiaId = guiaResult.insertId;
+        guiasCriadasCount++;
+
+        // 3. Criar itens de sessão
+        const valorUnit = Number(itemGuia.valorUnitarioSessao || 0);
+        const valorUnitStr = valorUnit > 0 ? valorUnit.toFixed(2) : "0.00";
+        const codigoProc = itemGuia.codigoProcedimento || "50000470";
+        const descProc = itemGuia.especialidade || "SESSAO DE TERAPIA MULTIDISCIPLINAR";
+
+        let seq = 1;
+        for (const sessao of itemGuia.sessoes) {
+          let dataExec = sessao.data;
+          if (!dataExec && sessao.dia && lote.competencia) {
+            const partes = lote.competencia.split("/");
+            if (partes.length === 2) {
+              const mes = partes[0].padStart(2, "0");
+              const ano = partes[1];
+              dataExec = `${ano}-${mes}-${sessao.dia.padStart(2, "0")}`;
+            }
+          }
+
+          await db.insert(itensGuiaFaturamento).values({
+            guiaId: novaGuiaId,
+            sequencial: seq++,
+            tipoItem: "procedimento",
+            tipoLancamento: "procedimento",
+            codigoProcedimento: codigoProc,
+            descricao: descProc,
+            dataExecucao: dataExec || null,
+            horaInicio: sessao.horario || null,
+            quantidade: String(sessao.quantidade || 1),
+            valorUnitario: valorUnitStr,
+            valorTotal: valorUnitStr,
+            nomeProfissional: itemGuia.nomeProfissional || null,
+            conselhoProfissional: itemGuia.conselhoProfissional || "CREFITO",
+            numeroConselhoProfissional: itemGuia.numeroConselhoProfissional || null,
+            ufProfissional: itemGuia.ufConselhoProfissional || "GO",
+          });
+        }
+
+        // Atualizar valor total da guia
+        await db.execute(sql`
+          UPDATE guias_faturamento 
+          SET valor_total = (SELECT COALESCE(SUM(valor_total), 0) FROM itens_guia_faturamento WHERE guia_id = ${novaGuiaId}),
+              valor_procedimentos = (SELECT COALESCE(SUM(valor_total), 0) FROM itens_guia_faturamento WHERE guia_id = ${novaGuiaId})
+          WHERE id = ${novaGuiaId}
+        `);
+      }
+
+      // Atualizar totais do lote
+      const [totais] = await db.select({
+        totalGuias: sql<number>`COUNT(*)`,
+        valorTotal: sql<string>`COALESCE(SUM(valor_total), 0)`,
+      }).from(guiasFaturamento).where(eq(guiasFaturamento.loteId, input.loteId));
+
+      await db.update(lotesFaturamento).set({
+        totalGuias: Number(totais?.totalGuias || 0),
+        valorTotal: totais?.valorTotal || "0",
+      }).where(eq(lotesFaturamento.id, input.loteId));
+
+      return { success: true, guiasCriadas: guiasCriadasCount };
+    }),
 });
+

@@ -7,12 +7,16 @@ dist/
 build/
 *.dist
 
-# Environment variables
+# Environment variables and secrets
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+certs/
+*.crt
+*.key
+*.pem
 
 # IDE and editor files
 .vscode/
@@ -158,3 +162,21 @@ find_*db*.py
 find_*cred*.py
 inspect_db_*.py
 analyze_db_results.py
+
+# Backups locais, arquivos compactados e uploads
+backups/
+uploads/
+scratch/
+backup_*.sql
+*.zip
+*.7z
+
+# Scripts utilitários avulsos de manutenção local
+scratch.ts
+add_users_cols.ts
+check_col.ts
+create_events_table.ts
+create_tables.ts
+rename_col.ts
+set_password.ts
+update_canonical.ts
