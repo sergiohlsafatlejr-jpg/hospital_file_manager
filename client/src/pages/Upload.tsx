@@ -1,5 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,7 +34,7 @@ import {
   Database,
   ArrowRight,
 } from "lucide-react";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -65,6 +65,8 @@ function detectFileType(file: File): "xml" | "excel" | "pdf" | "csv" {
 
 export default function Upload() {
   const { estabelecimentoAtual } = useEstabelecimento();
+  const searchString = useSearch();
+  const reenvioInicializadoRef = useRef<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [direcao, setDirecao] = useState<"enviado" | "retornado">("enviado");
   const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] =
@@ -87,6 +89,35 @@ export default function Upload() {
   const invalidarRetentativaXml = useCallback(() => {
     xmlLoteIdempotencyRef.current = null;
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    if (
+      params.get("reenvioLote") !== "1" ||
+      reenvioInicializadoRef.current === searchString
+    ) {
+      return;
+    }
+    reenvioInicializadoRef.current = searchString;
+    const isId = (value: string | null) =>
+      Boolean(value && /^\d+$/.test(value));
+    const isDate = (value: string | null) =>
+      Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+    const unidade = params.get("estabelecimentoId");
+    const convenio = params.get("convenioId");
+    const referencia = params.get("dataReferencia");
+    const pagamento = params.get("dataPagamento");
+    if (isId(unidade)) setEstabelecimentoSelecionado(unidade!);
+    if (isId(convenio)) setConvenioId(convenio!);
+    if (isDate(referencia)) setDataReferencia(referencia!);
+    if (isDate(pagamento)) setDataPagamento(pagamento!);
+    toast.info(
+      "Reenvio integral: selecione novamente todos os XMLs da seleção.",
+      {
+        duration: 7000,
+      }
+    );
+  }, [searchString]);
 
   const { data: convenios, refetch: refetchConvenios } =
     trpc.convenios.list.useQuery({ ativo: "sim" });

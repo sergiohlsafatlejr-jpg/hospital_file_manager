@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   hashManifestoXmlImportacao,
   hashXmlImportacaoBuffer,
+  mapearAcaoPublicaLoteXml,
 } from "./xmlImportacaoLoteService";
 
 const arquivo = (ordem: number, sufixo: string) => ({
@@ -37,18 +38,49 @@ describe("manifesto canônico do lote XML", () => {
         dataReferencia: new Date("2026-11-01T00:00:00.000Z"),
         dataPagamento: null,
         arquivos: [arquivo(1, "a")],
-      }),
+      })
     ).not.toBe(base);
     expect(
       hashManifestoXmlImportacao({
         dataReferencia: new Date("2026-10-01T00:00:00.000Z"),
         dataPagamento: null,
         arquivos: [{ ...arquivo(1, "a"), tamanhoBytes: 2048 }],
-      }),
+      })
     ).not.toBe(base);
   });
 
   it("calcula hash estável de bytes sem transportar o conteúdo no manifesto", () => {
-    expect(hashXmlImportacaoBuffer(Buffer.from("<xml />"))).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashXmlImportacaoBuffer(Buffer.from("<xml />"))).toMatch(
+      /^[a-f0-9]{64}$/
+    );
+  });
+});
+
+describe("ação pública do lote protegido", () => {
+  it("solicita reenvio integral apenas quando o cofre falhou antes do processamento", () => {
+    expect(
+      mapearAcaoPublicaLoteXml({
+        estado: "recebendo",
+        fase: "persistir_selecao",
+        erro_codigo: "STORAGE_WRITE_RESEND_REQUIRED",
+      })
+    ).toBe("reenvio_completo_necessario");
+  });
+
+  it("não libera ação individual durante processamento ou em estado final", () => {
+    expect(
+      mapearAcaoPublicaLoteXml({
+        estado: "processando",
+        fase: "classificar",
+        erro_codigo: null,
+      })
+    ).toBe("processamento_em_andamento");
+    expect(
+      mapearAcaoPublicaLoteXml({
+        estado: "concluido",
+        fase: "concluir",
+        erro_codigo: null,
+      })
+    ).toBe("sem_acao_manual");
   });
 });
