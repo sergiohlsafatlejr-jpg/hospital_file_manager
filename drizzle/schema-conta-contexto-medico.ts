@@ -25,6 +25,7 @@ export const contaContextoMedicoFontes = mysqlTable(
     convenioId: int("convenio_id").notNull(),
     arquivoHospitalId: int("arquivo_hospital_id").notNull(),
     arquivoMedicoId: int("arquivo_medico_id").notNull(),
+    loteImportacaoId: int("lote_importacao_id"),
     numeroConta: varchar("numero_conta", { length: 100 }).notNull(),
     /** Normalizado para string vazia quando não informado, para unicidade exata. */
     numeroLote: varchar("numero_lote", { length: 100 }).notNull().default(""),
@@ -34,6 +35,10 @@ export const contaContextoMedicoFontes = mysqlTable(
     guiaReferencia: varchar("guia_referencia", { length: 100 }).notNull(),
     /** Hash do conteúdo semântico; privado e nunca parte de DTO público. */
     versaoSemantica: varchar("versao_semantica", { length: 64 }).notNull(),
+    /** Versão privada do snapshot hospitalar não financeiro associado. */
+    versaoSnapshotHospitalar: varchar("versao_snapshot_hospitalar", { length: 64 })
+      .notNull()
+      .default(""),
     registros: int("registros").notNull(),
     codigosDistintos: int("codigos_distintos").notNull(),
     /** Procedimentos e profissionais sanitizados, sem qualquer campo financeiro. */
@@ -61,6 +66,7 @@ export const contaContextoMedicoFontes = mysqlTable(
       table.competencia,
     ),
     arquivoMedicoIdx: index("idx_ccm_fonte_arquivo_medico").on(table.arquivoMedicoId),
+    loteImportacaoIdx: index("idx_ccm_fonte_lote_importacao").on(table.loteImportacaoId),
   }),
 );
 

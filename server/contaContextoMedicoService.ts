@@ -97,8 +97,12 @@ export interface FonteMedicaPersistida {
   id: number;
   scope: ScopeContaMedicaNormalizado;
   arquivoMedicoId: number;
+  /** Lote coordenado responsável pela publicação; ausente para legado/manual. */
+  loteImportacaoId?: number | null;
   guiaReferencia: string;
   versaoSemantica: string;
+  /** Versão privada da composição não financeira do snapshot hospitalar. */
+  versaoSnapshotHospitalar?: string | null;
   registros: number;
   codigosDistintos: number;
   procedimentos: readonly ProcedimentoMedicoInfo[];
@@ -172,6 +176,8 @@ export interface ContaContextoMedicoRepositorio {
     estabelecimentoId: number;
     convenioId: number;
     referenciasGuias: readonly string[];
+    /** Allowlist usada somente pelo lote durável para nunca escolher snapshot histórico. */
+    arquivoHospitalIdsPermitidos?: readonly number[];
   }): Promise<readonly ScopeContaMedicaNormalizado[]>;
   resolverSnapshotHospitalar(
     scope: ScopeContaMedicaNormalizado
@@ -198,7 +204,10 @@ export interface ContaContextoMedicoRepositorio {
   ): Promise<readonly FonteMedicaPersistida[]>;
   /** Insere apenas se a versão ainda não existir. Nunca faz overwrite em conflito. */
   inserirFonteSeAusente(
-    fonte: Omit<FonteMedicaPersistida, "id" | "criadoEm">
+    fonte: Omit<FonteMedicaPersistida, "id" | "criadoEm"> & {
+      /** Fencing interno de worker, nunca serializado para a tela. */
+      loteClaim?: { id: number; claimToken: string };
+    }
   ): Promise<{
     fonte: FonteMedicaPersistida;
     criada: boolean;
@@ -385,14 +394,14 @@ export function versaoItensHospitalares(
   return hashSemantico(
     itens
       .map(item => ({
-      codigo: codigoNormalizado(item.codigo),
-      tipo: item.tipo,
+        codigo: codigoNormalizado(item.codigo),
+        tipo: item.tipo,
         quantidade:
           item.quantidade === undefined || item.quantidade === null
             ? null
             : String(item.quantidade).trim(),
-      guiaPrestador: codigoNormalizado(item.numeroGuiaPrestador),
-      guiaOperadora: codigoNormalizado(item.numeroGuiaOperadora),
+        guiaPrestador: codigoNormalizado(item.numeroGuiaPrestador),
+        guiaOperadora: codigoNormalizado(item.numeroGuiaOperadora),
       }))
       .sort((a, b) => stable(a).localeCompare(stable(b)))
   );
@@ -481,9 +490,9 @@ function candidatosAtuais(
 ): CandidatoGabarito[] {
   const manuais = gabaritos.filter(
     gabarito =>
-    gabarito.isGabarito &&
-    gabarito.status === "ativo" &&
-    gabarito.estabelecimentoId === scope.estabelecimentoId &&
+      gabarito.isGabarito &&
+      gabarito.status === "ativo" &&
+      gabarito.estabelecimentoId === scope.estabelecimentoId &&
       gabarito.convenioId === scope.convenioId
   );
   return comparar({
@@ -531,16 +540,16 @@ function fontesProcedimentosSemanticos(
 ): readonly ProcedimentoMedicoInfo[] {
   return guia.procedimentos
     .map(procedimento => ({
-    codigo: codigoNormalizado(procedimento.codigo),
-    descricao: procedimento.descricao.trim(),
-    dataExecucao: diaCivil(procedimento.dataExecucao),
+      codigo: codigoNormalizado(procedimento.codigo),
+      descricao: procedimento.descricao.trim(),
+      dataExecucao: diaCivil(procedimento.dataExecucao),
       sequencial: procedimento.sequencial
         ? procedimento.sequencial.trim()
         : null,
       profissionais: procedimento.profissionais
         .map(profissional => ({
-      nome: profissional.nome.trim(),
-      conselho: profissional.conselho ? profissional.conselho.trim() : null,
+          nome: profissional.nome.trim(),
+          conselho: profissional.conselho ? profissional.conselho.trim() : null,
           numeroConselho: profissional.numeroConselho
             ? profissional.numeroConselho.trim()
             : null,
@@ -649,8 +658,8 @@ function correlacionarGuia(
     guiaReferencia,
     avisoData:
       datasMedicas.length === 0 || !possuiDatasHospitalares
-      ? "Datas de execução ausentes em uma das fontes; a correlação foi limitada à guia e ao beneficiário quando informado."
-      : undefined,
+        ? "Datas de execução ausentes em uma das fontes; a correlação foi limitada à guia e ao beneficiário quando informado."
+        : undefined,
   };
 }
 
@@ -761,7 +770,11 @@ export function criarContaContextoMedicoService(
     scope: ScopeContaMedicaNormalizado,
     arquivoMedicoId: number,
     guias: readonly GuiaHonorariosParseada[],
-    hospital: SnapshotHospitalarAutorizado
+    hospital: SnapshotHospitalarAutorizado,
+    proveniencia?: {
+      loteImportacaoId?: number;
+      loteClaim?: { id: number; claimToken: string };
+    }
   ) {
     const avisos = new Set<string>();
     let correlacionadas = 0;
@@ -793,8 +806,13 @@ export function criarContaContextoMedicoService(
       const insertion = await deps.repositorio.inserirFonteSeAusente({
         scope,
         arquivoMedicoId,
+        loteImportacaoId: proveniencia?.loteImportacaoId ?? null,
+        loteClaim: proveniencia?.loteClaim,
         guiaReferencia: match.guiaReferencia,
         versaoSemantica,
+        versaoSnapshotHospitalar: versaoItensHospitalares(
+          hospital.itensHospitalares
+        ),
         registros: procedimentos.length,
         codigosDistintos: new Set(
           procedimentos.map(procedimento => procedimento.codigo)
@@ -816,7 +834,7 @@ export function criarContaContextoMedicoService(
     ]);
     const gabaritoContexto =
       contexto?.padraoId === null || contexto?.padraoId === undefined
-      ? null
+        ? null
         : (gabaritos.find(
             gabarito => gabarito.padraoId === contexto.padraoId
           ) ??
@@ -846,7 +864,7 @@ export function criarContaContextoMedicoService(
       ]);
       const gabaritoContexto =
         contexto?.padraoId === null || contexto?.padraoId === undefined
-        ? null
+          ? null
           : (gabaritos.find(
               gabarito => gabarito.padraoId === contexto.padraoId
             ) ??
@@ -1020,6 +1038,11 @@ export function criarContaContextoMedicoService(
     async indexarAutomaticamente(input: {
       arquivo: ArquivoMedicoAutomatico;
       xml: Buffer;
+      /** Restrição interna do lote: o honorário só pode escolher snapshot recém-materializado. */
+      arquivoHospitalIdsPermitidos?: readonly number[];
+      loteImportacaoId?: number;
+      /** Fencing interno do lote; não vem de router ou tela. */
+      loteClaim?: { id: number; claimToken: string };
     }) {
       if (!(await configurado()))
         erro(
@@ -1066,6 +1089,7 @@ export function criarContaContextoMedicoService(
           estabelecimentoId,
           convenioId,
           referenciasGuias,
+          arquivoHospitalIdsPermitidos: input.arquivoHospitalIdsPermitidos,
         });
 
       // Antes de escrever, cada guia deve apontar para exatamente um snapshot
@@ -1152,7 +1176,11 @@ export function criarContaContextoMedicoService(
           scope,
           arquivoId,
           guias,
-          hospital
+          hospital,
+          {
+            loteImportacaoId: input.loteImportacaoId,
+            loteClaim: input.loteClaim,
+          }
         );
         correlacionadas += resultado.correlacionadas;
         criadas += resultado.criadas;

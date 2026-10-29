@@ -3382,6 +3382,7 @@ export const contasConvenioItens = mysqlTable("contas_convenio_itens", {
   
   // Referência ao arquivo de origem (se veio de XML)
   arquivoId: int("arquivoId"),
+  loteImportacaoId: int("loteImportacaoId"),
   
   // Status da análise de padrões
   statusAnalise: mysqlEnum("statusAnalise", [
@@ -3407,6 +3408,15 @@ export const contasConvenioItens = mysqlTable("contas_convenio_itens", {
   competenciaIdx: index("idx_cci_competencia").on(table.competencia),
   codigoItemIdx: index("idx_cci_codigo_item").on(table.codigoItem),
   guiaIdx: index("idx_cci_guia").on(table.numeroGuia),
+  xmlSnapshotIdx: index("idx_cci_xml_snapshot_scope").on(
+    table.origem,
+    table.estabelecimentoId,
+    table.convenioId,
+    table.arquivoId,
+    table.numeroConta,
+    table.numeroLote,
+    table.competencia,
+  ),
 }));
 
 export type ContaConvenioItem = typeof contasConvenioItens.$inferSelect;
@@ -3425,6 +3435,8 @@ export const contasConvenioResumo = mysqlTable("contas_convenio_resumo", {
   
   // Origem
   origem: mysqlEnum("origem", ["XML", "BANCO_CLIENTE"]).notNull(),
+  arquivoHospitalId: int("arquivoHospitalId"),
+  loteImportacaoId: int("loteImportacaoId"),
   
   // Dados da conta
   convenio: varchar("convenio", { length: 255 }),
@@ -3471,6 +3483,15 @@ export const contasConvenioResumo = mysqlTable("contas_convenio_resumo", {
   numContaLoteEstabIdx: index("idx_ccr_numconta_lote_estab").on(table.numeroConta, table.numeroLote, table.estabelecimentoId),
   convenioIdx: index("idx_ccr_convenio").on(table.convenio),
   statusIdx: index("idx_ccr_status").on(table.statusAnalise),
+  xmlSnapshotIdx: uniqueIndex("uq_ccr_xml_snapshot_scope").on(
+    table.origem,
+    table.estabelecimentoId,
+    table.convenioId,
+    table.arquivoHospitalId,
+    table.numeroConta,
+    table.numeroLote,
+    table.competencia,
+  ),
 }));
 
 export type ContaConvenioResumo = typeof contasConvenioResumo.$inferSelect;
@@ -5141,3 +5162,4 @@ export * from "./schema-conta-contexto-medico";
 export * from "./schema-prontuario-pdf";
 // Controle de lote e agenda do snapshot Hop, sem migração automática.
 export * from "./schema-atendimentos-hop-diario";
+export * from "./schema-xml-importacao-lote";

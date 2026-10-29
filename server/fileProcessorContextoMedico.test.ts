@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   getRawPool: vi.fn(async () => null),
   updateArquivoStatus: vi.fn(async () => {}),
   updateArquivoProgresso: vi.fn(async () => {}),
-  deleteFaturamentoTissByArquivo: vi.fn(async () => 0),
-  insertFaturamentoTissBatch: vi.fn(async () => 0),
+  replaceFaturamentoTissByArquivo: vi.fn(async () => 0),
   getPrestadorPorCodigo: vi.fn(async () => null),
   getDb: vi.fn(async () => null),
   rotear: vi.fn(),
@@ -39,7 +38,7 @@ function resposta() {
 const request = (extra: Record<string, unknown> = {}) => ({
   body: {
     arquivoId: 71,
-    secret: process.env.JWT_SECRET || "internal-process-secret",
+    secret: "s".repeat(32),
     ...extra,
   },
 });
@@ -47,6 +46,7 @@ const request = (extra: Record<string, unknown> = {}) => ({
 describe("worker de envio — contexto médico automático", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("JWT_SECRET", "s".repeat(32));
     mocks.getArquivoById.mockResolvedValue({
       id: 71,
       nome: "sintetico.xml",
@@ -67,7 +67,10 @@ describe("worker de envio — contexto médico automático", () => {
     );
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
 
   it("honorários puro termina no fluxo informativo antes de todo DELETE/INSERT financeiro", async () => {
     mocks.rotear.mockResolvedValue({
@@ -81,8 +84,7 @@ describe("worker de envio — contexto médico automático", () => {
     await handler(request(), resposta());
 
     expect(mocks.rotear).toHaveBeenCalledOnce();
-    expect(mocks.deleteFaturamentoTissByArquivo).not.toHaveBeenCalled();
-    expect(mocks.insertFaturamentoTissBatch).not.toHaveBeenCalled();
+    expect(mocks.replaceFaturamentoTissByArquivo).not.toHaveBeenCalled();
     expect(mocks.updateArquivoStatus).toHaveBeenCalledWith(71, "processado");
   });
 
@@ -112,22 +114,19 @@ describe("worker de envio — contexto médico automático", () => {
         },
       ],
     });
-    mocks.insertFaturamentoTissBatch.mockImplementationOnce(
-      async (registros, onProgress) => {
-        await onProgress(50, 1, 2);
-        return registros.length;
-      }
+    mocks.replaceFaturamentoTissByArquivo.mockImplementationOnce(
+      async (_arquivoId, registros) => registros.length
     );
 
     await handler(request({ skipContaConvenioSync: true }), resposta());
 
-    const [registros] = mocks.insertFaturamentoTissBatch.mock.calls[0];
+    const [, registros] = mocks.replaceFaturamentoTissByArquivo.mock.calls[0];
     expect(
       registros.map((registro: any) => registro.estabelecimentoId)
     ).toEqual([9, 3]);
     expect(mocks.getPrestadorPorCodigo).toHaveBeenCalledWith("VINCULADO", 2);
     expect(mocks.getPrestadorPorCodigo).toHaveBeenCalledWith("SEM-VINCULO", 2);
-    expect(mocks.updateArquivoProgresso).toHaveBeenCalledWith(71, 50, 1, 2);
+    expect(mocks.updateArquivoProgresso).toHaveBeenCalledWith(71, 90, 2, 2);
     expect(mocks.updateArquivoStatus).toHaveBeenCalledWith(71, "processado");
   });
 
@@ -137,8 +136,7 @@ describe("worker de envio — contexto médico automático", () => {
 
     await handler(request(), res);
 
-    expect(mocks.deleteFaturamentoTissByArquivo).not.toHaveBeenCalled();
-    expect(mocks.insertFaturamentoTissBatch).not.toHaveBeenCalled();
+    expect(mocks.replaceFaturamentoTissByArquivo).not.toHaveBeenCalled();
     expect(mocks.updateArquivoStatus).toHaveBeenCalledWith(71, "erro");
     expect(res.status).toHaveBeenCalledWith(500);
   });
@@ -149,8 +147,7 @@ describe("worker de envio — contexto médico automático", () => {
 
     await handler(request(), res);
 
-    expect(mocks.deleteFaturamentoTissByArquivo).not.toHaveBeenCalled();
-    expect(mocks.insertFaturamentoTissBatch).not.toHaveBeenCalled();
+    expect(mocks.replaceFaturamentoTissByArquivo).not.toHaveBeenCalled();
     expect(mocks.updateArquivoStatus).toHaveBeenCalledWith(71, "erro");
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({ error: "Processing failed" });

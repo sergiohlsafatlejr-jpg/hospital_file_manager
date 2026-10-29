@@ -438,18 +438,23 @@ router.post(
   }
 );
 
+async function autenticarAntesDoUpload(req: Request, res: Response, next: () => void) {
+  try {
+    res.locals.uploadUser = await sdk.authenticateRequest(req);
+    next();
+  } catch {
+    res.status(401).json({ error: "Não autenticado" });
+  }
+}
+
 router.post(
   "/api/upload-file",
+  autenticarAntesDoUpload,
   upload.single("file"),
   async (req: Request, res: Response) => {
   try {
-    // Verificar autenticação via SDK (mesma lógica do tRPC context)
-    let user;
-    try {
-      user = await sdk.authenticateRequest(req);
-    } catch (e) {
-        return res.status(401).json({ error: "Não autenticado" });
-    }
+    const user = res.locals.uploadUser;
+    if (!user) return res.status(401).json({ error: "Não autenticado" });
     const userId = user.id;
 
     const file = req.file;
@@ -475,6 +480,12 @@ router.post(
             error:
               "Campos obrigatórios: nome, tipoArquivo, direcao, convenioId",
           });
+    }
+
+    if (tipoArquivo === "xml" && direcao === "enviado") {
+      return res.status(400).json({
+        error: "Envie XMLs de guias pelo lote protegido na tela de Upload.",
+      });
     }
 
     const buffer = file.buffer;

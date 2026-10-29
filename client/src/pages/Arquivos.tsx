@@ -12,7 +12,6 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   Eye,
-  Download,
   Loader2,
   Trash2,
   RefreshCw,
@@ -399,13 +398,6 @@ export default function Arquivos() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => window.open(arquivo.s3Url, "_blank")}
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
                               className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
                               onClick={() => handleGerarInsights(arquivo)}
                               disabled={isGeneratingInsights === arquivo.id || arquivo.status !== "processado"}
@@ -422,8 +414,8 @@ export default function Arquivos() {
                               size="sm"
                               className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                               onClick={() => handleReprocessar(arquivo.id)}
-                              disabled={isReprocessing === arquivo.id}
-                              title="Reprocessar arquivo"
+                              disabled={isReprocessing === arquivo.id || arquivo.loteProtegido}
+                              title={arquivo.loteProtegido ? "O lote protegido é retomado automaticamente" : "Reprocessar arquivo"}
                             >
                               {isReprocessing === arquivo.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -436,6 +428,8 @@ export default function Arquivos() {
                               size="sm"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               onClick={() => setArquivoToDelete({ id: arquivo.id, nome: arquivo.nome })}
+                              disabled={arquivo.loteProtegido}
+                              title={arquivo.loteProtegido ? "O lote protegido não pode ser excluído por esta tela" : "Excluir arquivo"}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

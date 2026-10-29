@@ -1,14 +1,38 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
-import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Plus, Loader2, X, Files, Search, Database, ArrowRight } from "lucide-react";
+import {
+  Upload as UploadIcon,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Plus,
+  Loader2,
+  X,
+  Files,
+  Search,
+  Database,
+  ArrowRight,
+} from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import {
@@ -29,10 +53,21 @@ interface FileItem {
 
 const MAX_FILES = 30;
 
+function detectFileType(file: File): "xml" | "excel" | "pdf" | "csv" {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "xml") return "xml";
+  if (ext === "xlsx" || ext === "xls") return "excel";
+  if (ext === "csv") return "csv";
+  if (ext === "pdf") return "pdf";
+  return "xml";
+}
+
 export default function Upload() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [direcao, setDirecao] = useState<"enviado" | "retornado">("enviado");
+  const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] =
+    useState<string>("");
   const [convenioId, setConvenioId] = useState<string>("");
   const [dataReferencia, setDataReferencia] = useState<string>("");
   const [dataPagamento, setDataPagamento] = useState<string>("");
@@ -43,123 +78,51 @@ export default function Upload() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xmlLoteIdempotencyRef = useRef<{
+    assinatura: string;
+    chave: string;
+  } | null>(null);
 
-  const { data: convenios, refetch: refetchConvenios } = trpc.convenios.list.useQuery({ ativo: "sim" });
+  const { data: convenios, refetch: refetchConvenios } =
+    trpc.convenios.list.useQuery({ ativo: "sim" });
   const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery({});
   const uploadMutation = trpc.arquivos.upload.useMutation();
-  const detectarPrestadoresMutation = trpc.arquivos.detectarPrestadores.useMutation();
   const criarConvenioMutation = trpc.convenios.create.useMutation();
   const utils = trpc.useUtils();
 
-  // Estado para detecção automática de prestador
-  const [prestadorDetectado, setPrestadorDetectado] = useState<{
-    codigoPrestador: string;
-    estabelecimentoId: number;
-    estabelecimentoNome: string;
-    convenioNome: string;
-  } | null>(null);
-  const [prestadoresNaoCadastrados, setPrestadoresNaoCadastrados] = useState<string[]>([]);
-  const [isDetectando, setIsDetectando] = useState(false);
-  const [estabelecimentoSelecionado, setEstabelecimentoSelecionado] = useState<string>("");
-
-  const detectFileType = (file: File): "xml" | "excel" | "pdf" | "csv" => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    if (ext === "xml") return "xml";
-    if (ext === "xlsx" || ext === "xls") return "excel";
-    if (ext === "csv") return "csv";
-    if (ext === "pdf") return "pdf";
-    return "xml";
-  };
-
-  // Função para detectar prestadores de um arquivo XML
-  const detectarPrestadorDoArquivo = useCallback(async (file: File) => {
-    if (detectFileType(file) !== "xml" || !convenioId) return;
-    
-    setIsDetectando(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const CHUNK_SIZE = 32768;
-      let base64 = '';
-      for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-        const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
-        base64 += String.fromCharCode.apply(null, Array.from(chunk));
-      }
-      base64 = btoa(base64);
-
-      const result = await detectarPrestadoresMutation.mutateAsync({
-        conteudo: base64,
-        convenioId: parseInt(convenioId),
-      });
-
-      if (result.success && result.estabelecimentoSugerido) {
-        setPrestadorDetectado(result.estabelecimentoSugerido);
-        setEstabelecimentoSelecionado(result.estabelecimentoSugerido.estabelecimentoId.toString());
-        toast.success(
-          `Prestador detectado: ${result.estabelecimentoSugerido.codigoPrestador} - ${result.estabelecimentoSugerido.estabelecimentoNome}`,
-          { duration: 5000 }
-        );
-      }
-
-      // Mostrar mensagem sobre prestadores cadastrados automaticamente como terceiros
-      if (result.prestadoresCadastradosAuto && result.prestadoresCadastradosAuto.length > 0) {
-        toast.success(
-          `${result.prestadoresCadastradosAuto.length} prestador(es) terceiro(s) cadastrado(s) automaticamente: ${result.prestadoresCadastradosAuto.join(", ")}`,
-          { duration: 8000 }
-        );
-      }
-      
-      // Mostrar aviso para prestadores que não puderam ser cadastrados (sem prestador principal detectado)
-      const naoCadastrados = result.prestadoresNaoCadastrados?.filter(
-        (c: string) => !result.prestadoresCadastradosAuto?.includes(c)
-      ) || [];
-      if (naoCadastrados.length > 0) {
-        setPrestadoresNaoCadastrados(naoCadastrados);
-        toast.warning(
-          `${naoCadastrados.length} prestador(es) não cadastrado(s): ${naoCadastrados.join(", ")}`,
-          { duration: 8000 }
-        );
-      } else {
-        setPrestadoresNaoCadastrados([]);
-      }
-    } catch (error) {
-      console.error("Erro ao detectar prestador:", error);
-    } finally {
-      setIsDetectando(false);
-    }
-  }, [convenioId, detectarPrestadoresMutation]);
-
   const addFiles = useCallback((files: FileList | File[]) => {
+    xmlLoteIdempotencyRef.current = null;
     const fileArray = Array.from(files);
     const validExtensions = [".xml", ".xlsx", ".xls", ".pdf"];
-    
+
     const validFiles = fileArray.filter(file => {
       const ext = "." + file.name.split(".").pop()?.toLowerCase();
       return validExtensions.includes(ext);
     });
 
     if (validFiles.length !== fileArray.length) {
-      toast.warning("Alguns arquivos foram ignorados. Formatos aceitos: XML, Excel, PDF");
+      toast.warning(
+        "Alguns arquivos foram ignorados. Formatos aceitos: XML, Excel, PDF"
+      );
     }
 
     setSelectedFiles(prev => {
-      const newFiles = validFiles.map(file => ({ file, status: "pending" as const }));
+      const newFiles = validFiles.map(file => ({
+        file,
+        status: "pending" as const,
+      }));
       const combined = [...prev, ...newFiles];
-      
+
       if (combined.length > MAX_FILES) {
-        toast.error(`Máximo de ${MAX_FILES} arquivos permitidos. Alguns arquivos foram ignorados.`);
+        toast.error(
+          `Máximo de ${MAX_FILES} arquivos permitidos. Alguns arquivos foram ignorados.`
+        );
         return combined.slice(0, MAX_FILES);
       }
-      
+
       return combined;
     });
-
-    // Detectar prestador do primeiro arquivo XML
-    const primeiroXml = validFiles.find(f => detectFileType(f) === "xml");
-    if (primeiroXml && convenioId) {
-      detectarPrestadorDoArquivo(primeiroXml);
-    }
-  }, [convenioId, detectarPrestadorDoArquivo]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -184,22 +147,27 @@ export default function Upload() {
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) {
-      addFiles(files);
-    }
-  }, [addFiles]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        addFiles(files);
+      }
+    },
+    [addFiles]
+  );
 
   const removeFile = (index: number) => {
+    xmlLoteIdempotencyRef.current = null;
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const clearAllFiles = () => {
+    xmlLoteIdempotencyRef.current = null;
     setSelectedFiles([]);
   };
 
@@ -212,26 +180,184 @@ export default function Upload() {
     setIsUploading(true);
     setUploadProgress(0);
 
-    const pendingFiles = selectedFiles.filter(f => f.status === "pending" || f.status === "error");
+    const pendingFiles = selectedFiles.filter(
+      f => f.status === "pending" || f.status === "error"
+    );
+    const estabId = estabelecimentoSelecionado
+      ? parseInt(estabelecimentoSelecionado)
+      : estabelecimentoAtual?.id || 0;
+    const possuiXmlDeEnvio =
+      direcao === "enviado" &&
+      pendingFiles.some(item => detectFileType(item.file) === "xml");
+
+    if (
+      possuiXmlDeEnvio &&
+      !pendingFiles.every(item => detectFileType(item.file) === "xml")
+    ) {
+      toast.error(
+        "Envie XMLs de guias em uma seleção exclusiva; arquivos Excel e PDF devem ser enviados separadamente."
+      );
+      setIsUploading(false);
+      return;
+    }
+
+    // XMLs de envio entram juntos em um lote durável: primeiro todos os
+    // snapshots hospitalares são publicados, depois os honorários são ligados
+    // apenas aos snapshots do mesmo lote. Outros formatos seguem o fluxo legado.
+    if (
+      direcao === "enviado" &&
+      pendingFiles.length > 0 &&
+      pendingFiles.every(item => detectFileType(item.file) === "xml")
+    ) {
+      if (!Number.isSafeInteger(estabId) || estabId <= 0) {
+        toast.error(
+          "Selecione um estabelecimento válido antes de enviar os XMLs."
+        );
+        setIsUploading(false);
+        return;
+      }
+      setSelectedFiles(prev =>
+        prev.map(item =>
+          pendingFiles.some(pending => pending.file === item.file)
+            ? { ...item, status: "uploading" as const, error: undefined }
+            : item
+        )
+      );
+      try {
+        const form = new FormData();
+        pendingFiles.forEach(item =>
+          form.append("files", item.file, item.file.name)
+        );
+        const assinatura = JSON.stringify({
+          estabelecimentoId: estabId,
+          convenioId,
+          dataReferencia,
+          dataPagamento,
+          arquivos: pendingFiles.map(item => [
+            item.file.name,
+            item.file.size,
+            item.file.lastModified,
+          ]),
+        });
+        if (xmlLoteIdempotencyRef.current?.assinatura !== assinatura) {
+          xmlLoteIdempotencyRef.current = {
+            assinatura,
+            chave: crypto.randomUUID().replace(/-/g, ""),
+          };
+        }
+        const response = await fetch("/api/xml-importacoes/lotes", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "x-estabelecimento-id": String(estabId),
+            "x-convenio-id": convenioId,
+            "x-idempotency-key": xmlLoteIdempotencyRef.current.chave,
+            ...(dataReferencia ? { "x-data-referencia": dataReferencia } : {}),
+            ...(dataPagamento ? { "x-data-pagamento": dataPagamento } : {}),
+          },
+          body: form,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok)
+          throw new Error(
+            payload?.error || "Não foi possível iniciar o lote XML."
+          );
+        if (payload?.lote?.estado === "recebendo") {
+          throw new Error(
+            "O lote aguarda nova tentativa de armazenamento protegido. Reenvie todos os XMLs desta seleção."
+          );
+        }
+        setSelectedFiles(prev =>
+          prev.map(item =>
+            pendingFiles.some(pending => pending.file === item.file)
+              ? { ...item, status: "success" as const, error: undefined }
+              : item
+          )
+        );
+        setUploadProgress(100);
+        toast.success(
+          `${pendingFiles.length} XML(s) enviados em um único lote. O processamento hospitalar e médico foi enfileirado.`,
+          {
+            duration: 7000,
+          }
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Erro ao iniciar o lote XML.";
+        setSelectedFiles(prev =>
+          prev.map(item =>
+            pendingFiles.some(pending => pending.file === item.file)
+              ? { ...item, status: "error" as const, error: message }
+              : item
+          )
+        );
+        toast.error(message);
+      } finally {
+        utils.arquivos.list.invalidate();
+        utils.arquivos.stats.invalidate();
+        utils.dashboard.resumo.invalidate();
+        utils.dashboard.ultimosArquivos.invalidate();
+        setIsUploading(false);
+      }
+      return;
+    }
+
+    if (
+      direcao === "enviado" &&
+      pendingFiles.some(item => detectFileType(item.file) === "xml")
+    ) {
+      setSelectedFiles(prev =>
+        prev.map(item =>
+          pendingFiles.some(pending => pending.file === item.file)
+            ? {
+                ...item,
+                status: "error" as const,
+                error:
+                  "Envie os XMLs de guias em uma seleção separada dos demais formatos.",
+              }
+            : item
+        )
+      );
+      toast.error(
+        "Envie os XMLs de guias separadamente para manter a associação hospitalar e médica no mesmo lote protegido."
+      );
+      setIsUploading(false);
+      return;
+    }
+
     let successCount = 0;
     let errorCount = 0;
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const fileItem = pendingFiles[i];
       const fileIndex = selectedFiles.findIndex(f => f.file === fileItem.file);
-      
+
       // Update status to uploading
-      setSelectedFiles(prev => prev.map((f, idx) => 
-        idx === fileIndex ? { ...f, status: "uploading" as const } : f
-      ));
+      setSelectedFiles(prev =>
+        prev.map((f, idx) =>
+          idx === fileIndex ? { ...f, status: "uploading" as const } : f
+        )
+      );
 
       try {
         // Validar arquivo vazio antes de enviar
         if (fileItem.file.size === 0) {
-          toast.error(`Arquivo "${fileItem.file.name}" está vazio (0 bytes). Verifique o arquivo e tente novamente.`);
-          setSelectedFiles(prev => prev.map((f, idx) => 
-            idx === fileIndex ? { ...f, status: "error" as const, error: "Arquivo vazio (0 bytes)" } : f
-          ));
+          toast.error(
+            `Arquivo "${fileItem.file.name}" está vazio (0 bytes). Verifique o arquivo e tente novamente.`
+          );
+          setSelectedFiles(prev =>
+            prev.map((f, idx) =>
+              idx === fileIndex
+                ? {
+                    ...f,
+                    status: "error" as const,
+                    error: "Arquivo vazio (0 bytes)",
+                  }
+                : f
+            )
+          );
           errorCount++;
           setUploadProgress(Math.round(((i + 1) / pendingFiles.length) * 100));
           continue;
@@ -240,30 +366,32 @@ export default function Upload() {
         // Show progress for large files
         const fileSizeMB = fileItem.file.size / (1024 * 1024);
         if (fileSizeMB > 1) {
-          toast.info(`Processando ${fileItem.file.name} (${fileSizeMB.toFixed(1)} MB)...`, {
-            id: `processing-${fileIndex}`,
-            duration: 60000,
-          });
+          toast.info(
+            `Processando ${fileItem.file.name} (${fileSizeMB.toFixed(1)} MB)...`,
+            {
+              id: `processing-${fileIndex}`,
+              duration: 60000,
+            }
+          );
         }
-        
+
         // Convert file to base64 with optimized chunked processing
         const buffer = await fileItem.file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        
+
         // Use chunked base64 encoding for large files to avoid stack overflow
         const CHUNK_SIZE = 32768; // 32KB chunks
-        let base64 = '';
+        let base64 = "";
         for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-          const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+          const chunk = bytes.subarray(
+            i,
+            Math.min(i + CHUNK_SIZE, bytes.length)
+          );
           base64 += String.fromCharCode.apply(null, Array.from(chunk));
         }
         base64 = btoa(base64);
 
         // Usar estabelecimento selecionado, detectado ou o atual do contexto
-        const estabId = estabelecimentoSelecionado 
-          ? parseInt(estabelecimentoSelecionado) 
-          : (prestadorDetectado?.estabelecimentoId || estabelecimentoAtual?.id || 0);
-
         const result = await uploadMutation.mutateAsync({
           nome: fileItem.file.name,
           tipoArquivo: detectFileType(fileItem.file),
@@ -277,29 +405,41 @@ export default function Upload() {
 
         // Dismiss processing toast
         toast.dismiss(`processing-${fileIndex}`);
-        
+
         // Update status to success
-        setSelectedFiles(prev => prev.map((f, idx) => 
-          idx === fileIndex ? { ...f, status: "success" as const } : f
-        ));
-        
+        setSelectedFiles(prev =>
+          prev.map((f, idx) =>
+            idx === fileIndex ? { ...f, status: "success" as const } : f
+          )
+        );
+
         // Mostrar feedback se foi reimportação ou processamento em background
         if (result.reimportado) {
-          toast.info(`Arquivo "${fileItem.file.name}" atualizado (reimportação)`);
+          toast.info(
+            `Arquivo "${fileItem.file.name}" atualizado (reimportação)`
+          );
         }
         if (result.processandoEmBackground) {
-          toast.info(`Arquivo "${fileItem.file.name}" enviado! Processamento em andamento...`, {
-            duration: 5000,
-            description: "Você pode continuar navegando. O progresso será atualizado automaticamente."
-          });
+          toast.info(
+            `Arquivo "${fileItem.file.name}" enviado! Processamento em andamento...`,
+            {
+              duration: 5000,
+              description:
+                "Você pode continuar navegando. O progresso será atualizado automaticamente.",
+            }
+          );
         }
         successCount++;
       } catch (error) {
         console.error("Upload error:", error);
         // Update status to error
-        setSelectedFiles(prev => prev.map((f, idx) => 
-          idx === fileIndex ? { ...f, status: "error" as const, error: "Erro ao enviar" } : f
-        ));
+        setSelectedFiles(prev =>
+          prev.map((f, idx) =>
+            idx === fileIndex
+              ? { ...f, status: "error" as const, error: "Erro ao enviar" }
+              : f
+          )
+        );
         errorCount++;
       }
 
@@ -311,7 +451,9 @@ export default function Upload() {
     if (successCount > 0 && errorCount === 0) {
       toast.success(`${successCount} arquivo(s) enviado(s) com sucesso!`);
     } else if (successCount > 0 && errorCount > 0) {
-      toast.warning(`${successCount} arquivo(s) enviado(s), ${errorCount} com erro`);
+      toast.warning(
+        `${successCount} arquivo(s) enviado(s), ${errorCount} com erro`
+      );
     } else if (errorCount > 0) {
       toast.error(`Erro ao enviar ${errorCount} arquivo(s)`);
     }
@@ -358,9 +500,12 @@ export default function Upload() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Upload de Arquivos</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Upload de Arquivos
+          </h1>
           <p className="text-slate-500">
-            Envie até {MAX_FILES} arquivos XML, Excel ou PDF de uma vez. O processamento começa após o envio.
+            Envie até {MAX_FILES} arquivos XML, Excel ou PDF de uma vez. O
+            processamento começa após o envio.
           </p>
         </div>
 
@@ -377,7 +522,8 @@ export default function Upload() {
                 )}
               </CardTitle>
               <CardDescription>
-                Arraste e solte os arquivos ou clique para selecionar. Após o envio, o processamento continua em segundo plano.
+                Arraste e solte os arquivos ou clique para selecionar. Após o
+                envio, o processamento continua em segundo plano.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -387,8 +533,8 @@ export default function Upload() {
                   isDragOver
                     ? "border-primary bg-primary/5 scale-[1.02]"
                     : selectedFiles.length > 0
-                    ? "border-green-300 bg-green-50"
-                    : "border-slate-200 hover:border-primary hover:bg-slate-50"
+                      ? "border-green-300 bg-green-50"
+                      : "border-slate-200 hover:border-primary hover:bg-slate-50"
                 }`}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={handleDragOver}
@@ -406,7 +552,9 @@ export default function Upload() {
                 {isDragOver ? (
                   <div className="flex flex-col items-center gap-3">
                     <Files className="h-12 w-12 text-primary animate-bounce" />
-                    <p className="font-medium text-primary">Solte os arquivos aqui</p>
+                    <p className="font-medium text-primary">
+                      Solte os arquivos aqui
+                    </p>
                   </div>
                 ) : selectedFiles.length > 0 ? (
                   <div className="flex flex-col items-center gap-3">
@@ -424,15 +572,22 @@ export default function Upload() {
                   <div className="flex flex-col items-center gap-3">
                     <UploadIcon className="h-12 w-12 text-slate-400" />
                     <div>
-                      <p className="font-medium text-slate-900">Arraste e solte os arquivos aqui</p>
-                      <p className="text-sm text-slate-500">ou clique para selecionar</p>
+                      <p className="font-medium text-slate-900">
+                        Arraste e solte os arquivos aqui
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        ou clique para selecionar
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-400">XML, Excel (.xlsx), CSV ou PDF • Até {MAX_FILES} arquivos</p>
+                    <p className="text-xs text-slate-400">
+                      XML, Excel (.xlsx), CSV ou PDF • Até {MAX_FILES} arquivos
+                    </p>
                   </div>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                XML de honorários é somente informativo e aguarda associação segura à conta; não altera a cobrança no envio.
+                XML de honorários é somente informativo e aguarda associação
+                segura à conta; não altera a cobrança no envio.
               </p>
 
               {/* File List */}
@@ -440,7 +595,12 @@ export default function Upload() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Arquivos selecionados</Label>
-                    <Button variant="ghost" size="sm" onClick={clearAllFiles} className="text-xs h-auto py-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAllFiles}
+                      className="text-xs h-auto py-1"
+                    >
                       Limpar todos
                     </Button>
                   </div>
@@ -452,10 +612,10 @@ export default function Upload() {
                           item.status === "success"
                             ? "bg-green-50 text-green-700"
                             : item.status === "error"
-                            ? "bg-red-50 text-red-700"
-                            : item.status === "uploading"
-                            ? "bg-blue-50 text-blue-700"
-                            : "bg-slate-50 text-slate-700"
+                              ? "bg-red-50 text-red-700"
+                              : item.status === "uploading"
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-slate-50 text-slate-700"
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -484,7 +644,7 @@ export default function Upload() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"
-                            onClick={(e) => {
+                            onClick={e => {
                               e.stopPropagation();
                               removeFile(index);
                             }}
@@ -498,10 +658,14 @@ export default function Upload() {
                   {(successCount > 0 || errorCount > 0) && (
                     <div className="flex gap-4 text-xs text-slate-500 pt-2">
                       {successCount > 0 && (
-                        <span className="text-green-600">✓ {successCount} enviado(s)</span>
+                        <span className="text-green-600">
+                          ✓ {successCount} enviado(s)
+                        </span>
                       )}
                       {errorCount > 0 && (
-                        <span className="text-red-600">✗ {errorCount} com erro</span>
+                        <span className="text-red-600">
+                          ✗ {errorCount} com erro
+                        </span>
                       )}
                       {pendingCount > 0 && (
                         <span>• {pendingCount} pendente(s)</span>
@@ -513,22 +677,49 @@ export default function Upload() {
 
               {/* Upload Progress */}
               {isUploading && (
-                <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200" role="status" aria-live="polite">
+                <div
+                  className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200"
+                  role="status"
+                  aria-live="polite"
+                >
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span className="font-medium text-blue-900">Enviando arquivos; o processamento começa após cada envio.</span>
+                    <span className="font-medium text-blue-900">
+                      Enviando arquivos; o processamento começa após cada envio.
+                    </span>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm text-blue-700">
                       <span>
-                        Arquivo {Math.min(Math.ceil((uploadProgress / 100) * selectedFiles.filter(f => f.status === "pending" || f.status === "error").length) || 1, selectedFiles.filter(f => f.status === "pending" || f.status === "error").length)} de {selectedFiles.filter(f => f.status === "pending" || f.status === "error").length}
+                        Arquivo{" "}
+                        {Math.min(
+                          Math.ceil(
+                            (uploadProgress / 100) *
+                              selectedFiles.filter(
+                                f =>
+                                  f.status === "pending" || f.status === "error"
+                              ).length
+                          ) || 1,
+                          selectedFiles.filter(
+                            f => f.status === "pending" || f.status === "error"
+                          ).length
+                        )}{" "}
+                        de{" "}
+                        {
+                          selectedFiles.filter(
+                            f => f.status === "pending" || f.status === "error"
+                          ).length
+                        }
                       </span>
                       <span className="font-medium">{uploadProgress}%</span>
                     </div>
                     <Progress value={uploadProgress} className="h-2" />
                   </div>
                   <p className="text-xs text-blue-600">
-                    O processamento dos itens ocorre em segundo plano após o upload. XML de honorários permanece apenas informativo e aguarda associação segura à conta. Você pode acompanhar o progresso na tela de Arquivos.
+                    O processamento dos itens ocorre em segundo plano após o
+                    upload. XML de honorários permanece apenas informativo e
+                    aguarda associação segura à conta. Você pode acompanhar o
+                    progresso na tela de Arquivos.
                   </p>
                 </div>
               )}
@@ -537,13 +728,20 @@ export default function Upload() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="direcao">Direção</Label>
-                  <Select value={direcao} onValueChange={(v) => setDirecao(v as typeof direcao)}>
+                  <Select
+                    value={direcao}
+                    onValueChange={v => setDirecao(v as typeof direcao)}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="enviado">Enviado ao Convênio</SelectItem>
-                      <SelectItem value="retornado">Retornado do Convênio</SelectItem>
+                      <SelectItem value="enviado">
+                        Enviado ao Convênio
+                      </SelectItem>
+                      <SelectItem value="retornado">
+                        Retornado do Convênio
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -553,7 +751,11 @@ export default function Upload() {
                     <Label htmlFor="convenio">Convênio</Label>
                     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-auto py-1 px-2 text-xs">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto py-1 px-2 text-xs"
+                        >
                           <Plus className="h-3 w-3 mr-1" />
                           Novo
                         </Button>
@@ -567,29 +769,43 @@ export default function Upload() {
                         </DialogHeader>
                         <div className="space-y-4 py-4">
                           <div className="space-y-2">
-                            <Label htmlFor="nomeConvenio">Nome do Convênio</Label>
+                            <Label htmlFor="nomeConvenio">
+                              Nome do Convênio
+                            </Label>
                             <Input
                               id="nomeConvenio"
                               value={novoConvenioNome}
-                              onChange={(e) => setNovoConvenioNome(e.target.value)}
+                              onChange={e =>
+                                setNovoConvenioNome(e.target.value)
+                              }
                               placeholder="Ex: Unimed, Bradesco Saúde..."
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="codigoConvenio">Código (opcional)</Label>
+                            <Label htmlFor="codigoConvenio">
+                              Código (opcional)
+                            </Label>
                             <Input
                               id="codigoConvenio"
                               value={novoConvenioCodigo}
-                              onChange={(e) => setNovoConvenioCodigo(e.target.value)}
+                              onChange={e =>
+                                setNovoConvenioCodigo(e.target.value)
+                              }
                               placeholder="Ex: 001, UNI..."
                             />
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                          <Button
+                            variant="outline"
+                            onClick={() => setDialogOpen(false)}
+                          >
                             Cancelar
                           </Button>
-                          <Button onClick={handleCriarConvenio} disabled={criarConvenioMutation.isPending}>
+                          <Button
+                            onClick={handleCriarConvenio}
+                            disabled={criarConvenioMutation.isPending}
+                          >
                             {criarConvenioMutation.isPending ? (
                               <Loader2 className="h-4 w-4 animate-spin mr-2" />
                             ) : null}
@@ -604,7 +820,7 @@ export default function Upload() {
                       <SelectValue placeholder="Selecione um convênio" />
                     </SelectTrigger>
                     <SelectContent>
-                      {convenios?.map((conv) => (
+                      {convenios?.map(conv => (
                         <SelectItem key={conv.id} value={conv.id.toString()}>
                           {conv.nome} {conv.codigo ? `(${conv.codigo})` : ""}
                         </SelectItem>
@@ -614,124 +830,99 @@ export default function Upload() {
                 </div>
               </div>
 
-              {/* Seleção de Estabelecimento */}
+              {/* A unidade é sempre uma decisão explícita do usuário. */}
               <div className="space-y-2">
                 <Label htmlFor="estabelecimento">Estabelecimento</Label>
-                {prestadorDetectado ? (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center gap-2 text-green-700">
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span className="font-medium">Prestador detectado automaticamente</span>
-                    </div>
-                    <p className="text-sm text-green-600 mt-1">
-                      Código: <span className="font-mono">{prestadorDetectado.codigoPrestador}</span> → {prestadorDetectado.estabelecimentoNome}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2 h-auto py-1 px-2 text-xs text-green-700"
-                      onClick={() => {
-                        setPrestadorDetectado(null);
-                        setEstabelecimentoSelecionado("");
-                      }}
-                    >
-                      Alterar estabelecimento
-                    </Button>
-                  </div>
-                ) : (
-                  <Select 
-                    value={estabelecimentoSelecionado || (estabelecimentoAtual?.id?.toString() || "")}
-                    onValueChange={setEstabelecimentoSelecionado}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um estabelecimento" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {estabelecimentos?.map((est) => (
-                        <SelectItem key={est.id} value={est.id.toString()}>
-                          {est.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {isDetectando && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Detectando prestador do XML...
-                  </div>
-                )}
-              </div>
-
-              {/* Alerta de prestadores não cadastrados */}
-              {prestadoresNaoCadastrados.length > 0 && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-yellow-700">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="font-medium">Prestadores não cadastrados</span>
-                  </div>
-                  <p className="text-sm text-yellow-600 mt-1">
-                    Os seguintes códigos de prestador não puderam ser cadastrados automaticamente (nenhum prestador principal detectado):
-                  </p>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {prestadoresNaoCadastrados.map((codigo) => (
-                      <span key={codigo} className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-mono rounded">
-                        {codigo}
-                      </span>
+                <Select
+                  value={
+                    estabelecimentoSelecionado ||
+                    estabelecimentoAtual?.id?.toString() ||
+                    ""
+                  }
+                  onValueChange={setEstabelecimentoSelecionado}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um estabelecimento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {estabelecimentos?.map(est => (
+                      <SelectItem key={est.id} value={est.id.toString()}>
+                        {est.nome}
+                      </SelectItem>
                     ))}
-                  </div>
-                  <p className="text-xs text-yellow-600 mt-2">
-                    Selecione um convênio para que os terceiros sejam cadastrados automaticamente, ou cadastre manualmente em Configurações → Prestadores.
-                  </p>
-                </div>
-              )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Para XMLs enviados, a unidade e o convênio selecionados
+                  definem o escopo protegido do lote.
+                </p>
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="dataReferencia">
-                  {direcao === "enviado" ? "Competência das guias (data de referência)" : "Competência do demonstrativo (data de referência)"}
+                  {direcao === "enviado"
+                    ? "Competência das guias (data de referência)"
+                    : "Competência do demonstrativo (data de referência)"}
                 </Label>
                 <Input
                   id="dataReferencia"
                   type="date"
                   value={dataReferencia}
-                  onChange={(e) => setDataReferencia(e.target.value)}
+                  onChange={e => setDataReferencia(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Informe o mês ao qual os atendimentos pertencem (preferencialmente dia 01), não a data do upload nem a data do pagamento.
+                  Informe o mês ao qual os atendimentos pertencem
+                  (preferencialmente dia 01), não a data do upload nem a data do
+                  pagamento.
                 </p>
               </div>
 
               {/* Campo de Data de Pagamento - aparece apenas para arquivos retornados */}
               {direcao === "retornado" && (
                 <div className="space-y-2">
-                  <Label htmlFor="dataPagamento">Data de Pagamento (opcional)</Label>
+                  <Label htmlFor="dataPagamento">
+                    Data de Pagamento (opcional)
+                  </Label>
                   <Input
                     id="dataPagamento"
                     type="date"
                     value={dataPagamento}
-                    onChange={(e) => setDataPagamento(e.target.value)}
+                    onChange={e => setDataPagamento(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Informe a data de pagamento para calcular o prazo de recurso de glosa
+                    Informe a data de pagamento para calcular o prazo de recurso
+                    de glosa
                   </p>
                 </div>
               )}
 
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 size="lg"
                 onClick={handleUpload}
-                disabled={selectedFiles.length === 0 || !convenioId || isUploading || pendingCount === 0}
+                disabled={
+                  selectedFiles.length === 0 ||
+                  !convenioId ||
+                  isUploading ||
+                  pendingCount === 0
+                }
               >
                 {isUploading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Enviando {selectedFiles.filter(f => f.status === "uploading").length > 0 ? "..." : ""}
+                    Enviando{" "}
+                    {selectedFiles.filter(f => f.status === "uploading")
+                      .length > 0
+                      ? "..."
+                      : ""}
                   </>
                 ) : (
                   <>
                     <UploadIcon className="h-4 w-4 mr-2" />
-                    Enviar {pendingCount > 0 ? `${pendingCount} Arquivo(s)` : "Arquivos"}
+                    Enviar{" "}
+                    {pendingCount > 0
+                      ? `${pendingCount} Arquivo(s)`
+                      : "Arquivos"}
                   </>
                 )}
               </Button>
@@ -750,9 +941,12 @@ export default function Upload() {
                     <span className="text-sm font-medium text-blue-600">1</span>
                   </div>
                   <div>
-                    <p className="font-medium text-slate-900">Arraste ou selecione os arquivos</p>
+                    <p className="font-medium text-slate-900">
+                      Arraste ou selecione os arquivos
+                    </p>
                     <p className="text-sm text-slate-500">
-                      Até {MAX_FILES} arquivos por vez: XML (TISS), Excel (.xlsx) e PDF
+                      Até {MAX_FILES} arquivos por vez: XML (TISS), Excel
+                      (.xlsx) e PDF
                     </p>
                   </div>
                 </div>
@@ -761,9 +955,12 @@ export default function Upload() {
                     <span className="text-sm font-medium text-blue-600">2</span>
                   </div>
                   <div>
-                    <p className="font-medium text-slate-900">Informe a direção</p>
+                    <p className="font-medium text-slate-900">
+                      Informe a direção
+                    </p>
                     <p className="text-sm text-slate-500">
-                      Indique se os arquivos foram enviados ou retornados do convênio
+                      Indique se os arquivos foram enviados ou retornados do
+                      convênio
                     </p>
                   </div>
                 </div>
@@ -772,7 +969,9 @@ export default function Upload() {
                     <span className="text-sm font-medium text-blue-600">3</span>
                   </div>
                   <div>
-                    <p className="font-medium text-slate-900">Selecione o convênio</p>
+                    <p className="font-medium text-slate-900">
+                      Selecione o convênio
+                    </p>
                     <p className="text-sm text-slate-500">
                       Todos os arquivos serão associados ao convênio selecionado
                     </p>
@@ -783,9 +982,12 @@ export default function Upload() {
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
                   </div>
                   <div>
-                    <p className="font-medium text-slate-900">Processamento automático</p>
+                    <p className="font-medium text-slate-900">
+                      Processamento automático
+                    </p>
                     <p className="text-sm text-slate-500">
-                      Depois que o envio terminar, o sistema iniciará o processamento dos arquivos em segundo plano.
+                      Depois que o envio terminar, o sistema iniciará o
+                      processamento dos arquivos em segundo plano.
                     </p>
                   </div>
                 </div>
@@ -799,8 +1001,9 @@ export default function Upload() {
                   <div>
                     <p className="font-medium text-amber-900">Dica</p>
                     <p className="text-sm text-amber-700">
-                      Para melhor extração de dados, utilize arquivos XML no formato TISS 
-                      ou planilhas Excel com colunas padronizadas (código, descrição, quantidade, valor).
+                      Para melhor extração de dados, utilize arquivos XML no
+                      formato TISS ou planilhas Excel com colunas padronizadas
+                      (código, descrição, quantidade, valor).
                     </p>
                   </div>
                 </div>
@@ -819,7 +1022,11 @@ export default function Upload() {
 // ============================================================
 // COMPONENTE: Buscar Conta no Banco do Cliente
 // ============================================================
-function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number }) {
+function BuscarContaSection({
+  estabelecimentoId,
+}: {
+  estabelecimentoId?: number;
+}) {
   const [numeroConta, setNumeroConta] = useState("");
   const [, setLocation] = useLocation();
   const buscarContaMutation = trpc.contasConvenio.buscarConta.useMutation();
@@ -844,7 +1051,9 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
         toast.success(result.mensagem);
         // Redirecionar automaticamente para a tela de Conta Convênio Detalhes
         setTimeout(() => {
-          setLocation(`/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`);
+          setLocation(
+            `/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`
+          );
         }, 1000);
       } else {
         toast.error(result.mensagem);
@@ -862,8 +1071,9 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
           Buscar Conta no Sistema do Hospital
         </CardTitle>
         <CardDescription>
-          Busque uma conta diretamente no banco de dados do hospital (Warleine) pelo número da conta.
-          Os itens serão importados automaticamente para análise e comparação com padrões de cobrança.
+          Busque uma conta diretamente no banco de dados do hospital (Warleine)
+          pelo número da conta. Os itens serão importados automaticamente para
+          análise e comparação com padrões de cobrança.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -874,14 +1084,18 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
               id="numeroConta"
               placeholder="Ex: 123456"
               value={numeroConta}
-              onChange={(e) => setNumeroConta(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleBuscarConta()}
+              onChange={e => setNumeroConta(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleBuscarConta()}
               className="font-mono"
             />
           </div>
           <Button
             onClick={handleBuscarConta}
-            disabled={buscarContaMutation.isPending || !numeroConta.trim() || !estabelecimentoId}
+            disabled={
+              buscarContaMutation.isPending ||
+              !numeroConta.trim() ||
+              !estabelecimentoId
+            }
             className="bg-indigo-600 hover:bg-indigo-700"
           >
             {buscarContaMutation.isPending ? (
@@ -907,20 +1121,29 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
               <div>
                 <span className="text-green-600">Convênio:</span>
-                <p className="font-medium text-green-800">{buscarContaMutation.data.convenio || "-"}</p>
+                <p className="font-medium text-green-800">
+                  {buscarContaMutation.data.convenio || "-"}
+                </p>
               </div>
               <div>
                 <span className="text-green-600">Paciente:</span>
-                <p className="font-medium text-green-800">{buscarContaMutation.data.paciente || "-"}</p>
+                <p className="font-medium text-green-800">
+                  {buscarContaMutation.data.paciente || "-"}
+                </p>
               </div>
               <div>
                 <span className="text-green-600">Itens:</span>
-                <p className="font-medium text-green-800">{buscarContaMutation.data.totalItens}</p>
+                <p className="font-medium text-green-800">
+                  {buscarContaMutation.data.totalItens}
+                </p>
               </div>
               <div>
                 <span className="text-green-600">Valor Total:</span>
                 <p className="font-medium text-green-800">
-                  {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(buscarContaMutation.data.valorTotal || 0)}
+                  {new Intl.NumberFormat("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  }).format(buscarContaMutation.data.valorTotal || 0)}
                 </p>
               </div>
             </div>
@@ -928,7 +1151,11 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
               variant="outline"
               size="sm"
               className="mt-3 text-indigo-700 border-indigo-300 hover:bg-indigo-50"
-              onClick={() => setLocation(`/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`)}
+              onClick={() =>
+                setLocation(
+                  `/conta-convenio-detalhes?numeroConta=${encodeURIComponent(numeroConta.trim())}`
+                )
+              }
             >
               Ver Conta <ArrowRight className="h-3 w-3 ml-1" />
             </Button>
@@ -939,7 +1166,9 @@ function BuscarContaSection({ estabelecimentoId }: { estabelecimentoId?: number 
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-center gap-2 text-red-700">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">{buscarContaMutation.data.mensagem}</span>
+              <span className="font-medium">
+                {buscarContaMutation.data.mensagem}
+              </span>
             </div>
           </div>
         )}
