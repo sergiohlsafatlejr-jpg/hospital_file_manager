@@ -9,15 +9,19 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Plus, Edit, Trash2, Lock, AlertTriangle, RefreshCw, Unlock, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Lock, AlertTriangle, RefreshCw, Unlock, FileText, Sparkles } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
+import ImportarFolhasTeaModal from "@/components/faturamento/ImportarFolhasTeaModal";
 
 export default function FaturamentoRemessaDetalhe() {
   const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const loteId = Number(params.id);
   const { estabelecimentoAtual } = useEstabelecimento();
+
+  // Modal importação inteligente TEA
+  const [showImportarTea, setShowImportarTea] = useState(false);
 
   // Modal editar remessa
   const [showEditar, setShowEditar] = useState(false);
@@ -148,6 +152,14 @@ export default function FaturamentoRemessaDetalhe() {
           </div>
           {!isFechada && (
             <>
+              <Button
+                variant="outline"
+                className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
+                onClick={() => setShowImportarTea(true)}
+              >
+                <Sparkles className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-400" />
+                Importar Folhas TEA (PDF)
+              </Button>
               <Button variant="outline" onClick={openEditar}>
                 <Edit className="w-4 h-4 mr-2" /> Editar
               </Button>
@@ -231,6 +243,27 @@ export default function FaturamentoRemessaDetalhe() {
           <CardContent className="p-0">
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="font-semibold">Guias da Remessa ({guias.length})</h2>
+              {!isFechada && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 text-xs"
+                    onClick={() => setShowImportarTea(true)}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5 text-blue-600 dark:text-blue-400" />
+                    Importar Folhas TEA (PDF)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="text-xs"
+                    onClick={() => navigate(`/faturamento/nova-guia?loteId=${loteId}&convenioId=${lote.convenioId}`)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" /> Nova Guia
+                  </Button>
+                </div>
+              )}
             </div>
             <Table>
               <TableHeader>
@@ -359,6 +392,19 @@ export default function FaturamentoRemessaDetalhe() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Modal de Importação Inteligente de Folhas TEA */}
+        <ImportarFolhasTeaModal
+          isOpen={showImportarTea}
+          onClose={() => setShowImportarTea(false)}
+          loteId={loteId}
+          convenioId={lote.convenioId}
+          estabelecimentoId={lote.estabelecimentoId}
+          onSuccess={() => {
+            refetchGuias();
+            refetchLotes();
+          }}
+        />
       </div>
     </DashboardLayout>
   );

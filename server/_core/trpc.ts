@@ -281,18 +281,41 @@ export const auditRouter = router({
         usuarioId: z.number().optional(),
         dataInicio: z.date().optional(),
         dataFim: z.date().optional(),
-        limite: z.number().default(50),
-        pagina: z.number().default(1),
+        limite: z.number().int().min(1).max(200).default(50),
+        pagina: z.number().int().min(1).default(1),
       })
     )
     .query(async ({ input, ctx }) => {
       try {
-        // Buscar logs do banco de dados
         const offset = (input.pagina - 1) * input.limite;
-        
-        // Construir query com filtros
-        let query = `
-          SELECT 
+        const conditions = [sql`1=1`];
+
+        if (input.tipo) {
+          conditions.push(sql`tipo_acao = ${input.tipo}`);
+        }
+        if (input.tabela) {
+          conditions.push(sql`tabela = ${input.tabela}`);
+        }
+        if (input.usuarioId) {
+          conditions.push(sql`usuario_id = ${input.usuarioId}`);
+        }
+        if (input.dataInicio) {
+          conditions.push(sql`data_hora >= ${input.dataInicio.toISOString()}`);
+        }
+        if (input.dataFim) {
+          conditions.push(sql`data_hora <= ${input.dataFim.toISOString()}`);
+        }
+        if (ctx.estabelecimentoId) {
+          conditions.push(sql`estabelecimento_id = ${ctx.estabelecimentoId}`);
+        }
+
+        const whereSql = sql.join(conditions, sql` AND `);
+
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        const logs = await db.execute(sql`
+          SELECT
             id,
             tabela,
             tipo_acao as tipoAcao,
@@ -302,89 +325,23 @@ export const auditRouter = router({
             data_hora as dataHora,
             estabelecimento_id as estabelecimentoId
           FROM auditLog
-          WHERE 1=1
-        `;
-        
-        const params: any[] = [];
-        
-        if (input.tipo) {
-          query += ` AND tipo_acao = ?`;
-          params.push(input.tipo);
-        }
-        
-        if (input.tabela) {
-          query += ` AND tabela = ?`;
-          params.push(input.tabela);
-        }
-        
-        if (input.usuarioId) {
-          query += ` AND usuario_id = ?`;
-          params.push(input.usuarioId);
-        }
-        
-        if (input.dataInicio) {
-          query += ` AND data_hora >= ?`;
-          params.push(input.dataInicio.toISOString());
-        }
-        
-        if (input.dataFim) {
-          query += ` AND data_hora <= ?`;
-          params.push(input.dataFim.toISOString());
-        }
-        
-        // Filtrar por estabelecimento do usuário
-        if (ctx.estabelecimentoId) {
-          query += ` AND estabelecimento_id = ?`;
-          params.push(ctx.estabelecimentoId);
-        }
-        
-        query += ` ORDER BY data_hora DESC LIMIT ? OFFSET ?`;
-        params.push(input.limite, offset);
-        
-        // Executar query
-        const db = await getDb();
-        if (!db) throw new Error("Database not available");
-        const logs = await db.execute(sql`${sql.raw(query)}`);
-        
-        // Contar total
-        let countQuery = `SELECT COUNT(*) as total FROM auditLog WHERE 1=1`;
-        const countParams: any[] = [];
-        
-        if (input.tipo) {
-          countQuery += ` AND tipo_acao = ?`;
-          countParams.push(input.tipo);
-        }
-        if (input.tabela) {
-          countQuery += ` AND tabela = ?`;
-          countParams.push(input.tabela);
-        }
-        if (input.usuarioId) {
-          countQuery += ` AND usuario_id = ?`;
-          countParams.push(input.usuarioId);
-        }
-        if (input.dataInicio) {
-          countQuery += ` AND data_hora >= ?`;
-          countParams.push(input.dataInicio.toISOString());
-        }
-        if (input.dataFim) {
-          countQuery += ` AND data_hora <= ?`;
-          countParams.push(input.dataFim.toISOString());
-        }
-        if (ctx.estabelecimentoId) {
-          countQuery += ` AND estabelecimento_id = ?`;
-          countParams.push(ctx.estabelecimentoId);
-        }
-        
-        const countResult = await db.execute(sql`${sql.raw(countQuery)}`);
-        const total = Array.isArray(countResult) && countResult[0] ? (countResult[0] as any).total : 0;
-        
+          WHERE ${whereSql}
+          ORDER BY data_hora DESC
+          LIMIT ${input.limite} OFFSET ${offset}
+        `);
+
+        const countResult = await db.execute(sql`
+          SELECT COUNT(*) as total FROM auditLog WHERE ${whereSql}
+        `);
+        const total = Array.isArray(countResult) && countResult[0] ? Number((countResult[0] as any).total || 0) : 0;
+
         logger.info({
           tipo: "audit_list_logs",
           usuarioId: ctx.user?.id,
           total,
           filtros: { tipo: input.tipo, tabela: input.tabela },
         });
-        
+
         return {
           logs: logs || [],
           total,

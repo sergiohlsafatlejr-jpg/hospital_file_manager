@@ -4157,6 +4157,12 @@ export const finBancos = mysqlTable("fin_bancos", {
   cor: varchar("cor", { length: 20 }).default("#3b82f6"),
   saldoInicial: decimal("saldoInicial", { precision: 15, scale: 2 }).default("0"),
   userId: int("userId"),
+  interClientId: varchar("interClientId", { length: 100 }),
+  interClientSecret: varchar("interClientSecret", { length: 100 }),
+  interCertPem: text("interCertPem"),
+  interKeyPem: text("interKeyPem"),
+  interContaCorrente: varchar("interContaCorrente", { length: 50 }),
+  interBaseUrl: varchar("interBaseUrl", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -4225,6 +4231,11 @@ export const finRecebiveis = mysqlTable("fin_recebiveis", {
   recebido: mysqlEnum("recebido", ["sim", "nao"]).default("nao").notNull(),
   tipoServico: varchar("tipoServico", { length: 255 }), // Tipo de Serviço (ex: Consulta, Exame, Cirurgia, Internação)
   descricaoServico: text("descricaoServico"), // Descrição detalhada do serviço prestado
+  boletoSolicitacaoId: varchar("boletoSolicitacaoId", { length: 100 }),
+  boletoLinhaDigitavel: varchar("boletoLinhaDigitavel", { length: 100 }),
+  boletoPixCopiaCola: text("boletoPixCopiaCola"),
+  notaFiscalKey: varchar("notaFiscalKey", { length: 255 }),
+  emailEnviado: mysqlEnum("emailEnviado", ["sim", "nao"]).default("nao").notNull(),
   observacoes: text("observacoes"),
   userId: int("userId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
