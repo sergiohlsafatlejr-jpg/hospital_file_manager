@@ -20,6 +20,36 @@ export type XmlImportacaoVaultScope = {
   arquivoId: number;
 };
 
+export const XML_IMPORTACAO_STORAGE_FAILURE_CODES = [
+  "STORAGE_KEY_UNAVAILABLE",
+  "STORAGE_SCOPE_INVALID",
+  "STORAGE_ACCESS_DENIED",
+  "STORAGE_REQUEST_REJECTED",
+  "STORAGE_UNAVAILABLE",
+  "STORAGE_TRANSPORT",
+  "STORAGE_RESPONSE_INVALID",
+  "STORAGE_WRITE_FAILED",
+] as const;
+
+export type XmlImportacaoStorageFailureCode =
+  (typeof XML_IMPORTACAO_STORAGE_FAILURE_CODES)[number];
+
+export function codigoFalhaArmazenamentoXmlImportacaoValido(
+  value: unknown
+): value is XmlImportacaoStorageFailureCode {
+  return (
+    typeof value === "string" &&
+    (XML_IMPORTACAO_STORAGE_FAILURE_CODES as readonly string[]).includes(value)
+  );
+}
+
+export class XmlImportacaoStorageError extends Error {
+  constructor(readonly failureCode: XmlImportacaoStorageFailureCode) {
+    super(failureCode);
+    this.name = "XmlImportacaoStorageError";
+  }
+}
+
 function key(): Buffer {
   const value = process.env.XML_IMPORTACAO_FILE_KEY ?? "";
   const decoded = /^[a-fA-F0-9]{64}$/.test(value)
@@ -95,6 +125,37 @@ function assertStorageKey(
   }
 }
 
+export function classificarFalhaArmazenamentoXmlImportacao(
+  error: unknown
+): XmlImportacaoStorageFailureCode {
+  if (error instanceof XmlImportacaoStorageError) return error.failureCode;
+  const message = error instanceof Error ? error.message : "";
+  if (message === "XML_IMPORTACAO_STORAGE_NOT_READY") {
+    return "STORAGE_KEY_UNAVAILABLE";
+  }
+  if (
+    message === "XML_IMPORTACAO_STORAGE_SCOPE_INVALID" ||
+    message === "XML_IMPORTACAO_SCOPE_INVALID"
+  ) {
+    return "STORAGE_SCOPE_INVALID";
+  }
+  const status = /^Storage upload failed \((\d{3})\b/.exec(message)?.[1];
+  if (status === "401" || status === "403") return "STORAGE_ACCESS_DENIED";
+  if (status && Number(status) >= 500) return "STORAGE_UNAVAILABLE";
+  if (status) return "STORAGE_REQUEST_REJECTED";
+  if (
+    /(?:fetch failed|network|ECONN|ENOTFOUND|ETIMEDOUT|AbortError)/i.test(
+      message
+    )
+  ) {
+    return "STORAGE_TRANSPORT";
+  }
+  if (/JSON|unexpected end of input/i.test(message)) {
+    return "STORAGE_RESPONSE_INVALID";
+  }
+  return "STORAGE_WRITE_FAILED";
+}
+
 function isPrivateAddress(address: string): boolean {
   const normalized = address.toLowerCase();
   if (
@@ -120,14 +181,22 @@ function isPrivateAddress(address: string): boolean {
 
 async function assertPublicStorageUrl(value: string): Promise<URL> {
   const url = new URL(value);
-  if (!url.hostname || url.protocol !== "https:" || url.username || url.password) {
+  if (
+    !url.hostname ||
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password
+  ) {
     throw new Error("XML_IMPORTACAO_STORAGE_READ_FAILED");
   }
   if (url.hostname === "localhost" || url.hostname.endsWith(".localhost")) {
     throw new Error("XML_IMPORTACAO_STORAGE_READ_FAILED");
   }
   const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-  if (!addresses.length || addresses.some(entry => isPrivateAddress(entry.address))) {
+  if (
+    !addresses.length ||
+    addresses.some(entry => isPrivateAddress(entry.address))
+  ) {
     throw new Error("XML_IMPORTACAO_STORAGE_READ_FAILED");
   }
   return url;
@@ -185,14 +254,21 @@ export async function salvarXmlImportacaoProtegido(
   scope: XmlImportacaoVaultScope,
   storageKey: string
 ): Promise<void> {
-  assertStorageKey(storageKey, scope);
-  const result = await storagePut(
-    storageKey,
-    encrypt(plain, scope),
-    "application/octet-stream"
-  );
-  if (result.key !== storageKey)
-    throw new Error("XML_IMPORTACAO_STORAGE_WRITE_FAILED");
+  try {
+    assertStorageKey(storageKey, scope);
+    const result = await storagePut(
+      storageKey,
+      encrypt(plain, scope),
+      "application/octet-stream"
+    );
+    if (result.key !== storageKey) {
+      throw new Error("XML_IMPORTACAO_STORAGE_WRITE_FAILED");
+    }
+  } catch (error) {
+    throw new XmlImportacaoStorageError(
+      classificarFalhaArmazenamentoXmlImportacao(error)
+    );
+  }
 }
 
 export async function lerXmlImportacaoProtegido(

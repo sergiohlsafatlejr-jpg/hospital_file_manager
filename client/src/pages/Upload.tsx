@@ -20,6 +20,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { estadoRetentativaXml } from "@/lib/xmlImportacaoRetry";
 import {
   Upload as UploadIcon,
   FileText,
@@ -83,6 +84,10 @@ export default function Upload() {
     chave: string;
   } | null>(null);
 
+  const invalidarRetentativaXml = useCallback(() => {
+    xmlLoteIdempotencyRef.current = null;
+  }, []);
+
   const { data: convenios, refetch: refetchConvenios } =
     trpc.convenios.list.useQuery({ ativo: "sim" });
   const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery({});
@@ -90,39 +95,42 @@ export default function Upload() {
   const criarConvenioMutation = trpc.convenios.create.useMutation();
   const utils = trpc.useUtils();
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    xmlLoteIdempotencyRef.current = null;
-    const fileArray = Array.from(files);
-    const validExtensions = [".xml", ".xlsx", ".xls", ".pdf"];
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      invalidarRetentativaXml();
+      const fileArray = Array.from(files);
+      const validExtensions = [".xml", ".xlsx", ".xls", ".pdf"];
 
-    const validFiles = fileArray.filter(file => {
-      const ext = "." + file.name.split(".").pop()?.toLowerCase();
-      return validExtensions.includes(ext);
-    });
+      const validFiles = fileArray.filter(file => {
+        const ext = "." + file.name.split(".").pop()?.toLowerCase();
+        return validExtensions.includes(ext);
+      });
 
-    if (validFiles.length !== fileArray.length) {
-      toast.warning(
-        "Alguns arquivos foram ignorados. Formatos aceitos: XML, Excel, PDF"
-      );
-    }
-
-    setSelectedFiles(prev => {
-      const newFiles = validFiles.map(file => ({
-        file,
-        status: "pending" as const,
-      }));
-      const combined = [...prev, ...newFiles];
-
-      if (combined.length > MAX_FILES) {
-        toast.error(
-          `Máximo de ${MAX_FILES} arquivos permitidos. Alguns arquivos foram ignorados.`
+      if (validFiles.length !== fileArray.length) {
+        toast.warning(
+          "Alguns arquivos foram ignorados. Formatos aceitos: XML, Excel, PDF"
         );
-        return combined.slice(0, MAX_FILES);
       }
 
-      return combined;
-    });
-  }, []);
+      setSelectedFiles(prev => {
+        const newFiles = validFiles.map(file => ({
+          file,
+          status: "pending" as const,
+        }));
+        const combined = [...prev, ...newFiles];
+
+        if (combined.length > MAX_FILES) {
+          toast.error(
+            `Máximo de ${MAX_FILES} arquivos permitidos. Alguns arquivos foram ignorados.`
+          );
+          return combined.slice(0, MAX_FILES);
+        }
+
+        return combined;
+      });
+    },
+    [invalidarRetentativaXml]
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -162,12 +170,12 @@ export default function Upload() {
   );
 
   const removeFile = (index: number) => {
-    xmlLoteIdempotencyRef.current = null;
+    invalidarRetentativaXml();
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const clearAllFiles = () => {
-    xmlLoteIdempotencyRef.current = null;
+    invalidarRetentativaXml();
     setSelectedFiles([]);
   };
 
@@ -264,7 +272,7 @@ export default function Upload() {
           );
         if (payload?.lote?.estado === "recebendo") {
           throw new Error(
-            "O lote aguarda nova tentativa de armazenamento protegido. Reenvie todos os XMLs desta seleção."
+            "Não foi possível gravar a seleção protegida. Tente novamente com os mesmos XMLs; nenhum arquivo foi processado."
           );
         }
         setSelectedFiles(prev =>
@@ -274,6 +282,7 @@ export default function Upload() {
               : item
           )
         );
+        xmlLoteIdempotencyRef.current = null;
         setUploadProgress(100);
         toast.success(
           `${pendingFiles.length} XML(s) enviados em um único lote. O processamento hospitalar e médico foi enfileirado.`,
@@ -492,9 +501,18 @@ export default function Upload() {
     }
   };
 
-  const pendingCount = selectedFiles.filter(f => f.status === "pending").length;
+  const estadoRetryXml = estadoRetentativaXml(
+    selectedFiles.map(item => item.status)
+  );
+  const pendingCount = estadoRetryXml.pendentes;
   const successCount = selectedFiles.filter(f => f.status === "success").length;
-  const errorCount = selectedFiles.filter(f => f.status === "error").length;
+  const errorCount = estadoRetryXml.comErro;
+  const retryableCount = estadoRetryXml.reenviaveis;
+  const retentativaXmlProtegida =
+    Boolean(xmlLoteIdempotencyRef.current) &&
+    pendingCount === 0 &&
+    errorCount > 0 &&
+    selectedFiles.every(item => item.status === "error");
 
   return (
     <DashboardLayout>
@@ -604,6 +622,12 @@ export default function Upload() {
                       Limpar todos
                     </Button>
                   </div>
+                  {retentativaXmlProtegida ? (
+                    <p className="text-xs text-amber-700" role="status">
+                      Retentativa protegida ativa: a seleção e o escopo foram
+                      mantidos. Para trocar arquivos, use “Limpar todos”.
+                    </p>
+                  ) : null}
                   <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
                     {selectedFiles.map((item, index) => (
                       <div
@@ -628,7 +652,16 @@ export default function Upload() {
                           ) : (
                             <FileText className="h-4 w-4 shrink-0" />
                           )}
-                          <span className="truncate">{item.file.name}</span>
+                          <div className="min-w-0">
+                            <span className="block truncate">
+                              {item.file.name}
+                            </span>
+                            {item.status === "error" && item.error ? (
+                              <span className="block text-xs" role="alert">
+                                {item.error}
+                              </span>
+                            ) : null}
+                          </div>
                           <span className="sr-only">
                             {item.status === "uploading"
                               ? "Enviando arquivo; o processamento ocorrerá após o envio."
@@ -730,7 +763,11 @@ export default function Upload() {
                   <Label htmlFor="direcao">Direção</Label>
                   <Select
                     value={direcao}
-                    onValueChange={v => setDirecao(v as typeof direcao)}
+                    onValueChange={v => {
+                      invalidarRetentativaXml();
+                      setDirecao(v as typeof direcao);
+                    }}
+                    disabled={retentativaXmlProtegida}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -755,6 +792,7 @@ export default function Upload() {
                           variant="ghost"
                           size="sm"
                           className="h-auto py-1 px-2 text-xs"
+                          disabled={retentativaXmlProtegida}
                         >
                           <Plus className="h-3 w-3 mr-1" />
                           Novo
@@ -815,7 +853,14 @@ export default function Upload() {
                       </DialogContent>
                     </Dialog>
                   </div>
-                  <Select value={convenioId} onValueChange={setConvenioId}>
+                  <Select
+                    value={convenioId}
+                    onValueChange={value => {
+                      invalidarRetentativaXml();
+                      setConvenioId(value);
+                    }}
+                    disabled={retentativaXmlProtegida}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione um convênio" />
                     </SelectTrigger>
@@ -839,7 +884,11 @@ export default function Upload() {
                     estabelecimentoAtual?.id?.toString() ||
                     ""
                   }
-                  onValueChange={setEstabelecimentoSelecionado}
+                  onValueChange={value => {
+                    invalidarRetentativaXml();
+                    setEstabelecimentoSelecionado(value);
+                  }}
+                  disabled={retentativaXmlProtegida}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione um estabelecimento" />
@@ -868,7 +917,11 @@ export default function Upload() {
                   id="dataReferencia"
                   type="date"
                   value={dataReferencia}
-                  onChange={e => setDataReferencia(e.target.value)}
+                  onChange={e => {
+                    invalidarRetentativaXml();
+                    setDataReferencia(e.target.value);
+                  }}
+                  disabled={retentativaXmlProtegida}
                 />
                 <p className="text-xs text-muted-foreground">
                   Informe o mês ao qual os atendimentos pertencem
@@ -887,7 +940,11 @@ export default function Upload() {
                     id="dataPagamento"
                     type="date"
                     value={dataPagamento}
-                    onChange={e => setDataPagamento(e.target.value)}
+                    onChange={e => {
+                      invalidarRetentativaXml();
+                      setDataPagamento(e.target.value);
+                    }}
+                    disabled={retentativaXmlProtegida}
                   />
                   <p className="text-xs text-muted-foreground">
                     Informe a data de pagamento para calcular o prazo de recurso
@@ -904,7 +961,7 @@ export default function Upload() {
                   selectedFiles.length === 0 ||
                   !convenioId ||
                   isUploading ||
-                  pendingCount === 0
+                  retryableCount === 0
                 }
               >
                 {isUploading ? (
@@ -919,10 +976,7 @@ export default function Upload() {
                 ) : (
                   <>
                     <UploadIcon className="h-4 w-4 mr-2" />
-                    Enviar{" "}
-                    {pendingCount > 0
-                      ? `${pendingCount} Arquivo(s)`
-                      : "Arquivos"}
+                    {estadoRetryXml.rotuloAcao}
                   </>
                 )}
               </Button>
