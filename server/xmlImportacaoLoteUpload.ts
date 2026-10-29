@@ -18,6 +18,7 @@ import {
 } from "./xmlImportacaoLoteService";
 import {
   armazenamentoXmlImportacaoPronto,
+  classificarFalhaArmazenamentoXmlImportacao,
   salvarXmlImportacaoProtegido,
   XML_IMPORTACAO_MAX_FILE_BYTES,
 } from "./xmlImportacaoLoteVault";
@@ -87,7 +88,7 @@ function pareceXml(documento: Buffer): boolean {
     .toString("utf8")
     .replace(/^\uFEFF?\s*/, "");
   return /^(?:<\?xml\s|<[A-Za-z_][A-Za-z0-9_.-]*(?::[A-Za-z_][A-Za-z0-9_.-]*)?(?:\s|>|\/))/.test(
-    inicio,
+    inicio
   );
 }
 
@@ -98,12 +99,10 @@ async function authorizeUpload(
 ) {
   try {
     if (!armazenamentoXmlImportacaoPronto()) {
-      res
-        .status(412)
-        .json({
-          error:
-            "A importação coordenada de XML ainda não está configurada pelo administrador.",
-        });
+      res.status(412).json({
+        error:
+          "A importação coordenada de XML ainda não está configurada pelo administrador.",
+      });
       return;
     }
     const user = await sdk.authenticateRequest(req);
@@ -134,12 +133,10 @@ async function authorizeUpload(
       (convenio.estabelecimentoId &&
         convenio.estabelecimentoId !== estabelecimentoId)
     ) {
-      res
-        .status(403)
-        .json({
-          error:
-            "O convênio informado não pertence ao estabelecimento selecionado.",
-        });
+      res.status(403).json({
+        error:
+          "O convênio informado não pertence ao estabelecimento selecionado.",
+      });
       return;
     }
     const allowed =
@@ -216,12 +213,9 @@ router.post(
         total <= 0 ||
         total > MAX_TOTAL_BYTES
       ) {
-        res
-          .status(400)
-          .json({
-            error:
-              "O lote ultrapassa o limite total permitido para importação.",
-          });
+        res.status(400).json({
+          error: "O lote ultrapassa o limite total permitido para importação.",
+        });
         return;
       }
       const arquivos = await Promise.all(
@@ -234,7 +228,7 @@ router.post(
             tamanhoBytes: file.size,
             sha256: createHash("sha256").update(bytes).digest("hex"),
           };
-        }),
+        })
       );
       const reservation = await reservarLoteXmlImportacao({
         estabelecimentoId,
@@ -251,10 +245,18 @@ router.post(
       }
       const stored: number[] = [];
       const failed: number[] = [];
+      const failedItems: Array<{
+        itemId: number;
+        codigo: ReturnType<typeof classificarFalhaArmazenamentoXmlImportacao>;
+      }> = [];
       for (const [index, item] of reservation.itens.entries()) {
         const file = files[index];
         if (!file) {
           failed.push(item.itemId);
+          failedItems.push({
+            itemId: item.itemId,
+            codigo: "STORAGE_WRITE_FAILED",
+          });
           continue;
         }
         try {
@@ -264,8 +266,15 @@ router.post(
             item.storageKey
           );
           stored.push(item.itemId);
-        } catch {
+        } catch (error) {
+          const codigo = classificarFalhaArmazenamentoXmlImportacao(error);
+          console.warn("[xml-importacao] falha de armazenamento protegido", {
+            loteId: reservation.lote.id,
+            itemId: item.itemId,
+            codigo,
+          });
           failed.push(item.itemId);
+          failedItems.push({ itemId: item.itemId, codigo });
         }
       }
       const lote = await confirmarPersistenciaLoteXml({
@@ -275,6 +284,7 @@ router.post(
         criadoPor: user.id,
         itemIdsProntos: stored,
         itemIdsFalhos: failed,
+        itensFalhos: failedItems,
       });
       if (lote.estado === "enfileirado") {
         const { dispararProcessamentoLoteXml } = await import(
@@ -286,14 +296,12 @@ router.post(
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
       const status = code.startsWith("XML_IMPORTACAO_") ? 400 : 500;
-      res
-        .status(status)
-        .json({
-          error:
-            status === 400
-              ? "Não foi possível preparar este lote XML."
-              : "Não foi possível iniciar a importação de XML.",
-        });
+      res.status(status).json({
+        error:
+          status === 400
+            ? "Não foi possível preparar este lote XML."
+            : "Não foi possível iniciar a importação de XML.",
+      });
     } finally {
       await cleanup();
     }

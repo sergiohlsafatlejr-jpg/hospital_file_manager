@@ -2,8 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getRawPool } from "./db";
 import {
+  codigoFalhaArmazenamentoXmlImportacaoValido,
   criarChaveStorageXmlImportacao,
   type XmlImportacaoVaultScope,
+  type XmlImportacaoStorageFailureCode,
 } from "./xmlImportacaoLoteVault";
 
 const MAX_FILES = 30;
@@ -33,6 +35,11 @@ export type XmlImportacaoLoteResumo = {
   totalHonorarios: number;
   totalBloqueados: number;
   totalErros: number;
+};
+
+export type XmlImportacaoItemFalho = {
+  itemId: number;
+  codigo: XmlImportacaoStorageFailureCode;
 };
 
 function asId(value: unknown): number {
@@ -293,6 +300,7 @@ export async function confirmarPersistenciaLoteXml(input: {
   criadoPor: number;
   itemIdsProntos: readonly number[];
   itemIdsFalhos: readonly number[];
+  itensFalhos?: readonly XmlImportacaoItemFalho[];
 }): Promise<XmlImportacaoLoteResumo> {
   const pool = await getRawPool();
   if (!pool || !asId(input.loteId) || !asId(input.criadoPor)) {
@@ -302,7 +310,7 @@ export async function confirmarPersistenciaLoteXml(input: {
   try {
     await connection.beginTransaction();
     const [lotes] = await connection.query<SqlRow[]>(
-      `SELECT id,estado,total_arquivos,total_hospitalares,total_honorarios,total_bloqueados,total_erros
+      `SELECT id,estado,fase,total_arquivos,total_hospitalares,total_honorarios,total_bloqueados,total_erros
        FROM xml_importacao_lotes
        WHERE id=? AND estabelecimento_id=? AND convenio_id=? AND criado_por=?
        FOR UPDATE`,
@@ -311,7 +319,11 @@ export async function confirmarPersistenciaLoteXml(input: {
     const lote = lotes[0];
     if (!lote) throw new Error("XML_IMPORTACAO_LOTE_NOT_FOUND");
     if (asText(lote.estado) !== "recebendo") {
-      throw new Error("XML_IMPORTACAO_CONFIRMACAO_FORA_DE_ESTADO");
+      // Outra requisição idêntica pode ter concluído a persistência entre a
+      // reserva e esta confirmação. O resumo persistido é seguro e evita que
+      // o navegador reporte erro enquanto o worker já foi enfileirado.
+      await connection.commit();
+      return resumoLote(lote);
     }
 
     const readyIds = [
@@ -320,6 +332,17 @@ export async function confirmarPersistenciaLoteXml(input: {
     const failedIds = [
       ...new Set(input.itemIdsFalhos.map(asId).filter(Boolean)),
     ];
+    const falhasPorItem = new Map<number, XmlImportacaoStorageFailureCode>();
+    for (const item of input.itensFalhos ?? []) {
+      const itemId = asId(item.itemId);
+      if (
+        itemId &&
+        failedIds.includes(itemId) &&
+        codigoFalhaArmazenamentoXmlImportacaoValido(item.codigo)
+      ) {
+        falhasPorItem.set(itemId, item.codigo);
+      }
+    }
     const providedIds = new Set([...readyIds, ...failedIds]);
     if (providedIds.size !== readyIds.length + failedIds.length) {
       throw new Error("XML_IMPORTACAO_CONFIRMACAO_INVALIDA");
@@ -351,16 +374,17 @@ export async function confirmarPersistenciaLoteXml(input: {
       }
     }
     if (failedIds.length) {
-      const [result] = await connection.execute(
-        `UPDATE xml_importacao_itens
-         SET estado='erro',erro_codigo='STORAGE_WRITE_FAILED',erro_resumo='Não foi possível armazenar o documento de forma protegida.'
-         WHERE lote_id=? AND id IN (${failedIds.map(() => "?").join(",")})`,
-        [input.loteId, ...failedIds]
-      );
-      if (
-        Number((result as ResultSetHeader).affectedRows) !== failedIds.length
-      ) {
-        throw new Error("XML_IMPORTACAO_CONFIRMACAO_INCOMPLETA");
+      for (const itemId of failedIds) {
+        const codigo = falhasPorItem.get(itemId) ?? "STORAGE_WRITE_FAILED";
+        const [result] = await connection.execute(
+          `UPDATE xml_importacao_itens
+           SET estado='erro',erro_codigo=?,erro_resumo='Não foi possível armazenar o documento de forma protegida.'
+           WHERE lote_id=? AND id=?`,
+          [codigo, input.loteId, itemId]
+        );
+        if (Number((result as ResultSetHeader).affectedRows) !== 1) {
+          throw new Error("XML_IMPORTACAO_CONFIRMACAO_INCOMPLETA");
+        }
       }
     }
 
@@ -374,11 +398,11 @@ export async function confirmarPersistenciaLoteXml(input: {
         estado,
         fase,
         failedIds.length,
-        failedIds.length ? "STORAGE_WRITE_RETRY" : null,
+        failedIds.length ? "STORAGE_WRITE_RESEND_REQUIRED" : null,
         failedIds.length
-          ? "Um ou mais documentos aguardam nova tentativa de armazenamento protegido."
+          ? "A seleção completa precisa ser reenviada para armazenamento protegido."
           : null,
-        failedIds.length ? new Date(Date.now() + 60_000) : null,
+        null,
         input.loteId,
         input.estabelecimentoId,
         input.convenioId,

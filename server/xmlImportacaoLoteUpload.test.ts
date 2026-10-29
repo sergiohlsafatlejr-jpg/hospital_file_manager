@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   reservar: vi.fn(),
   confirmar: vi.fn(),
   salvar: vi.fn(),
+  classificar: vi.fn(),
   disparar: vi.fn(),
 }));
 
@@ -29,6 +30,7 @@ vi.mock("./xmlImportacaoLoteService", () => ({
 vi.mock("./xmlImportacaoLoteVault", () => ({
   XML_IMPORTACAO_MAX_FILE_BYTES: 16 * 1024 * 1024,
   armazenamentoXmlImportacaoPronto: mocks.pronto,
+  classificarFalhaArmazenamentoXmlImportacao: mocks.classificar,
   salvarXmlImportacaoProtegido: mocks.salvar,
 }));
 vi.mock("./xmlImportacaoLoteWorker", () => ({
@@ -44,9 +46,13 @@ const headers = {
   "x-data-referencia": "2026-10-01",
 };
 
-function formulario(xml = "<?xml version=\"1.0\"?><mensagemTISS />") {
+function formulario(xml = '<?xml version="1.0"?><mensagemTISS />') {
   const form = new FormData();
-  form.append("files", new Blob([xml], { type: "application/xml" }), "guia.xml");
+  form.append(
+    "files",
+    new Blob([xml], { type: "application/xml" }),
+    "guia.xml"
+  );
   return form;
 }
 
@@ -57,7 +63,8 @@ async function servidorTeste() {
     const current = app.listen(0, "127.0.0.1", () => resolve(current));
   });
   const endereco = server.address();
-  if (!endereco || typeof endereco === "string") throw new Error("porta de teste indisponível");
+  if (!endereco || typeof endereco === "string")
+    throw new Error("porta de teste indisponível");
   return { server, url: `http://127.0.0.1:${endereco.port}` };
 }
 
@@ -65,7 +72,11 @@ describe("POST /api/xml-importacoes/lotes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.pronto.mockReturnValue(true);
-    mocks.autenticar.mockResolvedValue({ id: 41, role: "admin", isCron: false });
+    mocks.autenticar.mockResolvedValue({
+      id: 41,
+      role: "admin",
+      isCron: false,
+    });
     mocks.getConvenio.mockResolvedValue({ id: 8, estabelecimentoId: 7 });
     mocks.permissao.mockResolvedValue(true);
     mocks.modulo.mockResolvedValue(true);
@@ -85,12 +96,18 @@ describe("POST /api/xml-importacoes/lotes", () => {
           itemId: 3,
           arquivoId: 5,
           storageKey: "privado-apenas-teste",
-          escopo: { loteId: 91, estabelecimentoId: 7, convenioId: 8, arquivoId: 5 },
+          escopo: {
+            loteId: 91,
+            estabelecimentoId: 7,
+            convenioId: 8,
+            arquivoId: 5,
+          },
         },
       ],
       reutilizado: false,
     });
     mocks.salvar.mockResolvedValue(undefined);
+    mocks.classificar.mockReturnValue("STORAGE_WRITE_FAILED");
     mocks.confirmar.mockResolvedValue({
       id: 91,
       estado: "enfileirado",
@@ -115,7 +132,9 @@ describe("POST /api/xml-importacoes/lotes", () => {
         body: formulario(),
       });
       expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({ error: "Não autenticado." });
+      await expect(response.json()).resolves.toEqual({
+        error: "Não autenticado.",
+      });
       expect(mocks.reservar).not.toHaveBeenCalled();
       expect(mocks.salvar).not.toHaveBeenCalled();
     } finally {
@@ -152,15 +171,23 @@ describe("POST /api/xml-importacoes/lotes", () => {
       expect(response.status).toBe(202);
       const body = await response.json();
       expect(body).toEqual({
-        lote: expect.objectContaining({ id: 91, estado: "enfileirado", totalArquivos: 1 }),
+        lote: expect.objectContaining({
+          id: 91,
+          estado: "enfileirado",
+          totalArquivos: 1,
+        }),
         idempotencyKey: headers["x-idempotency-key"],
       });
       expect(JSON.stringify(body)).not.toContain("storageKey");
       expect(JSON.stringify(body)).not.toContain("privado-apenas-teste");
       expect(mocks.salvar).toHaveBeenCalledWith(
         expect.any(Buffer),
-        expect.objectContaining({ loteId: 91, estabelecimentoId: 7, convenioId: 8 }),
-        "privado-apenas-teste",
+        expect.objectContaining({
+          loteId: 91,
+          estabelecimentoId: 7,
+          convenioId: 8,
+        }),
+        "privado-apenas-teste"
       );
       expect(mocks.confirmar).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -170,9 +197,49 @@ describe("POST /api/xml-importacoes/lotes", () => {
           criadoPor: 41,
           itemIdsProntos: [3],
           itemIdsFalhos: [],
-        }),
+        })
       );
       expect(mocks.disparar).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it("mantém o lote reenviável sem disparar worker quando o cofre falha", async () => {
+    mocks.salvar.mockRejectedValue(new Error("falha interna simulada"));
+    mocks.classificar.mockReturnValue("STORAGE_UNAVAILABLE");
+    mocks.confirmar.mockResolvedValue({
+      id: 91,
+      estado: "recebendo",
+      fase: "persistir_selecao",
+      totalArquivos: 1,
+      totalHospitalares: 0,
+      totalHonorarios: 0,
+      totalBloqueados: 0,
+      totalErros: 1,
+    });
+    const { server, url } = await servidorTeste();
+    try {
+      const response = await fetch(`${url}/api/xml-importacoes/lotes`, {
+        method: "POST",
+        headers,
+        body: formulario(),
+      });
+      expect(response.status).toBe(202);
+      const body = await response.json();
+      expect(body).toEqual({
+        lote: expect.objectContaining({ estado: "recebendo", totalErros: 1 }),
+        idempotencyKey: headers["x-idempotency-key"],
+      });
+      expect(JSON.stringify(body)).not.toContain("STORAGE_UNAVAILABLE");
+      expect(mocks.confirmar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemIdsProntos: [],
+          itemIdsFalhos: [3],
+          itensFalhos: [{ itemId: 3, codigo: "STORAGE_UNAVAILABLE" }],
+        })
+      );
+      expect(mocks.disparar).not.toHaveBeenCalled();
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
