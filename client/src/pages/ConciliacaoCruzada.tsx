@@ -302,6 +302,7 @@ function ConciliacaoCruzadaAtual() {
       loteXml: loteXmlFiltro !== "todos" ? loteXmlFiltro : undefined,
       loteRetorno: loteRetornoFiltro !== "todos" ? loteRetornoFiltro : undefined,
       dataPagto: dataPagtoFiltro !== "todos" ? dataPagtoFiltro : undefined,
+      filtroPrestador: filtroPrestador !== "todos" ? filtroPrestador : undefined,
       limit: ITENS_POR_PAGINA,
       offset: paginaConciliados * ITENS_POR_PAGINA,
     },
@@ -678,49 +679,77 @@ function ConciliacaoCruzadaAtual() {
     });
   };
 
-  // Exportar conciliados para Excel
-  const exportarConciliadosExcel = () => {
-    const guias = dadosGuiasConciliadas?.items || [];
-    if (!guias.length) return;
+  const [exportandoConciliados, setExportandoConciliados] = useState(false);
 
-    const dados = guias.map((g: any) => ({
-      'Guia': g.guia || '-',
-      'Paciente': g.pacienteNome || '-',
-      'Convênio': g.convenio || String(g.convenioId || '-'),
-      'Competência': formatarCompetencia(g.competencia),
-      'Lote': g.loteXml || g.loteRetorno || '-',
-      'Protocolo': g.protocoloXml || g.protocoloRetorno || '-',
-      'Origem': g.origemSistema || '-',
-      'Total Itens': Number(g.totalItens || 0),
-      'Valor Faturado': Number(g.valorFaturado || 0),
-      'Valor Recebido': Number(g.valorPago || 0),
-      'Valor Glosado': Number(g.valorGlosa || 0),
-      'Acréscimo': Number(g.diferenca || 0) < 0 ? Math.abs(Number(g.diferenca)) : 0,
-      'Status': g.statusGuia === 'conciliado' ? 'Conciliado' : g.statusGuia === 'sem_pagamento' ? 'Sem Pagamento' : 'Não Conciliado',
-      'Itens Desassociados': Number(g.itensDesassociados || 0),
-      'Itens Conciliados': Number(g.itensConciliados || 0),
-      'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
-    }));
+  // Exportar TODOS os conciliados filtrados para Excel (busca completa no backend sem limitar à página de 50)
+  const exportarConciliadosExcel = async () => {
+    setExportandoConciliados(true);
+    try {
+      const resultadoCompleto = await utils.faturamentoUnificado.resumoConciliadosPorGuia.fetch({
+        estabelecimentoId,
+        competencia: competenciaFiltro !== "todos" ? competenciaFiltro : undefined,
+        convenioId: convenioIdNum,
+        statusConciliacao: statusFiltro !== "todos" ? statusFiltro : undefined,
+        busca: busca || undefined,
+        loteXml: loteXmlFiltro !== "todos" ? loteXmlFiltro : undefined,
+        loteRetorno: loteRetornoFiltro !== "todos" ? loteRetornoFiltro : undefined,
+        dataPagto: dataPagtoFiltro !== "todos" ? dataPagtoFiltro : undefined,
+        filtroPrestador: filtroPrestador !== "todos" ? filtroPrestador : undefined,
+        limit: 10000,
+        offset: 0,
+      });
+      const guias = resultadoCompleto?.items || dadosGuiasConciliadas?.items || [];
+      if (!guias.length) {
+        toast.warning("Nenhuma guia encontrada para exportar.");
+        return;
+      }
 
-    const wb = XLSX.utils.book_new();
+      const dados = guias.map((g: any) => ({
+        'Guia': g.guia || '-',
+        'Paciente': g.pacienteNome || '-',
+        'Convênio': g.convenio || String(g.convenioId || '-'),
+        'Competência': formatarCompetencia(g.competencia),
+        'Tipo Prestador': isTerceiro(g) ? 'Terceiro' : 'Próprio',
+        'Lote': g.loteXml || g.loteRetorno || '-',
+        'Protocolo': g.protocoloXml || g.protocoloRetorno || '-',
+        'Origem': g.origemSistema || '-',
+        'Total Itens': Number(g.totalItens || 0),
+        'Valor Faturado': Number(g.valorFaturado || 0),
+        'Valor Recebido': Number(g.valorPago || 0),
+        'Valor Glosado': Number(g.valorGlosa || 0),
+        'Acréscimo': Number(g.diferenca || 0) < 0 ? Math.abs(Number(g.diferenca)) : 0,
+        'Status': g.statusGuia === 'conciliado' ? 'Conciliado' : g.statusGuia === 'sem_pagamento' ? 'Sem Pagamento' : 'Não Conciliado',
+        'Itens Desassociados': Number(g.itensDesassociados || 0),
+        'Itens Conciliados': Number(g.itensConciliados || 0),
+        'Itens Acréscimo': Number(g.itensAcrescimos || g.itensDivergentes || 0),
+      }));
 
-    if (resumoConciliados) {
-      const wsResumo = XLSX.utils.json_to_sheet([{
-        'Total Conciliados': resumoConciliados.totalConciliados,
-        'Total Acréscimos': resumoConciliados.totalAcrescimos || resumoConciliados.totalDivergentes || 0,
-        'Total Não Recebidos': resumoConciliados.totalNaoRecebidos,
-        'Valor Total Faturado': resumoConciliados.valorTotalFaturado,
-        'Valor Total Pago': resumoConciliados.valorTotalPago,
-        'Valor Total Glosa': resumoConciliados.valorTotalGlosa,
-        'Valor Total Acréscimo': resumoConciliados.valorTotalDiferenca || 0,
-      }]);
-      XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+      const wb = XLSX.utils.book_new();
+
+      if (resumoConciliados) {
+        const wsResumo = XLSX.utils.json_to_sheet([{
+          'Total Guias Exportadas': guias.length,
+          'Total Conciliados': resumoConciliados.totalConciliados,
+          'Total Acréscimos': resumoConciliados.totalAcrescimos || resumoConciliados.totalDivergentes || 0,
+          'Total Não Recebidos': resumoConciliados.totalNaoRecebidos,
+          'Valor Total Faturado': resumoConciliados.valorTotalFaturado,
+          'Valor Total Pago': resumoConciliados.valorTotalPago,
+          'Valor Total Glosa': resumoConciliados.valorTotalGlosa,
+          'Valor Total Acréscimo': resumoConciliados.valorTotalDiferenca || 0,
+        }]);
+        XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+      }
+
+      const wsGuias = XLSX.utils.json_to_sheet(dados);
+      XLSX.utils.book_append_sheet(wb, wsGuias, 'Guias Conciliadas');
+
+      XLSX.writeFile(wb, `conciliacao_automatica_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success(`${guias.length} guia(s) exportada(s) para Excel!`);
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao exportar planilha.");
+    } finally {
+      setExportandoConciliados(false);
     }
-
-    const wsGuias = XLSX.utils.json_to_sheet(dados);
-    XLSX.utils.book_append_sheet(wb, wsGuias, 'Guias Conciliadas');
-
-    XLSX.writeFile(wb, `conciliacao_automatica_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Exportar faturamento para Excel
@@ -1121,31 +1150,42 @@ function ConciliacaoCruzadaAtual() {
             {guiaConciliadaSelecionada ? (
               <div className="space-y-4">
                 {/* Botão Voltar + Resumo da Guia */}
-                <div className="flex items-center gap-4">
-                  <Button variant="outline" onClick={() => setGuiaConciliadaSelecionada(null)}>
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Voltar para Lista
-                  </Button>
-                  <div>
-                    <h2 className="text-lg font-bold">
-                      Guia: {guiaConciliadaSelecionada.guia || guiaConciliadaSelecionada.numeroGuia || guiaConciliadaSelecionada.contaNumero}
-                    </h2>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm text-muted-foreground">
-                        {guiaConciliadaSelecionada.pacienteNome || '-'} | {guiaConciliadaSelecionada.convenio || `Convênio ${guiaConciliadaSelecionada.convenioId}`} | {formatarCompetencia(guiaConciliadaSelecionada.competencia)}
-                      </p>
-                      {Number(guiaConciliadaSelecionada.totalContas) > 1 && (
-                        <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300" title="Esta guia aparece em múltiplos lotes/contas (Alta Administrativa)">
-                          Alta Administrativa ({guiaConciliadaSelecionada.totalContas} contas)
-                        </Badge>
-                      )}
-                      {Number(guiaConciliadaSelecionada.itensAgrupados) > 0 && (
-                        <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300" title="Itens duplicados foram agrupados para conciliação">
-                          {guiaConciliadaSelecionada.itensAgrupados} itens agrupados
-                        </Badge>
-                      )}
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-4">
+                    <Button variant="outline" onClick={() => setGuiaConciliadaSelecionada(null)}>
+                      <ArrowLeft className="w-4 h-4 mr-2" />
+                      Voltar para Lista
+                    </Button>
+                    <div>
+                      <h2 className="text-lg font-bold">
+                        Guia: {guiaConciliadaSelecionada.guia || guiaConciliadaSelecionada.numeroGuia || guiaConciliadaSelecionada.contaNumero}
+                      </h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm text-muted-foreground">
+                          {guiaConciliadaSelecionada.pacienteNome || '-'} | {guiaConciliadaSelecionada.convenio || `Convênio ${guiaConciliadaSelecionada.convenioId}`} | {formatarCompetencia(guiaConciliadaSelecionada.competencia)}
+                        </p>
+                        {Number(guiaConciliadaSelecionada.totalContas) > 1 && (
+                          <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300" title="Esta guia aparece em múltiplos lotes/contas (Alta Administrativa)">
+                            Alta Administrativa ({guiaConciliadaSelecionada.totalContas} contas)
+                          </Badge>
+                        )}
+                        {Number(guiaConciliadaSelecionada.itensAgrupados) > 0 && (
+                          <Badge variant="outline" className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300" title="Itens duplicados foram agrupados para conciliação">
+                            {guiaConciliadaSelecionada.itensAgrupados} itens agrupados
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  {Number(guiaConciliadaSelecionada.valorGlosa) > 0 && (
+                    <a
+                      href="/recurso-glosa-conciliacao"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 transition-colors"
+                    >
+                      <FileCode className="w-3.5 h-3.5" />
+                      Gerar Recurso de Glosa (com Contrato)
+                    </a>
+                  )}
                 </div>
 
                 {/* Cards resumo da guia - formato colorido igual tela principal */}
@@ -1404,7 +1444,17 @@ function ConciliacaoCruzadaAtual() {
                                 <td className="p-3 text-right font-medium text-blue-600">{formatarMoeda(Number(item.valorFaturado))}</td>
                                 <td className="p-3 text-right font-medium text-purple-600">{formatarMoeda(Number(item.valorFaturadoProcessado || 0))}</td>
                                 <td className="p-3 text-right font-medium text-green-600">{formatarMoeda(Number(item.valorPago))}</td>
-                                <td className={`p-3 text-right font-medium ${Number(item.valorGlosa) > 0 ? 'text-red-600' : 'text-gray-400'}`}>{formatarMoeda(Number(item.valorGlosa))}</td>
+                                <td className={`p-3 text-right font-medium ${Number(item.valorGlosa) > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                  <div>{formatarMoeda(Number(item.valorGlosa))}</div>
+                                  {item.valorContratadoTabela !== undefined && (
+                                    <div className="mt-0.5 text-[10px] font-normal">
+                                      <span className={item.classificacaoAuditoriaContrato === 'glosa_indevida_abaixo_contrato' ? 'text-red-700 font-semibold' : 'text-muted-foreground'}>
+                                        Tab: {formatarMoeda(Number(item.valorContratadoTabela))}
+                                        {item.classificacaoAuditoriaContrato === 'glosa_indevida_abaixo_contrato' ? ' (Glosa Indevida)' : item.classificacaoAuditoriaContrato === 'ajuste_contratual_legitimo' ? ' (Ajuste Tab.)' : ''}
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
                                 <td className="p-3 text-sm max-w-[250px]" title={item.codigoGlosa ? `Cód: ${item.codigoGlosa}${item.motivoGlosa ? ' - ' + item.motivoGlosa : ''}${item.grupoGlosa ? ' [' + item.grupoGlosa + ']' : ''}` : ''}>
                                   {item.codigoGlosa ? (
                                     <div className="text-red-600">
@@ -1617,9 +1667,9 @@ function ConciliacaoCruzadaAtual() {
                     <CardTitle className="text-lg">
                       Guias Conciliadas ({dadosGuiasConciliadas?.total || 0})
                     </CardTitle>
-                    <Button variant="outline" size="sm" onClick={exportarConciliadosExcel} disabled={!guiasConciliadas.length}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Exportar Excel
+                    <Button variant="outline" size="sm" onClick={exportarConciliadosExcel} disabled={!guiasConciliadas.length || exportandoConciliados}>
+                      {exportandoConciliados ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      {exportandoConciliados ? "Exportando..." : "Exportar Excel (Completo)"}
                     </Button>
                   </CardHeader>
                   <CardContent>

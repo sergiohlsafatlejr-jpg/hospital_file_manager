@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { toast } from "sonner";
 import { formatDateBR } from "@/lib/dateUtils";
-import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning } from "lucide-react";
+import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning, Sparkles } from "lucide-react";
 
 const STATUS_CONFIG = {
   ativo: { label: "Ativo", color: "bg-green-500" },
@@ -43,6 +43,8 @@ export default function ContratosConvenios() {
   const [statusSelecionado, setStatusSelecionado] = useState<string>("ativo");
   const [documentosModalAberto, setDocumentosModalAberto] = useState(false);
   const [documentosContratoId, setDocumentosContratoId] = useState<number | null>(null);
+  const [novoConvenioIdModal, setNovoConvenioIdModal] = useState<string>("");
+  const [novoNumeroContratoModal, setNovoNumeroContratoModal] = useState<string>("");
   const [documentoDetalheId, setDocumentoDetalheId] = useState<number | null>(null);
   const [arquivosPdf, setArquivosPdf] = useState<File[]>([]);
   const [arrastandoPdf, setArrastandoPdf] = useState(false);
@@ -106,6 +108,34 @@ export default function ContratosConvenios() {
     }
   });
 
+  const excluirDocumento = trpc.contratosConvenios.excluirDocumento.useMutation({
+    onSuccess: () => {
+      if (documentosContratoId) {
+        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId });
+      }
+      utils.contratosConvenios.resumoDocumentos.invalidate();
+      toast.success("Documento PDF removido!");
+    },
+    onError: (error) => {
+      toast.error(`Erro ao remover PDF: ${error.message}`);
+    },
+  });
+
+  const reanalisarIA = trpc.contratosConvenios.reanalisarDocumentoIA.useMutation({
+    onSuccess: () => {
+      if (documentoDetalheId) {
+        utils.contratosConvenios.obterDocumento.invalidate({ id: documentoDetalheId });
+      }
+      if (documentosContratoId) {
+        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId });
+      }
+      toast.success("Cláusulas de glosa, tabelas e prazos extraídas com IA!");
+    },
+    onError: (error) => {
+      toast.error(`Erro na análise IA: ${error.message}`);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!estabelecimentoIdMutacao) {
@@ -144,16 +174,36 @@ export default function ContratosConvenios() {
     return convenios.data?.find((c: any) => c.id === id)?.nome || "Desconhecido";
   };
 
+  const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB
+
   const adicionarArquivosPdf = (arquivos: FileList | File[]) => {
     const candidatos = Array.from(arquivos);
+    let rejeitadosTipo = 0;
+    let rejeitadosTamanho = 0;
+
     const validos = candidatos.filter((arquivo) => {
-      const ehPdf = arquivo.name.toLowerCase().endsWith(".pdf");
-      const tamanhoValido = arquivo.size > 0 && arquivo.size <= 20 * 1024 * 1024;
-      return ehPdf && tamanhoValido;
+      const ehPdf =
+        arquivo.name.toLowerCase().endsWith(".pdf") ||
+        (arquivo.type || "").toLowerCase().includes("pdf");
+      if (!ehPdf) {
+        rejeitadosTipo++;
+        return false;
+      }
+      const tamanhoValido = arquivo.size > 0 && arquivo.size <= MAX_PDF_BYTES;
+      if (!tamanhoValido) {
+        rejeitadosTamanho++;
+        return false;
+      }
+      return true;
     });
-    if (validos.length !== candidatos.length) {
-      toast.warning("Alguns arquivos foram ignorados. Aceitamos somente PDFs de até 20 MB.");
+
+    if (rejeitadosTipo > 0) {
+      toast.warning(`${rejeitadosTipo} arquivo(s) ignorado(s): envie apenas arquivos .PDF.`);
     }
+    if (rejeitadosTamanho > 0) {
+      toast.warning(`${rejeitadosTamanho} arquivo(s) ignorado(s): o limite máximo por PDF é de 150 MB.`);
+    }
+
     setArquivosPdf((atuais) => {
       const chavesAtuais = new Set(atuais.map((arquivo) => `${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
       const novos = validos.filter((arquivo) => !chavesAtuais.has(`${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
@@ -179,15 +229,59 @@ export default function ContratosConvenios() {
   };
 
   const importarPdfs = async () => {
-    if (!documentosContratoId || arquivosPdf.length === 0) {
-      toast.error("Selecione um contrato e ao menos um PDF.");
+    if (arquivosPdf.length === 0) {
+      toast.error("Selecione ao menos um arquivo PDF para importar.");
       return;
     }
+
+    let contratoIdAlvo = documentosContratoId;
+
+    // Se ainda não há contrato selecionado, permite criar automaticamente a partir do convênio escolhido no modal
+    if (!contratoIdAlvo) {
+      if (!novoConvenioIdModal) {
+        toast.error("Selecione um contrato existente ou escolha a Operadora/Convênio para vincular os PDFs.");
+        return;
+      }
+      if (!estabelecimentoIdMutacao) {
+        toast.error("Selecione um estabelecimento válido no topo da página.");
+        return;
+      }
+      try {
+        setImportandoPdf(true);
+        const novoContrato = await criar.mutateAsync({
+          estabelecimentoId: estabelecimentoIdMutacao,
+          convenioId: Number(novoConvenioIdModal),
+          numeroContrato: novoNumeroContratoModal.trim() || undefined,
+          status: "ativo",
+        });
+        contratoIdAlvo = novoContrato.id || null;
+        if (contratoIdAlvo) {
+          setDocumentosContratoId(contratoIdAlvo);
+        } else {
+          const listaAtualizada = await utils.contratosConvenios.listar.fetch({
+            estabelecimentoId: estabelecimentoIdFiltro,
+          });
+          contratoIdAlvo = listaAtualizada?.[0]?.id ?? null;
+          setDocumentosContratoId(contratoIdAlvo);
+        }
+      } catch (err: any) {
+        setImportandoPdf(false);
+        toast.error(err?.message || "Não foi possível criar o registro do contrato.");
+        return;
+      }
+    }
+
+    if (!contratoIdAlvo) {
+      setImportandoPdf(false);
+      toast.error("Não foi possível identificar o contrato de destino.");
+      return;
+    }
+
     setImportandoPdf(true);
     setResultadoImportacao(null);
     try {
       const formData = new FormData();
-      formData.append("contratoId", String(documentosContratoId));
+      formData.append("contratoId", String(contratoIdAlvo));
       arquivosPdf.forEach((arquivo) => formData.append("files", arquivo, arquivo.name));
       const resposta = await fetch("/api/contratos-convenios/importar-pdfs", {
         method: "POST",
@@ -199,11 +293,12 @@ export default function ContratosConvenios() {
       setResultadoImportacao(payload);
       setArquivosPdf([]);
       await Promise.all([
-        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: documentosContratoId }),
+        utils.contratosConvenios.listar.invalidate(),
+        utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: contratoIdAlvo }),
         utils.contratosConvenios.resumoDocumentos.invalidate(),
       ]);
       if (payload.processados > 0) {
-        toast.success(`${payload.processados} PDF(s) processado(s).`);
+        toast.success(`${payload.processados} PDF(s) importado(s) e analisado(s) com sucesso!`);
       } else {
         toast.warning("Nenhum PDF foi processado. Consulte os detalhes do lote.");
       }
@@ -213,6 +308,17 @@ export default function ContratosConvenios() {
       setImportandoPdf(false);
     }
   };
+
+  const contratosFiltrados = useMemo(() => {
+    const lista = contratos.data ?? [];
+    if (!busca.trim()) return lista;
+    const termo = busca.trim().toLowerCase();
+    return lista.filter((c) => {
+      const nomeConv = getConvenioNome(c.convenioId).toLowerCase();
+      const num = (c.numeroContrato || "").toLowerCase();
+      return nomeConv.includes(termo) || num.includes(termo);
+    });
+  }, [contratos.data, busca, convenios.data]);
 
   // Exemplo Mock do Dashboard Superior (pode ser turbinado depois via API)
   const ativos = contratos.data?.filter(c => c.status === "ativo").length || 0;
@@ -230,13 +336,14 @@ export default function ContratosConvenios() {
             variant="outline"
             onClick={() => {
               setDocumentosContratoId(contratos.data?.[0]?.id ?? null);
+              setNovoConvenioIdModal("");
+              setNovoNumeroContratoModal("");
               setResultadoImportacao(null);
               setDocumentosModalAberto(true);
             }}
-            disabled={!contratos.data?.length}
             className="gap-2"
           >
-            <UploadCloud className="h-4 w-4" /> Importar PDFs
+            <UploadCloud className="h-4 w-4" /> Importar PDFs (até 150 MB)
           </Button>
           <Button onClick={() => {
             setContratoEditando(null);
@@ -315,10 +422,10 @@ export default function ContratosConvenios() {
             <TableBody>
               {contratos.isLoading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-6">Carregando...</TableCell></TableRow>
-              ) : contratos.data?.length === 0 ? (
+              ) : contratosFiltrados.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Nenhum contrato localizado para este estabelecimento.</TableCell></TableRow>
               ) : (
-                contratos.data?.map((c) => {
+                contratosFiltrados.map((c) => {
                   const conf = STATUS_CONFIG[c.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.inativo;
                   return (
                     <TableRow key={c.id}>
@@ -365,30 +472,61 @@ export default function ContratosConvenios() {
               <FileSearch className="h-5 w-5 text-primary" /> Leitura de contratos em PDF
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Anexe até 30 PDFs. O original fica protegido no storage e a tela destaca vigência, faturamento, pagamento, documentos e alertas encontrados.
+              Anexe até 30 PDFs (até 150 MB por arquivo). O original fica protegido no storage e o sistema extrai vigência, faturamento, pagamento, regras de glosa/recurso, tabelas negociadas e documentos exigidos.
             </p>
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            <div className="space-y-2">
-              <Label>Contrato que receberá os documentos</Label>
-              <Select
-                value={documentosContratoId?.toString() ?? ""}
-                onValueChange={(value) => {
-                  setDocumentosContratoId(Number(value));
-                  setResultadoImportacao(null);
-                }}
-              >
-                <SelectTrigger><SelectValue placeholder="Selecione o contrato" /></SelectTrigger>
-                <SelectContent>
-                  {contratos.data?.map((contrato) => (
-                    <SelectItem key={contrato.id} value={contrato.id.toString()}>
-                      {getConvenioNome(contrato.convenioId)}{contrato.numeroContrato ? ` — ${contrato.numeroContrato}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {contratos.data && contratos.data.length > 0 ? (
+              <div className="space-y-2">
+                <Label>Contrato que receberá os documentos</Label>
+                <Select
+                  value={documentosContratoId ? documentosContratoId.toString() : "__novo__"}
+                  onValueChange={(value) => {
+                    if (value === "__novo__") {
+                      setDocumentosContratoId(null);
+                    } else {
+                      setDocumentosContratoId(Number(value));
+                    }
+                    setResultadoImportacao(null);
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione o contrato" /></SelectTrigger>
+                  <SelectContent>
+                    {contratos.data.map((contrato) => (
+                      <SelectItem key={contrato.id} value={contrato.id.toString()}>
+                        {getConvenioNome(contrato.convenioId)}{contrato.numeroContrato ? ` — ${contrato.numeroContrato}` : ""}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__novo__">+ Criar novo contrato para outra Operadora/Convênio...</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {!documentosContratoId && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border bg-muted/20 p-4">
+                <div className="space-y-2">
+                  <Label>Operadora / Convênio (Novo Contrato)</Label>
+                  <Select value={novoConvenioIdModal} onValueChange={setNovoConvenioIdModal}>
+                    <SelectTrigger><SelectValue placeholder="Selecione o convênio..." /></SelectTrigger>
+                    <SelectContent>
+                      {convenios.data?.map((conv: any) => (
+                        <SelectItem key={conv.id} value={conv.id.toString()}>{conv.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Nº do Contrato / Referência (opcional)</Label>
+                  <Input
+                    value={novoNumeroContratoModal}
+                    onChange={(e) => setNovoNumeroContratoModal(e.target.value)}
+                    placeholder="Ex: CT-2026/001"
+                  />
+                </div>
+              </div>
+            )}
 
             <div
               className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${arrastandoPdf ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"}`}
@@ -417,9 +555,9 @@ export default function ContratosConvenios() {
               />
               <UploadCloud className="mx-auto h-10 w-10 text-primary" />
               <p className="mt-3 font-medium">Arraste os PDFs para esta área</p>
-              <p className="mt-1 text-sm text-muted-foreground">ou selecione até 30 arquivos PDF de 20 MB cada</p>
+              <p className="mt-1 text-sm text-muted-foreground">ou selecione até 30 arquivos PDF de até 150 MB cada</p>
               <Button type="button" variant="outline" className="mt-4" onClick={() => arquivoInputRef.current?.click()} disabled={importandoPdf}>
-                Selecionar arquivos
+                Selecionar arquivos PDF
               </Button>
             </div>
 
@@ -443,13 +581,18 @@ export default function ContratosConvenios() {
             {resultadoImportacao?.documentos?.length > 0 && (
               <div className="rounded-lg border p-3">
                 <h3 className="mb-2 text-sm font-semibold">Resultado deste lote</h3>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {resultadoImportacao.documentos.map((item: any, index: number) => {
                     const conf = DOCUMENTO_STATUS_CONFIG[item.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro;
                     return (
-                      <div key={`${item.nomeArquivo}-${index}`} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="truncate">{item.nomeArquivo}</span>
-                        <Badge className={`${conf.color} border-none shrink-0`}>{item.reutilizado ? "Já importado" : conf.label}</Badge>
+                      <div key={`${item.nomeArquivo}-${index}`} className="flex flex-col gap-0.5 text-sm border-b last:border-b-0 pb-1 last:pb-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-medium">{item.nomeArquivo}</span>
+                          <Badge className={`${conf.color} border-none shrink-0`}>{item.reutilizado ? "Já importado" : conf.label}</Badge>
+                        </div>
+                        {item.erro && (
+                          <span className="text-xs text-red-600">{item.erro}</span>
+                        )}
                       </div>
                     );
                   })}
@@ -463,7 +606,7 @@ export default function ContratosConvenios() {
                 {documentos.isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </div>
               {documentos.isError ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">A tabela de documentos ainda não está disponível neste ambiente. A migração precisa ser aplicada após revisão e autorização.</p>
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Não foi possível carregar os documentos deste contrato no momento.</p>
               ) : documentos.data?.length ? (
                 <div className="space-y-2">
                   {documentos.data.map((documento) => {
@@ -479,6 +622,19 @@ export default function ContratosConvenios() {
                           <Button type="button" variant="outline" size="sm" onClick={() => setDocumentoDetalheId(documento.id)}>
                             <Eye className="mr-1 h-3.5 w-3.5" /> Ver leitura
                           </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              if (confirm(`Deseja remover o documento "${documento.nomeArquivo}"?`)) {
+                                excluirDocumento.mutate({ id: documento.id });
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     );
@@ -492,9 +648,9 @@ export default function ContratosConvenios() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDocumentosModalAberto(false)}>Fechar</Button>
-            <Button onClick={importarPdfs} disabled={!documentosContratoId || !arquivosPdf.length || importandoPdf} className="gap-2">
+            <Button onClick={importarPdfs} disabled={(!documentosContratoId && !novoConvenioIdModal) || !arquivosPdf.length || importandoPdf} className="gap-2">
               {importandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {importandoPdf ? "Lendo PDFs..." : "Importar e ler PDFs"}
+              {importandoPdf ? "Importando e lendo PDFs..." : "Importar e ler PDFs"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -518,6 +674,17 @@ export default function ContratosConvenios() {
                     <Download className="h-3.5 w-3.5" /> Abrir PDF original
                   </a>
                 )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={reanalisarIA.isPending}
+                  onClick={() => reanalisarIA.mutate({ id: documentoDetalhe.data!.id })}
+                  className="gap-1.5 text-purple-700 border-purple-200 hover:bg-purple-50"
+                >
+                  {reanalisarIA.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {reanalisarIA.isPending ? "Extraindo cláusulas..." : "Extrair Cláusulas p/ Recurso de Glosa (IA)"}
+                </Button>
               </div>
               {documentoDetalhe.data.status === "ocr_necessario" && (
                 <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><FileWarning className="mt-0.5 h-4 w-4 shrink-0" />Este PDF não apresentou texto selecionável suficiente. Os pontos abaixo podem estar incompletos; a próxima etapa é OCR.</div>

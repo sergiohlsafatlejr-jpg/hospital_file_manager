@@ -2871,6 +2871,7 @@ export async function resumoConciliadosPorGuia(params: {
   loteXml?: string;
   loteRetorno?: string;
   dataPagto?: string;
+  filtroPrestador?: 'todos' | 'proprio' | 'terceiro';
   limit?: number;
   offset?: number;
 }): Promise<{ items: any[]; total: number }> {
@@ -2957,6 +2958,41 @@ export async function resumoConciliadosPorGuia(params: {
       WHERE ca2.estabelecimentoId = ${params.estabelecimentoId}
         AND ${montarCondicaoDataPagamentoConciliado('ca2', params.dataPagto)}
     )`;
+  }
+  if (params.filtroPrestador === 'terceiro') {
+    whereClause += ` AND (
+      ca.statusConciliacao = 'terceiro'
+      OR (
+        ca.codigoPrestadorExecutante IS NOT NULL
+        AND ca.codigoPrestadorExecutante != ''
+        AND EXISTS (
+          SELECT 1 FROM convenio_estabelecimento_prestador cep
+          WHERE cep.estabelecimentoId = ${params.estabelecimentoId}
+            AND cep.tipoPrestador = 'proprio'
+        )
+        AND ca.codigoPrestadorExecutante NOT IN (
+          SELECT cep2.codigoPrestador FROM convenio_estabelecimento_prestador cep2
+          WHERE cep2.estabelecimentoId = ${params.estabelecimentoId}
+            AND cep2.tipoPrestador = 'proprio'
+        )
+      )
+    )`;
+  } else if (params.filtroPrestador === 'proprio') {
+    whereClause += ` AND ca.statusConciliacao != 'terceiro'
+      AND (
+        ca.codigoPrestadorExecutante IS NULL
+        OR ca.codigoPrestadorExecutante = ''
+        OR NOT EXISTS (
+          SELECT 1 FROM convenio_estabelecimento_prestador cep
+          WHERE cep.estabelecimentoId = ${params.estabelecimentoId}
+            AND cep.tipoPrestador = 'proprio'
+        )
+        OR ca.codigoPrestadorExecutante IN (
+          SELECT cep2.codigoPrestador FROM convenio_estabelecimento_prestador cep2
+          WHERE cep2.estabelecimentoId = ${params.estabelecimentoId}
+            AND cep2.tipoPrestador = 'proprio'
+        )
+      )`;
   }
 
   const limit = params.limit || 50;
@@ -3079,7 +3115,80 @@ export async function itensConciliadosPorGuia(params: {
   `;
 
   const [rows] = await db.execute(sql.raw(query));
-  return rows as unknown as any[];
+  const lista = (rows as unknown as any[]) ?? [];
+  if (lista.length === 0) return lista;
+
+  // Enriquecer com auditoria preventiva de tabela contratada do convênio (se cadastrada)
+  try {
+    const convenioId = Number(lista.find(r => r.convenioId)?.convenioId || 0);
+    const codigos = Array.from(
+      new Set(
+        lista
+          .flatMap(r => [r.codigoItem, r.codigoItemTuss])
+          .map(c => String(c || "").trim())
+          .filter(Boolean)
+      )
+    ).slice(0, 60);
+
+    if (convenioId > 0 && codigos.length > 0) {
+      const codigosSql = codigos.map(c => `'${c.replace(/'/g, "''")}'`).join(",");
+      const [tabRows] = await db.execute(
+        sql.raw(`
+          SELECT itp.codigoProcedimento, itp.valorContratado, tp.nome AS nomeTabela
+          FROM itens_tabela_preco itp
+          INNER JOIN tabelas_preco tp ON tp.id = itp.tabelaPrecoId
+          WHERE tp.convenioId = ${convenioId}
+            AND tp.ativo = 'sim'
+            AND itp.codigoProcedimento IN (${codigosSql})
+        `)
+      );
+      const mapaTabela = new Map<string, { valorContratado: number; nomeTabela: string }>();
+      for (const tr of (tabRows as any[]) ?? []) {
+        mapaTabela.set(String(tr.codigoProcedimento).trim(), {
+          valorContratado: Number(tr.valorContratado || 0),
+          nomeTabela: String(tr.nomeTabela || "Tabela Contratada"),
+        });
+      }
+      if (mapaTabela.size > 0) {
+        return lista.map(r => {
+          const match =
+            mapaTabela.get(String(r.codigoItem || "").trim()) ||
+            mapaTabela.get(String(r.codigoItemTuss || "").trim());
+          if (!match) return r;
+          const qtd = Math.max(1, Number(r.quantidade || 1));
+          const valorContratadoTotal = match.valorContratado * qtd;
+          const valorFaturado = Number(r.valorFaturado || 0);
+          const valorPago = Number(r.valorPago || 0);
+          const valorGlosa = Number(r.valorGlosa || 0);
+
+          let classificacaoAuditoriaContrato:
+            | "glosa_indevida_abaixo_contrato"
+            | "ajuste_contratual_legitimo"
+            | "conforme_contrato" = "conforme_contrato";
+
+          if (valorPago + 0.05 < valorContratadoTotal && (valorGlosa > 0 || valorPago < valorFaturado)) {
+            classificacaoAuditoriaContrato = "glosa_indevida_abaixo_contrato";
+          } else if (
+            valorFaturado > valorContratadoTotal + 0.05 &&
+            Math.abs(valorPago - valorContratadoTotal) <= 0.05
+          ) {
+            classificacaoAuditoriaContrato = "ajuste_contratual_legitimo";
+          }
+
+          return {
+            ...r,
+            valorContratadoTabela: valorContratadoTotal,
+            nomeTabelaNegociada: match.nomeTabela,
+            classificacaoAuditoriaContrato,
+          };
+        });
+      }
+    }
+  } catch {
+    // Segue sem enriquecimento caso tabela de preços não exista/não esteja populada
+  }
+
+  return lista;
 }
 
 // ============================================================
@@ -3904,6 +4013,7 @@ export async function itensGlosadosDetalheGuia(params: {
   const query = `
     SELECT 
       ca.id,
+      ca.convenioId,
       ca.codigoItem,
       ca.descricaoItem,
       ca.tipoItem,
@@ -3932,8 +4042,9 @@ export async function itensGlosadosDetalheGuia(params: {
   `;
 
   const [rows] = await db.execute(sql.raw(query));
-  return (rows as unknown as any[]).map((r: any) => ({
+  const listaBase = (rows as unknown as any[]).map((r: any) => ({
     id: Number(r.id),
+    convenioId: r.convenioId ? Number(r.convenioId) : undefined,
     codigoItem: r.codigoItem,
     descricaoItem: r.descricaoItem,
     tipoItem: r.tipoItem,
@@ -3955,6 +4066,60 @@ export async function itensGlosadosDetalheGuia(params: {
     valorRecurso: r.valorRecurso ? Number(r.valorRecurso) : null,
     statusRecursoItem: r.statusRecursoItem,
   }));
+
+  // Cruzar com tabela de preços contratada do convênio para classificar Glosa Indevida vs Ajuste Contratual
+  try {
+    const convId = params.convenioId || listaBase.find(i => i.convenioId)?.convenioId;
+    const codigos = Array.from(new Set(listaBase.map(i => String(i.codigoItem || "").trim()).filter(Boolean)));
+    if (convId && codigos.length > 0) {
+      const codigosSql = codigos.map(c => `'${c.replace(/'/g, "''")}'`).join(",");
+      const [tabRows] = await db.execute(
+        sql.raw(`
+          SELECT itp.codigoProcedimento, itp.valorContratado, tp.nome AS nomeTabela
+          FROM itens_tabela_preco itp
+          INNER JOIN tabelas_preco tp ON tp.id = itp.tabelaPrecoId
+          WHERE tp.convenioId = ${Number(convId)}
+            AND tp.ativo = 'sim'
+            AND itp.codigoProcedimento IN (${codigosSql})
+        `)
+      );
+      const mapaTabela = new Map<string, { valorContratado: number; nomeTabela: string }>();
+      for (const tr of (tabRows as any[]) ?? []) {
+        mapaTabela.set(String(tr.codigoProcedimento).trim(), {
+          valorContratado: Number(tr.valorContratado || 0),
+          nomeTabela: String(tr.nomeTabela || "Tabela Contratada"),
+        });
+      }
+      if (mapaTabela.size > 0) {
+        return listaBase.map(item => {
+          const match = mapaTabela.get(String(item.codigoItem || "").trim());
+          if (!match) return item;
+          const valorContratadoTotal = match.valorContratado * Math.max(1, item.quantidade);
+          const classificacaoContrato =
+            item.valorPago + 0.05 < valorContratadoTotal
+              ? "glosa_indevida"
+              : item.valorFaturado > valorContratadoTotal + 0.05 &&
+                  Math.abs(item.valorPago - valorContratadoTotal) <= 0.05
+                ? "glosa_contratual_legitima"
+                : "conforme_contrato";
+          return {
+            ...item,
+            valorContratadoTabela: valorContratadoTotal,
+            nomeTabelaNegociada: match.nomeTabela,
+            classificacaoContrato,
+            valorRecursoSugeridoContrato:
+              classificacaoContrato === "glosa_indevida"
+                ? Math.max(0, Math.min(item.valorGlosa, valorContratadoTotal - item.valorPago))
+                : 0,
+          };
+        });
+      }
+    }
+  } catch {
+    // Segue com listaBase
+  }
+
+  return listaBase;
 }
 
 /**
@@ -4127,9 +4292,21 @@ export async function gerarJustificativasIA(params: {
     historicoSucesso = historico as any[];
   }
 
-  // 3. Preparar contexto para a IA
+  // 3. Buscar contexto contratual (contratos ativos, cláusulas de PDFs importados, tabelas de preço e regras de negócio)
+  const { obterContextoContratualParaGlosa } = await import("./contratosConveniosPdfService");
+  const contextoContratual = await obterContextoContratualParaGlosa({
+    estabelecimentoId: params.estabelecimentoId,
+    convenioNome: params.convenioNome,
+    codigosProcedimento: params.itens.map(i => i.codigoItem).filter(Boolean),
+  });
+  const mapaTabelaPorCodigo = new Map(
+    contextoContratual.itensTabelaNegociada.map(it => [it.codigoProcedimento, it])
+  );
+
+  // 4. Preparar contexto para a IA
   const itensContexto = params.itens.map(item => {
     const dic = item.codigoGlosa ? dicionarioInfo[item.codigoGlosa] : null;
+    const itemTabela = mapaTabelaPorCodigo.get(String(item.codigoItem || "").trim());
     return {
       id: item.id,
       codigo: item.codigoItem,
@@ -4138,6 +4315,8 @@ export async function gerarJustificativasIA(params: {
       valorFaturado: item.valorFaturado || '0',
       valorPago: item.valorPago || '0',
       valorGlosa: item.valorGlosa || '0',
+      valorContratadoTabela: itemTabela ? itemTabela.valorContratado : undefined,
+      tabelaNegociada: itemTabela ? itemTabela.nomeTabela : undefined,
       codigoGlosa: item.codigoGlosa || 'não informado',
       motivoGlosa: item.motivoGlosa || (dic?.descricaoSimplificada || dic?.descricao || 'não informado'),
       argumentoSugerido: dic?.argumentoContestacao || null,
@@ -4149,7 +4328,11 @@ export async function gerarJustificativasIA(params: {
     ? `\nHistórico de recursos DEFERIDOS com sucesso para estes códigos de glosa (use como referência):\n${historicoSucesso.slice(0, 10).map((h, i) => `${i+1}. Procedimento: ${h.descricaoProcedimento} | Justificativa usada: "${h.justificativaRecurso?.substring(0, 200)}"`).join('\n')}`
     : '';
 
-  // 4. Chamar IA para gerar justificativas
+  const contratoTexto = contextoContratual.resumoPrompt
+    ? `\n\nBASE CONTRATUAL DO CONVÊNIO (use estas cláusulas, nº de contrato e valores negociados para fundamentar tecnicamente o recurso):\n${contextoContratual.resumoPrompt}`
+    : '';
+
+  // 5. Chamar IA para gerar justificativas
   const response = await invokeLLM({
     messages: [
       {
@@ -4160,18 +4343,19 @@ Sua tarefa é gerar justificativas de recurso de glosa para cada item fornecido.
 Regras:
 - Cada justificativa deve ser técnica, objetiva e fundamentada
 - Use linguagem formal e profissional
-- Cite normas TISS, ANS, contratos e regulamentações quando aplicável
+- Cite normas TISS, ANS, e PRIORITARIAMENTE o contrato vigente, cláusulas dos PDFs contratuais ou valores de tabela acordada quando disponíveis na Base Contratual
+- Quando houver divergência de valor e o item possuir valorContratadoTabela, cite o valor acordado em tabela contratual
 - Limite cada justificativa a no máximo 150 caracteres (requisito TISS)
-- Se houver argumento sugerido do dicionário, use-o como base
+- Se houver argumento sugerido do dicionário, use-o como base combinando com a regra contratual
 - Se houver histórico de sucesso, inspire-se nas justificativas que funcionaram
 - Adapte a justificativa ao tipo do item (material, medicamento, taxa, diária, procedimento)
-- Convênio: ${params.convenioNome || 'não informado'}
+- Convênio: ${params.convenioNome || contextoContratual.contratos[0]?.convenioNome || 'não informado'}
 
 Responda APENAS com JSON válido.`
       },
       {
         role: "user",
-        content: `Gere justificativas de recurso para os seguintes itens glosados:\n\n${JSON.stringify(itensContexto, null, 2)}${historicoTexto}`
+        content: `Gere justificativas de recurso para os seguintes itens glosados:\n\n${JSON.stringify(itensContexto, null, 2)}${contratoTexto}${historicoTexto}`
       }
     ],
     response_format: {
@@ -4209,7 +4393,18 @@ Responda APENAS com JSON válido.`
   }
 
   const resultado = JSON.parse(content);
-  return resultado;
+  return {
+    ...resultado,
+    contextoContratual: {
+      possuiContratoAtivo: contextoContratual.possuiContratoAtivo,
+      contratos: contextoContratual.contratos,
+      documentos: contextoContratual.documentos.map(d => ({
+        id: d.id,
+        nomeArquivo: d.nomeArquivo,
+        paginas: d.paginas,
+      })),
+    },
+  };
 }
 
 
@@ -5418,28 +5613,51 @@ export async function gerarJustificativasIADemonstrativo(params: {
   if (!db) throw new Error("Database não disponível");
   
   const ids = recorte.recebimentoIds;
-  // Unificado: usa tabela demonstrativo
+  // Unificado: usa tabela demonstrativo + convênio para vincular contratos
   const [rows] = await db.execute(sql.raw(`
-    SELECT d.id, d.codigo_item as item, d.descricao_item as item_desc, d.codigo_glosa, mg.descricao as motivoGlosa, d.valor_glosa
+    SELECT d.id, d.codigo_item as item, d.descricao_item as item_desc, d.codigo_glosa,
+           mg.descricao as motivoGlosa, mg.argumentoContestacao as argumentoPadrao,
+           d.valor_glosa, d.convenio_id as convenioId, c.nome as convenioNome
     FROM demonstrativo d
     LEFT JOIN motivosGlosa mg ON mg.codigo = d.codigo_glosa
+    LEFT JOIN convenios c ON c.id = d.convenio_id
     WHERE d.estabelecimentoId = ${recorte.estabelecimentoId} AND d.id IN (${ids.join(',')})
   `));
   
   const items = rows as any[];
   if (items.length === 0) return { justificativas: [] };
   
+  // Carregar contexto contratual do convênio (contratos, PDFs importados e tabelas negociadas)
+  const { obterContextoContratualParaGlosa } = await import("./contratosConveniosPdfService");
+  const primeiroComConvenio = items.find((i: any) => i.convenioId || i.convenioNome);
+  const contextoContratual = await obterContextoContratualParaGlosa({
+    estabelecimentoId: recorte.estabelecimentoId,
+    convenioId: primeiroComConvenio?.convenioId ? Number(primeiroComConvenio.convenioId) : undefined,
+    convenioNome: primeiroComConvenio?.convenioNome ? String(primeiroComConvenio.convenioNome) : undefined,
+    codigosProcedimento: items.map((i: any) => String(i.item || '')).filter(Boolean),
+  });
+  const mapaTabela = new Map(
+    contextoContratual.itensTabelaNegociada.map(it => [it.codigoProcedimento, it])
+  );
+
   // Usar LLM para gerar justificativas
   const { invokeLLM } = await import("./_core/llm");
   
-  const prompt = items.map((item: any) => 
-    `Item: ${item.item} - ${item.item_desc || 'Sem descrição'}, Motivo Glosa: ${item.motivoGlosa || item.codigo_glosa || 'Não informado'}, Valor: R$ ${Number(item.valor_glosa).toFixed(2)}`
-  ).join('\n');
+  const prompt = items.map((item: any) => {
+    const tab = mapaTabela.get(String(item.item || '').trim());
+    const infoTabela = tab ? ` | Valor Contratado (${tab.nomeTabela}): R$ ${Number(tab.valorContratado).toFixed(2)}` : '';
+    const infoArg = item.argumentoPadrao ? ` | Base Dicionário: ${String(item.argumentoPadrao).slice(0, 120)}` : '';
+    return `ID ${item.id} -> Item: ${item.item} - ${item.item_desc || 'Sem descrição'}, Motivo Glosa: ${item.motivoGlosa || item.codigo_glosa || 'Não informado'}, Valor Glosa: R$ ${Number(item.valor_glosa).toFixed(2)}${infoTabela}${infoArg}`;
+  }).join('\n');
+
+  const blocoContrato = contextoContratual.resumoPrompt
+    ? `\n\nBASE CONTRATUAL DO CONVÊNIO (utilize as cláusulas dos PDFs contratuais, número do contrato e tabelas acordadas para fundamentar o recurso):\n${contextoContratual.resumoPrompt}`
+    : '';
   
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: "Você é um especialista em faturamento hospitalar e recursos de glosa. Gere justificativas técnicas e profissionais para cada item glosado. Responda em JSON com array de objetos {id, justificativa}. Cada justificativa deve ter no máximo 150 caracteres e ser específica ao motivo da glosa." },
-      { role: "user", content: `Gere justificativas de recurso para os seguintes itens glosados:\n${prompt}\n\nIDs: ${items.map((i: any) => i.id).join(',')}` }
+      { role: "system", content: "Você é um especialista em faturamento hospitalar e recursos de glosa. Gere justificativas técnicas, formais e fundamentadas nas cláusulas contratuais do convênio, tabelas acordadas (CBHPM/TUSS/Brasíndice/Simpro/Pacotes) e normas TISS/ANS para cada item glosado. Responda em JSON com array de objetos {id, justificativa}. Cada justificativa deve ter no máximo 150 caracteres e ser específica ao motivo da glosa e ao contrato." },
+      { role: "user", content: `Gere justificativas de recurso para os seguintes itens glosados:\n${prompt}${blocoContrato}\n\nIDs obrigatórios: ${items.map((i: any) => i.id).join(',')}` }
     ],
     response_format: {
       type: "json_schema",
@@ -5486,7 +5704,19 @@ export async function gerarJustificativasIADemonstrativo(params: {
     ));
   }
   
-  return { ...parsed, justificativas };
+  return {
+    ...parsed,
+    justificativas,
+    contextoContratual: {
+      possuiContratoAtivo: contextoContratual.possuiContratoAtivo,
+      contratos: contextoContratual.contratos,
+      documentos: contextoContratual.documentos.map(d => ({
+        id: d.id,
+        nomeArquivo: d.nomeArquivo,
+        paginas: d.paginas,
+      })),
+    },
+  };
 }
 
 

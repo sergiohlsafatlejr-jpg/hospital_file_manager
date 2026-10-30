@@ -8,8 +8,13 @@ import {
   type ContratoConvenioDocumento,
 } from "../../drizzle/schema";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
-import { storageGet } from "../storage";
-import type { ContratoConvenioPonto } from "../contratosConveniosPdfService";
+import {
+  analisarClausulasContratuaisComIA,
+  ensureContratosConveniosDocumentosTable,
+  obterContextoContratualParaGlosa,
+  obterUrlDownloadPdfContrato,
+  type ContratoConvenioPonto,
+} from "../contratosConveniosPdfService";
 
 function dbObrigatorio(db: Awaited<ReturnType<typeof getDb>>) {
   if (!db)
@@ -97,6 +102,7 @@ export const contratosConveniosRouter = router({
   listarDocumentos: protectedProcedure
     .input(z.object({ contratoId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
+      await ensureContratosConveniosDocumentosTable();
       const db = dbObrigatorio(await getDb());
       await contratoAutorizado(db, ctx.user, input.contratoId);
       const documentos = await db
@@ -113,6 +119,7 @@ export const contratosConveniosRouter = router({
     )
     .query(async ({ ctx, input }) => {
       if (input.contratoIds.length === 0) return [];
+      await ensureContratosConveniosDocumentosTable();
       const db = dbObrigatorio(await getDb());
       const contratos = await db
         .select({
@@ -159,6 +166,7 @@ export const contratosConveniosRouter = router({
   obterDocumento: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
+      await ensureContratosConveniosDocumentosTable();
       const db = dbObrigatorio(await getDb());
       const [documento] = await db
         .select()
@@ -171,11 +179,78 @@ export const contratosConveniosRouter = router({
           message: "Documento não encontrado.",
         });
       await contratoAutorizado(db, ctx.user, documento.contratoId);
-      const storage = await storageGet(documento.storageKey);
+      const downloadUrl = await obterUrlDownloadPdfContrato(
+        documento.storageKey,
+        documento.id
+      );
       return {
         ...publicarDocumento(documento),
         textoExtraido: documento.textoExtraido ?? "",
-        downloadUrl: storage.url,
+        downloadUrl,
+      };
+    }),
+
+  excluirDocumento: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await ensureContratosConveniosDocumentosTable();
+      const db = dbObrigatorio(await getDb());
+      const [documento] = await db
+        .select()
+        .from(contratosConveniosDocumentos)
+        .where(eq(contratosConveniosDocumentos.id, input.id))
+        .limit(1);
+      if (!documento)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Documento não encontrado.",
+        });
+      await contratoAutorizado(db, ctx.user, documento.contratoId, "gerenciar");
+      await db
+        .delete(contratosConveniosDocumentos)
+        .where(eq(contratosConveniosDocumentos.id, input.id));
+      return { success: true };
+    }),
+
+  obterContextoGlosa: protectedProcedure
+    .input(
+      z.object({
+        estabelecimentoId: z.number().int().positive(),
+        convenioId: z.number().int().positive().optional(),
+        convenioNome: z.string().optional(),
+        codigosProcedimento: z.array(z.string()).max(40).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      return obterContextoContratualParaGlosa(input);
+    }),
+
+  reanalisarDocumentoIA: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      await ensureContratosConveniosDocumentosTable();
+      const db = dbObrigatorio(await getDb());
+      const [documento] = await db
+        .select()
+        .from(contratosConveniosDocumentos)
+        .where(eq(contratosConveniosDocumentos.id, input.id))
+        .limit(1);
+      if (!documento)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Documento não encontrado.",
+        });
+      await contratoAutorizado(db, ctx.user, documento.contratoId, "gerenciar");
+      const novosPontos = await analisarClausulasContratuaisComIA(
+        documento.textoExtraido ?? ""
+      );
+      await db
+        .update(contratosConveniosDocumentos)
+        .set({ pontosImportantes: novosPontos })
+        .where(eq(contratosConveniosDocumentos.id, input.id));
+      return {
+        success: true,
+        pontosImportantes: novosPontos,
       };
     }),
 
@@ -213,7 +288,7 @@ export const contratosConveniosRouter = router({
         });
       }
       const db = dbObrigatorio(await getDb());
-      await db.insert(contratosConvenios).values({
+      const [insertResult] = await db.insert(contratosConvenios).values({
         estabelecimentoId: input.estabelecimentoId,
         convenioId: input.convenioId,
         numeroContrato: input.numeroContrato,
@@ -229,7 +304,10 @@ export const contratosConveniosRouter = router({
           : null,
         status: input.status,
       });
-      return { success: true };
+      return {
+        success: true,
+        id: Number((insertResult as any)?.insertId ?? 0),
+      };
     }),
 
   atualizar: protectedProcedure

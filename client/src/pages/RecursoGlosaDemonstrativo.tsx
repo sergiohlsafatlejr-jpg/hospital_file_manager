@@ -141,6 +141,14 @@ export default function RecursoGlosaDemonstrativo() {
     { enabled: !!expandedMotivo && agrupamento === 'motivo' && isScopeAtual }
   );
 
+  const { data: contextoContratual } = trpc.contratosConvenios.obterContextoGlosa.useQuery(
+    {
+      estabelecimentoId,
+      convenioId: convenioIdNumero,
+    },
+    { enabled: !!estabelecimentoId && estabelecimentoId > 0 && isScopeAtual }
+  );
+
   const competenciaOptions = useMemo(() => (competencias || []).map((competencia: any) => ({
     value: competencia.competencia,
     label: `${competencia.competencia} (${competencia.total})`,
@@ -226,8 +234,12 @@ export default function RecursoGlosaDemonstrativo() {
   });
 
   const gerarIAMutation = trpc.faturamentoUnificado.gerarJustificativasIADemonstrativo.useMutation({
-    onSuccess: () => {
-      toast.success("Justificativas geradas com IA!");
+    onSuccess: (data: any) => {
+      if (data?.contextoContratual?.possuiContratoAtivo) {
+        toast.success("Justificativas geradas com IA fundamentadas no Contrato e PDFs do Convênio!");
+      } else {
+        toast.success("Justificativas geradas com IA!");
+      }
       refetchDetalheGuia();
       refetchDetalheItem();
       refetchDetalheMotivo();
@@ -447,6 +459,39 @@ export default function RecursoGlosaDemonstrativo() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Base Contratual Vinculada para Análise de Recurso de Glosa */}
+      {contextoContratual && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-800 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <FileText className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+            <div className="text-xs">
+              <span className="font-semibold text-blue-900 dark:text-blue-200">
+                Base Contratual Integrada à IA de Recursos:
+              </span>{" "}
+              {contextoContratual.possuiContratoAtivo ? (
+                <span className="text-blue-800 dark:text-blue-300">
+                  {contextoContratual.contratos.length} contrato(s) ativo(s) (
+                  {contextoContratual.contratos.map((c: any) => `${c.convenioNome}${c.numeroContrato ? ` #${c.numeroContrato}` : ""}`).join(", ")})
+                  {" · "}
+                  <strong>{contextoContratual.documentos.length} PDF(s) contratual(is) lido(s)</strong>
+                  {contextoContratual.regrasNegocio.length > 0 ? ` · ${contextoContratual.regrasNegocio.length} regra(s) contratual(is)` : ""}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">
+                  Nenhum contrato ou PDF contratual localizado para o filtro atual. Cadastre/importe o PDF em Contratos x Convênios para fundamentar os recursos automaticamente.
+                </span>
+              )}
+            </div>
+          </div>
+          <a
+            href="/contratos-convenios"
+            className="text-xs font-medium text-blue-700 hover:underline shrink-0"
+          >
+            Gerenciar Contratos / PDFs →
+          </a>
+        </div>
+      )}
 
       {/* KPIs */}
       {itensGlosados?.resumo && (() => {

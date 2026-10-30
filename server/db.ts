@@ -3905,20 +3905,34 @@ export async function sugerirArgumentoComIA(params: {
   
   // Buscar nome do convênio
   const convenio = await getConvenioById(params.convenioId);
-  
-  // Se não há histórico suficiente, retornar argumento do dicionário
-  if (argumentosSucesso.length === 0) {
+
+  // Buscar contexto contratual do convênio (contratos ativos, PDFs importados, tabelas de preço e regras)
+  const { obterContextoContratualParaGlosa } = await import("./contratosConveniosPdfService");
+  const contextoContratual = await obterContextoContratualParaGlosa({
+    estabelecimentoId: params.estabelecimentoId,
+    convenioId: params.convenioId,
+    convenioNome: convenio?.nome,
+    codigosProcedimento: params.codigoProcedimento ? [params.codigoProcedimento] : [],
+  });
+
+  const complementoContratoFallback = contextoContratual.contratos.length > 0
+    ? ` Ref. Contratual: ${contextoContratual.contratos[0].convenioNome}${contextoContratual.contratos[0].numeroContrato ? ` (Contrato nº ${contextoContratual.contratos[0].numeroContrato})` : ""}.`
+    : "";
+
+  // Se não há histórico suficiente E não há contrato vinculado, retornar argumento do dicionário
+  if (argumentosSucesso.length === 0 && !contextoContratual.possuiContratoAtivo) {
     return {
       argumento: argumentoPadrao,
       origem: "dicionario" as const,
       acoesRecomendadas,
       documentosSugeridos,
       estatisticas,
+      contextoContratual,
       confianca: infoGlosa?.probabilidadeSucesso || 50,
     };
   }
   
-  // Usar IA para gerar argumento personalizado
+  // Usar IA para gerar argumento personalizado (incorporando contratos + histórico)
   try {
     const prompt = `Você é um especialista em recursos de glosa hospitalar. Gere um argumento de contestação para a seguinte situação:
 
@@ -3931,26 +3945,25 @@ ${params.valorGlosado ? `VALOR GLOSADO: R$ ${params.valorGlosado}` : ""}
 ARGUMENTO PADRÃO DO DICIONÁRIO:
 ${argumentoPadrao}
 
-ARGUMENTOS QUE FUNCIONARAM ANTERIORMENTE PARA ESTE CÓDIGO:
-${argumentosSucesso.map((a: { argumentoUtilizado: string | null; resultado: string }, i: number) => `${i + 1}. ${a.argumentoUtilizado} (Resultado: ${a.resultado})`).join("\n")}
-
+${contextoContratual.resumoPrompt ? `BASE CONTRATUAL VINCULADA AO CONVÊNIO (CITE O CONTRATO, CLÁUSULAS EXTRAÍDAS DO PDF E/OU TABELA ACORDADA):\n${contextoContratual.resumoPrompt}\n` : ""}
+${argumentosSucesso.length > 0 ? `ARGUMENTOS QUE FUNCIONARAM ANTERIORMENTE PARA ESTE CÓDIGO:\n${argumentosSucesso.map((a: { argumentoUtilizado: string | null; resultado: string }, i: number) => `${i + 1}. ${a.argumentoUtilizado} (Resultado: ${a.resultado})`).join("\n")}\n` : ""}
 ESTATÍSTICAS:
 - Total de contestações: ${estatisticas.total}
 - Taxa de sucesso: ${estatisticas.taxaSucesso}%
 - Valor recuperado: R$ ${estatisticas.valorTotalRecuperado}
 
-Gere um argumento de contestação personalizado, técnico e persuasivo, incorporando os elementos que funcionaram nos casos anteriores. O argumento deve ser formal, citar legislação quando aplicável, e ser específico para o convênio ${convenio?.nome || "informado"}.
+Gere um argumento de contestação personalizado, técnico e persuasivo, fundamentado nas cláusulas do contrato/PDFs do convênio, nos valores contratados em tabela e nos elementos que funcionaram anteriormente. O argumento deve ser formal, citar legislação (ANS/TISS) e o contrato vigente quando aplicável, específico para o convênio ${convenio?.nome || "informado"}.
 
 Responda APENAS com o texto do argumento, sem explicações adicionais.`;
 
     const response = await invokeLLM({
       messages: [
-        { role: "system", content: "Você é um especialista em faturamento hospitalar e recursos de glosa. Gere argumentos técnicos, formais e persuasivos." },
+        { role: "system", content: "Você é um especialista em faturamento hospitalar, auditoria de contas médicas e recursos de glosa fundamentados em contratos de operadoras." },
         { role: "user", content: prompt },
       ],
     });
 
-    const argumentoIA = response.choices[0]?.message?.content || argumentoPadrao;
+    const argumentoIA = response.choices[0]?.message?.content || `${argumentoPadrao}${complementoContratoFallback}`;
 
     return {
       argumento: argumentoIA,
@@ -3959,18 +3972,20 @@ Responda APENAS com o texto do argumento, sem explicações adicionais.`;
       documentosSugeridos,
       estatisticas,
       argumentosHistorico: argumentosSucesso,
-      confianca: Math.min(estatisticas.taxaSucesso + 10, 95),
+      contextoContratual,
+      confianca: Math.min((estatisticas.taxaSucesso || infoGlosa?.probabilidadeSucesso || 60) + (contextoContratual.possuiContratoAtivo ? 15 : 10), 95),
     };
   } catch (error) {
-    // Em caso de erro na IA, retornar argumento do dicionário
+    // Em caso de erro na IA, retornar argumento do dicionário enriquecido com referência do contrato
     return {
-      argumento: argumentoPadrao,
+      argumento: `${argumentoPadrao}${complementoContratoFallback}`,
       origem: "dicionario" as const,
       acoesRecomendadas,
       documentosSugeridos,
       estatisticas,
+      contextoContratual,
       confianca: infoGlosa?.probabilidadeSucesso || 50,
-      erro: "Não foi possível gerar sugestão com IA, usando argumento padrão.",
+      erro: "Não foi possível gerar sugestão com IA, usando argumento padrão com referência contratual.",
     };
   }
 }
