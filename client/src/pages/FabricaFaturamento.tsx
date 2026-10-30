@@ -920,11 +920,18 @@ export default function FabricaFaturamento() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="nenhum">Definir depois / Via XML</SelectItem>
-                          {listaConvenios.map((c: any) => (
-                            <SelectItem key={c.id} value={String(c.id)}>
-                              {c.nome}
-                            </SelectItem>
-                          ))}
+                          {listaConvenios
+                            .filter(
+                              (c: any) =>
+                                !recHospitalId ||
+                                !c.estabelecimentoId ||
+                                Number(c.estabelecimentoId) === Number(recHospitalId)
+                            )
+                            .map((c: any) => (
+                              <SelectItem key={c.id} value={String(c.id)}>
+                                {c.nome}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                     </div>

@@ -33,6 +33,7 @@ import { parseXML } from "../parsers";
 import { parseContaHonorarios } from "../contaHonorariosParser";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
 import { compararContaComPadroes, executarComparacaoESalvar } from "../services/comparadorPadroes";
+import { popularDeXmlTissArquivoRestrito } from "../faturamentoUnificadoService";
 import { logger } from "../_core/logger";
 import {
   TODOS_SETORES_OPERACIONAIS,
@@ -49,6 +50,232 @@ import {
   decodificarXmlFabricaBase64,
 } from "../fabricaXmlSeguro";
 import { indexarHonorariosFabricaCanonicos } from "../fabricaContextoMedico";
+
+
+function mapTipoDespesaParaTipoItemFabrica(tipoDespesa?: string): string {
+  switch (tipoDespesa) {
+    case "gas":
+      return "GÁS MEDICINAL";
+    case "medicamento":
+      return "MEDICAMENTO";
+    case "material":
+      return "MATERIAL";
+    case "diaria":
+      return "DIÁRIA";
+    case "taxa":
+      return "TAXA/ALUGUÉIS";
+    case "procedimento":
+      return "PROCEDIMENTO";
+    case "outros":
+      return "OUTROS";
+    default:
+      return "PROCEDIMENTO";
+  }
+}
+
+function mapTipoAtendimentoParaSetor(tipoAtendimento?: string | null): string {
+  switch (tipoAtendimento) {
+    case "uti":
+      return "UTI";
+    case "pronto_socorro":
+      return "PRONTO SOCORRO";
+    case "centro_cirurgico":
+      return "CENTRO CIRÚRGICO";
+    case "ambulatorio":
+      return "AMBULATÓRIO";
+    case "sadt":
+      return "SADT";
+    case "internacao":
+    default:
+      return "INTERNAÇÃO";
+  }
+}
+
+function normalizarTextoMatch(valor?: string | null): string {
+  return String(valor || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function resolverConvenioDoHospital(
+  db: any,
+  usuarioId: number,
+  hospitalEstabId: number,
+  convenioIdInput?: number | null,
+  convenioNomeInput?: string | null,
+  registroAnsXml?: string | null
+): Promise<{ id: number; nome: string }> {
+  if (convenioIdInput) {
+    try {
+      const convDireto = await exigirConvenioDoEstabelecimento(
+        usuarioId,
+        Number(convenioIdInput),
+        hospitalEstabId,
+        "editar"
+      );
+      return { id: convDireto.id, nome: convDireto.nome };
+    } catch {
+      // Se o convênio informado pertencer a outro estabelecimento (ex.: mesmo nome "UNIMED" em outra unidade),
+      // buscamos o convênio equivalente cadastrado para o hospitalEstabId.
+    }
+  }
+
+  let nomeRef = convenioNomeInput?.trim() || "";
+  let ansRef = registroAnsXml?.trim() || "";
+  let codigoRef = "";
+
+  if (convenioIdInput) {
+    try {
+      const [convOrig] = await db
+        .select()
+        .from(convenios)
+        .where(eq(convenios.id, Number(convenioIdInput)))
+        .limit(1);
+      if (convOrig) {
+        if (!nomeRef && convOrig.nome) nomeRef = String(convOrig.nome).trim();
+        if (!ansRef && convOrig.registroAns) ansRef = String(convOrig.registroAns).trim();
+        if (convOrig.codigo) codigoRef = String(convOrig.codigo).trim();
+      }
+    } catch {
+      // Ignora falha de leitura auxiliar
+    }
+  }
+
+  let candidatosHospital: any[] = [];
+  try {
+    const todosConvenios = await db.select().from(convenios);
+    candidatosHospital = (todosConvenios || []).filter(
+      (c: any) =>
+        Number(c.estabelecimentoId) === Number(hospitalEstabId) ||
+        c.estabelecimentoId === null ||
+        c.estabelecimentoId === undefined
+    );
+  } catch {
+    candidatosHospital = [];
+  }
+
+  const ordenarPreferenciaHospital = (lista: any[]) =>
+    [...lista].sort((a, b) => {
+      const aProprio = Number(a.estabelecimentoId) === Number(hospitalEstabId) ? 0 : 1;
+      const bProprio = Number(b.estabelecimentoId) === Number(hospitalEstabId) ? 0 : 1;
+      if (aProprio !== bProprio) return aProprio - bProprio;
+      const aAtivo = a.ativo === "sim" ? 0 : 1;
+      const bAtivo = b.ativo === "sim" ? 0 : 1;
+      return aAtivo - bAtivo;
+    });
+
+  const escolherUnico = (lista: any[]) => {
+    const ordenados = ordenarPreferenciaHospital(lista);
+    if (!ordenados.length) return null;
+    const primeiro = ordenados[0];
+    const proprios = Number(primeiro.estabelecimentoId) === hospitalEstabId;
+    const ativos = primeiro.ativo === "sim";
+    const mesmaPrioridade = ordenados.filter(c =>
+      (Number(c.estabelecimentoId) === hospitalEstabId) === proprios && (c.ativo === "sim") === ativos);
+    if (new Set(mesmaPrioridade.map(c => Number(c.id))).size !== 1) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Há mais de um convênio elegível para esta conta. Selecione o cadastro correto do hospital." });
+    }
+    return primeiro;
+  };
+  let escolhido: any = null;
+
+  if (ansRef) {
+    const ansLimpo = ansRef.replace(/\D/g, "");
+    const porAns = ordenarPreferenciaHospital(
+      candidatosHospital.filter((c: any) => {
+        const cAns = String(c.registroAns || "").trim();
+        const cCod = String(c.codigo || "").trim();
+        return (
+          (cAns && (cAns === ansRef || (ansLimpo && cAns.replace(/\D/g, "") === ansLimpo))) ||
+          (cCod && (cCod === ansRef || (ansLimpo && cCod.replace(/\D/g, "") === ansLimpo)))
+        );
+      })
+    );
+    if (porAns.length > 0) escolhido = escolherUnico(porAns);
+  }
+
+  if (!escolhido && nomeRef) {
+    const nomeNorm = normalizarTextoMatch(nomeRef);
+    const porNomeExato = ordenarPreferenciaHospital(
+      candidatosHospital.filter((c: any) => normalizarTextoMatch(c.nome) === nomeNorm)
+    );
+    if (porNomeExato.length > 0) {
+      escolhido = escolherUnico(porNomeExato);
+    } else {
+      const primeiroToken = nomeNorm.split(" ")[0];
+      if (primeiroToken && primeiroToken.length >= 3) {
+        const porNomeParcial = ordenarPreferenciaHospital(
+          candidatosHospital.filter((c: any) =>
+            normalizarTextoMatch(c.nome).includes(primeiroToken)
+          )
+        );
+        if (porNomeParcial.length > 0) escolhido = escolherUnico(porNomeParcial);
+      }
+    }
+  }
+
+  if (!escolhido && codigoRef) {
+    const porCodigo = ordenarPreferenciaHospital(
+      candidatosHospital.filter(
+        (c: any) => String(c.codigo || "").trim().toUpperCase() === codigoRef.toUpperCase()
+      )
+    );
+    if (porCodigo.length > 0) escolhido = escolherUnico(porCodigo);
+  }
+
+  if (escolhido) {
+    const convValidado = await exigirConvenioDoEstabelecimento(
+      usuarioId,
+      Number(escolhido.id),
+      hospitalEstabId,
+      "editar"
+    );
+    return { id: convValidado.id, nome: convValidado.nome || escolhido.nome };
+  }
+
+  if (convenioIdInput) {
+    const convValidado = await exigirConvenioDoEstabelecimento(
+      usuarioId,
+      Number(convenioIdInput),
+      hospitalEstabId,
+      "editar"
+    );
+    return { id: convValidado.id, nome: convValidado.nome };
+  }
+
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message: "Não foi possível identificar um convênio autorizado para esta conta.",
+  });
+}
+
+async function persistirStatusItensAuditoriaFabrica(
+  db: any, hospitalEstabId: number, numeroConta: string, arquivoHospitalId: number,
+  resultadoComparacao: any, snapshot: { convenioId: number; numeroLote: string; competencia: string }
+) {
+  if (!resultadoComparacao || resultadoComparacao.statusGeral === "incompleta") return;
+  const condicoesItens = [
+    eq(contasConvenioItens.numeroConta, numeroConta), eq(contasConvenioItens.estabelecimentoId, hospitalEstabId),
+    eq(contasConvenioItens.origem, "XML"), eq(contasConvenioItens.arquivoId, arquivoHospitalId),
+    eq(contasConvenioItens.convenioId, snapshot.convenioId), eq(contasConvenioItens.numeroLote, snapshot.numeroLote),
+    eq(contasConvenioItens.competencia, snapshot.competencia),
+  ];
+  await db.update(contasConvenioItens).set({ statusAnalise: "conforme", divergencias: null }).where(and(...condicoesItens));
+  const divsPorItem = new Map<number, any[]>();
+  for (const d of resultadoComparacao.divergencias || []) {
+    if (Number.isSafeInteger(d.itemId) && d.itemId > 0) {
+      const arr = divsPorItem.get(d.itemId) || []; arr.push(d); divsPorItem.set(d.itemId, arr);
+    }
+  }
+  for (const [itemId, divs] of divsPorItem) {
+    await db.update(contasConvenioItens).set({ statusAnalise: "divergente", divergencias: divs })
+      .where(and(eq(contasConvenioItens.id, itemId), ...condicoesItens));
+  }
+}
 
 function toMysqlDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
@@ -292,9 +519,18 @@ export const fabricaFaturamentoRouter = router({
       await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "editar");
       const db = await obterDbFabrica();
       await exigirSetorColaborador(db, usuario, ["recepcao"], [input.hospitalEstabelecimentoId]);
+      let convIdResolvido: number | null = input.convenioId || null;
       let nomeConv = input.convenioNome || null;
       if (input.convenioId) {
-        const convenio = await exigirConvenioDoEstabelecimento(usuario.id, input.convenioId, input.hospitalEstabelecimentoId, "editar");
+        const convenio = await resolverConvenioDoHospital(
+          db,
+          usuario.id,
+          input.hospitalEstabelecimentoId,
+          input.convenioId,
+          input.convenioNome,
+          null
+        );
+        convIdResolvido = convenio.id;
         nomeConv = convenio.nome || nomeConv;
       }
       let faturistaNome: string | null = null;
@@ -328,7 +564,7 @@ export const fabricaFaturamentoRouter = router({
 
       const [insertRes] = await db.insert(fabricaContas).values({
         hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-        convenioId: input.convenioId || null,
+        convenioId: convIdResolvido,
         convenioNome: nomeConv,
         numeroAtendimento: input.numeroAtendimento?.trim() || null,
         numeroContaHospital: input.numeroContaHospital?.trim() || null,
@@ -1017,6 +1253,8 @@ export const fabricaFaturamentoRouter = router({
             .update(contasConvenioResumo)
             .set({
               statusAnalise: statusAuditoriaRegras,
+              totalDivergencias,
+              totalAlertas: resultadoComparacao.totalAlertas || 0,
               scoreRisco,
               detalhesRisco: resultadoComparacao.scoreRisco,
               divergenciasGerais:
@@ -1029,6 +1267,15 @@ export const fabricaFaturamentoRouter = router({
               )
             );
         }
+
+        await persistirStatusItensAuditoriaFabrica(
+          db,
+          hospitalEstabId,
+          conta.numeroGuia,
+          arquivoHospitalExistenteId,
+          resultadoComparacao,
+          { convenioId: Number(conta.convenioId), numeroLote: loteExistente, competencia: competenciaExistente }
+        );
 
         await db
           .update(fabricaContas)
@@ -1100,16 +1347,48 @@ export const fabricaFaturamentoRouter = router({
       );
 
       if (guiasNoXml.length > 1) {
-        // Tentar localizar a guia específica desta conta pelo numeroGuia, numeroContaHospital, numeroAtendimento ou nomePaciente
-        const matchGuia = procsConta.filter(
-          (p) =>
-            (conta.numeroGuia && p.guiaNumero === conta.numeroGuia) ||
-            (conta.numeroContaHospital && p.guiaNumero === conta.numeroContaHospital) ||
-            (conta.numeroAtendimento && p.guiaNumero === conta.numeroAtendimento) ||
-            (p.pacienteNome &&
-              conta.nomePaciente &&
-              p.pacienteNome.toUpperCase().includes(conta.nomePaciente.toUpperCase().split(" ")[0]))
-        );
+        const refsNumericas = [
+          conta.numeroGuia,
+          conta.numeroContaHospital,
+          conta.numeroAtendimento,
+          conta.senhaAutorizacao,
+        ]
+          .map((v) => String(v || "").trim())
+          .filter(Boolean);
+
+        // 1. Tentar correspondência exata por número de guia / conta / atendimento / senha
+        let matchGuia = procsConta.filter((p) => {
+          const candidatosProc = [p.guiaNumero, p.numeroGuiaOperadora, p.senha]
+            .map((v) => String(v || "").trim())
+            .filter(Boolean);
+          return refsNumericas.some((ref) =>
+            candidatosProc.some(
+              (cand) =>
+                cand === ref ||
+                (ref.replace(/\D/g, "").length >= 4 &&
+                  cand.replace(/\D/g, "") === ref.replace(/\D/g, ""))
+            )
+          );
+        });
+
+        // 2. Se não encontrou por número, tentar por nome do paciente completo/parcial normalizado
+        if (matchGuia.length === 0 && conta.nomePaciente) {
+          const nomeContaNorm = normalizarTextoMatch(conta.nomePaciente);
+          const partesConta = nomeContaNorm.split(" ").filter((t) => t.length >= 3);
+          matchGuia = procsConta.filter((p) => {
+            if (!p.pacienteNome) return false;
+            const nomeProcNorm = normalizarTextoMatch(p.pacienteNome);
+            if (nomeProcNorm === nomeContaNorm) return true;
+            if (partesConta.length >= 2) {
+              return (
+                nomeProcNorm.includes(partesConta[0]) &&
+                nomeProcNorm.includes(partesConta[partesConta.length - 1])
+              );
+            }
+            return partesConta.length > 0 && nomeProcNorm.includes(partesConta[0]);
+          });
+        }
+
         const guiasCorrespondentes = new Set(matchGuia.map((procedimento) => procedimento.guiaNumero).filter(Boolean));
         if (!matchGuia.length || guiasCorrespondentes.size !== 1) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "O XML possui correspondência ambígua para esta conta." });
@@ -1128,37 +1407,51 @@ export const fabricaFaturamentoRouter = router({
       const senhaExtraida = primeiroProc.senha || conta.senhaAutorizacao || null;
       const carteiraExtraida = primeiroProc.pacienteCarteirinha || null;
 
-      // Resolver convênio pelo registroANS do XML se a conta ainda não tiver convenioId
-      let convenioIdFinal = conta.convenioId;
-      let convenioNomeFinal = conta.convenioNome;
-      if (!convenioIdFinal && primeiroProc.registroANS) {
-        const [convAns] = await db
-          .select()
-          .from(convenios)
-          .where(eq(convenios.registroAns, primeiroProc.registroANS))
-          .limit(1);
-        if (convAns) {
-          convenioIdFinal = convAns.id;
-          convenioNomeFinal = convAns.nome;
+      // Resolver convênio garantindo que pertença ao estabelecimento do hospital
+      const convenioResolvido = await resolverConvenioDoHospital(
+        db,
+        usuario.id,
+        hospitalEstabId,
+        conta.convenioId,
+        conta.convenioNome,
+        primeiroProc.registroANS
+      );
+      const convenioIdFinal = convenioResolvido.id;
+      const convenioNomeFinal = convenioResolvido.nome || conta.convenioNome || "CONVÊNIO";
+
+      // Resolver código do prestador executante para compatibilidade com relatórios de Prestador Próprio / Faturado x Recebido
+      let codigoPrestadorPadrao: string | null =
+        primeiroProc.codigoPrestadorExecutante ||
+        primeiroProc.codigoPrestadorOperadora ||
+        null;
+
+      if (!codigoPrestadorPadrao) {
+        try {
+          const [cepRows]: any = await db.execute(
+            sql.raw(`
+              SELECT codigoPrestador
+              FROM convenioEstabelecimentoPrestador
+              WHERE estabelecimentoId = ${Number(hospitalEstabId)}
+                AND convenioId = ${Number(convenioIdFinal)}
+                AND tipoPrestador = 'proprio'
+                AND ativo = 'sim'
+              LIMIT 1
+            `)
+          );
+          if (Array.isArray(cepRows) && cepRows.length > 0 && cepRows[0]?.codigoPrestador) {
+            codigoPrestadorPadrao = String(cepRows[0].codigoPrestador).trim();
+          }
+        } catch {
+          // Ignora se tabela não estiver disponível em mock de teste
         }
       }
-      if (convenioIdFinal && !convenioNomeFinal) {
-        const [conv] = await db
-          .select()
-          .from(convenios)
-          .where(eq(convenios.id, convenioIdFinal))
-          .limit(1);
-        convenioNomeFinal = conv?.nome || null;
+      if (!codigoPrestadorPadrao && Number(hospitalEstabId) === 3) {
+        codigoPrestadorPadrao = "05562645000131";
       }
 
-      if (!convenioIdFinal) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Não foi possível identificar um convênio autorizado para esta conta.",
-        });
-      }
-      const convenio = await exigirConvenioDoEstabelecimento(usuario.id, convenioIdFinal, hospitalEstabId, "editar");
-      convenioNomeFinal = convenio.nome || convenioNomeFinal;
+      const dataReferenciaConta = new Date(conta.dataAlta || conta.dataEntrada);
+      const setorContaPadronizado = mapTipoAtendimentoParaSetor(conta.tipoAtendimento);
+      const nomePacienteFinal = conta.nomePaciente || primeiroProc.pacienteNome || "Paciente";
 
       // Original completo no cofre antes de materializar o recorte selecionado.
       const arquivoId = await criarArquivoXmlFabricaProtegido(db, {
@@ -1177,35 +1470,45 @@ export const fabricaFaturamentoRouter = router({
         .slice(0, 7)
         .replace("-", "/");
 
-      const tissValues = procsConta.map((p) => {
+      const tissValues = procsConta.map((p, idx) => {
         const qtd = Number(p.quantidade) || 1;
         const vu = Number(p.valorUnitario) || 0;
         const vt = Number(p.valorTotal) || qtd * vu;
         valorTotalXml += vt;
+
+        const tipoItemPadronizado = mapTipoDespesaParaTipoItemFabrica(p.tipoDespesa);
+        const codPrestador =
+          p.codigoPrestadorExecutante ||
+          p.codigoPrestadorOperadora ||
+          codigoPrestadorPadrao;
 
         return {
           arquivoId,
           convenioId: convenioIdFinal,
           estabelecimentoId: hospitalEstabId,
           numeroLote: numeroLoteExtraido,
+          sequencialTransacao: p.sequencialTransacao ? String(p.sequencialTransacao) : null,
+          registroAns: p.registroANS || null,
           numeroGuiaPrestador: numeroGuiaExtraido,
           numeroGuiaOperadora: p.numeroGuiaOperadora || null,
           senha: p.senha || senhaExtraida,
-          carteiraBeneficiario: p.pacienteCarteirinha || null,
+          carteiraBeneficiario: p.pacienteCarteirinha || carteiraExtraida,
+          sequencialItem: idx + 1,
           dataExecucao: p.dataExecucao || new Date(conta.dataEntrada),
-          tipoItem: p.tipoDespesa === "procedimento" ? ("procedimento" as const) : ("despesa" as const),
+          tipoItem: tipoItemPadronizado,
           codigoDespesa: p.codigoDespesa || null,
-          codigoTabela: "22",
+          codigoTabela: p.codigoDespesa || "22",
           codigoItem: p.codigo || "00000000",
           descricaoItem: p.descricao || "Item XML",
           quantidade: String(qtd),
           valorUnitario: String(vu.toFixed(2)),
           valorFaturado: String(vt.toFixed(2)),
           nomeProf: p.nomeMedico || null,
-          conselhoProf: p.crmMedico ? "CRM" : null,
+          conselhoProf: p.crmMedico || null,
           numeroConselhoProf: p.crmMedico || null,
           competencia: competenciaStr,
-          dataReferencia: new Date(conta.dataAlta || conta.dataEntrada),
+          dataReferencia: dataReferenciaConta,
+          codigoPrestadorExecutante: codPrestador,
         };
       });
 
@@ -1214,13 +1517,19 @@ export const fabricaFaturamentoRouter = router({
       }
 
       // 3. Popular `contas_convenio_itens` e `contas_convenio_resumo` no estabelecimento do HOSPITAL
-      //    para que apareça imediatamente na tela de Conta Convênio e rode o Motor de Regras!
+      //    para que apareça imediatamente na tela de Conta Convênio e nos Relatórios do Estabelecimento!
       // Cada upload materializa uma versão própria; não apagar versões anteriores.
 
       const ccItensValues = procsConta.map((p) => {
         const qtd = Number(p.quantidade) || 1;
         const vu = Number(p.valorUnitario) || 0;
         const vt = Number(p.valorTotal) || qtd * vu;
+        const tipoItemPadronizado = mapTipoDespesaParaTipoItemFabrica(p.tipoDespesa);
+        const codPrestador =
+          p.codigoPrestadorExecutante ||
+          p.codigoPrestadorOperadora ||
+          codigoPrestadorPadrao;
+
         return {
           origem: "XML" as const,
           numeroConta: numeroGuiaExtraido,
@@ -1231,19 +1540,24 @@ export const fabricaFaturamentoRouter = router({
           convenio: convenioNomeFinal,
           convenioId: convenioIdFinal || null,
           estabelecimentoId: hospitalEstabId,
-          pacienteNome: conta.nomePaciente,
-          carteiraBeneficiario: carteiraExtraida,
+          pacienteNome: nomePacienteFinal,
+          carteiraBeneficiario: p.pacienteCarteirinha || carteiraExtraida,
           dataInternacao: new Date(conta.dataEntrada),
           dataAlta: conta.dataAlta ? new Date(conta.dataAlta) : null,
+          dataReferencia: dataReferenciaConta,
           competencia: competenciaStr,
-          tipoItem: p.tipoDespesa || "procedimento",
+          tipoItem: tipoItemPadronizado,
           codigoItem: p.codigo || "00000000",
+          codigoItemTuss: p.codigo || "00000000",
+          codigoTabela: p.codigoDespesa || "22",
           descricaoItem: p.descricao || "Item XML",
           quantidade: String(qtd),
           valorUnitario: String(vu.toFixed(2)),
           valorTotal: String(vt.toFixed(2)),
           dataExecucao: p.dataExecucao || new Date(conta.dataEntrada),
           profissionalExecutante: p.nomeMedico || null,
+          codigoPrestadorExecutante: codPrestador,
+          setor: setorContaPadronizado,
           arquivoId,
           statusAnalise: "pendente" as const,
         };
@@ -1261,7 +1575,7 @@ export const fabricaFaturamentoRouter = router({
         arquivoHospitalId: arquivoId,
         convenio: convenioNomeFinal,
         convenioId: convenioIdFinal || null,
-        pacienteNome: conta.nomePaciente,
+        pacienteNome: nomePacienteFinal,
         carteiraBeneficiario: carteiraExtraida,
         dataInternacao: new Date(conta.dataEntrada),
         dataAlta: conta.dataAlta ? new Date(conta.dataAlta) : null,
@@ -1273,6 +1587,17 @@ export const fabricaFaturamentoRouter = router({
       });
 
       const contaConvenioResumoId = Number((resumoInsert as any).insertId);
+
+      // A projeção de relatórios usa apenas este arquivo e a mesma transação, sem limpeza global.
+      try {
+        await popularDeXmlTissArquivoRestrito({
+          estabelecimentoId: hospitalEstabId, convenioId: convenioIdFinal, arquivoId,
+          numeroGuia: numeroGuiaExtraido, numeroLote: numeroLoteExtraido, competencia: competenciaStr,
+          pacienteNome: nomePacienteFinal, setor: setorContaPadronizado,
+        }, db);
+      } catch {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não foi possível atualizar os relatórios deste XML. Nenhuma importação foi confirmada." });
+      }
 
       // 3.5 Se o XML de Honorários Médicos foi enviado junto, indexar no Contexto Médico da conta!
       let contextoMedicoCarregado: any = undefined;
@@ -1312,11 +1637,13 @@ export const fabricaFaturamentoRouter = router({
           resultadoComparacao.statusGeral === "divergente" ? "divergente"
             : resultadoComparacao.statusGeral === "conforme" ? "conforme" : "pendente";
 
-        // Atualizar statusAnalise em contasConvenioResumo
+        // Atualizar statusAnalise em contasConvenioResumo e contasConvenioItens
         await db
           .update(contasConvenioResumo)
           .set({
             statusAnalise: statusAuditoriaRegras,
+            totalDivergencias,
+            totalAlertas: resultadoComparacao.totalAlertas || 0,
             scoreRisco,
             detalhesRisco: resultadoComparacao.scoreRisco,
             divergenciasGerais:
@@ -1325,6 +1652,15 @@ export const fabricaFaturamentoRouter = router({
                 : null,
           })
           .where(and(eq(contasConvenioResumo.id, contaConvenioResumoId), eq(contasConvenioResumo.estabelecimentoId, hospitalEstabId)));
+
+        await persistirStatusItensAuditoriaFabrica(
+          db,
+          hospitalEstabId,
+          numeroGuiaExtraido,
+          arquivoId,
+          resultadoComparacao,
+          { convenioId: convenioIdFinal, numeroLote: numeroLoteExtraido, competencia: competenciaStr }
+        );
       } catch (err) {
         logger.warn({
           message: "Aviso na comparação automática de padrões ao importar XML na Fábrica",

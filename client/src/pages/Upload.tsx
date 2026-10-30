@@ -119,8 +119,15 @@ export default function Upload() {
     );
   }, [searchString]);
 
+  const estabIdFiltroConvenio =
+    estabelecimentoSelecionado && !Number.isNaN(Number(estabelecimentoSelecionado))
+      ? Number(estabelecimentoSelecionado)
+      : estabelecimentoAtivo?.id;
   const { data: convenios, refetch: refetchConvenios } =
-    trpc.convenios.list.useQuery({ ativo: "sim" });
+    trpc.convenios.list.useQuery({
+      ativo: "sim",
+      ...(estabIdFiltroConvenio ? { estabelecimentoId: estabIdFiltroConvenio } : {}),
+    });
   const { data: todosEstabelecimentos } = trpc.estabelecimentos.list.useQuery({});
   const estabelecimentos =
     estabelecimentosPermitidos && estabelecimentosPermitidos.length > 0

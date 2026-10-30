@@ -3,6 +3,7 @@ import { getTableName } from "drizzle-orm";
 const deps = vi.hoisted(() => ({
   getDb: vi.fn(), convenio: vi.fn(), parseXML: vi.fn(), parseHonorarios: vi.fn(), comparar: vi.fn(),
   criarServico: vi.fn(), indexar: vi.fn(), consultar: vi.fn(), cofre: vi.fn(),
+  projetar: vi.fn(),
 }));
 vi.mock("./db", () => ({ getDb: deps.getDb, verificarPermissaoEstabelecimento: vi.fn(async () => false) }));
 vi.mock("./hospitalScope", () => ({
@@ -14,6 +15,7 @@ vi.mock("./parsers", () => ({ parseXML: deps.parseXML }));
 vi.mock("./contaHonorariosParser", () => ({ parseContaHonorarios: deps.parseHonorarios }));
 vi.mock("./contaContextoMedicoDrizzle", () => ({ criarServicoContaContextoMedicoParaUsuario: deps.criarServico }));
 vi.mock("./services/comparadorPadroes", () => ({ compararContaComPadroes: deps.comparar, executarComparacaoESalvar: vi.fn() }));
+vi.mock("./faturamentoUnificadoService", () => ({ popularDeXmlTissArquivoRestrito: deps.projetar }));
 vi.mock("./xmlImportacaoLoteVault", () => ({
   armazenamentoXmlImportacaoPronto: () => true,
   criarChaveStorageXmlImportacao: (s: any) => `sintetico-${s.arquivoId}.enc`,
@@ -67,6 +69,7 @@ describe("Fábrica: API de dois XMLs, proteção e transação", () => {
     deps.consultar.mockImplementation(async ({ scope }) => ({ configuracaoPendente: false, diagnosticoSnapshot: null, fontes: [{ arquivoId: 105, registros: 1, codigosDistintos: 1, procedimentos: [] }], candidatos: [], contexto: null, itensHospitalares: 1, setorInformado: false, avisos: [] }));
     deps.criarServico.mockReturnValue({ indexarAutomaticamente: deps.indexar, consultar: deps.consultar });
     deps.comparar.mockResolvedValue({ totalDivergencias: 0, scoreRisco: { score: 0 }, statusGeral: "conforme", divergencias: [] });
+    deps.projetar.mockResolvedValue({ inseridos: 1, total: 1 });
   });
   it("dois XMLs válidos só são processados após cofre/correlação e comparação usa a transação", async () => {
     const b = banco();
@@ -79,6 +82,7 @@ describe("Fábrica: API de dois XMLs, proteção e transação", () => {
       escoposHospitalaresPermitidos: [expect.objectContaining({ estabelecimentoId: 20, convenioId: 30, numeroConta: "GUIA-SINTETICA", arquivoHospitalId: 101, numeroLote: "LOTE-SINTETICO", competencia: "2026/10" })],
     }));
     expect(deps.comparar).toHaveBeenCalledWith("GUIA-SINTETICA", 20, expect.objectContaining({ banco: b.tx }));
+    expect(deps.projetar).toHaveBeenCalledWith(expect.objectContaining({ estabelecimentoId: 20, convenioId: 30, arquivoId: 101, numeroGuia: "GUIA-SINTETICA", numeroLote: "LOTE-SINTETICO", competencia: "2026/10" }), b.tx);
     expect(b.eventos.indexOf("processado")).toBeGreaterThan(b.eventos.lastIndexOf("cofre"));
     expect(b.confirmados.filter(r => r.tabela === "arquivos" && r.valor.status === "processado")).toHaveLength(2);
     expect(JSON.stringify(b.confirmados)).not.toContain("local://");
@@ -98,5 +102,24 @@ describe("Fábrica: API de dois XMLs, proteção e transação", () => {
     expect(b.eventos.at(-1)).toBe("rollback"); expect(b.confirmados).toEqual([]);
     expect(b.pendentes.every(r => r.tabela === "arquivos")).toBe(true);
     expect(deps.indexar).not.toHaveBeenCalled(); expect(deps.comparar).not.toHaveBeenCalled();
+  });
+
+  it("falha da projeção restrita faz rollback e não confirma arquivo nem setor", async () => {
+    const b = banco(); deps.projetar.mockRejectedValue(new Error("projecao-sintetica-indisponivel"));
+    await expect(caller().importarXmlNaConta(request)).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.not.stringContaining("projecao-sintetica-indisponivel") });
+    expect(b.confirmados).toEqual([]); expect(b.eventos.at(-1)).toBe("rollback");
+    expect(b.eventos).not.toContain("processado"); expect(deps.indexar).not.toHaveBeenCalled();
+  });
+
+  it.each(["UNIMED", "SEM-CORRESPONDENCIA"])("convênio %s sem escolha única bloqueia antes do cofre", async nome => {
+    const b = banco();
+    const convenios = [{ id: 30, nome: "UNIMED SINTETICA A", estabelecimentoId: 20, ativo: "sim" }, { id: 31, nome: "UNIMED SINTETICA B", estabelecimentoId: 20, ativo: "sim" }];
+    b.tx.select = () => ({ from: (table: any) => {
+      const rows = getTableName(table) === "fabrica_contas" ? [{ ...conta, convenioId: null, convenioNome: nome }] : convenios;
+      const query = Object.assign(Promise.resolve(rows), { limit: async () => rows });
+      return Object.assign(query, { where: () => query });
+    } });
+    await expect(caller().importarXmlNaConta(request)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(deps.cofre).not.toHaveBeenCalled(); expect(b.confirmados).toEqual([]);
   });
 });

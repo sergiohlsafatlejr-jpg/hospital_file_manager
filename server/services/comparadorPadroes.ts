@@ -254,7 +254,7 @@ export async function compararItensComPadroes({
   const setoresNaConta = [...new Set(itens.map(i => typeof i.setor === "string" ? i.setor : null).filter(Boolean))] as string[];
   
   if (!convenioNormalizado) {
-    logger.warn({ message: "Conta sem convênio identificado", numeroConta });
+    logger.warn({ message: "Conta sem convênio identificado" });
     return {
       numeroConta,
       totalItensAnalisados: itens.length,
@@ -350,7 +350,7 @@ export async function compararItensComPadroes({
         mapaConvenioNomes.set(c.id, c.nome.trim().toUpperCase());
       }
     } catch(e) {
-      logger.warn({ message: "Erro ao buscar nomes de convênios", error: (e as Error).message });
+      logger.warn({ message: "Erro ao buscar nomes de convênios", error: "configuracao_de_gabarito_invalida" });
     }
   }
 
@@ -619,7 +619,6 @@ export async function compararItensComPadroes({
         padraoId: melhorGabarito.id, 
         proc: melhorGabarito.codigoProcedimentoPrincipal, 
         setor, 
-        numeroConta,
         totalCandidatos: candidatos.length,
         scoreVencedor: pontuados[0].score,
       });
@@ -798,7 +797,7 @@ function processarPadraoComposicao(
     try {
       itensAssociados = JSON.parse(rawItens);
     } catch(e) {
-      logger.warn({ message: "Erro ao parsear itensAssociados", padraoId: padrao.id, error: (e as Error).message });
+      logger.warn({ message: "Erro ao parsear itensAssociados", padraoId: padrao.id, error: "configuracao_de_gabarito_invalida" });
       return;
     }
   } else if (Array.isArray(rawItens)) {
@@ -1126,7 +1125,7 @@ export async function executarComparacaoESalvar(
           statusGeral: statusResumo,
         });
       } catch (e) {
-        logger.warn({ message: "Erro ao salvar log de análise", error: e });
+        logger.warn({ message: "Erro ao salvar log de análise", error: "registro_de_analise_indisponivel" });
       }
     }
   } else {
@@ -1153,7 +1152,6 @@ export async function executarComparacaoESalvar(
 
   logger.info({
     message: "Comparação com padrões concluída",
-    numeroConta,
     totalDivergencias: resultado.totalDivergencias,
     gabaritosUsados: resultado.gabaritosUsados,
     padroesUsados: resultado.padroesUsados,

@@ -18,10 +18,19 @@ vi.mock("./hospitalScope", () => ({
 vi.mock("./db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./db")>()),
   getDb: vi.fn(),
+  getConvenioById: vi.fn(),
   verificarPermissaoEstabelecimento: vi.fn(),
 }));
+vi.mock("./xmlImportacaoLoteVault", () => ({
+  armazenamentoXmlImportacaoPronto: () => true,
+  criarChaveStorageXmlImportacao: () => "cofre-sintetico.enc",
+  salvarXmlImportacaoProtegido: vi.fn(async () => undefined),
+  lerXmlImportacaoProtegido: vi.fn(),
+  XML_IMPORTACAO_MAX_FILE_BYTES: 16 * 1024 * 1024,
+}));
+vi.mock("./faturamentoUnificadoService", () => ({ popularDeXmlTissArquivoRestrito: vi.fn(async () => ({ inseridos: 1, total: 1 })) }));
 
-import { getDb, verificarPermissaoEstabelecimento } from "./db";
+import { getDb, getConvenioById, verificarPermissaoEstabelecimento } from "./db";
 import { fabricaFaturamentoRouter } from "./routers/fabricaFaturamentoRouter";
 
 const user = {
@@ -31,8 +40,8 @@ const user = {
   email: "operador@example.test",
 };
 
-function caller() {
-  return fabricaFaturamentoRouter.createCaller({ user, req: {}, res: {} } as any);
+function caller(role = user.role) {
+  return fabricaFaturamentoRouter.createCaller({ user: { ...user, role }, req: {}, res: {} } as any);
 }
 
 function selectRows(rows: unknown[]) {
@@ -234,5 +243,145 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
     vi.mocked(verificarPermissaoEstabelecimento).mockImplementation(async (_u, hospitalId) => hospitalId !== 2160001);
     await expect(caller().assumirConta({ contaIds: [3] })).resolves.toMatchObject({ sucesso: true });
     expect(db.update).toHaveBeenCalledOnce();
+  });
+
+  it("materializa a conta do paciente e itens padronizados no estabelecimento do hospital ao importar XML na Fábrica", async () => {
+    const insertedValues: any[] = [];
+    const insertMock = vi.fn(() => ({
+      values: vi.fn((vals: any) => {
+        insertedValues.push(vals);
+        return Promise.resolve([{ insertId: insertedValues.length * 100 }]);
+      }),
+    }));
+    const updateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue(undefined),
+      })),
+    }));
+
+    const contaFabrica = {
+      id: 10,
+      hospitalEstabelecimentoId: 3,
+      convenioId: null,
+      convenioNome: "UNIMED",
+      numeroGuia: "CONTA-REGRESSAO-SINTETICA",
+      numeroContaHospital: "CONTA-REGRESSAO-SINTETICA",
+      numeroAtendimento: "ATD-10",
+      nomePaciente: "PACIENTE SINTETICA",
+      tipoAtendimento: "uti",
+      dataEntrada: "2026-10-01",
+      dataAlta: "2026-10-05",
+      setorAtual: "faturamento",
+      statusSetor: "em_andamento",
+    };
+
+    const convenioHospital = {
+      id: 55,
+      nome: "UNIMED GOIANIA",
+      codigo: "382876",
+      registroAns: "382876",
+      estabelecimentoId: 3,
+      ativo: "sim",
+    };
+
+    const selectMock = vi.fn(() => ({
+      from: (table: any) => {
+        const resultRows = table === ( contaFabrica as any ) ? [contaFabrica] : [contaFabrica, convenioHospital];
+        const query = Object.assign(Promise.resolve([convenioHospital]), {
+          where: () =>
+            Object.assign(Promise.resolve([contaFabrica]), {
+              limit: async () => [contaFabrica],
+            }),
+          limit: async () => [contaFabrica],
+        });
+        return query;
+      },
+    }));
+
+    const db = {
+      select: selectMock,
+      insert: insertMock,
+      update: updateMock,
+      delete: vi.fn(() => ({ where: vi.fn() })),
+      execute: vi.fn().mockResolvedValue([[{ codigoPrestador: "05562645000131" }]]),
+      transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>): Promise<unknown> => callback(db)),
+    };
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(getConvenioById).mockResolvedValue(convenioHospital as any);
+
+    const xmlTiss = `<?xml version="1.0" encoding="UTF-8"?>
+      <ans:mensagemTISS xmlns:ans="http://www.ans.gov.br/padroes/tiss/schemas">
+        <ans:cabecalho>
+          <ans:identificacaoTransacao>
+            <ans:sequencialTransacao>1001</ans:sequencialTransacao>
+          </ans:identificacaoTransacao>
+        </ans:cabecalho>
+        <ans:prestadorParaOperadora>
+          <ans:loteGuias>
+            <ans:numeroLote>202610</ans:numeroLote>
+            <ans:guiasTISS>
+              <ans:guiaResumoInternacao>
+                <ans:cabecalhoGuia>
+                  <ans:registroANS>382876</ans:registroANS>
+                  <ans:numeroGuiaPrestador>CONTA-REGRESSAO-SINTETICA</ans:numeroGuiaPrestador>
+                </ans:cabecalhoGuia>
+                <ans:dadosBeneficiario>
+                  <ans:numeroCarteira>00123456789</ans:numeroCarteira>
+                  <ans:nomeBeneficiario>PACIENTE SINTETICA</ans:nomeBeneficiario>
+                </ans:dadosBeneficiario>
+                <ans:procedimentosExecutados>
+                  <ans:procedimentoExecutado>
+                    <ans:dataExecucao>2026-10-02</ans:dataExecucao>
+                    <ans:procedimento>
+                      <ans:codigoTabela>22</ans:codigoTabela>
+                      <ans:codigoProcedimento>10102019</ans:codigoProcedimento>
+                      <ans:descricaoProcedimento>VISITA HOSPITALAR</ans:descricaoProcedimento>
+                    </ans:procedimento>
+                    <ans:quantidadeExecutada>1</ans:quantidadeExecutada>
+                    <ans:valorUnitario>150.00</ans:valorUnitario>
+                    <ans:valorTotal>150.00</ans:valorTotal>
+                  </ans:procedimentoExecutado>
+                </ans:procedimentosExecutados>
+              </ans:guiaResumoInternacao>
+            </ans:guiasTISS>
+          </ans:loteGuias>
+        </ans:prestadorParaOperadora>
+      </ans:mensagemTISS>`;
+
+    const res = await caller("admin").importarXmlNaConta({
+      fabricaContaId: 10,
+      nomeArquivo: "guia-CONTA-REGRESSAO-SINTETICA.xml",
+      conteudoBase64: Buffer.from(xmlTiss, "utf8").toString("base64"),
+      etapaXml: "faturamento",
+      avancarSetorAutomatico: true,
+    });
+
+    expect(res.sucesso).toBe(true);
+    expect(res.numeroGuia).toBe("CONTA-REGRESSAO-SINTETICA");
+
+    // Verificar que inseriu em faturamento_tiss e contas_convenio_itens com tipoItem maiúsculo padronizado, setor UTI e prestador executante
+    const arraysInseridos = insertedValues.filter(Array.isArray);
+    expect(arraysInseridos.length).toBeGreaterThanOrEqual(2);
+    const tissInserido = arraysInseridos[0][0];
+    const ccItemInserido = arraysInseridos[1][0];
+
+    expect(tissInserido).toMatchObject({
+      estabelecimentoId: 3,
+      numeroGuiaPrestador: "CONTA-REGRESSAO-SINTETICA",
+      tipoItem: "PROCEDIMENTO",
+      codigoItem: "10102019",
+      codigoPrestadorExecutante: "05562645000131",
+    });
+
+    expect(ccItemInserido).toMatchObject({
+      estabelecimentoId: 3,
+      numeroConta: "CONTA-REGRESSAO-SINTETICA",
+      pacienteNome: "PACIENTE SINTETICA",
+      tipoItem: "PROCEDIMENTO",
+      codigoItem: "10102019",
+      codigoItemTuss: "10102019",
+      setor: "UTI",
+      codigoPrestadorExecutante: "05562645000131",
+    });
   });
 });
