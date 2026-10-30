@@ -13,6 +13,17 @@ beforeEach(() => {
   mocks.getDb.mockResolvedValue({ select: mocks.select });
 });
 describe("comparação usa hospital proprietário concreto", () => {
+  it("usa a conexão transacional injetada inclusive na avaliação de padrões", async () => {
+    const banco = { select: mocks.select };
+    await compararContaComPadroes("CONTA-TESTE", 101, { banco: banco as any, escopoContextoMedico: {
+      estabelecimentoId: 101, numeroConta: "CONTA-TESTE", arquivoHospitalId: 55,
+      convenioId: 77, numeroLote: "LOTE-TESTE", competencia: "2026/10",
+    } });
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    const query = dialect.sqlToQuery(mocks.where.mock.calls[0][0]);
+    expect(query.params).toEqual(["CONTA-TESTE", 101, "XML", 55, 77, "LOTE-TESTE", "2026/10"]);
+  });
+
   it("não aceita a central como proprietário e não consulta itens globais", async () => {
     await expect(compararContaComPadroes("CONTA-TESTE", 2160001)).rejects.toThrow("hospital de origem");
     expect(mocks.select).not.toHaveBeenCalled();

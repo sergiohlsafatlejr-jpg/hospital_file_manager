@@ -21,6 +21,14 @@ vi.mock("./db", async (importOriginal) => ({
   getConvenioById: vi.fn(),
   verificarPermissaoEstabelecimento: vi.fn(),
 }));
+vi.mock("./xmlImportacaoLoteVault", () => ({
+  armazenamentoXmlImportacaoPronto: () => true,
+  criarChaveStorageXmlImportacao: () => "cofre-sintetico.enc",
+  salvarXmlImportacaoProtegido: vi.fn(async () => undefined),
+  lerXmlImportacaoProtegido: vi.fn(),
+  XML_IMPORTACAO_MAX_FILE_BYTES: 16 * 1024 * 1024,
+}));
+vi.mock("./faturamentoUnificadoService", () => ({ popularDeXmlTissArquivoRestrito: vi.fn(async () => ({ inseridos: 1, total: 1 })) }));
 
 import { getDb, getConvenioById, verificarPermissaoEstabelecimento } from "./db";
 import { fabricaFaturamentoRouter } from "./routers/fabricaFaturamentoRouter";
@@ -32,8 +40,8 @@ const user = {
   email: "operador@example.test",
 };
 
-function caller() {
-  return fabricaFaturamentoRouter.createCaller({ user, req: {}, res: {} } as any);
+function caller(role = user.role) {
+  return fabricaFaturamentoRouter.createCaller({ user: { ...user, role }, req: {}, res: {} } as any);
 }
 
 function selectRows(rows: unknown[]) {
@@ -50,13 +58,15 @@ function selectRows(rows: unknown[]) {
 function dbForAccounts(accounts: unknown[]) {
   const update = vi.fn(() => ({ set: () => ({ where: vi.fn() }) }));
   const insert = vi.fn(() => ({ values: vi.fn() }));
-  return {
+  const db = {
     select: selectRows(accounts),
     update,
     insert,
     delete: vi.fn(() => ({ where: vi.fn() })),
-    execute: vi.fn(),
+    execute: vi.fn().mockResolvedValue([[], []]),
+    transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>): Promise<unknown> => callback(db)),
   };
+  return db;
 }
 
 describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
@@ -182,12 +192,57 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
   });
 
   it("exige pelo menos um XML (Conta Hospitalar ou Honorários Médicos) ao importar na conta", async () => {
+    const db = dbForAccounts([{ id: 10, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
     await expect(
       caller().importarXmlNaConta({
-        contaId: 10,
-        etapa: "faturamento",
-      } as any)
+        fabricaContaId: 10,
+        etapaXml: "faturamento",
+      })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("perfil salvo de Recepção bloqueia upload de Faturamento antes de qualquer escrita", async () => {
+    const db = dbForAccounts([{ id: 10, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Recepção", setoresPermitidos: ["recepcao"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    await expect(caller().importarXmlNaConta({ fabricaContaId: 10, conteudoBase64: Buffer.from("<xml>sintetico</xml>").toString("base64") }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("setor") });
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("um setor autorizado não libera as demais contas de um lote misto", async () => {
+    const db = dbForAccounts([{ id: 3, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }, { id: 4, hospitalEstabelecimentoId: 20, setorAtual: "auditoria_interna" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Faturista", setoresPermitidos: ["faturamento"], hospitaisPermitidos: [20], verRelatoriosGerenciais: true }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    await expect(caller().assumirConta({ contaIds: [3, 4] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.execute).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("alteração de perfil preserva histórico e registra autor/data sem apagar configuração anterior", async () => {
+    const db = dbForAccounts([{ id: 88, name: "Colaborador Sintético" }]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    await caller().salvarPerfilColaborador({ colaboradorId: 88, cargoSetor: "Faturista", setoresPermitidos: ["faturamento"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false });
+    expect(db.delete).not.toHaveBeenCalled();
+    const values = db.insert.mock.results[0].value.values.mock.calls[0][0];
+    expect(values.competencia).toBe("PERFIL");
+    expect(JSON.parse(values.observacao).auditoria).toMatchObject({ alteradoPor: 71, alteradoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
+  });
+
+  it("perfil de Recursos permanece autorizado no setor Enviado/Recursos", async () => {
+    const db = dbForAccounts([{ id: 3, hospitalEstabelecimentoId: 20, setorAtual: "enviado_convenio" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Recursos", setoresPermitidos: ["recursos"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockImplementation(async (_u, hospitalId) => hospitalId !== 2160001);
+    await expect(caller().assumirConta({ contaIds: [3] })).resolves.toMatchObject({ sucesso: true });
+    expect(db.update).toHaveBeenCalledOnce();
   });
 
   it("materializa a conta do paciente e itens padronizados no estabelecimento do hospital ao importar XML na Fábrica", async () => {
@@ -209,10 +264,10 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
       hospitalEstabelecimentoId: 3,
       convenioId: null,
       convenioNome: "UNIMED",
-      numeroGuia: "76696626",
-      numeroContaHospital: "76696626",
+      numeroGuia: "CONTA-REGRESSAO-SINTETICA",
+      numeroContaHospital: "CONTA-REGRESSAO-SINTETICA",
       numeroAtendimento: "ATD-10",
-      nomePaciente: "MARIA SILVA",
+      nomePaciente: "PACIENTE SINTETICA",
       tipoAtendimento: "uti",
       dataEntrada: "2026-10-01",
       dataAlta: "2026-10-05",
@@ -249,6 +304,7 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
       update: updateMock,
       delete: vi.fn(() => ({ where: vi.fn() })),
       execute: vi.fn().mockResolvedValue([[{ codigoPrestador: "05562645000131" }]]),
+      transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>): Promise<unknown> => callback(db)),
     };
     vi.mocked(getDb).mockResolvedValue(db as any);
     vi.mocked(getConvenioById).mockResolvedValue(convenioHospital as any);
@@ -267,11 +323,11 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
               <ans:guiaResumoInternacao>
                 <ans:cabecalhoGuia>
                   <ans:registroANS>382876</ans:registroANS>
-                  <ans:numeroGuiaPrestador>76696626</ans:numeroGuiaPrestador>
+                  <ans:numeroGuiaPrestador>CONTA-REGRESSAO-SINTETICA</ans:numeroGuiaPrestador>
                 </ans:cabecalhoGuia>
                 <ans:dadosBeneficiario>
                   <ans:numeroCarteira>00123456789</ans:numeroCarteira>
-                  <ans:nomeBeneficiario>MARIA SILVA</ans:nomeBeneficiario>
+                  <ans:nomeBeneficiario>PACIENTE SINTETICA</ans:nomeBeneficiario>
                 </ans:dadosBeneficiario>
                 <ans:procedimentosExecutados>
                   <ans:procedimentoExecutado>
@@ -292,16 +348,16 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
         </ans:prestadorParaOperadora>
       </ans:mensagemTISS>`;
 
-    const res = await caller().importarXmlNaConta({
+    const res = await caller("admin").importarXmlNaConta({
       fabricaContaId: 10,
-      nomeArquivo: "guia-76696626.xml",
+      nomeArquivo: "guia-CONTA-REGRESSAO-SINTETICA.xml",
       conteudoBase64: Buffer.from(xmlTiss, "utf8").toString("base64"),
       etapaXml: "faturamento",
       avancarSetorAutomatico: true,
     });
 
     expect(res.sucesso).toBe(true);
-    expect(res.numeroGuia).toBe("76696626");
+    expect(res.numeroGuia).toBe("CONTA-REGRESSAO-SINTETICA");
 
     // Verificar que inseriu em faturamento_tiss e contas_convenio_itens com tipoItem maiúsculo padronizado, setor UTI e prestador executante
     const arraysInseridos = insertedValues.filter(Array.isArray);
@@ -311,7 +367,7 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
 
     expect(tissInserido).toMatchObject({
       estabelecimentoId: 3,
-      numeroGuiaPrestador: "76696626",
+      numeroGuiaPrestador: "CONTA-REGRESSAO-SINTETICA",
       tipoItem: "PROCEDIMENTO",
       codigoItem: "10102019",
       codigoPrestadorExecutante: "05562645000131",
@@ -319,8 +375,8 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
 
     expect(ccItemInserido).toMatchObject({
       estabelecimentoId: 3,
-      numeroConta: "76696626",
-      pacienteNome: "MARIA SILVA",
+      numeroConta: "CONTA-REGRESSAO-SINTETICA",
+      pacienteNome: "PACIENTE SINTETICA",
       tipoItem: "PROCEDIMENTO",
       codigoItem: "10102019",
       codigoItemTuss: "10102019",

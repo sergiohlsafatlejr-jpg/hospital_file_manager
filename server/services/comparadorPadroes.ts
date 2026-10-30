@@ -161,9 +161,11 @@ export async function compararContaComPadroes(
   opcoes?: {
     escopoContextoMedico?: EscopoContextoMedicoParaComparacao;
     contextoMedico?: ContaContextoMedicoResultado;
+    /** Conexão interna da transação; não é parâmetro de API. */
+    banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>;
   },
 ): Promise<ResultadoComparacao> {
-  const db = await getDb();
+  const db = opcoes?.banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
 
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
@@ -197,6 +199,7 @@ export async function compararContaComPadroes(
     convenio: itens[0]?.convenio ?? null,
     itens: itens as unknown as ItemParaComparacao[],
     contextoMedico: opcoes?.contextoMedico,
+    banco: db,
   });
 }
 
@@ -211,14 +214,16 @@ export async function compararItensComPadroes({
   convenio,
   itens,
   contextoMedico,
+  banco,
 }: {
   numeroConta: string;
   estabelecimentoId: number;
   convenio: string | null | undefined;
   itens: ItemParaComparacao[];
   contextoMedico?: ContaContextoMedicoResultado;
+  banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>;
 }): Promise<ResultadoComparacao> {
-  const db = await getDb();
+  const db = banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
     throw new Error("A comparação exige o hospital de origem concreto da conta.");
@@ -249,7 +254,7 @@ export async function compararItensComPadroes({
   const setoresNaConta = [...new Set(itens.map(i => typeof i.setor === "string" ? i.setor : null).filter(Boolean))] as string[];
   
   if (!convenioNormalizado) {
-    logger.warn({ message: "Conta sem convênio identificado", numeroConta });
+    logger.warn({ message: "Conta sem convênio identificado" });
     return {
       numeroConta,
       totalItensAnalisados: itens.length,
@@ -345,7 +350,7 @@ export async function compararItensComPadroes({
         mapaConvenioNomes.set(c.id, c.nome.trim().toUpperCase());
       }
     } catch(e) {
-      logger.warn({ message: "Erro ao buscar nomes de convênios", error: (e as Error).message });
+      logger.warn({ message: "Erro ao buscar nomes de convênios", error: "configuracao_de_gabarito_invalida" });
     }
   }
 
@@ -614,7 +619,6 @@ export async function compararItensComPadroes({
         padraoId: melhorGabarito.id, 
         proc: melhorGabarito.codigoProcedimentoPrincipal, 
         setor, 
-        numeroConta,
         totalCandidatos: candidatos.length,
         scoreVencedor: pontuados[0].score,
       });
@@ -793,7 +797,7 @@ function processarPadraoComposicao(
     try {
       itensAssociados = JSON.parse(rawItens);
     } catch(e) {
-      logger.warn({ message: "Erro ao parsear itensAssociados", padraoId: padrao.id, error: (e as Error).message });
+      logger.warn({ message: "Erro ao parsear itensAssociados", padraoId: padrao.id, error: "configuracao_de_gabarito_invalida" });
       return;
     }
   } else if (Array.isArray(rawItens)) {
@@ -1121,7 +1125,7 @@ export async function executarComparacaoESalvar(
           statusGeral: statusResumo,
         });
       } catch (e) {
-        logger.warn({ message: "Erro ao salvar log de análise", error: e });
+        logger.warn({ message: "Erro ao salvar log de análise", error: "registro_de_analise_indisponivel" });
       }
     }
   } else {
@@ -1148,7 +1152,6 @@ export async function executarComparacaoESalvar(
 
   logger.info({
     message: "Comparação com padrões concluída",
-    numeroConta,
     totalDivergencias: resultado.totalDivergencias,
     gabaritosUsados: resultado.gabaritosUsados,
     padroesUsados: resultado.padroesUsados,

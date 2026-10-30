@@ -463,6 +463,180 @@ export async function popularDeXmlTiss(
   return { inseridos: Number(total), total: Number(total) };
 }
 
+/**
+ * Materializa somente o snapshot TISS que acabou de ser aceito no upload da
+ * Fábrica. Esta função não substitui `popularDeXmlTiss`: a versão legada
+ * preserva seu comportamento histórico de reprocessamento por hospital.
+ *
+ * A identidade usa o id real TISS e também preserva a deduplicação legada
+ * de itens financeiros equivalentes em snapshots anteriores. Nada existente
+ * é apagado ou substituído. Revisões com valores/quantidades diferentes não
+ * são fundidas automaticamente: exigem a tratativa financeira própria.
+ */
+export async function popularDeXmlTissArquivoRestrito(
+  input: {
+    estabelecimentoId: number;
+    convenioId: number;
+    arquivoId: number;
+    numeroGuia: string;
+    numeroLote: string;
+    competencia: string;
+    pacienteNome: string;
+    setor: string;
+  },
+  banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+): Promise<{ inseridos: number; total: number }> {
+  const validarId = (valor: number, campo: string): number => {
+    if (!Number.isSafeInteger(valor) || valor <= 0) {
+      throw new Error(`${campo} deve ser um ID positivo seguro`);
+    }
+    return valor;
+  };
+  const validarTexto = (valor: string, campo: string, limite: number): string => {
+    if (typeof valor !== "string") {
+      throw new Error(`${campo} deve ser uma string válida`);
+    }
+    const normalizado = valor.trim();
+    if (!normalizado || normalizado.length > limite || /[\u0000-\u001F\u007F]/.test(normalizado)) {
+      throw new Error(`${campo} deve ser uma string válida`);
+    }
+    return normalizado;
+  };
+
+  // Validar tudo antes de obter/executar qualquer conexão: um escopo incompleto
+  // jamais pode ampliar a projeção para outro arquivo, guia, lote ou convênio.
+  const estabelecimentoId = validarId(input.estabelecimentoId, "estabelecimentoId");
+  const convenioId = validarId(input.convenioId, "convenioId");
+  const arquivoId = validarId(input.arquivoId, "arquivoId");
+  const numeroGuia = validarTexto(input.numeroGuia, "numeroGuia", 20);
+  const numeroLote = validarTexto(input.numeroLote, "numeroLote", 20);
+  const competenciaInformada = validarTexto(input.competencia, "competencia", 7);
+  if (!/^\d{4}[/-](0[1-9]|1[0-2])$/.test(competenciaInformada)) {
+    throw new Error("competencia deve estar no formato AAAA/MM ou AAAA-MM");
+  }
+  // A staging TISS grava a competência canônica em AAAA/MM. Aceitar o hífen
+  // apenas como normalização do mesmo valor, e nunca como fallback de período.
+  const competencia = competenciaInformada.replace("-", "/");
+  const pacienteNome = validarTexto(input.pacienteNome, "pacienteNome", 255);
+  const setor = validarTexto(input.setor, "setor", 255);
+
+  const db = banco ?? await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  // O mesmo recorte é aplicado à origem da projeção e à contagem. A guia é
+  // canônica para o XML: prestador, depois operadora; não se consulta outro
+  // arquivo para tentar encontrar uma correspondência.
+  const filtroTissRestrito = sql`
+    ft.estabelecimentoId = ${estabelecimentoId}
+    AND ft.convenioId = ${convenioId}
+    AND ft.arquivo_id = ${arquivoId}
+    AND COALESCE(
+      NULLIF(TRIM(ft.numero_guia_prestador), ''),
+      NULLIF(TRIM(ft.numero_guia_operadora), '')
+    ) = ${numeroGuia}
+    AND COALESCE(NULLIF(TRIM(ft.numero_lote), ''), '') = ${numeroLote}
+    AND REPLACE(NULLIF(TRIM(ft.competencia), ''), '-', '/') = ${competencia}
+  `;
+
+  // Mantém a projeção de itens da função legada, com a diferença essencial de
+  // que a origem já está limitada ao snapshot completo e não há mutação de
+  // registros financeiros já projetados.
+  const insertQuery = sql`
+    INSERT INTO faturamento_unificado (
+      origemSistema, origemId, estabelecimentoId,
+      numeroGuia, numeroGuiaOperadora, contaNumero, senha,
+      lotePrestador, carteiraBeneficiario, pacienteNome,
+      convenioId, convenio, competencia,
+      profissionalExecutante, setor,
+      tipoItem, codigoItem,
+      descricaoItem, dataExecucao, quantidade,
+      valorUnitario, valorFaturado,
+      codigoPrestadorExecutante,
+      dataSincronizacao
+    )
+    SELECT
+      'XML_TISS',
+      CAST(dedup.id AS CHAR),
+      dedup.estabelecimentoId,
+      COALESCE(dedup.numero_guia_operadora, dedup.numero_guia_prestador),
+      dedup.numero_guia_operadora,
+      COALESCE(dedup.numero_guia_prestador, dedup.numero_guia_operadora),
+      dedup.senha,
+      dedup.numero_lote,
+      dedup.carteira_beneficiario,
+      ${pacienteNome},
+      dedup.convenioId,
+      c.nome,
+      DATE_FORMAT(dedup.data_referencia, '%Y-%m'),
+      dedup.nome_prof,
+      ${setor},
+      dedup.tipo_item,
+      dedup.codigo_item,
+      dedup.descricao_item,
+      dedup.data_execucao,
+      dedup.quantidade,
+      dedup.valor_unitario,
+      dedup.valor_faturado,
+      dedup.codigo_prestador_executante,
+      NOW()
+    FROM (
+      SELECT ft.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY COALESCE(ft.numero_guia_operadora, ft.numero_guia_prestador), ft.sequencial_item, ft.codigo_item, ft.data_execucao, ft.quantidade, ft.valor_faturado
+          ORDER BY ft.id ASC
+        ) as rn
+      FROM faturamento_tiss ft
+      WHERE ${filtroTissRestrito}
+    ) dedup
+    LEFT JOIN convenios c ON dedup.convenioId = c.id
+    LEFT JOIN faturamento_unificado fu
+      ON fu.origemSistema = 'XML_TISS'
+      AND fu.origemId = CAST(dedup.id AS CHAR)
+      AND fu.estabelecimentoId = dedup.estabelecimentoId
+    WHERE dedup.rn = 1
+      AND fu.id IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM faturamento_unificado anterior
+        INNER JOIN faturamento_tiss origem_anterior
+          ON anterior.origemId = CAST(origem_anterior.id AS CHAR)
+          AND anterior.estabelecimentoId = origem_anterior.estabelecimentoId
+        WHERE anterior.origemSistema = 'XML_TISS'
+          AND anterior.estabelecimentoId = dedup.estabelecimentoId
+          AND anterior.convenioId = dedup.convenioId
+          AND origem_anterior.arquivo_id <> dedup.arquivo_id
+          AND COALESCE(NULLIF(TRIM(origem_anterior.numero_guia_prestador), ''), NULLIF(TRIM(origem_anterior.numero_guia_operadora), ''))
+              = COALESCE(NULLIF(TRIM(dedup.numero_guia_prestador), ''), NULLIF(TRIM(dedup.numero_guia_operadora), ''))
+          AND COALESCE(origem_anterior.numero_lote, '') = COALESCE(dedup.numero_lote, '')
+          AND REPLACE(origem_anterior.competencia, '-', '/') = REPLACE(dedup.competencia, '-', '/')
+          AND origem_anterior.sequencial_item <=> dedup.sequencial_item
+          AND origem_anterior.codigo_item <=> dedup.codigo_item
+          AND origem_anterior.data_execucao <=> dedup.data_execucao
+          AND origem_anterior.quantidade <=> dedup.quantidade
+          AND origem_anterior.valor_faturado <=> dedup.valor_faturado
+      )
+  `;
+  await db.execute(insertQuery);
+
+  // Não contar XML_TISS do hospital inteiro: origemId é vinculada à linha real
+  // da staging e todos os seis componentes do escopo são repetidos no JOIN.
+  const countQuery = sql`
+    SELECT COUNT(*) as total
+    FROM faturamento_unificado fu
+    INNER JOIN faturamento_tiss ft
+      ON CAST(ft.id AS CHAR) = fu.origemId
+      AND ft.estabelecimentoId = fu.estabelecimentoId
+    WHERE fu.origemSistema = 'XML_TISS'
+      AND fu.estabelecimentoId = ${estabelecimentoId}
+      AND fu.convenioId = ${convenioId}
+      AND ${filtroTissRestrito}
+  `;
+  const [countResult] = await db.execute(countQuery);
+  const total = (countResult as any)?.[0]?.total || 0;
+
+  return { inseridos: Number(total), total: Number(total) };
+}
+
 // ============================================================
 // POPULAÇÃO COMPLETA (ambas as fontes)
 // ============================================================

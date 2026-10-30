@@ -1040,6 +1040,8 @@ export function criarContaContextoMedicoService(
       xml: Buffer;
       /** Restrição interna do lote: o honorário só pode escolher snapshot recém-materializado. */
       arquivoHospitalIdsPermitidos?: readonly number[];
+      /** Restrição interna da Fábrica à tupla completa, inclusive guia/lote/competência. */
+      escoposHospitalaresPermitidos?: readonly ScopeContaMedica[];
       loteImportacaoId?: number;
       /** Fencing interno do lote; não vem de router ou tela. */
       loteClaim?: { id: number; claimToken: string };
@@ -1102,6 +1104,7 @@ export function criarContaContextoMedicoService(
           hospital: SnapshotHospitalarAutorizado;
         }
       >();
+      const escoposPermitidos = input.escoposHospitalaresPermitidos?.map(normalizarScopeContaMedica);
       for (const candidato of candidatos) {
         if (
           candidato.estabelecimentoId !== estabelecimentoId ||
@@ -1109,6 +1112,14 @@ export function criarContaContextoMedicoService(
         )
           continue;
         const scope = normalizarScopeContaMedica(candidato);
+        if (escoposPermitidos && !escoposPermitidos.some(permitido =>
+          permitido.estabelecimentoId === scope.estabelecimentoId &&
+          permitido.convenioId === scope.convenioId &&
+          permitido.arquivoHospitalId === scope.arquivoHospitalId &&
+          permitido.numeroConta === scope.numeroConta &&
+          permitido.numeroLote === scope.numeroLote &&
+          permitido.competencia === scope.competencia
+        )) continue;
         const hospital = await snapshot(scope);
         if (!hospital) continue;
         const key = [

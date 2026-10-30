@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { caminhoContaFabricaImportada } from "@/lib/fabricaContaDestino";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -430,6 +431,7 @@ export default function FabricaFaturamento() {
       setArquivoXmlHonorariosFile(null);
       setContaAlvoXml(null);
       recarregarTudo();
+      setLocation(caminhoContaFabricaImportada(res.destinoContaConvenio));
     },
     onError: (err) => toast.error(err.message),
   });

@@ -72,7 +72,7 @@ describe("compararItensComPadroes", () => {
             return Promise.resolve([
               {
                 id: 101,
-                numeroConta: "76696626",
+                numeroConta: "CONTA-REGRESSAO-SINTETICA",
                 estabelecimentoId: 1,
                 convenio: "SULAMERICA",
                 convenioId: 10,
@@ -103,10 +103,10 @@ describe("compararItensComPadroes", () => {
       insert: insertSpy,
     } as any);
 
-    const resultado = await executarComparacaoESalvar("76696626", 1, {
+    const resultado = await executarComparacaoESalvar("CONTA-REGRESSAO-SINTETICA", 1, {
       escopoContextoMedico: {
         estabelecimentoId: 1,
-        numeroConta: "76696626",
+        numeroConta: "CONTA-REGRESSAO-SINTETICA",
         arquivoHospitalId: 50,
         convenioId: 10,
       },
@@ -192,7 +192,7 @@ describe("compararItensComPadroes", () => {
     // Deve gravar log de auditoria com o gabarito médico usado
     expect(insertValuesSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        numeroConta: "76696626",
+        numeroConta: "CONTA-REGRESSAO-SINTETICA",
         padraoId: 77,
         padraoNome: "Gabarito Septoplastia",
         statusGeral: "divergente",

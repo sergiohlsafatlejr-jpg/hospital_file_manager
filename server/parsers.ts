@@ -123,7 +123,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
     if (numeroLote === 'null' || numeroLote === 'undefined' || (numeroLote && numeroLote.trim() === '')) {
       numeroLote = undefined;
     }
-    console.log('[Parser] Número do lote TISS extraido:', numeroLote || 'NÃO ENCONTRADO');
+    // Identificadores do XML não são enviados aos logs.
     
     // Check if this is a GEAP Portal format (GuiaPortalXml)
     const guiasGEAP = findGuiasGEAP(result);
@@ -182,10 +182,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
             const codigoPrestadorExecutante = extractCodigoPrestadorExecutante(guia);
             const { registroANS, senha, numeroGuiaOperadora } = extractDadosGuia(guia);
             
-            if (sequencialTransacao) {
-              console.log(`[Parser] Guia ${guiaNumero} - Sequencial: ${sequencialTransacao}`);
-            }
-            console.log(`[Parser] Guia ${guiaNumero} - registroANS: ${registroANS || 'N/A'}, senha: ${senha || 'N/A'}, guiaOperadora: ${numeroGuiaOperadora || 'N/A'}`);
+            // Guia, sequencial, senha e identificação da operadora permanecem somente nos dados autorizados.
             
             // Extract procedimentos executados
             const procedimentosExecutados = extractProcedimentosExecutados(guia);
@@ -734,7 +731,7 @@ function findGuiasComSequencial(obj: unknown): Array<{ guia: unknown; sequencial
             sequencialTransacao = undefined;
           }
           
-          console.log('[Parser] GuiasTISS - Sequencial extraido:', sequencialTransacao || 'NÃO ENCONTRADO');
+          // Sequencial é metadado do arquivo, não mensagem de log.
           
           // Find the actual guia inside guiasTISS (guiaSP-SADT, guiaConsulta, guiaResumoInternacao, etc.)
           for (const [guiaKey, guiaValue] of Object.entries(guiasTISSRecord)) {
