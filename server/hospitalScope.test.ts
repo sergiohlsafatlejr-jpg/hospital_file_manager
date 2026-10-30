@@ -15,7 +15,12 @@ const permissoes = [
 ];
 function database(hospitalRows = hospitais, permissionRows = permissoes) {
   const results: unknown[][] = [hospitalRows, permissionRows];
-  return { select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(async () => results.shift() ?? []) })) })) };
+  return {
+    // O bypass legado consultava permissões com execute; mantemos essa superfície
+    // no mock para provar que a central não substitui o proprietário persistido.
+    execute: vi.fn(async () => [[permissionRows], []]),
+    select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(async () => results.shift() ?? []) })) })),
+  };
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,6 +39,37 @@ describe("escopo central SAFATLE", () => {
   });
   it("usuário com permissão somente central não vê nenhum hospital", () => {
     expect(filtrarHospitaisPorPermissoes(usuario, hospitais, permissoes.slice(0, 1), "visualizar")).toEqual([]);
+  });
+  it.each(["editar", "excluir"] as const)("central com %s não substitui a permissão do hospital proprietário", async acao => {
+    const permissaoSomenteCentral = [{
+      userId: 42,
+      estabelecimentoId: CENTRAL,
+      podeVisualizar: "sim",
+      podeEditar: "sim",
+      podeExcluir: "sim",
+    }];
+    const dbComExecuteLegado = database(hospitais, permissaoSomenteCentral);
+    mocks.getDb.mockResolvedValue(dbComExecuteLegado);
+    mocks.verificar.mockImplementation(async (_usuarioId: number, estabelecimentoId: number) => estabelecimentoId === CENTRAL);
+
+    await expect(exigirHospitalProprietario(usuario, 101, acao)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(resolverHospitaisAutorizados(usuario, CENTRAL, acao)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.verificar).toHaveBeenCalledWith(42, CENTRAL, "visualizar");
+    expect(dbComExecuteLegado.execute).not.toHaveBeenCalled();
+  });
+  it.each(["editar", "excluir"] as const)("resolvedor central limita %s ao catálogo de hospitais realmente autorizado", async acao => {
+    const catalogo = [{ id: CENTRAL }, { id: 101 }, { id: 202 }];
+    const permissoesDeEscrita = [
+      { userId: 42, estabelecimentoId: CENTRAL, podeVisualizar: "sim", podeEditar: "sim", podeExcluir: "sim" },
+      { userId: 42, estabelecimentoId: 101, podeVisualizar: "sim", podeEditar: "sim", podeExcluir: "sim" },
+      { userId: 42, estabelecimentoId: 202, podeVisualizar: "sim", podeEditar: "nao", podeExcluir: "nao" },
+    ];
+    const dbComExecuteLegado = database(catalogo, permissoesDeEscrita);
+    mocks.getDb.mockResolvedValue(dbComExecuteLegado);
+    mocks.verificar.mockImplementation(async (_usuarioId: number, estabelecimentoId: number) => estabelecimentoId === CENTRAL);
+
+    await expect(resolverHospitaisAutorizados(usuario, CENTRAL, acao)).resolves.toEqual([101]);
+    expect(dbComExecuteLegado.execute).not.toHaveBeenCalled();
   });
   it("exige permissão central no servidor quando filtro é omitido", async () => {
     mocks.verificar.mockResolvedValue(false);

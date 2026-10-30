@@ -19,6 +19,7 @@ import {
   criarChaveStorageXmlImportacao,
   lerXmlImportacaoProtegido,
   salvarXmlImportacaoProtegido,
+  armazenamentoXmlImportacaoPronto,
 } from "./xmlImportacaoLoteVault";
 
 const scope = {
@@ -70,18 +71,45 @@ describe("classificarFalhaArmazenamentoXmlImportacao", () => {
 });
 
 describe("cofre XML protegido", () => {
-  const chaveAnterior = process.env.XML_IMPORTACAO_FILE_KEY;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.XML_IMPORTACAO_FILE_KEY = "a".repeat(64);
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("XML_IMPORTACAO_FILE_KEY", "a".repeat(64));
     mocks.lookup.mockResolvedValue([{ address: "198.51.100.10", family: 4 }]);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    if (chaveAnterior === undefined) delete process.env.XML_IMPORTACAO_FILE_KEY;
-    else process.env.XML_IMPORTACAO_FILE_KEY = chaveAnterior;
+    vi.unstubAllEnvs();
+  });
+
+  it("em produção sem chave dedicada recusa mesmo com JWT sintético e não tenta storage", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("XML_IMPORTACAO_FILE_KEY", "");
+    vi.stubEnv("JWT_SECRET", "jwt-sintetico-nao-e-chave-de-cofre");
+    vi.stubEnv("JWT_SECRET_KEY", "jwt-sintetica-nao-e-chave-de-cofre");
+    const storageKey = "xml-importacao-protegida/7/8/91/nao-deve-ser-validada.enc";
+
+    expect(armazenamentoXmlImportacaoPronto()).toBe(false);
+    await expect(salvarXmlImportacaoProtegido(Buffer.from("xml-sintetico"), scope, storageKey))
+      .rejects.toMatchObject({ failureCode: "STORAGE_KEY_UNAVAILABLE" });
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.storageGet).not.toHaveBeenCalled();
+  });
+
+  it("sem Forge/storage disponível falha sem sucesso local ou temporário", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+    const storageKey = criarChaveStorageXmlImportacao(scope);
+    mocks.storagePut.mockRejectedValue(
+      new Error("Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"),
+    );
+
+    await expect(salvarXmlImportacaoProtegido(Buffer.from("xml-sintetico"), scope, storageKey))
+      .rejects.toMatchObject({ failureCode: "STORAGE_WRITE_FAILED" });
+    expect(mocks.storagePut).toHaveBeenCalledOnce();
+    expect(mocks.storageGet).not.toHaveBeenCalled();
   });
 
   it("conclui a cifra GCM antes de obter a tag, grava uma vez e recupera o mesmo conteúdo", async () => {
