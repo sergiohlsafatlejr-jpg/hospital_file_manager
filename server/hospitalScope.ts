@@ -41,7 +41,7 @@ export async function exigirHospitalProprietario(
   exigirUsuario(usuario);
   exigirIdHospital(hospitalId);
   if (!await verificarPermissaoEstabelecimento(usuario.id, hospitalId, acao)) {
-    const db = await getDb(); if (!db || typeof (db as any).execute !== "function" || !await verificarPermissaoEstabelecimento(usuario.id, ESTABELECIMENTO_CENTRAL_SAFATLE, acao)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para esta operação no hospital de origem." });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para esta operação no hospital de origem." });
   }
 }
 
@@ -76,14 +76,7 @@ export async function resolverHospitaisAutorizados(
     central ? eq(estabelecimentos.ativo, "sim") : and(eq(estabelecimentos.ativo, "sim"), eq(estabelecimentos.id, hospitalId!)),
   );
   const permissoes = usuario.role === "admin" ? [] : await db.select().from(permissoesEstabelecimento).where(eq(permissoesEstabelecimento.userId, usuario.id));
-  let ids = filtrarHospitaisPorPermissoes(usuario, hospitais, permissoes, acao);
-  if (usuario.role !== "admin" && typeof (db as any).execute === "function") {
-    const permCentral = (permissoes as any[]).find((p) => Number(p.estabelecimentoId) === ESTABELECIMENTO_CENTRAL_SAFATLE);
-    if (permCentral && permCentral[camposPermissao[acao]] === "sim") {
-      const todosIds = hospitais.map(item => item.id).filter(id => Number.isSafeInteger(id) && id > 0 && id !== ESTABELECIMENTO_CENTRAL_SAFATLE);
-      ids = [...new Set([...ids, ...todosIds])].sort((a, b) => a - b);
-    }
-  }
+  const ids = filtrarHospitaisPorPermissoes(usuario, hospitais, permissoes, acao);
   if (!ids.length) throw new TRPCError({ code: "FORBIDDEN", message: "Nenhum hospital autorizado para esta operação." });
   return ids;
 }

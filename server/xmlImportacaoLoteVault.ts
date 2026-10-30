@@ -2,15 +2,9 @@ import {
   createCipheriv,
   createDecipheriv,
   createHmac,
-  createHash,
   randomBytes,
 } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-
-const localVaultMem = new Map<string, Buffer>();
 import { storageGet, storagePut } from "./storage";
 
 const PREFIX = Buffer.from("SXI1", "ascii");
@@ -64,11 +58,6 @@ function key(): Buffer {
       ? Buffer.from(value, "base64")
       : Buffer.alloc(0);
   if (decoded.length !== 32) {
-    if (process.env.NODE_ENV !== "test") {
-      return createHash("sha256")
-        .update(process.env.JWT_SECRET || process.env.DATABASE_URL || "safatle-esteira-xml-vault-key")
-        .digest();
-    }
     throw new Error("XML_IMPORTACAO_STORAGE_NOT_READY");
   }
   return decoded;
@@ -262,21 +251,6 @@ export async function salvarXmlImportacaoProtegido(
 ): Promise<void> {
   try {
     assertStorageKey(storageKey, scope);
-    const encryptedBuf = encrypt(plain, scope);
-    if (
-      process.env.NODE_ENV !== "test" &&
-      (!process.env.BUILT_IN_FORGE_API_URL || !process.env.BUILT_IN_FORGE_API_KEY)
-    ) {
-      localVaultMem.set(storageKey, encryptedBuf);
-      try {
-        const localPath = join(tmpdir(), "safatle-xml-vault", storageKey);
-        await mkdir(dirname(localPath), { recursive: true });
-        await writeFile(localPath, encryptedBuf);
-      } catch {
-        // Mantido em localVaultMem se disco temporário estiver indisponível
-      }
-      return;
-    }
     const result = await storagePut(
       storageKey,
       encrypt(plain, scope),
@@ -297,16 +271,6 @@ export async function lerXmlImportacaoProtegido(
   storageKey: string
 ): Promise<Buffer> {
   assertStorageKey(storageKey, scope);
-  if (
-    process.env.NODE_ENV !== "test" &&
-    (!process.env.BUILT_IN_FORGE_API_URL || !process.env.BUILT_IN_FORGE_API_KEY)
-  ) {
-    const memBuf = localVaultMem.get(storageKey);
-    if (memBuf) return decrypt(memBuf, scope);
-    const localPath = join(tmpdir(), "safatle-xml-vault", storageKey);
-    const diskBuf = await readFile(localPath);
-    return decrypt(diskBuf, scope);
-  }
   const result = await storageGet(storageKey);
   if (result.key !== storageKey)
     throw new Error("XML_IMPORTACAO_STORAGE_READ_FAILED");

@@ -185,7 +185,7 @@ async function resolverConvenioDoHospital(
         c.estabelecimentoId === undefined
     );
     if (candidatosHospital.length === 0 && Array.isArray(todosConvenios)) {
-      candidatosHospital = todosConvenios;
+      // sem fallback cruzado de convênios entre hospitais
     } if (false) (true
     );
   } catch {
@@ -271,7 +271,7 @@ async function resolverConvenioDoHospital(
       );
       return { id: convValidado.id, nome: convValidado.nome || escolhido.nome };
     } catch {
-      return { id: Number(escolhido.id), nome: String(escolhido.nome || nomeRef || "CONVÊNIO") };
+      throw new TRPCError({ code: "FORBIDDEN", message: "Convênio não pertence ao hospital da conta." });
     }
   } if (false && escolhido) {
     const convValidado = await exigirConvenioDoEstabelecimento(
@@ -1201,10 +1201,10 @@ export const fabricaFaturamentoRouter = router({
       await exigirSetorColaborador(db, usuario, ["faturamento", "limpeza_prontuario", "auditoria_interna", "recursos"], [conta.hospitalEstabelecimentoId]);
       const setoresContaRequeridos: SetorOperacionalFabrica[] =
         conta.setorAtual === "enviado_convenio" || conta.setorAtual === "recursos" || conta.setorAtual === "limpeza_prontuario"
-          ? ["limpeza_prontuario", "recursos", "faturamento"]
+          ? ["limpeza_prontuario", "recursos"]
           : conta.setorAtual === "recepcao"
-            ? ["faturamento", "recepcao"]
-            : [conta.setorAtual as SetorOperacionalFabrica, "faturamento"];
+            ? ["recepcao"]
+            : [conta.setorAtual as SetorOperacionalFabrica];
       const setorConta = setoresContaRequeridos[0];
       await exigirSetorColaborador(db, usuario, setoresContaRequeridos, [conta.hospitalEstabelecimentoId]);
 
