@@ -146,6 +146,43 @@ describe("fonteRelatoriosService", () => {
 
       expect(resultado.fonte).toBe("contas_convenio_itens");
     });
+
+    it("deve fazer fallback automático para contas_convenio_itens quando integ_faturado retorna 0 contas", async () => {
+      const executeMock = vi.fn()
+        // 7 chamadas iniciais de integ_faturado vazias
+        .mockResolvedValueOnce([[{ total_faturado: "0.00", qtd_contas: 0, qtd_itens: 0 }]])
+        .mockResolvedValueOnce([[{ total_faturado: "0.00", qtd_contas: 0, qtd_itens: 0 }]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        .mockResolvedValueOnce([[]])
+        // Fallback para contas_convenio_itens com dados do XML importado na Fábrica
+        .mockResolvedValue([[{
+          total_faturado: "2450.00",
+          qtd_contas: 2,
+          qtd_itens: 14,
+        }]]);
+
+      const mockDb = {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]), // sem config cadastrada => padrão integ_faturado
+        execute: executeMock,
+      };
+      mockGetDb.mockResolvedValue(mockDb);
+
+      const resultado = await buscarRelatorioUnificado({
+        estabelecimentoId: 3,
+        anoAtual: 2026,
+        anoAnterior: 2025,
+      });
+
+      expect(resultado.acumulado.totalFaturadoAtual).toBe(2450);
+      expect(resultado.acumulado.qtdContasAtual).toBe(2);
+    });
   });
 
   describe("listarConveniosUnificado", () => {

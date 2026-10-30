@@ -1405,7 +1405,7 @@ export const contasConvenioRouter = router({
         } else {
           contasExpandidas.push({
             ...conta,
-            numeroLote: null,
+            numeroLote: conta.numeroLote || null,
             isAltaAdministrativa: false,
             totalLotes: 1,
             virtualId: `${conta.id}`,

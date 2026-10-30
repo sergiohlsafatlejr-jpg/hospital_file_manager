@@ -178,6 +178,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
           for (const { guia, sequencialTransacao } of guiasComSequencial) {
             const guiaNumero = extractGuiaNumero(guia);
             const pacienteCarteirinha = extractPacienteCarteirinha(guia);
+            const pacienteNome = extractPacienteNome(guia);
             const codigoPrestadorExecutante = extractCodigoPrestadorExecutante(guia);
             const { registroANS, senha, numeroGuiaOperadora } = extractDadosGuia(guia);
             
@@ -193,6 +194,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
                 ...proc,
                 guiaNumero: proc.guiaNumero || guiaNumero,
                 pacienteCarteirinha: proc.pacienteCarteirinha || pacienteCarteirinha,
+                pacienteNome: proc.pacienteNome || pacienteNome,
                 codigoPrestadorExecutante: proc.codigoPrestadorExecutante || codigoPrestadorExecutante,
                 registroANS,
                 senha: proc.senha || senha,
@@ -210,6 +212,7 @@ export async function parseXML(content: Buffer | string): Promise<ParseResult> {
                 ...proc,
                 guiaNumero: proc.guiaNumero || guiaNumero,
                 pacienteCarteirinha: proc.pacienteCarteirinha || pacienteCarteirinha,
+                pacienteNome: proc.pacienteNome || pacienteNome,
                 codigoPrestadorExecutante: proc.codigoPrestadorExecutante || codigoPrestadorExecutante,
                 registroANS,
                 senha: proc.senha || senha,
@@ -840,6 +843,26 @@ function extractPacienteCarteirinha(guia: unknown): string | undefined {
     return getTextValue(beneficiario["numeroCarteira"]);
   }
   
+  return undefined;
+}
+
+/**
+ * Extract paciente nome from guia object
+ */
+function extractPacienteNome(guia: unknown): string | undefined {
+  if (!guia || typeof guia !== "object") return undefined;
+
+  const record = guia as Record<string, unknown>;
+  const beneficiario = record["dadosBeneficiario"] as Record<string, unknown> | undefined;
+
+  if (beneficiario) {
+    return (
+      getTextValue(beneficiario["nomeBeneficiario"]) ||
+      getTextValue(beneficiario["nomePaciente"]) ||
+      getTextValue(beneficiario["nome"])
+    );
+  }
+
   return undefined;
 }
 

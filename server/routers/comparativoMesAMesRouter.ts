@@ -117,7 +117,25 @@ export const comparativoMesAMesRouter = router({
         prefixoAnterior
       );
 
-      const [rows]: any[] = await db.execute(sql.raw(query));
+      let [rows]: any[] = await db.execute(sql.raw(query));
+      let fonteEfetiva = config.fonteFaturamento;
+
+      // Fallback automático: se o estabelecimento está configurado como integ_faturado (padrão)
+      // mas não possui registros em integ_faturado e possui contas importadas via XML/Fábrica em contas_convenio_itens
+      if (config.fonteFaturamento === "integ_faturado" && (!rows || rows.length === 0)) {
+        const fallbackQuery = buildQueryForSource(
+          "contas_convenio_itens",
+          config.origemPreferida,
+          estabelecimentoId,
+          prefixoAtual,
+          prefixoAnterior
+        );
+        const [fallbackRows]: any[] = await db.execute(sql.raw(fallbackQuery));
+        if (fallbackRows && fallbackRows.length > 0) {
+          rows = fallbackRows;
+          fonteEfetiva = "contas_convenio_itens";
+        }
+      }
 
       // Organizar dados por mês
       const mesesMap: Record<number, {
@@ -267,7 +285,25 @@ export const comparativoMesAMesRouter = router({
         prefixoAnterior
       );
 
-      const [rows]: any[] = await db.execute(sql.raw(query));
+      let [rows]: any[] = await db.execute(sql.raw(query));
+      let fonteEfetiva = config.fonteFaturamento;
+
+      // Fallback automático: se o estabelecimento está configurado como integ_faturado (padrão)
+      // mas não possui registros em integ_faturado e possui contas importadas via XML/Fábrica em contas_convenio_itens
+      if (config.fonteFaturamento === "integ_faturado" && (!rows || rows.length === 0)) {
+        const fallbackQuery = buildQueryForSource(
+          "contas_convenio_itens",
+          config.origemPreferida,
+          estabelecimentoId,
+          prefixoAtual,
+          prefixoAnterior
+        );
+        const [fallbackRows]: any[] = await db.execute(sql.raw(fallbackQuery));
+        if (fallbackRows && fallbackRows.length > 0) {
+          rows = fallbackRows;
+          fonteEfetiva = "contas_convenio_itens";
+        }
+      }
 
       // Formatar para exportação em linhas planas
       const nomesMeses = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];

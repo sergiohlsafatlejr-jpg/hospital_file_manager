@@ -774,6 +774,23 @@ export async function buscarRelatorioUnificado(
     porConvenio = await queryIntegFaturado_PorConvenio(db, filtro.estabelecimentoId, prefixoAtual);
     porTipoAtendimento = await queryIntegFaturado_PorTipo(db, filtro.estabelecimentoId, prefixoAtual);
     tabelaComparativa = await queryIntegFaturado_TabelaComparativa(db, filtro.estabelecimentoId, prefixoAtual, prefixoAnterior);
+
+    // Fallback inteligente: se o estabelecimento está com o padrão integ_faturado (sem dados no integrador),
+    // mas possui contas importadas via XML/Fábrica em contas_convenio_itens, popula o relatório a partir de contas_convenio_itens
+    if (acumuladoAtual.qtdContas === 0 && acumuladoAnterior.qtdContas === 0 && porMes.length === 0) {
+      const origem = config.origemPreferida;
+      const ccAcumAtual = await queryContasConvenio_Acumulado(db, filtro.estabelecimentoId, prefixoAtual, origem);
+      const ccAcumAnt = await queryContasConvenio_Acumulado(db, filtro.estabelecimentoId, prefixoAnterior, origem);
+      if (ccAcumAtual.qtdContas > 0 || ccAcumAnt.qtdContas > 0) {
+        acumuladoAtual = ccAcumAtual;
+        acumuladoAnterior = ccAcumAnt;
+        porMes = await queryContasConvenio_PorMes(db, filtro.estabelecimentoId, anoAtual, anoAnterior, origem);
+        porSetor = await queryContasConvenio_PorSetor(db, filtro.estabelecimentoId, prefixoAtual, origem);
+        porConvenio = await queryContasConvenio_PorConvenio(db, filtro.estabelecimentoId, prefixoAtual, origem);
+        porTipoAtendimento = await queryContasConvenio_PorTipo(db, filtro.estabelecimentoId, prefixoAtual, origem);
+        tabelaComparativa = await queryContasConvenio_TabelaComparativa(db, filtro.estabelecimentoId, anoAtual, anoAnterior, origem);
+      }
+    }
   } else {
     // ===== FONTE: contas_convenio_itens (ou faturamento_tiss) =====
     const origem = config.origemPreferida;
@@ -836,7 +853,9 @@ export async function listarConveniosUnificado(
   const config = await obterConfiguracaoFonte(estabelecimentoId);
 
   if (config.fonteFaturamento === "integ_faturado") {
-    return queryIntegFaturado_ListarConvenios(db, estabelecimentoId);
+    const lista = await queryIntegFaturado_ListarConvenios(db, estabelecimentoId);
+    if (lista.length > 0) return lista;
+    return queryContasConvenio_ListarConvenios(db, estabelecimentoId, config.origemPreferida);
   } else {
     return queryContasConvenio_ListarConvenios(db, estabelecimentoId, config.origemPreferida);
   }
@@ -893,6 +912,62 @@ export async function buscarTabelaPorConvenioUnificado(
         ORDER BY mes_num ASC
       `)
     );
+
+    if (
+      (mesAtualRows as unknown as any[]).length === 0 &&
+      (mesAnteriorRows as unknown as any[]).length === 0
+    ) {
+      const origemFilter = buildOrigemFilter(config.origemPreferida);
+      const [ccAtualRows] = await db.execute(
+        sql.raw(`
+          SELECT
+            CASE
+              WHEN competencia LIKE '${anoAtual}/%' THEN SUBSTRING(competencia, 6, 2)
+              WHEN competencia LIKE '${anoAtual}-%' THEN SUBSTRING(competencia, 6, 2)
+              ELSE '00'
+            END as mes_num,
+            COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0) as total_faturado,
+            COUNT(DISTINCT numeroConta) as qtd_contas
+          FROM contas_convenio_itens
+          WHERE estabelecimentoId = ${filtro.estabelecimentoId}
+            AND (competencia LIKE '${anoAtual}/%' OR competencia LIKE '${anoAtual}-%')
+            AND COALESCE(TRIM(convenio), 'Não informado') = '${convenioEscaped}'
+            AND valorTotal IS NOT NULL
+            AND valorTotal > 0
+            ${origemFilter}
+          GROUP BY mes_num
+          ORDER BY mes_num ASC
+        `)
+      );
+      const [ccAnteriorRows] = await db.execute(
+        sql.raw(`
+          SELECT
+            CASE
+              WHEN competencia LIKE '${anoAnterior}/%' THEN SUBSTRING(competencia, 6, 2)
+              WHEN competencia LIKE '${anoAnterior}-%' THEN SUBSTRING(competencia, 6, 2)
+              ELSE '00'
+            END as mes_num,
+            COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0) as total_faturado,
+            COUNT(DISTINCT numeroConta) as qtd_contas
+          FROM contas_convenio_itens
+          WHERE estabelecimentoId = ${filtro.estabelecimentoId}
+            AND (competencia LIKE '${anoAnterior}/%' OR competencia LIKE '${anoAnterior}-%')
+            AND COALESCE(TRIM(convenio), 'Não informado') = '${convenioEscaped}'
+            AND valorTotal IS NOT NULL
+            AND valorTotal > 0
+            ${origemFilter}
+          GROUP BY mes_num
+          ORDER BY mes_num ASC
+        `)
+      );
+      if (
+        (ccAtualRows as unknown as any[]).length > 0 ||
+        (ccAnteriorRows as unknown as any[]).length > 0
+      ) {
+        (mesAtualRows as unknown as any[]).push(...(ccAtualRows as unknown as any[]));
+        (mesAnteriorRows as unknown as any[]).push(...(ccAnteriorRows as unknown as any[]));
+      }
+    }
 
     const mapAtual = new Map<string, { faturado: number; contas: number }>();
     for (const r of mesAtualRows as unknown as any[]) {

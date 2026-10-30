@@ -10710,7 +10710,7 @@ export const appRouter = router({
         try {
           const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
-          const [rows] = await conn.execute(
+          let [rows]: any = await conn.execute(
             `SELECT DISTINCT s.convenioId, c.nome as convenio_nome
              FROM staging_faturamento_xml s
              LEFT JOIN convenios c ON c.id = s.convenioId
@@ -10720,6 +10720,18 @@ export const appRouter = router({
              ORDER BY c.nome`,
             [input.estabelecimentoId, input.estabelecimentoId]
           );
+          if (!rows || rows.length === 0) {
+            [rows] = await conn.execute(
+              `SELECT DISTINCT ft.convenioId, c.nome as convenio_nome
+               FROM faturamento_tiss ft
+               LEFT JOIN convenios c ON c.id = ft.convenioId
+               WHERE ft.estabelecimentoId = ?
+               AND REPLACE(ft.codigo_item, '.', '') = '10102019'
+               AND ft.convenioId IS NOT NULL
+               ORDER BY c.nome`,
+              [input.estabelecimentoId]
+            );
+          }
           return (rows as any[]).map((r: any) => ({
             id: r.convenioId,
             nome: r.convenio_nome || `Convênio ${r.convenioId}`,
@@ -10736,7 +10748,7 @@ export const appRouter = router({
         try {
           const mysql2 = await import("mysql2/promise");
           conn = await mysql2.createConnection(process.env.DATABASE_URL!);
-          const [rows] = await conn.execute(
+          let [rows]: any = await conn.execute(
             `SELECT competencia, COUNT(*) as total
              FROM staging_faturamento_xml
              WHERE (estabelecimentoId = ? OR estabelecimento_id = ?)
@@ -10746,6 +10758,18 @@ export const appRouter = router({
              ORDER BY competencia DESC`,
             [input.estabelecimentoId, input.estabelecimentoId]
           );
+          if (!rows || rows.length === 0) {
+            [rows] = await conn.execute(
+              `SELECT competencia, COUNT(*) as total
+               FROM faturamento_tiss
+               WHERE estabelecimentoId = ?
+               AND REPLACE(codigo_item, '.', '') = '10102019'
+               AND competencia IS NOT NULL
+               GROUP BY competencia
+               ORDER BY competencia DESC`,
+              [input.estabelecimentoId]
+            );
+          }
           return (rows as any[]).map((r: any) => {
             const parts = (r.competencia || "").split("/");
             return {
@@ -10798,7 +10822,7 @@ export const appRouter = router({
           const baseWhere = `(s.estabelecimentoId = ? OR s.estabelecimento_id = ?) AND REPLACE(s.codigo_item, '.', '') = '10102019'`;
 
           // Queries em paralelo
-          const [[resumoRows], [porMedico], [porConvenio], [itens]] =
+          let [[resumoRows], [porMedico], [porConvenio], [itens]]: any =
             await Promise.all([
             // Resumo geral
             conn.execute(
@@ -10848,6 +10872,69 @@ export const appRouter = router({
               [...params]
             ),
           ]);
+
+          if (!resumoRows || Number(resumoRows[0]?.total_visitas || 0) === 0) {
+            let whereExtraFt = "";
+            const paramsFt: any[] = [input.estabelecimentoId];
+            if (input.competencia) {
+              whereExtraFt += ` AND s.competencia = ?`;
+              paramsFt.push(input.competencia);
+            }
+            if (input.convenioId) {
+              whereExtraFt += ` AND s.convenioId = ?`;
+              paramsFt.push(input.convenioId);
+            }
+            if (input.medico) {
+              whereExtraFt += ` AND s.nome_prof = ?`;
+              paramsFt.push(input.medico);
+            }
+            const baseWhereFt = `s.estabelecimentoId = ? AND REPLACE(s.codigo_item, '.', '') = '10102019'`;
+            [[resumoRows], [porMedico], [porConvenio], [itens]] = await Promise.all([
+              conn.execute(
+                `SELECT COUNT(*) as total_visitas,
+                        COUNT(DISTINCT s.numero_guia_prestador) as total_guias,
+                        COUNT(DISTINCT s.nome_prof) as total_medicos,
+                        SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+                 FROM faturamento_tiss s WHERE ${baseWhereFt} ${whereExtraFt}`,
+                [...paramsFt]
+              ),
+              conn.execute(
+                `SELECT s.nome_prof as medico, s.conselho_prof as crm,
+                        COUNT(*) as qtd_visitas,
+                        COUNT(DISTINCT s.numero_guia_prestador) as qtd_guias,
+                        SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+                 FROM faturamento_tiss s WHERE ${baseWhereFt} ${whereExtraFt}
+                 AND s.nome_prof IS NOT NULL AND s.nome_prof != ''
+                 GROUP BY s.nome_prof, s.conselho_prof ORDER BY qtd_visitas DESC`,
+                [...paramsFt]
+              ),
+              conn.execute(
+                `SELECT s.convenioId, c.nome as convenio_nome,
+                        COUNT(*) as qtd_visitas,
+                        COUNT(DISTINCT s.numero_guia_prestador) as qtd_guias,
+                        SUM(CAST(s.valor_faturado AS DECIMAL(12,2))) as total_faturado
+                 FROM faturamento_tiss s
+                 LEFT JOIN convenios c ON c.id = s.convenioId
+                 WHERE ${baseWhereFt} ${whereExtraFt}
+                 GROUP BY s.convenioId, c.nome ORDER BY total_faturado DESC`,
+                [...paramsFt]
+              ),
+              conn.execute(
+                `SELECT s.id, s.numero_guia_prestador as guia, s.descricao_item as procedimento,
+                        CAST(s.valor_faturado AS DECIMAL(12,2)) as valor,
+                        s.nome_prof as medico, s.conselho_prof as crm,
+                        s.data_execucao as data_execucao,
+                        s.competencia,
+                        s.convenioId, c.nome as convenio_nome,
+                        s.carteira_beneficiario
+                 FROM faturamento_tiss s
+                 LEFT JOIN convenios c ON c.id = s.convenioId
+                 WHERE ${baseWhereFt} ${whereExtraFt}
+                 ORDER BY s.data_execucao DESC, s.nome_prof`,
+                [...paramsFt]
+              ),
+            ]);
+          }
 
           const r = (resumoRows as any[])[0] || {};
 
