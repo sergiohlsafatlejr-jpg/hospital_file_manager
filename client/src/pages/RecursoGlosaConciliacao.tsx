@@ -74,6 +74,14 @@ export default function RecursoGlosaConciliacao() {
     { enabled: !!estabelecimentoAtual?.id }
   );
 
+  const { data: contextoContratual } = trpc.contratosConvenios.obterContextoGlosa.useQuery(
+    {
+      estabelecimentoId: estabelecimentoAtual?.id || 0,
+      convenioId: convenioFiltro !== "todos" ? parseInt(convenioFiltro) : undefined,
+    },
+    { enabled: !!estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 }
+  );
+
   const { data: itensGlosados, isLoading, refetch } = trpc.faturamentoUnificado.itensGlosadosParaRecurso.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id || 0,
@@ -167,14 +175,18 @@ export default function RecursoGlosaConciliacao() {
 
   // Mutation para gerar justificativas com IA
   const gerarJustificativasIAMutation = trpc.faturamentoUnificado.gerarJustificativasIA.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       if (data.justificativas) {
         const novasJustificativas: Record<number, string> = { ...justificativasItens };
         for (const j of data.justificativas) {
           novasJustificativas[j.id] = j.justificativa;
         }
         setJustificativasItens(novasJustificativas);
-        toast.success(`Justificativas geradas para ${data.justificativas.length} itens!`);
+        if (data.contextoContratual?.possuiContratoAtivo) {
+          toast.success(`Justificativas geradas para ${data.justificativas.length} itens com base no Contrato e PDFs do Convênio!`);
+        } else {
+          toast.success(`Justificativas geradas para ${data.justificativas.length} itens!`);
+        }
       }
       setGerandoIA(false);
     },
@@ -506,6 +518,39 @@ export default function RecursoGlosaConciliacao() {
             </Button>
           </div>
         </div>
+
+        {/* Base Contratual Vinculada para Análise de Recurso de Glosa */}
+        {contextoContratual && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-800 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <FileCode className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="text-xs">
+                <span className="font-semibold text-blue-900 dark:text-blue-200">
+                  Base Contratual Integrada à IA de Recursos:
+                </span>{" "}
+                {contextoContratual.possuiContratoAtivo ? (
+                  <span className="text-blue-800 dark:text-blue-300">
+                    {contextoContratual.contratos.length} contrato(s) ativo(s) (
+                    {contextoContratual.contratos.map((c: any) => `${c.convenioNome}${c.numeroContrato ? ` #${c.numeroContrato}` : ""}`).join(", ")})
+                    {" · "}
+                    <strong>{contextoContratual.documentos.length} PDF(s) contratual(is) lido(s)</strong>
+                    {contextoContratual.regrasNegocio.length > 0 ? ` · ${contextoContratual.regrasNegocio.length} regra(s) contratual(is)` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Nenhum contrato ou PDF contratual localizado para o filtro atual. Cadastre/importe o PDF em Contratos x Convênios para fundamentar os recursos automaticamente.
+                  </span>
+                )}
+              </div>
+            </div>
+            <a
+              href="/contratos-convenios"
+              className="text-xs font-medium text-blue-700 hover:underline shrink-0"
+            >
+              Gerenciar Contratos / PDFs →
+            </a>
+          </div>
+        )}
 
         {/* Cards de Resumo */}
         {resumo && (() => {
@@ -894,7 +939,17 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
-                                        <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1 text-right text-red-600">
+                                          <div>{formatarMoeda(d.valorGlosa)}</div>
+                                          {d.valorContratadoTabela !== undefined && (
+                                            <div className="text-[10px]">
+                                              <span className={d.classificacaoContrato === 'glosa_indevida' ? 'text-purple-700 font-semibold' : 'text-amber-700'}>
+                                                Tab: {formatarMoeda(d.valorContratadoTabela)}
+                                                {d.classificacaoContrato === 'glosa_indevida' ? ' (Contestável)' : d.classificacaoContrato === 'glosa_contratual_legitima' ? ' (Ajuste Tab.)' : ''}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </td>
                                         <td className="p-1">{d.codigoGlosa && <Badge variant="outline" className="text-xs">{d.codigoGlosa}</Badge>}</td>
                                         <td className="p-1 max-w-[100px] truncate text-muted-foreground">{d.motivoGlosa || '-'}</td>
                                         <td className="p-1 text-right">
@@ -991,7 +1046,17 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1">{d.dataExecucao ? new Date(d.dataExecucao).toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
-                                        <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1 text-right text-red-600">
+                                          <div>{formatarMoeda(d.valorGlosa)}</div>
+                                          {d.valorContratadoTabela !== undefined && (
+                                            <div className="text-[10px]">
+                                              <span className={d.classificacaoContrato === 'glosa_indevida' ? 'text-purple-700 font-semibold' : 'text-amber-700'}>
+                                                Tab: {formatarMoeda(d.valorContratadoTabela)}
+                                                {d.classificacaoContrato === 'glosa_indevida' ? ' (Contestável)' : d.classificacaoContrato === 'glosa_contratual_legitima' ? ' (Ajuste Tab.)' : ''}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </td>
                                         <td className="p-1 text-right">
                                           <span className={`text-xs ${(itensGlosaAceita[d.id] || d.glosaAceita) ? 'text-muted-foreground line-through' : 'text-blue-700'}`}>
                                             {formatarMoeda((itensGlosaAceita[d.id] || d.glosaAceita) ? 0 : Number(valoresRecurso[d.id] ?? d.valorRecurso ?? d.valorGlosa))}
@@ -1152,7 +1217,17 @@ export default function RecursoGlosaConciliacao() {
                                         <td className="p-1 text-center">{d.quantidade}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorFaturado)}</td>
                                         <td className="p-1 text-right">{formatarMoeda(d.valorPago)}</td>
-                                        <td className="p-1 text-right text-red-600">{formatarMoeda(d.valorGlosa)}</td>
+                                        <td className="p-1 text-right text-red-600">
+                                          <div>{formatarMoeda(d.valorGlosa)}</div>
+                                          {d.valorContratadoTabela !== undefined && (
+                                            <div className="text-[10px]">
+                                              <span className={d.classificacaoContrato === 'glosa_indevida' ? 'text-purple-700 font-semibold' : 'text-amber-700'}>
+                                                Tab: {formatarMoeda(d.valorContratadoTabela)}
+                                                {d.classificacaoContrato === 'glosa_indevida' ? ' (Contestável)' : d.classificacaoContrato === 'glosa_contratual_legitima' ? ' (Ajuste Tab.)' : ''}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </td>
                                         <td className="p-1">
                                           {d.codigoGlosa && (
                                             <Badge variant="outline" className="text-xs">{d.codigoGlosa}</Badge>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONTRATOS_PDF_MAX_BYTES,
   extrairPontosImportantes,
   normalizarTextoPdf,
   sanitizarNomePdf,
@@ -8,6 +9,10 @@ import {
 } from "./contratosConveniosPdfService";
 
 describe("contratosConveniosPdfService", () => {
+  it("configura limite de 150 MB por arquivo PDF", () => {
+    expect(CONTRATOS_PDF_MAX_BYTES).toBe(150 * 1024 * 1024);
+  });
+
   it("normaliza espaços e quebras de página sem apagar o conteúdo", () => {
     expect(
       normalizarTextoPdf(
@@ -16,7 +21,7 @@ describe("contratosConveniosPdfService", () => {
     ).toBe("CLÁUSULA PRIMEIRA\nPagamento\nem 30 dias");
   });
 
-  it("extrai partes, vigência, faturamento, pagamento, sigilo e contatos", () => {
+  it("extrai partes, vigência, faturamento, pagamento, glosas/recursos, tabelas, sigilo e contatos", () => {
     const texto = [
       "AWP SERVICE BRASIL LTDA., CNPJ 52.910.023/0001-37",
       "HOSPITAL COTEFI LTDA, CNPJ 02.984.340/0001-20",
@@ -24,6 +29,8 @@ describe("contratosConveniosPdfService", () => {
       "O contrato terá prazo indeterminado e aviso de 30 dias.",
       "Documentos necessários para faturamento: guia, conta e nota fiscal.",
       "O pagamento será realizado conforme calendário de depósito.",
+      "O prazo para recurso de glosa e contestação junto à auditoria médica será de 60 dias.",
+      "A remuneração seguirá a tabela CBHPM e Brasíndice vigente.",
       "As partes manterão sigilo e confidencialidade dos dados.",
       "Contato: faturamento@allianz.com",
     ].join("\n");
@@ -35,6 +42,8 @@ describe("contratosConveniosPdfService", () => {
         "vigencia",
         "faturamento",
         "pagamento",
+        "glosa_recurso",
+        "tabelas_valores",
         "dados_e_sigilo",
         "contatos",
       ])

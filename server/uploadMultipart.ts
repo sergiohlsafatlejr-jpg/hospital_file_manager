@@ -11,11 +11,12 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
-import { mkdirSync, promises as fs } from "node:fs";
-import { extname } from "node:path";
+import { createReadStream, existsSync, mkdirSync, promises as fs } from "node:fs";
+import os from "node:os";
+import path, { extname } from "node:path";
 import { and, eq } from "drizzle-orm";
 import * as db from "./db";
-import { storagePut } from "./storage";
+import { storagePut, storageGet } from "./storage";
 import { sdk } from "./_core/sdk";
 import {
   contratosConvenios,
@@ -24,7 +25,10 @@ import {
 import {
   CONTRATOS_PDF_MAX_BYTES,
   CONTRATOS_PDF_MAX_TOTAL_BYTES,
+  ensureContratosConveniosDocumentosTable,
   lerContratoPdf,
+  obterCaminhoLocalPdfContrato,
+  salvarPdfContratoStorage,
   sanitizarNomePdf,
   sha256Pdf,
   validarPdfContrato,
@@ -78,7 +82,7 @@ const uploadWarleineXlsx = multer({
     callback(null, extname(file.originalname).toLowerCase() === ".xlsx"),
 });
 
-const contratosPdfUploadDir = "/tmp/portal-safatle-contratos-pdf";
+const contratosPdfUploadDir = path.join(os.tmpdir(), "portal-safatle-contratos-pdf");
 mkdirSync(contratosPdfUploadDir, { recursive: true });
 const uploadContratosPdfs = multer({
   storage: multer.diskStorage({
@@ -93,11 +97,14 @@ const uploadContratosPdfs = multer({
   limits: {
     fileSize: CONTRATOS_PDF_MAX_BYTES,
     files: 30,
-    fields: 4,
-    fieldSize: 255,
+    fields: 10,
+    fieldSize: 1024,
   },
-  fileFilter: (_req, file, callback) =>
-    callback(null, extname(file.originalname).toLowerCase() === ".pdf"),
+  fileFilter: (_req, file, callback) => {
+    const ehExtensaoPdf = extname(file.originalname).toLowerCase() === ".pdf";
+    const ehMimePdf = (file.mimetype || "").toLowerCase().includes("pdf");
+    callback(null, ehExtensaoPdf || ehMimePdf);
+  },
 });
 
 type TasyUploadRequest = Request & {
@@ -265,21 +272,24 @@ function sanitizeFilename(name: string): string {
 router.post(
   "/api/contratos-convenios/importar-pdfs",
   authorizeContratosPdfUpload,
-  (req, res, next) =>
+  (req, res, next) => {
+    req.setTimeout(15 * 60 * 1000);
+    res.setTimeout(15 * 60 * 1000);
     uploadContratosPdfs.array("files", 30)(req, res, error => {
       if (error) {
         const message =
           error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
-            ? "Cada PDF deve ter no máximo 20 MB."
+            ? "Cada PDF deve ter no máximo 150 MB."
             : error instanceof multer.MulterError &&
                 error.code === "LIMIT_FILE_COUNT"
               ? "O lote pode conter no máximo 30 PDFs."
-              : "Formulário de upload inválido. Envie somente arquivos PDF.";
+              : "Formulário de upload inválido. Envie somente arquivos PDF (até 150 MB cada).";
         res.status(400).json({ error: message });
         return;
       }
       next();
-    }),
+    });
+  },
   async (req: ContratosPdfUploadRequest, res: Response) => {
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     const limparArquivos = async () => {
@@ -308,9 +318,10 @@ router.post(
         await limparArquivos();
         return res
           .status(400)
-          .json({ error: "O lote de PDFs deve ter no máximo 100 MB." });
+          .json({ error: "O lote de PDFs deve ter no máximo 600 MB." });
       }
 
+      await ensureContratosConveniosDocumentosTable();
       const database = await db.getDb();
       if (!database) {
         await limparArquivos();
@@ -377,7 +388,7 @@ router.post(
           const leitura = await lerContratoPdf(buffer);
           const nomeArquivo = sanitizarNomePdf(file.originalname);
           const storageKey = `contratos-convenios/${contrato.estabelecimentoId}/${contratoId}/${sha256}.pdf`;
-          await storagePut(storageKey, buffer, "application/pdf");
+          await salvarPdfContratoStorage(storageKey, buffer);
           const [insertResult] = await database
             .insert(contratosConveniosDocumentos)
             .values({
@@ -434,6 +445,73 @@ router.post(
       return res
         .status(500)
         .json({ error: "Não foi possível concluir a importação dos PDFs." });
+    }
+  }
+);
+
+router.get(
+  "/api/contratos-convenios/documentos/:id/download",
+  authorizeContratosPdfUpload,
+  async (req: ContratosPdfUploadRequest, res: Response) => {
+    try {
+      const user = req.contratosPdfUploadUser;
+      const docId = Number(req.params.id);
+      if (!user || !Number.isInteger(docId) || docId <= 0) {
+        return res.status(400).json({ error: "Documento inválido." });
+      }
+      await ensureContratosConveniosDocumentosTable();
+      const database = await db.getDb();
+      if (!database) {
+        return res.status(412).json({ error: "Banco de dados indisponível." });
+      }
+      const [documento] = await database
+        .select()
+        .from(contratosConveniosDocumentos)
+        .where(eq(contratosConveniosDocumentos.id, docId))
+        .limit(1);
+      if (!documento) {
+        return res.status(404).json({ error: "Documento não encontrado." });
+      }
+      if (
+        user.role !== "admin" &&
+        !(await db.verificarPermissaoEstabelecimento(
+          user.id,
+          documento.estabelecimentoId,
+          "visualizar"
+        ))
+      ) {
+        return res.status(403).json({ error: "Sem permissão para visualizar este documento." });
+      }
+
+      const localPath = obterCaminhoLocalPdfContrato(documento.storageKey);
+      if (existsSync(localPath)) {
+        res.setHeader("Content-Type", documento.mimeType || "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `inline; filename="${sanitizarNomePdf(documento.nomeArquivo)}"`
+        );
+        createReadStream(localPath).pipe(res);
+        return;
+      }
+
+      if (
+        process.env.BUILT_IN_FORGE_API_URL &&
+        process.env.BUILT_IN_FORGE_API_KEY
+      ) {
+        const cloud = await storageGet(documento.storageKey);
+        if (cloud?.url) {
+          return res.redirect(cloud.url);
+        }
+      }
+
+      return res
+        .status(404)
+        .json({ error: "Arquivo PDF não encontrado no armazenamento." });
+    } catch (error: any) {
+      console.error("[Contratos PDF] Erro no download:", error?.message || error);
+      return res
+        .status(500)
+        .json({ error: "Não foi possível abrir o PDF." });
     }
   }
 );

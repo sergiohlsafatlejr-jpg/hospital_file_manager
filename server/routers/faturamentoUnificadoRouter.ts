@@ -335,6 +335,7 @@ export const faturamentoUnificadoRouter = router({
       loteXml: z.string().optional(),
       loteRetorno: z.string().optional(),
       dataPagto: z.string().optional(),
+      filtroPrestador: z.enum(['todos', 'proprio', 'terceiro']).optional(),
       limit: z.number().optional(),
       offset: z.number().optional(),
     }))
