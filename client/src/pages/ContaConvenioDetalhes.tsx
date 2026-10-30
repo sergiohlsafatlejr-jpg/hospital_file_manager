@@ -291,8 +291,14 @@ function ContaConvenioDetalhesPadrao() {
     parseInt(params.get("estabelecimentoId") || "0") ||
     estabelecimentoAtual?.id ||
     0;
-  const numeroLote = params.get("numeroLote") || undefined;
+  const numeroLoteUrl = params.get("numeroLote") || undefined;
+  const arquivoIdUrl = parseInt(params.get("arquivoId") || "0") || undefined;
+  const fabricaContaIdUrl = parseInt(params.get("fabricaContaId") || "0") || undefined;
   const competencia = params.get("competencia") || undefined;
+
+  const [loteFiltroAtivo, setLoteFiltroAtivo] = useState<string | undefined>(numeroLoteUrl);
+  const [arquivoFiltroAtivo, setArquivoFiltroAtivo] = useState<number | undefined>(arquivoIdUrl);
+  const numeroLote = loteFiltroAtivo || numeroLoteUrl;
 
   const [activeTab, setActiveTab] = useState("itens");
   const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
@@ -418,15 +424,21 @@ function ContaConvenioDetalhesPadrao() {
       numeroConta,
       estabelecimentoId,
       tipoItem: tipoFiltro || undefined,
-      numeroLote: numeroLote,
+      numeroLote: loteFiltroAtivo,
+      arquivoId: arquivoFiltroAtivo,
       competencia,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
+  const loteExibicao = loteFiltroAtivo || (itensData as any)?.loteAtivo?.numeroLote || numeroLote;
+  const arquivoExibicao = arquivoFiltroAtivo || (itensData as any)?.loteAtivo?.arquivoId || undefined;
   const itensContaInteira = trpc.contasConvenio.listarItens.useQuery(
     {
       numeroConta,
       estabelecimentoId,
+      numeroLote: loteExibicao,
+      arquivoId: arquivoExibicao,
+      competencia,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
@@ -469,6 +481,8 @@ function ContaConvenioDetalhesPadrao() {
     {
       numeroConta,
       estabelecimentoId,
+      numeroLote: loteExibicao,
+      arquivoId: arquivoExibicao,
     },
     { enabled: !!numeroConta && !!estabelecimentoId }
   );
@@ -490,7 +504,13 @@ function ContaConvenioDetalhesPadrao() {
   // Buscar status na Esteira da Fábrica de Faturamento Safatle
   const { data: contaFabrica, refetch: refetchContaFabrica } =
     trpc.fabricaFaturamento.obterPorNumeroConta.useQuery(
-      { numeroConta, estabelecimentoId },
+      {
+        numeroConta,
+        estabelecimentoId,
+        fabricaContaId: fabricaContaIdUrl,
+        numeroLote: loteExibicao,
+        arquivoId: arquivoExibicao,
+      },
       { enabled: !!numeroConta }
     );
 
@@ -1123,9 +1143,9 @@ function ContaConvenioDetalhesPadrao() {
             <div>
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">
                 Conta {numeroConta}
-                {numeroLote && (
+                {loteExibicao && (
                   <span className="text-lg text-muted-foreground ml-2">
-                    | Lote {numeroLote}
+                    | Lote {loteExibicao}
                   </span>
                 )}
               </h1>
@@ -1208,6 +1228,74 @@ function ContaConvenioDetalhesPadrao() {
             </Button>
           </div>
         </div>
+
+        {/* Alerta & Seletor de Lotes XML quando o paciente possui múltiplas contas parciais na mesma Guia */}
+        {((itensData as any)?.lotesDisponiveis?.length || 0) > 1 && (
+          <Card className="border-amber-300 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30">
+            <CardContent className="p-4 flex flex-col gap-3">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className="bg-amber-600 text-white">
+                      Guia com {(itensData as any).lotesDisponiveis.length} Lotes / Contas Parciais
+                    </Badge>
+                    <span className="text-sm font-semibold text-amber-950 dark:text-amber-200">
+                      Isolamento por Lote XML Ativo — Exibindo somente a conta parcial selecionada (sem somar outras parciais da guia {numeroConta})
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Este paciente possui múltiplas contas/arquivos XML importados com o mesmo número de guia ({numeroConta}). Selecione abaixo qual lote/arquivo XML deseja auditar:
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {((itensData as any).lotesDisponiveis as Array<{
+                  arquivoId: number | null;
+                  numeroLote: string | null;
+                  competencia: string | null;
+                  totalItens: number;
+                  valorTotal: number;
+                }>).map((loteOpt, idx) => {
+                  const loteAtivoObj = (itensData as any)?.loteAtivo;
+                  const isSelected =
+                    (arquivoExibicao && loteOpt.arquivoId === arquivoExibicao) ||
+                    (!arquivoExibicao &&
+                      loteExibicao &&
+                      loteOpt.numeroLote === loteExibicao) ||
+                    (!arquivoExibicao &&
+                      !loteExibicao &&
+                      loteAtivoObj &&
+                      loteOpt.arquivoId === loteAtivoObj.arquivoId &&
+                      loteOpt.numeroLote === loteAtivoObj.numeroLote);
+                  return (
+                    <Button
+                      key={`${loteOpt.arquivoId || 0}-${loteOpt.numeroLote || idx}`}
+                      size="sm"
+                      variant={isSelected ? "default" : "outline"}
+                      className={
+                        isSelected
+                          ? "bg-amber-700 hover:bg-amber-800 text-white"
+                          : "border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                      }
+                      onClick={() => {
+                        setArquivoFiltroAtivo(loteOpt.arquivoId || undefined);
+                        setLoteFiltroAtivo(loteOpt.numeroLote || undefined);
+                      }}
+                    >
+                      Lote: {loteOpt.numeroLote || "S/L"}{" "}
+                      {loteOpt.arquivoId ? `(Arq #${loteOpt.arquivoId})` : ""} •{" "}
+                      {loteOpt.totalItens} itens • R${" "}
+                      {Number(loteOpt.valorTotal || 0).toLocaleString("pt-BR", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </Button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Banner da Esteira da Fábrica de Faturamento Safatle */}
         {contaFabrica && (

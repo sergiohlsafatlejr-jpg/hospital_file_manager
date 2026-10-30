@@ -1291,6 +1291,9 @@ export const contasConvenioRouter = router({
       }
 
       const contas = contasResumo.map((conta) => {
+        if ((conta as any).arquivoHospitalId && Number(conta.valorTotal || 0) > 0) {
+          return conta;
+        }
         const agregado = totaisPorContaCompetencia.get(
           `${conta.estabelecimentoId}|${conta.numeroConta}|${conta.competencia || ""}`,
         );
@@ -1492,6 +1495,7 @@ export const contasConvenioRouter = router({
       estabelecimentoId: z.number(),
       tipoItem: z.string().optional(),
       numeroLote: z.string().optional(),
+      arquivoId: z.number().optional(),
       competencia: z.string().regex(/^\d{4}\/\d{2}$/).optional(),
     }))
     .query(async ({ input, ctx }) => {
@@ -1510,17 +1514,20 @@ export const contasConvenioRouter = router({
       if (input.numeroLote) {
         conditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
+      if (input.arquivoId) {
+        conditions.push(eq(contasConvenioItens.arquivoId, input.arquivoId));
+      }
       if (input.competencia) {
         conditions.push(eq(contasConvenioItens.competencia, input.competencia));
       }
 
-      const items = await db
+      const allItems = await db
         .select()
         .from(contasConvenioItens)
         .where(and(...conditions))
         .orderBy(contasConvenioItens.tipoItem, contasConvenioItens.descricaoItem);
 
-      // Condições base para resumo (inclui filtro de lote se fornecido)
+      // Condições base para resumo (inclui filtro de lote/arquivo se fornecido)
       const resumoConditions: any[] = [
         eq(contasConvenioItens.numeroConta, input.numeroConta),
       ];
@@ -1528,12 +1535,15 @@ export const contasConvenioRouter = router({
       if (input.numeroLote) {
         resumoConditions.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
       }
+      if (input.arquivoId) {
+        resumoConditions.push(eq(contasConvenioItens.arquivoId, input.arquivoId));
+      }
       if (input.competencia) {
         resumoConditions.push(eq(contasConvenioItens.competencia, input.competencia));
       }
 
       // Resumo por tipo
-      const resumoPorTipo = await db
+      const resumoPorTipoDb = await db
         .select({
           tipoItem: contasConvenioItens.tipoItem,
           totalItens: sql<number>`COUNT(*)`,
@@ -1544,7 +1554,7 @@ export const contasConvenioRouter = router({
         .groupBy(contasConvenioItens.tipoItem);
 
       // Total geral
-      const totalGeral = await db
+      const totalGeralDb = await db
         .select({
           totalItens: sql<number>`COUNT(*)`,
           valorTotal: sql<string>`COALESCE(SUM(CAST(valorTotal AS DECIMAL(14,2))), 0)`,
@@ -1555,10 +1565,101 @@ export const contasConvenioRouter = router({
         .from(contasConvenioItens)
         .where(and(...resumoConditions));
 
+      // Identificar lotes/arquivos XML distintos desta guia (para pacientes com múltiplas contas parciais na mesma guia)
+      const mapaLotes = new Map<string, {
+        chave: string;
+        arquivoId: number | null;
+        numeroLote: string | null;
+        competencia: string | null;
+        totalItens: number;
+        valorTotal: number;
+      }>();
+
+      for (const item of allItems) {
+        if (item.origem !== "XML") continue;
+        const arqId = typeof item.arquivoId === "number" ? item.arquivoId : null;
+        const lote = item.numeroLote ? String(item.numeroLote).trim() : null;
+        const comp = item.competencia ? String(item.competencia).trim() : null;
+        const chave = `${arqId ?? 0}|${lote ?? ""}|${comp ?? ""}`;
+        const atual = mapaLotes.get(chave) || {
+          chave,
+          arquivoId: arqId,
+          numeroLote: lote,
+          competencia: comp,
+          totalItens: 0,
+          valorTotal: 0,
+        };
+        atual.totalItens += 1;
+        atual.valorTotal += parseFloat(String(item.valorTotal || "0")) || 0;
+        mapaLotes.set(chave, atual);
+      }
+
+      const lotesDisponiveis = Array.from(mapaLotes.values())
+        .sort((a, b) => (b.arquivoId ?? 0) - (a.arquivoId ?? 0))
+        .map((l) => ({
+          ...l,
+          valorTotal: l.valorTotal.toFixed(2),
+        }));
+
+      // Se o paciente possui múltiplos lotes/arquivos XML para a mesma guia e nenhum lote/arquivo foi especificado,
+      // isolar automaticamente o lote/arquivo XML mais recente para não somar contas parciais diferentes!
+      if (!input.numeroLote && !input.arquivoId && lotesDisponiveis.length > 1) {
+        const loteAlvo = lotesDisponiveis[0];
+        const itemsIsolados = allItems.filter((item) => {
+          if (item.origem !== "XML") return false;
+          const arqId = typeof item.arquivoId === "number" ? item.arquivoId : null;
+          const lote = item.numeroLote ? String(item.numeroLote).trim() : null;
+          const comp = item.competencia ? String(item.competencia).trim() : null;
+          return arqId === loteAlvo.arquivoId && lote === loteAlvo.numeroLote && comp === loteAlvo.competencia;
+        });
+
+        const porTipoMap = new Map<string, { tipoItem: string | null; totalItens: number; valorTotal: number }>();
+        let valorGeralIsolado = 0;
+        let divIsolado = 0;
+        let confIsolado = 0;
+        let pendIsolado = 0;
+
+        for (const it of itemsIsolados) {
+          const vt = parseFloat(String(it.valorTotal || "0")) || 0;
+          valorGeralIsolado += vt;
+          if (it.statusAnalise === "divergente") divIsolado += 1;
+          else if (it.statusAnalise === "conforme") confIsolado += 1;
+          else pendIsolado += 1;
+
+          const tk = it.tipoItem || "OUTROS";
+          const entry = porTipoMap.get(tk) || { tipoItem: it.tipoItem, totalItens: 0, valorTotal: 0 };
+          entry.totalItens += 1;
+          entry.valorTotal += vt;
+          porTipoMap.set(tk, entry);
+        }
+
+        return {
+          items: itemsIsolados,
+          resumoPorTipo: Array.from(porTipoMap.values()).map((e) => ({
+            tipoItem: e.tipoItem,
+            totalItens: e.totalItens,
+            valorTotal: e.valorTotal.toFixed(2),
+          })),
+          resumoGeral: {
+            totalItens: itemsIsolados.length,
+            valorTotal: valorGeralIsolado.toFixed(2),
+            totalDivergentes: divIsolado,
+            totalConformes: confIsolado,
+            totalPendentes: pendIsolado,
+          },
+          loteIsoladoAutomaticamente: true,
+          loteAtivo: loteAlvo,
+          lotesDisponiveis,
+        };
+      }
+
       return {
-        items,
-        resumoPorTipo,
-        resumoGeral: totalGeral[0] || { totalItens: 0, valorTotal: "0", totalDivergentes: 0, totalConformes: 0, totalPendentes: 0 },
+        items: allItems,
+        resumoPorTipo: resumoPorTipoDb,
+        resumoGeral: totalGeralDb[0] || { totalItens: 0, valorTotal: "0", totalDivergentes: 0, totalConformes: 0, totalPendentes: 0 },
+        loteIsoladoAutomaticamente: false,
+        loteAtivo: lotesDisponiveis[0] || null,
+        lotesDisponiveis,
       };
     }),
 
@@ -1966,11 +2067,25 @@ export const contasConvenioRouter = router({
     .input(z.object({
       numeroConta: z.string(),
       estabelecimentoId: z.number(),
+      numeroLote: z.string().optional(),
+      arquivoId: z.number().optional(),
     }))
     .query(async ({ input, ctx }) => {
       await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "visualizar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB error" });
+
+      const itemConds: any[] = [
+        eq(contasConvenioItens.numeroConta, input.numeroConta),
+        eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+        sql`divergencias IS NOT NULL AND JSON_LENGTH(divergencias) > 0`,
+      ];
+      if (input.numeroLote) {
+        itemConds.push(eq(contasConvenioItens.numeroLote, input.numeroLote));
+      }
+      if (input.arquivoId) {
+        itemConds.push(eq(contasConvenioItens.arquivoId, input.arquivoId));
+      }
 
       const itens = await db
         .select({
@@ -1982,17 +2097,52 @@ export const contasConvenioRouter = router({
           quantidade: contasConvenioItens.quantidade,
           statusAnalise: contasConvenioItens.statusAnalise,
           divergencias: contasConvenioItens.divergencias,
+          arquivoId: contasConvenioItens.arquivoId,
+          numeroLote: contasConvenioItens.numeroLote,
         })
         .from(contasConvenioItens)
-        .where(and(
-          eq(contasConvenioItens.numeroConta, input.numeroConta),
-          eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-          sql`divergencias IS NOT NULL AND JSON_LENGTH(divergencias) > 0`,
-        ));
+        .where(and(...itemConds));
+
+      // Buscar score de risco e divergências gerais (ITEM_FALTANTE) do resumo da conta
+      const resumoConds: any[] = [
+        eq(contasConvenioResumo.numeroConta, input.numeroConta),
+        eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
+      ];
+      if (input.numeroLote) {
+        resumoConds.push(eq(contasConvenioResumo.numeroLote, input.numeroLote));
+      }
+      if (input.arquivoId) {
+        resumoConds.push(eq(contasConvenioResumo.arquivoHospitalId, input.arquivoId));
+      }
+
+      const resumoConta = await db
+        .select({ 
+          scoreRisco: contasConvenioResumo.scoreRisco, 
+          detalhesRisco: contasConvenioResumo.detalhesRisco,
+          divergenciasGerais: contasConvenioResumo.divergenciasGerais,
+          arquivoHospitalId: contasConvenioResumo.arquivoHospitalId,
+          numeroLote: contasConvenioResumo.numeroLote,
+        })
+        .from(contasConvenioResumo)
+        .where(and(...resumoConds))
+        .orderBy(desc(contasConvenioResumo.atualizadoEm))
+        .limit(1);
+
+      // Se houver múltiplos arquivos/lotes para a mesma guia e não foi especificado filtro explícito,
+      // restringir os itens de divergência ao mesmo arquivo/lote do resumo mais recente
+      const arqResumo = resumoConta[0]?.arquivoHospitalId;
+      const loteResumo = resumoConta[0]?.numeroLote;
+      const itensFiltrados = (!input.arquivoId && !input.numeroLote && (arqResumo || loteResumo))
+        ? itens.filter((it) => {
+            if (arqResumo && it.arquivoId && it.arquivoId !== arqResumo) return false;
+            if (loteResumo && it.numeroLote && it.numeroLote !== loteResumo) return false;
+            return true;
+          })
+        : itens;
 
       // Flatten divergências
       const todasDivergencias: any[] = [];
-      for (const item of itens) {
+      for (const item of itensFiltrados) {
         const divs = item.divergencias as any[];
         if (Array.isArray(divs)) {
           for (const div of divs) {
@@ -2008,32 +2158,6 @@ export const contasConvenioRouter = router({
           }
         }
       }
-
-      // Resumo
-      const resumo = {
-        total: todasDivergencias.length,
-        porTipo: {} as Record<string, number>,
-        porSeveridade: {} as Record<string, number>,
-      };
-      for (const div of todasDivergencias) {
-        resumo.porTipo[div.tipo] = (resumo.porTipo[div.tipo] || 0) + 1;
-        resumo.porSeveridade[div.severidade] = (resumo.porSeveridade[div.severidade] || 0) + 1;
-      }
-
-      // Buscar score de risco e divergências gerais (ITEM_FALTANTE) do resumo da conta
-      const resumoConta = await db
-        .select({ 
-          scoreRisco: contasConvenioResumo.scoreRisco, 
-          detalhesRisco: contasConvenioResumo.detalhesRisco,
-          divergenciasGerais: contasConvenioResumo.divergenciasGerais,
-        })
-        .from(contasConvenioResumo)
-        .where(and(
-          eq(contasConvenioResumo.numeroConta, input.numeroConta),
-          eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-        ))
-        .orderBy(desc(contasConvenioResumo.atualizadoEm))
-        .limit(1);
 
       // Incluir divergências gerais (ITEM_FALTANTE, etc.) que não estão vinculadas a itens
       const divergenciasGerais = resumoConta[0]?.divergenciasGerais as any[] | null;

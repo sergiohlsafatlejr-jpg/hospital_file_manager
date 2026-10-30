@@ -165,4 +165,27 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
     expect(routerSource).toContain("arquivoHospitalId: arquivoId,");
     expect(routerSource).toContain("{ escopoContextoMedico: {");
   });
+
+  it("exige permissão central de gerenciamento para configurar perfil de colaborador por setor", async () => {
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    await expect(
+      caller().salvarPerfilColaborador({
+        colaboradorId: 88,
+        cargoSetor: "Faturista",
+        setoresPermitidos: ["faturamento"],
+        hospitaisPermitidos: [20],
+        verRelatoriosGerenciais: false,
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(verificarPermissaoEstabelecimento).toHaveBeenCalledWith(71, 2160001, "gerenciar");
+  });
+
+  it("exige pelo menos um XML (Conta Hospitalar ou Honorários Médicos) ao importar na conta", async () => {
+    await expect(
+      caller().importarXmlNaConta({
+        contaId: 10,
+        etapa: "faturamento",
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });
