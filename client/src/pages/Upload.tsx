@@ -64,7 +64,7 @@ function detectFileType(file: File): "xml" | "excel" | "pdf" | "csv" {
 }
 
 export default function Upload() {
-  const { estabelecimentoAtual } = useEstabelecimento();
+  const { estabelecimentoAtual, estabelecimentos: estabelecimentosPermitidos } = useEstabelecimento();
   const searchString = useSearch();
   const reenvioInicializadoRef = useRef<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
@@ -121,7 +121,11 @@ export default function Upload() {
 
   const { data: convenios, refetch: refetchConvenios } =
     trpc.convenios.list.useQuery({ ativo: "sim" });
-  const { data: estabelecimentos } = trpc.estabelecimentos.list.useQuery({});
+  const { data: todosEstabelecimentos } = trpc.estabelecimentos.list.useQuery({});
+  const estabelecimentos =
+    estabelecimentosPermitidos && estabelecimentosPermitidos.length > 0
+      ? estabelecimentosPermitidos
+      : todosEstabelecimentos;
   const uploadMutation = trpc.arquivos.upload.useMutation();
   const criarConvenioMutation = trpc.convenios.create.useMutation();
   const utils = trpc.useUtils();
