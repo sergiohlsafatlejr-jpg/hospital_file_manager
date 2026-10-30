@@ -7055,6 +7055,14 @@ export async function getUsuariosEstabelecimento(estabelecimentoId: number) {
       acessoRelPrevisaoGlosa: permissoesEstabelecimento.acessoRelPrevisaoGlosa,
       acessoRelatoriosGlosasBi: permissoesEstabelecimento.acessoRelatoriosGlosasBi,
       acessoFaturamentoExterno: permissoesEstabelecimento.acessoFaturamentoExterno,
+      // Módulos Safatle
+      acessoPainelExecutivo: permissoesEstabelecimento.acessoPainelExecutivo,
+      acessoVisaoGeral: permissoesEstabelecimento.acessoVisaoGeral,
+      acessoFinanceiro: permissoesEstabelecimento.acessoFinanceiro,
+      acessoContratos: permissoesEstabelecimento.acessoContratos,
+      acessoPropostas: permissoesEstabelecimento.acessoPropostas,
+      acessoAtendimentosConsolidados: permissoesEstabelecimento.acessoAtendimentosConsolidados,
+      acessoNfseConsolidado: permissoesEstabelecimento.acessoNfseConsolidado,
       userName: users.name,
       userEmail: users.email,
       userRole: users.role,
@@ -7956,7 +7964,7 @@ export async function getMetricasEnvioXML(filters: {
 export async function verificarAcessoModulo(
   userId: number,
   estabelecimentoId: number,
-  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos" | "atendimentos" | "atendimentosFaturar"
+  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relRecebimentoGeral" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "relNaoRecebidos" | "relPrevisaoGlosa" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos" | "atendimentos" | "atendimentosFaturar" | "painelExecutivo" | "visaoGeral" | "financeiro" | "contratos" | "propostas" | "atendimentosConsolidados" | "nfseConsolidado"
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -7975,9 +7983,6 @@ export async function verificarAcessoModulo(
     .limit(1);
 
   if (!permissao) return false;
-
-  // Administradores do estabelecimento têm acesso total
-  if (permissao.grupoServico === "administrador") return true;
 
   // Verificar permissão específica do módulo
   const moduloMap: Record<string, keyof typeof permissao> = {
@@ -8026,10 +8031,24 @@ export async function verificarAcessoModulo(
     relNaoRecebidos: "acessoRelNaoRecebidos",
     relPrevisaoGlosa: "acessoRelPrevisaoGlosa",
     faturamentoExterno: "acessoFaturamentoExterno",
+    // Módulos Safatle
+    painelExecutivo: "acessoPainelExecutivo",
+    visaoGeral: "acessoVisaoGeral",
+    financeiro: "acessoFinanceiro",
+    contratos: "acessoContratos",
+    propostas: "acessoPropostas",
+    atendimentosConsolidados: "acessoAtendimentosConsolidados",
+    nfseConsolidado: "acessoNfseConsolidado",
   };
 
   const campo = moduloMap[modulo];
-  return campo ? permissao[campo] === "sim" : false;
+  if (!campo) return false;
+
+  const valor = permissao[campo];
+  if (valor === "sim") return true;
+  if (valor === "nao") return false;
+
+  return permissao.grupoServico === "administrador";
 }
 
 /**
