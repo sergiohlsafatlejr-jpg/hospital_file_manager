@@ -255,6 +255,34 @@ function makeRepository() {
 }
 
 describe("contaContextoMedicoService — somente informação não financeira", () => {
+  it("a Fábrica restringe um XML à tupla completa mesmo quando outro snapshot aceita a mesma guia", async () => {
+    const fake = makeRepository();
+    const outroScope = { ...scopeNormalizado, competencia: "2026/09" };
+    fake.repository.listarEscoposHospitalaresCandidatos = async () => [clone(scopeNormalizado), clone(outroScope)];
+    fake.repository.resolverSnapshotHospitalar = vi.fn(async requested => ({ ...clone(fake.hospital), scope: requested }));
+    const service = criarContaContextoMedicoService({ repositorio: fake.repository, parse: () => fake.parsed });
+    await expect(service.indexarAutomaticamente({
+      arquivo: { id: 6, tipoArquivo: "xml", direcao: "enviado", estabelecimentoId: 1, convenioId: 2 },
+      xml: Buffer.from("<xml-sintetico />"), arquivoHospitalIdsPermitidos: [39], escoposHospitalaresPermitidos: [scope],
+    })).resolves.toMatchObject({ indexadas: 1, ambiguas: 0 });
+    expect(fake.fontes).toHaveLength(1);
+    expect(fake.fontes[0].scope).toEqual(scopeNormalizado);
+    expect(fake.repository.resolverSnapshotHospitalar).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { arquivoHospitalId: 40 }, { numeroConta: "OUTRA-CONTA" }, { numeroLote: "OUTRO-LOTE" },
+    { competencia: "2026/09" }, { estabelecimentoId: 99 }, { convenioId: 99 },
+  ])("nenhuma fonte é escrita se a tupla permitida divergir: %j", async alteracao => {
+    const fake = makeRepository();
+    const service = criarContaContextoMedicoService({ repositorio: fake.repository, parse: () => fake.parsed });
+    await expect(service.indexarAutomaticamente({
+      arquivo: { id: 6, tipoArquivo: "xml", direcao: "enviado", estabelecimentoId: 1, convenioId: 2 },
+      xml: Buffer.from("<xml-sintetico />"), escoposHospitalaresPermitidos: [{ ...scope, ...alteracao }],
+    })).rejects.toMatchObject({ codigo: "PRECONDICAO" });
+    expect(fake.writes).toEqual({ fontes: 0, contextos: 0, eventos: 0, financeiro: 0 });
+  });
+
   it("indexa guia correlacionada, é idempotente na mesma versão e nunca persiste campo financeiro", async () => {
     const fake = makeRepository();
     const service = criarContaContextoMedicoService({

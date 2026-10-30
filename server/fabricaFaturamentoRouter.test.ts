@@ -49,13 +49,15 @@ function selectRows(rows: unknown[]) {
 function dbForAccounts(accounts: unknown[]) {
   const update = vi.fn(() => ({ set: () => ({ where: vi.fn() }) }));
   const insert = vi.fn(() => ({ values: vi.fn() }));
-  return {
+  const db = {
     select: selectRows(accounts),
     update,
     insert,
     delete: vi.fn(() => ({ where: vi.fn() })),
-    execute: vi.fn(),
+    execute: vi.fn().mockResolvedValue([[], []]),
+    transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>): Promise<unknown> => callback(db)),
   };
+  return db;
 }
 
 describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
@@ -181,11 +183,56 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
   });
 
   it("exige pelo menos um XML (Conta Hospitalar ou Honorários Médicos) ao importar na conta", async () => {
+    const db = dbForAccounts([{ id: 10, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
     await expect(
       caller().importarXmlNaConta({
-        contaId: 10,
-        etapa: "faturamento",
+        fabricaContaId: 10,
+        etapaXml: "faturamento",
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("perfil salvo de Recepção bloqueia upload de Faturamento antes de qualquer escrita", async () => {
+    const db = dbForAccounts([{ id: 10, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Recepção", setoresPermitidos: ["recepcao"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    await expect(caller().importarXmlNaConta({ fabricaContaId: 10, conteudoBase64: Buffer.from("<xml>sintetico</xml>").toString("base64") }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("setor") });
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("um setor autorizado não libera as demais contas de um lote misto", async () => {
+    const db = dbForAccounts([{ id: 3, hospitalEstabelecimentoId: 20, setorAtual: "faturamento" }, { id: 4, hospitalEstabelecimentoId: 20, setorAtual: "auditoria_interna" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Faturista", setoresPermitidos: ["faturamento"], hospitaisPermitidos: [20], verRelatoriosGerenciais: true }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockResolvedValue(false);
+    await expect(caller().assumirConta({ contaIds: [3, 4] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.execute).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("alteração de perfil preserva histórico e registra autor/data sem apagar configuração anterior", async () => {
+    const db = dbForAccounts([{ id: 88, name: "Colaborador Sintético" }]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    await caller().salvarPerfilColaborador({ colaboradorId: 88, cargoSetor: "Faturista", setoresPermitidos: ["faturamento"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false });
+    expect(db.delete).not.toHaveBeenCalled();
+    const values = db.insert.mock.results[0].value.values.mock.calls[0][0];
+    expect(values.competencia).toBe("PERFIL");
+    expect(JSON.parse(values.observacao).auditoria).toMatchObject({ alteradoPor: 71, alteradoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
+  });
+
+  it("perfil de Recursos permanece autorizado no setor Enviado/Recursos", async () => {
+    const db = dbForAccounts([{ id: 3, hospitalEstabelecimentoId: 20, setorAtual: "enviado_convenio" }]);
+    db.execute.mockResolvedValue([[{ observacao: JSON.stringify({ cargoSetor: "Recursos", setoresPermitidos: ["recursos"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) }], []]);
+    vi.mocked(getDb).mockResolvedValue(db as any);
+    vi.mocked(verificarPermissaoEstabelecimento).mockImplementation(async (_u, hospitalId) => hospitalId !== 2160001);
+    await expect(caller().assumirConta({ contaIds: [3] })).resolves.toMatchObject({ sucesso: true });
+    expect(db.update).toHaveBeenCalledOnce();
   });
 });

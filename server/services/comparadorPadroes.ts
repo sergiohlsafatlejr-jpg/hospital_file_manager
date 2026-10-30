@@ -161,9 +161,11 @@ export async function compararContaComPadroes(
   opcoes?: {
     escopoContextoMedico?: EscopoContextoMedicoParaComparacao;
     contextoMedico?: ContaContextoMedicoResultado;
+    /** Conexão interna da transação; não é parâmetro de API. */
+    banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>;
   },
 ): Promise<ResultadoComparacao> {
-  const db = await getDb();
+  const db = opcoes?.banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
 
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
@@ -197,6 +199,7 @@ export async function compararContaComPadroes(
     convenio: itens[0]?.convenio ?? null,
     itens: itens as unknown as ItemParaComparacao[],
     contextoMedico: opcoes?.contextoMedico,
+    banco: db,
   });
 }
 
@@ -211,14 +214,16 @@ export async function compararItensComPadroes({
   convenio,
   itens,
   contextoMedico,
+  banco,
 }: {
   numeroConta: string;
   estabelecimentoId: number;
   convenio: string | null | undefined;
   itens: ItemParaComparacao[];
   contextoMedico?: ContaContextoMedicoResultado;
+  banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>;
 }): Promise<ResultadoComparacao> {
-  const db = await getDb();
+  const db = banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
     throw new Error("A comparação exige o hospital de origem concreto da conta.");

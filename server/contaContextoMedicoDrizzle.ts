@@ -16,6 +16,7 @@ import { ENV } from "./_core/env";
 import { getDb } from "./db";
 import { estrutura0142Completa } from "./schema0142Capabilities";
 import { storageGet } from "./storage";
+import { lerXmlFabricaProtegido } from "./fabricaXmlSeguro";
 import {
   ContaContextoMedicoErro,
   criarContaContextoMedicoService,
@@ -606,6 +607,9 @@ export async function lerXmlMedicoAutorizadoSeguro(
   arquivo: ArquivoMedicoInterno,
   deps: LeitorXmlSeguroDependencias = {}
 ): Promise<Buffer> {
+  if (arquivo.s3Url?.startsWith("cofre-xml-fabrica:")) {
+    return lerXmlFabricaProtegido(arquivo);
+  }
   const obterStorage = deps.storageGet ?? storageGet;
   const executarFetch = deps.fetch ?? fetch;
   const limite = deps.maxBytes ?? LIMITE_XML_BYTES;

@@ -27,85 +27,28 @@ import {
   faturamentoTiss,
   contasConvenioItens,
   contasConvenioResumo,
-  contaContextoMedicoFontes,
 } from "../../drizzle/schema";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { parseXML } from "../parsers";
 import { parseContaHonorarios } from "../contaHonorariosParser";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
 import { compararContaComPadroes, executarComparacaoESalvar } from "../services/comparadorPadroes";
 import { logger } from "../_core/logger";
-
-export const TODOS_SETORES_OPERACIONAIS = [
-  "recepcao",
-  "faturamento",
-  "auditoria_interna",
-  "auditoria_externa",
-  "limpeza_prontuario",
-  "recursos",
-] as const;
-
-export type SetorOperacionalFabrica = (typeof TODOS_SETORES_OPERACIONAIS)[number];
-
-export interface PerfilColaboradorFabrica {
-  usuarioId: number;
-  usuarioNome: string;
-  cargoSetor: string;
-  setoresPermitidos: SetorOperacionalFabrica[];
-  hospitaisPermitidos: number[];
-  verRelatoriosGerenciais: boolean;
-  isGestorFabrica: boolean;
-}
-
-function parsePerfilObservacao(
-  raw: string | null | undefined,
-  usuarioId: number,
-  usuarioNome: string,
-  isAdminOrGestor: boolean,
-): PerfilColaboradorFabrica {
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      const setoresValidos = Array.isArray(parsed.setoresPermitidos)
-        ? parsed.setoresPermitidos.filter((s: string) =>
-            (TODOS_SETORES_OPERACIONAIS as readonly string[]).includes(s),
-          )
-        : [...TODOS_SETORES_OPERACIONAIS];
-      const hospitaisValidos = Array.isArray(parsed.hospitaisPermitidos)
-        ? parsed.hospitaisPermitidos.map((h: any) => Number(h)).filter((h: number) => Number.isFinite(h) && h > 0)
-        : [];
-      const verRel = Boolean(parsed.verRelatoriosGerenciais) || isAdminOrGestor;
-      return {
-        usuarioId,
-        usuarioNome,
-        cargoSetor: typeof parsed.cargoSetor === "string" && parsed.cargoSetor.trim()
-          ? parsed.cargoSetor.trim()
-          : isAdminOrGestor
-            ? "Gestor / Coordenador"
-            : "Operador(a) da Fábrica",
-        setoresPermitidos: isAdminOrGestor
-          ? [...TODOS_SETORES_OPERACIONAIS]
-          : (setoresValidos.length > 0 ? setoresValidos : [...TODOS_SETORES_OPERACIONAIS]),
-        hospitaisPermitidos: isAdminOrGestor ? [] : hospitaisValidos,
-        verRelatoriosGerenciais: verRel,
-        isGestorFabrica: isAdminOrGestor || verRel,
-      };
-    } catch {
-      // Fallback caso observacao não seja JSON válido
-    }
-  }
-  return {
-    usuarioId,
-    usuarioNome,
-    cargoSetor: isAdminOrGestor ? "Gestor / Administrador" : "Equipe Operacional",
-    setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
-    hospitaisPermitidos: [],
-    verRelatoriosGerenciais: isAdminOrGestor,
-    isGestorFabrica: isAdminOrGestor,
-  };
-}
-
+import {
+  TODOS_SETORES_OPERACIONAIS,
+  parsePerfilObservacao,
+  obterPerfilPersonalizadoColaborador,
+  exigirSetorColaborador,
+  exigirSetoresLoteColaborador,
+  type PerfilColaboradorFabrica,
+  type SetorOperacionalFabrica,
+} from "../fabricaPerfilColaborador";
+import {
+  criarArquivoXmlFabricaProtegido,
+  confirmarArquivoXmlFabrica,
+  decodificarXmlFabricaBase64,
+} from "../fabricaXmlSeguro";
+import { indexarHonorariosFabricaCanonicos } from "../fabricaContextoMedico";
 
 function toMysqlDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
@@ -193,62 +136,6 @@ async function podeGerenciarMetaGlobal(usuario: UsuarioHospital): Promise<boolea
   return verificarPermissaoEstabelecimento(usuario.id, ESTABELECIMENTO_CENTRAL_SAFATLE, "gerenciar");
 }
 
-async function obterPerfilPersonalizadoColaborador(
-  db: any,
-  usuario: UsuarioHospital,
-  usuarioNomeFallback = `Usuário #${usuario.id}`,
-): Promise<PerfilColaboradorFabrica | null> {
-  if (usuario.role === "admin") return null;
-  if (typeof db?.execute !== "function") return null;
-  try {
-    const [rowsRes] = await db.execute(
-      sql`SELECT id, usuario_id, usuario_nome, observacao FROM fabrica_metas
-          WHERE competencia = 'PERFIL' AND usuario_id = ${usuario.id}
-          ORDER BY id DESC LIMIT 1`,
-    );
-    const row = ((rowsRes as any)?.[0] || [])[0];
-    if (!row || !row.observacao) return null;
-    const isGestorGlobal = await podeGerenciarMetaGlobal(usuario);
-    return parsePerfilObservacao(
-      row.observacao,
-      usuario.id,
-      row.usuario_nome || usuarioNomeFallback,
-      isGestorGlobal,
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function exigirSetorColaborador(
-  db: any,
-  usuario: UsuarioHospital,
-  setoresRequeridos: readonly SetorOperacionalFabrica[],
-  hospitalIds?: readonly number[],
-): Promise<void> {
-  if (usuario.role === "admin") return;
-  const perfil = await obterPerfilPersonalizadoColaborador(db, usuario);
-  if (!perfil || perfil.isGestorFabrica) return;
-
-  const temSetor = setoresRequeridos.some((s) => perfil.setoresPermitidos.includes(s));
-  if (!temSetor) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Seu perfil na Fábrica de Faturamento não possui acesso a este setor.",
-    });
-  }
-
-  if (hospitalIds && hospitalIds.length > 0 && perfil.hospitaisPermitidos.length > 0) {
-    const naoPermitido = hospitalIds.some((hId) => !perfil.hospitaisPermitidos.includes(Number(hId)));
-    if (naoPermitido) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Seu perfil na Fábrica não está habilitado para operar contas deste hospital.",
-      });
-    }
-  }
-}
-
 export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 1. LISTAR DADOS AUXILIARES (HOSPITAIS, CONVÊNIOS, COLABORADORES E PERFIS POR SETOR)
@@ -294,10 +181,17 @@ export const fabricaFaturamentoRouter = router({
     for (const row of perfisRows) {
       const uId = Number(row.usuario_id);
       if (!uId || mapaPerfis.has(uId)) continue;
-      mapaPerfis.set(
-        uId,
-        parsePerfilObservacao(row.observacao, uId, row.usuario_nome || `Usuário #${uId}`, false),
-      );
+      try {
+        mapaPerfis.set(uId, parsePerfilObservacao(row.observacao, uId, row.usuario_nome || `Usuário #${uId}`, false));
+      } catch {
+        // Uma configuração corrupta não concede setor nem derruba os auxiliares de outros usuários.
+        // A guarda operacional continua recusando a linha inválida no servidor.
+        mapaPerfis.set(uId, {
+          usuarioId: uId, usuarioNome: row.usuario_nome || `Usuário #${uId}`,
+          cargoSetor: "Perfil com revisão pendente", setoresPermitidos: [], hospitaisPermitidos: [],
+          verRelatoriosGerenciais: false, isGestorFabrica: false,
+        });
+      }
     }
 
     const mapaCarga = new Map<number, number>();
@@ -513,10 +407,11 @@ export const fabricaFaturamentoRouter = router({
       const usuario = usuarioFabrica(ctx);
       await exigirAcessoFabrica(usuario);
       const db = await obterDbFabrica();
-      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId })
+      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId, setorAtual: fabricaContas.setorAtual })
         .from(fabricaContas).where(eq(fabricaContas.id, input.id)).limit(1);
       if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
       await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
+      await exigirSetoresLoteColaborador(db, usuario, [conta]);
       const hospitalDestino = input.hospitalEstabelecimentoId ?? conta.hospitalEstabelecimentoId;
       if (hospitalDestino !== conta.hospitalEstabelecimentoId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O hospital proprietário da conta não pode ser alterado por edição." });
@@ -550,10 +445,11 @@ export const fabricaFaturamentoRouter = router({
       const usuario = usuarioFabrica(ctx);
       await exigirAcessoFabrica(usuario);
       const db = await obterDbFabrica();
-      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId })
+      const [conta] = await db.select({ id: fabricaContas.id, hospitalEstabelecimentoId: fabricaContas.hospitalEstabelecimentoId, setorAtual: fabricaContas.setorAtual })
         .from(fabricaContas).where(eq(fabricaContas.id, input.id)).limit(1);
       if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
       await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "excluir");
+      await exigirSetoresLoteColaborador(db, usuario, [conta]);
       await db.delete(fabricaHistoricoFluxo).where(and(eq(fabricaHistoricoFluxo.fabricaContaId, conta.id), eq(fabricaHistoricoFluxo.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
       await db.delete(fabricaErrosConta).where(and(eq(fabricaErrosConta.fabricaContaId, conta.id), eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
       await db.delete(fabricaContas).where(and(eq(fabricaContas.id, conta.id), eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)));
@@ -872,10 +768,7 @@ export const fabricaFaturamentoRouter = router({
       const contas = await db.select().from(fabricaContas).where(inArray(fabricaContas.id, contaIds));
       if (contas.length !== contaIds.length) throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais contas não foram encontradas." });
       await autorizarLoteHospitalar(usuario, contas, "editar");
-      const setoresLote = [...new Set(contas.map((c) => c.setorAtual).filter((s): s is SetorOperacionalFabrica => (TODOS_SETORES_OPERACIONAIS as readonly string[]).includes(s)))];
-      if (setoresLote.length > 0) {
-        await exigirSetorColaborador(db, usuario, setoresLote, contas.map((c) => c.hospitalEstabelecimentoId));
-      }
+      await exigirSetoresLoteColaborador(db, usuario, contas);
 
       const targetUserId = input.responsavelId || usuario.id;
       await exigirColaboradorNoEscopo(targetUserId, contas.map((conta) => conta.hospitalEstabelecimentoId));
@@ -918,10 +811,7 @@ export const fabricaFaturamentoRouter = router({
       const contas = await db.select().from(fabricaContas).where(inArray(fabricaContas.id, contaIds));
       if (contas.length !== contaIds.length) throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais contas não foram encontradas." });
       await autorizarLoteHospitalar(usuario, contas, "editar");
-      const setoresOrigem = [...new Set(contas.map((c) => c.setorAtual).filter((s): s is SetorOperacionalFabrica => (TODOS_SETORES_OPERACIONAIS as readonly string[]).includes(s)))];
-      if (setoresOrigem.length > 0) {
-        await exigirSetorColaborador(db, usuario, setoresOrigem, contas.map((c) => c.hospitalEstabelecimentoId));
-      }
+      await exigirSetoresLoteColaborador(db, usuario, contas);
       if (input.responsavelDestinoId) await exigirColaboradorNoEscopo(input.responsavelDestinoId, contas.map((conta) => conta.hospitalEstabelecimentoId));
 
       const usuarioNome = ctx.user.name || `Usuário #${usuario.id}`;
@@ -995,7 +885,8 @@ export const fabricaFaturamentoRouter = router({
     .mutation(async ({ input, ctx }) => {
       const usuario = usuarioFabrica(ctx);
       await exigirAcessoFabrica(usuario);
-      const db = await obterDbFabrica();
+      const conexao = await obterDbFabrica();
+      return conexao.transaction(async (db: any) => {
       const [conta] = await db
         .select()
         .from(fabricaContas)
@@ -1004,6 +895,8 @@ export const fabricaFaturamentoRouter = router({
       if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
       await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
       await exigirSetorColaborador(db, usuario, ["faturamento", "limpeza_prontuario", "auditoria_interna"], [conta.hospitalEstabelecimentoId]);
+      const setorConta = conta.setorAtual as SetorOperacionalFabrica;
+      await exigirSetorColaborador(db, usuario, [setorConta], [conta.hospitalEstabelecimentoId]);
 
       const hospitalEstabId = conta.hospitalEstabelecimentoId;
       let nomeArqConta = input.nomeArquivo?.trim() || "";
@@ -1018,7 +911,6 @@ export const fabricaFaturamentoRouter = router({
         });
       }
 
-      // Helper para indexar o XML de Honorários Médicos no escopo da conta e retornar o contextoMedico atualizado
       const indexarEObterContextoHonorarios = async (params: {
         xmlHonBuffer: Buffer;
         nomeArquivoHon: string;
@@ -1029,24 +921,15 @@ export const fabricaFaturamentoRouter = router({
         competenciaEscopo: string;
         carteiraRef?: string | null;
       }) => {
-        const [arqHonRes] = await db.insert(arquivos).values({
+        const arquivoMedicoId = await criarArquivoXmlFabricaProtegido(db, {
+          xml: params.xmlHonBuffer,
           nome: params.nomeArquivoHon || "honorarios.xml",
-          tipoArquivo: "xml",
-          direcao: "enviado",
-          convenioId: params.convenioIdEscopo,
+          fabricaContaId: conta.id,
           estabelecimentoId: hospitalEstabId,
-          userId: ctx.user.id,
-          s3Key: `fabrica/${hospitalEstabId}/${Date.now()}-hon-${params.nomeArquivoHon || "honorarios.xml"}`,
-          s3Url: `local://fabrica/${hospitalEstabId}/hon-${params.nomeArquivoHon || "honorarios.xml"}`,
-          tamanho: params.xmlHonBuffer.length,
-          status: "processado",
-          progresso: 100,
-          totalItens: 0,
-          itensProcessados: 0,
+          convenioId: params.convenioIdEscopo,
+          usuarioId: usuario.id,
           dataReferencia: new Date(conta.dataAlta || conta.dataEntrada),
         });
-        const arquivoMedicoId = Number((arqHonRes as any).insertId);
-
         const scopeObj = {
           estabelecimentoId: hospitalEstabId,
           convenioId: params.convenioIdEscopo,
@@ -1055,132 +938,14 @@ export const fabricaFaturamentoRouter = router({
           numeroLote: params.numeroLoteEscopo,
           competencia: params.competenciaEscopo,
         };
-
-        const servicoContexto = criarServicoContaContextoMedicoParaUsuario(usuario.id);
-        let indexadoPeloServico = false;
-        try {
-          const resAuto = await servicoContexto.indexarAutomaticamente({
-            arquivo: {
-              id: arquivoMedicoId,
-              tipoArquivo: "xml",
-              direcao: "enviado",
-              estabelecimentoId: hospitalEstabId,
-              convenioId: params.convenioIdEscopo,
-            },
-            xml: params.xmlHonBuffer,
-            arquivoHospitalIdsPermitidos: [params.arquivoHospitalIdEscopo],
-          });
-          if (resAuto.indexadas > 0 || resAuto.jaIndexadas > 0) {
-            indexadoPeloServico = true;
-          }
-        } catch {
-          // Caso o XML de honorários seja um lote com outras guias ou tenha numeração de guia própria do médico,
-          // fazemos a correlação direta abaixo para o escopo desta conta.
-        }
-
-        if (!indexadoPeloServico) {
-          const parsedHon = parseContaHonorarios(params.xmlHonBuffer);
-          let guiasCandidatas = parsedHon.guias.filter((g) => g.procedimentos.length > 0);
-          if (guiasCandidatas.length > 1) {
-            const filtradas = guiasCandidatas.filter((g) => {
-              const c = g.correlacao;
-              const matchGuia =
-                [c.numeroGuiaPrestador, c.numeroGuiaOperadora, c.guiaSolicitacaoInternacao]
-                  .filter(Boolean)
-                  .some(
-                    (num) =>
-                      num === params.numeroContaEscopo ||
-                      num === conta.numeroGuia ||
-                      num === conta.numeroContaHospital ||
-                      num === conta.numeroAtendimento
-                  );
-              const matchCarteira =
-                params.carteiraRef &&
-                c.numeroCarteira &&
-                c.numeroCarteira.replace(/\D/g, "") === params.carteiraRef.replace(/\D/g, "");
-              return matchGuia || matchCarteira;
-            });
-            if (filtradas.length > 0) {
-              guiasCandidatas = filtradas;
-            }
-          }
-
-          // Fallback se o arquivo de honorários veio em formato TISS de procedimentos padrão
-          if (guiasCandidatas.length === 0) {
-            const parsedPadrao = await parseXML(params.xmlHonBuffer);
-            const procsMedicos = parsedPadrao.procedimentos.filter(
-              (p) => p.codigo && (p.tipoDespesa === "procedimento" || !p.codigoDespesa)
-            );
-            if (procsMedicos.length > 0) {
-              guiasCandidatas = [
-                {
-                  correlacao: {
-                    numeroGuiaPrestador: params.numeroContaEscopo,
-                    numeroGuiaOperadora: null,
-                    guiaSolicitacaoInternacao: params.numeroContaEscopo,
-                    numeroCarteira: params.carteiraRef || null,
-                    dataAtendimento: null,
-                    dataEmissaoGuia: null,
-                    codigoPrestador: null,
-                  },
-                  procedimentos: procsMedicos.map((pm, idx) => ({
-                    codigo: String(pm.codigo).trim(),
-                    descricao: pm.descricao || "Procedimento Médico",
-                    dataExecucao: pm.dataExecucao ? new Date(pm.dataExecucao).toISOString().slice(0, 10) : null,
-                    sequencial: String(idx + 1),
-                    profissionais: pm.nomeMedico
-                      ? [{ nome: pm.nomeMedico, conselho: "CRM", numeroConselho: pm.crmMedico || null }]
-                      : [],
-                  })),
-                },
-              ];
-            }
-          }
-
-          for (const guiaHon of guiasCandidatas) {
-            const procedimentosSanit = guiaHon.procedimentos.map((p) => ({
-              codigo: String(p.codigo).trim(),
-              descricao: p.descricao || "Procedimento Médico",
-              dataExecucao: p.dataExecucao || null,
-              sequencial: p.sequencial || null,
-              profissionais: Array.isArray(p.profissionais) ? p.profissionais : [],
-            }));
-            if (procedimentosSanit.length === 0) continue;
-            const guiaRef =
-              guiaHon.correlacao.numeroGuiaPrestador ||
-              guiaHon.correlacao.guiaSolicitacaoInternacao ||
-              params.numeroContaEscopo;
-            const versaoSemantica = createHash("sha256")
-              .update(JSON.stringify({ guiaRef, procedimentos: procedimentosSanit }))
-              .digest("hex");
-            const codigosDistintos = new Set(procedimentosSanit.map((p) => p.codigo)).size;
-            try {
-              await db.insert(contaContextoMedicoFontes).values({
-                estabelecimentoId: hospitalEstabId,
-                convenioId: params.convenioIdEscopo,
-                arquivoHospitalId: params.arquivoHospitalIdEscopo,
-                arquivoMedicoId,
-                numeroConta: params.numeroContaEscopo,
-                numeroLote: params.numeroLoteEscopo,
-                competencia: params.competenciaEscopo,
-                guiaReferencia: guiaRef,
-                versaoSemantica,
-                versaoSnapshotHospitalar: "",
-                registros: procedimentosSanit.length,
-                codigosDistintos,
-                procedimentosJson: procedimentosSanit,
-              });
-            } catch {
-              // Ignora duplicidade se já indexado no mesmo escopo
-            }
-          }
-        }
-
-        try {
-          return await servicoContexto.consultar({ scope: scopeObj });
-        } catch {
-          return undefined;
-        }
+        const servicoContexto = criarServicoContaContextoMedicoParaUsuario(usuario.id, { getDb: async () => db });
+        const contexto = await indexarHonorariosFabricaCanonicos(servicoContexto, {
+          arquivoMedicoId, xml: params.xmlHonBuffer, scope: scopeObj,
+        });
+        const total = contexto.fontes.filter(fonte => fonte.arquivoId === arquivoMedicoId)
+          .reduce((soma, fonte) => soma + fonte.registros, 0);
+        await confirmarArquivoXmlFabrica(db, arquivoMedicoId, hospitalEstabId, params.convenioIdEscopo, total);
+        return contexto;
       };
 
       // CASO ESPECIAL: Anexar apenas o XML de Honorários Médicos em uma conta que já tem o XML da Conta Hospitalar importado
@@ -1192,11 +957,23 @@ export const fabricaFaturamentoRouter = router({
             message: "Esta conta ainda não possui o XML da Conta Hospitalar importado. Selecione também o XML da Conta Hospitalar.",
           });
         }
-        const xmlHonBuffer = Buffer.from(base64Hon, "base64");
-        const competenciaExistente = (conta.dataAlta || conta.dataEntrada || new Date().toISOString())
-          .slice(0, 7)
-          .replace("-", "/");
-        const loteExistente = conta.numeroLote || `LOTE-FAB-${conta.id}`;
+        const xmlHonBuffer = decodificarXmlFabricaBase64(base64Hon);
+        const [snapshotAtual] = await db.select({
+          numeroConta: contasConvenioResumo.numeroConta,
+          numeroLote: contasConvenioResumo.numeroLote,
+          competencia: contasConvenioResumo.competencia,
+          convenioId: contasConvenioResumo.convenioId,
+        }).from(contasConvenioResumo).where(and(
+          eq(contasConvenioResumo.id, conta.contaConvenioResumoId || 0),
+          eq(contasConvenioResumo.estabelecimentoId, hospitalEstabId),
+          eq(contasConvenioResumo.arquivoHospitalId, arquivoHospitalExistenteId),
+          eq(contasConvenioResumo.origem, "XML"),
+        )).limit(1);
+        if (!snapshotAtual || snapshotAtual.numeroConta !== conta.numeroGuia || snapshotAtual.convenioId !== conta.convenioId) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A versão hospitalar selecionada não possui snapshot confirmado para esta conta." });
+        }
+        const competenciaExistente = snapshotAtual.competencia || "";
+        const loteExistente = snapshotAtual.numeroLote || "";
 
         const contextoMedicoCarregado = await indexarEObterContextoHonorarios({
           xmlHonBuffer,
@@ -1221,6 +998,7 @@ export const fabricaFaturamentoRouter = router({
               competencia: competenciaExistente,
             },
             contextoMedico: contextoMedicoCarregado,
+            banco: db,
           }
         );
 
@@ -1271,16 +1049,21 @@ export const fabricaFaturamentoRouter = router({
           totalDivergencias,
           scoreRisco,
           novoSetor: conta.setorAtual,
+          destinoContaConvenio: {
+            estabelecimentoId: hospitalEstabId, arquivoId: arquivoHospitalExistenteId,
+            numeroConta: conta.numeroGuia, numeroLote: loteExistente,
+            competencia: competenciaExistente, fabricaContaId: conta.id,
+          },
           mensagem: `XML de Honorários Médicos vinculado com sucesso! Motor de Regras executado com Gabarito: ${totalDivergencias} divergência(s) encontrada(s).`,
         };
       }
 
-      let xmlBuffer = Buffer.from(base64Conta, "base64");
+      let xmlBuffer = decodificarXmlFabricaBase64(base64Conta);
       let parseResult = await parseXML(xmlBuffer);
 
       // Se o usuário enviou 2 arquivos e inverteu a ordem (colocou Honorários no campo 1 e Conta Hospitalar no campo 2), invertemos automaticamente
       if (base64Hon) {
-        const xmlHonTestBuffer = Buffer.from(base64Hon, "base64");
+        const xmlHonTestBuffer = decodificarXmlFabricaBase64(base64Hon);
         const parsedHonSlot1 = parseContaHonorarios(xmlBuffer);
         const parsedHonSlot2 = parseContaHonorarios(xmlHonTestBuffer);
         const parseResultSlot2 = await parseXML(xmlHonTestBuffer);
@@ -1377,24 +1160,16 @@ export const fabricaFaturamentoRouter = router({
       const convenio = await exigirConvenioDoEstabelecimento(usuario.id, convenioIdFinal, hospitalEstabId, "editar");
       convenioNomeFinal = convenio.nome || convenioNomeFinal;
 
-      // 1. Criar registro em `arquivos` vinculado ao estabelecimento do HOSPITAL
-      const [arqRes] = await db.insert(arquivos).values({
+      // Original completo no cofre antes de materializar o recorte selecionado.
+      const arquivoId = await criarArquivoXmlFabricaProtegido(db, {
+        xml: xmlBuffer,
         nome: nomeArqConta || "conta.xml",
-        tipoArquivo: "xml",
-        direcao: "enviado",
-        convenioId: convenioIdFinal,
+        fabricaContaId: conta.id,
         estabelecimentoId: hospitalEstabId,
-        userId: ctx.user.id,
-        s3Key: `fabrica/${hospitalEstabId}/${Date.now()}-${nomeArqConta || "conta.xml"}`,
-        s3Url: `local://fabrica/${hospitalEstabId}/${nomeArqConta || "conta.xml"}`,
-        tamanho: xmlBuffer.length,
-        status: "processado",
-        progresso: 100,
-        totalItens: procsConta.length,
-        itensProcessados: procsConta.length,
+        convenioId: convenioIdFinal,
+        usuarioId: usuario.id,
         dataReferencia: new Date(conta.dataAlta || conta.dataEntrada),
       });
-      const arquivoId = Number((arqRes as any).insertId);
 
       // 2. Inserir itens em `faturamento_tiss` vinculado ao HOSPITAL
       let valorTotalXml = 0;
@@ -1503,25 +1278,17 @@ export const fabricaFaturamentoRouter = router({
       let contextoMedicoCarregado: any = undefined;
       let honorariosIndexados = false;
       if (base64Hon) {
-        try {
-          const xmlHonBuffer = Buffer.from(base64Hon, "base64");
-          contextoMedicoCarregado = await indexarEObterContextoHonorarios({
-            xmlHonBuffer,
-            nomeArquivoHon: nomeArqHon || "honorarios.xml",
-            convenioIdEscopo: convenioIdFinal,
-            arquivoHospitalIdEscopo: arquivoId,
-            numeroContaEscopo: numeroGuiaExtraido,
-            numeroLoteEscopo: numeroLoteExtraido,
-            competenciaEscopo: competenciaStr,
-            carteiraRef: carteiraExtraida,
-          });
-          honorariosIndexados = true;
-        } catch (errHon) {
-          logger.warn({
-            message: "Aviso ao indexar XML de honorários médicos na Fábrica",
-            error: errHon instanceof Error ? errHon.message : String(errHon),
-          });
-        }
+        const xmlHonBuffer = decodificarXmlFabricaBase64(base64Hon);
+        contextoMedicoCarregado = await indexarEObterContextoHonorarios({
+          xmlHonBuffer,
+          nomeArquivoHon: nomeArqHon || "honorarios.xml",
+          convenioIdEscopo: convenioIdFinal,
+          arquivoHospitalIdEscopo: arquivoId,
+          numeroContaEscopo: numeroGuiaExtraido,
+          numeroLoteEscopo: numeroLoteExtraido,
+          competenciaEscopo: competenciaStr,
+        });
+        honorariosIndexados = true;
       }
 
       // 4. Executar o Motor de Regras e Padrões (Gabaritos do Hospital + Safatle + Honorários Médicos) automaticamente!
@@ -1537,7 +1304,7 @@ export const fabricaFaturamentoRouter = router({
             estabelecimentoId: hospitalEstabId, numeroConta: numeroGuiaExtraido,
             arquivoHospitalId: arquivoId, convenioId: convenioIdFinal,
             numeroLote: numeroLoteExtraido, competencia: competenciaStr,
-          }, contextoMedico: contextoMedicoCarregado },
+          }, contextoMedico: contextoMedicoCarregado, banco: db },
         );
         totalDivergencias = resultadoComparacao.totalDivergencias || 0;
         scoreRisco = resultadoComparacao.scoreRisco?.score || 0;
@@ -1564,6 +1331,8 @@ export const fabricaFaturamentoRouter = router({
           error: "comparacao_indisponivel",
         });
       }
+
+      await confirmarArquivoXmlFabrica(db, arquivoId, hospitalEstabId, convenioIdFinal, procsConta.length);
 
       // 5. Atualizar a conta na Fábrica e avançar para Auditoria Interna (se aplicável)
       const now = new Date();
@@ -1643,8 +1412,14 @@ export const fabricaFaturamentoRouter = router({
         scoreRisco,
         novoSetor,
         honorariosIndexados,
+        destinoContaConvenio: {
+          estabelecimentoId: hospitalEstabId, arquivoId,
+          numeroConta: numeroGuiaExtraido, numeroLote: numeroLoteExtraido,
+          competencia: competenciaStr, fabricaContaId: conta.id,
+        },
         mensagem: `XML${honorariosIndexados ? " da Conta + Honorários Médicos" : ""} importado e enviado automaticamente ao estabelecimento do hospital! ${procsConta.length} itens (R$ ${valorTotalXml.toFixed(2)}) — Auditoria de Regras: ${totalDivergencias} divergência(s).`,
       };
+      });
     }),
 
   // ============================================================
@@ -1662,6 +1437,10 @@ export const fabricaFaturamentoRouter = router({
       const pendentes = (contasPendentesRes as any) || [];
       if (!pendentes.length) return { sucesso: true, totalVinculadas: 0, mensagem: "Nenhuma correspondência inequívoca encontrada." };
       await autorizarLoteHospitalar(usuario, pendentes.map((conta: any) => ({ hospitalEstabelecimentoId: Number(conta.hospital_estabelecimento_id) })), "editar");
+      await exigirSetoresLoteColaborador(db, usuario, pendentes.map((conta: any) => ({
+        setorAtual: conta.setor_atual,
+        hospitalEstabelecimentoId: Number(conta.hospital_estabelecimento_id),
+      })));
       let totalVinculadas = 0;
       const nowStr = toMysqlDateTime(); const usuarioNome = ctx.user.name || `Usuário #${usuario.id}`;
       for (const conta of pendentes) {
@@ -2143,6 +1922,7 @@ export const fabricaFaturamentoRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Uma ou mais contas não foram encontradas." });
       }
       await autorizarLoteHospitalar(usuario, contas, "editar");
+      await exigirSetoresLoteColaborador(db, usuario, contas);
 
       let targetUserName: string | null = null;
       if (input.responsavelId) {
@@ -2254,23 +2034,17 @@ export const fabricaFaturamentoRouter = router({
       if (!colab) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
       }
+      await exigirColaboradorNoEscopo(targetUserId, input.hospitaisPermitidos);
       const nomeColab = colab.name || `Usuário #${targetUserId}`;
       const payloadJson = JSON.stringify({
         cargoSetor: input.cargoSetor.trim(),
         setoresPermitidos: [...new Set(input.setoresPermitidos)],
         hospitaisPermitidos: [...new Set(input.hospitaisPermitidos)],
         verRelatoriosGerenciais: input.verRelatoriosGerenciais,
+        auditoria: { alteradoPor: usuario.id, alteradoEm: new Date().toISOString() },
       });
 
-      await db
-        .delete(fabricaMetas)
-        .where(
-          and(
-            eq(fabricaMetas.competencia, "PERFIL"),
-            eq(fabricaMetas.usuarioId, targetUserId)
-          )
-        );
-
+      // Append-only: o leitor seleciona a revisão mais recente; histórico e autor permanecem preservados.
       await db.insert(fabricaMetas).values({
         competencia: "PERFIL",
         setor: input.setoresPermitidos[0] || "faturamento",
