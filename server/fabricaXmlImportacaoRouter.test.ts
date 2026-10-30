@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 const deps = vi.hoisted(() => ({
   getDb: vi.fn(), convenio: vi.fn(), parseXML: vi.fn(), parseHonorarios: vi.fn(), comparar: vi.fn(),
   criarServico: vi.fn(), indexar: vi.fn(), consultar: vi.fn(), cofre: vi.fn(),
@@ -31,13 +32,13 @@ const conta = {
   id: 9, hospitalEstabelecimentoId: 20, convenioId: 30, convenioNome: "Convênio Sintético", setorAtual: "faturamento", statusSetor: "em_processamento",
   numeroGuia: "GUIA-SINTETICA", numeroLote: "LOTE-SINTETICO", nomePaciente: "Paciente Sintético", dataEntrada: "2026-10-01", dataAlta: "2026-10-03", valorFaturadoInicial: "0.00",
 };
-function banco() {
+function banco(contaDaFixture = conta) {
   let id = 100;
   const pendentes: Array<{ tabela: string; valor: any }> = [];
   const confirmados: typeof pendentes = [];
   const eventos: string[] = [];
   const tx: any = {
-    select: () => ({ from: () => ({ where: () => ({ limit: async () => [conta] }) }) }),
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => [contaDaFixture] }) }) }),
     execute: vi.fn(async () => [[{ observacao: JSON.stringify({ cargoSetor: "Faturista", setoresPermitidos: ["faturamento"], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) }], []]),
     insert: (table: any) => ({ values: async (valor: any) => { pendentes.push({ tabela: getTableName(table), valor }); eventos.push(`insert:${getTableName(table)}`); return [{ insertId: ++id }]; } }),
     update: (table: any) => ({ set: (valor: any) => ({ where: async () => {
@@ -121,5 +122,91 @@ describe("Fábrica: API de dois XMLs, proteção e transação", () => {
     } });
     await expect(caller().importarXmlNaConta(request)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(deps.cofre).not.toHaveBeenCalled(); expect(b.confirmados).toEqual([]);
+  });
+
+  it("convênio existente só em outro hospital não é selecionado e a validação final nega antes do cofre", async () => {
+    const b = banco({ ...conta, convenioId: 31, convenioNome: "Convênio de outra unidade" });
+    const convenioDeOutroHospital = {
+      id: 31, nome: "Convênio de outra unidade", estabelecimentoId: 99, ativo: "sim",
+    };
+    let selecao = 0;
+    b.tx.select = vi.fn(() => ({
+      from: () => {
+        const rows = selecao++ === 0 ? [{ ...conta, convenioId: 31, convenioNome: "Convênio de outra unidade" }] : [convenioDeOutroHospital];
+        const query: any = Object.assign(Promise.resolve(rows), {
+          where: () => query,
+          limit: async () => rows,
+        });
+        return query;
+      },
+    }));
+    deps.convenio.mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "Convênio pertence a outro hospital." }));
+
+    await expect(caller().importarXmlNaConta({ ...request, conteudoHonorariosBase64: undefined }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(deps.convenio).toHaveBeenLastCalledWith(71, 31, 20, "editar");
+    expect(deps.cofre).not.toHaveBeenCalled();
+    expect(b.pendentes).toEqual([]);
+    expect(b.confirmados).toEqual([]);
+  });
+
+  it("não usa catálogo de outro hospital mesmo quando a validação mockada aceitaria o convênio", async () => {
+    const contaSemConvenio = { ...conta, convenioId: null, convenioNome: "Convênio Exclusivo Sintético" };
+    const b = banco();
+    b.tx.select = () => ({ from: (table: any) => {
+      const rows = getTableName(table) === "fabrica_contas" ? [contaSemConvenio]
+        : [{ id: 31, nome: "Convênio Exclusivo Sintético", estabelecimentoId: 99, ativo: "sim" }];
+      const query: any = Object.assign(Promise.resolve(rows), { limit: async () => rows });
+      return Object.assign(query, { where: () => query });
+    } });
+    deps.convenio.mockResolvedValue({ id: 31, nome: "Convênio Exclusivo Sintético" });
+    await expect(caller().importarXmlNaConta({ ...request, conteudoHonorariosBase64: undefined }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(deps.convenio).not.toHaveBeenCalled();
+    expect(deps.cofre).not.toHaveBeenCalled();
+    expect(b.confirmados).toEqual([]);
+  });
+
+  it("candidato do catálogo recusado pela validação não é devolvido pelo catch", async () => {
+    const b = banco();
+    b.tx.select = () => ({ from: (table: any) => {
+      const rows = getTableName(table) === "fabrica_contas" ? [conta]
+        : [{ id: 30, nome: "Convênio Sintético", estabelecimentoId: 20, ativo: "sim" }];
+      const query: any = Object.assign(Promise.resolve(rows), { limit: async () => rows });
+      return Object.assign(query, { where: () => query });
+    } });
+    deps.convenio.mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "Permissão sintética negada." }));
+    await expect(caller().importarXmlNaConta({ ...request, conteudoHonorariosBase64: undefined }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: "Convênio não pertence ao hospital da conta." });
+    expect(deps.cofre).not.toHaveBeenCalled();
+    expect(b.pendentes).toEqual([]);
+    expect(b.confirmados).toEqual([]);
+  });
+
+  it.each(["limpeza_prontuario", "enviado_convenio", "recursos"] as const)(
+    "perfil somente faturamento não importa XML da conta em %s antes de cofre ou escrita",
+    async setorAtual => {
+      const b = banco({ ...conta, setorAtual });
+
+      await expect(caller().importarXmlNaConta(request)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(deps.cofre).not.toHaveBeenCalled();
+      expect(b.pendentes).toEqual([]);
+      expect(b.confirmados).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["recursos", "limpeza_prontuario"],
+    ["recursos", "enviado_convenio"],
+    ["limpeza_prontuario", "recursos"],
+  ] as const)("reciprocidade permite perfil %s importar XML em %s", async (setorPermitido, setorAtual) => {
+    const b = banco({ ...conta, setorAtual });
+    b.tx.execute.mockResolvedValue([[
+      { observacao: JSON.stringify({ cargoSetor: "Operador Sintético", setoresPermitidos: [setorPermitido], hospitaisPermitidos: [20], verRelatoriosGerenciais: false }) },
+    ], []]);
+
+    await expect(caller().importarXmlNaConta(request)).resolves.toMatchObject({ sucesso: true });
+    expect(deps.cofre).toHaveBeenCalled();
+    expect(b.eventos).toContain("commit");
   });
 });
