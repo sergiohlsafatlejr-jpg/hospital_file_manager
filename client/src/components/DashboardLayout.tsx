@@ -119,15 +119,15 @@ const menuItems: MenuItem[] = [
   { icon: Home, label: "Início", path: "/" },
 
   // Fábrica de Faturamento Safatle (Esteira 6 Setores)
-  { icon: Factory, label: "Fábrica de Faturamento", path: "/fabrica-faturamento", children: [
-    { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao" },
-    { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento" },
-    { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna" },
-    { icon: Stethoscope, label: "4. Auditoria Externa", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_externa" },
-    { icon: Sparkles, label: "5. Limpeza e Envio XML", path: "/fabrica-faturamento?aba=esteira&setor=limpeza_prontuario" },
-    { icon: Gavel, label: "6. Setor de Recursos", path: "/fabrica-faturamento?aba=esteira&setor=enviado_convenio" },
-    { icon: List, label: "Contas Feitas (Conta Convênio)", path: "/conta-convenio" },
-    { icon: BarChart3, label: "Relatórios & Metas Safatle", path: "/fabrica-faturamento?aba=relatorios" },
+  { icon: Factory, label: "Fábrica de Faturamento", path: "/fabrica-faturamento", modulo: "faturamento", children: [
+    { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao", modulo: "faturamento" },
+    { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento", modulo: "faturamento" },
+    { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna", modulo: "faturamento" },
+    { icon: Stethoscope, label: "4. Auditoria Externa", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_externa", modulo: "faturamento" },
+    { icon: Sparkles, label: "5. Limpeza e Envio XML", path: "/fabrica-faturamento?aba=esteira&setor=limpeza_prontuario", modulo: "faturamento" },
+    { icon: Gavel, label: "6. Setor de Recursos", path: "/fabrica-faturamento?aba=esteira&setor=enviado_convenio", modulo: "faturamento" },
+    { icon: List, label: "Contas Feitas (Conta Convênio)", path: "/conta-convenio", modulo: "contaConvenio" },
+    { icon: BarChart3, label: "Relatórios & Metas Safatle", path: "/fabrica-faturamento?aba=relatorios", modulo: "faturamento" },
   ]},
 
   // Módulo 7 - Gerenciamento
@@ -239,24 +239,24 @@ const menuItems: MenuItem[] = [
     { icon: FileText, label: "Digitação Avulsa", path: "/faturamento/digitacao", modulo: "faturamento" },
   ]},
 
-  // ===== MÓDULOS SAFATLE (admin only, só quando Safatle está selecionado) =====
-  { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-  { icon: DollarSign, label: "Financeiro", path: "/financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-  { icon: FileText, label: "Contratos", path: "/contratos", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-  { icon: Building2, label: "Contratos Hosp x Convênio", path: "/contratos-convenios" },
-  { icon: FileSpreadsheet, label: "Propostas", path: "/propostas", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-  { icon: Shield, label: "Permissões Safatle", path: "/permissoes-safatle", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-  { icon: Shield, label: "Logs do Sistema", path: "/auditoria-sistema", adminOnly: true },
+  // ===== MÓDULOS SAFATLE (controlados por permissão granular de módulo) =====
+  { icon: LayoutGrid, label: "Painel Executivo", path: "/painel-executivo", modulo: "painelExecutivo", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: DollarSign, label: "Financeiro", path: "/financeiro", modulo: "financeiro", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: FileText, label: "Contratos", path: "/contratos", modulo: "contratos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Building2, label: "Contratos Hosp x Convênio", path: "/contratos-convenios", modulo: "convenios" },
+  { icon: FileSpreadsheet, label: "Propostas", path: "/propostas", modulo: "propostas", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Shield, label: "Permissões Safatle", path: "/permissoes-safatle", modulo: "permissoes", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Shield, label: "Logs do Sistema", path: "/auditoria-sistema", modulo: "permissoes", adminOnly: true },
   // Módulo RPA
-  { icon: Bot, label: "Automação RPA", path: "/rpa-manager", adminOnly: true, children: [
-    { icon: Bot, label: "Gerenciar Robôs", path: "/rpa-manager", adminOnly: true },
+  { icon: Bot, label: "Automação RPA", path: "/rpa-manager", modulo: "regrasNegocio", adminOnly: true, children: [
+    { icon: Bot, label: "Gerenciar Robôs", path: "/rpa-manager", modulo: "regrasNegocio", adminOnly: true },
   ]},
   // Módulo RH
-  { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
-    { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: FileSpreadsheet, label: "Plano de Salários", path: "/rh/plano-salarios", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: Upload, label: "Importar Folha", path: "/rh/upload", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: FileSpreadsheet, label: "Folha de Pagamento", path: "/rh/folha-pagamento", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
+    { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Plano de Salários", path: "/rh/plano-salarios", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: Upload, label: "Importar Folha", path: "/rh/upload", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Folha de Pagamento", path: "/rh/folha-pagamento", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   ]},
 
 ];
@@ -283,9 +283,10 @@ function AccessGuard({
   estabelecimentoId?: number;
 }) {
   // Encontrar o item de menu correspondente à rota atual em qualquer nível.
+  const cleanLocation = location.split("?")[0];
   const findMenuItemByPath = (items: MenuItem[]): MenuItem | undefined => {
     for (const item of items) {
-      if (item.path === location) return item;
+      if (item.path === location || item.path.split("?")[0] === cleanLocation) return item;
       if (item.children) {
         const nestedItem = findMenuItemByPath(item.children);
         if (nestedItem) return nestedItem;
@@ -620,9 +621,10 @@ function DashboardLayoutContent({
                   // Se não tem módulo definido, sempre mostra
                   if (!item.modulo && !item.adminOnly) return true;
                   // Se é adminOnly, verificar se é gestor
-                  if (item.adminOnly) return isGestor;
+                  if (item.adminOnly && !isGestor) return false;
                   // Verificar permissão do módulo
-                  return temAcessoModulo(item.modulo!);
+                  if (item.modulo && !temAcessoModulo(item.modulo)) return false;
+                  return true;
                 })
                 .map(item => {
                 // Função recursiva para verificar se algum filho está ativo
@@ -657,8 +659,9 @@ function DashboardLayoutContent({
                               .filter(child => {
                                 if (child.estabelecimentoIds && estabelecimentoAtual && !child.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
                                 if (!child.modulo && !child.adminOnly) return true;
-                                if (child.adminOnly) return isGestor;
-                                return temAcessoModulo(child.modulo!);
+                                if (child.adminOnly && !isGestor) return false;
+                                if (child.modulo && !temAcessoModulo(child.modulo)) return false;
+                                return true;
                               })
                               .map(child => {
                                 // Nível 3: Se o child também tem children (subpasta dentro de subpasta)
@@ -683,8 +686,9 @@ function DashboardLayoutContent({
                                               .filter(grandchild => {
                                                 if (grandchild.estabelecimentoIds && estabelecimentoAtual && !grandchild.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
                                                 if (!grandchild.modulo && !grandchild.adminOnly) return true;
-                                                if (grandchild.adminOnly) return isGestor;
-                                                return temAcessoModulo(grandchild.modulo!);
+                                                if (grandchild.adminOnly && !isGestor) return false;
+                                                if (grandchild.modulo && !temAcessoModulo(grandchild.modulo)) return false;
+                                                return true;
                                               })
                                               .map(grandchild => {
                                                 const isGrandchildActive = location === grandchild.path;

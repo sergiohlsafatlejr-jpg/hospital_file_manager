@@ -144,4 +144,23 @@ describe("Gestão de Permissões V2", () => {
     expect(db).toContain("eq(gruposServico.estabelecimentoId, data.estabelecimentoId)");
     expect(db).toContain("Grupo personalizado inexistente, inativo ou indisponível para este estabelecimento");
   });
+
+  it("respeita bloqueios individuais de módulos Safatle e perfil administrador customizado", () => {
+    const menu = read("client/src/components/DashboardLayout.tsx");
+    const context = read("client/src/contexts/EstabelecimentoContext.tsx");
+    const db = read("server/db.ts");
+
+    expect(menu).toContain('path: "/fabrica-faturamento", modulo: "faturamento"');
+    expect(menu).toContain('path: "/painel-executivo", modulo: "painelExecutivo"');
+    expect(menu).toContain('path: "/financeiro", modulo: "financeiro"');
+    expect(menu).toContain('path: "/contratos", modulo: "contratos"');
+    expect(menu).toContain('path: "/contratos-convenios", modulo: "convenios"');
+    expect(menu).toContain('path: "/propostas", modulo: "propostas"');
+    expect(menu).toContain('path: "/permissoes-safatle", modulo: "permissoes", adminOnly: true');
+
+    expect(context).toContain('if (valorPermissao === "nao") return false;');
+    expect(db).toContain('if (valor === "nao") return false;');
+    expect(db).toContain("acessoPainelExecutivo: permissoesEstabelecimento.acessoPainelExecutivo");
+    expect(db).toContain('painelExecutivo: "acessoPainelExecutivo"');
+  });
 });

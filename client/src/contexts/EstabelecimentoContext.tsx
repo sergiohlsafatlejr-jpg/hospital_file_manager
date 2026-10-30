@@ -411,7 +411,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
       acessoRelatoriosGlosasBi: (permissao as any).acessoRelatoriosGlosasBi || "nao",
       acessoRelNaoRecebidos: (permissao as any).acessoRelNaoRecebidos || "nao",
       acessoRelPrevisaoGlosa: (permissao as any).acessoRelPrevisaoGlosa || "nao",
-      acessoFaturamentoExterno: (permissao as any).acessoFaturamentoExterno || "sim",
+      acessoFaturamentoExterno: (permissao as any).acessoFaturamentoExterno || "nao",
       // Módulos Safatle
       acessoPainelExecutivo: (permissao as any).acessoPainelExecutivo || "nao",
       acessoVisaoGeral: (permissao as any).acessoVisaoGeral || "nao",
@@ -459,21 +459,26 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
       (item: any) => item.estabelecimentoId === estabelecimentoId
     ) as any;
     if (!permissao) return false;
-    if (permissao.grupoServico === "administrador") return true;
 
     if (modulo === "relatoriosBi") {
       if (permissao.acessoRelatoriosBi === "sim") return true;
-      return camposRelatoriosBiIndividuais.some(
-        campo => permissao[campo] === "sim"
-      );
+      if (
+        camposRelatoriosBiIndividuais.some(
+          campo => permissao[campo] === "sim"
+        )
+      ) {
+        return true;
+      }
+      if (permissao.acessoRelatoriosBi === "nao") return false;
+      return permissao.grupoServico === "administrador";
     }
 
     const campo = moduloParaCampo[modulo];
-    // Compatibilidade com o default histórico deste módulo.
-    if (modulo === "faturamentoExterno") {
-      return permissao[campo] !== "nao";
-    }
-    return permissao[campo] === "sim";
+    const valorPermissao = permissao[campo];
+    if (valorPermissao === "sim") return true;
+    if (valorPermissao === "nao") return false;
+
+    return permissao.grupoServico === "administrador";
   };
 
   // No modo "Todos", liberar especificamente a entrada da Conciliação Cruzada
