@@ -32,7 +32,7 @@ export const PERMISSION_SECTIONS: PermissionSection[] = [
       { key: "acessoDashboard", label: "Dashboard", description: "Indicadores iniciais da unidade", icon: LayoutDashboard },
       { key: "acessoArquivos", label: "Arquivos", description: "Uploads e arquivos processados", icon: FolderOpen },
       { key: "acessoComparacoes", label: "Comparações", description: "Comparação de arquivos e contas", icon: GitCompare },
-      { key: "acessoFaturamento", label: "Faturamento", description: "Remessas, digitação e NFS-e", icon: DollarSign },
+      { key: "acessoFaturamento", label: "Faturamento / Esteira de Faturamento", description: "Esteira de Faturamento, remessas, digitação e NFS-e", icon: DollarSign },
       { key: "acessoTabelasPreco", label: "Tabelas de preço", description: "Importação e manutenção de tabelas", icon: FileText },
       { key: "acessoConvenios", label: "Convênios", description: "Cadastro de convênios e prestadores", icon: Building2 },
       { key: "acessoRegrasNegocio", label: "Regras de negócio", description: "Regras operacionais e validações", icon: Settings },

@@ -518,7 +518,7 @@ export async function getArquivosStats(userId?: number, estabelecimentoId?: numb
   if (!db) return null;
 
   const conditions: SQL[] = [];
-  if (userId) conditions.push(eq(arquivos.userId, userId));
+  if (userId && !(estabelecimentoId && estabelecimentoId > 0)) conditions.push(eq(arquivos.userId, userId));
   if (estabelecimentoId && estabelecimentoId > 0) conditions.push(eq(arquivos.estabelecimentoId, estabelecimentoId));
   const baseCondition = conditions.length > 0 ? and(...conditions) : undefined;
 

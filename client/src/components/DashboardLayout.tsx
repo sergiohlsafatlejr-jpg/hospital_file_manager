@@ -119,7 +119,7 @@ const menuItems: MenuItem[] = [
   { icon: Home, label: "Início", path: "/" },
 
   // Fábrica de Faturamento Safatle (Esteira 6 Setores)
-  { icon: Factory, label: "Fábrica de Faturamento", path: "/fabrica-faturamento", modulo: "faturamento", children: [
+  { icon: Factory, label: "Esteira de Faturamento", path: "/fabrica-faturamento", modulo: "faturamento", children: [
     { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao", modulo: "faturamento" },
     { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento", modulo: "faturamento" },
     { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna", modulo: "faturamento" },

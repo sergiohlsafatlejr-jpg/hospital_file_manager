@@ -216,7 +216,12 @@ function exigirPerfilNoSetor(
 ): void {
   if (!perfil || perfil.isGestorFabrica) return;
 
-  const temSetor = setoresRequeridos.some((setor) => perfil.setoresPermitidos.includes(setor));
+  const setoresExpandidos = new Set<string>(perfil.setoresPermitidos);
+  if (setoresExpandidos.has("limpeza_prontuario") || setoresExpandidos.has("recursos")) {
+    setoresExpandidos.add("limpeza_prontuario");
+    setoresExpandidos.add("recursos");
+  }
+  const temSetor = setoresRequeridos.some((setor) => setoresExpandidos.has(setor));
   if (!temSetor) {
     throw new TRPCError({ code: "FORBIDDEN", message: MENSAGEM_SETOR_NAO_AUTORIZADO });
   }

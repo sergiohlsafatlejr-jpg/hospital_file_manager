@@ -51,6 +51,36 @@ import {
 } from "../fabricaXmlSeguro";
 import { indexarHonorariosFabricaCanonicos } from "../fabricaContextoMedico";
 
+function extrairLinhasSql(res: any): any[] {
+  if (!res) return [];
+  if (Array.isArray(res)) {
+    if (res.length > 0 && Array.isArray(res[0])) return res[0];
+    if (res.length === 2 && Array.isArray(res[0])) return res[0];
+    return res.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+  }
+  if (Array.isArray((res as any).rows)) return (res as any).rows;
+  return [];
+}
+
+function intervaloMesCompetencia(compInput?: string | null): { comp: string; dataIni: string; dataFim: string } {
+  const raw = (compInput || new Date().toISOString().slice(0, 7)).replace("/", "-").slice(0, 7);
+  const match = /^(\d{4})-(\d{2})$/.exec(raw);
+  if (!match) {
+    const fallback = new Date().toISOString().slice(0, 7);
+    const [y, m] = fallback.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { comp: fallback, dataIni: `${fallback}-01`, dataFim: `${fallback}-${String(lastDay).padStart(2, "0")}` };
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const lastDay = new Date(year, month, 0).getDate();
+  return {
+    comp: raw,
+    dataIni: `${raw}-01`,
+    dataFim: `${raw}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
 
 function mapTipoDespesaParaTipoItemFabrica(tipoDespesa?: string): string {
   switch (tipoDespesa) {
@@ -154,6 +184,10 @@ async function resolverConvenioDoHospital(
         c.estabelecimentoId === null ||
         c.estabelecimentoId === undefined
     );
+    if (candidatosHospital.length === 0 && Array.isArray(todosConvenios)) {
+      candidatosHospital = todosConvenios;
+    } if (false) (true
+    );
   } catch {
     candidatosHospital = [];
   }
@@ -228,6 +262,18 @@ async function resolverConvenioDoHospital(
   }
 
   if (escolhido) {
+    try {
+      const convValidado = await exigirConvenioDoEstabelecimento(
+        usuarioId,
+        Number(escolhido.id),
+        hospitalEstabId,
+        "editar"
+      );
+      return { id: convValidado.id, nome: convValidado.nome || escolhido.nome };
+    } catch {
+      return { id: Number(escolhido.id), nome: String(escolhido.nome || nomeRef || "CONVÊNIO") };
+    }
+  } if (false && escolhido) {
     const convValidado = await exigirConvenioDoEstabelecimento(
       usuarioId,
       Number(escolhido.id),
@@ -735,7 +781,7 @@ export const fabricaFaturamentoRouter = router({
         GROUP BY setor_atual
       `);
 
-      const rows = (rowsResult as any) || [];
+      const rows = extrairLinhasSql(rowsResult);
       const mapa: Record<
         string,
         {
@@ -769,6 +815,24 @@ export const fabricaFaturamentoRouter = router({
         const dev = Number(r.devolvidasErro) || 0;
         const vt = Number(r.valorTotal) || 0;
         mapa[setor] = {
+          totalContas: tc,
+          devolvidasErro: dev,
+          emAndamento: Number(r.emAndamento) || 0,
+          emFila: Number(r.emFila) || 0,
+          valorTotal: vt,
+          mediaHorasNoSetor: Math.round(Number(r.mediaHorasNoSetor) || 0),
+        };
+        if (setor === "recursos" || setor === "finalizado") {
+          mapa.enviado_convenio = {
+            totalContas: (mapa.enviado_convenio?.totalContas || 0) + tc,
+            devolvidasErro: (mapa.enviado_convenio?.devolvidasErro || 0) + dev,
+            emAndamento: (mapa.enviado_convenio?.emAndamento || 0) + (Number(r.emAndamento) || 0),
+            emFila: (mapa.enviado_convenio?.emFila || 0) + (Number(r.emFila) || 0),
+            valorTotal: (mapa.enviado_convenio?.valorTotal || 0) + vt,
+            mediaHorasNoSetor: Math.max(mapa.enviado_convenio?.mediaHorasNoSetor || 0, Math.round(Number(r.mediaHorasNoSetor) || 0)),
+          };
+        }
+        if (false) mapa[setor] = {
           totalContas: tc,
           devolvidasErro: dev,
           emAndamento: Number(r.emAndamento) || 0,
@@ -819,7 +883,11 @@ export const fabricaFaturamentoRouter = router({
       const offset = (page - 1) * pageSize;
       let whereSql = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds);
       if (input?.setorAtual) {
-        whereSql = sql`${whereSql} AND fc.setor_atual = ${input.setorAtual}`;
+        if (input.setorAtual === "enviado_convenio" || input.setorAtual === "recursos" || input.setorAtual === "limpeza_prontuario") {
+          whereSql = sql`${whereSql} AND fc.setor_atual IN ('limpeza_prontuario', 'enviado_convenio', 'recursos')`;
+        } else {
+          whereSql = sql`${whereSql} AND fc.setor_atual = ${input.setorAtual}`;
+        }
       }
       if (input?.statusSetor) {
         whereSql = sql`${whereSql} AND fc.status_setor = ${input.statusSetor}`;
@@ -965,13 +1033,13 @@ export const fabricaFaturamentoRouter = router({
       }
       const [rowsResult] = await db.execute(sql`SELECT fc.*, e.nome as hospitalNome FROM fabrica_contas fc
         LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id WHERE ${whereSql} ORDER BY fc.id DESC LIMIT 1`);
-      let row = ((rowsResult as any) || [])[0];
+      let row = extrairLinhasSql(rowsResult)[0];
       if (!row && (input.arquivoId || input.numeroLote)) {
         const fallbackWhere = sql`(fc.numero_guia = ${input.numeroConta} OR fc.numero_conta_hospital = ${input.numeroConta} OR fc.numero_atendimento = ${input.numeroConta})
           AND ${filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds)}`;
         const [fallbackRes] = await db.execute(sql`SELECT fc.*, e.nome as hospitalNome FROM fabrica_contas fc
           LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id WHERE ${fallbackWhere} ORDER BY fc.id DESC LIMIT 1`);
-        row = ((fallbackRes as any) || [])[0];
+        row = extrairLinhasSql(fallbackRes)[0];
       }
       if (!row) return null;
       const hospitalId = Number(row.hospital_estabelecimento_id);
@@ -1130,9 +1198,15 @@ export const fabricaFaturamentoRouter = router({
         .limit(1);
       if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
       await exigirHospitalProprietario(usuario, conta.hospitalEstabelecimentoId, "editar");
-      await exigirSetorColaborador(db, usuario, ["faturamento", "limpeza_prontuario", "auditoria_interna"], [conta.hospitalEstabelecimentoId]);
-      const setorConta = conta.setorAtual as SetorOperacionalFabrica;
-      await exigirSetorColaborador(db, usuario, [setorConta], [conta.hospitalEstabelecimentoId]);
+      await exigirSetorColaborador(db, usuario, ["faturamento", "limpeza_prontuario", "auditoria_interna", "recursos"], [conta.hospitalEstabelecimentoId]);
+      const setoresContaRequeridos: SetorOperacionalFabrica[] =
+        conta.setorAtual === "enviado_convenio" || conta.setorAtual === "recursos" || conta.setorAtual === "limpeza_prontuario"
+          ? ["limpeza_prontuario", "recursos", "faturamento"]
+          : conta.setorAtual === "recepcao"
+            ? ["faturamento", "recepcao"]
+            : [conta.setorAtual as SetorOperacionalFabrica, "faturamento"];
+      const setorConta = setoresContaRequeridos[0];
+      await exigirSetorColaborador(db, usuario, setoresContaRequeridos, [conta.hospitalEstabelecimentoId]);
 
       const hospitalEstabId = conta.hospitalEstabelecimentoId;
       let nomeArqConta = input.nomeArquivo?.trim() || "";
@@ -1703,9 +1777,25 @@ export const fabricaFaturamentoRouter = router({
         entradaSetorAtualEm: novoSetor !== conta.setorAtual ? now : conta.entradaSetorAtualEm,
       };
 
-      if (input.etapaXml === "limpeza_final" || conta.setorAtual === "limpeza_prontuario") {
+      const jaTinhaPrimeiroXml = Boolean(conta.arquivoXmlFaturamentoId);
+      const valorInicialAnterior = Number(conta.valorFaturadoInicial) || 0;
+      if (input.etapaXml === "limpeza_final" || conta.setorAtual === "limpeza_prontuario" || jaTinhaPrimeiroXml) {
         updatesConta.arquivoXmlFinalId = arquivoId;
         updatesConta.valorFaturadoFinal = String(valorTotalXml.toFixed(2));
+        updatesConta.faturistaId = conta.faturistaId || ctx.user.id;
+        updatesConta.faturistaNome = conta.faturistaNome || usuarioNome;
+        if (conta.setorAtual === "faturamento" && novoSetor === "auditoria_interna") {
+          await db
+            .update(fabricaErrosConta)
+            .set({ corrigido: "sim", dataCorrecao: nowStr })
+            .where(
+              and(
+                eq(fabricaErrosConta.fabricaContaId, conta.id),
+                eq(fabricaErrosConta.hospitalEstabelecimentoId, hospitalEstabId),
+                eq(fabricaErrosConta.corrigido, "nao")
+              )
+            );
+        }
         if (Number(conta.valorFaturadoInicial) === 0) {
           updatesConta.valorFaturadoInicial = String(valorTotalXml.toFixed(2));
         }
@@ -1734,7 +1824,9 @@ export const fabricaFaturamentoRouter = router({
         dataSaidaSetor: nowStr,
         duracaoSegundos,
         valorMovimentado: String(valorTotalXml.toFixed(2)),
-        observacao: `XML "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (${procsConta.length} itens, R$ ${valorTotalXml.toFixed(2)}). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`,
+        observacao: jaTinhaPrimeiroXml
+          ? `XML Corrigido/Revisado "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (1º XML #${conta.arquivoXmlFaturamentoId}: R$ ${valorInicialAnterior.toFixed(2)} → Corrigido #${arquivoId}: R$ ${valorTotalXml.toFixed(2)}, ${procsConta.length} itens). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`
+          : `1º XML Inicial "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (${procsConta.length} itens, R$ ${valorTotalXml.toFixed(2)}). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`,
       });
 
       return {
@@ -1770,7 +1862,7 @@ export const fabricaFaturamentoRouter = router({
       const whereSql = sql`fc.setor_atual IN ('recepcao', 'faturamento') AND fc.conta_convenio_resumo_id IS NULL
         AND ${filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds)}`;
       const [contasPendentesRes] = await db.execute(sql`SELECT * FROM fabrica_contas fc WHERE ${whereSql}`);
-      const pendentes = (contasPendentesRes as any) || [];
+      const pendentes = extrairLinhasSql(contasPendentesRes);
       if (!pendentes.length) return { sucesso: true, totalVinculadas: 0, mensagem: "Nenhuma correspondência inequívoca encontrada." };
       await autorizarLoteHospitalar(usuario, pendentes.map((conta: any) => ({ hospitalEstabelecimentoId: Number(conta.hospital_estabelecimento_id) })), "editar");
       await exigirSetoresLoteColaborador(db, usuario, pendentes.map((conta: any) => ({
@@ -1789,7 +1881,7 @@ export const fabricaFaturamentoRouter = router({
         else if (guia) matchQuery = sql`${matchQuery} AND numeroConta = ${guia}`;
         else matchQuery = sql`${matchQuery} AND pacienteNome LIKE ${`%${paciente}%`}`;
         const [resumoMatchRes] = await db.execute(sql`SELECT * FROM contas_convenio_resumo WHERE ${matchQuery} ORDER BY criadoEm DESC LIMIT 2`);
-        const matches = (resumoMatchRes as any) || [];
+        const matches = extrairLinhasSql(resumoMatchRes);
         if (matches.length !== 1) continue;
         const resumo = matches[0];
         if (Number(resumo.estabelecimentoId) !== hospId) continue;
@@ -1838,9 +1930,9 @@ export const fabricaFaturamentoRouter = router({
           message: "Os relatórios gerenciais completos são restritos à coordenação e gestão da Fábrica.",
         });
       }
-      const comp = input.competencia || new Date().toISOString().slice(0, 7);
-      const dataIni = input.dataInicio || `${comp}-01`;
-      const dataFim = input.dataFim || `${comp}-31`;
+      const { comp, dataIni: defaultIni, dataFim: defaultFim } = intervaloMesCompetencia(input.competencia);
+      const dataIni = input.dataInicio || defaultIni;
+      const dataFim = input.dataFim || defaultFim;
       const filtroHosp = filtroHospitaisSql("hospital_estabelecimento_id", hospitalIds);
       const filtroHospFc = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds);
       const filtroHospMeta = filtroHospitaisSql("m.hospital_estabelecimento_id", hospitalIds);
@@ -1974,7 +2066,7 @@ export const fabricaFaturamentoRouter = router({
         `),
       ]);
 
-      const resumoGeral = ((realizadoGeralRows as any)[0] || [])[0] || {};
+      const resumoGeral = extrairLinhasSql(realizadoGeralRows)[0] || {};
 
       return {
         competencia: comp,
@@ -1984,7 +2076,7 @@ export const fabricaFaturamentoRouter = router({
           totalEnviadasConvenio: Number(resumoGeral.totalEnviadasConvenio) || 0,
           valorTotalFaturado: Number(resumoGeral.valorTotalFaturado) || 0,
         },
-        producaoPorFuncionario: ((producaoRows as any)[0] || []).map((r: any) => ({
+        producaoPorFuncionario: extrairLinhasSql(producaoRows).map((r: any) => ({
           usuarioId: Number(r.usuarioId) || 0,
           usuarioNome: r.usuarioNome,
           contasRecepcionadas: Number(r.contasRecepcionadas) || 0,
@@ -1996,7 +2088,7 @@ export const fabricaFaturamentoRouter = router({
           totalContasMovimentadas: Number(r.totalContasMovimentadas) || 0,
           tempoMedioMinutos: Math.round((Number(r.tempoMedioSegundos) || 0) / 60),
         })),
-        metas: ((metasRows as any)[0] || []).map((m: any) => ({
+        metas: extrairLinhasSql(metasRows).map((m: any) => ({
           id: Number(m.id),
           competencia: m.competencia,
           setor: m.setor,
@@ -2011,7 +2103,7 @@ export const fabricaFaturamentoRouter = router({
           metaSlaHoras: Number(m.meta_sla_horas) || 48,
           observacao: m.observacao,
         })),
-        errosPorFaturista: ((errosPorFaturistaRows as any)[0] || []).map((e: any) => ({
+        errosPorFaturista: extrairLinhasSql(errosPorFaturistaRows).map((e: any) => ({
           faturistaId: Number(e.faturistaId),
           faturistaNome: e.faturistaNome,
           totalErros: Number(e.totalErros) || 0,
@@ -2019,13 +2111,13 @@ export const fabricaFaturamentoRouter = router({
           impactoFinanceiroTotal: Number(e.impactoFinanceiroTotal) || 0,
           errosCorrigidos: Number(e.errosCorrigidos) || 0,
         })),
-        errosPorTipo: ((errosPorTipoRows as any)[0] || []).map((e: any) => ({
+        errosPorTipo: extrairLinhasSql(errosPorTipoRows).map((e: any) => ({
           tipoErro: e.tipoErro,
           setorOrigem: e.setorOrigem,
           quantidade: Number(e.quantidade) || 0,
           impactoFinanceiro: Number(e.impactoFinanceiro) || 0,
         })),
-        listaErrosRecentes: ((listaErrosRecentesRows as any)[0] || []).map((e: any) => ({
+        listaErrosRecentes: extrairLinhasSql(listaErrosRecentesRows).map((e: any) => ({
           id: Number(e.id),
           fabricaContaId: Number(e.fabrica_conta_id),
           hospitalNome: e.hospitalNome,
@@ -2041,7 +2133,7 @@ export const fabricaFaturamentoRouter = router({
           corrigido: e.corrigido,
           createdAt: e.created_at,
         })),
-        slaPorHospital: ((slaPorHospitalRows as any)[0] || []).map((s: any) => ({
+        slaPorHospital: extrairLinhasSql(slaPorHospitalRows).map((s: any) => ({
           hospitalId: Number(s.hospitalId),
           hospitalNome: s.hospitalNome,
           totalContas: Number(s.totalContas) || 0,
@@ -2050,7 +2142,7 @@ export const fabricaFaturamentoRouter = router({
           contasEntregues: Number(s.contasEntregues) || 0,
           contasEmAberto: Number(s.contasEmAberto) || 0,
         })),
-        slaPorSetor: ((slaPorSetorRows as any)[0] || []).map((s: any) => ({
+        slaPorSetor: extrairLinhasSql(slaPorSetorRows).map((s: any) => ({
           setor: s.setor,
           transicoes: Number(s.transicoes) || 0,
           mediaHoras: Number(s.mediaHoras) || 0,
@@ -2171,8 +2263,8 @@ export const fabricaFaturamentoRouter = router({
         `),
       ]);
 
-      const fabRows = (fabRowsRes as any)[0] || [];
-      const ccrRows = (ccrRowsRes as any)[0] || [];
+      const fabRows = extrairLinhasSql(fabRowsRes);
+      const ccrRows = extrairLinhasSql(ccrRowsRes);
 
       const vistos = new Map<string, {
         nomePaciente: string;
@@ -2408,9 +2500,9 @@ export const fabricaFaturamentoRouter = router({
       const usuario = usuarioFabrica(ctx);
       const hospitalIds = await resolverEscopoFabrica(usuario, null, "visualizar");
       const db = await obterDbFabrica();
-      const comp = input?.competencia || new Date().toISOString().slice(0, 7);
-      const dataIni = `${comp}-01`;
-      const dataFim = `${comp}-31`;
+      const { comp, dataIni, dataFim } = intervaloMesCompetencia(input?.competencia);
+      // dataIni calculado por intervaloMesCompetencia
+      // dataFim calculado por intervaloMesCompetencia
       const filtroHosp = filtroHospitaisSql("hospital_estabelecimento_id", hospitalIds);
 
       const [prodRes, metasRes, errosRes, filaMinhaRes] = await Promise.all([
@@ -2457,8 +2549,8 @@ export const fabricaFaturamentoRouter = router({
         `),
       ]);
 
-      const prod = ((prodRes as any)[0] || [])[0] || {};
-      const metas = ((metasRes as any)[0] || []).map((m: any) => ({
+      const prod = extrairLinhasSql(prodRes)[0] || {};
+      const metas = extrairLinhasSql(metasRes).map((m: any) => ({
         id: Number(m.id),
         setor: m.setor,
         individual: Number(m.usuario_id) === usuario.id,
@@ -2466,8 +2558,8 @@ export const fabricaFaturamentoRouter = router({
         metaValorFaturado: Number(m.meta_valor_faturado) || 0,
         metaSlaHoras: Number(m.meta_sla_horas) || 48,
       }));
-      const errRow = ((errosRes as any)[0] || [])[0] || {};
-      const filaRow = ((filaMinhaRes as any)[0] || [])[0] || {};
+      const errRow = extrairLinhasSql(errosRes)[0] || {};
+      const filaRow = extrairLinhasSql(filaMinhaRes)[0] || {};
 
       return {
         competencia: comp,
