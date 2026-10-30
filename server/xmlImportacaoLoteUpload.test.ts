@@ -244,4 +244,57 @@ describe("POST /api/xml-importacoes/lotes", () => {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
   });
+
+  it("permite importar XML quando o usuário tem acesso ao módulo arquivos na unidade (mesmo sem contaConvenio)", async () => {
+    mocks.autenticar.mockResolvedValue({
+      id: 55,
+      role: "user",
+      isCron: false,
+    });
+    mocks.permissao.mockImplementation(
+      async (_userId: number, _estabId: number, tipo?: string) =>
+        tipo === "visualizar" || tipo === "editar"
+    );
+    mocks.modulo.mockImplementation(
+      async (_userId: number, _estabId: number, modulo: string) =>
+        modulo === "arquivos"
+    );
+
+    const { server, url } = await servidorTeste();
+    try {
+      const response = await fetch(`${url}/api/xml-importacoes/lotes`, {
+        method: "POST",
+        headers,
+        body: formulario(),
+      });
+      expect(response.status).toBe(202);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it("bloqueia importação XML quando o usuário não tem permissão na unidade selecionada", async () => {
+    mocks.autenticar.mockResolvedValue({
+      id: 56,
+      role: "user",
+      isCron: false,
+    });
+    mocks.permissao.mockResolvedValue(false);
+    mocks.modulo.mockResolvedValue(false);
+
+    const { server, url } = await servidorTeste();
+    try {
+      const response = await fetch(`${url}/api/xml-importacoes/lotes`, {
+        method: "POST",
+        headers,
+        body: formulario(),
+      });
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: "Sem permissão para importar XML nesta unidade.",
+      });
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
 });

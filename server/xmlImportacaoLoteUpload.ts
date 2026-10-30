@@ -139,18 +139,39 @@ async function authorizeUpload(
       });
       return;
     }
-    const allowed =
+    const podeVisualizarUnidade =
       user.role === "admin" ||
-      ((await db.verificarPermissaoEstabelecimento(
+      (await db.verificarPermissaoEstabelecimento(
         user.id,
         estabelecimentoId,
         "editar"
-      )) &&
-        (await db.verificarAcessoModulo(
-          user.id,
-          estabelecimentoId,
-          "contaConvenio"
-        )));
+      )) ||
+      (await db.verificarPermissaoEstabelecimento(
+        user.id,
+        estabelecimentoId,
+        "visualizar"
+      ));
+    const temAcessoModuloUpload =
+      user.role === "admin" ||
+      (await db.verificarAcessoModulo(user.id, estabelecimentoId, "arquivos")) ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "contaConvenio"
+      )) ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "faturamento"
+      )) ||
+      (await db.verificarAcessoModulo(
+        user.id,
+        estabelecimentoId,
+        "recebimentosXml"
+      ));
+    const allowed =
+      user.role === "admin" ||
+      (podeVisualizarUnidade && temAcessoModuloUpload);
     if (!allowed) {
       res
         .status(403)
