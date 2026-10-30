@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { caminhoContaFabricaImportada } from "@/lib/fabricaContaDestino";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -292,10 +292,31 @@ export default function FabricaFaturamento() {
       if (s.id === "enviado_convenio") {
         return permitidos.has("recursos") || permitidos.has("limpeza_prontuario");
       }
+      if (s.id === "limpeza_prontuario") {
+        return permitidos.has("limpeza_prontuario") || permitidos.has("recursos");
+      }
       return permitidos.has(s.id);
     });
     return filtrados.length > 0 ? filtrados : SETORES_CONFIG;
   }, [meuPerfil]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const abaUrl = params.get("aba");
+    const setorUrl = params.get("setor") as SetorFabrica | null;
+    if (abaUrl) setAbaPrincipal(abaUrl);
+    if (setorUrl) setSetorSelecionado(setorUrl);
+  }, [searchString]);
+
+  useEffect(() => {
+    if (
+      setorSelecionado !== "todos" &&
+      setoresVisiveis.length > 0 &&
+      !setoresVisiveis.some((s) => s.id === setorSelecionado)
+    ) {
+      setSetorSelecionado(setoresVisiveis[0].id);
+    }
+  }, [setoresVisiveis, setorSelecionado]);
 
   const podeRecepcionar =
     !meuPerfil ||
@@ -670,7 +691,7 @@ export default function FabricaFaturamento() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Fábrica de Faturamento Safatle
+                  Esteira de Faturamento Safatle
                 </h1>
                 <Badge className="bg-primary/15 text-primary border-primary/30">
                   {meuPerfil?.isGestorFabrica
@@ -1971,6 +1992,26 @@ export default function FabricaFaturamento() {
                                 {/* AÇÕES DO SETOR 6: ENVIADO / RECURSOS */}
                                 {(conta.setorAtual === "enviado_convenio" ||
                                   conta.setorAtual === "recursos") && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setContaAlvoXml(conta);
+                                        setEtapaXml("limpeza_final");
+                                        setArquivoXmlFile(null);
+                                        setArquivoXmlHonorariosFile(null);
+                                        setModalXmlOpen(true);
+                                      }}
+                                      className="h-8 gap-1 text-xs"
+                                    >
+                                      <Upload className="h-3.5 w-3.5" />
+                                      {conta.arquivoXmlFinalId || conta.arquivoXmlFaturamentoId
+                                        ? "Atualizar XML"
+                                        : "Enviar XML ao Hospital"}
+                                    </Button>
+                                  )}
+                                {(conta.setorAtual === "enviado_convenio" ||
+                                  conta.setorAtual === "recursos") && (
                                   <>
                                     {conta.numeroGuia && (
                                       <Button
@@ -2803,13 +2844,13 @@ export default function FabricaFaturamento() {
               Permissões por Setor — {colabAlvoPerfil?.nome}
             </DialogTitle>
             <DialogDescription>
-              Configure quais setores da Fábrica este colaborador pode acessar e operar, mantendo sua tela focada na sua etapa e meta.
+              Configure quais setores da Esteira de Faturamento este colaborador pode acessar e operar, mantendo sua tela focada na sua etapa e meta.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Função / Cargo na Fábrica</Label>
+              <Label>Função / Cargo na Esteira de Faturamento</Label>
               <Input
                 value={perfilCargoSetor}
                 onChange={(e) => setPerfilCargoSetor(e.target.value)}
