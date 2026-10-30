@@ -386,8 +386,8 @@ export async function popularDeXmlTiss(
   let insertQuery = `
     INSERT INTO faturamento_unificado (
       origemSistema, origemId, estabelecimentoId,
-      numeroGuia, numeroGuiaOperadora, senha,
-      lotePrestador, carteiraBeneficiario,
+      numeroGuia, numeroGuiaOperadora, contaNumero, senha,
+      lotePrestador, carteiraBeneficiario, pacienteNome,
       convenioId, convenio, competencia,
       profissionalExecutante,
       tipoItem, codigoItem,
@@ -402,9 +402,18 @@ export async function popularDeXmlTiss(
       dedup.estabelecimentoId,
       COALESCE(dedup.numero_guia_operadora, dedup.numero_guia_prestador),
       dedup.numero_guia_operadora,
+      COALESCE(dedup.numero_guia_prestador, dedup.numero_guia_operadora),
       dedup.senha,
       dedup.numero_lote,
       dedup.carteira_beneficiario,
+      (
+        SELECT ccr.pacienteNome
+        FROM contas_convenio_resumo ccr
+        WHERE ccr.estabelecimentoId = dedup.estabelecimentoId
+          AND ccr.numeroConta = COALESCE(dedup.numero_guia_prestador, dedup.numero_guia_operadora)
+          AND ccr.pacienteNome IS NOT NULL AND ccr.pacienteNome != ''
+        ORDER BY ccr.id DESC LIMIT 1
+      ),
       dedup.convenioId,
       c.nome,
       DATE_FORMAT(dedup.data_referencia, '%Y-%m'),

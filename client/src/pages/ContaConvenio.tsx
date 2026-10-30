@@ -420,6 +420,9 @@ export default function ContaConvenio() {
     if (conta.competencia) {
       params.set('competencia', conta.competencia);
     }
+    if (conta.arquivoHospitalId) {
+      params.set('arquivoId', String(conta.arquivoHospitalId));
+    }
     if (isWarleine) {
       params.set("fonte", "WARLEINE");
       params.set("convenioChave", conta.convenioChave);
