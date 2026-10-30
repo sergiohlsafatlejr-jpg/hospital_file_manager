@@ -198,6 +198,9 @@ export default function FabricaFaturamento() {
   const [convenioFiltro, setConvenioFiltro] = useState<string>("todos");
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [faturistaFiltro, setFaturistaFiltro] = useState<string>("todos");
+  const [filtroFilaRapida, setFiltroFilaRapida] = useState<
+    "todas" | "minhas" | "fila_geral" | "devolvidas"
+  >("todas");
   const [buscaTexto, setBuscaTexto] = useState<string>("");
   const [selecionadas, setSelecionadas] = useState<number[]>([]);
 
@@ -206,6 +209,7 @@ export default function FabricaFaturamento() {
   const [recHospitalId, setRecHospitalId] = useState<string>("");
   const [recConvenioId, setRecConvenioId] = useState<string>("");
   const [recNomePaciente, setRecNomePaciente] = useState<string>("");
+  const [mostrarSugestoesPaciente, setMostrarSugestoesPaciente] = useState<boolean>(false);
   const [recNumeroAtendimento, setRecNumeroAtendimento] = useState<string>("");
   const [recNumeroGuia, setRecNumeroGuia] = useState<string>("");
   const [recTipoAtendimento, setRecTipoAtendimento] = useState<
@@ -219,12 +223,22 @@ export default function FabricaFaturamento() {
   const [recFaturistaId, setRecFaturistaId] = useState<string>("fila_geral");
   const [manterDadosFixos, setManterDadosFixos] = useState<boolean>(true);
 
-  // Modal de Importação de XML na Conta (Setor 2: Faturamento e Setor 5: Limpeza)
+  // Modal de Importação de XML na Conta (Setor 2: Faturamento, Setor 3: Aud. Interna e Setor 5: Limpeza)
   const [modalXmlOpen, setModalXmlOpen] = useState(false);
   const [contaAlvoXml, setContaAlvoXml] = useState<any | null>(null);
   const [etapaXml, setEtapaXml] = useState<"faturamento" | "limpeza_final">("faturamento");
   const [arquivoXmlFile, setArquivoXmlFile] = useState<File | null>(null);
+  const [arquivoXmlHonorariosFile, setArquivoXmlHonorariosFile] = useState<File | null>(null);
   const fileXmlInputRef = useRef<HTMLInputElement>(null);
+  const fileXmlHonorariosInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal de Configuração de Perfil de Colaborador por Setor / Hospital
+  const [modalPerfilOpen, setModalPerfilOpen] = useState(false);
+  const [colabAlvoPerfil, setColabAlvoPerfil] = useState<any | null>(null);
+  const [perfilCargoSetor, setPerfilCargoSetor] = useState<string>("Faturista");
+  const [perfilSetores, setPerfilSetores] = useState<string[]>(["faturamento"]);
+  const [perfilHospitais, setPerfilHospitais] = useState<number[]>([]);
+  const [perfilVerRelatorios, setPerfilVerRelatorios] = useState<boolean>(false);
 
   // Modal de Devolução com Erro (Auditoria Interna / Externa -> Faturamento)
   const [modalErroOpen, setModalErroOpen] = useState(false);
@@ -259,10 +273,50 @@ export default function FabricaFaturamento() {
   const [metaSlaHoras, setMetaSlaHoras] = useState<string>("48");
 
   // Queries tRPC
-  const { data: auxData } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery();
+  const { data: auxData, refetch: refetchAuxData } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery();
   const hospitais = auxData?.hospitais || [];
+  const todosHospitaisEscopo = (auxData as any)?.todosHospitaisEscopo || hospitais;
   const listaConvenios = auxData?.convenios || [];
   const colaboradores = auxData?.colaboradores || [];
+  const meuPerfil = (auxData as any)?.meuPerfil;
+  const podeGerenciarEquipe = Boolean((auxData as any)?.podeGerenciarEquipe);
+  const podeVerRelatorios =
+    !meuPerfil || Boolean(meuPerfil.verRelatoriosGerenciais || meuPerfil.isGestorFabrica);
+
+  // Filtrar os setores visíveis na esteira conforme as permissões do colaborador logado
+  const setoresVisiveis = useMemo(() => {
+    if (!meuPerfil || meuPerfil.isGestorFabrica) return SETORES_CONFIG;
+    const permitidos = new Set<string>(meuPerfil.setoresPermitidos || []);
+    const filtrados = SETORES_CONFIG.filter((s) => {
+      if (s.id === "enviado_convenio") {
+        return permitidos.has("recursos") || permitidos.has("limpeza_prontuario");
+      }
+      return permitidos.has(s.id);
+    });
+    return filtrados.length > 0 ? filtrados : SETORES_CONFIG;
+  }, [meuPerfil]);
+
+  const podeRecepcionar =
+    !meuPerfil ||
+    meuPerfil.isGestorFabrica ||
+    (meuPerfil.setoresPermitidos || []).includes("recepcao");
+
+  // Sugestões de autocompletar pacientes recorrentes na Recepção
+  const { data: sugestoesPacientes } = trpc.fabricaFaturamento.buscarPacientesSugestao.useQuery(
+    {
+      termo: recNomePaciente.trim(),
+      hospitalEstabelecimentoId: recHospitalId ? Number(recHospitalId) : undefined,
+    },
+    {
+      enabled: abaPrincipal === "recepcao" && recNomePaciente.trim().length >= 2 && mostrarSugestoesPaciente,
+    }
+  );
+
+  // Meu desempenho pessoal no mês
+  const { data: meuDesempenho, refetch: refetchMeuDesempenho } =
+    trpc.fabricaFaturamento.meuDesempenhoSetor.useQuery({
+      competencia: competenciaRelatorio,
+    });
 
   const {
     data: resumoSetores,
@@ -293,16 +347,21 @@ export default function FabricaFaturamento() {
     data: relatoriosData,
     isLoading: loadingRelatorios,
     refetch: refetchRelatorios,
-  } = trpc.fabricaFaturamento.relatoriosGerenciais.useQuery({
-    competencia: competenciaRelatorio,
-    hospitalEstabelecimentoId:
-      hospitalRelatorioFiltro !== "todos" ? Number(hospitalRelatorioFiltro) : undefined,
-  });
+  } = trpc.fabricaFaturamento.relatoriosGerenciais.useQuery(
+    {
+      competencia: competenciaRelatorio,
+      hospitalEstabelecimentoId:
+        hospitalRelatorioFiltro !== "todos" ? Number(hospitalRelatorioFiltro) : undefined,
+    },
+    { enabled: podeVerRelatorios }
+  );
 
   const recarregarTudo = () => {
     refetchResumo();
     refetchContas();
-    refetchRelatorios();
+    refetchMeuDesempenho();
+    refetchAuxData();
+    if (podeVerRelatorios) refetchRelatorios();
   };
 
   // Mutations
@@ -310,6 +369,7 @@ export default function FabricaFaturamento() {
     onSuccess: (res) => {
       toast.success(res.mensagem);
       setRecNomePaciente("");
+      setMostrarSugestoesPaciente(false);
       setRecNumeroAtendimento("");
       setRecNumeroGuia("");
       setRecObservacoes("");
@@ -331,6 +391,26 @@ export default function FabricaFaturamento() {
     onError: (err) => toast.error(err.message),
   });
 
+  const atribuirResponsavelMutation =
+    trpc.fabricaFaturamento.atribuirResponsavelConta.useMutation({
+      onSuccess: (res) => {
+        toast.success(res.mensagem);
+        setSelecionadas([]);
+        recarregarTudo();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
+  const salvarPerfilColaboradorMutation =
+    trpc.fabricaFaturamento.salvarPerfilColaborador.useMutation({
+      onSuccess: (res) => {
+        toast.success(res.mensagem);
+        setModalPerfilOpen(false);
+        refetchAuxData();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
   const transicionarMutation = trpc.fabricaFaturamento.transicionarSetor.useMutation({
     onSuccess: (res) => {
       toast.success(res.mensagem);
@@ -347,6 +427,7 @@ export default function FabricaFaturamento() {
       toast.success(res.mensagem);
       setModalXmlOpen(false);
       setArquivoXmlFile(null);
+      setArquivoXmlHonorariosFile(null);
       setContaAlvoXml(null);
       recarregarTudo();
     },
@@ -433,25 +514,36 @@ export default function FabricaFaturamento() {
     });
   };
 
-  const handleConfirmarImportacaoXml = async () => {
-    if (!contaAlvoXml || !arquivoXmlFile) {
-      toast.error("Selecione um arquivo XML TISS para importar.");
-      return;
-    }
-    const buffer = await arquivoXmlFile.arrayBuffer();
+  const fileToBase64 = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    const base64 = window.btoa(binary);
+    return window.btoa(binary);
+  };
+
+  const handleConfirmarImportacaoXml = async () => {
+    if (!contaAlvoXml) return;
+    if (!arquivoXmlFile && !arquivoXmlHonorariosFile) {
+      toast.error("Selecione o XML da Conta Hospitalar e/ou o XML dos Honorários Médicos.");
+      return;
+    }
+    const base64Conta = arquivoXmlFile ? await fileToBase64(arquivoXmlFile) : "";
+    const base64Hon = arquivoXmlHonorariosFile
+      ? await fileToBase64(arquivoXmlHonorariosFile)
+      : null;
 
     importarXmlMutation.mutate({
       fabricaContaId: contaAlvoXml.id,
-      nomeArquivo: arquivoXmlFile.name,
-      conteudoBase64: base64,
+      nomeArquivo: arquivoXmlFile?.name || "",
+      conteudoBase64: base64Conta,
+      nomeArquivoHonorarios: arquivoXmlHonorariosFile?.name || null,
+      conteudoHonorariosBase64: base64Hon,
       etapaXml,
-      avancarSetorAutomatico: etapaXml === "faturamento",
+      avancarSetorAutomatico:
+        etapaXml === "faturamento" && contaAlvoXml.setorAtual === "faturamento",
     });
   };
 
@@ -544,7 +636,25 @@ export default function FabricaFaturamento() {
     toast.success("Relatório Excel exportado com sucesso!");
   };
 
-  const contasLista = listagemData?.contas || [];
+  const contasListaBruta = listagemData?.contas || [];
+  const contasLista = useMemo(() => {
+    if (filtroFilaRapida === "minhas" && meuPerfil?.usuarioId) {
+      return contasListaBruta.filter(
+        (c: any) =>
+          c.responsavelAtualId === meuPerfil.usuarioId ||
+          c.faturistaId === meuPerfil.usuarioId
+      );
+    }
+    if (filtroFilaRapida === "fila_geral") {
+      return contasListaBruta.filter(
+        (c: any) => !c.responsavelAtualId && c.statusSetor === "fila"
+      );
+    }
+    if (filtroFilaRapida === "devolvidas") {
+      return contasListaBruta.filter((c: any) => c.statusSetor === "devolvido_erro");
+    }
+    return contasListaBruta;
+  }, [contasListaBruta, filtroFilaRapida, meuPerfil?.usuarioId]);
 
   return (
     <DashboardLayout>
@@ -556,29 +666,33 @@ export default function FabricaFaturamento() {
               <Factory className="h-7 w-7" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold tracking-tight">
                   Fábrica de Faturamento Safatle
                 </h1>
                 <Badge className="bg-primary/15 text-primary border-primary/30">
-                  Esteira 6 Setores
+                  {meuPerfil?.isGestorFabrica
+                    ? "Visão Gestor • 6 Setores"
+                    : `${meuPerfil?.cargoSetor || "Operacional"} • ${setoresVisiveis.length} Setor(es)`}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                Recepção de Contas → Faturamento (ERP Hospital + XML) → Auditoria Interna (Regras) → Auditoria Externa → Limpeza e Envio → Recursos
+                Recepção de Contas → Faturamento (ERP Hospital + 2 XMLs) → Auditoria Interna (Regras + Honorários) → Auditoria Externa → Limpeza e Envio → Recursos
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant={abaPrincipal === "recepcao" ? "default" : "outline"}
-              onClick={() => setAbaPrincipal("recepcao")}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              1. Recepcionar Conta
-            </Button>
+            {podeRecepcionar && (
+              <Button
+                variant={abaPrincipal === "recepcao" ? "default" : "outline"}
+                onClick={() => setAbaPrincipal("recepcao")}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                1. Recepcionar Conta
+              </Button>
+            )}
             <Button
               variant={abaPrincipal === "esteira" ? "default" : "outline"}
               onClick={() => setAbaPrincipal("esteira")}
@@ -587,14 +701,26 @@ export default function FabricaFaturamento() {
               <Factory className="h-4 w-4" />
               Esteira de Setores ({resumoSetores?.totalGeralContas || 0})
             </Button>
-            <Button
-              variant={abaPrincipal === "relatorios" ? "default" : "outline"}
-              onClick={() => setAbaPrincipal("relatorios")}
-              className="gap-2"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Relatórios & Metas Safatle
-            </Button>
+            {podeVerRelatorios && (
+              <Button
+                variant={abaPrincipal === "relatorios" ? "default" : "outline"}
+                onClick={() => setAbaPrincipal("relatorios")}
+                className="gap-2"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Relatórios & Metas Safatle
+              </Button>
+            )}
+            {podeGerenciarEquipe && (
+              <Button
+                variant={abaPrincipal === "equipe" ? "default" : "outline"}
+                onClick={() => setAbaPrincipal("equipe")}
+                className="gap-2"
+              >
+                <UserCheck className="h-4 w-4" />
+                Equipe & Setores ({colaboradores.length})
+              </Button>
+            )}
             <Button
               variant="secondary"
               onClick={() => setLocation("/conta-convenio")}
@@ -606,9 +732,14 @@ export default function FabricaFaturamento() {
           </div>
         </div>
 
-        {/* Cards dos 6 Setores da Fábrica (Sempre visíveis para acompanhamento da esteira) */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          {SETORES_CONFIG.map((setor) => {
+        {/* Cards dos Setores Liberados para o Colaborador */}
+        <div
+          className={`grid grid-cols-2 md:grid-cols-3 xl:grid-cols-${Math.min(
+            6,
+            Math.max(2, setoresVisiveis.length)
+          )} gap-3`}
+        >
+          {setoresVisiveis.map((setor) => {
             const dados = resumoSetores?.porSetor?.[setor.id] || {
               totalContas: 0,
               devolvidasErro: 0,
@@ -661,6 +792,88 @@ export default function FabricaFaturamento() {
           })}
         </div>
 
+        {/* Painel Compacto: Meu Desempenho e Meta Individual no Setor */}
+        {meuDesempenho && (
+          <div className="rounded-xl border bg-slate-50/70 dark:bg-slate-900/40 px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <Badge variant="outline" className="bg-background font-semibold">
+                <Target className="h-3.5 w-3.5 mr-1 text-primary" />
+                Minha Produção ({meuDesempenho.competencia})
+              </Badge>
+              <span>
+                Em andamento comigo:{" "}
+                <strong className="text-blue-700">{meuDesempenho.minhasEmAndamento || 0}</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Recepcionadas: <strong>{meuDesempenho.recepcionadasMes || 0}</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Faturadas c/ XML:{" "}
+                <strong className="text-emerald-700">
+                  {meuDesempenho.faturadasMes || 0} ({formatCurrency(meuDesempenho.valorFaturadoMes)})
+                </strong>
+              </span>
+              <span>•</span>
+              <span>
+                Auditadas:{" "}
+                <strong>
+                  {(meuDesempenho.auditadasInternaMes || 0) +
+                    (meuDesempenho.auditadasExternaMes || 0)}
+                </strong>
+              </span>
+              <span>•</span>
+              <span>
+                Enviadas: <strong>{meuDesempenho.limpasEnviadasMes || 0}</strong>
+              </span>
+              {(meuDesempenho.minhasDevolvidasErro || 0) > 0 && (
+                <Badge variant="destructive" className="text-[10px]">
+                  {meuDesempenho.minhasDevolvidasErro} devolvida(s) p/ correção
+                </Badge>
+              )}
+            </div>
+
+            {meuDesempenho.metas && meuDesempenho.metas.length > 0 && (
+              <div className="flex items-center gap-3 min-w-[240px]">
+                <div className="flex-1 space-y-1">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-medium">
+                      Meta do Mês ({meuDesempenho.metas[0].metaQuantidadeContas} contas)
+                    </span>
+                    <span className="font-bold text-primary">
+                      {Math.min(
+                        100,
+                        Math.round(
+                          (((meuDesempenho.faturadasMes || 0) +
+                            (meuDesempenho.auditadasInternaMes || 0) +
+                            (meuDesempenho.recepcionadasMes || 0)) /
+                            Math.max(1, meuDesempenho.metas[0].metaQuantidadeContas)) *
+                            100
+                        )
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <Progress
+                    value={Math.min(
+                      100,
+                      Math.round(
+                        (((meuDesempenho.faturadasMes || 0) +
+                          (meuDesempenho.auditadasInternaMes || 0) +
+                          (meuDesempenho.recepcionadasMes || 0)) /
+                          Math.max(1, meuDesempenho.metas[0].metaQuantidadeContas)) *
+                          100
+                      )
+                    )}
+                    className="h-2"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ============================================================
             ABA 1: CADASTRO INICIAL — RECEPÇÃO DE CONTAS
            ============================================================ */}
@@ -673,7 +886,7 @@ export default function FabricaFaturamento() {
                   1. Recepção de Contas — Cadastro Inicial de Prontuários
                 </CardTitle>
                 <CardDescription>
-                  Cadastre as contas entregues pelos hospitais para a Safatle iniciar o fluxo de faturamento.
+                  Cadastre as contas entregues pelos hospitais para a Safatle iniciar o fluxo de faturamento. Ao digitar o nome de um paciente já atendido, o sistema preenche automaticamente Hospital, Convênio e Atendimento.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -716,14 +929,79 @@ export default function FabricaFaturamento() {
                   </div>
 
                   <div className="grid sm:grid-cols-3 gap-4">
-                    <div className="sm:col-span-2 space-y-2">
-                      <Label>Nome do Paciente *</Label>
+                    <div className="sm:col-span-2 space-y-2 relative">
+                      <div className="flex items-center justify-between">
+                        <Label>Nome do Paciente *</Label>
+                        <span className="text-[11px] text-muted-foreground">
+                          Busca automática de pacientes recorrentes
+                        </span>
+                      </div>
                       <Input
                         value={recNomePaciente}
-                        onChange={(e) => setRecNomePaciente(e.target.value)}
-                        placeholder="Digite o nome completo do paciente..."
+                        onChange={(e) => {
+                          setRecNomePaciente(e.target.value);
+                          setMostrarSugestoesPaciente(true);
+                        }}
+                        onFocus={() => setMostrarSugestoesPaciente(true)}
+                        placeholder="Digite o nome do paciente (se já tiver conta anterior, clique para puxar os dados)..."
                         required
                       />
+                      {mostrarSugestoesPaciente &&
+                        recNomePaciente.trim().length >= 2 &&
+                        (sugestoesPacientes?.length || 0) > 0 && (
+                          <div className="absolute z-30 left-0 right-0 top-[68px] rounded-lg border bg-popover shadow-lg max-h-60 overflow-y-auto divide-y">
+                            <div className="px-3 py-1.5 bg-muted/60 text-[11px] font-semibold text-muted-foreground flex items-center justify-between">
+                              <span>
+                                Pacientes já cadastrados ({sugestoesPacientes?.length}) — clique para preencher automático
+                              </span>
+                              <button
+                                type="button"
+                                className="text-xs hover:underline"
+                                onClick={() => setMostrarSugestoesPaciente(false)}
+                              >
+                                Fechar
+                              </button>
+                            </div>
+                            {sugestoesPacientes?.map((sug: any, idx: number) => (
+                              <button
+                                key={`${sug.nomePaciente}-${idx}`}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-primary/10 transition-colors flex items-center justify-between gap-2"
+                                onClick={() => {
+                                  setRecNomePaciente(sug.nomePaciente);
+                                  if (sug.hospitalEstabelecimentoId) {
+                                    setRecHospitalId(String(sug.hospitalEstabelecimentoId));
+                                  }
+                                  if (sug.convenioId) {
+                                    setRecConvenioId(String(sug.convenioId));
+                                  }
+                                  if (sug.tipoAtendimento) {
+                                    setRecTipoAtendimento(sug.tipoAtendimento);
+                                  }
+                                  if (sug.numeroAtendimento && !recNumeroAtendimento) {
+                                    setRecNumeroAtendimento(sug.numeroAtendimento);
+                                  }
+                                  setMostrarSugestoesPaciente(false);
+                                  toast.success(
+                                    `Dados de ${sug.nomePaciente} preenchidos automaticamente!`
+                                  );
+                                }}
+                              >
+                                <div>
+                                  <div className="font-semibold text-sm">{sug.nomePaciente}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {sug.hospitalNome || "Hospital"} •{" "}
+                                    {sug.convenioNome || "Convênio"}
+                                    {sug.ultimaGuia ? ` • Última Guia: #${sug.ultimaGuia}` : ""}
+                                  </div>
+                                </div>
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  {sug.totalContasAnteriores || 1} conta(s)
+                                </Badge>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                     </div>
 
                     <div className="space-y-2">
@@ -976,14 +1254,16 @@ export default function FabricaFaturamento() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSetorSelecionado("todos")}
-                    className={setorSelecionado === "todos" ? "bg-primary/10 border-primary" : ""}
-                  >
-                    Ver Todos os Setores
-                  </Button>
+                  {meuPerfil?.isGestorFabrica && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSetorSelecionado("todos")}
+                      className={setorSelecionado === "todos" ? "bg-primary/10 border-primary" : ""}
+                    >
+                      Ver Todos os Setores
+                    </Button>
+                  )}
 
                   {(setorSelecionado === "faturamento" || setorSelecionado === "recepcao") && (
                     <Button
@@ -1005,15 +1285,74 @@ export default function FabricaFaturamento() {
                     </Button>
                   )}
 
-                  <Button
-                    size="sm"
-                    onClick={() => setAbaPrincipal("recepcao")}
-                    className="gap-1.5"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Nova Conta na Recepção
-                  </Button>
+                  {podeRecepcionar && (
+                    <Button
+                      size="sm"
+                      onClick={() => setAbaPrincipal("recepcao")}
+                      className="gap-1.5"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Nova Conta na Recepção
+                    </Button>
+                  )}
                 </div>
+              </div>
+
+              {/* Atalhos Rápidos de Fila (Minhas Contas / Fila Geral / Devolvidas) */}
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "todas" ? "default" : "outline"}
+                  className="h-7 text-xs"
+                  onClick={() => setFiltroFilaRapida("todas")}
+                >
+                  Todas do Setor ({contasListaBruta.length})
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "minhas" ? "default" : "outline"}
+                  className="h-7 text-xs gap-1"
+                  onClick={() => setFiltroFilaRapida("minhas")}
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Minhas Contas (
+                  {
+                    contasListaBruta.filter(
+                      (c: any) =>
+                        meuPerfil?.usuarioId &&
+                        (c.responsavelAtualId === meuPerfil.usuarioId ||
+                          c.faturistaId === meuPerfil.usuarioId)
+                    ).length
+                  }
+                  )
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "fila_geral" ? "default" : "outline"}
+                  className="h-7 text-xs"
+                  onClick={() => setFiltroFilaRapida("fila_geral")}
+                >
+                  Fila Geral Disponível (
+                  {
+                    contasListaBruta.filter(
+                      (c: any) => !c.responsavelAtualId && c.statusSetor === "fila"
+                    ).length
+                  }
+                  )
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={filtroFilaRapida === "devolvidas" ? "destructive" : "outline"}
+                  className="h-7 text-xs"
+                  onClick={() => setFiltroFilaRapida("devolvidas")}
+                >
+                  Devolvidas c/ Erro (
+                  {contasListaBruta.filter((c: any) => c.statusSetor === "devolvido_erro").length})
+                </Button>
               </div>
 
               {/* Barra de Filtros */}
@@ -1101,6 +1440,28 @@ export default function FabricaFaturamento() {
                       <UserCheck className="h-4 w-4 mr-1.5" />
                       Assumir Selecionadas
                     </Button>
+                    {podeGerenciarEquipe && (
+                      <Select
+                        onValueChange={(val) =>
+                          atribuirResponsavelMutation.mutate({
+                            contaIds: selecionadas,
+                            responsavelId: val === "fila_geral" ? null : Number(val),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-52 bg-background text-xs">
+                          <SelectValue placeholder="Direcionar p/ Colaborador..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fila_geral">Devolver p/ Fila Geral</SelectItem>
+                          {colaboradores.map((u: any) => (
+                            <SelectItem key={u.id} value={String(u.id)}>
+                              Direcionar: {u.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     {setorSelecionado === "recepcao" && (
                       <Button
                         size="sm"
@@ -1159,7 +1520,7 @@ export default function FabricaFaturamento() {
                   <p className="text-muted-foreground font-medium">
                     Nenhuma conta encontrada neste setor com os filtros atuais.
                   </p>
-                  {setorSelecionado === "recepcao" && (
+                  {setorSelecionado === "recepcao" && podeRecepcionar && (
                     <Button onClick={() => setAbaPrincipal("recepcao")} className="gap-2">
                       <Plus className="h-4 w-4" />
                       Cadastrar Primeira Conta na Recepção
@@ -1190,7 +1551,7 @@ export default function FabricaFaturamento() {
                         <TableHead>Entrada / Alta / Receb.</TableHead>
                         <TableHead>Setor & Status</TableHead>
                         <TableHead>XML / Regras Auditoria</TableHead>
-                        <TableHead>Responsável</TableHead>
+                        <TableHead>Responsável / Fila</TableHead>
                         <TableHead className="text-right">Ações do Setor</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1242,6 +1603,14 @@ export default function FabricaFaturamento() {
                                   <span className="font-mono text-primary">
                                     Guia: #{conta.numeroGuia}
                                   </span>
+                                )}
+                                {conta.numeroLote && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] py-0 font-mono bg-blue-100 text-blue-800"
+                                  >
+                                    Lote XML: #{conta.numeroLote}
+                                  </Badge>
                                 )}
                               </div>
                               {conta.ultimoMotivoRetorno &&
@@ -1346,14 +1715,32 @@ export default function FabricaFaturamento() {
                               )}
                             </TableCell>
 
-                            <TableCell className="text-xs">
-                              {conta.responsavelAtualNome ? (
-                                <div className="font-medium">
-                                  {conta.responsavelAtualNome}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">Fila Geral</span>
-                              )}
+                            <TableCell className="text-xs space-y-1">
+                              <Select
+                                value={
+                                  conta.responsavelAtualId
+                                    ? String(conta.responsavelAtualId)
+                                    : "fila_geral"
+                                }
+                                onValueChange={(val) =>
+                                  atribuirResponsavelMutation.mutate({
+                                    contaIds: [conta.id],
+                                    responsavelId: val === "fila_geral" ? null : Number(val),
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-7 w-40 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="fila_geral">Fila Geral do Setor</SelectItem>
+                                  {colaboradores.map((u: any) => (
+                                    <SelectItem key={u.id} value={String(u.id)}>
+                                      {u.nome}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                               {conta.faturistaNome && (
                                 <div className="text-[11px] text-muted-foreground">
                                   Fat: {conta.faturistaNome}
@@ -1406,12 +1793,13 @@ export default function FabricaFaturamento() {
                                         setContaAlvoXml(conta);
                                         setEtapaXml("faturamento");
                                         setArquivoXmlFile(null);
+                                        setArquivoXmlHonorariosFile(null);
                                         setModalXmlOpen(true);
                                       }}
                                       className="h-8 gap-1 text-xs bg-blue-600 hover:bg-blue-700"
                                     >
                                       <Upload className="h-3.5 w-3.5" />
-                                      Importar XML e Enviar p/ Aud. Interna
+                                      Importar XML (Conta + Honorários)
                                     </Button>
                                   </>
                                 )}
@@ -1419,6 +1807,34 @@ export default function FabricaFaturamento() {
                                 {/* AÇÕES DO SETOR 3: AUDITORIA INTERNA */}
                                 {conta.setorAtual === "auditoria_interna" && (
                                   <>
+                                    {conta.statusSetor === "fila" && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          assumirMutation.mutate({ contaIds: [conta.id] })
+                                        }
+                                        className="h-8 text-xs"
+                                      >
+                                        Assumir
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setContaAlvoXml(conta);
+                                        setEtapaXml("faturamento");
+                                        setArquivoXmlFile(null);
+                                        setArquivoXmlHonorariosFile(null);
+                                        setModalXmlOpen(true);
+                                      }}
+                                      className="h-8 gap-1 text-xs border-blue-200 text-blue-700"
+                                      title="Anexar XML dos Honorários Médicos para ativar regras por procedimento"
+                                    >
+                                      <Upload className="h-3.5 w-3.5" />
+                                      + XML Honorários
+                                    </Button>
                                     {conta.numeroGuia && (
                                       <Button
                                         size="sm"
@@ -1429,13 +1845,21 @@ export default function FabricaFaturamento() {
                                               conta.numeroGuia
                                             )}&origem=XML&sourceHospitalId=${
                                               conta.hospitalEstabelecimentoId
-                                            }&estabelecimentoId=${conta.hospitalEstabelecimentoId}`
+                                            }&estabelecimentoId=${
+                                              conta.hospitalEstabelecimentoId
+                                            }&numeroLote=${encodeURIComponent(
+                                              conta.numeroLote || ""
+                                            )}&arquivoId=${
+                                              conta.arquivoXmlFinalId ||
+                                              conta.arquivoXmlFaturamentoId ||
+                                              ""
+                                            }&fabricaContaId=${conta.id}`
                                           )
                                         }
                                         className="h-8 gap-1 text-xs"
                                       >
                                         <Eye className="h-3.5 w-3.5" />
-                                        Auditar Regras
+                                        Auditar Regras (Lote Isolado)
                                       </Button>
                                     )}
                                     <Button
@@ -1511,6 +1935,7 @@ export default function FabricaFaturamento() {
                                         setContaAlvoXml(conta);
                                         setEtapaXml("limpeza_final");
                                         setArquivoXmlFile(null);
+                                        setArquivoXmlHonorariosFile(null);
                                         setModalXmlOpen(true);
                                       }}
                                       className="h-8 gap-1 text-xs"
@@ -1548,7 +1973,15 @@ export default function FabricaFaturamento() {
                                               conta.numeroGuia
                                             )}&origem=XML&sourceHospitalId=${
                                               conta.hospitalEstabelecimentoId
-                                            }&estabelecimentoId=${conta.hospitalEstabelecimentoId}`
+                                            }&estabelecimentoId=${
+                                              conta.hospitalEstabelecimentoId
+                                            }&numeroLote=${encodeURIComponent(
+                                              conta.numeroLote || ""
+                                            )}&arquivoId=${
+                                              conta.arquivoXmlFinalId ||
+                                              conta.arquivoXmlFaturamentoId ||
+                                              ""
+                                            }&fabricaContaId=${conta.id}`
                                           )
                                         }
                                         className="h-8 gap-1 text-xs"
@@ -2062,51 +2495,203 @@ export default function FabricaFaturamento() {
             </Card>
           </div>
         )}
+
+        {/* ============================================================
+            ABA 4: EQUIPE & PERMISSÕES POR SETOR / HOSPITAIS
+           ============================================================ */}
+        {abaPrincipal === "equipe" && podeGerenciarEquipe && (
+          <Card className="shadow-sm border-t-4 border-t-primary">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-primary" />
+                Gestão de Colaboradores por Setor & Hospital — Fábrica Safatle
+              </CardTitle>
+              <CardDescription>
+                Defina quais setores da esteira cada colaborador pode visualizar e operar (ex: somente Faturamento, somente Auditoria Interna, ou múltiplos setores) e quais hospitais atende.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Colaborador</TableHead>
+                    <TableHead>Função / Cargo</TableHead>
+                    <TableHead>Setores Liberados na Fábrica</TableHead>
+                    <TableHead>Hospitais Atendidos</TableHead>
+                    <TableHead className="text-center">Contas em Curso</TableHead>
+                    <TableHead className="text-center">Relatórios Gerenciais</TableHead>
+                    <TableHead className="text-right">Configurar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {colaboradores.map((u: any) => {
+                    const setoresLabels = (u.setoresPermitidos || []).map(
+                      (sid: string) =>
+                        SETORES_CONFIG.find((s) => s.id === sid)?.curto || sid
+                    );
+                    const hospLabels =
+                      !u.hospitaisPermitidos || u.hospitaisPermitidos.length === 0
+                        ? ["Todos os Hospitais"]
+                        : u.hospitaisPermitidos.map(
+                            (hid: number) =>
+                              todosHospitaisEscopo.find((h: any) => h.id === hid)?.nome ||
+                              `Hospital #${hid}`
+                          );
+                    return (
+                      <TableRow key={u.id}>
+                        <TableCell>
+                          <div className="font-semibold">{u.nome}</div>
+                          <div className="text-xs text-muted-foreground">{u.email}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{u.cargoSetor || "Operacional"}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {setoresLabels.map((lbl: string, idx: number) => (
+                              <Badge key={idx} variant="secondary" className="text-[10px]">
+                                {lbl}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {hospLabels.map((hl: string, idx: number) => (
+                              <Badge
+                                key={idx}
+                                variant="outline"
+                                className="text-[10px] bg-slate-50"
+                              >
+                                {hl}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center font-bold text-blue-700">
+                          {u.contasEmAndamento || 0}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {u.verRelatoriosGerenciais ? (
+                            <Badge className="bg-emerald-600 text-[10px]">Liberado</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px]">
+                              Somente Meta Individual
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setColabAlvoPerfil(u);
+                              setPerfilCargoSetor(u.cargoSetor || "Faturista");
+                              setPerfilSetores(
+                                Array.isArray(u.setoresPermitidos) &&
+                                  u.setoresPermitidos.length > 0
+                                  ? u.setoresPermitidos
+                                  : ["faturamento"]
+                              );
+                              setPerfilHospitais(
+                                Array.isArray(u.hospitaisPermitidos)
+                                  ? u.hospitaisPermitidos
+                                  : []
+                              );
+                              setPerfilVerRelatorios(Boolean(u.verRelatoriosGerenciais));
+                              setModalPerfilOpen(true);
+                            }}
+                          >
+                            Configurar Setores
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* ============================================================
-          MODAL 1: IMPORTAR XML TISS NA CONTA (FATURAMENTO OU LIMPEZA FINAL)
+          MODAL 1: IMPORTAR XML TISS NA CONTA (SUPORTA 2 ARQUIVOS: CONTA + HONORÁRIOS)
          ============================================================ */}
       <Dialog open={modalXmlOpen} onOpenChange={setModalXmlOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="h-5 w-5 text-primary" />
               {etapaXml === "faturamento"
-                ? "Importar XML da Conta Faturada"
+                ? "Importar XML da Conta Faturada (Conta + Honorários)"
                 : "Importar XML Final Pós-Limpeza"}
             </DialogTitle>
             <DialogDescription>
               Paciente: <strong>{contaAlvoXml?.nomePaciente}</strong> • Hospital:{" "}
               <strong>{contaAlvoXml?.hospitalNome}</strong>
-              <br />O XML será gravado automaticamente no estabelecimento{" "}
-              <strong>{contaAlvoXml?.hospitalNome}</strong>, carregado em{" "}
-              <strong>Conta Convênio</strong> e analisado pelo{" "}
-              <strong>Motor de Regras e Gabaritos</strong>.
+              {contaAlvoXml?.numeroGuia ? (
+                <>
+                  {" "}
+                  • Guia: <strong>#{contaAlvoXml.numeroGuia}</strong>
+                </>
+              ) : null}
+              <br />O sistema aceita <strong>2 arquivos XML</strong> (1º XML da Conta Hospitalar + 2º XML dos Honorários Médicos) para que o{" "}
+              <strong>Motor de Regras e Gabaritos</strong> identifique o procedimento cirúrgico/clínico dos honorários e audite automaticamente a conta.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="border-2 border-dashed rounded-xl p-6 text-center space-y-2">
+            {/* 1º ARQUIVO: XML DA CONTA HOSPITALAR */}
+            <div className="border-2 border-dashed rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-900/20">
+              <div className="flex items-center justify-between text-xs font-semibold text-left px-1">
+                <span className="text-primary">
+                  1º Arquivo: XML da Conta Hospitalar (Internação / SADT / Despesas)
+                </span>
+                {contaAlvoXml?.totalItensXml > 0 && !arquivoXmlFile && (
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                    Já importado ({contaAlvoXml.totalItensXml} itens) — opcional substituir
+                  </Badge>
+                )}
+              </div>
               <input
                 ref={fileXmlInputRef}
                 type="file"
                 accept=".xml"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setArquivoXmlFile(f);
+                  const files = e.target.files;
+                  if (!files || files.length === 0) {
+                    setArquivoXmlFile(null);
+                    return;
+                  }
+                  setArquivoXmlFile(files[0]);
+                  if (files.length >= 2) {
+                    setArquivoXmlHonorariosFile(files[1]);
+                    toast.info(
+                      "2 arquivos XML selecionados: Conta Hospitalar + Honorários Médicos!"
+                    );
+                  }
                 }}
               />
-              <FileText className="h-10 w-10 text-primary mx-auto" />
+              <FileText className="h-8 w-8 text-primary mx-auto" />
               {arquivoXmlFile ? (
-                <div className="text-sm font-semibold text-emerald-700">
-                  Arquivo selecionado: {arquivoXmlFile.name} (
-                  {Math.round(arquivoXmlFile.size / 1024)} KB)
+                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-emerald-700">
+                  <span>
+                    Conta: {arquivoXmlFile.name} ({Math.round(arquivoXmlFile.size / 1024)} KB)
+                  </span>
+                  <button
+                    type="button"
+                    className="text-red-600 hover:underline"
+                    onClick={() => setArquivoXmlFile(null)}
+                  >
+                    Remover
+                  </button>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  Selecione o arquivo XML TISS exportado do sistema de gestão do hospital
+                <p className="text-xs text-muted-foreground">
+                  Selecione o XML da Conta Hospitalar (ou selecione os 2 XMLs de uma só vez)
                 </p>
               )}
               <Button
@@ -2115,7 +2700,58 @@ export default function FabricaFaturamento() {
                 size="sm"
                 onClick={() => fileXmlInputRef.current?.click()}
               >
-                Escolher Arquivo .XML
+                Escolher XML da Conta Hospitalar
+              </Button>
+            </div>
+
+            {/* 2º ARQUIVO: XML DOS HONORÁRIOS MÉDICOS (CONTEXTO MÉDICO PARA MOTOR DE REGRAS) */}
+            <div className="border-2 border-dashed border-blue-300 dark:border-blue-800 rounded-xl p-4 text-center space-y-2 bg-blue-50/30 dark:bg-blue-950/20">
+              <div className="flex items-center justify-between text-xs font-semibold text-left px-1">
+                <span className="text-blue-700 dark:text-blue-300">
+                  2º Arquivo: XML dos Honorários Médicos (Ativa Regras por Procedimento / Gabarito)
+                </span>
+                <Badge variant="secondary" className="text-[10px]">
+                  Motor de Regras
+                </Badge>
+              </div>
+              <input
+                ref={fileXmlHonorariosInputRef}
+                type="file"
+                accept=".xml"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setArquivoXmlHonorariosFile(f);
+                }}
+              />
+              <Stethoscope className="h-8 w-8 text-blue-600 mx-auto" />
+              {arquivoXmlHonorariosFile ? (
+                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-blue-700">
+                  <span>
+                    Honorários: {arquivoXmlHonorariosFile.name} (
+                    {Math.round(arquivoXmlHonorariosFile.size / 1024)} KB)
+                  </span>
+                  <button
+                    type="button"
+                    className="text-red-600 hover:underline"
+                    onClick={() => setArquivoXmlHonorariosFile(null)}
+                  >
+                    Remover
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Anexe o XML dos Honorários Médicos (SP/SADT ou Honorários) para vincular os procedimentos médicos à conta hospitalar e disparar os gabaritos do Motor de Regras
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                onClick={() => fileXmlHonorariosInputRef.current?.click()}
+              >
+                Escolher XML dos Honorários Médicos
               </Button>
             </div>
           </div>
@@ -2126,15 +2762,156 @@ export default function FabricaFaturamento() {
             </Button>
             <Button
               onClick={handleConfirmarImportacaoXml}
-              disabled={!arquivoXmlFile || importarXmlMutation.isPending}
+              disabled={
+                (!arquivoXmlFile && !arquivoXmlHonorariosFile) ||
+                importarXmlMutation.isPending
+              }
               className="gap-2"
             >
               <CheckCircle2 className="h-4 w-4" />
               {importarXmlMutation.isPending
-                ? "Processando XML e Regras..."
-                : etapaXml === "faturamento"
-                  ? "Importar e Enviar p/ Auditoria Interna"
-                  : "Salvar XML Final no Hospital"}
+                ? "Processando XML(s) e Regras..."
+                : arquivoXmlFile && arquivoXmlHonorariosFile
+                  ? "Importar 2 XMLs (Conta + Honorários) e Auditar Regras"
+                  : !arquivoXmlFile && arquivoXmlHonorariosFile
+                    ? "Vincular XML de Honorários e Reavaliar Regras"
+                    : etapaXml === "faturamento"
+                      ? "Importar XML e Enviar p/ Auditoria Interna"
+                      : "Salvar XML Final no Hospital"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================
+          MODAL 5: CONFIGURAR PERFIL E SETORES DO COLABORADOR
+         ============================================================ */}
+      <Dialog open={modalPerfilOpen} onOpenChange={setModalPerfilOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-primary" />
+              Permissões por Setor — {colabAlvoPerfil?.nome}
+            </DialogTitle>
+            <DialogDescription>
+              Configure quais setores da Fábrica este colaborador pode acessar e operar, mantendo sua tela focada na sua etapa e meta.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Função / Cargo na Fábrica</Label>
+              <Input
+                value={perfilCargoSetor}
+                onChange={(e) => setPerfilCargoSetor(e.target.value)}
+                placeholder="Ex: Faturista, Auditora Interna, Recepção, Limpeza..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Setores Liberados para este Colaborador *</Label>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                {[
+                  { id: "recepcao", nome: "1. Recepção de Contas" },
+                  { id: "faturamento", nome: "2. Setor de Faturamento" },
+                  { id: "auditoria_interna", nome: "3. Auditoria Interna" },
+                  { id: "auditoria_externa", nome: "4. Auditoria Externa" },
+                  { id: "limpeza_prontuario", nome: "5. Limpeza / Envio" },
+                  { id: "recursos", nome: "6. Enviado / Recursos" },
+                ].map((s) => {
+                  const checked = perfilSetores.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className="flex items-center gap-2 text-xs font-medium cursor-pointer p-1.5 rounded hover:bg-muted/60"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setPerfilSetores([...perfilSetores, s.id]);
+                          } else {
+                            setPerfilSetores(perfilSetores.filter((x) => x !== s.id));
+                          }
+                        }}
+                      />
+                      {s.nome}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Hospitais Atendidos pelo Colaborador</Label>
+                <span className="text-[11px] text-muted-foreground">
+                  Em branco = atende todos os hospitais autorizados
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border p-3 max-h-40 overflow-y-auto">
+                {todosHospitaisEscopo
+                  .filter((h: any) => h.id !== 2160001)
+                  .map((h: any) => {
+                    const checked = perfilHospitais.includes(h.id);
+                    return (
+                      <label
+                        key={h.id}
+                        className="flex items-center gap-2 text-xs cursor-pointer p-1 rounded hover:bg-muted/60"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPerfilHospitais([...perfilHospitais, h.id]);
+                            } else {
+                              setPerfilHospitais(
+                                perfilHospitais.filter((id) => id !== h.id)
+                              );
+                            }
+                          }}
+                        />
+                        {h.nome}
+                      </label>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs font-medium cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={perfilVerRelatorios}
+                onChange={(e) => setPerfilVerRelatorios(e.target.checked)}
+              />
+              Permitir visualizar a aba completa de Relatórios Gerenciais Safatle (Coordenador/Supervisor)
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalPerfilOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (!colabAlvoPerfil) return;
+                if (perfilSetores.length === 0) {
+                  toast.error("Selecione pelo menos 1 setor para o colaborador.");
+                  return;
+                }
+                salvarPerfilColaboradorMutation.mutate({
+                  colaboradorId: colabAlvoPerfil.id,
+                  cargoSetor: perfilCargoSetor.trim() || "Operacional",
+                  setoresPermitidos: perfilSetores as any,
+                  hospitaisPermitidos: perfilHospitais,
+                  verRelatoriosGerenciais: perfilVerRelatorios,
+                });
+              }}
+              disabled={salvarPerfilColaboradorMutation.isPending}
+            >
+              Salvar Permissões do Colaborador
             </Button>
           </DialogFooter>
         </DialogContent>
