@@ -1720,6 +1720,32 @@ export default function FabricaFaturamento() {
                                       ({conta.totalItensXml} itens)
                                     </span>
                                   </div>
+                                  {(Boolean(
+                                    conta.arquivoXmlFaturamentoId &&
+                                      conta.arquivoXmlFinalId &&
+                                      Number(conta.arquivoXmlFinalId) !==
+                                        Number(conta.arquivoXmlFaturamentoId)
+                                  ) ||
+                                    (conta.qtdRetrabalhos > 0 &&
+                                      conta.statusSetor !== "devolvido_erro")) && (
+                                    <div className="flex flex-col gap-0.5">
+                                      <Badge
+                                        variant="outline"
+                                        className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] w-fit"
+                                      >
+                                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                                        XML Corrigido pelo Faturista
+                                      </Badge>
+                                      {Number(conta.valorFaturadoInicial) > 0 &&
+                                        Number(conta.valorFaturadoFinal) !==
+                                          Number(conta.valorFaturadoInicial) && (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            1º XML: {formatCurrency(conta.valorFaturadoInicial)} → Atual:{" "}
+                                            {formatCurrency(conta.valorFaturadoFinal)}
+                                          </span>
+                                        )}
+                                    </div>
+                                  )}
                                   {conta.statusAuditoriaRegras === "divergente" ? (
                                     <Badge
                                       variant="outline"

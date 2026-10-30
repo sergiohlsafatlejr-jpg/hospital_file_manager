@@ -1777,9 +1777,25 @@ export const fabricaFaturamentoRouter = router({
         entradaSetorAtualEm: novoSetor !== conta.setorAtual ? now : conta.entradaSetorAtualEm,
       };
 
-      if (input.etapaXml === "limpeza_final" || conta.setorAtual === "limpeza_prontuario") {
+      const jaTinhaPrimeiroXml = Boolean(conta.arquivoXmlFaturamentoId);
+      const valorInicialAnterior = Number(conta.valorFaturadoInicial) || 0;
+      if (input.etapaXml === "limpeza_final" || conta.setorAtual === "limpeza_prontuario" || jaTinhaPrimeiroXml) {
         updatesConta.arquivoXmlFinalId = arquivoId;
         updatesConta.valorFaturadoFinal = String(valorTotalXml.toFixed(2));
+        updatesConta.faturistaId = conta.faturistaId || ctx.user.id;
+        updatesConta.faturistaNome = conta.faturistaNome || usuarioNome;
+        if (conta.setorAtual === "faturamento" && novoSetor === "auditoria_interna") {
+          await db
+            .update(fabricaErrosConta)
+            .set({ corrigido: "sim", dataCorrecao: nowStr })
+            .where(
+              and(
+                eq(fabricaErrosConta.fabricaContaId, conta.id),
+                eq(fabricaErrosConta.hospitalEstabelecimentoId, hospitalEstabId),
+                eq(fabricaErrosConta.corrigido, "nao")
+              )
+            );
+        }
         if (Number(conta.valorFaturadoInicial) === 0) {
           updatesConta.valorFaturadoInicial = String(valorTotalXml.toFixed(2));
         }
@@ -1808,7 +1824,9 @@ export const fabricaFaturamentoRouter = router({
         dataSaidaSetor: nowStr,
         duracaoSegundos,
         valorMovimentado: String(valorTotalXml.toFixed(2)),
-        observacao: `XML "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (${procsConta.length} itens, R$ ${valorTotalXml.toFixed(2)}). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`,
+        observacao: jaTinhaPrimeiroXml
+          ? `XML Corrigido/Revisado "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (1º XML #${conta.arquivoXmlFaturamentoId}: R$ ${valorInicialAnterior.toFixed(2)} → Corrigido #${arquivoId}: R$ ${valorTotalXml.toFixed(2)}, ${procsConta.length} itens). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`
+          : `1º XML Inicial "${nomeArqConta}"${honorariosIndexados ? ` + Honorários "${nomeArqHon}"` : ""} importado (${procsConta.length} itens, R$ ${valorTotalXml.toFixed(2)}). Roteado ao hospital #${hospitalEstabId}. Regras: ${statusAuditoriaRegras.toUpperCase()} (${totalDivergencias} divergências).`,
       });
 
       return {
