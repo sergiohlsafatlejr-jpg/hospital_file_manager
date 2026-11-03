@@ -2,8 +2,7 @@ import { RoboBase, CredenciaisConvenio } from '../RoboBase';
 import { logger } from '../../_core/logger';
 import path from 'path';
 import fs from 'fs';
-import { getDb } from '../../db';
-import { like } from 'drizzle-orm';
+import { ErroPoliticaPortal } from '../rpaPortalPolicy';
 
 export class RoboIpasgo extends RoboBase {
   constructor() {
@@ -11,17 +10,16 @@ export class RoboIpasgo extends RoboBase {
   }
 
   async executar(credenciais: CredenciaisConvenio, parametros?: { competencia: string }) {
+    const scope = this.criarScopeImportacaoRpa(credenciais);
     let arquivosBaixados = 0;
 
     try {
       const isProducao = process.env.NODE_ENV === 'production';
       await this.iniciarBrowser(!isProducao);
       if (!this.page) throw new Error('Pagina nao iniciada');
+      await this.definirContextoPortal('IPASGO', credenciais);
 
-      const downloadPath = path.join(process.cwd(), 'uploads', 'demonstrativos', 'ipasgo');
-      if (!fs.existsSync(downloadPath)) {
-        fs.mkdirSync(downloadPath, { recursive: true });
-      }
+      const downloadPath = this.criarDiretorioDownloadRpa(scope);
 
       const client = await this.page.target().createCDPSession();
       await client.send('Page.setDownloadBehavior', {
@@ -40,6 +38,7 @@ export class RoboIpasgo extends RoboBase {
       const currentUrl = this.page.url();
       if (currentUrl.includes('InvalidTipoUsuario')) {
         logger.info({ message: `[${this.nome}] Pagina de selecao de tipo. Clicando em "Prestador"...` });
+        await this.validarAntesDeCredenciais();
         const prestadorClicked = await this.page.evaluate(() => {
           const links = Array.from(document.querySelectorAll('a'));
           for (const a of links) {
@@ -79,6 +78,7 @@ export class RoboIpasgo extends RoboBase {
       if (!entrarBtn) entrarBtn = await this.page.$('input[type="submit"]');
 
       if (!loginField || !senhaField) {
+        await this.validarAntesDeCredenciais();
         const debugPath = path.join(downloadPath, `debug_login_${Date.now()}.png`);
         await this.page.screenshot({ path: debugPath, fullPage: true });
         const html = await this.page.content();
@@ -87,14 +87,19 @@ export class RoboIpasgo extends RoboBase {
         throw new Error('Campos de login/senha nao encontrados');
       }
 
+      await this.validarAntesDeCredenciais();
       await loginField.click({ clickCount: 3 });
+      await this.validarAntesDeCredenciais();
       await loginField.type(credenciais.login || '', { delay: 50 });
       await this.delay(500);
+      await this.validarAntesDeCredenciais();
       await senhaField.click({ clickCount: 3 });
+      await this.validarAntesDeCredenciais();
       await senhaField.type(credenciais.senha || '', { delay: 50 });
       await this.delay(500);
 
       if (entrarBtn) {
+        await this.validarAntesDeCredenciais();
         await entrarBtn.click();
         logger.info({ message: `[${this.nome}] Botao Entrar clicado` });
       }
@@ -104,6 +109,7 @@ export class RoboIpasgo extends RoboBase {
 
       // ====== PASSO 3: Tratar modal "Senha Expirada" - Clicar em "Nao" ======
       logger.info({ message: `[${this.nome}] Verificando modal de Senha Expirada...` });
+      await this.validarAntesDeCredenciais();
       try {
         const naoClicked = await this.page.evaluate(() => {
           const els = Array.from(document.querySelectorAll('a, button, input, span, div'));
@@ -121,11 +127,13 @@ export class RoboIpasgo extends RoboBase {
           await this.delay(3000);
         }
       } catch (e) {
+        if (e instanceof ErroPoliticaPortal) throw e;
         logger.info({ message: `[${this.nome}] Sem modal de senha expirada` });
       }
 
       // ====== PASSO 4: Tratar modal "Atualizacao Cadastral" - Clicar em "Sair" ======
       await this.delay(2000);
+      await this.validarAntesDeCredenciais();
       try {
         const sairClicked = await this.page.evaluate(() => {
           const els = Array.from(document.querySelectorAll('a, button, input, span'));
@@ -144,10 +152,12 @@ export class RoboIpasgo extends RoboBase {
           await this.delay(3000);
         }
       } catch (e) {
+        if (e instanceof ErroPoliticaPortal) throw e;
         logger.info({ message: `[${this.nome}] Sem modal de atualizacao cadastral` });
       }
 
       // Screenshot do dashboard logado
+      await this.validarAntesDeCredenciais();
       await this.page.screenshot({ path: path.join(downloadPath, `dashboard_ipasgo_${Date.now()}.png`), fullPage: true });
       const dashHtml = await this.page.content();
       fs.writeFileSync(path.join(downloadPath, `dashboard_html_${Date.now()}.txt`), dashHtml);
@@ -156,6 +166,7 @@ export class RoboIpasgo extends RoboBase {
       // ====== PASSO 5: Clicar em "Portal WebPlan" na secao Faturas Eletronicas ======
       logger.info({ message: `[${this.nome}] Navegando para Portal WebPlan...` });
 
+      await this.validarAntesDeCredenciais();
       const webplanClicked = await this.page.evaluate(() => {
         const links = Array.from(document.querySelectorAll('a'));
         for (const a of links) {
@@ -192,8 +203,9 @@ export class RoboIpasgo extends RoboBase {
           }
         }
         if (webplanPage === this.page) {
-          webplanPage = pages[pages.length - 1]; // Fallback: ultima aba
+          throw new ErroPoliticaPortal();
         }
+        await this.validarAntesDeCredenciais(webplanPage);
         logger.info({ message: `[${this.nome}] WebPlan em nova aba. URL: ${webplanPage.url()}` });
 
         const newClient = await webplanPage.target().createCDPSession();
@@ -206,6 +218,7 @@ export class RoboIpasgo extends RoboBase {
       await webplanPage.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
       await this.delay(3000);
 
+      await this.assegurarPortalSemBloqueios(webplanPage);
       // Se nao abriu nova aba e nao navegou, tentar ir direto pro WebPlan
       const wpUrl = webplanPage.url();
       if (!wpUrl.includes('webplan') && !wpUrl.includes('facilinformatica') && !wpUrl.includes('GuiasTISS')) {
@@ -215,6 +228,7 @@ export class RoboIpasgo extends RoboBase {
       }
 
       // Screenshot do WebPlan
+      await this.validarAntesDeCredenciais(webplanPage);
       await webplanPage.screenshot({ path: path.join(downloadPath, `webplan_home_${Date.now()}.png`), fullPage: true });
       logger.info({ message: `[${this.nome}] WebPlan carregado. URL: ${webplanPage.url()}` });
 
@@ -223,6 +237,7 @@ export class RoboIpasgo extends RoboBase {
       logger.info({ message: `[${this.nome}] Clicando em "Faturas" no menu do WebPlan...` });
 
       // Procurar o link/elemento "Faturas" no menu superior (pode ser <a> ou <span> dentro de <a>)
+      await this.validarAntesDeCredenciais(webplanPage);
       const faturasClicked = await webplanPage.evaluate(() => {
         // Buscar todos os elementos clicaveis
         const els = Array.from(document.querySelectorAll('a, span, li, div'));
@@ -254,6 +269,7 @@ export class RoboIpasgo extends RoboBase {
       // Screenshot do dropdown aberto
       await webplanPage.screenshot({ path: path.join(downloadPath, `dropdown_faturas_${Date.now()}.png`), fullPage: true });
 
+      await this.validarAntesDeCredenciais(webplanPage);
       let relatorioClicked = await webplanPage.evaluate(() => {
         const links = Array.from(document.querySelectorAll('a'));
         for (const a of links) {
@@ -280,12 +296,14 @@ export class RoboIpasgo extends RoboBase {
       }
 
       await this.delay(3000);
+      await this.validarAntesDeCredenciais(webplanPage);
       await webplanPage.screenshot({ path: path.join(downloadPath, `relatorio_fatura_${Date.now()}.png`), fullPage: true });
       logger.info({ message: `[${this.nome}] Pagina de Relatorio. URL: ${webplanPage.url()}` });
 
       // ====== PASSO 8: Clicar em "Pesquisar" ======
       logger.info({ message: `[${this.nome}] Clicando em "Pesquisar"...` });
 
+      await this.validarAntesDeCredenciais(webplanPage);
       const pesquisarClicked = await webplanPage.evaluate(() => {
         // Buscar botao "Pesquisar" - pode ser button, input ou link
         const els = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a'));
@@ -311,6 +329,7 @@ export class RoboIpasgo extends RoboBase {
       let resultadosCarregados = false;
       for (let tentativa = 0; tentativa < 10; tentativa++) {
         await this.delay(3000);
+        await this.validarAntesDeCredenciais(webplanPage);
         const temResultados = await webplanPage.evaluate(() => {
           // Verificar se existem linhas de resultado (faturas) na pagina
           // Buscar por elementos que contenham "Codigo:" ou elementos de fatura
@@ -334,6 +353,7 @@ export class RoboIpasgo extends RoboBase {
       }
 
       // Screenshot apos pesquisa
+      await this.validarAntesDeCredenciais(webplanPage);
       await webplanPage.screenshot({ path: path.join(downloadPath, `resultado_pesquisa_${Date.now()}.png`), fullPage: true });
 
       // ====== PASSO 9: Clicar no icone "X" de download Excel ======
@@ -342,6 +362,7 @@ export class RoboIpasgo extends RoboBase {
       logger.info({ message: `[${this.nome}] Buscando icone X (download Excel) nas faturas...` });
 
       // Salvar HTML para debug
+      await this.validarAntesDeCredenciais(webplanPage);
       const htmlPesquisa = await webplanPage.content();
       fs.writeFileSync(path.join(downloadPath, `pesquisa_html_${Date.now()}.txt`), htmlPesquisa);
 
@@ -368,6 +389,7 @@ export class RoboIpasgo extends RoboBase {
       if (xIconsInfo.length > 0) {
         // Filtrar: queremos os x-icon que estao dentro de botoes/links de acao das faturas
         // (nao os de "Recusar" ou "Fechar" dos modals)
+        await this.validarAntesDeCredenciais(webplanPage);
         const clicked = await webplanPage.evaluate(() => {
           const icons = Array.from(document.querySelectorAll('i.x-icon'));
           for (const icon of icons) {
@@ -425,53 +447,47 @@ export class RoboIpasgo extends RoboBase {
         await webplanPage.screenshot({ path: path.join(downloadPath, `debug_excel_${Date.now()}.png`), fullPage: true });
       }
 
+      await this.assegurarPortalSemBloqueios(webplanPage);
       // ====== IMPORTACAO AUTOMATICA ======
       if (arquivosBaixados > 0) {
         try {
+          await this.validarAntesDeCredenciais(webplanPage);
           const arquivosNaPasta = fs.readdirSync(downloadPath);
           const tempoLimite = Date.now() - (20 * 60 * 1000);
           const xlsNovos = arquivosNaPasta.filter(f => {
             if (!f.endsWith('.xls') && !f.endsWith('.xlsx')) return false;
-            const stat = fs.statSync(path.join(downloadPath, f));
+            const stat = fs.statSync(this.resolverArquivoDownloadRpa(downloadPath, f));
             return stat.mtimeMs > tempoLimite;
           });
 
           if (xlsNovos.length > 0) {
             logger.info({ message: `[${this.nome}] ${xlsNovos.length} arquivos novos para importar` });
 
-            let idConvenio = 1;
-            const { convenios } = await import('../../../drizzle/schema');
-            const drizzleDb = await getDb();
-            if (drizzleDb) {
-              const conveniosDb = await drizzleDb.select().from(convenios).where(like(convenios.nome, '%IPASGO%'));
-              if (conveniosDb.length > 0) {
-                idConvenio = conveniosDb[0].id;
-              } else {
-                const conveniosDb2 = await drizzleDb.select().from(convenios).where(like(convenios.nome, '%Ipasgo%'));
-                if (conveniosDb2.length > 0) {
-                  idConvenio = conveniosDb2[0].id;
-                }
-              }
-            }
-
             const { processarArquivoRpa } = await import('../importador');
             for (const f of xlsNovos) {
-              await processarArquivoRpa(path.join(downloadPath, f), f, idConvenio, parametros?.competencia, credenciais.estabelecimentoId);
+              await this.validarAntesDeCredenciais(webplanPage);
+              const importacao = await processarArquivoRpa(this.resolverArquivoDownloadRpa(downloadPath, f), f, scope, parametros?.competencia);
+              if (!importacao.success) throw new Error('Importação RPA recusada; revisão necessária.');
             }
           }
         } catch (errDb: any) {
-          logger.error({ message: `[${this.nome}] Erro ao importar: ${errDb.message}` });
+          if (errDb instanceof ErroPoliticaPortal) throw errDb;
+          throw new Error('Importação RPA recusada; revisão necessária.');
         }
       }
 
       // Screenshot final
       const screenshotPath = path.join(downloadPath, `resultado_ipasgo_${Date.now()}.png`);
+      await this.validarAntesDeCredenciais(webplanPage);
       try {
         await webplanPage.screenshot({ path: screenshotPath, fullPage: true });
       } catch (e) {
+        if (e instanceof ErroPoliticaPortal) throw e;
+        await this.validarAntesDeCredenciais(this.page);
         await this.page.screenshot({ path: screenshotPath, fullPage: true });
       }
 
+      await this.assegurarPortalSemBloqueios(webplanPage);
       return {
         status: 'sucesso',
         mensagem: `Robo IPASGO finalizou. ${arquivosBaixados} arquivo(s) processados.`,

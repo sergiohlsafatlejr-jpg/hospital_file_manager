@@ -11,9 +11,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
-import { createReadStream, existsSync, mkdirSync, promises as fs } from "node:fs";
+import { mkdirSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path, { extname } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { and, eq } from "drizzle-orm";
 import * as db from "./db";
 import { storagePut, storageGet } from "./storage";
@@ -26,12 +28,7 @@ import {
   CONTRATOS_PDF_MAX_BYTES,
   CONTRATOS_PDF_MAX_TOTAL_BYTES,
   ensureContratosConveniosDocumentosTable,
-  lerContratoPdf,
-  obterCaminhoLocalPdfContrato,
-  salvarPdfContratoStorage,
   sanitizarNomePdf,
-  sha256Pdf,
-  validarPdfContrato,
 } from "./contratosConveniosPdfService";
 import { importTasyCsvFile } from "./tasyCsvImportService";
 import {
@@ -39,9 +36,21 @@ import {
   reserveWarleineImportJob,
 } from "./warleineFaturamentoImportService";
 import { encryptWarleineFile } from "./warleineFileVault";
-import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
+import {
+  assertInternalProcessingReady,
+  dispatchInternalFileProcessing,
+} from "./internalFileDispatch";
+import {
+  assertContratosUploadReady,
+  createContratosUploadCloudStorage,
+  createContratosUploadProductionDependencies,
+  processContratosUploadPdfFile,
+  registerContratosUploadRoutes,
+  sha256ContratosUploadFile,
+} from "./contratosUploadChunks";
 
 const router = Router();
+registerContratosUploadRoutes(router, createContratosUploadProductionDependencies());
 
 // Configurar multer para armazenar em memória (buffer)
 // Limite de 100MB para cobrir qualquer arquivo hospitalar
@@ -360,9 +369,8 @@ router.post(
       const documentos: Array<Record<string, unknown>> = [];
       for (const file of files) {
         try {
-          const buffer = await fs.readFile(file.path);
-          validarPdfContrato(buffer);
-          const sha256 = sha256Pdf(buffer);
+          await assertContratosUploadReady(file.size);
+          const sha256 = await sha256ContratosUploadFile(file.path);
           const [existente] = await database
             .select()
             .from(contratosConveniosDocumentos)
@@ -374,6 +382,9 @@ router.post(
             )
             .limit(1);
           if (existente) {
+            if (existente.status !== "concluido" && existente.status !== "ocr_necessario") {
+              throw new Error("Este PDF possui upload pendente ou interrompido; retome a sessão original.");
+            }
             documentos.push({
               id: existente.id,
               nomeArquivo: existente.nomeArquivo,
@@ -385,10 +396,18 @@ router.post(
             continue;
           }
 
-          const leitura = await lerContratoPdf(buffer);
+          const leitura = await processContratosUploadPdfFile(file.path, file.size);
           const nomeArquivo = sanitizarNomePdf(file.originalname);
-          const storageKey = `contratos-convenios/${contrato.estabelecimentoId}/${contratoId}/${sha256}.pdf`;
-          await salvarPdfContratoStorage(storageKey, buffer);
+          const storageKey = `contratos-convenios/${contrato.estabelecimentoId}/${contratoId}/${nanoid(32)}.pdf`;
+          const cloud = createContratosUploadCloudStorage({
+            put: (key, bytes, mime, options) => storagePut(key, bytes, mime, options?.signal),
+            get: (key, options) => storageGet(key, options?.signal),
+            configuration: () => ({
+              baseUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
+              apiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+            }),
+          });
+          await cloud.putFile(storageKey, file.path);
           const [insertResult] = await database
             .insert(contratosConveniosDocumentos)
             .values({
@@ -397,7 +416,7 @@ router.post(
               nomeArquivo,
               storageKey,
               mimeType: "application/pdf",
-              tamanhoBytes: buffer.length,
+              tamanhoBytes: file.size,
               sha256,
               paginas: leitura.paginas,
               status: leitura.status,
@@ -483,6 +502,9 @@ router.get(
         return res.status(403).json({ error: "Sem permissão para visualizar este documento." });
       }
 
+      if (documento.status !== "concluido" && documento.status !== "ocr_necessario") {
+        return res.status(409).json({ error: "O PDF ainda não está disponível para download." });
+      }
       if (
         process.env.BUILT_IN_FORGE_API_URL &&
         process.env.BUILT_IN_FORGE_API_KEY
@@ -490,14 +512,18 @@ router.get(
         const cloud = await storageGet(documento.storageKey);
         if (cloud?.url) {
           const upstream = await fetch(cloud.url);
-          if (upstream.ok) {
-            const pdfBytes = Buffer.from(await upstream.arrayBuffer());
+          if (upstream.ok && upstream.body) {
             res.setHeader("Content-Type", documento.mimeType || "application/pdf");
             res.setHeader(
               "Content-Disposition",
               `inline; filename="${sanitizarNomePdf(documento.nomeArquivo)}"`
             );
-            return res.status(200).send(pdfBytes);
+            res.status(200);
+            await pipeline(
+              Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream<Uint8Array>),
+              res
+            );
+            return;
           }
         }
       }
@@ -506,7 +532,11 @@ router.get(
         .status(404)
         .json({ error: "Arquivo PDF não encontrado no armazenamento." });
     } catch (error: any) {
-      console.error("[Contratos PDF] Erro no download:", error?.message || error);
+      console.error("[Contratos PDF] Falha ao transmitir documento autorizado.");
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
       return res
         .status(500)
         .json({ error: "Não foi possível abrir o PDF." });
@@ -609,6 +639,12 @@ router.post(
         }
       }
 
+      const precisaWorker = direcao === "enviado" ||
+        (direcao === "retornado" && ["excel", "csv", "txt", "xml"].includes(tipoArquivo));
+      if (precisaWorker) {
+        try { assertInternalProcessingReady(); }
+        catch { return res.status(412).json({ error: "O processamento interno não está configurado." }); }
+      }
       console.log(
         `[UploadMultipart] Recebido: ${(buffer.length / 1024 / 1024).toFixed(1)}MB tipo=${tipoArquivo} direcao=${direcao}`
       );
@@ -684,83 +720,19 @@ router.post(
       console.log(`[UploadMultipart] Novo arquivo criado: ${arquivoId}`);
     }
 
-    // Para arquivos retornados (Excel/CSV), delegar processamento em background
-      if (
-        direcao === "retornado" &&
-        (tipoArquivo === "excel" ||
-          tipoArquivo === "csv" ||
-          tipoArquivo === "txt")
-      ) {
-      // Disparar processamento em background
-        const port = process.env.PORT || "3000";
-      const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
-
-        await delegarPlanilhaRetorno(
-          {
-            arquivoId,
-            secret,
-            reimportacao: isReimportacao,
-            tipoArquivo,
-          },
-          {
-            marcarProcessando: () =>
-              db.updateArquivoStatus(arquivoId, "processando"),
-            atualizarProgresso: () =>
-              db.updateArquivoProgresso(arquivoId, 5, 0),
-            disparar: payload =>
-              fetch(internalUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }),
-        marcarErro: () => db.updateArquivoStatus(arquivoId, "erro"),
-          }
-        );
-
-        console.log(
-          `[UploadMultipart] Background processing disparado para ${arquivoId}`
-        );
-      } else if (direcao === "retornado" && tipoArquivo === "xml") {
-      // XML retornado - também background
+    if (precisaWorker) {
       await db.updateArquivoStatus(arquivoId, "processando");
       await db.updateArquivoProgresso(arquivoId, 5, 0);
-
-        const port = process.env.PORT || "3000";
-      const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
-
-      fetch(internalUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ arquivoId, secret }),
-      }).catch(err => {
-          console.error(
-            "[UploadMultipart] Erro ao disparar processamento XML:",
-            err
-          );
-        db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
-      });
-      } else if (direcao === "enviado") {
-      // Arquivo de envio - background
-      await db.updateArquivoStatus(arquivoId, "processando");
-      await db.updateArquivoProgresso(arquivoId, 5, 0);
-
-        const port = process.env.PORT || "3000";
-      const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
-
-      fetch(internalUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ arquivoId, secret }),
-      }).catch(err => {
-          console.error(
-            "[UploadMultipart] Erro ao disparar processamento envio:",
-            err
-          );
-        db.updateArquivoStatus(arquivoId, "erro").catch(() => {});
-      });
+      const planilhaRetorno = direcao === "retornado" &&
+        ["excel", "csv", "txt"].includes(tipoArquivo);
+      // PR156: apenas um Excel NOVO pode dispensar a limpeza. CSV/TXT e
+      // reimportações preservam a limpeza; XML/envio usam o default do worker.
+      void dispatchInternalFileProcessing({
+        arquivoId,
+        ...(planilhaRetorno ? {
+          limparDadosAnteriores: isReimportacao || tipoArquivo !== "excel",
+        } : {}),
+      }).catch(() => undefined);
     }
 
       // Não retornar URL/chave de storage: o acompanhamento usa somente o ID.

@@ -677,9 +677,12 @@ export const faturamentoUnificadoRouter = router({
         valorPago: z.string().optional(),
         valorGlosa: z.string().optional(),
         tipoLancamento: z.string().optional(),
+        dataExecucao: z.union([z.string(), z.date()]).optional(),
+        convenioId: z.number().int().positive().optional(),
       })),
       estabelecimentoId: z.number(),
       convenioNome: z.string().optional(),
+      convenioId: z.number().int().positive().optional(),
     }))
     .mutation(async ({ input }) => {
       return await faturamentoService.gerarJustificativasIA(input);

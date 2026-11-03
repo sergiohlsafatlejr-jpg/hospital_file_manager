@@ -5,6 +5,7 @@ import { eq, and, sql, lt } from "drizzle-orm";
 import { arquivos } from "../../drizzle/schema";
 import { WarleineConnector } from "../connectors/WarleineConnector";
 import { ehIntegracaoLegadaHup } from "../hupLegacyCutover";
+import { assertInternalProcessingReady, dispatchInternalFileProcessing, INTERNAL_DISPATCH_REVIEW_MARKER } from "../internalFileDispatch";
 
 const activeJobs: Map<number, ReturnType<typeof cron.schedule>> = new Map();
 const runningJobs: Set<number> = new Set();
@@ -50,8 +51,8 @@ function initializeFileWatchdog() {
     watchdogRunning = true;
     try {
       await checkAndRetryStuckFiles();
-    } catch (error) {
-      console.error("[FileWatchdog] Erro:", error);
+    } catch {
+      console.error("[FileWatchdog] Verificação interrompida por falha interna.");
     } finally {
       watchdogRunning = false;
     }
@@ -60,6 +61,8 @@ function initializeFileWatchdog() {
 }
 
 async function checkAndRetryStuckFiles() {
+  // Sem configuração segura não registrar retry nem alterar status legado.
+  assertInternalProcessingReady();
   const db = await getDb();
   if (!db) return;
 
@@ -73,7 +76,10 @@ async function checkAndRetryStuckFiles() {
     .where(
       and(
         eq(arquivos.status, "processando"),
-        lt(arquivos.updatedAt, timeoutDate)
+        lt(arquivos.updatedAt, timeoutDate),
+        // Um timeout HTTP não prova que o worker parou. A evidência persistida
+        // antes do despacho impede replay automático sobre sucesso ou tentativa ativa.
+        sql`NOT EXISTS (SELECT 1 FROM process_logs dispatch_log WHERE dispatch_log.arquivo_id = ${arquivos.id} AND dispatch_log.message = ${INTERNAL_DISPATCH_REVIEW_MARKER})`
       )
     )
     .limit(10);
@@ -105,7 +111,7 @@ async function checkAndRetryStuckFiles() {
     }
 
     // Resetar para pendente e disparar reprocessamento
-    console.log(`[FileWatchdog] Resetando arquivo ${file.id} (tentativa ${retryCount + 1}/3): ${file.nome}`);
+    console.log(`[FileWatchdog] Resetando arquivo ${file.id} (tentativa ${retryCount + 1}/3)`);
     await db.update(arquivos).set({ status: "pendente", progresso: 0, itensProcessados: 0 }).where(eq(arquivos.id, file.id));
     await pool.execute(
       "INSERT INTO process_logs (arquivo_id, level, message) VALUES (?, 'info', ?)",
@@ -113,22 +119,13 @@ async function checkAndRetryStuckFiles() {
     );
 
     // Disparar reprocessamento via rota interna
-    const port = process.env.PORT || '3000';
-    const secret = process.env.JWT_SECRET || 'internal-process-secret';
     try {
       // Marcar como processando antes de disparar
       await db.update(arquivos).set({ status: "processando", progresso: 5 }).where(eq(arquivos.id, file.id));
-      
-      fetch(`http://localhost:${port}/api/internal/process-file`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ arquivoId: file.id, secret }),
-      }).catch(err => {
-        console.error(`[FileWatchdog] Erro ao disparar reprocessamento do arquivo ${file.id}:`, err);
-        db.update(arquivos).set({ status: "erro" }).where(eq(arquivos.id, file.id)).catch(() => {});
-      });
-    } catch (err) {
-      console.error(`[FileWatchdog] Erro ao disparar reprocessamento:`, err);
+      void dispatchInternalFileProcessing({ arquivoId: file.id }).catch(() => undefined);
+    } catch {
+      console.error("[FileWatchdog] Falha ao preparar reprocessamento.");
+      await db.update(arquivos).set({ status: "erro" }).where(eq(arquivos.id, file.id));
     }
   }
 }

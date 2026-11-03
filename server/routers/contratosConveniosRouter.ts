@@ -219,9 +219,13 @@ export const contratosConveniosRouter = router({
         convenioId: z.number().int().positive().optional(),
         convenioNome: z.string().optional(),
         codigosProcedimento: z.array(z.string()).max(40).optional(),
+        dataReferencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "visualizar")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para consultar contratos desta unidade." });
+      }
       return obterContextoContratualParaGlosa(input);
     }),
 
