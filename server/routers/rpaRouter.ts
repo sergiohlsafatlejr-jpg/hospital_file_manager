@@ -2,13 +2,12 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import fs from "fs";
-import path from "path";
 import { RoboSaudeCaixa } from "../rpa/robos/RoboSaudeCaixa";
 import { RoboUnimed } from "../rpa/robos/RoboUnimed";
 import { RoboIpasgo } from "../rpa/robos/RoboIpasgo";
 import { RoboCassi } from "../rpa/robos/RoboCassi";
 import { logger } from "../_core/logger";
-import { getDb } from "../db";
+import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import {
   credenciaisPortais,
   convenios,
@@ -18,36 +17,116 @@ import {
 } from "../../drizzle/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  cofreRpaKeyAvailable,
   estaCriptografadaNoCofre,
   obterSenhaParaRobo,
+  resolverCaminhoSeguroXmlRpa,
   salvarSenhaCofre,
+  sanitizarNumeroLoteTiss,
+  validarCaminhoContidoXmlRpa,
+  validarUrlPortalConvenio,
 } from "../rpa/cofreCredenciais";
 import { identificarERotearXmlTiss } from "../rpa/identificadorXmlTiss";
-import {
-  executarCicloEnvioXmlRpa,
-  garantirTabelasRpaEnvio,
-} from "../rpa/rpaEnvioService";
+import { executarCicloEnvioXmlRpa } from "../rpa/rpaEnvioService";
 import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
+
+const ESTADOS_ELEGIVEIS_LIBERACAO = [
+  "IMPORTADO",
+  "SIMULADO_OK",
+  "ERRO_PORTAL",
+  "ERRO_ROBO",
+  "ERRO_CREDENCIAL",
+] as const;
+
+const ESTADOS_BLOQUEADOS_EXCLUSAO = [
+  "PROCESSANDO_ROBO",
+  "PROTOCOLADO",
+  "AGUARDANDO_PORTAL",
+] as const;
+
+async function exigirAcessoHospitalRpa(
+  userId: number,
+  estabelecimentoId: number | null | undefined,
+  acao: "visualizar" | "editar" | "excluir" = "visualizar"
+): Promise<number> {
+  const estabId = Number(estabelecimentoId);
+  if (
+    !Number.isSafeInteger(estabId) ||
+    estabId <= 0 ||
+    estabId === ESTABELECIMENTO_CENTRAL_SAFATLE
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Hospital proprietário válido é obrigatório para esta operação RPA.",
+    });
+  }
+  const permitido = await verificarPermissaoEstabelecimento(userId, estabId, acao);
+  if (!permitido) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Usuário sem permissão para operar RPA neste estabelecimento hospitalar.",
+    });
+  }
+  return estabId;
+}
+
+async function listarHospitaisAutorizadosRpa(
+  db: any,
+  userId: number,
+  acao: "visualizar" | "editar" | "excluir" = "visualizar"
+): Promise<Array<{ id: number; nome: string; cnpj: string | null; cnes: string | null }>> {
+  const rows = await db
+    .select({
+      id: estabelecimentos.id,
+      nome: estabelecimentos.nome,
+      cnpj: estabelecimentos.cnpj,
+      cnes: estabelecimentos.cnes,
+    })
+    .from(estabelecimentos)
+    .where(eq(estabelecimentos.ativo, "sim"))
+    .orderBy(estabelecimentos.nome);
+
+  const autorizados: Array<{ id: number; nome: string; cnpj: string | null; cnes: string | null }> = [];
+  for (const r of rows) {
+    const id = Number(r.id);
+    if (id === ESTABELECIMENTO_CENTRAL_SAFATLE) continue;
+    if (await verificarPermissaoEstabelecimento(userId, id, acao)) {
+      autorizados.push({
+        id,
+        nome: r.nome,
+        cnpj: r.cnpj,
+        cnes: r.cnes,
+      });
+    }
+  }
+  return autorizados;
+}
 
 export const rpaRouter = router({
   /**
-   * Executa um robô RPA específico para buscar demonstrativos
+   * Executa um robô RPA específico para buscar demonstrativos (exigindo hospital proprietário e URL HTTPS aprovada)
    */
   executarRoboBuscaDemonstrativo: protectedProcedure
     .input(
       z.object({
         convenioNome: z.enum(["UNIMED", "SAUDE_CAIXA", "IPASGO", "CASSI"]),
-        estabelecimentoId: z.number().optional().nullable(),
+        estabelecimentoId: z.number().int().positive(),
         url: z.string().url("URL inválida"),
         login: z.string().optional(),
         senha: z.string().optional(),
         competencia: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const estabId = await exigirAcessoHospitalRpa(
+        ctx.user.id,
+        input.estabelecimentoId,
+        "editar"
+      );
+
       try {
         const db = await getDb();
-        if (db) await garantirTabelasRpaEnvio(db);
+        if (!db) throw new Error("Banco de dados não disponível");
 
         let robo;
         switch (input.convenioNome) {
@@ -69,58 +148,52 @@ export const rpaRouter = router({
             );
         }
 
-        let finalUrl = input.url;
-        let finalLogin = input.login;
-        let finalSenha = input.senha;
-        let finalEstabelecimentoId: number | null =
-          input.estabelecimentoId || null;
+        let finalUrl = validarUrlPortalConvenio(input.url, input.convenioNome);
+        let finalLogin = input.login?.trim();
+        let finalSenha = input.senha?.trim();
 
-        // Se não forneceu login/senha manualmente, busca do Cofre de Senhas (respeitando estabelecimentoId se informado)
+        // Se não forneceu login/senha manualmente, busca exclusivamente da credencial proprietária deste hospital
         if (!finalLogin || !finalSenha) {
-          if (db) {
-            let searchNome = input.convenioNome;
-            if (input.convenioNome === "UNIMED") searchNome = "Unimed Goiânia";
-            else if (input.convenioNome === "SAUDE_CAIXA")
-              searchNome = "Saúde Caixa";
-            else if (input.convenioNome === "IPASGO") searchNome = "IPASGO";
-            else if (input.convenioNome === "CASSI") searchNome = "CASSI";
+          let searchNome: string = input.convenioNome;
+          if (input.convenioNome === "UNIMED") searchNome = "Unimed Goiânia";
+          else if (input.convenioNome === "SAUDE_CAIXA") searchNome = "Saúde Caixa";
+          else if (input.convenioNome === "IPASGO") searchNome = "IPASGO";
+          else if (input.convenioNome === "CASSI") searchNome = "CASSI";
 
-            const conveniosDb = await db
+          const conveniosDb = await db
+            .select()
+            .from(convenios)
+            .where(eq(convenios.nome, searchNome));
+
+          if (conveniosDb.length === 0 && input.convenioNome === "UNIMED") {
+            const conveniosDb2 = await db
               .select()
               .from(convenios)
-              .where(eq(convenios.nome, searchNome));
+              .where(eq(convenios.nome, "Unimed"));
+            if (conveniosDb2.length > 0) conveniosDb.push(conveniosDb2[0]);
+          }
 
-            if (conveniosDb.length === 0 && input.convenioNome === "UNIMED") {
-              const conveniosDb2 = await db
-                .select()
-                .from(convenios)
-                .where(eq(convenios.nome, "Unimed"));
-              if (conveniosDb2.length > 0) conveniosDb.push(conveniosDb2[0]);
-            }
+          if (conveniosDb.length > 0) {
+            const creds = await db
+              .select()
+              .from(credenciaisPortais)
+              .where(
+                and(
+                  eq(credenciaisPortais.convenioId, conveniosDb[0].id),
+                  eq(credenciaisPortais.estabelecimentoId, estabId)
+                )
+              );
 
-            if (conveniosDb.length > 0) {
-              const creds = await db
-                .select()
-                .from(credenciaisPortais)
-                .where(eq(credenciaisPortais.convenioId, conveniosDb[0].id));
-
-              const credEscolhida =
-                (finalEstabelecimentoId
-                  ? creds.find(
-                      (c) =>
-                        Number(c.estabelecimentoId) ===
-                        Number(finalEstabelecimentoId)
-                    )
-                  : null) || creds[0];
-
-              if (credEscolhida) {
-                if (!finalLogin) finalLogin = credEscolhida.login;
-                if (!finalSenha)
-                  finalSenha = obterSenhaParaRobo(credEscolhida.senha);
-                finalEstabelecimentoId = credEscolhida.estabelecimentoId;
-                if (credEscolhida.urlLogin) {
-                  finalUrl = credEscolhida.urlLogin;
-                }
+            const credEscolhida = creds[0];
+            if (credEscolhida) {
+              if (!finalLogin) finalLogin = credEscolhida.login;
+              if (!finalSenha) finalSenha = obterSenhaParaRobo(credEscolhida.senha);
+              if (credEscolhida.urlLogin) {
+                finalUrl = validarUrlPortalConvenio(
+                  credEscolhida.urlLogin,
+                  input.convenioNome,
+                  credEscolhida.registroAns
+                );
               }
             }
           }
@@ -128,12 +201,12 @@ export const rpaRouter = router({
 
         if (!finalLogin || !finalSenha) {
           throw new Error(
-            "Credenciais não fornecidas e não encontradas no Cofre de Senhas para este convênio/hospital."
+            "Credenciais proprietárias não encontradas no Cofre de Senhas para este hospital e convênio."
           );
         }
 
         logger.info({
-          message: `Iniciando execução manual do robô ${input.convenioNome}`,
+          message: `Iniciando execução manual do robô ${input.convenioNome} (Estab #${estabId})`,
         });
 
         const resultado = await robo.executar(
@@ -141,7 +214,7 @@ export const rpaRouter = router({
             url: finalUrl,
             login: finalLogin,
             senha: finalSenha,
-            estabelecimentoId: finalEstabelecimentoId,
+            estabelecimentoId: estabId,
           },
           {
             competencia: input.competencia || "",
@@ -149,7 +222,7 @@ export const rpaRouter = router({
         );
 
         try {
-          if (db && finalLogin) {
+          if (finalLogin) {
             await db
               .update(credenciaisPortais)
               .set({
@@ -157,7 +230,12 @@ export const rpaRouter = router({
                 statusAcesso: "sucesso",
                 statusCredencial: "ATIVA",
               })
-              .where(eq(credenciaisPortais.login, finalLogin));
+              .where(
+                and(
+                  eq(credenciaisPortais.login, finalLogin),
+                  eq(credenciaisPortais.estabelecimentoId, estabId)
+                )
+              );
           }
         } catch {}
 
@@ -175,36 +253,30 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Lista os estabelecimentos (Hospitais/Clínicas) ativos para vincular credenciais e filtrar lotes
+   * Lista os estabelecimentos (Hospitais/Clínicas) autorizados para o usuário logado
    */
-  listarEstabelecimentos: protectedProcedure.query(async () => {
+  listarEstabelecimentos: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
-    await garantirTabelasRpaEnvio(db);
-
-    const rows = await db
-      .select({
-        id: estabelecimentos.id,
-        nome: estabelecimentos.nome,
-        cnpj: estabelecimentos.cnpj,
-        cnes: estabelecimentos.cnes,
-      })
-      .from(estabelecimentos)
-      .where(eq(estabelecimentos.ativo, "sim"))
-      .orderBy(estabelecimentos.nome);
-
-    return rows.filter(
-      (r) => Number(r.id) !== ESTABELECIMENTO_CENTRAL_SAFATLE
-    );
+    return listarHospitaisAutorizadosRpa(db, ctx.user.id, "visualizar");
   }),
 
   /**
-   * Lista as credenciais de acesso aos portais dos convênios (sem expor a senha)
+   * Lista as credenciais de acesso aos portais restritas aos hospitais autorizados do usuário (sem expor a senha)
    */
-  listarCredenciais: protectedProcedure.query(async () => {
+  listarCredenciais: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("Banco de dados não disponível");
-    await garantirTabelasRpaEnvio(db);
+
+    const hospitaisAutorizados = await listarHospitaisAutorizadosRpa(
+      db,
+      ctx.user.id,
+      "visualizar"
+    );
+    const idsAutorizados = hospitaisAutorizados.map((h) => h.id);
+    if (idsAutorizados.length === 0) {
+      return [];
+    }
 
     const rows = await db
       .select({
@@ -232,14 +304,15 @@ export const rpaRouter = router({
       .leftJoin(
         estabelecimentos,
         eq(credenciaisPortais.estabelecimentoId, estabelecimentos.id)
-      );
+      )
+      .where(inArray(credenciaisPortais.estabelecimentoId, idsAutorizados));
 
     return rows.map((r) => ({
       id: r.id,
       convenioId: r.convenioId,
       convenioNome: r.convenioNome,
       estabelecimentoId: r.estabelecimentoId,
-      estabelecimentoNome: r.estabelecimentoNome || "Global (Todos os Hospitais)",
+      estabelecimentoNome: r.estabelecimentoNome || `Hospital #${r.estabelecimentoId}`,
       estabelecimentoCnpj: r.estabelecimentoCnpj,
       codigoPrestadorOperadora: r.codigoPrestadorOperadora || "",
       registroAns: r.registroAns || r.convenioRegistroAns || "",
@@ -279,13 +352,14 @@ export const rpaRouter = router({
 
   /**
    * Salva ou atualiza uma credencial de acesso no Cofre Criptografado (AES-256-GCM)
+   * Exige hospital proprietário explícito, chave dedicada e URL HTTPS aprovada por convênio.
    */
   salvarCredencial: protectedProcedure
     .input(
       z.object({
         id: z.number().optional(),
-        estabelecimentoId: z.number().optional().nullable(),
-        convenioId: z.number(),
+        estabelecimentoId: z.number().int().positive("Selecione o hospital proprietário da credencial"),
+        convenioId: z.number().int().positive(),
         codigoPrestadorOperadora: z.string().optional().nullable(),
         registroAns: z.string().optional().nullable(),
         login: z.string().min(1, "Informe o login do portal"),
@@ -295,16 +369,70 @@ export const rpaRouter = router({
         ativo: z.enum(["sim", "nao"]).optional().default("sim"),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      if (!cofreRpaKeyAvailable()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "A chave exclusiva do Cofre RPA (RPA_COFRE_SECRET_KEY) não está configurada.",
+        });
+      }
+
+      const estabIdFinal = await exigirAcessoHospitalRpa(
+        ctx.user.id,
+        input.estabelecimentoId,
+        "editar"
+      );
+
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      const [conv] = await db
+        .select()
+        .from(convenios)
+        .where(eq(convenios.id, input.convenioId))
+        .limit(1);
+      if (!conv) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Convênio não encontrado.",
+        });
+      }
 
       const codPrestLimpo = input.codigoPrestadorOperadora?.trim() || null;
-      const ansLimpo = input.registroAns?.trim() || null;
-      const estabIdFinal = input.estabelecimentoId
-        ? Number(input.estabelecimentoId)
-        : null;
+      const ansLimpo = input.registroAns?.trim() || conv.registroAns || null;
+
+      let urlValidada: string | null = null;
+      if (input.urlLogin && input.urlLogin.trim() !== "") {
+        try {
+          urlValidada = validarUrlPortalConvenio(
+            input.urlLogin.trim(),
+            conv.nome,
+            ansLimpo
+          );
+        } catch (errUrl: any) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: errUrl.message || "URL do portal não permitida.",
+          });
+        }
+      }
+
+      if (input.parametrosExtras?.urlEnvioXml) {
+        try {
+          input.parametrosExtras.urlEnvioXml = validarUrlPortalConvenio(
+            String(input.parametrosExtras.urlEnvioXml),
+            conv.nome,
+            ansLimpo
+          );
+        } catch (errUrlEnvio: any) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              errUrlEnvio.message || "URL de envio XML não permitida.",
+          });
+        }
+      }
 
       let credencialId = input.id;
 
@@ -321,10 +449,28 @@ export const rpaRouter = router({
           });
         }
 
+        // Comprovar propriedade da credencial existente antes de alterar
+        await exigirAcessoHospitalRpa(
+          ctx.user.id,
+          atual.estabelecimentoId,
+          "editar"
+        );
+
         const novaSenhaInformada =
           input.senha &&
           input.senha.trim() !== "" &&
           input.senha.trim() !== "********";
+
+        // Se mudar a URL de destino, exige re-informar a senha explicitamente para não reaproveitar segredo em outro endpoint
+        const mudouUrl = (atual.urlLogin || null) !== urlValidada;
+        if (mudouUrl && !novaSenhaInformada) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Ao alterar a URL do portal, informe novamente a senha da credencial por segurança.",
+          });
+        }
+
         const senhaCifrada = novaSenhaInformada
           ? salvarSenhaCofre(input.senha!.trim())
           : salvarSenhaCofre(obterSenhaParaRobo(atual.senha));
@@ -338,14 +484,19 @@ export const rpaRouter = router({
             registroAns: ansLimpo,
             login: input.login.trim(),
             senha: senhaCifrada,
-            urlLogin: input.urlLogin?.trim() || null,
+            urlLogin: urlValidada,
             parametrosExtras: input.parametrosExtras || null,
             statusCredencial: "ATIVA",
             mensagemErro: null,
             ativo: input.ativo || "sim",
             updatedAt: new Date(),
           })
-          .where(eq(credenciaisPortais.id, input.id));
+          .where(
+            and(
+              eq(credenciaisPortais.id, input.id),
+              eq(credenciaisPortais.estabelecimentoId, atual.estabelecimentoId!)
+            )
+          );
       } else {
         if (!input.senha || input.senha.trim() === "") {
           throw new TRPCError({
@@ -361,7 +512,7 @@ export const rpaRouter = router({
           registroAns: ansLimpo,
           login: input.login.trim(),
           senha: senhaCifrada,
-          urlLogin: input.urlLogin?.trim() || null,
+          urlLogin: urlValidada,
           parametrosExtras: input.parametrosExtras || null,
           statusCredencial: "ATIVA",
           ativo: input.ativo || "sim",
@@ -408,24 +559,45 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Exclui uma credencial do Cofre
+   * Exclui uma credencial do Cofre comprovando propriedade do hospital
    */
   excluirCredencial: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      const [atual] = await db
+        .select()
+        .from(credenciaisPortais)
+        .where(eq(credenciaisPortais.id, input.id))
+        .limit(1);
+      if (!atual) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Credencial não encontrada.",
+        });
+      }
+
+      const estabId = await exigirAcessoHospitalRpa(
+        ctx.user.id,
+        atual.estabelecimentoId,
+        "excluir"
+      );
+
       await db
         .delete(credenciaisPortais)
-        .where(eq(credenciaisPortais.id, input.id));
+        .where(
+          and(
+            eq(credenciaisPortais.id, input.id),
+            eq(credenciaisPortais.estabelecimentoId, estabId)
+          )
+        );
       return { sucesso: true };
     }),
 
   /**
    * Analisa 1 ou mais arquivos XML TISS em memória (Triagem pelo <ans:cabecalho>)
-   * Descobre automaticamente o Hospital (estabelecimentoId), o Convênio (convenioId),
-   * a quantidade de guias, o valor total e valida a Trava Multi-Hospital antes de enfileirar.
    */
   analisarXmlTriagem: protectedProcedure
     .input(
@@ -443,10 +615,20 @@ export const rpaRouter = router({
         convenioIdForcado: z.number().optional().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      if (
+        input.estabelecimentoIdContexto &&
+        Number(input.estabelecimentoIdContexto) !== ESTABELECIMENTO_CENTRAL_SAFATLE
+      ) {
+        await exigirAcessoHospitalRpa(
+          ctx.user.id,
+          input.estabelecimentoIdContexto,
+          "visualizar"
+        );
+      }
 
       const resultados = [];
       for (const arq of input.arquivos) {
@@ -473,7 +655,7 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Importa 1 ou vários lotes XML para a Fila de Envio do Robô (com Trava Anti-Erro e Anti-Duplicidade SHA-256)
+   * Importa 1 ou vários lotes XML para a Fila de Envio do Robô (com Trava Anti-Erro, Autorização por Hospital e Contenção de Caminho)
    */
   importarLotesXmlParaFila: protectedProcedure
     .input(
@@ -497,7 +679,6 @@ export const rpaRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
 
       const importados: any[] = [];
       const rejeitados: any[] = [];
@@ -510,23 +691,29 @@ export const rpaRouter = router({
             convenioIdForcado: arq.convenioIdOverride,
           });
 
-          // 1. Trava de Segurança Multi-Hospital
-          if (ident.conflitoHospital && !arq.estabelecimentoIdOverride) {
+          // 1. Trava de Segurança Multi-Hospital (incontornável por override quando o XML pertence a outro hospital)
+          if (
+            ident.conflitoHospital ||
+            (ident.estabelecimentoIdDetectado &&
+              arq.estabelecimentoIdOverride &&
+              Number(arq.estabelecimentoIdOverride) !==
+                Number(ident.estabelecimentoIdDetectado))
+          ) {
             rejeitados.push({
               nomeArquivo: arq.nomeArquivo,
               motivo:
                 ident.mensagemConflito ||
-                "Conflito de hospital no cabeçalho XML.",
+                "Trava Multi-Hospital: O cabeçalho XML pertence a outro hospital e não pode ser redirecionado por override.",
             });
             continue;
           }
 
-          const estabIdFinal =
-            arq.estabelecimentoIdOverride || ident.estabelecimentoIdDetectado;
+          const estabIdCandidato =
+            ident.estabelecimentoIdDetectado || arq.estabelecimentoIdOverride;
           const convIdFinal =
             arq.convenioIdOverride || ident.convenioIdDetectado;
 
-          if (!estabIdFinal) {
+          if (!estabIdCandidato) {
             rejeitados.push({
               nomeArquivo: arq.nomeArquivo,
               motivo: `Hospital não identificado automaticamente para o Prestador "${ident.codigoPrestadorXml || ident.cnpjPrestadorXml || "N/A"}" (ANS: ${ident.registroAns || "N/A"}). Selecione o hospital ou cadastre o Código do Prestador no Cofre.`,
@@ -534,7 +721,13 @@ export const rpaRouter = router({
             continue;
           }
 
-          if (!convIdFinal) {
+          const estabIdFinal = await exigirAcessoHospitalRpa(
+            ctx.user.id,
+            estabIdCandidato,
+            "editar"
+          );
+
+          if (!convIdFinal || !Number.isSafeInteger(Number(convIdFinal)) || Number(convIdFinal) <= 0) {
             rejeitados.push({
               nomeArquivo: arq.nomeArquivo,
               motivo: `Convênio não identificado para o Registro ANS "${ident.registroAns || "N/A"}". Selecione o convênio ou cadastre o Registro ANS no Cofre.`,
@@ -548,7 +741,7 @@ export const rpaRouter = router({
             .from(filaEnvioXmlPortal)
             .where(
               and(
-                eq(filaEnvioXmlPortal.estabelecimentoId, Number(estabIdFinal)),
+                eq(filaEnvioXmlPortal.estabelecimentoId, estabIdFinal),
                 eq(filaEnvioXmlPortal.convenioId, Number(convIdFinal)),
                 eq(filaEnvioXmlPortal.hashXml, ident.hashXml)
               )
@@ -568,41 +761,36 @@ export const rpaRouter = router({
             continue;
           }
 
-          // 3. Salvar XML em diretório estruturado por Estabelecimento e Competência
-          const anoMes = new Date().toISOString().slice(0, 7);
-          const pastaXml = path.join(
+          // 3. Salvar XML em diretório privado contido usando identificador interno seguro
+          const { pastaDestino, caminhoCompleto } = resolverCaminhoSeguroXmlRpa(
             process.cwd(),
-            "uploads",
-            "storage_rpa_xml",
-            `estab_${estabIdFinal}`,
-            anoMes,
-            `conv_${convIdFinal}`,
-            "xml_envio"
+            estabIdFinal,
+            Number(convIdFinal),
+            ident.hashXml
           );
-          if (!fs.existsSync(pastaXml)) {
-            fs.mkdirSync(pastaXml, { recursive: true });
+          if (!fs.existsSync(pastaDestino)) {
+            fs.mkdirSync(pastaDestino, { recursive: true });
           }
-
-          const nomeLimpo = arq.nomeArquivo.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const caminhoCompleto = path.join(
-            pastaXml,
-            `lote_${ident.numeroLote}_${ident.hashXml.slice(0, 8)}_${nomeLimpo}`
-          );
+          validarCaminhoContidoXmlRpa(process.cwd(), caminhoCompleto);
           fs.writeFileSync(caminhoCompleto, xmlBuffer);
 
+          const numeroLoteSeguro = sanitizarNumeroLoteTiss(
+            ident.numeroLote,
+            ident.hashXml
+          );
           const statusInicial = input.liberarImediatamente
             ? "LIBERADO_ENVIO"
             : "IMPORTADO";
 
           const [ins] = await db.insert(filaEnvioXmlPortal).values({
-            estabelecimentoId: Number(estabIdFinal),
+            estabelecimentoId: estabIdFinal,
             convenioId: Number(convIdFinal),
             fabricaContaId: arq.fabricaContaId || null,
             usuarioUploadId: ctx.user.id,
             usuarioUploadNome:
               ctx.user.name || ctx.user.email || `Usuário #${ctx.user.id}`,
-            nomeArquivo: arq.nomeArquivo,
-            numeroLote: ident.numeroLote,
+            nomeArquivo: String(arq.nomeArquivo || "lote.xml").slice(0, 255),
+            numeroLote: numeroLoteSeguro,
             versaoTiss: ident.versaoTiss,
             registroAns: ident.registroAns,
             codigoPrestadorXml: ident.codigoPrestadorXml,
@@ -619,10 +807,10 @@ export const rpaRouter = router({
           importados.push({
             id: Number((ins as any).insertId),
             nomeArquivo: arq.nomeArquivo,
-            numeroLote: ident.numeroLote,
+            numeroLote: numeroLoteSeguro,
             estabelecimentoId: estabIdFinal,
             estabelecimentoNome: ident.estabelecimentoNomeDetectado,
-            convenioId: convIdFinal,
+            convenioId: Number(convIdFinal),
             convenioNome: ident.convenioNomeDetectado,
             qtdGuias: ident.qtdGuias,
             valorTotal: ident.valorTotal,
@@ -646,7 +834,7 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Lista a Fila de Envio de Lotes XML com agrupamento e indicadores
+   * Lista a Fila de Envio de Lotes XML restrita aos hospitais autorizados para o usuário
    */
   listarFilaEnvioXml: protectedProcedure
     .input(
@@ -658,10 +846,42 @@ export const rpaRouter = router({
         })
         .optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      const hospitaisAutorizados = await listarHospitaisAutorizadosRpa(
+        db,
+        ctx.user.id,
+        "visualizar"
+      );
+      const idsAutorizados = hospitaisAutorizados.map((h) => h.id);
+
+      if (
+        input?.estabelecimentoId &&
+        Number(input.estabelecimentoId) !== ESTABELECIMENTO_CENTRAL_SAFATLE
+      ) {
+        await exigirAcessoHospitalRpa(
+          ctx.user.id,
+          input.estabelecimentoId,
+          "visualizar"
+        );
+      }
+
+      if (idsAutorizados.length === 0) {
+        return {
+          itens: [],
+          resumo: {
+            totalLotes: 0,
+            aguardandoLiberacao: 0,
+            naFilaRobo: 0,
+            simuladosOk: 0,
+            protocolados: 0,
+            comErro: 0,
+            valorTotalFila: 0,
+          },
+        };
+      }
 
       const rows = await db
         .select({
@@ -696,11 +916,13 @@ export const rpaRouter = router({
           eq(filaEnvioXmlPortal.estabelecimentoId, estabelecimentos.id)
         )
         .leftJoin(convenios, eq(filaEnvioXmlPortal.convenioId, convenios.id))
+        .where(inArray(filaEnvioXmlPortal.estabelecimentoId, idsAutorizados))
         .orderBy(desc(filaEnvioXmlPortal.id));
 
       const filtrados = rows.filter((r) => {
         if (
           input?.estabelecimentoId &&
+          Number(input.estabelecimentoId) !== ESTABELECIMENTO_CENTRAL_SAFATLE &&
           Number(r.estabelecimentoId) !== Number(input.estabelecimentoId)
         ) {
           return false;
@@ -755,14 +977,13 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Obtém detalhes completos de um lote na fila (incluindo o Screenshot Base64 e a lista de guias do XML)
+   * Obtém detalhes completos de um lote na fila comprovando autorização no hospital proprietário
    */
   obterDetalhesLoteFila: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
 
       const [lote] = await db
         .select({
@@ -807,6 +1028,12 @@ export const rpaRouter = router({
         });
       }
 
+      await exigirAcessoHospitalRpa(
+        ctx.user.id,
+        lote.estabelecimentoId,
+        "visualizar"
+      );
+
       return {
         ...lote,
         valorTotal: Number(lote.valorTotal || 0),
@@ -817,25 +1044,63 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Coloca lotes com status IMPORTADO ou ERRO_* de volta em LIBERADO_ENVIO para o Robô
+   * Coloca lotes elegíveis (IMPORTADO, SIMULADO_OK ou ERRO_*) em LIBERADO_ENVIO.
+   * Recusa lotes em PROCESSANDO_ROBO, PROTOCOLADO ou AGUARDANDO_PORTAL e valida permissão por hospital.
    */
   liberarLotesParaRobo: protectedProcedure
     .input(
       z.object({
-        loteIds: z.array(z.number()).min(1),
+        loteIds: z.array(z.number().int().positive()).min(1).max(100),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      const lotes = await db
+        .select()
+        .from(filaEnvioXmlPortal)
+        .where(inArray(filaEnvioXmlPortal.id, input.loteIds));
+
+      if (lotes.length !== input.loteIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Um ou mais lotes selecionados não foram encontrados.",
+        });
+      }
+
+      for (const lote of lotes) {
+        await exigirAcessoHospitalRpa(
+          ctx.user.id,
+          lote.estabelecimentoId,
+          "editar"
+        );
+        if (
+          !(ESTADOS_ELEGIVEIS_LIBERACAO as readonly string[]).includes(
+            lote.statusEsteira
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Lote #${lote.id} (${lote.numeroLote}) está em "${lote.statusEsteira}" e não pode ser reliberado sem reconciliação.`,
+          });
+        }
+      }
 
       await db
         .update(filaEnvioXmlPortal)
         .set({
           statusEsteira: "LIBERADO_ENVIO",
         })
-        .where(inArray(filaEnvioXmlPortal.id, input.loteIds));
+        .where(
+          and(
+            inArray(filaEnvioXmlPortal.id, input.loteIds),
+            inArray(
+              filaEnvioXmlPortal.statusEsteira,
+              [...ESTADOS_ELEGIVEIS_LIBERACAO]
+            )
+          )
+        );
 
       return {
         sucesso: true,
@@ -845,12 +1110,12 @@ export const rpaRouter = router({
 
   /**
    * Dispara o Ciclo do Robô RPA (Agrupado por Sessão Hospital + Convênio)
-   * Suporta modo "simulacao" (Dry-Run seguro) e modo "producao" (Envio real com protocolo)
+   * Valida autorização hospitalar e máquina de estados antes do claim atômico.
    */
   dispararCicloEnvioRpa: protectedProcedure
     .input(
       z.object({
-        loteIds: z.array(z.number()).optional(),
+        loteIds: z.array(z.number().int().positive()).optional(),
         modoExecucao: z.enum(["simulacao", "producao"]).default("simulacao"),
         estabelecimentoIdFiltro: z.number().optional().nullable(),
         convenioIdFiltro: z.number().optional().nullable(),
@@ -859,21 +1124,86 @@ export const rpaRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
 
-      // Se o usuário selecionou lotes específicos que estavam em IMPORTADO, SIMULADO_OK ou ERRO_*, libera-os antes do ciclo
+      const hospitaisEditaveis = await listarHospitaisAutorizadosRpa(
+        db,
+        ctx.user.id,
+        "editar"
+      );
+      const idsAutorizados = hospitaisEditaveis.map((h) => h.id);
+      if (idsAutorizados.length === 0) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Usuário sem permissão para disparar ciclo RPA em nenhum hospital.",
+        });
+      }
+
+      if (
+        input.estabelecimentoIdFiltro &&
+        Number(input.estabelecimentoIdFiltro) !== ESTABELECIMENTO_CENTRAL_SAFATLE
+      ) {
+        await exigirAcessoHospitalRpa(
+          ctx.user.id,
+          input.estabelecimentoIdFiltro,
+          "editar"
+        );
+      }
+
       if (input.loteIds && input.loteIds.length > 0) {
+        const lotesAlvo = await db
+          .select()
+          .from(filaEnvioXmlPortal)
+          .where(inArray(filaEnvioXmlPortal.id, input.loteIds));
+
+        if (lotesAlvo.length !== input.loteIds.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Um ou mais lotes selecionados não foram encontrados.",
+          });
+        }
+
+        for (const lote of lotesAlvo) {
+          await exigirAcessoHospitalRpa(
+            ctx.user.id,
+            lote.estabelecimentoId,
+            "editar"
+          );
+          if (
+            ["PROCESSANDO_ROBO", "PROTOCOLADO", "AGUARDANDO_PORTAL"].includes(
+              lote.statusEsteira
+            )
+          ) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `Lote #${lote.id} (${lote.numeroLote}) está em "${lote.statusEsteira}" e não pode ser reenviado.`,
+            });
+          }
+        }
+
         await db
           .update(filaEnvioXmlPortal)
           .set({ statusEsteira: "LIBERADO_ENVIO" })
-          .where(inArray(filaEnvioXmlPortal.id, input.loteIds));
+          .where(
+            and(
+              inArray(filaEnvioXmlPortal.id, input.loteIds),
+              inArray(
+                filaEnvioXmlPortal.statusEsteira,
+                [...ESTADOS_ELEGIVEIS_LIBERACAO]
+              )
+            )
+          );
       }
 
       const resultado = await executarCicloEnvioXmlRpa({
         loteIds: input.loteIds,
         modoExecucao: input.modoExecucao,
-        estabelecimentoIdFiltro: input.estabelecimentoIdFiltro,
+        estabelecimentoIdFiltro:
+          input.estabelecimentoIdFiltro &&
+          Number(input.estabelecimentoIdFiltro) !== ESTABELECIMENTO_CENTRAL_SAFATLE
+            ? Number(input.estabelecimentoIdFiltro)
+            : null,
         convenioIdFiltro: input.convenioIdFiltro,
+        estabelecimentosAutorizadosIds: idsAutorizados,
         usuarioIdExecutor: ctx.user.id,
         usuarioNomeExecutor:
           ctx.user.name || ctx.user.email || `Usuário #${ctx.user.id}`,
@@ -883,18 +1213,56 @@ export const rpaRouter = router({
     }),
 
   /**
-   * Exclui um lote da fila de envio
+   * Exclui um lote da fila de envio comprovando propriedade e impedindo exclusão de lotes em processamento/protocolados
    */
   excluirLoteFila: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Banco de dados não disponível");
-      await garantirTabelasRpaEnvio(db);
+
+      const [lote] = await db
+        .select()
+        .from(filaEnvioXmlPortal)
+        .where(eq(filaEnvioXmlPortal.id, input.id))
+        .limit(1);
+
+      if (!lote) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lote não encontrado na fila.",
+        });
+      }
+
+      const estabId = await exigirAcessoHospitalRpa(
+        ctx.user.id,
+        lote.estabelecimentoId,
+        "excluir"
+      );
+
+      if (
+        (ESTADOS_BLOQUEADOS_EXCLUSAO as readonly string[]).includes(
+          lote.statusEsteira
+        )
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Não é permitido excluir lote no estado "${lote.statusEsteira}".`,
+        });
+      }
 
       await db
         .delete(filaEnvioXmlPortal)
-        .where(eq(filaEnvioXmlPortal.id, input.id));
+        .where(
+          and(
+            eq(filaEnvioXmlPortal.id, input.id),
+            eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+            inArray(
+              filaEnvioXmlPortal.statusEsteira,
+              [...ESTADOS_ELEGIVEIS_LIBERACAO, "LIBERADO_ENVIO"]
+            )
+          )
+        );
       return { sucesso: true };
     }),
 });

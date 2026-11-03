@@ -53,6 +53,7 @@ function ConciliacaoCruzadaAtual() {
     temAcessoModuloNoEstabelecimento,
   } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id || 0;
+  const utils = trpc.useUtils();
   const estabelecimentosComAcesso = useMemo(
     () => estabelecimentos.filter(estabelecimento =>
       temAcessoModuloNoEstabelecimento('conciliacaoContasPagas', estabelecimento.id)

@@ -155,7 +155,9 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
 
   it("converte tabela Fábrica ausente em erro de configuração e jamais em DDL", async () => {
     const db = {
-      execute: vi.fn().mockRejectedValue(Object.assign(new Error("Table 'fabrica_contas' doesn't exist"), { code: "ER_NO_SUCH_TABLE" })),
+      execute: vi.fn()
+        .mockResolvedValueOnce([[], []]) // Leitura efetiva: nenhuma linha de perfil salva.
+        .mockRejectedValue(Object.assign(new Error("Table 'fabrica_contas' doesn't exist"), { code: "ER_NO_SUCH_TABLE" })),
     };
     vi.mocked(getDb).mockResolvedValue(db as any);
 
@@ -163,7 +165,7 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
       code: "INTERNAL_SERVER_ERROR",
       message: "Configuração da Fábrica de Faturamento ausente ou incompatível.",
     });
-    expect(db.execute).toHaveBeenCalledTimes(2);
+    expect(db.execute).toHaveBeenCalledTimes(3);
 
     const routerSource = readFileSync(
       fileURLToPath(new URL("./routers/fabricaFaturamentoRouter.ts", import.meta.url)),

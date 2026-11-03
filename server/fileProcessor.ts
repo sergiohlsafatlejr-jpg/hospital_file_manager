@@ -28,7 +28,7 @@ const router = Router();
 
 // Sem fallback: um endpoint interno nunca pode usar segredo previsível.
 function segredoInternoAtual(): string | undefined {
-  return process.env.JWT_SECRET || "internal-process-secret";
+  return process.env.JWT_SECRET;
 }
 
 // Log persistente no banco para diagnóstico em produção
@@ -57,7 +57,7 @@ router.post("/api/internal/process-file", async (req, res) => {
   
   // Validar segredo interno
   const internalSecret = segredoInternoAtual();
-  if (!secret || secret !== internalSecret) {
+  if (!internalSecret || internalSecret.length < 32 || secret !== internalSecret) {
     return res.status(403).json({ error: "Forbidden" });
   }
   

@@ -2969,11 +2969,13 @@ export async function resumoConciliadosPorGuia(params: {
           SELECT 1 FROM convenio_estabelecimento_prestador cep
           WHERE cep.estabelecimentoId = ${params.estabelecimentoId}
             AND cep.tipoPrestador = 'proprio'
+            AND cep.ativo = 'sim'
         )
         AND ca.codigoPrestadorExecutante NOT IN (
           SELECT cep2.codigoPrestador FROM convenio_estabelecimento_prestador cep2
           WHERE cep2.estabelecimentoId = ${params.estabelecimentoId}
             AND cep2.tipoPrestador = 'proprio'
+            AND cep2.ativo = 'sim'
         )
       )
     )`;
@@ -2986,11 +2988,13 @@ export async function resumoConciliadosPorGuia(params: {
           SELECT 1 FROM convenio_estabelecimento_prestador cep
           WHERE cep.estabelecimentoId = ${params.estabelecimentoId}
             AND cep.tipoPrestador = 'proprio'
+            AND cep.ativo = 'sim'
         )
         OR ca.codigoPrestadorExecutante IN (
           SELECT cep2.codigoPrestador FROM convenio_estabelecimento_prestador cep2
           WHERE cep2.estabelecimentoId = ${params.estabelecimentoId}
             AND cep2.tipoPrestador = 'proprio'
+            AND cep2.ativo = 'sim'
         )
       )`;
   }
@@ -3134,16 +3138,18 @@ export async function itensConciliadosPorGuia(params: {
       const codigosSql = codigos.map(c => `'${c.replace(/'/g, "''")}'`).join(",");
       const [tabRows] = await db.execute(
         sql.raw(`
-          SELECT itp.codigoProcedimento, itp.valorContratado, tp.nome AS nomeTabela
-          FROM itens_tabela_preco itp
-          INNER JOIN tabelas_preco tp ON tp.id = itp.tabelaPrecoId
+          SELECT tp.codigo AS codigoProcedimento,
+                 tp.valor AS valorContratado,
+                 CONCAT('Tabela ', UPPER(tp.tipo)) AS nomeTabela
+          FROM tabelasPreco tp
           WHERE tp.convenioId = ${convenioId}
+            AND (tp.estabelecimentoId = ${Number(params.estabelecimentoId)} OR tp.estabelecimentoId IS NULL)
             AND tp.ativo = 'sim'
-            AND itp.codigoProcedimento IN (${codigosSql})
+            AND tp.codigo IN (${codigosSql})
         `)
       );
       const mapaTabela = new Map<string, { valorContratado: number; nomeTabela: string }>();
-      for (const tr of (tabRows as any[]) ?? []) {
+      for (const tr of (tabRows as unknown as any[]) ?? []) {
         mapaTabela.set(String(tr.codigoProcedimento).trim(), {
           valorContratado: Number(tr.valorContratado || 0),
           nomeTabela: String(tr.nomeTabela || "Tabela Contratada"),
@@ -4075,16 +4081,18 @@ export async function itensGlosadosDetalheGuia(params: {
       const codigosSql = codigos.map(c => `'${c.replace(/'/g, "''")}'`).join(",");
       const [tabRows] = await db.execute(
         sql.raw(`
-          SELECT itp.codigoProcedimento, itp.valorContratado, tp.nome AS nomeTabela
-          FROM itens_tabela_preco itp
-          INNER JOIN tabelas_preco tp ON tp.id = itp.tabelaPrecoId
+          SELECT tp.codigo AS codigoProcedimento,
+                 tp.valor AS valorContratado,
+                 CONCAT('Tabela ', UPPER(tp.tipo)) AS nomeTabela
+          FROM tabelasPreco tp
           WHERE tp.convenioId = ${Number(convId)}
+            AND (tp.estabelecimentoId = ${Number(params.estabelecimentoId)} OR tp.estabelecimentoId IS NULL)
             AND tp.ativo = 'sim'
-            AND itp.codigoProcedimento IN (${codigosSql})
+            AND tp.codigo IN (${codigosSql})
         `)
       );
       const mapaTabela = new Map<string, { valorContratado: number; nomeTabela: string }>();
-      for (const tr of (tabRows as any[]) ?? []) {
+      for (const tr of (tabRows as unknown as any[]) ?? []) {
         mapaTabela.set(String(tr.codigoProcedimento).trim(), {
           valorContratado: Number(tr.valorContratado || 0),
           nomeTabela: String(tr.nomeTabela || "Tabela Contratada"),

@@ -11,6 +11,11 @@ import fs from "fs";
 import { getDb } from "../../db";
 import { arquivos } from "../../../drizzle/schema";
 import { like } from "drizzle-orm";
+import {
+  sanitizarNumeroLoteTiss,
+  validarCaminhoContidoXmlRpa,
+  validarUrlPortalConvenio,
+} from "../cofreCredenciais";
 
 export class RoboUnimed extends RoboBase {
   constructor() {
@@ -33,9 +38,12 @@ export class RoboUnimed extends RoboBase {
       return { sucesso: false, mensagem: "Página do navegador não inicializada." };
     }
 
-    const urlAlvo =
+    const urlAlvo = validarUrlPortalConvenio(
       credenciais.url ||
-      "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed";
+        "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+      "UNIMED",
+      credenciais.registroAns
+    );
     logger.info({
       message: `[${this.nome}] Acessando portal da Unimed: ${urlAlvo} (Estab #${credenciais.estabelecimentoId || "N/A"})`,
     });
@@ -45,6 +53,13 @@ export class RoboUnimed extends RoboBase {
       timeout: 45000,
     });
     await this.delay(2000);
+
+    // Validar que a URL final pós-redirecionamento permanece no domínio aprovado da operadora
+    validarUrlPortalConvenio(
+      this.page.url(),
+      "UNIMED",
+      credenciais.registroAns
+    );
 
     // Clicar em "Credenciado" ou "Prestador" caso o portal exiba seleção de perfil inicial
     try {
@@ -79,10 +94,14 @@ export class RoboUnimed extends RoboBase {
 
     let preencheuLogin = false;
 
-    // Tenta preencher na página principal ou em qualquer iframe do portal
+    // Tenta preencher apenas na página principal ou em iframes do domínio HTTPS aprovado da Unimed
     const contextos = [this.page, ...this.page.frames()];
     for (const ctx of contextos) {
       try {
+        const ctxUrl = ctx.url();
+        if (!ctxUrl || ctxUrl === "about:blank") continue;
+        validarUrlPortalConvenio(ctxUrl, "UNIMED", credenciais.registroAns);
+
         const campoUsuario = await ctx.$(seletorLogin);
         const campoSenha = await ctx.$(seletorSenha);
         if (campoUsuario && campoSenha) {
@@ -200,16 +219,26 @@ export class RoboUnimed extends RoboBase {
       return { encontrouMenuOuInput: false, detalheNavegacao: "Página inativa" };
     }
 
-    // 1. Se houver URL direta de envio de XML configurada nos parâmetros extras da credencial
+    // 1. Se houver URL direta de envio de XML configurada nos parâmetros extras da credencial, validar domínio HTTPS
     const urlDiretaXml = credenciais.parametrosExtras?.urlEnvioXml;
-    if (urlDiretaXml && typeof urlDiretaXml === "string" && urlDiretaXml.startsWith("http")) {
+    if (urlDiretaXml && typeof urlDiretaXml === "string" && urlDiretaXml.trim() !== "") {
+      const urlSeguraXml = validarUrlPortalConvenio(
+        urlDiretaXml,
+        "UNIMED",
+        credenciais.registroAns
+      );
       await this.page
-        .goto(urlDiretaXml, { waitUntil: "networkidle2", timeout: 30000 })
+        .goto(urlSeguraXml, { waitUntil: "networkidle2", timeout: 30000 })
         .catch(() => {});
       await this.delay(2500);
+      validarUrlPortalConvenio(
+        this.page.url(),
+        "UNIMED",
+        credenciais.registroAns
+      );
       return {
         encontrouMenuOuInput: true,
-        detalheNavegacao: `Navegou para URL direta de envio XML: ${urlDiretaXml}`,
+        detalheNavegacao: `Navegou para URL direta de envio XML: ${urlSeguraXml}`,
       };
     }
 
@@ -365,6 +394,89 @@ export class RoboUnimed extends RoboBase {
 
     const resultadosLotes: ResultadoEnvioLoteRpa[] = [];
 
+    // MODO SIMULAÇÃO (DRY-RUN SEGURO):
+    // Valida URL aprovada, credencial presente e contenção/existência física do XML localmente,
+    // SEM abrir sessão externa, SEM digitar credenciais em portal remoto e SEM anexar o XML em input[type='file'].
+    if (modoExecucao === "simulacao") {
+      try {
+        validarUrlPortalConvenio(
+          credenciais.url ||
+            "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+          "UNIMED",
+          credenciais.registroAns
+        );
+        if (credenciais.parametrosExtras?.urlEnvioXml) {
+          validarUrlPortalConvenio(
+            credenciais.parametrosExtras.urlEnvioXml,
+            "UNIMED",
+            credenciais.registroAns
+          );
+        }
+      } catch (errUrl: any) {
+        for (const lote of lotes) {
+          resultadosLotes.push({
+            filaId: lote.filaId,
+            numeroLote: lote.numeroLote,
+            sucesso: false,
+            status: "ERRO_CREDENCIAL",
+            mensagem: errUrl.message || "URL do portal recusada na validação HTTPS.",
+          });
+        }
+        return {
+          estabelecimentoId: estabId,
+          convenioId: convId,
+          loginSucesso: false,
+          credencialInvalida: false,
+          mensagemLogin: errUrl.message || "URL do portal recusada.",
+          resultadosLotes,
+        };
+      }
+
+      for (const lote of lotes) {
+        try {
+          const caminhoSeguro = validarCaminhoContidoXmlRpa(
+            process.cwd(),
+            lote.caminhoXml
+          );
+          if (!fs.existsSync(caminhoSeguro)) {
+            resultadosLotes.push({
+              filaId: lote.filaId,
+              numeroLote: lote.numeroLote,
+              sucesso: false,
+              status: "ERRO_ROBO",
+              mensagem: "Arquivo XML não localizado no diretório privado.",
+            });
+            continue;
+          }
+          const loteSanitizado = sanitizarNumeroLoteTiss(lote.numeroLote);
+          resultadosLotes.push({
+            filaId: lote.filaId,
+            numeroLote: loteSanitizado,
+            sucesso: true,
+            status: "SIMULADO_OK",
+            protocolo: null,
+            mensagem: `Simulação local (Dry-Run) aprovada sem transmissão externa para "${lote.nomeArquivo}".`,
+          });
+        } catch (errSim: any) {
+          resultadosLotes.push({
+            filaId: lote.filaId,
+            numeroLote: lote.numeroLote,
+            sucesso: false,
+            status: "ERRO_ROBO",
+            mensagem: errSim.message || "Falha na validação local do XML.",
+          });
+        }
+      }
+
+      return {
+        estabelecimentoId: estabId,
+        convenioId: convId,
+        loginSucesso: true,
+        mensagemLogin: "Simulação local (Dry-Run) concluída sem contato com portal externo.",
+        resultadosLotes,
+      };
+    }
+
     try {
       const isProducaoNode = process.env.NODE_ENV === "production";
       await this.iniciarBrowser(isProducaoNode);
@@ -408,24 +520,33 @@ export class RoboUnimed extends RoboBase {
 
       // 3. Loop enviando TODOS os XMLs daquele hospital na mesma sessão aberta
       for (const lote of lotes) {
+        const loteSeguro = sanitizarNumeroLoteTiss(lote.numeroLote);
         try {
-          if (!fs.existsSync(lote.caminhoXml)) {
+          const caminhoXmlSeguro = validarCaminhoContidoXmlRpa(
+            process.cwd(),
+            lote.caminhoXml
+          );
+          if (!fs.existsSync(caminhoXmlSeguro)) {
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
+              numeroLote: loteSeguro,
               sucesso: false,
               status: "ERRO_ROBO",
-              mensagem: `Arquivo XML não encontrado no servidor: ${lote.caminhoXml}`,
+              mensagem: "Arquivo XML não encontrado no diretório privado do servidor.",
             });
             continue;
           }
 
-          // Localizar input[type='file'] na página ou em qualquer iframe do portal Unimed
+          // Localizar input[type='file'] exclusivamente em frames com origem HTTPS aprovada da Unimed
           let inputFileHandle: any = null;
           let contextoAlvo: any = this.page;
 
           for (const ctx of [this.page, ...this.page.frames()]) {
             try {
+              const ctxUrl = ctx.url();
+              if (!ctxUrl || ctxUrl === "about:blank") continue;
+              validarUrlPortalConvenio(ctxUrl, "UNIMED", credenciais.registroAns);
+
               const handle = await ctx.$("input[type='file']");
               if (handle) {
                 inputFileHandle = handle;
@@ -435,41 +556,15 @@ export class RoboUnimed extends RoboBase {
             } catch {}
           }
 
-          if (inputFileHandle) {
-            await inputFileHandle.uploadFile(lote.caminhoXml);
-            await this.delay(1500);
-          }
-
-          // MODO SIMULAÇÃO (DRY-RUN): Valida login, navegação e anexo sem clicar no botão final de transmissão!
-          if (modoExecucao === "simulacao") {
-            const evSim = await this.capturarEvidenciaTela(
-              pastaEvidencias,
-              `simulacao_lote_${lote.numeroLote}_fila_${lote.filaId}`
-            );
-            resultadosLotes.push({
-              filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
-              sucesso: true,
-              status: "SIMULADO_OK",
-              protocolo: `SIMULACAO-OK-${lote.numeroLote}`,
-              mensagem: inputFileHandle
-                ? `Simulação concluída com sucesso! Login validado e arquivo "${lote.nomeArquivo}" anexado no campo de upload do portal Unimed (sem disparar transmissão final).`
-                : `Simulação de sessão concluída! Login realizado no portal Unimed (${navInfo.detalheNavegacao}). Verifique o print da tela para mapear o seletor de upload se necessário.`,
-              evidenciaPath: evSim.path,
-              screenshotBase64: evSim.base64,
-            });
-            continue;
-          }
-
           // MODO PRODUÇÃO: Exige o input[type='file'] e clica no botão de Enviar/Transmitir
           if (!inputFileHandle) {
             const evNoInput = await this.capturarEvidenciaTela(
               pastaEvidencias,
-              `sem_input_file_lote_${lote.numeroLote}`
+              `sem_input_file_lote_${loteSeguro}`
             );
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
+              numeroLote: loteSeguro,
               sucesso: false,
               status: "ERRO_PORTAL",
               mensagem:
@@ -480,8 +575,11 @@ export class RoboUnimed extends RoboBase {
             continue;
           }
 
-          // Clicar no botão de Enviar / Transmitir XML
-          await Promise.all([
+          await inputFileHandle.uploadFile(caminhoXmlSeguro);
+          await this.delay(1500);
+
+          // Clicar no botão de Enviar / Transmitir XML e comprovar que o botão foi efetivamente acionado
+          const [, clicouBotaoEnviar] = await Promise.all([
             this.page
               .waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
               .catch(() => {}),
@@ -508,22 +606,42 @@ export class RoboUnimed extends RoboBase {
               });
               if (btnEnviar && (btnEnviar as HTMLElement).click) {
                 (btnEnviar as HTMLElement).click();
+                return true;
               }
+              return false;
             }),
           ]);
+
+          if (!clicouBotaoEnviar) {
+            const evSemBotao = await this.capturarEvidenciaTela(
+              pastaEvidencias,
+              `sem_botao_enviar_lote_${loteSeguro}_fila_${lote.filaId}`
+            );
+            resultadosLotes.push({
+              filaId: lote.filaId,
+              numeroLote: loteSeguro,
+              sucesso: false,
+              status: "ERRO_PORTAL",
+              mensagem:
+                "Botão de submissão/transmissão não foi localizado no portal Unimed após anexar o XML.",
+              evidenciaPath: evSemBotao.path,
+              screenshotBase64: evSemBotao.base64,
+            });
+            continue;
+          }
 
           await this.delay(5000);
 
           // Capturar evidência pós-envio
           const evEnvio = await this.capturarEvidenciaTela(
             pastaEvidencias,
-            `comprovante_lote_${lote.numeroLote}_fila_${lote.filaId}`
+            `comprovante_lote_${loteSeguro}_fila_${lote.filaId}`
           );
 
-          // Ler texto de retorno na página e nos iframes para extrair protocolo ou crítica TISS
+          // Ler texto de retorno na página e nos iframes para extrair protocolo correlacionado ao lote ou crítica TISS
           const analiseRetorno = await contextoAlvo.evaluate(() => {
             const elSucesso = document.querySelector(
-              "#box-protocolo-sucesso, #numero-protocolo, .protocolo-sucesso, .alert-success"
+              "#box-protocolo-sucesso, #numero-protocolo, .protocolo-sucesso"
             );
             const elErro = document.querySelector(
               ".alerta-erro-xml, .alert-danger, .erro-validacao, .msg-erro, .error"
@@ -536,57 +654,63 @@ export class RoboUnimed extends RoboBase {
             };
           });
 
-          const regexProtocolo =
-            /(?:protocolo|n[º°o]\s*do\s*lote|recibo|transa[cç][aã]o)\s*(?:de\s*envio|gerado|n[º°o.])?\s*[:#-]?\s*([0-9]{4,25})/i;
-          const matchProt =
-            regexProtocolo.exec(analiseRetorno.textoSucesso) ||
-            regexProtocolo.exec(analiseRetorno.bodyText);
+          const regexProtocoloExplicito =
+            /(?:protocolo|recibo)\s*(?:de\s*envio|gerado|n[º°o.])?\s*[:#-]?\s*([0-9]{6,25})/i;
+          const matchProtSucesso = regexProtocoloExplicito.exec(
+            analiseRetorno.textoSucesso
+          );
+          const correlacionadoAoLote =
+            Boolean(loteSeguro) &&
+            (analiseRetorno.textoSucesso.includes(loteSeguro) ||
+              analiseRetorno.bodyText.includes(loteSeguro) ||
+              analiseRetorno.bodyText.includes(lote.nomeArquivo));
 
-          if (analiseRetorno.textoErro && !matchProt) {
+          if (analiseRetorno.textoErro) {
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
+              numeroLote: loteSeguro,
               sucesso: false,
               status: "ERRO_PORTAL",
               mensagem: `Crítica do Portal Unimed: ${analiseRetorno.textoErro}`,
               evidenciaPath: evEnvio.path,
               screenshotBase64: evEnvio.base64,
             });
-          } else if (matchProt) {
-            const protocoloExtraido = matchProt[1];
+          } else if (matchProtSucesso && correlacionadoAoLote) {
+            const protocoloExtraido = matchProtSucesso[1];
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
+              numeroLote: loteSeguro,
               sucesso: true,
               status: "PROTOCOLADO",
               protocolo: protocoloExtraido,
-              mensagem: `Lote XML enviado e protocolado com sucesso na Unimed! Protocolo: ${protocoloExtraido}`,
+              mensagem: `Lote XML ${loteSeguro} enviado e protocolado com confirmação correlacionada na Unimed! Protocolo: ${protocoloExtraido}`,
               evidenciaPath: evEnvio.path,
               screenshotBase64: evEnvio.base64,
             });
           } else if (
+            matchProtSucesso ||
             /(?:em\s*processamento|aguardando\s*processamento|recebido\s*para\s*validador)/i.test(
               analiseRetorno.bodyText
             )
           ) {
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
-              sucesso: true,
+              numeroLote: loteSeguro,
+              sucesso: false,
               status: "AGUARDANDO_PORTAL",
               mensagem:
-                "Arquivo XML recebido pelo portal Unimed e colocado na fila interna da operadora ('Em processamento').",
+                "Arquivo XML submetido ao portal Unimed, aguardando confirmação correlacionada ao lote na operadora.",
               evidenciaPath: evEnvio.path,
               screenshotBase64: evEnvio.base64,
             });
           } else {
             resultadosLotes.push({
               filaId: lote.filaId,
-              numeroLote: lote.numeroLote,
+              numeroLote: loteSeguro,
               sucesso: false,
               status: "ERRO_PORTAL",
               mensagem:
-                "O arquivo foi submetido, mas não foi possível identificar o número de protocolo automaticamente na resposta. Verifique o print da tela.",
+                "O arquivo foi submetido, mas não houve confirmação inequívoca de protocolo correlacionado ao lote. Verifique o print da tela.",
               evidenciaPath: evEnvio.path,
               screenshotBase64: evEnvio.base64,
             });
@@ -594,7 +718,7 @@ export class RoboUnimed extends RoboBase {
         } catch (erroLote: any) {
           const evErro = await this.capturarEvidenciaTela(
             pastaEvidencias,
-            `erro_lote_${lote.numeroLote}`
+            `erro_lote_${loteSeguro}`
           );
           resultadosLotes.push({
             filaId: lote.filaId,

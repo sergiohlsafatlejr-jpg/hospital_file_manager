@@ -101,6 +101,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { MotorRegrasNotificationBell } from "./MotorRegrasNotificationBell";
 import { SettingsMenu } from "./SettingsMenu";
 import { trpc } from "@/lib/trpc";
+import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica } from "@/lib/fabricaSetoresVisiveis";
 
 import type { ModuloPermissao } from "@/contexts/EstabelecimentoContext";
 import { SAFATLE_ESTABELECIMENTO_ID } from "@shared/const";
@@ -480,12 +481,12 @@ function DashboardLayoutContent({
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
   const { estabelecimentos, estabelecimentoAtual, setEstabelecimentoAtual, isGestor, temAcessoModulo, grupoServico } = useEstabelecimento();
-  const { data: fabricaAux } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery(undefined, {
+  const { data: fabricaAux, status: fabricaAuxStatus } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery(undefined, {
     retry: false,
     staleTime: 30000,
     enabled: Boolean(user),
   });
-  const meuPerfilFabrica = (fabricaAux as any)?.meuPerfil;
+  const acessoFabrica = resolverAcessoFabrica(fabricaAux, fabricaAuxStatus);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -667,15 +668,8 @@ function DashboardLayoutContent({
                             {item.children
                               .filter(child => {
                                 if (child.estabelecimentoIds && estabelecimentoAtual && !child.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
-                                if (child.setorFabrica && meuPerfilFabrica && !meuPerfilFabrica.isGestorFabrica) {
-                                  const permitidos: string[] = Array.isArray(meuPerfilFabrica.setoresPermitidos)
-                                    ? meuPerfilFabrica.setoresPermitidos
-                                    : [];
-                                  if (!permitidos.includes(child.setorFabrica)) return false;
-                                }
-                                if (child.relatoriosFabrica && meuPerfilFabrica && !meuPerfilFabrica.isGestorFabrica && !meuPerfilFabrica.verRelatoriosGerenciais) {
-                                  return false;
-                                }
+                                if (child.setorFabrica && !podeAcessarSetorVisivelFabrica(acessoFabrica, child.setorFabrica)) return false;
+                                if (child.relatoriosFabrica && !acessoFabrica.podeVerRelatorios) return false;
                                 if (!child.modulo && !child.adminOnly) return true;
                                 if (child.adminOnly && !isGestor) return false;
                                 if (child.modulo && !temAcessoModulo(child.modulo)) return false;

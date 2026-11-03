@@ -151,6 +151,11 @@ export default function CredenciaisPortais() {
   };
 
   const handleSalvar = () => {
+    const estabNum = Number(estabelecimentoId);
+    if (!estabNum || estabNum <= 0) {
+      toast.error("Selecione o Hospital proprietário da credencial.");
+      return;
+    }
     if (!convenioId || !login || (!senha && !currentId)) {
       toast.error("Preencha Convênio, Usuário e Senha.");
       return;
@@ -162,7 +167,7 @@ export default function CredenciaisPortais() {
 
     salvarMutation.mutate({
       id: currentId,
-      estabelecimentoId: estabelecimentoId ? Number(estabelecimentoId) : null,
+      estabelecimentoId: estabNum,
       convenioId: Number(convenioId),
       codigoPrestadorOperadora: codigoPrestadorOperadora.trim() || null,
       registroAns: registroAns.trim() || null,

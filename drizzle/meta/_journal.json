@@ -442,6 +442,13 @@
       "when": 1793303472606,
       "tag": "0144_fabrica_faturamento_safatle",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "5",
+      "when": 1793720945369,
+      "tag": "0145_rpa_fila_envio_xml_portal",
+      "breakpoints": true
     }
   ]
 }

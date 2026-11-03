@@ -39,11 +39,13 @@ import {
   TODOS_SETORES_OPERACIONAIS,
   parsePerfilObservacao,
   obterPerfilPersonalizadoColaborador,
+  resolverEscopoLeituraFabrica,
   exigirSetorColaborador,
   exigirSetoresLoteColaborador,
   type PerfilColaboradorFabrica,
   type SetorOperacionalFabrica,
 } from "../fabricaPerfilColaborador";
+import type { SetorConsultaFabrica } from "../../shared/fabricaSetores";
 import {
   criarArquivoXmlFabricaProtegido,
   confirmarArquivoXmlFabrica,
@@ -389,6 +391,15 @@ function filtroHospitaisSql(coluna: string, hospitalIds: readonly number[]) {
   return sql`${sql.raw(coluna)} IN (${sql.join(hospitalIds.map((id) => sql`${id}`), sql`, `)})`;
 }
 
+function filtroEscopoLeituraSql(
+  colunaHospital: string,
+  colunaSetor: string,
+  escopo: { hospitais: readonly number[]; setores: readonly SetorConsultaFabrica[] },
+) {
+  if (!escopo.hospitais.length || !escopo.setores.length) return sql`FALSE`;
+  return sql`${filtroHospitaisSql(colunaHospital, escopo.hospitais)} AND ${sql.raw(colunaSetor)} IN (${sql.join(escopo.setores.map((setor) => sql`${setor}`), sql`, `)})`;
+}
+
 async function exigirColaboradorNoEscopo(
   colaboradorId: number,
   hospitalIds: readonly number[],
@@ -419,6 +430,7 @@ export const fabricaFaturamentoRouter = router({
     const db = await obterDbFabrica();
     const isGestorGlobal = await podeGerenciarMetaGlobal(usuario);
     const usuarioNomeLogado = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+    const perfilEfetivo = await obterPerfilPersonalizadoColaborador(db, usuario, usuarioNomeLogado);
 
     const hospitaisScope = filtroHospitaisSql("e.id", hospitalIdsBase);
     const conveniosScope = filtroHospitaisSql("c.estabelecimentoId", hospitalIdsBase);
@@ -462,7 +474,7 @@ export const fabricaFaturamentoRouter = router({
       const uId = Number(row.usuario_id);
       if (!uId || mapaPerfis.has(uId)) continue;
       try {
-        mapaPerfis.set(uId, parsePerfilObservacao(row.observacao, uId, row.usuario_nome || `Usuário #${uId}`, false));
+        mapaPerfis.set(uId, parsePerfilObservacao(row.observacao, uId, row.usuario_nome || `Usuário #${uId}`));
       } catch {
         // Uma configuração corrupta não concede setor nem derruba os auxiliares de outros usuários.
         // A guarda operacional continua recusando a linha inválida no servidor.
@@ -481,34 +493,17 @@ export const fabricaFaturamentoRouter = router({
       mapaCarga.set(uId, (mapaCarga.get(uId) || 0) + (Number(r.totalAtivas) || 0));
     }
 
-    const meuPerfilSalvo = mapaPerfis.get(usuario.id);
-    const temPerfilRestritoSalvo =
-      Boolean(meuPerfilSalvo) &&
-      usuario.role !== "admin" &&
-      (meuPerfilSalvo!.setoresPermitidos.length < TODOS_SETORES_OPERACIONAIS.length ||
-        meuPerfilSalvo!.hospitaisPermitidos.length > 0 ||
-        !meuPerfilSalvo!.verRelatoriosGerenciais);
-
-    const meuPerfil: PerfilColaboradorFabrica =
-      isGestorGlobal && !temPerfilRestritoSalvo
-        ? {
-            usuarioId: usuario.id,
-            usuarioNome: usuarioNomeLogado,
-            cargoSetor: meuPerfilSalvo?.cargoSetor || "Gestor / Administrador Safatle",
-            setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
-            hospitaisPermitidos: [],
-            verRelatoriosGerenciais: true,
-            isGestorFabrica: true,
-          }
-        : meuPerfilSalvo || {
-            usuarioId: usuario.id,
-            usuarioNome: usuarioNomeLogado,
-            cargoSetor: "Equipe Operacional",
-            setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
-            hospitaisPermitidos: [],
-            verRelatoriosGerenciais: false,
-            isGestorFabrica: false,
-          };
+    const meuPerfil: PerfilColaboradorFabrica = perfilEfetivo ?? {
+      usuarioId: usuario.id,
+      usuarioNome: usuarioNomeLogado,
+      cargoSetor: isGestorGlobal ? "Gestor / Administrador Safatle" : "Equipe Operacional",
+      setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
+      hospitaisPermitidos: [],
+      verRelatoriosGerenciais: isGestorGlobal,
+      isGestorFabrica: isGestorGlobal,
+    };
+    // O DTO do usuário atual usa a mesma leitura efetiva das guardas operacionais.
+    mapaPerfis.set(usuario.id, meuPerfil);
 
     // Se o colaborador possui hospitais específicos restritos no perfil da Fábrica, filtrar a lista
     const hospitaisFiltrados =
@@ -771,7 +766,8 @@ export const fabricaFaturamentoRouter = router({
       const usuario = usuarioFabrica(ctx);
       const hospitalIds = await resolverEscopoFabrica(usuario, input?.hospitalEstabelecimentoId, "visualizar");
       const db = await obterDbFabrica();
-      let whereSql = filtroHospitaisSql("hospital_estabelecimento_id", hospitalIds);
+      const escopo = await resolverEscopoLeituraFabrica(db, usuario, hospitalIds);
+      let whereSql = filtroEscopoLeituraSql("hospital_estabelecimento_id", "setor_atual", escopo);
       if (input?.convenioId) {
         whereSql = sql`${whereSql} AND convenio_id = ${input.convenioId}`;
       }
@@ -893,17 +889,11 @@ export const fabricaFaturamentoRouter = router({
       const usuario = usuarioFabrica(ctx);
       const hospitalIds = await resolverEscopoFabrica(usuario, input?.hospitalEstabelecimentoId, "visualizar");
       const db = await obterDbFabrica();
+      const escopo = await resolverEscopoLeituraFabrica(db, usuario, hospitalIds, input?.setorAtual);
       const page = input?.page ?? 1;
       const pageSize = Math.min(100, Math.max(1, input?.pageSize ?? 30));
       const offset = (page - 1) * pageSize;
-      let whereSql = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIds);
-      if (input?.setorAtual) {
-        if (input.setorAtual === "enviado_convenio" || input.setorAtual === "recursos" || input.setorAtual === "limpeza_prontuario") {
-          whereSql = sql`${whereSql} AND fc.setor_atual IN ('limpeza_prontuario', 'enviado_convenio', 'recursos')`;
-        } else {
-          whereSql = sql`${whereSql} AND fc.setor_atual = ${input.setorAtual}`;
-        }
-      }
+      let whereSql = filtroEscopoLeituraSql("fc.hospital_estabelecimento_id", "fc.setor_atual", escopo);
       if (input?.statusSetor) {
         whereSql = sql`${whereSql} AND fc.status_setor = ${input.statusSetor}`;
       }

@@ -3,6 +3,7 @@ import {
   index,
   int,
   json,
+  longtext,
   mysqlTable,
   text,
   timestamp,
@@ -65,7 +66,7 @@ export const filaEnvioXmlPortal = mysqlTable(
     idRecebimentoPortal: varchar("id_recebimento_portal", { length: 120 }),
     mensagemPortal: text("mensagem_portal"),
     comprovanteUrl: varchar("comprovante_url", { length: 512 }),
-    screenshotBase64: text("screenshot_base64"),
+    screenshotBase64: longtext("screenshot_base64"),
 
     tentativas: int("tentativas").default(0).notNull(),
     enviadoEm: timestamp("enviado_em"),

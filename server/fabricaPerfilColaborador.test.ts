@@ -19,6 +19,7 @@ import {
   exigirSetorColaborador,
   obterPerfilPersonalizadoColaborador,
   parsePerfilObservacao,
+  resolverEscopoLeituraFabrica,
 } from "./fabricaPerfilColaborador";
 
 const usuarioOperador = { id: 71, role: "user" };
@@ -83,7 +84,7 @@ describe("fabricaPerfilColaborador", () => {
         isGestorFabrica: false,
       });
     expect(db.execute).toHaveBeenCalledTimes(1);
-    expect(mocks.verificarPermissaoEstabelecimento).toHaveBeenCalledWith(71, 2160001, "gerenciar");
+    expect(mocks.verificarPermissaoEstabelecimento).not.toHaveBeenCalled();
   });
 
   it("nega recepção para perfil restrito a faturamento", async () => {
@@ -115,7 +116,6 @@ describe("fabricaPerfilColaborador", () => {
       observacaoPerfil({ verRelatoriosGerenciais: true }),
       usuarioOperador.id,
       "Colaborador Teste",
-      false,
     );
     expect(perfil.verRelatoriosGerenciais).toBe(true);
     expect(perfil.isGestorFabrica).toBe(false);
@@ -174,7 +174,7 @@ describe("fabricaPerfilColaborador", () => {
     await expect(exigirSetorColaborador(db, usuarioOperador, ["recepcao"], [999])).resolves.toBeUndefined();
   });
 
-  it("gestor real da central recebe bypass apenas pela permissão gerenciar", async () => {
+  it("gestor da central mantém o perfil salvo, sem bypass de setor, hospital ou relatórios", async () => {
     mocks.verificarPermissaoEstabelecimento.mockImplementation(async (userId, estabelecimentoId, permissao) =>
       userId === usuarioGestor.id && estabelecimentoId === 2160001 && permissao === "gerenciar",
     );
@@ -187,9 +187,15 @@ describe("fabricaPerfilColaborador", () => {
       }], []]),
     };
 
-    await expect(exigirSetorColaborador(db, usuarioGestor, ["recursos"], [999])).resolves.toBeUndefined();
-    await expect(mocks.verificarPermissaoEstabelecimento)
-      .toHaveBeenCalledWith(usuarioGestor.id, 2160001, "gerenciar");
+    await expect(exigirSetorColaborador(db, usuarioGestor, ["recursos"], [101]))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("setor") });
+    await expect(exigirSetorColaborador(db, usuarioGestor, ["recepcao"], [999]))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("hospital") });
+    await expect(obterPerfilPersonalizadoColaborador(db, usuarioGestor)).resolves.toMatchObject({
+      setoresPermitidos: ["recepcao"], hospitaisPermitidos: [101],
+      isGestorFabrica: false, verRelatoriosGerenciais: false,
+    });
+    expect(mocks.verificarPermissaoEstabelecimento).not.toHaveBeenCalled();
   });
 
   it("admin mantém o bypass previsto sem consultar perfil ou banco", async () => {
@@ -198,5 +204,76 @@ describe("fabricaPerfilColaborador", () => {
     await expect(exigirSetorColaborador(db, usuarioAdmin, ["recepcao"], [999])).resolves.toBeUndefined();
     expect(db.execute).not.toHaveBeenCalled();
     expect(mocks.verificarPermissaoEstabelecimento).not.toHaveBeenCalled();
+  });
+});
+
+describe("Issue #155: escopo de leitura igual ao perfil das guardas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verificarPermissaoEstabelecimento.mockResolvedValue(true);
+  });
+
+  it("todos inclui somente os setores salvos e intersecta hospitais autorizados", async () => {
+    await expect(resolverEscopoLeituraFabrica(
+      dbComPerfil(observacaoPerfil({ setoresPermitidos: ["faturamento", "auditoria_interna"] })),
+      usuarioGestor, [101, 202],
+    )).resolves.toEqual({ setores: ["faturamento", "auditoria_interna"], hospitais: [101] });
+  });
+
+  it("um filtro explícito fora do perfil é negado mesmo com gerenciamento central", async () => {
+    await expect(resolverEscopoLeituraFabrica(
+      dbComPerfil(observacaoPerfil()), usuarioGestor, [101], "recepcao",
+    )).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("perfil com setores vazios não autoriza nenhuma leitura", async () => {
+    await expect(resolverEscopoLeituraFabrica(
+      dbComPerfil(observacaoPerfil({ setoresPermitidos: [] })), usuarioOperador, [101],
+    )).resolves.toEqual({ setores: [], hospitais: [101] });
+  });
+
+  it("não amplia hospitais quando a interseção do perfil é vazia", async () => {
+    await expect(resolverEscopoLeituraFabrica(
+      dbComPerfil(observacaoPerfil()), usuarioOperador, [202],
+    )).resolves.toEqual({ setores: ["faturamento"], hospitais: [] });
+  });
+
+  it.each(["recursos", "limpeza_prontuario"] as const)("preserva o compartilhamento aprovado para %s", async (setor) => {
+    const db = dbComPerfil(observacaoPerfil({ setoresPermitidos: [setor] }));
+    const resultado = await resolverEscopoLeituraFabrica(db, usuarioOperador, [101]);
+    expect(resultado.setores).toEqual(expect.arrayContaining([
+      "limpeza_prontuario", "recursos", "enviado_convenio", "finalizado",
+    ]));
+    expect(resultado.setores).not.toContain("recepcao");
+    expect(resultado.setores).not.toContain("faturamento");
+    await expect(exigirSetorColaborador(db, usuarioOperador, ["recursos", "limpeza_prontuario"], [101]))
+      .resolves.toBeUndefined();
+  });
+
+  it("filtro compartilhado restringe o grupo sem incluir setores anteriores", async () => {
+    const db = dbComPerfil(observacaoPerfil({ setoresPermitidos: ["faturamento", "recursos"] }));
+    await expect(resolverEscopoLeituraFabrica(db, usuarioOperador, [101], "enviado_convenio"))
+      .resolves.toEqual({ setores: ["recursos", "limpeza_prontuario", "enviado_convenio"], hospitais: [101] });
+  });
+
+  it("admin mantém os oito estados sem consultar o perfil", async () => {
+    const db = dbComPerfil("invalido");
+    const resultado = await resolverEscopoLeituraFabrica(db, usuarioAdmin, [101, 202]);
+    expect(resultado.setores).toHaveLength(8);
+    expect(resultado.hospitais).toEqual([101, 202]);
+    expect(db.execute).not.toHaveBeenCalled();
+  });
+
+  it("ausência comprovada de perfil preserva o legado, sem extrapolar escopo hospitalar", async () => {
+    const resultado = await resolverEscopoLeituraFabrica(dbSemPerfil(), usuarioOperador, [101]);
+    expect(resultado.setores).toHaveLength(8);
+    expect(resultado.hospitais).toEqual([101]);
+  });
+
+  it("falha de leitura ou JSON inválido bloqueia em vez de ampliar o escopo", async () => {
+    await expect(resolverEscopoLeituraFabrica(dbComPerfil("invalido"), usuarioGestor, [101]))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(resolverEscopoLeituraFabrica({ execute: vi.fn().mockRejectedValue(new Error("falha sintética")) }, usuarioGestor, [101]))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

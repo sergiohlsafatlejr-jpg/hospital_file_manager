@@ -20,30 +20,10 @@
 
 import https from "https";
 import type { IncomingHttpHeaders } from "node:http";
-import { createHash } from "node:crypto";
 import { getDb } from "./db";
 import { finBancos } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { decryptBancoInterField } from "./bancoInterVault";
-
-/**
- * Garante que a chave de 32 bytes (64 hex) do cofre Banco Inter esteja disponível em runtime.
- * Se BANCO_INTER_ENCRYPTION_KEY já for um hex de 64 caracteres, mantém inalterada.
- */
-export function garantirChaveCriptografiaInter() {
-  const atual = process.env.BANCO_INTER_ENCRYPTION_KEY;
-  if (typeof atual === "string" && /^[a-fA-F0-9]{64}$/.test(atual)) {
-    return;
-  }
-  const semente =
-    (typeof atual === "string" && atual.trim().length > 0 ? atual.trim() : "") ||
-    process.env.JWT_SECRET ||
-    process.env.DATABASE_URL ||
-    "safatle-portal-banco-inter-key-v1";
-  process.env.BANCO_INTER_ENCRYPTION_KEY = createHash("sha256")
-    .update(`safatle.banco-inter.master:${semente}`)
-    .digest("hex");
-}
 
 export interface InterConfig {
   bancoId?: number;
@@ -67,7 +47,6 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 export async function getInterConfig(bancoId?: number): Promise<InterConfig | null> {
   if (!Number.isSafeInteger(bancoId) || !bancoId || bancoId <= 0) return null;
   try {
-    garantirChaveCriptografiaInter();
     const db = await getDb();
     if (!db) return null;
     const [banco] = await db.select().from(finBancos).where(eq(finBancos.id, bancoId)).limit(1);
@@ -281,14 +260,12 @@ export async function getInterStatus(bancoId?: number) {
     hasCert: !!config?.certPem,
     hasKey: !!config?.keyPem,
     hasContaCorrente: !!config?.contaCorrente,
-    clientIdPreview: config?.clientId ? `${config.clientId.slice(0, 8)}...` : null,
     baseUrl: config?.baseUrl || "https://cdpj.partners.bancointer.com.br",
   };
 }
 
-function operationFailure(err?: unknown) {
-  const msg = err instanceof Error && err.message ? err.message : "Não foi possível concluir a operação com o Banco Inter.";
-  return { configured: true, error: msg };
+function operationFailure(_err?: unknown) {
+  return { configured: true, error: "Não foi possível concluir a operação com o Banco Inter." };
 }
 
 // ==================== BANKING ====================

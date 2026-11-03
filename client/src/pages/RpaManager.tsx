@@ -258,9 +258,18 @@ export default function RpaManager() {
       toast.error("Por favor, insira a URL do portal.");
       return;
     }
+    const estabAlvo =
+      (filtroHospitalFila !== "TODOS" ? Number(filtroHospitalFila) : 0) ||
+      (contextoHospitalUpload !== "CENTRAL" ? Number(contextoHospitalUpload) : 0) ||
+      Number(estabelecimentos?.[0]?.id || 0);
+    if (!estabAlvo || estabAlvo <= 0) {
+      toast.error("Selecione um hospital válido antes de executar o robô.");
+      return;
+    }
     setResultado(null);
     rpaMutation.mutate({
       convenioNome: convenio,
+      estabelecimentoId: estabAlvo,
       url,
       login,
       senha,

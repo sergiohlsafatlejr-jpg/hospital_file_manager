@@ -1,16 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
+  cofreRpaKeyAvailable,
   estaCriptografadaNoCofre,
   obterSenhaParaRobo,
+  resolverCaminhoSeguroXmlRpa,
   salvarSenhaCofre,
+  sanitizarNumeroLoteTiss,
+  validarCaminhoContidoXmlRpa,
+  validarUrlPortalConvenio,
 } from "./cofreCredenciais";
 import { identificarERotearXmlTiss } from "./identificadorXmlTiss";
+import { RoboUnimed } from "./robos/RoboUnimed";
 import {
   convenios,
   convenioEstabelecimentoPrestador,
   credenciaisPortais,
   estabelecimentos,
 } from "../../drizzle/schema";
+
+const TEST_RPA_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const SAMPLE_UNIMED_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <ans:mensagemTISS xmlns:ans="http://www.ans.gov.br/padroes/tiss/schemas">
@@ -69,6 +79,7 @@ const SAMPLE_UNIMED_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </ans:mensagemTISS>`;
 
 function criarMockDb() {
+  process.env.RPA_COFRE_SECRET_KEY = TEST_RPA_KEY;
   return {
     select: () => ({
       from: (table: any) => {
@@ -108,7 +119,11 @@ function criarMockDb() {
   };
 }
 
-describe("Cofre de Credenciais Multi-Hospital (AES-256-GCM)", () => {
+describe("Cofre de Credenciais Multi-Hospital (AES-256-GCM e Falha Fechada)", () => {
+  beforeEach(() => {
+    process.env.RPA_COFRE_SECRET_KEY = TEST_RPA_KEY;
+  });
+
   it("criptografa a senha com prefixo ENC:v1: e descriptografa em memória para o robô", () => {
     const senhaOriginal = "Unimed@Cotefi#2026";
     const cifrada = salvarSenhaCofre(senhaOriginal);
@@ -118,10 +133,120 @@ describe("Cofre de Credenciais Multi-Hospital (AES-256-GCM)", () => {
     expect(obterSenhaParaRobo(cifrada)).toBe(senhaOriginal);
   });
 
-  it("mantém compatibilidade com senhas legadas em texto plano no banco", () => {
+  it("recusa texto plano legado (falha fechada)", () => {
     const legada = "senha_antiga_123";
     expect(estaCriptografadaNoCofre(legada)).toBe(false);
-    expect(obterSenhaParaRobo(legada)).toBe(legada);
+    expect(() => obterSenhaParaRobo(legada)).toThrow(/não criptografado recusado/i);
+  });
+
+  it("falha fechada quando RPA_COFRE_SECRET_KEY está ausente ou curta", () => {
+    delete process.env.RPA_COFRE_SECRET_KEY;
+    expect(cofreRpaKeyAvailable()).toBe(false);
+    expect(() => salvarSenhaCofre("QualquerSenha123")).toThrow(/RPA_COFRE_SECRET_KEY/i);
+
+    process.env.RPA_COFRE_SECRET_KEY = "curta";
+    expect(cofreRpaKeyAvailable()).toBe(false);
+    expect(() => salvarSenhaCofre("QualquerSenha123")).toThrow(/RPA_COFRE_SECRET_KEY/i);
+  });
+});
+
+describe("Fronteiras de Segurança RPA (Allowlist HTTPS, Contenção de Caminho e Dry-Run)", () => {
+  it("aceita apenas destinos HTTPS aprovados da operadora e bloqueia HTTP, IP literal ou domínio externo", () => {
+    expect(
+      validarUrlPortalConvenio(
+        "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+        "UNIMED",
+        "382876"
+      )
+    ).toContain("https://www.unimedgoiania.coop.br");
+
+    expect(() =>
+      validarUrlPortalConvenio(
+        "http://www.unimedgoiania.coop.br/wps/portal",
+        "UNIMED"
+      )
+    ).toThrow(/HTTPS/i);
+
+    expect(() =>
+      validarUrlPortalConvenio(
+        "https://evil-phishing.example.com/login",
+        "UNIMED"
+      )
+    ).toThrow(/allowlist/i);
+
+    expect(() =>
+      validarUrlPortalConvenio("https://127.0.0.1/portal", "UNIMED")
+    ).toThrow(/rede local ou IP literal/i);
+  });
+
+  it("impede fuga de diretório no caminho de armazenamento XML e sanitiza numeroLote malicioso", () => {
+    const loteLimpo = sanitizarNumeroLoteTiss("../../client/dist/pwn", "abcd1234");
+    expect(loteLimpo).not.toContain("..");
+    expect(loteLimpo).not.toContain("/");
+    expect(loteLimpo).not.toContain("\\");
+
+    const hashValido = "a".repeat(64);
+    const resolvido = resolverCaminhoSeguroXmlRpa(
+      process.cwd(),
+      3,
+      10,
+      hashValido,
+      "2026-11"
+    );
+    expect(
+      validarCaminhoContidoXmlRpa(process.cwd(), resolvido.caminhoCompleto)
+    ).toBe(resolvido.caminhoCompleto);
+
+    expect(() =>
+      validarCaminhoContidoXmlRpa(
+        process.cwd(),
+        path.resolve(process.cwd(), "client", "index.html")
+      )
+    ).toThrow(/fora do diretório privado/i);
+  });
+
+  it("executa modo simulacao (Dry-Run) localmente sem abrir navegador nem anexar XML em portal remoto", async () => {
+    const hashValido = "b".repeat(64);
+    const { pastaDestino, caminhoCompleto } = resolverCaminhoSeguroXmlRpa(
+      process.cwd(),
+      3,
+      10,
+      hashValido,
+      "2026-11"
+    );
+    fs.mkdirSync(pastaDestino, { recursive: true });
+    fs.writeFileSync(caminhoCompleto, SAMPLE_UNIMED_XML, "utf8");
+
+    try {
+      const robo = new RoboUnimed();
+      const res = await robo.enviarLotesXml(
+        {
+          url: "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+          login: "cotefi_unimed",
+          senha: "SenhaSecreta@123",
+          estabelecimentoId: 3,
+          convenioId: 10,
+          registroAns: "382876",
+        },
+        [
+          {
+            filaId: 99,
+            numeroLote: "20261199",
+            nomeArquivo: "lote_teste.xml",
+            caminhoXml: caminhoCompleto,
+          },
+        ],
+        { modoExecucao: "simulacao" }
+      );
+
+      expect(res.loginSucesso).toBe(true);
+      expect(res.resultadosLotes[0].status).toBe("SIMULADO_OK");
+      expect(res.resultadosLotes[0].protocolo).toBeNull();
+    } finally {
+      if (fs.existsSync(caminhoCompleto)) {
+        fs.unlinkSync(caminhoCompleto);
+      }
+    }
   });
 });
 
@@ -131,7 +256,7 @@ describe("Identificador e Roteador Automático pelo <ans:cabecalho> (Unimed)", (
     const resultado = await identificarERotearXmlTiss(
       Buffer.from(SAMPLE_UNIMED_XML, "utf-8"),
       dbMock,
-      { estabelecimentoIdContexto: 2160001 } // Central Safatle
+      { estabelecimentoIdContexto: 2160001 }
     );
 
     expect(resultado.registroAns).toBe("382876");
@@ -152,7 +277,7 @@ describe("Identificador e Roteador Automático pelo <ans:cabecalho> (Unimed)", (
     const resultado = await identificarERotearXmlTiss(
       Buffer.from(SAMPLE_UNIMED_XML, "utf-8"),
       dbMock,
-      { estabelecimentoIdContexto: 5 } // Travado no Hospital 5 (Hemolabor)
+      { estabelecimentoIdContexto: 5 }
     );
 
     expect(resultado.conflitoHospital).toBe(true);

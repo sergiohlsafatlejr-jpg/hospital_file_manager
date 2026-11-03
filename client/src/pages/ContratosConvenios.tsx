@@ -280,16 +280,33 @@ export default function ContratosConvenios() {
     setImportandoPdf(true);
     setResultadoImportacao(null);
     try {
-      const formData = new FormData();
-      formData.append("contratoId", String(contratoIdAlvo));
-      arquivosPdf.forEach((arquivo) => formData.append("files", arquivo, arquivo.name));
-      const resposta = await fetch("/api/contratos-convenios/importar-pdfs", {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin",
-      });
-      const payload = await resposta.json().catch(() => ({}));
-      if (!resposta.ok) throw new Error(payload.error || "Não foi possível importar os PDFs.");
+      const documentosConsolidados: any[] = [];
+      let totalProcessados = 0;
+      for (const arquivo of arquivosPdf) {
+        const formData = new FormData();
+        formData.append("contratoId", String(contratoIdAlvo));
+        formData.append("files", arquivo, arquivo.name);
+        const resposta = await fetch("/api/contratos-convenios/importar-pdfs", {
+          method: "POST",
+          body: formData,
+          credentials: "same-origin",
+        });
+        const itemPayload = await resposta.json().catch(() => ({}));
+        if (!resposta.ok) {
+          throw new Error(itemPayload.error || `Não foi possível importar o PDF "${arquivo.name}".`);
+        }
+        totalProcessados += Number(itemPayload.processados || 0);
+        if (Array.isArray(itemPayload.documentos)) {
+          documentosConsolidados.push(...itemPayload.documentos);
+        }
+      }
+      const payload = {
+        success: totalProcessados > 0,
+        contratoId: contratoIdAlvo,
+        total: documentosConsolidados.length,
+        processados: totalProcessados,
+        documentos: documentosConsolidados,
+      };
       setResultadoImportacao(payload);
       setArquivosPdf([]);
       await Promise.all([

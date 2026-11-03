@@ -75,7 +75,6 @@ export abstract class RoboBase {
     logger.info({ message: `Iniciando robô RPA: ${this.nome}` });
     this.browser = await puppeteer.launch({
       headless,
-      ignoreHTTPSErrors: true, // Ignorar problemas de SSL comuns em portais de saúde antigos
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",

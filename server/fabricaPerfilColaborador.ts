@@ -1,19 +1,16 @@
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
-import { verificarPermissaoEstabelecimento } from "./db";
-import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "./hospitalScope";
 import type { UsuarioHospital } from "./hospitalScope";
+import {
+  TODOS_SETORES_OPERACIONAIS,
+  grupoConsultaSetorFabrica,
+  setoresConsultaDoPerfil,
+  type SetorOperacionalFabrica,
+  type SetorConsultaFabrica,
+} from "../shared/fabricaSetores";
 
-export const TODOS_SETORES_OPERACIONAIS = [
-  "recepcao",
-  "faturamento",
-  "auditoria_interna",
-  "auditoria_externa",
-  "limpeza_prontuario",
-  "recursos",
-] as const;
-
-export type SetorOperacionalFabrica = (typeof TODOS_SETORES_OPERACIONAIS)[number];
+export { TODOS_SETORES_OPERACIONAIS };
+export type { SetorOperacionalFabrica };
 
 export interface PerfilColaboradorFabrica {
   usuarioId: number;
@@ -96,7 +93,6 @@ export function parsePerfilObservacao(
   raw: string | null | undefined,
   usuarioId: number,
   usuarioNome: string,
-  isGestorCentral = false,
 ): PerfilColaboradorFabrica {
   if (typeof raw !== "string" || !idPositivoSeguro(usuarioId) || typeof usuarioNome !== "string") {
     throw erroPerfilNaoValidado();
@@ -118,28 +114,16 @@ export function parsePerfilObservacao(
     throw erroPerfilNaoValidado();
   }
 
-  const gestorCentral = isGestorCentral === true;
   return {
     usuarioId,
     usuarioNome,
     cargoSetor,
-    setoresPermitidos: gestorCentral
-      ? [...TODOS_SETORES_OPERACIONAIS]
-      : setoresPermitidos,
-    hospitaisPermitidos: gestorCentral ? [] : hospitaisPermitidos,
-    verRelatoriosGerenciais: gestorCentral || parsed.verRelatoriosGerenciais,
-    // Leitura de relatórios é um direito separado e jamais transforma o operador em gestor.
-    isGestorFabrica: gestorCentral,
+    setoresPermitidos,
+    hospitaisPermitidos,
+    verRelatoriosGerenciais: parsed.verRelatoriosGerenciais,
+    // Gestão da equipe é separada: não neutraliza um perfil operacional salvo.
+    isGestorFabrica: false,
   };
-}
-
-async function podeGerenciarFabrica(usuario: UsuarioHospital): Promise<boolean> {
-  if (usuario.role === "admin") return true;
-  return verificarPermissaoEstabelecimento(
-    usuario.id,
-    ESTABELECIMENTO_CENTRAL_SAFATLE,
-    "gerenciar",
-  );
 }
 
 function nomePerfil(row: RegistroPerfilFabrica, fallback: string): string {
@@ -181,12 +165,10 @@ export async function obterPerfilPersonalizadoColaborador(
       throw erroPerfilNaoValidado();
     }
 
-    const isGestorCentral = await podeGerenciarFabrica(usuario);
     return parsePerfilObservacao(
       row.observacao,
       usuario.id,
       nomePerfil(row, usuarioNomeFallback),
-      isGestorCentral,
     );
   } catch {
     throw erroPerfilNaoValidado();
@@ -216,11 +198,7 @@ function exigirPerfilNoSetor(
 ): void {
   if (!perfil || perfil.isGestorFabrica) return;
 
-  const setoresExpandidos = new Set<string>(perfil.setoresPermitidos);
-  if (setoresExpandidos.has("limpeza_prontuario") || setoresExpandidos.has("recursos")) {
-    setoresExpandidos.add("limpeza_prontuario");
-    setoresExpandidos.add("recursos");
-  }
+  const setoresExpandidos = new Set<string>(setoresConsultaDoPerfil(perfil.setoresPermitidos));
   const temSetor = setoresRequeridos.some((setor) => setoresExpandidos.has(setor));
   if (!temSetor) {
     throw new TRPCError({ code: "FORBIDDEN", message: MENSAGEM_SETOR_NAO_AUTORIZADO });
@@ -253,4 +231,31 @@ export async function exigirSetoresLoteColaborador(
       : [conta.setorAtual as SetorOperacionalFabrica];
     exigirPerfilNoSetor(perfil, setoresRequeridos, [conta.hospitalEstabelecimentoId]);
   }
+}
+
+/**
+ * Leitura e contagem usam o mesmo perfil efetivo das guardas operacionais.
+ * Admin e ausência comprovada de linha preservam o legado; perfil vazio não
+ * ganha setores. A permissão gerenciar na Central não amplia perfis salvos.
+ */
+export async function resolverEscopoLeituraFabrica(
+  db: DbComExecute | null | undefined,
+  usuario: UsuarioHospital,
+  hospitalIds: readonly number[],
+  setorSolicitado?: SetorConsultaFabrica,
+): Promise<{ setores: SetorConsultaFabrica[]; hospitais: number[] }> {
+  if (!hospitalIds.every(idPositivoSeguro)) throw erroPerfilNaoValidado();
+  const perfil = await obterPerfilPersonalizadoColaborador(db, usuario);
+  let setores = setoresConsultaDoPerfil(perfil?.setoresPermitidos ?? TODOS_SETORES_OPERACIONAIS);
+  if (setorSolicitado !== undefined) {
+    if (!setores.includes(setorSolicitado)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: MENSAGEM_SETOR_NAO_AUTORIZADO });
+    }
+    const grupo = grupoConsultaSetorFabrica(setorSolicitado);
+    setores = setores.filter((setor) => grupo.includes(setor));
+  }
+  const hospitais = [...new Set(hospitalIds)].filter((hospitalId) =>
+    !perfil || perfil.hospitaisPermitidos.length === 0 || perfil.hospitaisPermitidos.includes(hospitalId),
+  );
+  return { setores, hospitais };
 }

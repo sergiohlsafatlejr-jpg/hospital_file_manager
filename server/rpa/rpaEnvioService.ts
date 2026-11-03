@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   convenios,
   credenciaisPortais,
@@ -9,85 +9,23 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { logger } from "../_core/logger";
-import { obterSenhaParaRobo } from "./cofreCredenciais";
+import {
+  obterSenhaParaRobo,
+  validarCaminhoContidoXmlRpa,
+  validarUrlPortalConvenio,
+} from "./cofreCredenciais";
 import { RoboBase, LoteParaEnvioRpa } from "./RoboBase";
 import { RoboUnimed } from "./robos/RoboUnimed";
 import { RoboIpasgo } from "./robos/RoboIpasgo";
 import { RoboCassi } from "./robos/RoboCassi";
 import { RoboSaudeCaixa } from "./robos/RoboSaudeCaixa";
 
-let _schemaVerificado = false;
-
 /**
- * Garante de forma idempotente que a tabela fila_envio_xml_portal e as novas colunas
- * do Cofre Multi-Hospital existam no banco MySQL ativo.
+ * A estrutura física da tabela `fila_envio_xml_portal` e das colunas adicionais de `credenciais_portais`
+ * é gerida exclusivamente pela migração 0145 e seu executor restrito (sem DDL em runtime).
  */
-export async function garantirTabelasRpaEnvio(dbArg?: any): Promise<void> {
-  if (_schemaVerificado) return;
-  const db = dbArg || (await getDb());
-  if (!db) return;
-
-  try {
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS fila_envio_xml_portal (
-        id int NOT NULL AUTO_INCREMENT,
-        estabelecimento_id int NOT NULL,
-        convenio_id int NOT NULL,
-        fabrica_conta_id int DEFAULT NULL,
-        arquivo_id int DEFAULT NULL,
-        usuario_upload_id int NOT NULL,
-        usuario_upload_nome varchar(255) DEFAULT NULL,
-        nome_arquivo varchar(255) NOT NULL,
-        numero_lote varchar(80) NOT NULL,
-        versao_tiss varchar(20) DEFAULT NULL,
-        registro_ans varchar(20) DEFAULT NULL,
-        codigo_prestador_xml varchar(80) DEFAULT NULL,
-        cnpj_prestador_xml varchar(20) DEFAULT NULL,
-        qtd_guias int NOT NULL DEFAULT 0,
-        qtd_itens int NOT NULL DEFAULT 0,
-        valor_total decimal(14,2) NOT NULL DEFAULT '0.00',
-        hash_xml varchar(64) NOT NULL,
-        caminho_arquivo_xml varchar(512) NOT NULL,
-        resumo_guias_json json DEFAULT NULL,
-        status_esteira varchar(40) NOT NULL DEFAULT 'IMPORTADO',
-        modo_execucao varchar(20) NOT NULL DEFAULT 'producao',
-        protocolo_retorno varchar(120) DEFAULT NULL,
-        id_recebimento_portal varchar(120) DEFAULT NULL,
-        mensagem_portal text,
-        comprovante_url varchar(512) DEFAULT NULL,
-        screenshot_base64 longtext,
-        tentativas int NOT NULL DEFAULT 0,
-        enviado_em timestamp NULL DEFAULT NULL,
-        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_fila_xml_status_estab (status_esteira, estabelecimento_id, convenio_id),
-        KEY idx_fila_xml_hash_estab (estabelecimento_id, convenio_id, hash_xml),
-        KEY idx_fila_xml_fabrica_conta (fabrica_conta_id)
-      )
-    `);
-
-    const colunasExtras = [
-      "ALTER TABLE credenciais_portais ADD COLUMN codigoPrestadorOperadora varchar(80) DEFAULT NULL",
-      "ALTER TABLE credenciais_portais ADD COLUMN registroAns varchar(20) DEFAULT NULL",
-      "ALTER TABLE credenciais_portais ADD COLUMN parametrosExtras json DEFAULT NULL",
-      "ALTER TABLE credenciais_portais ADD COLUMN statusCredencial varchar(40) DEFAULT 'ATIVA'",
-    ];
-
-    for (const ddl of colunasExtras) {
-      try {
-        await db.execute(sql.raw(ddl));
-      } catch {
-        // Coluna já existe
-      }
-    }
-
-    _schemaVerificado = true;
-  } catch (err: any) {
-    logger.warn({
-      message: `[RPA Envio] Aviso ao verificar estrutura de tabelas: ${err.message}`,
-    });
-  }
+export async function garantirTabelasRpaEnvio(_dbArg?: any): Promise<void> {
+  // Sem CREATE/ALTER TABLE em requisições HTTP.
 }
 
 export function obterAdapterEnvioConvenio(
@@ -113,7 +51,6 @@ export function obterAdapterEnvioConvenio(
     return new RoboSaudeCaixa();
   }
 
-  // Fallback padrão usa o adaptador Unimed/Genérico TISS (que suporta urlEnvioXml e busca de input[type='file'] em iframes)
   return new RoboUnimed();
 }
 
@@ -121,25 +58,40 @@ function toMysqlDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+function affectedRowsOf(res: any): number {
+  const header = Array.isArray(res) ? res[0] : res;
+  return Number(header?.affectedRows ?? header?.rowsAffected ?? 0);
+}
+
 /**
- * Executa um ciclo do Worker RPA agrupando todos os lotes pendentes por (estabelecimentoId, convenioId).
- * Faz 1 único login por Hospital + Convênio, envia os lotes em sequência na mesma sessão e fecha o browser.
+ * Executa um ciclo do Worker RPA agrupando lotes pendentes por (estabelecimentoId, convenioId).
+ * Exige escopo hospitalar explícito, claim atômico por lote (LIBERADO_ENVIO -> PROCESSANDO_ROBO),
+ * credencial proprietária do hospital e URL HTTPS aprovada por convênio.
  */
-export async function executarCicloEnvioXmlRpa(opcoes?: {
+export async function executarCicloEnvioXmlRpa(opcoes: {
   loteIds?: number[];
   modoExecucao?: "simulacao" | "producao";
   estabelecimentoIdFiltro?: number | null;
   convenioIdFiltro?: number | null;
+  estabelecimentosAutorizadosIds: number[];
   usuarioIdExecutor?: number;
   usuarioNomeExecutor?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco de dados indisponível.");
-  await garantirTabelasRpaEnvio(db);
 
-  const modoExecucao = opcoes?.modoExecucao || "producao";
+  const autorizadosSet = new Set(
+    (opcoes.estabelecimentosAutorizadosIds || [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0)
+  );
+  if (autorizadosSet.size === 0) {
+    throw new Error("Nenhum estabelecimento autorizado para execução do ciclo RPA.");
+  }
 
-  // 1. Buscar lotes elegíveis na fila
+  const modoExecucao = opcoes.modoExecucao || "simulacao";
+
+  // 1. Buscar lotes na fila restritos aos hospitais autorizados e ao status LIBERADO_ENVIO
   const todosLotesFila = await db
     .select({
       id: filaEnvioXmlPortal.id,
@@ -162,26 +114,41 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
       estabelecimentos,
       eq(filaEnvioXmlPortal.estabelecimentoId, estabelecimentos.id)
     )
-    .leftJoin(convenios, eq(filaEnvioXmlPortal.convenioId, convenios.id));
+    .leftJoin(convenios, eq(filaEnvioXmlPortal.convenioId, convenios.id))
+    .where(
+      and(
+        eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO"),
+        inArray(
+          filaEnvioXmlPortal.estabelecimentoId,
+          Array.from(autorizadosSet)
+        )
+      )
+    );
 
   const lotesElegiveis = todosLotesFila
     .filter((lote) => {
-      if (opcoes?.loteIds && opcoes.loteIds.length > 0) {
-        return opcoes.loteIds.includes(Number(lote.id));
+      if (!autorizadosSet.has(Number(lote.estabelecimentoId))) {
+        return false;
+      }
+      if (lote.statusEsteira !== "LIBERADO_ENVIO") {
+        return false;
+      }
+      if (opcoes.loteIds && opcoes.loteIds.length > 0) {
+        if (!opcoes.loteIds.includes(Number(lote.id))) return false;
       }
       if (
-        opcoes?.estabelecimentoIdFiltro &&
+        opcoes.estabelecimentoIdFiltro &&
         Number(lote.estabelecimentoId) !== Number(opcoes.estabelecimentoIdFiltro)
       ) {
         return false;
       }
       if (
-        opcoes?.convenioIdFiltro &&
+        opcoes.convenioIdFiltro &&
         Number(lote.convenioId) !== Number(opcoes.convenioIdFiltro)
       ) {
         return false;
       }
-      return lote.statusEsteira === "LIBERADO_ENVIO";
+      return true;
     })
     .sort((a, b) => {
       if (a.estabelecimentoId !== b.estabelecimentoId) {
@@ -201,11 +168,11 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
       simuladosOk: 0,
       erros: 0,
       detalhesGrupos: [],
-      mensagem: "Nenhum lote na fila com status LIBERADO_ENVIO para processar.",
+      mensagem: "Nenhum lote autorizado na fila com status LIBERADO_ENVIO para processar.",
     };
   }
 
-  // 2. Agrupar em memória por chave: (estabelecimentoId, convenioId)
+  // 2. Agrupar em memória por chave estrita: (estabelecimentoId, convenioId)
   const gruposEnvio = new Map<string, typeof lotesElegiveis>();
   for (const lote of lotesElegiveis) {
     const chave = `${lote.estabelecimentoId}::${lote.convenioId}`;
@@ -214,8 +181,16 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
     gruposEnvio.set(chave, lista);
   }
 
-  // Carregar todas as credenciais cadastradas
-  const todasCredenciais = await db.select().from(credenciaisPortais);
+  // Carregar credenciais apenas dos estabelecimentos autorizados (sem fallback entre hospitais ou credencial sem unidade)
+  const todasCredenciais = await db
+    .select()
+    .from(credenciaisPortais)
+    .where(
+      inArray(
+        credenciaisPortais.estabelecimentoId,
+        Array.from(autorizadosSet)
+      )
+    );
 
   let totalLotesProcessados = 0;
   let protocolados = 0;
@@ -223,37 +198,36 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
   let erros = 0;
   const detalhesGrupos: any[] = [];
 
-  // 3. Processar cada grupo (Hospital + Convênio) em uma sessão isolada do navegador
-  for (const [, listaLotes] of gruposEnvio.entries()) {
-    const primeiro = listaLotes[0];
+  // 3. Processar cada grupo (Hospital + Convênio) em uma sessão isolada
+  for (const [, listaLotesCandidatos] of gruposEnvio.entries()) {
+    const primeiro = listaLotesCandidatos[0];
     const estabId = Number(primeiro.estabelecimentoId);
     const convId = Number(primeiro.convenioId);
 
-    // Buscar credencial específica do Hospital + Convênio (ou fallback do Convênio sem hospital fixo)
-    const credEspecifica =
-      todasCredenciais.find(
-        (c: any) =>
-          c.ativo === "sim" &&
-          Number(c.convenioId) === convId &&
-          Number(c.estabelecimentoId) === estabId
-      ) ||
-      todasCredenciais.find(
-        (c: any) =>
-          c.ativo === "sim" &&
-          Number(c.convenioId) === convId &&
-          !c.estabelecimentoId
-      );
+    // Exige credencial exclusivamente vinculada ao hospital proprietário e ao convênio (sem fallback nulo)
+    const credEspecifica = todasCredenciais.find(
+      (c: any) =>
+        c.ativo === "sim" &&
+        Number(c.convenioId) === convId &&
+        Number(c.estabelecimentoId) === estabId
+    );
 
     if (!credEspecifica) {
-      const msgSemCred = `Credencial não cadastrada no Cofre para o hospital "${primeiro.estabelecimentoNome || `#${estabId}`}" no convênio "${primeiro.convenioNome || `#${convId}`}".`;
-      for (const lote of listaLotes) {
+      const msgSemCred = `Credencial proprietária não cadastrada no Cofre para o hospital "${primeiro.estabelecimentoNome || `#${estabId}`}" no convênio "${primeiro.convenioNome || `#${convId}`}".`;
+      for (const lote of listaLotesCandidatos) {
         await db
           .update(filaEnvioXmlPortal)
           .set({
             statusEsteira: "ERRO_CREDENCIAL",
             mensagemPortal: msgSemCred,
           })
-          .where(eq(filaEnvioXmlPortal.id, lote.id));
+          .where(
+            and(
+              eq(filaEnvioXmlPortal.id, lote.id),
+              eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+              eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO")
+            )
+          );
         erros++;
         totalLotesProcessados++;
       }
@@ -264,21 +238,27 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
         convenioNome: primeiro.convenioNome,
         sucessoLogin: false,
         mensagem: msgSemCred,
-        qtdLotes: listaLotes.length,
+        qtdLotes: listaLotesCandidatos.length,
       });
       continue;
     }
 
     if (credEspecifica.statusCredencial === "SENHA_INVALIDA") {
       const msgBloq = `Trava Anti-Bloqueio ativa: A credencial de "${primeiro.estabelecimentoNome}" para "${primeiro.convenioNome}" está marcada como SENHA_INVALIDA. Atualize a senha no Cofre antes de reenviar.`;
-      for (const lote of listaLotes) {
+      for (const lote of listaLotesCandidatos) {
         await db
           .update(filaEnvioXmlPortal)
           .set({
             statusEsteira: "ERRO_CREDENCIAL",
             mensagemPortal: msgBloq,
           })
-          .where(eq(filaEnvioXmlPortal.id, lote.id));
+          .where(
+            and(
+              eq(filaEnvioXmlPortal.id, lote.id),
+              eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+              eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO")
+            )
+          );
         erros++;
         totalLotesProcessados++;
       }
@@ -289,30 +269,109 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
         convenioNome: primeiro.convenioNome,
         sucessoLogin: false,
         mensagem: msgBloq,
-        qtdLotes: listaLotes.length,
+        qtdLotes: listaLotesCandidatos.length,
       });
       continue;
     }
 
-    // Marcar todos os lotes do grupo como PROCESSANDO_ROBO
-    const idsGrupo = listaLotes.map((l) => l.id);
-    await db
-      .update(filaEnvioXmlPortal)
-      .set({
-        statusEsteira: "PROCESSANDO_ROBO",
-        modoExecucao,
-      })
-      .where(inArray(filaEnvioXmlPortal.id, idsGrupo));
+    // Validar a URL do portal contra a allowlist HTTPS da operadora e decifrar a senha ANTES do claim
+    let urlPortalValidada: string;
+    let senhaPlana: string;
+    try {
+      urlPortalValidada = validarUrlPortalConvenio(
+        credEspecifica.urlLogin ||
+          "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+        primeiro.convenioNome,
+        primeiro.registroAns || credEspecifica.registroAns
+      );
+      senhaPlana = obterSenhaParaRobo(credEspecifica.senha);
+    } catch (errSeguranca: any) {
+      const msgSeguranca =
+        errSeguranca.message ||
+        "Falha na validação de segurança da credencial/URL do portal.";
+      for (const lote of listaLotesCandidatos) {
+        await db
+          .update(filaEnvioXmlPortal)
+          .set({
+            statusEsteira: "ERRO_CREDENCIAL",
+            mensagemPortal: msgSeguranca,
+          })
+          .where(
+            and(
+              eq(filaEnvioXmlPortal.id, lote.id),
+              eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+              eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO")
+            )
+          );
+        erros++;
+        totalLotesProcessados++;
+      }
+      detalhesGrupos.push({
+        estabelecimentoId: estabId,
+        estabelecimentoNome: primeiro.estabelecimentoNome,
+        convenioId: convId,
+        convenioNome: primeiro.convenioNome,
+        sucessoLogin: false,
+        mensagem: msgSeguranca,
+        qtdLotes: listaLotesCandidatos.length,
+      });
+      continue;
+    }
 
-    // Descriptografar senha apenas em memória RAM para o Worker
-    const senhaPlana = obterSenhaParaRobo(credEspecifica.senha);
+    // Claim atômico lote a lote: somente lotes que ainda estão em LIBERADO_ENVIO entram na sessão
+    const listaLotesReivindicados: typeof listaLotesCandidatos = [];
+    for (const candidato of listaLotesCandidatos) {
+      try {
+        validarCaminhoContidoXmlRpa(process.cwd(), candidato.caminhoArquivoXml);
+      } catch (errPath: any) {
+        await db
+          .update(filaEnvioXmlPortal)
+          .set({
+            statusEsteira: "ERRO_ROBO",
+            mensagemPortal: errPath.message || "Caminho de arquivo XML inválido.",
+          })
+          .where(
+            and(
+              eq(filaEnvioXmlPortal.id, candidato.id),
+              eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+              eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO")
+            )
+          );
+        erros++;
+        totalLotesProcessados++;
+        continue;
+      }
+
+      const claimRes = await db
+        .update(filaEnvioXmlPortal)
+        .set({
+          statusEsteira: "PROCESSANDO_ROBO",
+          modoExecucao,
+        })
+        .where(
+          and(
+            eq(filaEnvioXmlPortal.id, candidato.id),
+            eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+            eq(filaEnvioXmlPortal.convenioId, convId),
+            eq(filaEnvioXmlPortal.statusEsteira, "LIBERADO_ENVIO")
+          )
+        );
+
+      if (affectedRowsOf(claimRes) === 1) {
+        listaLotesReivindicados.push(candidato);
+      }
+    }
+
+    if (listaLotesReivindicados.length === 0) {
+      continue;
+    }
 
     const adapter = obterAdapterEnvioConvenio(
       primeiro.convenioNome,
       primeiro.registroAns || credEspecifica.registroAns
     );
 
-    const lotesParaAdapter: LoteParaEnvioRpa[] = listaLotes.map((l) => ({
+    const lotesParaAdapter: LoteParaEnvioRpa[] = listaLotesReivindicados.map((l) => ({
       filaId: l.id,
       numeroLote: l.numeroLote,
       nomeArquivo: l.nomeArquivo,
@@ -324,9 +383,7 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
 
     const resultadoGrupo = await adapter.enviarLotesXml(
       {
-        url:
-          credEspecifica.urlLogin ||
-          "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed",
+        url: urlPortalValidada,
         login: credEspecifica.login,
         senha: senhaPlana,
         estabelecimentoId: estabId,
@@ -339,58 +396,93 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
       { modoExecucao }
     );
 
-    // Atualizar status da credencial no Cofre (Circuit Breaker Anti-Bloqueio)
-    if (!resultadoGrupo.loginSucesso && resultadoGrupo.credencialInvalida) {
-      await db
-        .update(credenciaisPortais)
-        .set({
-          statusCredencial: "SENHA_INVALIDA",
-          statusAcesso: "erro",
-          mensagemErro: resultadoGrupo.mensagemLogin || "Usuário ou senha inválidos no portal",
-          ultimoAcesso: new Date(),
-        })
-        .where(eq(credenciaisPortais.id, credEspecifica.id));
-    } else if (resultadoGrupo.loginSucesso) {
-      await db
-        .update(credenciaisPortais)
-        .set({
-          statusCredencial: "ATIVA",
-          statusAcesso: "sucesso",
-          mensagemErro: null,
-          ultimoAcesso: new Date(),
-        })
-        .where(eq(credenciaisPortais.id, credEspecifica.id));
+    // Atualizar status da credencial no Cofre apenas quando houve tentativa real em produção
+    if (modoExecucao === "producao") {
+      if (!resultadoGrupo.loginSucesso && resultadoGrupo.credencialInvalida) {
+        await db
+          .update(credenciaisPortais)
+          .set({
+            statusCredencial: "SENHA_INVALIDA",
+            statusAcesso: "erro",
+            mensagemErro:
+              resultadoGrupo.mensagemLogin || "Usuário ou senha inválidos no portal",
+            ultimoAcesso: new Date(),
+          })
+          .where(
+            and(
+              eq(credenciaisPortais.id, credEspecifica.id),
+              eq(credenciaisPortais.estabelecimentoId, estabId)
+            )
+          );
+      } else if (resultadoGrupo.loginSucesso) {
+        await db
+          .update(credenciaisPortais)
+          .set({
+            statusCredencial: "ATIVA",
+            statusAcesso: "sucesso",
+            mensagemErro: null,
+            ultimoAcesso: new Date(),
+          })
+          .where(
+            and(
+              eq(credenciaisPortais.id, credEspecifica.id),
+              eq(credenciaisPortais.estabelecimentoId, estabId)
+            )
+          );
+      }
     }
 
-    // Salvar o protocolo/evidência individual de cada lote do grupo
+    // Salvar o protocolo/evidência individual de cada lote reivindicado (somente se permanecer em PROCESSANDO_ROBO)
     for (const resLote of resultadoGrupo.resultadosLotes) {
-      const loteOrig = listaLotes.find((l) => l.id === resLote.filaId);
-      const novasTentativas = Number(loteOrig?.tentativas || 0) + 1;
-      const now = new Date();
+      const loteOrig = listaLotesReivindicados.find((l) => l.id === resLote.filaId);
+      if (!loteOrig) continue;
 
-      await db
+      const novasTentativas = Number(loteOrig.tentativas || 0) + 1;
+      const now = new Date();
+      const foiProtocoladoCorrelacionado =
+        modoExecucao === "producao" &&
+        resLote.status === "PROTOCOLADO" &&
+        Boolean(resLote.protocolo && String(resLote.protocolo).trim().length >= 4);
+
+      const statusFinal = foiProtocoladoCorrelacionado
+        ? "PROTOCOLADO"
+        : resLote.status === "PROTOCOLADO"
+          ? "AGUARDANDO_PORTAL"
+          : resLote.status;
+
+      const updRes = await db
         .update(filaEnvioXmlPortal)
         .set({
-          statusEsteira: resLote.status,
-          protocoloRetorno: resLote.protocolo || null,
+          statusEsteira: statusFinal,
+          protocoloRetorno: foiProtocoladoCorrelacionado ? resLote.protocolo : null,
           idRecebimentoPortal: resLote.idRecebimento || null,
           mensagemPortal: resLote.mensagem,
           comprovanteUrl: resLote.evidenciaPath || null,
           screenshotBase64: resLote.screenshotBase64 || null,
           tentativas: novasTentativas,
-          enviadoEm: resLote.sucesso ? now : null,
+          enviadoEm: foiProtocoladoCorrelacionado ? now : null,
         })
-        .where(eq(filaEnvioXmlPortal.id, resLote.filaId));
+        .where(
+          and(
+            eq(filaEnvioXmlPortal.id, resLote.filaId),
+            eq(filaEnvioXmlPortal.estabelecimentoId, estabId),
+            eq(filaEnvioXmlPortal.statusEsteira, "PROCESSANDO_ROBO")
+          )
+        );
+
+      if (affectedRowsOf(updRes) !== 1) {
+        continue;
+      }
 
       totalLotesProcessados++;
-      if (resLote.status === "PROTOCOLADO") protocolados++;
-      else if (resLote.status === "SIMULADO_OK") simuladosOk++;
+      if (statusFinal === "PROTOCOLADO") protocolados++;
+      else if (statusFinal === "SIMULADO_OK") simuladosOk++;
       else if (!resLote.sucesso) erros++;
 
-      // Se o lote estava amarrado a uma conta na Esteira (fabrica_contas) e foi PROTOCOLADO em produção, avança a conta!
+      // Avança a conta na Esteira exclusivamente quando PROTOCOLADO em produção com protocolo correlacionado
       if (
-        loteOrig?.fabricaContaId &&
-        resLote.status === "PROTOCOLADO" &&
+        loteOrig.fabricaContaId &&
+        foiProtocoladoCorrelacionado &&
         resLote.protocolo
       ) {
         try {
@@ -417,8 +509,8 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
             setorOrigem: "limpeza_prontuario",
             setorDestino: "enviado_convenio",
             acao: "enviado_convenio",
-            usuarioId: opcoes?.usuarioIdExecutor || null,
-            usuarioNome: opcoes?.usuarioNomeExecutor || "Robô RPA",
+            usuarioId: opcoes.usuarioIdExecutor || null,
+            usuarioNome: opcoes.usuarioNomeExecutor || "Robô RPA",
             dataEntradaSetor: nowStr,
             dataSaidaSetor: nowStr,
             duracaoSegundos: 0,
@@ -441,7 +533,7 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
       sucessoLogin: resultadoGrupo.loginSucesso,
       credencialInvalida: resultadoGrupo.credencialInvalida,
       mensagem: resultadoGrupo.mensagemLogin,
-      qtdLotes: listaLotes.length,
+      qtdLotes: listaLotesReivindicados.length,
       resultados: resultadoGrupo.resultadosLotes,
     });
   }
@@ -455,7 +547,7 @@ export async function executarCicloEnvioXmlRpa(opcoes?: {
     detalhesGrupos,
     mensagem:
       modoExecucao === "simulacao"
-        ? `Ciclo de Simulação (Dry-Run) finalizado: ${simuladosOk} lote(s) validados em ${gruposEnvio.size} sessão(ões) Hospital x Convênio.`
+        ? `Ciclo de Simulação (Dry-Run) finalizado: ${simuladosOk} lote(s) validados localmente sem transmissão externa.`
         : `Ciclo de Envio RPA finalizado: ${protocolados} lote(s) protocolados, ${erros} erro(s) em ${gruposEnvio.size} sessão(ões).`,
   };
 }

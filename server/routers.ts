@@ -959,8 +959,8 @@ export const appRouter = router({
 
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
-        if (!secret) {
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 32) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "O processamento interno não está configurado.",
@@ -1138,8 +1138,8 @@ export const appRouter = router({
         // O Cloud Run mantém a instância viva enquanto há requests em andamento
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET || "internal-process-secret";
-        if (!secret) {
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 32) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "O processamento interno não está configurado.",

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3 } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3, FileText } from "lucide-react";
 import { useLocation } from "wouter";
 import { RecursoGlosaMultiSelect } from "@/components/recurso-glosa/RecursoGlosaMultiSelect";
 import { MAX_RECEBIMENTO_IDS_DEMONSTRATIVO } from "@shared/recursoGlosaDemonstrativoFiltros";

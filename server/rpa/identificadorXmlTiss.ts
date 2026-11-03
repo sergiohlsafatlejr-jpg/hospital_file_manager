@@ -7,6 +7,7 @@ import {
   estabelecimentos,
 } from "../../drizzle/schema";
 import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
+import { sanitizarNumeroLoteTiss } from "./cofreCredenciais";
 
 export interface ResumoGuiaXmlTiss {
   numeroGuia: string;
@@ -151,10 +152,10 @@ export async function identificarERotearXmlTiss(
     extrairTagXml(origemXml, "cnpjContratado") ||
     extrairTagXml(xmlTexto, "cnpjContratado");
 
-  const numeroLote =
+  const numeroLoteBruto =
     extrairTagXml(xmlTexto, "numeroLote") ||
-    extrairTagXml(cabecalhoXml, "sequencialTransacao") ||
-    `LOTE-${hashXml.slice(0, 8).toUpperCase()}`;
+    extrairTagXml(cabecalhoXml, "sequencialTransacao");
+  const numeroLote = sanitizarNumeroLoteTiss(numeroLoteBruto, hashXml);
 
   const versaoTiss = extrairVersaoTiss(cabecalhoXml, xmlTexto);
   const tipoTransacao = extrairTagXml(cabecalhoXml, "tipoTransacao");
@@ -398,13 +399,14 @@ export async function identificarERotearXmlTiss(
       ? contextoId
       : null);
 
-  // Verificar se existe credencial ativa para o par (estabelecimentoId, convenioId)
+  // Verificar se existe credencial ativa estritamente vinculada ao par (estabelecimentoId, convenioId)
   const credencialEncontrada = todasCredenciais.find((c: any) => {
     if (c.ativo === "nao") return false;
     const bateConv = convenioIdDetectado && Number(c.convenioId) === convenioIdDetectado;
     const bateEstab =
-      !c.estabelecimentoId ||
-      (estabFinalId && Number(c.estabelecimentoId) === estabFinalId);
+      Boolean(estabFinalId) &&
+      Boolean(c.estabelecimentoId) &&
+      Number(c.estabelecimentoId) === Number(estabFinalId);
     return Boolean(bateConv && bateEstab);
   });
 

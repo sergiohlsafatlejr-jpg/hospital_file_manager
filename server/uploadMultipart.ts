@@ -483,24 +483,22 @@ router.get(
         return res.status(403).json({ error: "Sem permissão para visualizar este documento." });
       }
 
-      const localPath = obterCaminhoLocalPdfContrato(documento.storageKey);
-      if (existsSync(localPath)) {
-        res.setHeader("Content-Type", documento.mimeType || "application/pdf");
-        res.setHeader(
-          "Content-Disposition",
-          `inline; filename="${sanitizarNomePdf(documento.nomeArquivo)}"`
-        );
-        createReadStream(localPath).pipe(res);
-        return;
-      }
-
       if (
         process.env.BUILT_IN_FORGE_API_URL &&
         process.env.BUILT_IN_FORGE_API_KEY
       ) {
         const cloud = await storageGet(documento.storageKey);
         if (cloud?.url) {
-          return res.redirect(cloud.url);
+          const upstream = await fetch(cloud.url);
+          if (upstream.ok) {
+            const pdfBytes = Buffer.from(await upstream.arrayBuffer());
+            res.setHeader("Content-Type", documento.mimeType || "application/pdf");
+            res.setHeader(
+              "Content-Disposition",
+              `inline; filename="${sanitizarNomePdf(documento.nomeArquivo)}"`
+            );
+            return res.status(200).send(pdfBytes);
+          }
         }
       }
 

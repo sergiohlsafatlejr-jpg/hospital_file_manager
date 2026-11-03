@@ -1,6 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { caminhoContaFabricaImportada } from "@/lib/fabricaContaDestino";
+import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica, resolverAbaFabrica, resolverSelecaoSetorFabrica } from "@/lib/fabricaSetoresVisiveis";
+import type { SetorConsultaFabrica } from "@shared/fabricaSetores";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,15 +70,7 @@ import {
   Link2,
 } from "lucide-react";
 
-type SetorFabrica =
-  | "recepcao"
-  | "faturamento"
-  | "auditoria_interna"
-  | "auditoria_externa"
-  | "limpeza_prontuario"
-  | "enviado_convenio"
-  | "recursos"
-  | "finalizado";
+type SetorFabrica = SetorConsultaFabrica;
 
 const SETORES_CONFIG: Array<{
   id: SetorFabrica;
@@ -189,9 +183,9 @@ export default function FabricaFaturamento() {
   const urlParams = new URLSearchParams(searchString);
   const abaInicial = urlParams.get("aba") || "esteira";
 
-  const [abaPrincipal, setAbaPrincipal] = useState<string>(abaInicial);
-  const [setorSelecionado, setSetorSelecionado] = useState<SetorFabrica | "todos">(
-    (urlParams.get("setor") as SetorFabrica) || "faturamento"
+  const [abaSolicitada, setAbaPrincipal] = useState<string>(abaInicial);
+  const [setorSolicitado, setSetorSelecionado] = useState<string>(
+    urlParams.get("setor") || "faturamento"
   );
 
   // Filtros da Esteira
@@ -274,65 +268,35 @@ export default function FabricaFaturamento() {
   const [metaSlaHoras, setMetaSlaHoras] = useState<string>("48");
 
   // Queries tRPC
-  const { data: auxData, refetch: refetchAuxData } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery();
+  const { data: auxData, status: auxStatus, refetch: refetchAuxData } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery(undefined, {
+    retry: false,
+    staleTime: 30000,
+  });
   const hospitais = auxData?.hospitais || [];
-  const todosHospitaisEscopo = (auxData as any)?.todosHospitaisEscopo || hospitais;
+  const todosHospitaisEscopo = auxData?.todosHospitaisEscopo || hospitais;
   const listaConvenios = auxData?.convenios || [];
   const colaboradores = auxData?.colaboradores || [];
-  const meuPerfil = (auxData as any)?.meuPerfil;
-  const podeGerenciarEquipe = Boolean((auxData as any)?.podeGerenciarEquipe);
-  const podeVerRelatorios =
-    !meuPerfil || Boolean(meuPerfil.verRelatoriosGerenciais || meuPerfil.isGestorFabrica);
-
-  // Filtrar os setores visíveis na esteira conforme as permissões do colaborador logado
-  const setoresVisiveis = useMemo(() => {
-    if (!meuPerfil || meuPerfil.isGestorFabrica) return SETORES_CONFIG;
-    const permitidos = new Set<string>(meuPerfil.setoresPermitidos || []);
-    const filtrados = SETORES_CONFIG.filter((s) => {
-      if (s.id === "enviado_convenio") {
-        return permitidos.has("recursos") || permitidos.has("limpeza_prontuario");
-      }
-      if (s.id === "limpeza_prontuario") {
-        return permitidos.has("limpeza_prontuario") || permitidos.has("recursos");
-      }
-      return permitidos.has(s.id);
-    });
-    return filtrados.length > 0 ? filtrados : SETORES_CONFIG;
-  }, [meuPerfil]);
-
-  const podeRecepcionar =
-    !meuPerfil ||
-    meuPerfil.isGestorFabrica ||
-    (meuPerfil.setoresPermitidos || []).includes("recepcao");
+  const meuPerfil = auxData?.meuPerfil;
+  const acessoFabrica = useMemo(() => resolverAcessoFabrica(auxData, auxStatus), [auxData, auxStatus]);
+  const { perfilValido, podeConsultarSetores, podeGerenciarEquipe, podeVerRelatorios, podeRecepcionar } = acessoFabrica;
+  const setoresVisiveis = useMemo(() => SETORES_CONFIG.filter((setor) =>
+    acessoFabrica.setoresVisiveis.some((id) => id === setor.id)
+  ), [acessoFabrica]);
+  // Derivação síncrona: não consultar/renderizar a seleção crua da URL nem corrigir estado em loop.
+  const setorSelecionado = resolverSelecaoSetorFabrica(acessoFabrica, setorSolicitado);
+  const abaPrincipal = resolverAbaFabrica(acessoFabrica, abaSolicitada);
+  const podeListarContas = podeConsultarSetores && setorSelecionado !== null;
 
   useEffect(() => {
     const params = new URLSearchParams(searchString);
-    const abaUrl = params.get("aba");
-    const setorUrl = params.get("setor") as SetorFabrica | null;
-    if (abaUrl) setAbaPrincipal(abaUrl);
-    if (setorUrl) setSetorSelecionado(setorUrl);
+    setAbaPrincipal(params.get("aba") || "esteira");
+    setSetorSelecionado(params.get("setor") || "faturamento");
+    setSelecionadas([]);
   }, [searchString]);
 
   useEffect(() => {
-    if (!meuPerfil) return;
-    if (!podeRecepcionar && abaPrincipal === "recepcao") {
-      setAbaPrincipal("esteira");
-    }
-    if (!podeVerRelatorios && abaPrincipal === "relatorios") {
-      setAbaPrincipal("esteira");
-    }
-    if (!podeGerenciarEquipe && abaPrincipal === "equipe") {
-      setAbaPrincipal("esteira");
-    }
-    if (setoresVisiveis.length > 0) {
-      if (
-        (setorSelecionado === "todos" && !meuPerfil.isGestorFabrica && setoresVisiveis.length === 1) ||
-        (setorSelecionado !== "todos" && !setoresVisiveis.some((s) => s.id === setorSelecionado))
-      ) {
-        setSetorSelecionado(setoresVisiveis[0].id);
-      }
-    }
-  }, [meuPerfil, podeRecepcionar, podeVerRelatorios, podeGerenciarEquipe, abaPrincipal, setoresVisiveis, setorSelecionado]);
+    setSelecionadas([]);
+  }, [setorSelecionado, perfilValido]);
 
   // Sugestões de autocompletar pacientes recorrentes na Recepção
   const { data: sugestoesPacientes } = trpc.fabricaFaturamento.buscarPacientesSugestao.useQuery(
@@ -341,7 +305,7 @@ export default function FabricaFaturamento() {
       hospitalEstabelecimentoId: recHospitalId ? Number(recHospitalId) : undefined,
     },
     {
-      enabled: abaPrincipal === "recepcao" && recNomePaciente.trim().length >= 2 && mostrarSugestoesPaciente,
+      enabled: podeRecepcionar && abaPrincipal === "recepcao" && recNomePaciente.trim().length >= 2 && mostrarSugestoesPaciente,
     }
   );
 
@@ -349,7 +313,7 @@ export default function FabricaFaturamento() {
   const { data: meuDesempenho, refetch: refetchMeuDesempenho } =
     trpc.fabricaFaturamento.meuDesempenhoSetor.useQuery({
       competencia: competenciaRelatorio,
-    });
+    }, { enabled: podeConsultarSetores });
 
   const {
     data: resumoSetores,
@@ -358,14 +322,14 @@ export default function FabricaFaturamento() {
     hospitalEstabelecimentoId:
       hospitalFiltro !== "todos" ? Number(hospitalFiltro) : undefined,
     convenioId: convenioFiltro !== "todos" ? Number(convenioFiltro) : undefined,
-  });
+  }, { enabled: podeConsultarSetores });
 
   const {
     data: listagemData,
     isLoading: loadingContas,
     refetch: refetchContas,
   } = trpc.fabricaFaturamento.listarContas.useQuery({
-    setorAtual: setorSelecionado !== "todos" ? setorSelecionado : undefined,
+    setorAtual: setorSelecionado && setorSelecionado !== "todos" ? setorSelecionado : undefined,
     statusSetor: statusFiltro !== "todos" ? (statusFiltro as any) : undefined,
     hospitalEstabelecimentoId:
       hospitalFiltro !== "todos" ? Number(hospitalFiltro) : undefined,
@@ -374,7 +338,7 @@ export default function FabricaFaturamento() {
     search: buscaTexto || undefined,
     page: 1,
     pageSize: 100,
-  });
+  }, { enabled: podeListarContas });
 
   const {
     data: relatoriosData,
@@ -390,10 +354,12 @@ export default function FabricaFaturamento() {
   );
 
   const recarregarTudo = () => {
-    refetchResumo();
-    refetchContas();
-    refetchMeuDesempenho();
     refetchAuxData();
+    if (podeConsultarSetores) {
+      refetchResumo();
+      refetchMeuDesempenho();
+    }
+    if (podeListarContas) refetchContas();
     if (podeVerRelatorios) refetchRelatorios();
   };
 
@@ -495,7 +461,7 @@ export default function FabricaFaturamento() {
     onSuccess: () => {
       toast.success("Meta cadastrada com sucesso!");
       setModalMetaOpen(false);
-      refetchRelatorios();
+      if (podeVerRelatorios) refetchRelatorios();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -503,7 +469,7 @@ export default function FabricaFaturamento() {
   const excluirMetaMutation = trpc.fabricaFaturamento.excluirMeta.useMutation({
     onSuccess: () => {
       toast.success("Meta removida.");
-      refetchRelatorios();
+      if (podeVerRelatorios) refetchRelatorios();
     },
   });
 
@@ -680,7 +646,11 @@ export default function FabricaFaturamento() {
     toast.success("Relatório Excel exportado com sucesso!");
   };
 
-  const contasListaBruta = listagemData?.contas || [];
+  const contasListaBruta = useMemo(() => podeListarContas
+    ? (listagemData?.contas || []).filter((conta: { setorAtual: string }) =>
+      acessoFabrica.setoresConsulta.some((setor) => setor === conta.setorAtual)
+    )
+    : [], [listagemData, podeListarContas, acessoFabrica]);
   const contasLista = useMemo(() => {
     if (filtroFilaRapida === "minhas" && meuPerfil?.usuarioId) {
       return contasListaBruta.filter(
@@ -699,6 +669,28 @@ export default function FabricaFaturamento() {
     }
     return contasListaBruta;
   }, [contasListaBruta, filtroFilaRapida, meuPerfil?.usuarioId]);
+
+  if (!perfilValido) {
+    return (
+      <DashboardLayout>
+        <Card role="status">
+          <CardHeader>
+            <CardTitle>Esteira de Faturamento Safatle</CardTitle>
+            <CardDescription>
+              {auxStatus === "pending"
+                ? "Carregando seu perfil de acesso..."
+                : "Não foi possível validar seu perfil de acesso. Os setores permanecem bloqueados."}
+            </CardDescription>
+          </CardHeader>
+          {auxStatus !== "pending" && (
+            <CardContent>
+              <Button variant="outline" onClick={() => refetchAuxData()}>Tentar novamente</Button>
+            </CardContent>
+          )}
+        </Card>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -743,7 +735,7 @@ export default function FabricaFaturamento() {
               className="gap-2"
             >
               <Factory className="h-4 w-4" />
-              Esteira de Setores ({resumoSetores?.totalGeralContas || 0})
+              Esteira de Setores ({podeConsultarSetores ? resumoSetores?.totalGeralContas || 0 : 0})
             </Button>
             {podeVerRelatorios && (
               <Button
@@ -837,7 +829,7 @@ export default function FabricaFaturamento() {
         </div>
 
         {/* Painel Compacto: Meu Desempenho e Meta Individual no Setor */}
-        {meuDesempenho && (
+        {podeConsultarSetores && meuDesempenho && (
           <div className="rounded-xl border bg-slate-50/70 dark:bg-slate-900/40 px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <Badge variant="outline" className="bg-background font-semibold">
@@ -1287,19 +1279,29 @@ export default function FabricaFaturamento() {
         {/* ============================================================
             ABA 2: ESTEIRA OPERACIONAL DOS 6 SETORES
            ============================================================ */}
-        {abaPrincipal === "esteira" && (
+        {abaPrincipal === "esteira" && !podeConsultarSetores && (
+          <Card role="status">
+            <CardHeader>
+              <CardTitle>Nenhum setor liberado</CardTitle>
+              <CardDescription>
+                Seu perfil não possui setores autorizados na esteira. Solicite ao gestor a configuração do seu acesso.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+        {abaPrincipal === "esteira" && podeListarContas && (
           <Card className="shadow-sm">
             <CardHeader className="pb-3">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
                     {setorSelecionado === "todos"
-                      ? "Todas as Contas na Fábrica"
+                      ? "Contas dos Setores Liberados"
                       : SETORES_CONFIG.find((s) => s.id === setorSelecionado)?.nome}
                   </CardTitle>
                   <CardDescription>
                     {setorSelecionado === "todos"
-                      ? "Visão consolidada de todas as etapas da Fábrica de Faturamento"
+                      ? "Visão consolidada apenas dos setores autorizados no seu perfil"
                       : SETORES_CONFIG.find((s) => s.id === setorSelecionado)?.descricao}
                   </CardDescription>
                 </div>
@@ -2750,7 +2752,7 @@ export default function FabricaFaturamento() {
       {/* ============================================================
           MODAL 1: IMPORTAR XML TISS NA CONTA (SUPORTA 2 ARQUIVOS: CONTA + HONORÁRIOS)
          ============================================================ */}
-      <Dialog open={modalXmlOpen} onOpenChange={setModalXmlOpen}>
+      <Dialog open={modalXmlOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoXml?.setorAtual)} onOpenChange={setModalXmlOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2918,7 +2920,7 @@ export default function FabricaFaturamento() {
       {/* ============================================================
           MODAL 5: CONFIGURAR PERFIL E SETORES DO COLABORADOR
          ============================================================ */}
-      <Dialog open={modalPerfilOpen} onOpenChange={setModalPerfilOpen}>
+      <Dialog open={modalPerfilOpen && podeGerenciarEquipe} onOpenChange={setModalPerfilOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -3052,7 +3054,7 @@ export default function FabricaFaturamento() {
       {/* ============================================================
           MODAL 2: DEVOLVER CONTA COM ERRO PARA O FATURAMENTO
          ============================================================ */}
-      <Dialog open={modalErroOpen} onOpenChange={setModalErroOpen}>
+      <Dialog open={modalErroOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoErro?.setorAtual)} onOpenChange={setModalErroOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -3131,7 +3133,7 @@ export default function FabricaFaturamento() {
       {/* ============================================================
           MODAL 3: ENVIO AUTOMÁTICO DO XML AO CONVÊNIO (SETOR 5 -> SETOR 6)
          ============================================================ */}
-      <Dialog open={modalEnvioOpen} onOpenChange={setModalEnvioOpen}>
+      <Dialog open={modalEnvioOpen && podeAcessarSetorVisivelFabrica(acessoFabrica, contaAlvoEnvio?.setorAtual)} onOpenChange={setModalEnvioOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -3205,7 +3207,7 @@ export default function FabricaFaturamento() {
       {/* ============================================================
           MODAL 4: CADASTRAR NOVA META DE FATURAMENTO
          ============================================================ */}
-      <Dialog open={modalMetaOpen} onOpenChange={setModalMetaOpen}>
+      <Dialog open={modalMetaOpen && podeVerRelatorios} onOpenChange={setModalMetaOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nova Meta — Competência {competenciaRelatorio}</DialogTitle>

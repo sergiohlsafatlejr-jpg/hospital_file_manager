@@ -5,7 +5,7 @@ import fs from "fs/promises";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
-import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos, garantirChaveCriptografiaInter, invalidarCacheTokenInter } from "../bancoInter";
+import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos, invalidarCacheTokenInter } from "../bancoInter";
 import { bancoInterEncryptionKeyAvailable, encryptBancoInterField } from "../bancoInterVault";
 import { enviarBoletoPorEmail, enviarNotaFiscalPorEmail } from "../services/emailService";
 import {
@@ -36,117 +36,8 @@ function normalizarValorFinanceiro(valor: string): string {
   return num.toFixed(2);
 }
 
-let estruturaFinanceiraPromise: Promise<void> | null = null;
-
 async function garantirEstruturaFinanceira(): Promise<void> {
-  const db = await getDb();
-  if (!db || typeof (db as any).execute !== "function") return;
-  if (!estruturaFinanceiraPromise) {
-    estruturaFinanceiraPromise = (async () => {
-      try {
-        const ensureColumn = async (table: string, col: string, ddl: string) => {
-          const res: any = await (db as any).execute(
-            sql.raw(`SHOW COLUMNS FROM \`${table}\` LIKE '${col}'`)
-          );
-          const rows = Array.isArray(res?.[0]) ? res[0] : Array.isArray(res) ? res : [];
-          if (rows.length === 0) {
-            await (db as any).execute(sql.raw(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`));
-          }
-        };
-
-        await ensureColumn("fin_bancos", "estabelecimentoId", "`estabelecimentoId` int NULL");
-        await ensureColumn("fin_bancos", "interClientId", "`interClientId` varchar(100) NULL");
-        await ensureColumn("fin_bancos", "interClientSecret", "`interClientSecret` text NULL");
-        await ensureColumn("fin_bancos", "interCertPem", "`interCertPem` text NULL");
-        await ensureColumn("fin_bancos", "interKeyPem", "`interKeyPem` text NULL");
-        await ensureColumn("fin_bancos", "interContaCorrente", "`interContaCorrente` text NULL");
-        await ensureColumn("fin_bancos", "interBaseUrl", "`interBaseUrl` varchar(255) NULL");
-        await (db as any).execute(
-          sql.raw("ALTER TABLE `fin_bancos` MODIFY COLUMN `interClientSecret` text NULL, MODIFY COLUMN `interCertPem` text NULL, MODIFY COLUMN `interKeyPem` text NULL, MODIFY COLUMN `interContaCorrente` text NULL")
-        );
-
-        await ensureColumn("fin_recebiveis", "boletoSolicitacaoId", "`boletoSolicitacaoId` varchar(100) NULL");
-        await ensureColumn("fin_recebiveis", "boletoLinhaDigitavel", "`boletoLinhaDigitavel` varchar(100) NULL");
-        await ensureColumn("fin_recebiveis", "boletoPixCopiaCola", "`boletoPixCopiaCola` text NULL");
-        await ensureColumn("fin_recebiveis", "notaFiscalKey", "`notaFiscalKey` varchar(255) NULL");
-        await ensureColumn("fin_recebiveis", "emailEnviado", "`emailEnviado` enum('sim','nao') NOT NULL DEFAULT 'nao'");
-
-        // Vincular empresas e bancos órfãos ao estabelecimento central Safatle (2160001)
-        await (db as any).execute(
-          sql`UPDATE fin_empresas SET estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} WHERE estabelecimentoId IS NULL`
-        );
-        await (db as any).execute(
-          sql`UPDATE fin_bancos SET estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} WHERE estabelecimentoId IS NULL`
-        );
-
-        const empRes: any = await (db as any).execute(
-          sql`SELECT id, cnpj FROM fin_empresas WHERE estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} ORDER BY id ASC`
-        );
-        let empRows: any[] = Array.isArray(empRes?.[0]) ? empRes[0] : Array.isArray(empRes) ? empRes : [];
-        if (empRows.length === 0) {
-          await (db as any).execute(
-            sql`INSERT INTO fin_empresas (estabelecimentoId, nome, cnpj, userId) VALUES (${SAFATLE_ESTABELECIMENTO_ID}, 'Safatle Administração de Faturas', '35.818.414/0001-07', 1)`
-          );
-          const empRes2: any = await (db as any).execute(
-            sql`SELECT id, cnpj FROM fin_empresas WHERE estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} ORDER BY id ASC`
-          );
-          empRows = Array.isArray(empRes2?.[0]) ? empRes2[0] : Array.isArray(empRes2) ? empRes2 : [];
-        }
-
-        // Vincular clientes órfãos (empresaId IS NULL) à empresa correspondente do grupo Safatle
-        if (empRows.length > 0) {
-          const defaultEmpresaId = Number(empRows[0].id);
-          const controltec = empRows.find((e: any) => String(e.cnpj || "").replace(/\D/g, "") === "24785393000154");
-          const safatleAdm = empRows.find((e: any) => String(e.cnpj || "").replace(/\D/g, "") === "35818414000107");
-          if (controltec) {
-            await (db as any).execute(
-              sql`UPDATE fin_clientes SET empresaId = ${Number(controltec.id)} WHERE empresaId IS NULL AND REPLACE(REPLACE(REPLACE(COALESCE(cnpjSafatle, ''), '.', ''), '/', ''), '-', '') = '24785393000154'`
-            );
-          }
-          if (safatleAdm) {
-            await (db as any).execute(
-              sql`UPDATE fin_clientes SET empresaId = ${Number(safatleAdm.id)} WHERE empresaId IS NULL AND REPLACE(REPLACE(REPLACE(COALESCE(cnpjSafatle, ''), '.', ''), '/', ''), '-', '') = '35818414000107'`
-            );
-          }
-          await (db as any).execute(
-            sql`UPDATE fin_clientes SET empresaId = ${defaultEmpresaId} WHERE empresaId IS NULL`
-          );
-        }
-      } catch (err) {
-        estruturaFinanceiraPromise = null;
-        console.error("[Financeiro] Erro ao garantir estrutura financeira:", err);
-      }
-    })();
-  }
-  await estruturaFinanceiraPromise;
-}
-
-async function garantirEmpresaPadraoUnidade(estabelecimentoId: number, userId: number): Promise<void> {
-  const db = await getDb();
-  if (!db || typeof (db as any).execute !== "function") return;
-  try {
-    const existing = await db.select({ id: finEmpresas.id })
-      .from(finEmpresas)
-      .where(eq(finEmpresas.estabelecimentoId, estabelecimentoId))
-      .limit(1);
-    if (existing.length > 0) return;
-
-    const estRes: any = await (db as any).execute(
-      sql`SELECT id, nome, cnpj FROM estabelecimentos WHERE id = ${estabelecimentoId} LIMIT 1`
-    );
-    const estRows: any[] = Array.isArray(estRes?.[0]) ? estRes[0] : Array.isArray(estRes) ? estRes : [];
-    const est = estRows[0];
-    const nomePadrao = est?.nome ? String(est.nome).trim() : `Unidade ${estabelecimentoId}`;
-    const cnpjPadrao = est?.cnpj ? String(est.cnpj).trim() : null;
-    await db.insert(finEmpresas).values({
-      estabelecimentoId,
-      nome: nomePadrao,
-      cnpj: cnpjPadrao,
-      userId: userId || 1,
-    });
-  } catch (err) {
-    console.error("[Financeiro] Erro ao garantir empresa padrão da unidade:", err);
-  }
+  // Estrutura física garantida pela migração 0143; sem DDL ou UPDATE global em requisição.
 }
 
 async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) {
@@ -167,8 +58,6 @@ async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) 
 const empresasRouter = router({
   listar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
-    await garantirEstruturaFinanceira();
-    await garantirEmpresaPadraoUnidade(input.estabelecimentoId, ctx.user.id);
     const db = (await getDb())!;
     return db.select().from(finEmpresas).where(eq(finEmpresas.estabelecimentoId, input.estabelecimentoId)).orderBy(finEmpresas.nome);
   }),
@@ -431,8 +320,6 @@ const bancosRouter = router({
       "https://cdpj-sandbox.partners.bancointer.com.br",
     ]).optional(),
   })).mutation(async ({ input }) => {
-    await garantirEstruturaFinanceira();
-    garantirChaveCriptografiaInter();
     if (!bancoInterEncryptionKeyAvailable()) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A chave exclusiva da integração bancária ainda não está configurada" });
     }
