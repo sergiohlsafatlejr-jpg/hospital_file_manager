@@ -2,9 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import pdfParse from "pdf-parse";
-import { sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { contratosConvenios, contratosConveniosDocumentos, convenios, regrasNegocio } from "../drizzle/schema";
+import { buscarPrecosAplicaveis, normalizarDataExecucao, validarDataReferenciaIso } from "./contratosPrecoAplicavel";
 import { getDb } from "./db";
 import { storagePut, storageGet } from "./storage";
+import { criarLeitorContratoPdfArquivo } from "./contratosPdfArquivo";
 
 export const CONTRATOS_PDF_MAX_BYTES = 150 * 1024 * 1024; // 150 MB por PDF
 export const CONTRATOS_PDF_MAX_TOTAL_BYTES = 600 * 1024 * 1024; // 600 MB por lote
@@ -248,26 +251,35 @@ function trechoParaCategoria(
 }
 
 function extrairPartes(linhas: string[]): string | null {
-  const candidatas = linhas.filter(linha =>
-    /\b(?:LTDA|S\.?A\.?|HOSPITAL|CL[IÍ]NICA|OPERADORA|SEGURADORA)\b/i.test(
-      linha
-    )
-  );
-  const partes = candidatas
-    .filter((linha, index) => candidatas.indexOf(linha) === index)
-    .slice(0, 4);
-  if (!partes.length) return null;
-  return partes.join("; ").slice(0, 360);
+  const partes = new Set<string>();
+  for (const linha of linhas) {
+    if (/\b(?:LTDA|S\.?A\.?|HOSPITAL|CL[IÍ]NICA|OPERADORA|SEGURADORA)\b/i.test(linha)) {
+      partes.add(linha);
+      if (partes.size >= 4) break;
+    }
+  }
+  if (!partes.size) return null;
+  return Array.from(partes).join("; ").slice(0, 360);
 }
 
 function extrairContatos(texto: string): string | null {
-  const emails: string[] = Array.from(
-    texto.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []
-  );
-  const unicos = emails
-    .filter((email, index) => emails.indexOf(email) === index)
-    .slice(0, 8);
-  return unicos.length ? unicos.join(", ") : null;
+  const unicos = new Set<string>();
+  // Search only around @, with finite address components. The old unbounded
+  // regex backtracked quadratically on long PDF tokens without an address.
+  for (const marcador of texto.matchAll(/@/g)) {
+    const at = marcador.index!;
+    let inicio = at;
+    let fim = at + 1;
+    while (inicio > 0 && at - inicio < 64 && /[A-Z0-9._%+-]/i.test(texto[inicio - 1])) inicio--;
+    if (inicio > 0 && /[A-Z0-9._%+-]/i.test(texto[inicio - 1])) continue;
+    while (fim < texto.length && fim - at <= 254 && /[A-Z0-9.-]/i.test(texto[fim])) fim++;
+    if (fim < texto.length && /[A-Z0-9.-]/i.test(texto[fim])) continue;
+    const email = texto.slice(inicio, fim).match(/^[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,253}\.[A-Z]{2,63}/i);
+    if (!email) continue;
+    unicos.add(email[0]);
+    if (unicos.size >= 8) break;
+  }
+  return unicos.size ? Array.from(unicos).join(", ") : null;
 }
 
 export function extrairPontosImportantes(
@@ -311,6 +323,19 @@ export function extrairPontosImportantes(
   }
 
   return pontos;
+}
+
+const leitorPdfArquivo = criarLeitorContratoPdfArquivo({
+  normalizarTexto: normalizarTextoPdf,
+  extrairPontos: extrairPontosImportantes,
+});
+
+/** File-backed bounded Poppler extraction; resource failures reject, never conclude. */
+export async function lerContratoPdfArquivo(
+  filePath: string,
+  signal?: AbortSignal
+): Promise<ContratoConvenioPdfLeitura> {
+  return leitorPdfArquivo(filePath, signal);
 }
 
 export async function lerContratoPdf(
@@ -379,6 +404,8 @@ export async function obterUrlDownloadPdfContrato(
 }
 
 export type ContextoContratualGlosa = {
+  statusContexto: "disponivel" | "indeterminado";
+  dataReferencia: string | null;
   possuiContratoAtivo: boolean;
   contratos: Array<{
     id: number;
@@ -471,25 +498,54 @@ function extrairTrechosRelevantesParaGlosa(
   return trechos;
 }
 
+export class ContextoContratualIndisponivelError extends Error {
+  readonly code = "CONTEXTO_CONTRATUAL_INDISPONIVEL";
+  constructor() {
+    super("Contexto contratual indisponível ou incompleto; geração de IA bloqueada.");
+    this.name = "ContextoContratualIndisponivelError";
+  }
+}
+
+function pontoContratualValido(valor: unknown): valor is ContratoConvenioPonto {
+  if (!valor || typeof valor !== "object") return false;
+  return "categoria" in valor && typeof valor.categoria === "string" &&
+    ["partes", "vigencia", "faturamento", "pagamento", "glosa_recurso", "tabelas_valores", "documentos", "obrigacoes", "rescisao", "dados_e_sigilo", "contatos"].includes(valor.categoria) &&
+    "titulo" in valor && typeof valor.titulo === "string" &&
+    "resumo" in valor && typeof valor.resumo === "string" &&
+    "prioridade" in valor && ["alta", "media", "baixa"].includes(String(valor.prioridade));
+}
+
 export async function obterContextoContratualParaGlosa(params: {
   estabelecimentoId: number;
   convenioId?: number;
   convenioNome?: string;
   codigosProcedimento?: string[];
+  dataReferencia?: string;
 }): Promise<ContextoContratualGlosa> {
+  const dataReferencia = params.dataReferencia === undefined ? undefined : validarDataReferenciaIso(params.dataReferencia);
   const vazio: ContextoContratualGlosa = {
+    statusContexto: dataReferencia ? "disponivel" : "indeterminado",
+    dataReferencia: dataReferencia ?? null,
     possuiContratoAtivo: false,
     contratos: [],
     documentos: [],
     itensTabelaNegociada: [],
     regrasNegocio: [],
-    resumoPrompt: "",
+    resumoPrompt: dataReferencia ? "" : "BASE CONTRATUAL INDETERMINADA: data de execução ausente ou múltiplas datas. Não citar cláusulas ou preços atuais como vigentes no atendimento.",
   };
 
+  // Ausência de data nunca significa hoje; callers históricos devem enviar a execução.
+  if (!dataReferencia) return vazio;
+  if (!Number.isSafeInteger(params.estabelecimentoId) || params.estabelecimentoId <= 0) {
+    throw new Error("estabelecimentoId deve ser um ID positivo seguro");
+  }
+  if (params.convenioId !== undefined && (!Number.isSafeInteger(params.convenioId) || params.convenioId <= 0)) {
+    throw new Error("convenioId deve ser um ID positivo seguro");
+  }
   try {
     await ensureContratosConveniosDocumentosTable();
     const db = await getDb();
-    if (!db) return vazio;
+    if (!db) throw new ContextoContratualIndisponivelError();
 
     const { estabelecimentoId, convenioId, convenioNome } = params;
     const codigosLimpos = Array.from(
@@ -498,75 +554,55 @@ export async function obterContextoContratualParaGlosa(params: {
           .map(c => String(c || "").trim())
           .filter(Boolean)
       )
-    ).slice(0, 40);
+    );
 
     // 1. Localizar contratos vinculados estritamente ao estabelecimento, convênio, status ativo e vigência
-    let filtroConvenioSql = "";
-    if (convenioId && convenioId > 0) {
-      filtroConvenioSql = `AND cc.convenioId = ${Number(convenioId)}`;
-    } else if (convenioNome && convenioNome.trim().length >= 2) {
-      const termoSeguro = convenioNome
-        .trim()
-        .replace(/['"\\%_]/g, "")
-        .slice(0, 60);
-      if (termoSeguro) {
-        filtroConvenioSql = `AND c.nome = '${termoSeguro}'`;
-      }
-    }
-
-    if (!filtroConvenioSql) {
-      return vazio;
-    }
-
-    const [contratosRows] = await db.execute(
-      sql.raw(`
-        SELECT cc.id, cc.convenioId, COALESCE(c.nome, 'Convênio') AS convenioNome,
-               cc.numeroContrato, cc.status, cc.dataInicio, cc.dataFim,
-               cc.reajusteProposto, cc.observacoes
-        FROM contratos_convenios cc
-        INNER JOIN convenios c ON c.id = cc.convenioId
-        WHERE cc.estabelecimentoId = ${Number(estabelecimentoId)}
-          AND cc.status IN ('ativo', 'vencendo', 'renovado')
-          AND (cc.dataInicio IS NULL OR cc.dataInicio <= CURDATE())
-          AND (cc.dataFim IS NULL OR cc.dataFim >= CURDATE())
-          ${filtroConvenioSql}
-        ORDER BY FIELD(cc.status, 'ativo', 'renovado', 'vencendo'), cc.updatedAt DESC
-        LIMIT 5
-      `)
-    );
-
-    const contratos = (contratosRows as unknown as any[]) ?? [];
-
-    const contratoIds = contratos.map(c => Number(c.id)).filter(Boolean);
-    const convenioIds = Array.from(
-      new Set(contratos.map(c => Number(c.convenioId)).filter(Boolean))
-    );
+    const filtroConvenio = convenioId
+      ? eq(convenios.id, convenioId)
+      : convenioNome?.trim() ? eq(convenios.nome, convenioNome.trim()) : undefined;
+    if (!filtroConvenio) return { ...vazio, statusContexto: "indeterminado", resumoPrompt: "BASE CONTRATUAL INDETERMINADA: convênio não informado. Não aplicar contratos de outros convênios." };
+    const conveniosEncontrados = await db.select({ id: convenios.id }).from(convenios).where(and(
+      filtroConvenio, eq(convenios.ativo, "sim"),
+      or(eq(convenios.estabelecimentoId, estabelecimentoId), isNull(convenios.estabelecimentoId)),
+    ));
+    // Nome ambíguo também não autoriza selecionar arbitrariamente um convênio.
+    if (conveniosEncontrados.length > 1) return { ...vazio, statusContexto: "indeterminado", resumoPrompt: "BASE CONTRATUAL INDETERMINADA: nome de convênio ambíguo; informe convenioId." };
+    if (!conveniosEncontrados.length) return vazio;
+    const convenioResolvido = conveniosEncontrados[0].id;
+    const contratos = await db.select({
+      id: contratosConvenios.id, convenioId: contratosConvenios.convenioId,
+      convenioNome: convenios.nome, numeroContrato: contratosConvenios.numeroContrato,
+      status: contratosConvenios.status, dataInicio: contratosConvenios.dataInicio,
+      dataFim: contratosConvenios.dataFim, reajusteProposto: contratosConvenios.reajusteProposto,
+      observacoes: contratosConvenios.observacoes,
+    }).from(contratosConvenios).innerJoin(convenios, eq(convenios.id, contratosConvenios.convenioId)).where(and(
+      eq(contratosConvenios.estabelecimentoId, estabelecimentoId),
+      eq(contratosConvenios.convenioId, convenioResolvido), eq(convenios.ativo, "sim"),
+      inArray(contratosConvenios.status, ["ativo", "vencendo", "renovado"]),
+      or(isNull(contratosConvenios.dataInicio), sql`${contratosConvenios.dataInicio} <= ${dataReferencia}`),
+      or(isNull(contratosConvenios.dataFim), sql`${contratosConvenios.dataFim} >= ${dataReferencia}`),
+    )).orderBy(sql`FIELD(${contratosConvenios.status}, 'ativo', 'renovado', 'vencendo')`, desc(contratosConvenios.updatedAt), desc(contratosConvenios.id));
+    const contratoIds = contratos.map(c => c.id);
 
     // 2. Buscar documentos PDF anexados e concluídos desses contratos vigentes
     let documentos: ContextoContratualGlosa["documentos"] = [];
     if (contratoIds.length > 0) {
-      const [docsRows] = await db.execute(
-        sql.raw(`
-          SELECT id, contratoId, nomeArquivo, paginas, status, pontosImportantes, textoExtraido
-          FROM contratos_convenios_documentos
-          WHERE contratoId IN (${contratoIds.join(",")})
-            AND estabelecimentoId = ${Number(estabelecimentoId)}
-            AND status = 'concluido'
-          ORDER BY createdAt DESC
-          LIMIT 10
-        `)
-      );
-      documentos = ((docsRows as unknown as any[]) ?? []).map(doc => {
+      const docsRows = await db.select().from(contratosConveniosDocumentos).where(and(
+        inArray(contratosConveniosDocumentos.contratoId, contratoIds),
+        eq(contratosConveniosDocumentos.estabelecimentoId, estabelecimentoId),
+        eq(contratosConveniosDocumentos.status, "concluido"),
+      )).orderBy(desc(contratosConveniosDocumentos.createdAt), desc(contratosConveniosDocumentos.id));
+      documentos = docsRows.map(doc => {
         let pontos: ContratoConvenioPonto[] = [];
         try {
-          pontos =
-            typeof doc.pontosImportantes === "string"
-              ? JSON.parse(doc.pontosImportantes)
-              : Array.isArray(doc.pontosImportantes)
-                ? doc.pontosImportantes
-                : [];
+          const pontosExtraidos: unknown = typeof doc.pontosImportantes === "string"
+            ? JSON.parse(doc.pontosImportantes) : doc.pontosImportantes ?? [];
+          if (!Array.isArray(pontosExtraidos) || !pontosExtraidos.every(pontoContratualValido)) {
+            throw new ContextoContratualIndisponivelError();
+          }
+          pontos = pontosExtraidos;
         } catch {
-          pontos = [];
+          throw new ContextoContratualIndisponivelError();
         }
         return {
           id: Number(doc.id),
@@ -585,82 +621,30 @@ export async function obterContextoContratualParaGlosa(params: {
 
     // 3. Buscar itens negociados nas tabelas físicas (tabelasPreco)
     let itensTabelaNegociada: ContextoContratualGlosa["itensTabelaNegociada"] = [];
-    if (convenioIds.length > 0 && codigosLimpos.length > 0) {
-      const codigosSql = codigosLimpos
-        .map(c => `'${c.replace(/'/g, "''")}'`)
-        .join(",");
-      try {
-        const [itensRows] = await db.execute(
-          sql.raw(`
-            SELECT tp.codigo AS codigoProcedimento,
-                   tp.nome AS descricaoProcedimento,
-                   tp.valor AS valorContratado,
-                   NULL AS valorFilme,
-                   tp.porte AS porteAnestesico,
-                   NULL AS requerAutorizacao,
-                   CONCAT('Tabela ', UPPER(tp.tipo)) AS nomeTabela,
-                   tp.tipo AS tipoTabela
-            FROM tabelasPreco tp
-            WHERE tp.convenioId IN (${convenioIds.join(",")})
-              AND (tp.estabelecimentoId = ${Number(estabelecimentoId)} OR tp.estabelecimentoId IS NULL)
-              AND tp.ativo = 'sim'
-              AND tp.codigo IN (${codigosSql})
-            LIMIT 30
-          `)
-        );
-        itensTabelaNegociada = ((itensRows as unknown as any[]) ?? []).map(row => ({
-          codigoProcedimento: String(row.codigoProcedimento),
-          descricaoProcedimento: row.descricaoProcedimento
-            ? String(row.descricaoProcedimento)
-            : null,
-          valorContratado: String(row.valorContratado ?? "0"),
-          valorFilme: row.valorFilme ? String(row.valorFilme) : null,
-          porteAnestesico: row.porteAnestesico
-            ? String(row.porteAnestesico)
-            : null,
-          requerAutorizacao: row.requerAutorizacao
-            ? String(row.requerAutorizacao)
-            : null,
-          nomeTabela: String(row.nomeTabela || "Tabela Negociada"),
-          tipoTabela: row.tipoTabela ? String(row.tipoTabela) : null,
-        }));
-      } catch {
-        // Tabela opcional se ainda não populada
-      }
+    if (contratoIds.length > 0 && codigosLimpos.length > 0) {
+      const itensRows = await buscarPrecosAplicaveis(db, { estabelecimentoId, convenioId: convenioResolvido, codigos: codigosLimpos, dataReferencia });
+      itensTabelaNegociada = itensRows.map(row => ({
+        codigoProcedimento: row.codigo.trim(), descricaoProcedimento: row.nome,
+        valorContratado: row.valor, valorFilme: null, porteAnestesico: row.porte,
+        requerAutorizacao: null, nomeTabela: `Tabela ${row.tipo.toUpperCase()}`, tipoTabela: row.tipo,
+      }));
     }
 
     // 4. Buscar regras de negócio ativas na tabela física regrasNegocio
-    let regrasNegocio: ContextoContratualGlosa["regrasNegocio"] = [];
-    if (convenioIds.length > 0) {
-      try {
-        const [regrasRows] = await db.execute(
-          sql.raw(`
-            SELECT tipoVerificacao AS tipoRegra,
-                   nome,
-                   descricao,
-                   codigoProcedimentoPrincipal AS condicoes,
-                   mensagemAlerta AS acoes
-            FROM regrasNegocio
-            WHERE convenioId IN (${convenioIds.join(",")})
-              AND (estabelecimentoId = ${Number(estabelecimentoId)} OR estabelecimentoId IS NULL)
-              AND ativo = 'sim'
-            LIMIT 10
-          `)
-        );
-        regrasNegocio = ((regrasRows as unknown as any[]) ?? []).map(r => ({
-          tipoRegra: String(r.tipoRegra || ""),
-          nome: String(r.nome || ""),
-          descricao: r.descricao ? String(r.descricao) : null,
-          condicoes: r.condicoes ? String(r.condicoes) : null,
-          acoes: r.acoes ? String(r.acoes) : null,
-        }));
-      } catch {
-        // Opcional
-      }
+    let regrasContratuais: ContextoContratualGlosa["regrasNegocio"] = [];
+    if (contratoIds.length > 0) {
+      regrasContratuais = await db.select({
+        tipoRegra: regrasNegocio.tipoVerificacao, nome: regrasNegocio.nome,
+        descricao: regrasNegocio.descricao, condicoes: regrasNegocio.codigoProcedimentoPrincipal,
+        acoes: regrasNegocio.acaoInconsistencia,
+      }).from(regrasNegocio).where(and(
+        eq(regrasNegocio.convenioId, convenioResolvido), eq(regrasNegocio.ativo, "sim"),
+        or(eq(regrasNegocio.estabelecimentoId, estabelecimentoId), isNull(regrasNegocio.estabelecimentoId)),
+      )).orderBy(regrasNegocio.prioridade, regrasNegocio.id);
     }
 
     // 5. Construir resumo estruturado para o Prompt da IA
-    const blocosPrompt: string[] = [];
+    const blocosPrompt: string[] = [`DATA DE REFERÊNCIA CONTRATUAL: ${dataReferencia.split("-").reverse().join("/")} (execução do atendimento).`];
     if (contratos.length > 0) {
       blocosPrompt.push(
         "CONTRATOS VINCULADOS AO CONVÊNIO:\n" +
@@ -703,19 +687,21 @@ export async function obterContextoContratualParaGlosa(params: {
       );
     }
 
-    if (regrasNegocio.length > 0) {
+    if (regrasContratuais.length > 0) {
       blocosPrompt.push(
         "REGRAS CONTRATUAIS DE NEGÓCIO CADASTRADAS:\n" +
-          regrasNegocio
+          regrasContratuais
             .map(
               r =>
-                `- [${r.tipoRegra}] ${r.nome}: ${r.descricao || r.acoes || ""}`
+                `- [${r.tipoRegra}] ${r.nome}: ${r.descricao || ""} | Ação: ${r.acoes || ""}`
             )
             .join("\n")
       );
     }
 
     return {
+      statusContexto: "disponivel",
+      dataReferencia,
       possuiContratoAtivo: contratos.length > 0,
       contratos: contratos.map(c => ({
         id: Number(c.id),
@@ -723,8 +709,8 @@ export async function obterContextoContratualParaGlosa(params: {
         convenioNome: String(c.convenioNome || "Convênio"),
         numeroContrato: c.numeroContrato ? String(c.numeroContrato) : null,
         status: String(c.status || "ativo"),
-        dataInicio: c.dataInicio ? String(c.dataInicio) : null,
-        dataFim: c.dataFim ? String(c.dataFim) : null,
+        dataInicio: normalizarDataExecucao(c.dataInicio) ?? null,
+        dataFim: normalizarDataExecucao(c.dataFim) ?? null,
         reajusteProposto: c.reajusteProposto
           ? String(c.reajusteProposto)
           : null,
@@ -732,15 +718,13 @@ export async function obterContextoContratualParaGlosa(params: {
       })),
       documentos,
       itensTabelaNegociada,
-      regrasNegocio,
+      regrasNegocio: regrasContratuais,
       resumoPrompt: blocosPrompt.join("\n\n"),
     };
   } catch (error) {
-    console.warn(
-      "[Contexto Contratual Glosa] Erro ao carregar contexto contratual:",
-      (error as Error)?.message || error
-    );
-    return vazio;
+    // Não converter falha SQL em ausência de contratos; protege todos os callers da IA.
+    console.warn("[Contexto Contratual Glosa] Contexto indisponível; geração de IA bloqueada.");
+    throw new ContextoContratualIndisponivelError();
   }
 }
 

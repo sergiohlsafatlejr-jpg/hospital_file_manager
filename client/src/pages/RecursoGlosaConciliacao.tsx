@@ -365,9 +365,12 @@ export default function RecursoGlosaConciliacao() {
         valorPago: String(d.valorPago || 0),
         valorGlosa: String(d.valorGlosa || 0),
         tipoLancamento: d.tipoItem || undefined,
+        dataExecucao: d.dataExecucao || undefined,
+        convenioId: d.convenioId || undefined,
       })),
       estabelecimentoId: estabelecimentoAtual?.id || 0,
       convenioNome: convenioNome || undefined,
+      convenioId: convenioFiltro !== "todos" ? Number(convenioFiltro) : undefined,
     });
   };
 

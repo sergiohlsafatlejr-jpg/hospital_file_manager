@@ -2,6 +2,7 @@ import { RoboBase, CredenciaisConvenio } from "../RoboBase";
 import { logger } from "../../_core/logger";
 import path from "path";
 import fs from "fs";
+import { ErroPoliticaPortal } from "../rpaPortalPolicy";
 
 export class RoboSaudeCaixa extends RoboBase {
   constructor() {
@@ -14,6 +15,7 @@ export class RoboSaudeCaixa extends RoboBase {
       const isProducao = process.env.NODE_ENV === "production";
       await this.iniciarBrowser(!isProducao); 
       if (!this.page) throw new Error("Página não iniciada");
+      await this.definirContextoPortal("SAUDE CAIXA", credenciais);
 
       // Configurar pasta de download automático
       const downloadPath = path.join(process.cwd(), "uploads", "demonstrativos", "saudecaixa");
@@ -37,20 +39,25 @@ export class RoboSaudeCaixa extends RoboBase {
         await this.page.waitForSelector("input[name='j_username'], input[id='login'], input[type='text']", { timeout: 10000 });
         
         if (credenciais.login) {
+            await this.validarAntesDeCredenciais();
             await this.page.type("input[name='j_username'], input[id='login'], input[type='text']", credenciais.login, { delay: 50 });
         }
         if (credenciais.senha) {
+            await this.validarAntesDeCredenciais();
             await this.page.type("input[name='j_password'], input[id='senha'], input[type='password']", credenciais.senha, { delay: 50 });
         }
         
         // Clicar em Entrar
+        await this.validarAntesDeCredenciais();
         await Promise.all([
           this.page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {}),
           this.page.click("button[type='submit'], input[type='submit'], .btn-login, #btnEntrar").catch(() => {})
         ]);
 
+        await this.assegurarPortalSemBloqueios();
         logger.info({ message: `[${this.nome}] Login efetuado com sucesso (simulado/real).` });
       } catch (loginErr) {
+        if (loginErr instanceof ErroPoliticaPortal) throw loginErr;
         logger.warn({ message: `[${this.nome}] Campos de login padrão não encontrados. Talvez o portal use certificado digital direto.` });
       }
 
@@ -68,6 +75,7 @@ export class RoboSaudeCaixa extends RoboBase {
       }
       */
 
+      await this.assegurarPortalSemBloqueios();
       // Retornar um sucesso
       const resultado = {
         status: "sucesso",
@@ -81,8 +89,9 @@ export class RoboSaudeCaixa extends RoboBase {
 
     } catch (error: any) {
       await this.capturarErro(error, "Execução Principal");
-      await this.fecharBrowser();
       throw error;
+    } finally {
+      await this.fecharBrowser();
     }
   }
 }

@@ -122,7 +122,7 @@ export default function Upload() {
   const estabIdFiltroConvenio =
     estabelecimentoSelecionado && !Number.isNaN(Number(estabelecimentoSelecionado))
       ? Number(estabelecimentoSelecionado)
-      : estabelecimentoAtivo?.id;
+      : estabelecimentoAtual?.id;
   const { data: convenios, refetch: refetchConvenios } =
     trpc.convenios.list.useQuery({
       ativo: "sim",

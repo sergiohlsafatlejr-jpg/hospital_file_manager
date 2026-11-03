@@ -118,7 +118,8 @@ describe("delegação de planilhas de retorno", () => {
       source.indexOf("upload: protectedProcedure"),
       source.indexOf("procedimentos: protectedProcedure")
     );
-    expect(upload).toContain("/api/internal/process-file");
+    expect(upload).toContain("dispatchInternalFileProcessing");
+    expect(upload).toContain("assertInternalProcessingReady");
     expect(upload).not.toContain("deleteRecebimentosExcelByArquivo");
     expect(upload).not.toContain("parseUnimedCerradoTxt");
   });
@@ -127,7 +128,8 @@ describe("delegação de planilhas de retorno", () => {
       new URL("./uploadMultipart.ts", import.meta.url),
       "utf8"
     );
-    expect(source).toContain("await delegarPlanilhaRetorno");
+    expect(source).toContain("dispatchInternalFileProcessing");
+    expect(source).toContain("assertInternalProcessingReady");
     expect(source).toContain('tipoArquivo === "txt"');
     expect(source).not.toContain("deleteRecebimentosExcelByArquivo");
   });

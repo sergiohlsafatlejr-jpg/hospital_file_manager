@@ -1,5 +1,6 @@
 import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
 import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
+import { assertInternalProcessingReady, dispatchInternalFileProcessing } from "./internalFileDispatch";
 import {
   confirmarEnvioLote,
   confirmarEnvioLoteSchema,
@@ -822,6 +823,7 @@ export const appRouter = router({
         }
 
         // Decode base64 content
+        assertInternalProcessingReady();
         const buffer = Buffer.from(input.conteudo, "base64");
 
         // Validar arquivo vazio
@@ -954,26 +956,15 @@ export const appRouter = router({
         // Todo upload é processado pelo worker interno. Isso mantém a classificação
         // de XML de honorários e o fluxo financeiro em uma única fronteira. O worker
         // decide antes de qualquer DELETE/INSERT financeiro e finaliza o status.
-            await db.updateArquivoStatus(arquivoId, "processando");
+        assertInternalProcessingReady();
+        await db.updateArquivoStatus(arquivoId, "processando");
         await db.updateArquivoProgresso(arquivoId, 5, 0);
 
-        const port = process.env.PORT || "3000";
-        const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET;
-        if (!secret || secret.length < 32) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "O processamento interno não está configurado.",
-          });
-        }
-        fetch(internalUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ arquivoId, secret, limparDadosAnteriores: isReimportacao || !(input.direcao === "retornado" && input.tipoArquivo === "excel") }),
-        }).then(async response => { if (!response.ok) await db.updateArquivoStatus(arquivoId, "erro"); }).catch(() => {
-          // Não registrar nome, URL, chave ou conteúdo do arquivo.
-          db.updateArquivoStatus(arquivoId, "erro").catch(() => undefined);
-              });
+        // POST /api/internal/process-file: segredo exclusivamente server-side.
+        void dispatchInternalFileProcessing({
+          arquivoId,
+          limparDadosAnteriores: isReimportacao || !(input.direcao === "retornado" && input.tipoArquivo === "excel"),
+        }).catch(() => undefined);
 
         // DTO sanitizado: a URL de storage não é necessária para acompanhar o
         // upload e não deve sair pela API.
@@ -1131,32 +1122,16 @@ export const appRouter = router({
         }
 
         // Marcar como processando
+        assertInternalProcessingReady();
         await db.updateArquivoStatus(input.id, "processando");
         await db.updateArquivoProgresso(input.id, 5, 0);
 
         // Disparar processamento via rota interna (request HTTP separada com seu próprio timeout)
         // O Cloud Run mantém a instância viva enquanto há requests em andamento
-        const port = process.env.PORT || "3000";
-        const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET;
-        if (!secret || secret.length < 32) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "O processamento interno não está configurado.",
-          });
-        }
-
-        fetch(internalUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ arquivoId: input.id, secret, limparDadosAnteriores: !(arquivo.direcao === "retornado" && arquivo.tipoArquivo === "excel" && (arquivo.itensProcessados || 0) === 0 && !arquivo.totalItens) }),
-        }).then(async response => { if (!response.ok) await db.updateArquivoStatus(input.id, "erro"); }).catch(err => {
-          console.error(
-            "[Reprocessar] Erro ao disparar processamento interno:",
-            err
-          );
-          db.updateArquivoStatus(input.id, "erro").catch(() => {});
-        });
+        void dispatchInternalFileProcessing({
+          arquivoId: input.id,
+          limparDadosAnteriores: !(arquivo.direcao === "retornado" && arquivo.tipoArquivo === "excel" && (arquivo.itensProcessados || 0) === 0 && !arquivo.totalItens),
+        }).catch(() => undefined);
 
         // Retornar imediatamente ao frontend
         return {
@@ -2271,6 +2246,7 @@ export const appRouter = router({
           estabelecimentoId: z.number(),
           codigoProcedimento: z.string().optional(),
           valorGlosado: z.string().optional(),
+          dataReferencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -2287,6 +2263,7 @@ export const appRouter = router({
           codigoProcedimento: input.codigoProcedimento,
           valorGlosado: input.valorGlosado,
           userId: ctx.user.id,
+          dataReferencia: input.dataReferencia,
         });
       }),
 
@@ -8635,8 +8612,23 @@ export const appRouter = router({
         }
 
         // Baixar conteúdo do S3
-        const response = await fetch(arquivo.s3Url);
-        const buffer = Buffer.from(await response.arrayBuffer());
+        assertInternalProcessingReady();
+        const downloadController = new AbortController();
+        const downloadTimer = setTimeout(() => downloadController.abort(), 60_000);
+        let buffer: Buffer;
+        try {
+          const response = await fetch(arquivo.s3Url, { signal: downloadController.signal });
+          if (!response.ok) throw new Error("Download recusado.");
+          buffer = Buffer.from(await response.arrayBuffer());
+        } catch {
+          await db.updateArquivoStatus(input.arquivoId, "erro").catch(() => undefined);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Não foi possível baixar o arquivo para processamento.",
+          });
+        } finally {
+          clearTimeout(downloadTimer);
+        }
 
         // Parsear Excel
         const records = parseExcelRecebimentosExcel(buffer, input.arquivoId);
@@ -9949,6 +9941,7 @@ export const appRouter = router({
               signal: controller.signal,
             });
             clearTimeout(timeoutId);
+            if (!response.ok) continue;
             const xml = await response.text();
 
             // Parse RSS XML simples

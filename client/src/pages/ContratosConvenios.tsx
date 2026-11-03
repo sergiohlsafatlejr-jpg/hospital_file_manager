@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { toast } from "sonner";
 import { formatDateBR } from "@/lib/dateUtils";
 import { Building2, Search, Plus, Pencil, Trash2, FileText, AlertTriangle, Eye, UploadCloud, Mail, Loader2, CheckCircle2, FileSearch, Download, FileWarning, Sparkles } from "lucide-react";
+import { adicionarPdfsAoLote, batchIdContratosPdf, chaveArquivoContrato, exigirIdNovoContrato, uploadContratoPdf, validarLoteContratosPdf, type UploadProgress, type UploadResult } from "@/lib/contratosUploadChunks";
 
 const STATUS_CONFIG = {
   ativo: { label: "Ativo", color: "bg-green-500" },
@@ -49,7 +50,10 @@ export default function ContratosConvenios() {
   const [arquivosPdf, setArquivosPdf] = useState<File[]>([]);
   const [arrastandoPdf, setArrastandoPdf] = useState(false);
   const [importandoPdf, setImportandoPdf] = useState(false);
-  const [resultadoImportacao, setResultadoImportacao] = useState<any>(null);
+  const [resultadoImportacao, setResultadoImportacao] = useState<UploadResult | null>(null);
+  const [progressoPdf, setProgressoPdf] = useState<Record<string, UploadProgress>>({});
+  const [criacaoContratoIncerta, setCriacaoContratoIncerta] = useState(false);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const arquivoInputRef = useRef<HTMLInputElement>(null);
   
   const utils = trpc.useUtils();
@@ -59,6 +63,13 @@ export default function ContratosConvenios() {
   // Se "Todos os estabelecimentos" (id 0) estiver selecionado, pode-se usar undefined para o query ou forçar o padrão nas criações
   const estabelecimentoIdFiltro = estabelecimentoAtual?.id === 0 ? undefined : estabelecimentoAtual?.id;
   const estabelecimentoIdMutacao = estabelecimentoAtual?.id === 0 ? estabelecimentos?.[0]?.id : estabelecimentoAtual?.id;
+
+  useEffect(() => {
+    setDocumentosContratoId(null);
+    setResultadoImportacao(null);
+    setProgressoPdf({});
+    return () => uploadAbortRef.current?.abort();
+  }, [estabelecimentoAtual?.id]);
 
   const contratos = trpc.contratosConvenios.listar.useQuery({ estabelecimentoId: estabelecimentoIdFiltro }, {
     enabled: !!estabelecimentoIdFiltro || estabelecimentoAtual?.id === 0,
@@ -174,52 +185,19 @@ export default function ContratosConvenios() {
     return convenios.data?.find((c: any) => c.id === id)?.nome || "Desconhecido";
   };
 
-  const MAX_PDF_BYTES = 150 * 1024 * 1024; // 150 MB
-
   const adicionarArquivosPdf = (arquivos: FileList | File[]) => {
-    const candidatos = Array.from(arquivos);
-    let rejeitadosTipo = 0;
-    let rejeitadosTamanho = 0;
-
-    const validos = candidatos.filter((arquivo) => {
-      const ehPdf =
-        arquivo.name.toLowerCase().endsWith(".pdf") ||
-        (arquivo.type || "").toLowerCase().includes("pdf");
-      if (!ehPdf) {
-        rejeitadosTipo++;
-        return false;
-      }
-      const tamanhoValido = arquivo.size > 0 && arquivo.size <= MAX_PDF_BYTES;
-      if (!tamanhoValido) {
-        rejeitadosTamanho++;
-        return false;
-      }
-      return true;
-    });
-
-    if (rejeitadosTipo > 0) {
-      toast.warning(`${rejeitadosTipo} arquivo(s) ignorado(s): envie apenas arquivos .PDF.`);
-    }
-    if (rejeitadosTamanho > 0) {
-      toast.warning(`${rejeitadosTamanho} arquivo(s) ignorado(s): o limite máximo por PDF é de 150 MB.`);
-    }
-
-    setArquivosPdf((atuais) => {
-      const chavesAtuais = new Set(atuais.map((arquivo) => `${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
-      const novos = validos.filter((arquivo) => !chavesAtuais.has(`${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`));
-      const combinados = [...atuais, ...novos];
-      if (combinados.length > 30) {
-        toast.error("O lote pode conter no máximo 30 PDFs.");
-        return combinados.slice(0, 30);
-      }
-      return combinados;
-    });
+    if (uploadAbortRef.current) return;
+    const { files, rejected } = adicionarPdfsAoLote(arquivosPdf, Array.from(arquivos));
+    setArquivosPdf(files);
+    rejected.forEach(message => toast.warning(message));
   };
 
   const abrirDocumentos = (contratoId: number) => {
+    if (uploadAbortRef.current) return;
     setDocumentosContratoId(contratoId);
     setDocumentoDetalheId(null);
     setResultadoImportacao(null);
+    setProgressoPdf({});
     setArquivosPdf([]);
     setDocumentosModalAberto(true);
   };
@@ -229,102 +207,78 @@ export default function ContratosConvenios() {
   };
 
   const importarPdfs = async () => {
-    if (arquivosPdf.length === 0) {
-      toast.error("Selecione ao menos um arquivo PDF para importar.");
+    if (uploadAbortRef.current) return;
+    let totalBytes: number;
+    try {
+      totalBytes = validarLoteContratosPdf(arquivosPdf);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Lote inválido.");
       return;
     }
-
-    let contratoIdAlvo = documentosContratoId;
-
-    // Se ainda não há contrato selecionado, permite criar automaticamente a partir do convênio escolhido no modal
-    if (!contratoIdAlvo) {
-      if (!novoConvenioIdModal) {
-        toast.error("Selecione um contrato existente ou escolha a Operadora/Convênio para vincular os PDFs.");
-        return;
-      }
-      if (!estabelecimentoIdMutacao) {
-        toast.error("Selecione um estabelecimento válido no topo da página.");
-        return;
-      }
-      try {
-        setImportandoPdf(true);
+    if (!documentosContratoId && (!novoConvenioIdModal || !estabelecimentoIdMutacao)) {
+      toast.error("Selecione um contrato existente ou um estabelecimento e convênio válidos.");
+      return;
+    }
+    if (!documentosContratoId && criacaoContratoIncerta) {
+      toast.error("A criação anterior ficou incerta. Selecione explicitamente o contrato existente; não criaremos outro às cegas.");
+      return;
+    }
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    setImportandoPdf(true);
+    setResultadoImportacao(null);
+    const documentosConsolidados: UploadResult["documentos"] = [];
+    let totalProcessados = 0;
+    try {
+      let contratoIdAlvo = documentosContratoId;
+      if (!contratoIdAlvo) {
+        // A missing/uncertain mutation response must never select the first list row.
+        setCriacaoContratoIncerta(true);
         const novoContrato = await criar.mutateAsync({
-          estabelecimentoId: estabelecimentoIdMutacao,
+          estabelecimentoId: estabelecimentoIdMutacao!,
           convenioId: Number(novoConvenioIdModal),
           numeroContrato: novoNumeroContratoModal.trim() || undefined,
           status: "ativo",
         });
-        contratoIdAlvo = novoContrato.id || null;
-        if (contratoIdAlvo) {
-          setDocumentosContratoId(contratoIdAlvo);
-        } else {
-          const listaAtualizada = await utils.contratosConvenios.listar.fetch({
-            estabelecimentoId: estabelecimentoIdFiltro,
-          });
-          contratoIdAlvo = listaAtualizada?.[0]?.id ?? null;
-          setDocumentosContratoId(contratoIdAlvo);
-        }
-      } catch (err: any) {
-        setImportandoPdf(false);
-        toast.error(err?.message || "Não foi possível criar o registro do contrato.");
-        return;
+        contratoIdAlvo = exigirIdNovoContrato(novoContrato);
+        if (controller.signal.aborted) throw new DOMException("Envio pausado.", "AbortError");
+        setDocumentosContratoId(contratoIdAlvo);
+        setCriacaoContratoIncerta(false);
       }
-    }
-
-    if (!contratoIdAlvo) {
-      setImportandoPdf(false);
-      toast.error("Não foi possível identificar o contrato de destino.");
-      return;
-    }
-
-    setImportandoPdf(true);
-    setResultadoImportacao(null);
-    try {
-      const documentosConsolidados: any[] = [];
-      let totalProcessados = 0;
+      const batchId = batchIdContratosPdf(contratoIdAlvo, arquivosPdf);
       for (const arquivo of arquivosPdf) {
-        const formData = new FormData();
-        formData.append("contratoId", String(contratoIdAlvo));
-        formData.append("files", arquivo, arquivo.name);
-        const resposta = await fetch("/api/contratos-convenios/importar-pdfs", {
-          method: "POST",
-          body: formData,
-          credentials: "same-origin",
+        const itemPayload = await uploadContratoPdf(arquivo, {
+          contratoId: contratoIdAlvo, batchId, batchTotalBytes: totalBytes,
+          signal: controller.signal, storage: window.sessionStorage,
+          onProgress: progress => setProgressoPdf(current => ({ ...current, [chaveArquivoContrato(arquivo)]: progress })),
         });
-        const itemPayload = await resposta.json().catch(() => ({}));
-        if (!resposta.ok) {
-          throw new Error(itemPayload.error || `Não foi possível importar o PDF "${arquivo.name}".`);
-        }
-        totalProcessados += Number(itemPayload.processados || 0);
-        if (Array.isArray(itemPayload.documentos)) {
-          documentosConsolidados.push(...itemPayload.documentos);
-        }
+        totalProcessados += itemPayload.processados;
+        documentosConsolidados.push(...itemPayload.documentos);
+        setResultadoImportacao({ processados: totalProcessados, documentos: [...documentosConsolidados] });
       }
-      const payload = {
-        success: totalProcessados > 0,
-        contratoId: contratoIdAlvo,
-        total: documentosConsolidados.length,
-        processados: totalProcessados,
-        documentos: documentosConsolidados,
-      };
-      setResultadoImportacao(payload);
       setArquivosPdf([]);
       await Promise.all([
         utils.contratosConvenios.listar.invalidate(),
         utils.contratosConvenios.listarDocumentos.invalidate({ contratoId: contratoIdAlvo }),
         utils.contratosConvenios.resumoDocumentos.invalidate(),
       ]);
-      if (payload.processados > 0) {
-        toast.success(`${payload.processados} PDF(s) importado(s) e analisado(s) com sucesso!`);
-      } else {
-        toast.warning("Nenhum PDF foi processado. Consulte os detalhes do lote.");
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao importar PDFs.");
+      const lidos = documentosConsolidados.filter(item => item.status === "concluido").length;
+      const ocr = documentosConsolidados.filter(item => item.status === "ocr_necessario").length;
+      const falhas = documentosConsolidados.filter(item => item.status === "erro").length;
+      const mensagem = `${arquivosPdf.length} PDF(s) recebido(s); ${lidos} com leitura concluída; ${ocr} requer(em) OCR; ${falhas} com erro de leitura.`;
+      if (ocr || falhas || !lidos) toast.warning(mensagem);
+      else toast.success(mensagem);
+    } catch (error) {
+      if (controller.signal.aborted) toast.info("Envio pausado. Arquivos e sessão preservados; selecione os mesmos PDFs após recarregar para retomar.");
+      else toast.error(error instanceof Error ? error.message : "Erro ao importar PDFs.");
     } finally {
+      if (uploadAbortRef.current === controller) uploadAbortRef.current = null;
       setImportandoPdf(false);
     }
   };
+
+  const totalLotePdf = arquivosPdf.reduce((total, arquivo) => total + arquivo.size, 0);
+  const recebidoLotePdf = arquivosPdf.reduce((total, arquivo) => total + (progressoPdf[chaveArquivoContrato(arquivo)]?.receivedBytes ?? 0), 0);
 
   const contratosFiltrados = useMemo(() => {
     const lista = contratos.data ?? [];
@@ -352,12 +306,15 @@ export default function ContratosConvenios() {
           <Button
             variant="outline"
             onClick={() => {
-              setDocumentosContratoId(contratos.data?.[0]?.id ?? null);
+              setDocumentosContratoId(null);
               setNovoConvenioIdModal("");
               setNovoNumeroContratoModal("");
               setResultadoImportacao(null);
+              setProgressoPdf({});
+              setArquivosPdf([]);
               setDocumentosModalAberto(true);
             }}
+            disabled={importandoPdf}
             className="gap-2"
           >
             <UploadCloud className="h-4 w-4" /> Importar PDFs (até 150 MB)
@@ -482,14 +439,17 @@ export default function ContratosConvenios() {
         </CardContent>
       </Card>
 
-      <Dialog open={documentosModalAberto} onOpenChange={setDocumentosModalAberto}>
+      <Dialog open={documentosModalAberto} onOpenChange={(open) => {
+        if (!open) uploadAbortRef.current?.abort();
+        setDocumentosModalAberto(open);
+      }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSearch className="h-5 w-5 text-primary" /> Leitura de contratos em PDF
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Anexe até 30 PDFs (até 150 MB por arquivo). O original fica protegido no storage e o sistema extrai vigência, faturamento, pagamento, regras de glosa/recurso, tabelas negociadas e documentos exigidos.
+              Anexe até 30 PDFs (150 MiB por arquivo; 600 MiB por lote). O recebimento em blocos preserva o original protegido e é separado da leitura; PDFs sem texto selecionável podem exigir OCR. Após recarregar, selecione o mesmo contrato e os mesmos PDFs para retomar.
             </p>
           </DialogHeader>
 
@@ -499,6 +459,7 @@ export default function ContratosConvenios() {
                 <Label>Contrato que receberá os documentos</Label>
                 <Select
                   value={documentosContratoId ? documentosContratoId.toString() : "__novo__"}
+                  disabled={importandoPdf}
                   onValueChange={(value) => {
                     if (value === "__novo__") {
                       setDocumentosContratoId(null);
@@ -506,6 +467,7 @@ export default function ContratosConvenios() {
                       setDocumentosContratoId(Number(value));
                     }
                     setResultadoImportacao(null);
+                    setProgressoPdf({});
                   }}
                 >
                   <SelectTrigger><SelectValue placeholder="Selecione o contrato" /></SelectTrigger>
@@ -525,7 +487,7 @@ export default function ContratosConvenios() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border bg-muted/20 p-4">
                 <div className="space-y-2">
                   <Label>Operadora / Convênio (Novo Contrato)</Label>
-                  <Select value={novoConvenioIdModal} onValueChange={setNovoConvenioIdModal}>
+                  <Select value={novoConvenioIdModal} onValueChange={setNovoConvenioIdModal} disabled={importandoPdf || criacaoContratoIncerta}>
                     <SelectTrigger><SelectValue placeholder="Selecione o convênio..." /></SelectTrigger>
                     <SelectContent>
                       {convenios.data?.map((conv: any) => (
@@ -539,10 +501,14 @@ export default function ContratosConvenios() {
                   <Input
                     value={novoNumeroContratoModal}
                     onChange={(e) => setNovoNumeroContratoModal(e.target.value)}
+                    disabled={importandoPdf || criacaoContratoIncerta}
                     placeholder="Ex: CT-2026/001"
                   />
                 </div>
               </div>
+            )}
+            {criacaoContratoIncerta && !documentosContratoId && (
+              <p role="alert" className="text-sm text-amber-700">Criação anterior incerta. Confira a lista e selecione explicitamente o contrato criado antes de enviar; a criação automática está bloqueada.</p>
             )}
 
             <div
@@ -572,7 +538,7 @@ export default function ContratosConvenios() {
               />
               <UploadCloud className="mx-auto h-10 w-10 text-primary" />
               <p className="mt-3 font-medium">Arraste os PDFs para esta área</p>
-              <p className="mt-1 text-sm text-muted-foreground">ou selecione até 30 arquivos PDF de até 150 MB cada</p>
+              <p className="mt-1 text-sm text-muted-foreground">ou selecione até 30 PDFs de até 150 MiB cada (600 MiB no total)</p>
               <Button type="button" variant="outline" className="mt-4" onClick={() => arquivoInputRef.current?.click()} disabled={importandoPdf}>
                 Selecionar arquivos PDF
               </Button>
@@ -582,30 +548,48 @@ export default function ContratosConvenios() {
               <div className="rounded-lg border bg-muted/20 p-3">
                 <div className="mb-2 flex items-center justify-between text-sm font-medium">
                   <span>{arquivosPdf.length} PDF(s) pronto(s) para importar</span>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setArquivosPdf([])} disabled={importandoPdf}>Limpar</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setArquivosPdf([]); setProgressoPdf({}); }} disabled={importandoPdf}>Limpar seleção</Button>
+                </div>
+                <div className="mb-3 space-y-1" aria-live="polite">
+                  <p className="text-xs text-muted-foreground">Recebido no lote: {formatarTamanho(recebidoLotePdf)} / {formatarTamanho(totalLotePdf)}. Recebimento não significa análise concluída.</p>
+                  <progress className="h-2 w-full" value={recebidoLotePdf} max={totalLotePdf} aria-label="Bytes recebidos no lote" />
                 </div>
                 <div className="max-h-32 space-y-1 overflow-y-auto">
-                  {arquivosPdf.map((arquivo) => (
-                    <div key={`${arquivo.name}-${arquivo.size}-${arquivo.lastModified}`} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="truncate"><FileText className="mr-1 inline h-3.5 w-3.5" />{arquivo.name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatarTamanho(arquivo.size)}</span>
-                    </div>
-                  ))}
+                  {arquivosPdf.map((arquivo) => {
+                    const progress = progressoPdf[chaveArquivoContrato(arquivo)];
+                    return (
+                      <div key={chaveArquivoContrato(arquivo)} className="space-y-1 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate"><FileText className="mr-1 inline h-3.5 w-3.5" />{arquivo.name}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">{formatarTamanho(arquivo.size)}</span>
+                        </div>
+                        {progress && (
+                          <div className="text-xs text-muted-foreground" aria-live="polite">
+                            {progress.phase === "hashing" ? `Verificando integridade: ${formatarTamanho(progress.hashedBytes)} / ${formatarTamanho(arquivo.size)}`
+                              : progress.phase === "processing" ? "Recebido; aguardando resultado da leitura"
+                              : progress.phase === "done" ? "Recebido; consulte o resultado da leitura/OCR abaixo"
+                              : `Recebido: ${formatarTamanho(progress.receivedBytes)} / ${formatarTamanho(arquivo.size)}`}
+                            <progress className="mt-1 h-1 w-full" value={progress.receivedBytes} max={arquivo.size} aria-label={`Bytes recebidos de ${arquivo.name}`} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {resultadoImportacao?.documentos?.length > 0 && (
+            {resultadoImportacao && resultadoImportacao.documentos.length > 0 && (
               <div className="rounded-lg border p-3">
                 <h3 className="mb-2 text-sm font-semibold">Resultado deste lote</h3>
                 <div className="space-y-1.5">
-                  {resultadoImportacao.documentos.map((item: any, index: number) => {
+                  {resultadoImportacao.documentos.map((item, index) => {
                     const conf = DOCUMENTO_STATUS_CONFIG[item.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro;
                     return (
                       <div key={`${item.nomeArquivo}-${index}`} className="flex flex-col gap-0.5 text-sm border-b last:border-b-0 pb-1 last:pb-0">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate font-medium">{item.nomeArquivo}</span>
-                          <Badge className={`${conf.color} border-none shrink-0`}>{item.reutilizado ? "Já importado" : conf.label}</Badge>
+                          <Badge className={`${conf.color} border-none shrink-0`}>{item.reutilizado ? `Já recebido · ${conf.label}` : conf.label}</Badge>
                         </div>
                         {item.erro && (
                           <span className="text-xs text-red-600">{item.erro}</span>
@@ -664,10 +648,11 @@ export default function ContratosConvenios() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDocumentosModalAberto(false)}>Fechar</Button>
-            <Button onClick={importarPdfs} disabled={(!documentosContratoId && !novoConvenioIdModal) || !arquivosPdf.length || importandoPdf} className="gap-2">
+            <Button variant="outline" onClick={() => { uploadAbortRef.current?.abort(); setDocumentosModalAberto(false); }}>Fechar</Button>
+            {importandoPdf && <Button variant="outline" onClick={() => uploadAbortRef.current?.abort()}>Pausar envio</Button>}
+            <Button onClick={importarPdfs} disabled={(!documentosContratoId && (!novoConvenioIdModal || criacaoContratoIncerta)) || !arquivosPdf.length || importandoPdf} className="gap-2">
               {importandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {importandoPdf ? "Importando e lendo PDFs..." : "Importar e ler PDFs"}
+              {importandoPdf ? "Recebendo / consultando leitura..." : Object.keys(progressoPdf).length ? "Retomar / verificar PDFs" : "Importar e ler PDFs"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -687,7 +672,7 @@ export default function ContratosConvenios() {
                   {(DOCUMENTO_STATUS_CONFIG[documentoDetalhe.data.status as keyof typeof DOCUMENTO_STATUS_CONFIG] || DOCUMENTO_STATUS_CONFIG.erro).label}
                 </Badge>
                 {documentoDetalhe.data.downloadUrl && (
-                  <a href={documentoDetalhe.data.downloadUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+                  <a href={`/api/contratos-convenios/documentos/${documentoDetalhe.data.id}/download`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
                     <Download className="h-3.5 w-3.5" /> Abrir PDF original
                   </a>
                 )}

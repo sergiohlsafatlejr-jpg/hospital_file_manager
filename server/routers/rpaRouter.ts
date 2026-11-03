@@ -29,6 +29,8 @@ import {
 import { identificarERotearXmlTiss } from "../rpa/identificadorXmlTiss";
 import { executarCicloEnvioXmlRpa } from "../rpa/rpaEnvioService";
 import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
+import { inserirFilaXmlAtomica } from "../rpa/rpaFilaAtomica";
+import { validarCodigoPrestadorRpa, validarConvenioRpa } from "../rpa/rpaImportadorScope";
 
 const ESTADOS_ELEGIVEIS_LIBERACAO = [
   "IMPORTADO",
@@ -43,6 +45,18 @@ const ESTADOS_BLOQUEADOS_EXCLUSAO = [
   "PROTOCOLADO",
   "AGUARDANDO_PORTAL",
 ] as const;
+
+function exigirMutacaoFilaCompleta(resultado: unknown, quantidade: number): void {
+  const header: unknown = Array.isArray(resultado) ? resultado[0] : resultado;
+  const afetados = header && typeof header === "object" && "affectedRows" in header
+    ? Number(header.affectedRows) : 0;
+  if (afetados !== quantidade) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "A fila mudou durante a operação; atualize antes de tentar novamente.",
+    });
+  }
+}
 
 async function exigirAcessoHospitalRpa(
   userId: number,
@@ -111,6 +125,9 @@ export const rpaRouter = router({
       z.object({
         convenioNome: z.enum(["UNIMED", "SAUDE_CAIXA", "IPASGO", "CASSI"]),
         estabelecimentoId: z.number().int().positive(),
+        convenioId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        codigoPrestadorOperadora: z.string().trim().min(1).max(80),
+        registroAns: z.string().trim().regex(/^\d{1,20}$/).optional(),
         url: z.string().url("URL inválida"),
         login: z.string().optional(),
         senha: z.string().optional(),
@@ -128,75 +145,73 @@ export const rpaRouter = router({
         const db = await getDb();
         if (!db) throw new Error("Banco de dados não disponível");
 
-        let robo;
-        switch (input.convenioNome) {
-          case "SAUDE_CAIXA":
-            robo = new RoboSaudeCaixa();
-            break;
-          case "UNIMED":
-            robo = new RoboUnimed();
-            break;
-          case "IPASGO":
-            robo = new RoboIpasgo();
-            break;
-          case "CASSI":
-            robo = new RoboCassi();
-            break;
-          default:
-            throw new Error(
-              `Robô para o convênio ${input.convenioNome} não implementado.`
-            );
+        // A identidade vem do cadastro por ID, nunca do primeiro nome/credencial.
+        const cadastrados = await db.select().from(convenios)
+          .where(eq(convenios.id, input.convenioId)).limit(2);
+        if (cadastrados.length !== 1) throw new Error("Convênio ausente ou ambíguo");
+        const convenioCanonico = cadastrados[0];
+        const scope = {
+          estabelecimentoId: estabId,
+          convenioId: input.convenioId,
+          codigoPrestadorOperadora: input.codigoPrestadorOperadora,
+          registroAns: input.registroAns,
+        };
+        validarConvenioRpa(scope, convenioCanonico);
+        const nomeCanonico = convenioCanonico.nome.normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        const operadoras = {
+          UNIMED: /\bUNIMED\b/,
+          SAUDE_CAIXA: /\bSAUDE[\s_-]+CAIXA\b/,
+          IPASGO: /\bIPASGO\b/,
+          CASSI: /\bCASSI\b/,
+        };
+        if (!operadoras[input.convenioNome].test(nomeCanonico)) {
+          throw new Error("Operadora incompatível com o convênio cadastrado");
+        }
+        const vinculos = await db.select().from(convenioEstabelecimentoPrestador)
+          .where(and(
+            eq(convenioEstabelecimentoPrestador.estabelecimentoId, estabId),
+            eq(convenioEstabelecimentoPrestador.convenioId, input.convenioId),
+            eq(convenioEstabelecimentoPrestador.ativo, "sim")
+          ));
+        validarCodigoPrestadorRpa(scope, input.codigoPrestadorOperadora, vinculos);
+        const registroAns = convenioCanonico.registroAns?.replace(/\D/g, "") || undefined;
+        const operadoraPorAns: Record<string, string> = {
+          "382876": "UNIMED", "417548": "IPASGO", "000000": "IPASGO",
+          "346659": "CASSI", "312924": "SAUDE_CAIXA",
+        };
+        if (registroAns && operadoraPorAns[registroAns] && operadoraPorAns[registroAns] !== input.convenioNome) {
+          throw new Error("Registro ANS canônico incompatível com a operadora");
         }
 
-        let finalUrl = validarUrlPortalConvenio(input.url, input.convenioNome);
+        let finalUrl = validarUrlPortalConvenio(input.url, input.convenioNome, registroAns);
         let finalLogin = input.login?.trim();
         let finalSenha = input.senha?.trim();
+        let credencialUtilizadaId: number | undefined;
 
         // Se não forneceu login/senha manualmente, busca exclusivamente da credencial proprietária deste hospital
         if (!finalLogin || !finalSenha) {
-          let searchNome: string = input.convenioNome;
-          if (input.convenioNome === "UNIMED") searchNome = "Unimed Goiânia";
-          else if (input.convenioNome === "SAUDE_CAIXA") searchNome = "Saúde Caixa";
-          else if (input.convenioNome === "IPASGO") searchNome = "IPASGO";
-          else if (input.convenioNome === "CASSI") searchNome = "CASSI";
-
-          const conveniosDb = await db
-            .select()
-            .from(convenios)
-            .where(eq(convenios.nome, searchNome));
-
-          if (conveniosDb.length === 0 && input.convenioNome === "UNIMED") {
-            const conveniosDb2 = await db
-              .select()
-              .from(convenios)
-              .where(eq(convenios.nome, "Unimed"));
-            if (conveniosDb2.length > 0) conveniosDb.push(conveniosDb2[0]);
+          const creds = await db.select().from(credenciaisPortais).where(and(
+            eq(credenciaisPortais.convenioId, input.convenioId),
+            eq(credenciaisPortais.estabelecimentoId, estabId),
+            eq(credenciaisPortais.codigoPrestadorOperadora, input.codigoPrestadorOperadora),
+            eq(credenciaisPortais.ativo, "sim"),
+            eq(credenciaisPortais.statusCredencial, "ATIVA"),
+            finalLogin ? eq(credenciaisPortais.login, finalLogin) : undefined
+          )).limit(2);
+          if (creds.length !== 1) throw new Error("Credencial ausente ou ambígua");
+          const cred = creds[0];
+          if (cred.estabelecimentoId !== estabId || cred.convenioId !== input.convenioId ||
+              cred.ativo !== "sim" || cred.statusCredencial !== "ATIVA" ||
+              cred.codigoPrestadorOperadora?.trim() !== input.codigoPrestadorOperadora ||
+              (finalLogin && cred.login !== finalLogin)) {
+            throw new Error("Credencial incompatível com o escopo autorizado");
           }
-
-          if (conveniosDb.length > 0) {
-            const creds = await db
-              .select()
-              .from(credenciaisPortais)
-              .where(
-                and(
-                  eq(credenciaisPortais.convenioId, conveniosDb[0].id),
-                  eq(credenciaisPortais.estabelecimentoId, estabId)
-                )
-              );
-
-            const credEscolhida = creds[0];
-            if (credEscolhida) {
-              if (!finalLogin) finalLogin = credEscolhida.login;
-              if (!finalSenha) finalSenha = obterSenhaParaRobo(credEscolhida.senha);
-              if (credEscolhida.urlLogin) {
-                finalUrl = validarUrlPortalConvenio(
-                  credEscolhida.urlLogin,
-                  input.convenioNome,
-                  credEscolhida.registroAns
-                );
-              }
-            }
-          }
+          validarConvenioRpa({ ...scope, registroAns: cred.registroAns }, convenioCanonico);
+          if (cred.urlLogin) finalUrl = validarUrlPortalConvenio(cred.urlLogin, input.convenioNome, registroAns);
+          if (!finalLogin) finalLogin = cred.login;
+          if (!finalSenha) finalSenha = obterSenhaParaRobo(cred.senha);
+          credencialUtilizadaId = cred.id;
         }
 
         if (!finalLogin || !finalSenha) {
@@ -205,6 +220,12 @@ export const rpaRouter = router({
           );
         }
 
+        // Construir apenas depois de todas as verificações, inclusive com login manual.
+        const construtores = {
+          UNIMED: RoboUnimed, SAUDE_CAIXA: RoboSaudeCaixa,
+          IPASGO: RoboIpasgo, CASSI: RoboCassi,
+        };
+        const robo = new construtores[input.convenioNome]();
         logger.info({
           message: `Iniciando execução manual do robô ${input.convenioNome} (Estab #${estabId})`,
         });
@@ -215,6 +236,9 @@ export const rpaRouter = router({
             login: finalLogin,
             senha: finalSenha,
             estabelecimentoId: estabId,
+            convenioId: input.convenioId,
+            codigoPrestadorOperadora: input.codigoPrestadorOperadora,
+            registroAns,
           },
           {
             competencia: input.competencia || "",
@@ -222,7 +246,7 @@ export const rpaRouter = router({
         );
 
         try {
-          if (finalLogin) {
+          if (credencialUtilizadaId !== undefined) {
             await db
               .update(credenciaisPortais)
               .set({
@@ -232,8 +256,10 @@ export const rpaRouter = router({
               })
               .where(
                 and(
-                  eq(credenciaisPortais.login, finalLogin),
-                  eq(credenciaisPortais.estabelecimentoId, estabId)
+                  eq(credenciaisPortais.id, credencialUtilizadaId),
+                  eq(credenciaisPortais.estabelecimentoId, estabId),
+                  eq(credenciaisPortais.convenioId, input.convenioId),
+                  eq(credenciaisPortais.codigoPrestadorOperadora, input.codigoPrestadorOperadora)
                 )
               );
           }
@@ -241,14 +267,18 @@ export const rpaRouter = router({
 
         return {
           sucesso: true,
-          resultado,
+          // Não devolver paths privados, screenshots autenticadas ou DTOs de credenciais.
+          resultado: {
+            status: "sucesso",
+            mensagem: "Execução do robô finalizada.",
+            arquivosBaixados: resultado && "arquivosBaixados" in resultado ? Number(resultado.arquivosBaixados) || 0 : 0,
+          },
         };
       } catch (error: any) {
         logger.error({
           message: `Falha na execução do robô RPA ${input.convenioNome}`,
-          error: error.message,
         });
-        throw error;
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Execução RPA recusada; verifique o escopo e as credenciais autorizadas." });
       }
     }),
 
@@ -638,6 +668,28 @@ export const rpaRouter = router({
             estabelecimentoIdContexto: input.estabelecimentoIdContexto,
             convenioIdForcado: input.convenioIdForcado,
           });
+          // A detecção pode apontar outro hospital mesmo no Hub Central.
+          // Não retornar nomes, credenciais ou resumos antes da autorização final.
+          if (ident.estabelecimentoIdDetectado) {
+            await exigirAcessoHospitalRpa(
+              ctx.user.id, ident.estabelecimentoIdDetectado, "visualizar"
+            );
+          } else {
+            resultados.push({
+              nomeArquivo: arq.nomeArquivo,
+              valido: false,
+              erro: "Hospital proprietário não identificado para autorizar a triagem.",
+            });
+            continue;
+          }
+          if (ident.conflitoHospital) {
+            resultados.push({
+              nomeArquivo: arq.nomeArquivo,
+              valido: false,
+              erro: "O XML pertence a outro hospital; use o contexto autorizado do proprietário.",
+            });
+            continue;
+          }
           resultados.push({
             nomeArquivo: arq.nomeArquivo,
             valido: true,
@@ -735,33 +787,7 @@ export const rpaRouter = router({
             continue;
           }
 
-          // 2. Verificar duplicidade pelo Hash SHA-256 no mesmo Hospital + Convênio
-          const duplicados = await db
-            .select()
-            .from(filaEnvioXmlPortal)
-            .where(
-              and(
-                eq(filaEnvioXmlPortal.estabelecimentoId, estabIdFinal),
-                eq(filaEnvioXmlPortal.convenioId, Number(convIdFinal)),
-                eq(filaEnvioXmlPortal.hashXml, ident.hashXml)
-              )
-            );
-
-          const dupAtivo = duplicados.find(
-            (d) =>
-              !["ERRO_PORTAL", "ERRO_ROBO", "ERRO_CREDENCIAL"].includes(
-                d.statusEsteira
-              )
-          );
-          if (dupAtivo) {
-            rejeitados.push({
-              nomeArquivo: arq.nomeArquivo,
-              motivo: `Arquivo XML idêntico (Lote ${ident.numeroLote}) já consta na fila com status "${dupAtivo.statusEsteira}".`,
-            });
-            continue;
-          }
-
-          // 3. Salvar XML em diretório privado contido usando identificador interno seguro
+          // Preparar bytes fora da transação; identidade não depende do nome/usuário.
           const { pastaDestino, caminhoCompleto } = resolverCaminhoSeguroXmlRpa(
             process.cwd(),
             estabIdFinal,
@@ -772,7 +798,13 @@ export const rpaRouter = router({
             fs.mkdirSync(pastaDestino, { recursive: true });
           }
           validarCaminhoContidoXmlRpa(process.cwd(), caminhoCompleto);
-          fs.writeFileSync(caminhoCompleto, xmlBuffer);
+          // Nunca truncar o arquivo já referenciado por uma identidade persistida.
+          try {
+            fs.writeFileSync(caminhoCompleto, xmlBuffer, { flag: "wx" });
+          } catch (errArquivo: unknown) {
+            if (!(errArquivo instanceof Error) ||
+                !("code" in errArquivo) || errArquivo.code !== "EEXIST") throw errArquivo;
+          }
 
           const numeroLoteSeguro = sanitizarNumeroLoteTiss(
             ident.numeroLote,
@@ -782,7 +814,7 @@ export const rpaRouter = router({
             ? "LIBERADO_ENVIO"
             : "IMPORTADO";
 
-          const [ins] = await db.insert(filaEnvioXmlPortal).values({
+          const insercao = await inserirFilaXmlAtomica(db, {
             estabelecimentoId: estabIdFinal,
             convenioId: Number(convIdFinal),
             fabricaContaId: arq.fabricaContaId || null,
@@ -805,16 +837,17 @@ export const rpaRouter = router({
           });
 
           importados.push({
-            id: Number((ins as any).insertId),
+            id: insercao.id,
+            reutilizado: insercao.reutilizado,
             nomeArquivo: arq.nomeArquivo,
-            numeroLote: numeroLoteSeguro,
+            numeroLote: insercao.numeroLote,
             estabelecimentoId: estabIdFinal,
             estabelecimentoNome: ident.estabelecimentoNomeDetectado,
             convenioId: Number(convIdFinal),
             convenioNome: ident.convenioNomeDetectado,
             qtdGuias: ident.qtdGuias,
             valorTotal: ident.valorTotal,
-            statusEsteira: statusInicial,
+            statusEsteira: insercao.statusEsteira,
           });
         } catch (err: any) {
           rejeitados.push({
@@ -1087,7 +1120,7 @@ export const rpaRouter = router({
         }
       }
 
-      await db
+      const liberacao = await db
         .update(filaEnvioXmlPortal)
         .set({
           statusEsteira: "LIBERADO_ENVIO",
@@ -1095,12 +1128,14 @@ export const rpaRouter = router({
         .where(
           and(
             inArray(filaEnvioXmlPortal.id, input.loteIds),
+            inArray(filaEnvioXmlPortal.estabelecimentoId, lotes.map((lote) => lote.estabelecimentoId)),
             inArray(
               filaEnvioXmlPortal.statusEsteira,
               [...ESTADOS_ELEGIVEIS_LIBERACAO]
             )
           )
         );
+      exigirMutacaoFilaCompleta(liberacao, input.loteIds.length);
 
       return {
         sucesso: true,
@@ -1251,7 +1286,7 @@ export const rpaRouter = router({
         });
       }
 
-      await db
+      const exclusao = await db
         .delete(filaEnvioXmlPortal)
         .where(
           and(
@@ -1263,6 +1298,7 @@ export const rpaRouter = router({
             )
           )
         );
+      exigirMutacaoFilaCompleta(exclusao, 1);
       return { sucesso: true };
     }),
 });

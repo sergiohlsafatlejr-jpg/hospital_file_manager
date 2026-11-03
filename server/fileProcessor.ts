@@ -84,17 +84,24 @@ router.post("/api/internal/process-file", async (req, res) => {
       "info",
       `Baixando arquivo para processamento (direção: ${arquivo.direcao})`
     );
-    const response = await fetch(arquivo.s3Url);
-    if (!response.ok) {
-      await plog(
-        arquivoId,
-        "error",
-        `Erro HTTP ${response.status} ao baixar do S3`
-      );
-      await db.updateArquivoStatus(arquivoId, "erro");
-      return res.status(500).json({ error: "Erro ao baixar arquivo do S3" });
+    const downloadController = new AbortController();
+    const downloadTimer = setTimeout(() => downloadController.abort(), 60_000);
+    let buffer: Buffer;
+    try {
+      const response = await fetch(arquivo.s3Url, { signal: downloadController.signal });
+      if (!response.ok) {
+        await plog(
+          arquivoId,
+          "error",
+          `Erro HTTP ${response.status} ao baixar do S3`
+        );
+        await db.updateArquivoStatus(arquivoId, "erro");
+        return res.status(500).json({ error: "Erro ao baixar arquivo do S3" });
+      }
+      buffer = Buffer.from(await response.arrayBuffer());
+    } finally {
+      clearTimeout(downloadTimer);
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
     
     await db.updateArquivoProgresso(arquivoId, 10, 0);
     await plog(
@@ -118,15 +125,14 @@ router.post("/api/internal/process-file", async (req, res) => {
           arquivo.convenioId ?? undefined,
           arquivo.estabelecimentoId ?? undefined
         );
-      } catch (aceiteErr: any) {
+      } catch {
         console.error(
-          "[FileProcessor] Erro ao aplicar aceite automático:",
-          aceiteErr?.message
+          "[FileProcessor] Erro ao aplicar aceite automático."
         );
         await plog(
           arquivoId,
           "info",
-          `Aviso: Erro ao aplicar aceite automático de glosa: ${aceiteErr?.message}`
+          "Aviso: Erro ao aplicar aceite automático de glosa."
         );
       }
     } else {
@@ -223,7 +229,7 @@ async function processRetornado(
   
   // CSV retornado - detectar formato IPASGO
   if (tipoArquivoEfetivo === "csv") {
-    await plog(arquivoId, "info", `Processando CSV retornado: ${arquivo.nome}`);
+    await plog(arquivoId, "info", "Processando CSV retornado.");
 
     // Bradesco exporta um CSV hierárquico iniciado por "Extrato de Pagamento".
     // Esse formato já possui parser próprio, mas anteriormente não estava ligado
@@ -245,7 +251,7 @@ async function processRetornado(
         await plog(
           arquivoId,
           "error",
-          `Bradesco CSV falhou: ${result.error || "Nenhum item encontrado"}`
+          "Bradesco CSV sem itens processáveis."
         );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
@@ -364,11 +370,11 @@ async function processRetornado(
               "info",
               `Demonstrativo sincronizado: ${syncResult.total} itens`
             );
-          } catch (syncError: any) {
+          } catch {
             await plog(
               arquivoId,
               "error",
-              `Erro ao sincronizar demonstrativo: ${syncError?.message}`
+              "Erro ao sincronizar demonstrativo."
             );
           }
         }
@@ -376,7 +382,7 @@ async function processRetornado(
         await plog(
           arquivoId,
           "error",
-          `IPASGO parse falhou: ${result.error || "Nenhum item encontrado"}`
+          "IPASGO sem itens processáveis."
         );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
@@ -386,7 +392,7 @@ async function processRetornado(
       await plog(
         arquivoId,
         "error",
-        `CSV não reconhecido como formato IPASGO: ${arquivo.nome}`
+        "CSV não reconhecido como formato IPASGO."
       );
       await db.updateArquivoStatus(arquivoId, "erro");
       return;
@@ -530,7 +536,7 @@ async function processRetornado(
               await plog(
                 arquivoId,
                 "error",
-                `ERRO INSERT chunk ${chunkIdx}: ${insertErr?.message} | records.length: ${records.length} | first record keys: ${records[0] ? Object.keys(records[0]).join(",") : "N/A"}`
+                `Falha de inserção no chunk ${chunkIdx}: ${records.length} registros.`
               );
               throw insertErr; // Re-throw para parar o processamento
             }
@@ -545,11 +551,11 @@ async function processRetornado(
             `Parser concluído: ${result.totalRecords} registros inseridos`
           );
         }
-      } catch (unimedErr: any) {
+      } catch {
         await plog(
           arquivoId,
           "error",
-          `ERRO FATAL parser Unimed: ${unimedErr?.message} | Stack: ${unimedErr?.stack?.substring(0, 1500)}`
+          "Falha interna no parser Unimed."
         );
         await db.updateArquivoStatus(arquivoId, "erro");
         return;
@@ -652,10 +658,9 @@ async function processRetornado(
           syncResult.total,
           "itens"
         );
-      } catch (syncError) {
+      } catch {
         console.error(
-          "[FileProcessor] Erro ao sincronizar demonstrativo:",
-          syncError
+          "[FileProcessor] Erro ao sincronizar demonstrativo."
         );
       }
     }
@@ -712,10 +717,9 @@ async function processRetornado(
           syncResult.total,
           "itens"
         );
-      } catch (syncError) {
+      } catch {
         console.error(
-          "[FileProcessor] Erro ao sincronizar demonstrativo:",
-          syncError
+          "[FileProcessor] Erro ao sincronizar demonstrativo."
         );
       }
     }

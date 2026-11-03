@@ -3879,6 +3879,7 @@ export async function sugerirArgumentoComIA(params: {
   codigoProcedimento?: string;
   valorGlosado?: string;
   userId: number;
+  dataReferencia?: string;
 }) {
   // Buscar informações do dicionário
   const infoGlosa = obterInfoGlosa(params.codigoGlosa);
@@ -3913,6 +3914,7 @@ export async function sugerirArgumentoComIA(params: {
     convenioId: params.convenioId,
     convenioNome: convenio?.nome,
     codigosProcedimento: params.codigoProcedimento ? [params.codigoProcedimento] : [],
+    dataReferencia: params.dataReferencia,
   });
 
   const complementoContratoFallback = contextoContratual.contratos.length > 0

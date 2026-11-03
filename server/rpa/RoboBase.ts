@@ -1,7 +1,17 @@
 import puppeteer, { Browser, Page } from "puppeteer";
 import fs from "fs";
 import path from "path";
+import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { logger } from "../_core/logger";
+import { validarScopeRpa, type RpaImportadorScope } from "./rpaImportadorScope";
+import type { Frame } from "puppeteer";
+import {
+  assegurarPoliticaPortalSemBloqueios,
+  configurarPoliticaPortal,
+  validarContextoPortalAntesDeCredenciais,
+  type DependenciasPoliticaPortal,
+} from "./rpaPortalPolicy";
 
 export interface ParametrosExtrasCredencial {
   cnpj?: string;
@@ -50,6 +60,8 @@ export interface ResultadoEnvioLoteRpa {
   mensagem: string;
   evidenciaPath?: string | null;
   screenshotBase64?: string | null;
+  /** false apenas com prova pré-upload; upload pode transmitir automaticamente. */
+  envioIniciado?: boolean;
 }
 
 export interface ResultadoCicloGrupoRpa {
@@ -66,9 +78,75 @@ export abstract class RoboBase {
   protected browser: Browser | null = null;
   protected page: Page | null = null;
   public nome: string;
+  private namespaceDownloadRpa: string;
+  private diretorioDownloadRpa?: string;
 
   constructor(nome: string) {
     this.nome = nome;
+    this.namespaceDownloadRpa = randomUUID();
+  }
+
+  /** Uma pasta 0700 por execução; nunca usar uploads públicos/compartilhados. */
+  protected criarDiretorioDownloadRpa(scope: RpaImportadorScope): string {
+    validarScopeRpa(scope);
+    if (this.diretorioDownloadRpa) this.namespaceDownloadRpa = randomUUID();
+    const raiz = path.resolve(os.tmpdir());
+    const diretorio = path.resolve(raiz,
+      `rpa_estab_${scope.estabelecimentoId}_conv_${scope.convenioId}_${this.namespaceDownloadRpa}`);
+    if (path.dirname(diretorio) !== raiz) throw new Error("Diretório RPA fora do namespace privado");
+    fs.mkdirSync(diretorio, { mode: 0o700 });
+    this.diretorioDownloadRpa = diretorio;
+    return diretorio;
+  }
+
+  /** Bloqueia traversal, subdiretórios e symlinks antes de listar/importar. */
+  protected resolverArquivoDownloadRpa(diretorio: string, nome: string): string {
+    if (diretorio !== this.diretorioDownloadRpa || !nome || path.basename(nome) !== nome) {
+      throw new Error("Arquivo fora do namespace privado RPA");
+    }
+    const arquivo = path.resolve(diretorio, nome);
+    if (path.dirname(arquivo) !== diretorio ||
+        fs.realpathSync(diretorio) !== diretorio ||
+        fs.realpathSync(arquivo) !== arquivo || !fs.lstatSync(arquivo).isFile()) {
+      throw new Error("Arquivo fora do namespace privado RPA");
+    }
+    return arquivo;
+  }
+
+  /** Snapshot exato da entrada: jamais inferir IDs pelo nome da operadora. */
+  protected criarScopeImportacaoRpa(credenciais: CredenciaisConvenio): Readonly<RpaImportadorScope> {
+    const scope = {
+      estabelecimentoId: credenciais.estabelecimentoId as number,
+      convenioId: credenciais.convenioId as number,
+      registroAns: credenciais.registroAns,
+      codigoPrestadorOperadora: credenciais.codigoPrestadorOperadora,
+    };
+    try {
+      validarScopeRpa(scope);
+    } catch {
+      throw new Error("Importação RPA exige hospital e convênio explícitos e válidos; revisão necessária.");
+    }
+    return Object.freeze(scope);
+  }
+
+  /** Configurar por operação, depois de iniciarBrowser e antes de qualquer goto. */
+  protected async definirContextoPortal(
+    convenio: string,
+    credenciais: CredenciaisConvenio,
+    dependencias?: DependenciasPoliticaPortal
+  ): Promise<void> {
+    if (!this.page) throw new Error("Página não iniciada");
+    await configurarPoliticaPortal(this.page, { convenio, registroAns: credenciais.registroAns }, dependencias);
+  }
+
+  protected async validarAntesDeCredenciais(alvo: Page | Frame | null = this.page): Promise<void> {
+    if (!alvo) throw new Error("Página não iniciada");
+    await validarContextoPortalAntesDeCredenciais(alvo);
+  }
+
+  protected async assegurarPortalSemBloqueios(alvo: Page | null = this.page): Promise<void> {
+    if (!alvo) throw new Error("Página não iniciada");
+    await assegurarPoliticaPortalSemBloqueios(alvo);
   }
 
   protected async iniciarBrowser(headless: boolean = true) {

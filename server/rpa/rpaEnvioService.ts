@@ -15,6 +15,7 @@ import {
   validarUrlPortalConvenio,
 } from "./cofreCredenciais";
 import { RoboBase, LoteParaEnvioRpa } from "./RoboBase";
+import type { ResultadoCicloGrupoRpa, ResultadoEnvioLoteRpa } from "./RoboBase";
 import { RoboUnimed } from "./robos/RoboUnimed";
 import { RoboIpasgo } from "./robos/RoboIpasgo";
 import { RoboCassi } from "./robos/RoboCassi";
@@ -366,11 +367,6 @@ export async function executarCicloEnvioXmlRpa(opcoes: {
       continue;
     }
 
-    const adapter = obterAdapterEnvioConvenio(
-      primeiro.convenioNome,
-      primeiro.registroAns || credEspecifica.registroAns
-    );
-
     const lotesParaAdapter: LoteParaEnvioRpa[] = listaLotesReivindicados.map((l) => ({
       filaId: l.id,
       numeroLote: l.numeroLote,
@@ -381,20 +377,77 @@ export async function executarCicloEnvioXmlRpa(opcoes: {
       fabricaContaId: l.fabricaContaId,
     }));
 
-    const resultadoGrupo = await adapter.enviarLotesXml(
-      {
-        url: urlPortalValidada,
-        login: credEspecifica.login,
-        senha: senhaPlana,
+    const mensagemIncerta = "Resultado de envio incerto. Reconcilie o lote no portal antes de qualquer reenvio.";
+    const resultadoIncerto = (lote: LoteParaEnvioRpa): ResultadoEnvioLoteRpa => ({
+      filaId: lote.filaId,
+      numeroLote: lote.numeroLote,
+      sucesso: false,
+      status: "AGUARDANDO_PORTAL",
+      protocolo: null,
+      mensagem: mensagemIncerta,
+    });
+    let resultadoGrupo: ResultadoCicloGrupoRpa;
+    try {
+      const adapter = obterAdapterEnvioConvenio(
+        primeiro.convenioNome,
+        primeiro.registroAns || credEspecifica.registroAns
+      );
+      resultadoGrupo = await adapter.enviarLotesXml(
+        {
+          url: urlPortalValidada,
+          login: credEspecifica.login,
+          senha: senhaPlana,
+          estabelecimentoId: estabId,
+          convenioId: convId,
+          codigoPrestadorOperadora: credEspecifica.codigoPrestadorOperadora,
+          registroAns: credEspecifica.registroAns,
+          parametrosExtras: (credEspecifica.parametrosExtras as any) || null,
+        },
+        lotesParaAdapter,
+        { modoExecucao }
+      );
+      if (!resultadoGrupo || !Array.isArray(resultadoGrupo.resultadosLotes)) {
+        throw new Error("Retorno de adapter RPA inválido.");
+      }
+    } catch {
+      // O adapter pode ter transmitido antes de lançar (inclusive no finally).
+      // Não divulgar a exceção, senha, XML, URL ou conteúdo da página.
+      logger.error({
+        message: "[RPA Envio] Adapter interrompido após claim; reconciliação obrigatória.",
         estabelecimentoId: estabId,
         convenioId: convId,
-        codigoPrestadorOperadora: credEspecifica.codigoPrestadorOperadora,
-        registroAns: credEspecifica.registroAns,
-        parametrosExtras: (credEspecifica.parametrosExtras as any) || null,
-      },
-      lotesParaAdapter,
-      { modoExecucao }
-    );
+        qtdLotes: listaLotesReivindicados.length,
+      });
+      resultadoGrupo = {
+        estabelecimentoId: estabId,
+        convenioId: convId,
+        loginSucesso: false,
+        mensagemLogin: mensagemIncerta,
+        resultadosLotes: [],
+      };
+    }
+
+    // Todo claim recebe exatamente um desfecho, mesmo se o adapter omitir um
+    // lote, duplicar resultados ou retornar outro grupo. Não deixar PROCESSANDO.
+    const resultadosAdapter = resultadoGrupo.resultadosLotes;
+    resultadoGrupo.resultadosLotes = lotesParaAdapter.map((lote) => {
+      const correspondentes = resultadosAdapter.filter((r) => r && r.filaId === lote.filaId);
+      if (resultadoGrupo.estabelecimentoId !== estabId ||
+          resultadoGrupo.convenioId !== convId || correspondentes.length !== 1 ||
+          correspondentes[0].numeroLote !== lote.numeroLote) return resultadoIncerto(lote);
+      const resultado = correspondentes[0] as ResultadoEnvioLoteRpa & { envioIniciado?: boolean };
+      const erro = ["ERRO_ROBO", "ERRO_PORTAL", "ERRO_CREDENCIAL"].includes(resultado.status);
+      // Contrato aditivo: somente envioIniciado=false comprovado pelo adapter
+      // autoriza um erro pré-envio a continuar elegível. Ausência é incerteza.
+      const erroPreEnvio = resultado.envioIniciado === false ||
+        (!resultadoGrupo.loginSucesso && resultadoGrupo.credencialInvalida &&
+          resultado.status === "ERRO_CREDENCIAL");
+      if (modoExecucao === "producao" &&
+          ((erro && !erroPreEnvio) || resultado.status === "SIMULADO_OK")) {
+        return { ...resultado, ...resultadoIncerto(lote) };
+      }
+      return resultado.status === "PROTOCOLADO" ? resultado : { ...resultado, protocolo: null };
+    });
 
     // Atualizar status da credencial no Cofre apenas quando houve tentativa real em produção
     if (modoExecucao === "producao") {
@@ -441,6 +494,7 @@ export async function executarCicloEnvioXmlRpa(opcoes: {
       const now = new Date();
       const foiProtocoladoCorrelacionado =
         modoExecucao === "producao" &&
+        resLote.sucesso &&
         resLote.status === "PROTOCOLADO" &&
         Boolean(resLote.protocolo && String(resLote.protocolo).trim().length >= 4);
 
@@ -455,7 +509,7 @@ export async function executarCicloEnvioXmlRpa(opcoes: {
         .set({
           statusEsteira: statusFinal,
           protocoloRetorno: foiProtocoladoCorrelacionado ? resLote.protocolo : null,
-          idRecebimentoPortal: resLote.idRecebimento || null,
+          idRecebimentoPortal: modoExecucao === "producao" ? resLote.idRecebimento || null : null,
           mensagemPortal: resLote.mensagem,
           comprovanteUrl: resLote.evidenciaPath || null,
           screenshotBase64: resLote.screenshotBase64 || null,

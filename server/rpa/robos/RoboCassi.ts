@@ -13,6 +13,7 @@ export class RoboCassi extends RoboBase {
       const isProducao = process.env.NODE_ENV === 'production'; 
       await this.iniciarBrowser(!isProducao); 
       if (!this.page) throw new Error('Página não iniciada'); 
+      await this.definirContextoPortal('CASSI', credenciais);
 
       const downloadPath = path.join(process.cwd(), 'uploads', 'demonstrativos', 'cassi'); 
       if (!fs.existsSync(downloadPath)) { 
@@ -36,9 +37,10 @@ export class RoboCassi extends RoboBase {
       const screenshotPath = path.join(downloadPath, `resultado_cassi_${Date.now()}.png`); 
       await this.page.screenshot({ path: screenshotPath, fullPage: true }); 
       
+      await this.assegurarPortalSemBloqueios();
       return { 
         status: 'sucesso', 
-        mensagem: 'Robô CASSI iniciado e acessou o portal. Automação pendente.', 
+        mensagem: 'Robô CASSI iniciado e acessou o portal. Automação pendente.',
         screenshotSalva: screenshotPath 
       }; 
     } catch (error: any) { 

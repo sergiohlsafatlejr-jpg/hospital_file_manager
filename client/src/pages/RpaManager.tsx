@@ -97,6 +97,9 @@ export default function RpaManager() {
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
   const [resultado, setResultado] = useState<any>(null);
+  const [hospitalDemonstrativo, setHospitalDemonstrativo] = useState("");
+  const [convenioIdDemonstrativo, setConvenioIdDemonstrativo] = useState("");
+  const [codigoPrestadorDemonstrativo, setCodigoPrestadorDemonstrativo] = useState("");
 
   // Queries
   const { data: estabelecimentos } = trpc.rpa.listarEstabelecimentos.useQuery();
@@ -258,18 +261,22 @@ export default function RpaManager() {
       toast.error("Por favor, insira a URL do portal.");
       return;
     }
-    const estabAlvo =
-      (filtroHospitalFila !== "TODOS" ? Number(filtroHospitalFila) : 0) ||
-      (contextoHospitalUpload !== "CENTRAL" ? Number(contextoHospitalUpload) : 0) ||
-      Number(estabelecimentos?.[0]?.id || 0);
-    if (!estabAlvo || estabAlvo <= 0) {
+    const estabAlvo = Number(hospitalDemonstrativo);
+    const convenioAlvo = Number(convenioIdDemonstrativo);
+    if (!Number.isSafeInteger(estabAlvo) || estabAlvo <= 0) {
       toast.error("Selecione um hospital válido antes de executar o robô.");
+      return;
+    }
+    if (!Number.isSafeInteger(convenioAlvo) || convenioAlvo <= 0 || !codigoPrestadorDemonstrativo.trim()) {
+      toast.error("Selecione o convênio cadastrado e informe o código do prestador deste hospital.");
       return;
     }
     setResultado(null);
     rpaMutation.mutate({
       convenioNome: convenio,
       estabelecimentoId: estabAlvo,
+      convenioId: convenioAlvo,
+      codigoPrestadorOperadora: codigoPrestadorDemonstrativo.trim(),
       url,
       login,
       senha,
@@ -280,6 +287,8 @@ export default function RpaManager() {
     value: "UNIMED" | "SAUDE_CAIXA" | "IPASGO" | "CASSI"
   ) => {
     setConvenio(value);
+    setConvenioIdDemonstrativo("");
+    setCodigoPrestadorDemonstrativo("");
     if (value === "UNIMED") {
       setUrl("https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed");
     } else if (value === "IPASGO") {
@@ -973,6 +982,28 @@ export default function RpaManager() {
                     </Select>
                   </div>
 
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="hospital-demonstrativo">Hospital proprietário</label>
+                    <select id="hospital-demonstrativo" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={hospitalDemonstrativo} onChange={(e) => { setHospitalDemonstrativo(e.target.value); setCodigoPrestadorDemonstrativo(""); }}>
+                      <option value="">Selecione o hospital...</option>
+                      {estabelecimentos?.map((est: any) => <option key={est.id} value={String(est.id)}>{est.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="convenio-demonstrativo">Convênio cadastrado (ID)</label>
+                    <select id="convenio-demonstrativo" className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={convenioIdDemonstrativo} onChange={(e) => { setConvenioIdDemonstrativo(e.target.value); setCodigoPrestadorDemonstrativo(""); }}>
+                      <option value="">Selecione o convênio...</option>
+                      {conveniosLista?.map((conv: any) => <option key={conv.id} value={String(conv.id)}>{conv.nome} (#{conv.id})</option>)}
+                    </select>
+                    <p className="text-xs text-muted-foreground">O registro ANS será validado pelo servidor no cadastro do convênio.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="prestador-demonstrativo">Código do prestador na operadora</label>
+                    <Input id="prestador-demonstrativo" value={codigoPrestadorDemonstrativo} maxLength={80}
+                      onChange={(e) => setCodigoPrestadorDemonstrativo(e.target.value)} placeholder="Código vinculado ao hospital e convênio" />
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">URL do Portal</label>
                     <Input

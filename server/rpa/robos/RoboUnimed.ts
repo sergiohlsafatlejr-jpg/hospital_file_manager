@@ -8,18 +8,55 @@ import {
 import { logger } from "../../_core/logger";
 import path from "path";
 import fs from "fs";
+import { createHash } from "node:crypto";
+import type { Frame, Page } from "puppeteer";
 import { getDb } from "../../db";
 import { arquivos } from "../../../drizzle/schema";
 import { like } from "drizzle-orm";
+import { ErroPoliticaPortal } from "../rpaPortalPolicy";
 import {
   sanitizarNumeroLoteTiss,
   validarCaminhoContidoXmlRpa,
   validarUrlPortalConvenio,
 } from "../cofreCredenciais";
+import {
+  aguardarConfirmacaoPortalRpa,
+  avaliarConfirmacaoRpa,
+  type EstadoConfirmacaoRpa,
+} from "../rpaConfirmacao";
 
 export class RoboUnimed extends RoboBase {
   constructor() {
     super("Unimed_Bot");
+  }
+
+  /**
+   * Os seletores legados só observam referências, não provam vínculo com um lote.
+   * Sem fixtures reais para validar a linha/confirmação do portal, fail-closed.
+   * Um adaptador validado deve extrair lote, arquivo/hash e protocolo na MESMA linha.
+   */
+  protected async capturarEstadoConfirmacaoRpa(
+    contexto: Page | Frame
+  ): Promise<EstadoConfirmacaoRpa> {
+    const protocolosVisiveis = await contexto.evaluate(() => {
+      const elementos = Array.from(document.querySelectorAll(
+        "#box-protocolo-sucesso, #numero-protocolo, .protocolo-sucesso"
+      ));
+      return elementos.flatMap((elemento) => {
+        const texto = elemento.textContent?.trim() || "";
+        const referencias = Array.from(texto.matchAll(
+          /(?:protocolo|recibo)\s*(?:de\s*envio|gerado|n[º°o.])?\s*[:#-]?\s*([0-9]{6,25})(?![0-9])/gi
+        ), (match) => match[1]);
+        if (/^[0-9]{6,25}$/.test(texto)) referencias.push(texto);
+        return referencias;
+      });
+    });
+    return {
+      adaptadorValidado: false,
+      leituraCompleta: false,
+      protocolosVisiveis,
+      confirmacoes: [],
+    };
   }
 
   /**
@@ -55,13 +92,10 @@ export class RoboUnimed extends RoboBase {
     await this.delay(2000);
 
     // Validar que a URL final pós-redirecionamento permanece no domínio aprovado da operadora
-    validarUrlPortalConvenio(
-      this.page.url(),
-      "UNIMED",
-      credenciais.registroAns
-    );
+    await this.validarAntesDeCredenciais(this.page);
 
     // Clicar em "Credenciado" ou "Prestador" caso o portal exiba seleção de perfil inicial
+    await this.validarAntesDeCredenciais(this.page);
     try {
       await this.page.evaluate(() => {
         const els = Array.from(
@@ -76,7 +110,8 @@ export class RoboUnimed extends RoboBase {
         }
       });
       await this.delay(3500);
-    } catch {
+    } catch (erro) {
+      if (erro instanceof ErroPoliticaPortal) throw erro;
       //Segue fluxo normal se não houver botão de perfil
     }
 
@@ -86,6 +121,7 @@ export class RoboUnimed extends RoboBase {
       this.page = abas[abas.length - 1];
       await this.delay(1500);
     }
+    await this.validarAntesDeCredenciais(this.page);
 
     const seletorLogin =
       "input[name*='login' i], input[name*='usuario' i], input[name*='user' i], input[id*='usuario' i], input[id*='login' i], input[placeholder*='usuário' i], input[placeholder*='login' i], input[placeholder*='código' i], input[type='text']";
@@ -100,20 +136,29 @@ export class RoboUnimed extends RoboBase {
       try {
         const ctxUrl = ctx.url();
         if (!ctxUrl || ctxUrl === "about:blank") continue;
-        validarUrlPortalConvenio(ctxUrl, "UNIMED", credenciais.registroAns);
+        await this.validarAntesDeCredenciais(ctx);
 
         const campoUsuario = await ctx.$(seletorLogin);
         const campoSenha = await ctx.$(seletorSenha);
         if (campoUsuario && campoSenha) {
           if (credenciais.login) {
-            await campoUsuario.click({ count: 3 }).catch(() => {});
+            await this.validarAntesDeCredenciais(ctx);
+            await campoUsuario.click({ count: 3 }).catch(erro => {
+              if (erro instanceof ErroPoliticaPortal) throw erro;
+            });
+            await this.validarAntesDeCredenciais(ctx);
             await campoUsuario.type(credenciais.login, { delay: 40 });
           }
           if (credenciais.senha) {
-            await campoSenha.click({ count: 3 }).catch(() => {});
+            await this.validarAntesDeCredenciais(ctx);
+            await campoSenha.click({ count: 3 }).catch(erro => {
+              if (erro instanceof ErroPoliticaPortal) throw erro;
+            });
+            await this.validarAntesDeCredenciais(ctx);
             await campoSenha.type(credenciais.senha, { delay: 40 });
           }
 
+          await this.validarAntesDeCredenciais(ctx);
           await Promise.all([
             this.page
               .waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 })
@@ -149,23 +194,31 @@ export class RoboUnimed extends RoboBase {
           preencheuLogin = true;
           break;
         }
-      } catch {
+      } catch (erro) {
+        if (erro instanceof ErroPoliticaPortal) throw erro;
         // Ignora frames cross-origin inacessíveis
       }
     }
 
     await this.delay(3500);
+    await this.assegurarPortalSemBloqueios(this.page);
 
     // Verificar imediatamente se o portal retornou erro de Usuário ou Senha Inválidos (Trava Anti-Bloqueio)
     let textoPagina = "";
     try {
+      await this.validarAntesDeCredenciais(this.page);
       textoPagina = await this.page.evaluate(() => document.body?.innerText || "");
       for (const frame of this.page.frames()) {
         try {
+          await this.validarAntesDeCredenciais(frame);
           textoPagina += "\n" + (await frame.evaluate(() => document.body?.innerText || ""));
-        } catch {}
+        } catch (erro) {
+          if (erro instanceof ErroPoliticaPortal) throw erro;
+        }
       }
-    } catch {}
+    } catch (erro) {
+      if (erro instanceof ErroPoliticaPortal) throw erro;
+    }
 
     const regexSenhaInvalida =
       /(?:usu[aá]rio\s*(?:e\/ou|ou)\s*senha\s*inv[aá]lid|senha\s*incorreta|credenciais?\s*inv[aá]lid|acesso\s*negado|login\s*inv[aá]lido|usu[aá]rio\s*bloqueado|senha\s*expirada)/i;
@@ -201,6 +254,7 @@ export class RoboUnimed extends RoboBase {
       pastaEvidencias,
       `login_ok_unimed_estab_${credenciais.estabelecimentoId || 0}`
     );
+    await this.assegurarPortalSemBloqueios(this.page);
     return {
       sucesso: true,
       mensagem: "Login efetuado com sucesso no portal Unimed.",
@@ -229,13 +283,11 @@ export class RoboUnimed extends RoboBase {
       );
       await this.page
         .goto(urlSeguraXml, { waitUntil: "networkidle2", timeout: 30000 })
-        .catch(() => {});
+        .catch(erro => {
+          if (erro instanceof ErroPoliticaPortal) throw erro;
+        });
       await this.delay(2500);
-      validarUrlPortalConvenio(
-        this.page.url(),
-        "UNIMED",
-        credenciais.registroAns
-      );
+      await this.validarAntesDeCredenciais(this.page);
       return {
         encontrouMenuOuInput: true,
         detalheNavegacao: `Navegou para URL direta de envio XML: ${urlSeguraXml}`,
@@ -274,6 +326,7 @@ export class RoboUnimed extends RoboBase {
     // Tenta clicar direto no submenu de Envio de XML se já estiver visível
     for (const ctx of todosContextos) {
       try {
+        await this.validarAntesDeCredenciais(ctx);
         const resSub = await ctx.evaluate((termos: string[]) => {
           const links = Array.from(
             document.querySelectorAll("a, button, span, li, div[role='menuitem']")
@@ -297,13 +350,16 @@ export class RoboUnimed extends RoboBase {
           await this.delay(3000);
           break;
         }
-      } catch {}
+      } catch (erro) {
+        if (erro instanceof ErroPoliticaPortal) throw erro;
+      }
     }
 
     // Se não achou direto o submenu, clica no menu pai (ex: Faturamento / TISS) e depois no submenu
     if (!clicouAlgumMenu) {
       for (const ctx of todosContextos) {
         try {
+          await this.validarAntesDeCredenciais(ctx);
           const resPai = await ctx.evaluate((termos: string[]) => {
             const links = Array.from(
               document.querySelectorAll("a, button, span, li, div[role='menuitem']")
@@ -327,13 +383,16 @@ export class RoboUnimed extends RoboBase {
             await this.delay(2500);
             break;
           }
-        } catch {}
+        } catch (erro) {
+          if (erro instanceof ErroPoliticaPortal) throw erro;
+        }
       }
 
       // Segunda passagem após expandir o menu pai
       if (clicouAlgumMenu) {
         for (const ctx of [this.page, ...this.page.frames()]) {
           try {
+            await this.validarAntesDeCredenciais(ctx);
             const resSub2 = await ctx.evaluate((termos: string[]) => {
               const links = Array.from(
                 document.querySelectorAll("a, button, span, li, div[role='menuitem']")
@@ -356,7 +415,9 @@ export class RoboUnimed extends RoboBase {
               await this.delay(3000);
               break;
             }
-          } catch {}
+          } catch (erro) {
+            if (erro instanceof ErroPoliticaPortal) throw erro;
+          }
         }
       }
     }
@@ -420,6 +481,7 @@ export class RoboUnimed extends RoboBase {
             sucesso: false,
             status: "ERRO_CREDENCIAL",
             mensagem: errUrl.message || "URL do portal recusada na validação HTTPS.",
+            envioIniciado: false,
           });
         }
         return {
@@ -445,6 +507,7 @@ export class RoboUnimed extends RoboBase {
               sucesso: false,
               status: "ERRO_ROBO",
               mensagem: "Arquivo XML não localizado no diretório privado.",
+              envioIniciado: false,
             });
             continue;
           }
@@ -456,6 +519,7 @@ export class RoboUnimed extends RoboBase {
             status: "SIMULADO_OK",
             protocolo: null,
             mensagem: `Simulação local (Dry-Run) aprovada sem transmissão externa para "${lote.nomeArquivo}".`,
+            envioIniciado: false,
           });
         } catch (errSim: any) {
           resultadosLotes.push({
@@ -464,6 +528,7 @@ export class RoboUnimed extends RoboBase {
             sucesso: false,
             status: "ERRO_ROBO",
             mensagem: errSim.message || "Falha na validação local do XML.",
+            envioIniciado: false,
           });
         }
       }
@@ -477,10 +542,12 @@ export class RoboUnimed extends RoboBase {
       };
     }
 
+    const lotesComTransmissaoPossivel = new Set<number>();
     try {
       const isProducaoNode = process.env.NODE_ENV === "production";
       await this.iniciarBrowser(isProducaoNode);
       if (!this.page) throw new Error("Página não iniciada");
+      await this.definirContextoPortal("UNIMED", credenciais);
 
       // 1. Login ÚNICO para o Hospital neste Convênio
       const statusLogin = await this.realizarLoginUnimed(
@@ -499,6 +566,7 @@ export class RoboUnimed extends RoboBase {
               : "ERRO_ROBO",
             mensagem: statusLogin.mensagem,
             screenshotBase64: statusLogin.screenshotBase64 || null,
+            envioIniciado: false,
           });
         }
         return {
@@ -521,6 +589,7 @@ export class RoboUnimed extends RoboBase {
       // 3. Loop enviando TODOS os XMLs daquele hospital na mesma sessão aberta
       for (const lote of lotes) {
         const loteSeguro = sanitizarNumeroLoteTiss(lote.numeroLote);
+        let transmissaoPossivel = false;
         try {
           const caminhoXmlSeguro = validarCaminhoContidoXmlRpa(
             process.cwd(),
@@ -533,6 +602,7 @@ export class RoboUnimed extends RoboBase {
               sucesso: false,
               status: "ERRO_ROBO",
               mensagem: "Arquivo XML não encontrado no diretório privado do servidor.",
+              envioIniciado: false,
             });
             continue;
           }
@@ -545,7 +615,7 @@ export class RoboUnimed extends RoboBase {
             try {
               const ctxUrl = ctx.url();
               if (!ctxUrl || ctxUrl === "about:blank") continue;
-              validarUrlPortalConvenio(ctxUrl, "UNIMED", credenciais.registroAns);
+              await this.validarAntesDeCredenciais(ctx);
 
               const handle = await ctx.$("input[type='file']");
               if (handle) {
@@ -553,7 +623,9 @@ export class RoboUnimed extends RoboBase {
                 contextoAlvo = ctx;
                 break;
               }
-            } catch {}
+            } catch (erro) {
+              if (erro instanceof ErroPoliticaPortal) throw erro;
+            }
           }
 
           // MODO PRODUÇÃO: Exige o input[type='file'] e clica no botão de Enviar/Transmitir
@@ -571,18 +643,32 @@ export class RoboUnimed extends RoboBase {
                 "Campo de anexo XML (input[type='file']) não foi localizado na tela atual do portal Unimed. Confira o print da tela.",
               evidenciaPath: evNoInput.path,
               screenshotBase64: evNoInput.base64,
+              envioIniciado: false,
             });
             continue;
           }
 
+          const identidadeSubmissao = {
+            numeroLote: lote.numeroLote,
+            nomeArquivo: path.basename(caminhoXmlSeguro),
+            hashXmlSha256: createHash("sha256").update(fs.readFileSync(caminhoXmlSeguro)).digest("hex"),
+          };
+          // Único baseline ANTES de upload e click: upload pode autoenviar.
+          await this.validarAntesDeCredenciais(contextoAlvo);
+          const estadoAntes = await this.capturarEstadoConfirmacaoRpa(contextoAlvo);
+          await this.validarAntesDeCredenciais(contextoAlvo);
+          transmissaoPossivel = true;
+          lotesComTransmissaoPossivel.add(lote.filaId);
           await inputFileHandle.uploadFile(caminhoXmlSeguro);
           await this.delay(1500);
 
           // Clicar no botão de Enviar / Transmitir XML e comprovar que o botão foi efetivamente acionado
+          let retornoIncerto = false;
+          await this.validarAntesDeCredenciais(contextoAlvo);
           const [, clicouBotaoEnviar] = await Promise.all([
             this.page
               .waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
-              .catch(() => {}),
+              .catch(() => { retornoIncerto = true; }),
             contextoAlvo.evaluate(() => {
               const botoes = Array.from(
                 document.querySelectorAll(
@@ -620,118 +706,59 @@ export class RoboUnimed extends RoboBase {
             resultadosLotes.push({
               filaId: lote.filaId,
               numeroLote: loteSeguro,
-              sucesso: false,
-              status: "ERRO_PORTAL",
-              mensagem:
-                "Botão de submissão/transmissão não foi localizado no portal Unimed após anexar o XML.",
+              ...aguardarConfirmacaoPortalRpa(),
               evidenciaPath: evSemBotao.path,
               screenshotBase64: evSemBotao.base64,
+              envioIniciado: true,
             });
             continue;
           }
 
           await this.delay(5000);
 
+          await this.validarAntesDeCredenciais(contextoAlvo);
+          const estadoDepois = await this.capturarEstadoConfirmacaoRpa(contextoAlvo);
+          const decisao = avaliarConfirmacaoRpa(
+            identidadeSubmissao, estadoAntes, estadoDepois, retornoIncerto
+          );
           // Capturar evidência pós-envio
           const evEnvio = await this.capturarEvidenciaTela(
             pastaEvidencias,
             `comprovante_lote_${loteSeguro}_fila_${lote.filaId}`
           );
+          await this.assegurarPortalSemBloqueios(this.page);
 
-          // Ler texto de retorno na página e nos iframes para extrair protocolo correlacionado ao lote ou crítica TISS
-          const analiseRetorno = await contextoAlvo.evaluate(() => {
-            const elSucesso = document.querySelector(
-              "#box-protocolo-sucesso, #numero-protocolo, .protocolo-sucesso"
-            );
-            const elErro = document.querySelector(
-              ".alerta-erro-xml, .alert-danger, .erro-validacao, .msg-erro, .error"
-            );
-            const bodyText = document.body?.innerText || "";
-            return {
-              textoSucesso: elSucesso?.textContent?.trim() || "",
-              textoErro: elErro?.textContent?.trim() || "",
-              bodyText: bodyText.slice(0, 6000),
-            };
+          resultadosLotes.push({
+            filaId: lote.filaId,
+            numeroLote: loteSeguro,
+            ...decisao,
+            evidenciaPath: evEnvio.path,
+            screenshotBase64: evEnvio.base64,
+            envioIniciado: true,
           });
-
-          const regexProtocoloExplicito =
-            /(?:protocolo|recibo)\s*(?:de\s*envio|gerado|n[º°o.])?\s*[:#-]?\s*([0-9]{6,25})/i;
-          const matchProtSucesso = regexProtocoloExplicito.exec(
-            analiseRetorno.textoSucesso
-          );
-          const correlacionadoAoLote =
-            Boolean(loteSeguro) &&
-            (analiseRetorno.textoSucesso.includes(loteSeguro) ||
-              analiseRetorno.bodyText.includes(loteSeguro) ||
-              analiseRetorno.bodyText.includes(lote.nomeArquivo));
-
-          if (analiseRetorno.textoErro) {
-            resultadosLotes.push({
-              filaId: lote.filaId,
-              numeroLote: loteSeguro,
-              sucesso: false,
-              status: "ERRO_PORTAL",
-              mensagem: `Crítica do Portal Unimed: ${analiseRetorno.textoErro}`,
-              evidenciaPath: evEnvio.path,
-              screenshotBase64: evEnvio.base64,
-            });
-          } else if (matchProtSucesso && correlacionadoAoLote) {
-            const protocoloExtraido = matchProtSucesso[1];
-            resultadosLotes.push({
-              filaId: lote.filaId,
-              numeroLote: loteSeguro,
-              sucesso: true,
-              status: "PROTOCOLADO",
-              protocolo: protocoloExtraido,
-              mensagem: `Lote XML ${loteSeguro} enviado e protocolado com confirmação correlacionada na Unimed! Protocolo: ${protocoloExtraido}`,
-              evidenciaPath: evEnvio.path,
-              screenshotBase64: evEnvio.base64,
-            });
-          } else if (
-            matchProtSucesso ||
-            /(?:em\s*processamento|aguardando\s*processamento|recebido\s*para\s*validador)/i.test(
-              analiseRetorno.bodyText
-            )
-          ) {
-            resultadosLotes.push({
-              filaId: lote.filaId,
-              numeroLote: loteSeguro,
-              sucesso: false,
-              status: "AGUARDANDO_PORTAL",
-              mensagem:
-                "Arquivo XML submetido ao portal Unimed, aguardando confirmação correlacionada ao lote na operadora.",
-              evidenciaPath: evEnvio.path,
-              screenshotBase64: evEnvio.base64,
-            });
-          } else {
-            resultadosLotes.push({
-              filaId: lote.filaId,
-              numeroLote: loteSeguro,
-              sucesso: false,
-              status: "ERRO_PORTAL",
-              mensagem:
-                "O arquivo foi submetido, mas não houve confirmação inequívoca de protocolo correlacionado ao lote. Verifique o print da tela.",
-              evidenciaPath: evEnvio.path,
-              screenshotBase64: evEnvio.base64,
-            });
-          }
-        } catch (erroLote: any) {
+        } catch {
           const evErro = await this.capturarEvidenciaTela(
             pastaEvidencias,
             `erro_lote_${loteSeguro}`
-          );
+          ).catch(() => ({ path: "", base64: "" }));
           resultadosLotes.push({
             filaId: lote.filaId,
-            numeroLote: lote.numeroLote,
-            sucesso: false,
-            status: "ERRO_ROBO",
-            mensagem: `Falha técnica ao processar lote ${lote.numeroLote}: ${erroLote.message}`,
+            numeroLote: loteSeguro,
+            ...(transmissaoPossivel
+              ? aguardarConfirmacaoPortalRpa()
+              : {
+                  sucesso: false,
+                  status: "ERRO_ROBO" as const,
+                  mensagem: "Falha técnica antes de anexar ou transmitir o XML.",
+                }),
             evidenciaPath: evErro.path,
             screenshotBase64: evErro.base64,
+            envioIniciado: transmissaoPossivel,
           });
         }
       }
 
+      await this.assegurarPortalSemBloqueios(this.page);
       return {
         estabelecimentoId: estabId,
         convenioId: convId,
@@ -740,9 +767,46 @@ export class RoboUnimed extends RoboBase {
         screenshotLoginBase64: statusLogin.screenshotBase64 || null,
         resultadosLotes,
       };
+    } catch {
+      // Falha antes de upload é comprovada; após upload nunca autoriza retry.
+      for (const resultado of resultadosLotes) {
+        if (lotesComTransmissaoPossivel.has(resultado.filaId)) {
+          Object.assign(resultado, aguardarConfirmacaoPortalRpa(), { envioIniciado: true });
+          delete resultado.protocolo;
+        }
+      }
+      for (const lote of lotes) {
+        if (resultadosLotes.some(resultado => resultado.filaId === lote.filaId)) continue;
+        const envioIniciado = lotesComTransmissaoPossivel.has(lote.filaId);
+        resultadosLotes.push({
+          filaId: lote.filaId,
+          numeroLote: lote.numeroLote,
+          ...(envioIniciado ? aguardarConfirmacaoPortalRpa() : {
+            sucesso: false, status: "ERRO_ROBO" as const,
+            mensagem: "Operação RPA interrompida antes de anexar ou transmitir o XML; revisão necessária.",
+          }),
+          envioIniciado,
+        });
+      }
+      return {
+        estabelecimentoId: estabId, convenioId: convId,
+        loginSucesso: false, credencialInvalida: false,
+        mensagemLogin: "Operação RPA interrompida; revisão necessária.", resultadosLotes,
+      };
     } finally {
       // Fecha o navegador limpando 100% dos cookies antes de logar no próximo Hospital
-      await this.fecharBrowser();
+      try {
+        await this.fecharBrowser();
+      } catch (erroEncerramento) {
+        if (lotesComTransmissaoPossivel.size === 0) throw erroEncerramento;
+        for (const resultado of resultadosLotes) {
+          if (lotesComTransmissaoPossivel.has(resultado.filaId)) {
+            Object.assign(resultado, aguardarConfirmacaoPortalRpa());
+            delete resultado.protocolo;
+          }
+        }
+        logger.warn({ message: `[${this.nome}] Encerramento incerto após possível transmissão; lotes aguardam reconciliação.` });
+      }
     }
   }
 
@@ -750,22 +814,16 @@ export class RoboUnimed extends RoboBase {
     credenciais: CredenciaisConvenio,
     parametros?: { competencia: string }
   ) {
+    const scope = this.criarScopeImportacaoRpa(credenciais);
     try {
       // 1. Iniciar navegador (Headless = false para você ver o robô agir na tela durante o dev)
       const isProducao = process.env.NODE_ENV === "production";
       await this.iniciarBrowser(!isProducao);
       if (!this.page) throw new Error("Página não iniciada");
+      await this.definirContextoPortal("UNIMED", credenciais);
 
       // Configurar pasta de download automático
-      const downloadPath = path.join(
-        process.cwd(),
-        "uploads",
-        "demonstrativos",
-        "unimed"
-      );
-      if (!fs.existsSync(downloadPath)) {
-        fs.mkdirSync(downloadPath, { recursive: true });
-      }
+      const downloadPath = this.criarDiretorioDownloadRpa(scope);
 
       const client = await this.page.target().createCDPSession();
       await client.send("Page.setDownloadBehavior", {
@@ -773,97 +831,9 @@ export class RoboUnimed extends RoboBase {
         downloadPath: downloadPath,
       });
 
-      // 2. Acessar o Portal da Unimed Goiânia
-      const urlAlvo =
-        credenciais.url ||
-        "https://www.unimedgoiania.coop.br/wps/portal/usuariosunimed";
-      logger.info({
-        message: `[${this.nome}] Acessando portal da Unimed: ${urlAlvo}`,
-      });
-
-      await this.page.goto(urlAlvo, { waitUntil: "networkidle2" });
-
-      // 3. Clicar em "Credenciado" e Fazer Login
-      try {
-        logger.info({
-          message: `[${this.nome}] Buscando botão de Credenciado...`,
-        });
-
-        await this.page.evaluate(() => {
-          const els = Array.from(
-            document.querySelectorAll("a, button, span, div.box, div.icone")
-          );
-          const btn = els.find(
-            (el) => el.textContent?.trim().toLowerCase() === "credenciado"
-          );
-          if (btn && (btn as HTMLElement).click) {
-            (btn as HTMLElement).click();
-          }
-        });
-
-        await new Promise((r) => setTimeout(r, 4000));
-
-        await this.page.waitForSelector(
-          "input[type='text'], input[name*='login'], input[name*='usuario'], input[id*='usuario'], input[id*='login']",
-          { timeout: 10000, visible: true }
-        );
-
-        if (credenciais.login) {
-          await this.page.type(
-            "input[type='text'], input[name*='login'], input[name*='usuario'], input[id*='usuario'], input[id*='login']",
-            credenciais.login,
-            { delay: 50 }
-          );
-        }
-        if (credenciais.senha) {
-          await this.page.type(
-            "input[type='password'], input[name*='senha'], input[id*='senha']",
-            credenciais.senha,
-            { delay: 50 }
-          );
-        }
-
-        await Promise.all([
-          this.page
-            .waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 })
-            .catch(() => {}),
-          this.page.evaluate(() => {
-            const btns = Array.from(
-              document.querySelectorAll(
-                "button, input[type='submit'], input[type='button'], a"
-              )
-            );
-            const enterBtn = btns.find((b) => {
-              const text = b.textContent?.trim().toLowerCase() || "";
-              const val = b.getAttribute("value")?.toLowerCase() || "";
-              const id = b.id?.toLowerCase() || "";
-              return (
-                text === "entrar" ||
-                text === "acessar" ||
-                text.includes("efetuar login") ||
-                val === "entrar" ||
-                val.includes("efetuar login") ||
-                id.includes("login.button")
-              );
-            });
-            if (enterBtn && (enterBtn as HTMLElement).click)
-              (enterBtn as HTMLElement).click();
-          }),
-        ]);
-
-        logger.info({
-          message: `[${this.nome}] Login efetuado com sucesso no portal da Unimed.`,
-        });
-      } catch (loginErr: any) {
-        logger.warn({
-          message: `[${this.nome}] Falha ao logar. Erro: ${loginErr.message}`,
-        });
-        const errPath = path.join(downloadPath, `erro_login_${Date.now()}.png`);
-        await this.page.screenshot({ path: errPath, fullPage: true });
-        throw new Error(
-          "Não foi possível encontrar os campos de login na Unimed Goiânia. Verifique o print."
-        );
-      }
+      // 2/3. Mesmo login protegido usado pelo envio: sem fallback após bloqueio.
+      const login = await this.realizarLoginUnimed(credenciais, downloadPath);
+      if (!login.sucesso) throw new Error("Login Unimed não concluído; revisão necessária.");
 
       // 4. Navegar até Demonstrativo de Pagamento
       try {
@@ -872,6 +842,7 @@ export class RoboUnimed extends RoboBase {
         });
         await this.page.waitForSelector("body", { timeout: 10000 });
 
+        await this.validarAntesDeCredenciais(this.page);
         const clicouDem = await this.page.evaluate(() => {
           const links = Array.from(document.querySelectorAll("a"));
           const linkDem = links.find((el) =>
@@ -894,6 +865,7 @@ export class RoboUnimed extends RoboBase {
           );
         }
       } catch (navErr: any) {
+        if (navErr instanceof ErroPoliticaPortal) throw navErr;
         logger.warn({
           message: `[${this.nome}] Erro ao buscar menu de demonstrativo: ${navErr.message}`,
         });
@@ -908,6 +880,7 @@ export class RoboUnimed extends RoboBase {
 
         for (const frame of this.page.frames()) {
           try {
+            await this.validarAntesDeCredenciais(frame);
             await frame.evaluate(() => {
               const botoes = Array.from(
                 document.querySelectorAll(
@@ -924,13 +897,15 @@ export class RoboUnimed extends RoboBase {
                 (btnPesquisar as HTMLElement).click();
               }
             });
-          } catch (e) {}
+          } catch (e) {
+            if (e instanceof ErroPoliticaPortal) throw e;
+          }
         }
 
         logger.info({
           message: `[${this.nome}] Aguardando resultados da tabela...`,
         });
-        await new Promise((r) => setTimeout(r, 6000));
+        await this.delay(6000);
 
         logger.info({
           message: `[${this.nome}] Buscando botões de Extrato XLSX na tabela (em todos os frames)...`,
@@ -941,6 +916,7 @@ export class RoboUnimed extends RoboBase {
 
         for (const frame of this.page.frames()) {
           try {
+            await this.validarAntesDeCredenciais(frame);
             const linhasExtraidas = await frame.evaluate(() => {
               const rowsData: {
                 rowIndex: number;
@@ -999,6 +975,7 @@ export class RoboUnimed extends RoboBase {
                   message: `[${this.nome}] Novo demonstrativo encontrado: Nº ${row.numero} (${row.mesAno}). Iniciando download...`,
                 });
 
+                await this.validarAntesDeCredenciais(frame);
                 const clicou = await frame.evaluate(
                   (idxRow, idxCol) => {
                     const trs = Array.from(
@@ -1027,11 +1004,13 @@ export class RoboUnimed extends RoboBase {
 
                 if (clicou) {
                   arquivosBaixadosDaVez++;
-                  await new Promise((r) => setTimeout(r, 2000));
+                  await this.delay(2000);
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            if (e instanceof ErroPoliticaPortal) throw e;
+          }
         }
 
         arquivosBaixados = arquivosBaixadosDaVez;
@@ -1049,7 +1028,8 @@ export class RoboUnimed extends RoboBase {
           const maxTentativas = 90;
 
           while (!downloadTerminou && tentativas < maxTentativas) {
-            await new Promise((r) => setTimeout(r, 10000));
+            await this.delay(10000);
+            await this.assegurarPortalSemBloqueios(this.page);
             const arquivosNaPasta = fs.readdirSync(downloadPath);
             const baixando = arquivosNaPasta.some(
               (f) => f.endsWith(".crdownload") || f.endsWith(".tmp")
@@ -1066,11 +1046,12 @@ export class RoboUnimed extends RoboBase {
             });
 
             try {
+              await this.validarAntesDeCredenciais(this.page);
               const arquivosNaPastaFinal = fs.readdirSync(downloadPath);
               const tempoLimite = Date.now() - 16 * 60 * 1000;
               const xlsNovos = arquivosNaPastaFinal.filter((f) => {
                 if (!f.endsWith(".xls") && !f.endsWith(".xlsx")) return false;
-                const stat = fs.statSync(path.join(downloadPath, f));
+                const stat = fs.statSync(this.resolverArquivoDownloadRpa(downloadPath, f));
                 return stat.mtimeMs > tempoLimite;
               });
 
@@ -1079,44 +1060,23 @@ export class RoboUnimed extends RoboBase {
                   message: `[${this.nome}] Encontrados ${xlsNovos.length} arquivos XLS/XLSX recentes. Iniciando injeção no banco...`,
                 });
 
-                let idConvenio = 1;
-                const { convenios } = await import("../../../drizzle/schema");
-                const drizzleDb = await getDb();
-                if (drizzleDb) {
-                  const conveniosDb = await drizzleDb
-                    .select()
-                    .from(convenios)
-                    .where(like(convenios.nome, "%Unimed%Goiânia%"));
-                  if (conveniosDb.length > 0) {
-                    idConvenio = conveniosDb[0].id;
-                  } else {
-                    const conveniosDb2 = await drizzleDb
-                      .select()
-                      .from(convenios)
-                      .where(like(convenios.nome, "%Unimed%"));
-                    if (conveniosDb2.length > 0) {
-                      idConvenio = conveniosDb2[0].id;
-                    }
-                  }
-                }
-
                 const { processarArquivoRpa } = await import("../importador");
 
                 for (const f of xlsNovos) {
-                  const filePath = path.join(downloadPath, f);
-                  await processarArquivoRpa(
+                  await this.validarAntesDeCredenciais(this.page);
+                  const filePath = this.resolverArquivoDownloadRpa(downloadPath, f);
+                  const importacao = await processarArquivoRpa(
                     filePath,
                     f,
-                    idConvenio,
-                    parametros?.competencia,
-                    credenciais.estabelecimentoId
+                    scope,
+                    parametros?.competencia
                   );
+                  if (!importacao.success) throw new Error("Importação RPA recusada; revisão necessária.");
                 }
               }
             } catch (errDb: any) {
-              logger.error({
-                message: `[${this.nome}] Erro ao injetar arquivos no banco: ${errDb.message}`,
-              });
+              if (errDb instanceof ErroPoliticaPortal) throw errDb;
+              throw new Error("Importação RPA recusada; revisão necessária.");
             }
           } else {
             logger.warn({
@@ -1125,23 +1085,28 @@ export class RoboUnimed extends RoboBase {
           }
         }
       } catch (err: any) {
-        logger.warn({
-          message: `[${this.nome}] Erro ao tentar baixar XLS: ${err.message}`,
-        });
+        if (err instanceof ErroPoliticaPortal) throw err;
+        throw new Error("Download ou importação RPA não concluído; revisão necessária.");
       }
 
       try {
+        await this.validarAntesDeCredenciais(this.page);
         let fullHtml = await this.page.content();
         for (const frame of this.page.frames()) {
           try {
+            await this.validarAntesDeCredenciais(frame);
             fullHtml += `\n\n--- FRAME HTML ---\n` + (await frame.content());
-          } catch (e) {}
+          } catch (e) {
+            if (e instanceof ErroPoliticaPortal) throw e;
+          }
         }
         fs.writeFileSync(
           path.join(downloadPath, `debug_html_${Date.now()}.txt`),
           fullHtml
         );
-      } catch (e) {}
+      } catch (e) {
+        if (e instanceof ErroPoliticaPortal) throw e;
+      }
 
       // 6. Capturar uma Screenshot Final
       const evFinal = await this.capturarEvidenciaTela(
@@ -1159,15 +1124,15 @@ export class RoboUnimed extends RoboBase {
       };
 
       if (!isProducao) {
-        await new Promise((r) => setTimeout(r, 3000));
+        await this.delay(3000);
       }
 
-      await this.fecharBrowser();
+      await this.assegurarPortalSemBloqueios(this.page);
       return resultado;
     } catch (error: any) {
-      await this.capturarErro(error, "Execução Principal - Unimed");
-      await this.fecharBrowser();
       throw error;
+    } finally {
+      await this.fecharBrowser();
     }
   }
 }
