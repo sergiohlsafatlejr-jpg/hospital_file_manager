@@ -37,6 +37,120 @@ const contract = await pure.load0145VerificationContract();
 const previous = JSON.parse(await readFile(new URL('drizzle/meta/0144_snapshot.json', root), 'utf8'));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const clone = value => structuredClone(value);
+const stableLedger = value => typeof value === 'bigint' ? value.toString() : Array.isArray(value) ? value.map(stableLedger)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stableLedger(value[key])])) : value;
+function syntheticLegacyLedger() {
+  return [...Array.from({ length: 104 }, (_, i) => ({ id: i + 1,
+    hash: i < 3 ? `synthetic-legacy-${i + 1}` : sha(`synthetic-migration-${i + 1}`), created_at: i + 1 })),
+  { id: 144, ...contract.previousMarker }];
+}
+function syntheticLegacyPolicy(ledger) {
+  const ordered = [...ledger].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0);
+  return { rowCount: ledger.length, legacyHashCount: ledger.filter(row => !/^[0-9a-f]{64}$/.test(row.hash)).length,
+    sha256: sha(JSON.stringify(stableLedger(ordered))) };
+}
+test('helper puro aceita somente baseline sintética exata sem modificar linhas, contrato ou política', () => {
+  const ledger = syntheticLegacyLedger(), policy = syntheticLegacyPolicy(ledger), before = clone({ ledger, policy, contract });
+  assert.equal(policy.rowCount, 105); assert.equal(policy.legacyHashCount, 3);
+  assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(ledger, contract, policy));
+  assert.deepEqual({ ledger, policy, contract }, before);
+  // SQL real é ORDER BY id: o digest é calculado na mesma ordem numérica, não lexical.
+  assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger([...ledger].reverse(), contract, policy));
+  const stringIds = ledger.map(row => ({ ...row, id: String(row.id), created_at: String(row.created_at) }));
+  assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(stringIds, contract, syntheticLegacyPolicy(stringIds)));
+  const bigintIds = ledger.map(row => ({ ...row, id: BigInt(row.id), created_at: BigInt(row.created_at) }));
+  assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(bigintIds, contract, syntheticLegacyPolicy(bigintIds)));
+});
+test('helper puro mantém caminho normal SHA-256 sem depender de política legada', () => {
+  for (const ledger of [[{ id: 144, ...contract.previousMarker }], syntheticLegacyLedger().map(row => ({ ...row, hash: sha(row.hash) }))]) {
+    ledger.at(-1).hash = contract.previousMarker.hash;
+    assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(ledger, contract));
+    assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(ledger, contract, { arbitrary: true }));
+  }
+});
+for (const [name, change] of [
+  ['hash legado alterado', ledger => { ledger[0].hash += '-changed'; }],
+  ['hash SHA alterado', ledger => { ledger[4].hash = 'f'.repeat(64); }],
+  ['id válido alterado', ledger => { ledger[4].id = 106; }],
+  ['timestamp válido alterado', ledger => { ledger[4].created_at = 999; }],
+  ['linha inserida', ledger => { ledger.splice(104, 0, { id: 106, hash: 'f'.repeat(64), created_at: 999 }); }],
+  ['linha apagada', ledger => { ledger.splice(4, 1); }],
+  ['quarta exceção', ledger => { ledger[4].hash = 'new-arbitrary-legacy'; }],
+  ['exceção removida por reparo', ledger => { ledger[0].hash = 'f'.repeat(64); }],
+  ['hash nulo', ledger => { ledger[0].hash = null; }],
+  ['id nulo', ledger => { ledger[4].id = null; }],
+  ['timestamp nulo', ledger => { ledger[4].created_at = null; }],
+  ['campo adicional', ledger => { ledger[4].extra = 'arbitrary-field'; }],
+]) {
+  test(`helper puro recusa ${name} contra assinatura integral original`, () => {
+    const ledger = syntheticLegacyLedger(), policy = syntheticLegacyPolicy(ledger);
+    change(ledger);
+    assert.throws(() => wrapper.assert0145HistoricalLedger(ledger, contract, policy));
+  });
+}
+for (const [name, change] of [
+  ['política ausente', () => undefined],
+  ['digest diferente', p => ({ ...p, sha256: 'f'.repeat(64) })],
+  ['digest inválido', p => ({ ...p, sha256: 'arbitrary' })],
+  ['rowCount diferente', p => ({ ...p, rowCount: 104 })],
+  ['rowCount string', p => ({ ...p, rowCount: '105' })],
+  ['exceções diferentes', p => ({ ...p, legacyHashCount: 4 })],
+  ['exceções zero', p => ({ ...p, legacyHashCount: 0 })],
+  ['allowAnyHash arbitrário', p => ({ rowCount: p.rowCount, legacyHashCount: p.legacyHashCount, allowAnyHash: true })],
+]) {
+  test(`helper puro recusa ${name} e não usa campos permissivos`, () => {
+    const ledger = syntheticLegacyLedger();
+    assert.throws(() => wrapper.assert0145HistoricalLedger(ledger, contract, change(syntheticLegacyPolicy(ledger))));
+  });
+}
+for (const [name, change] of [
+  ['id zero', ledger => { ledger[4].id = 0; }],
+  ['id negativo', ledger => { ledger[4].id = -1; }],
+  ['id fracionário', ledger => { ledger[4].id = 1.5; }],
+  ['id numérico inseguro', ledger => { ledger[4].id = Number.MAX_SAFE_INTEGER + 1; }],
+  ['id repetido', ledger => { ledger[4].id = ledger[3].id; }],
+  ['id repetido com zeros', ledger => { ledger[4].id = '0004'; }],
+  ['id objeto coercível', ledger => { ledger[4].id = new String('106'); }],
+  ['hash NULL', ledger => { ledger[0].hash = null; }],
+  ['hash vazio', ledger => { ledger[0].hash = ''; }],
+  ['hash numérico', ledger => { ledger[0].hash = 42; }],
+  ['timestamp NULL', ledger => { ledger[4].created_at = null; }],
+  ['timestamp zero', ledger => { ledger[4].created_at = 0; }],
+  ['timestamp negativo', ledger => { ledger[4].created_at = -1; }],
+  ['timestamp fracionário', ledger => { ledger[4].created_at = 1.5; }],
+  ['timestamp inseguro', ledger => { ledger[4].created_at = Number.MAX_SAFE_INTEGER + 1; }],
+  ['timestamp posterior à 0144', ledger => { ledger[4].created_at = contract.previousMarker.created_at + 1; }],
+  ['0144 ausente', ledger => { ledger.pop(); }],
+  ['0144 hash inexato', ledger => { ledger.at(-1).hash = 'f'.repeat(64); }],
+  ['0144 timestamp inexato', ledger => { ledger.at(-1).created_at -= 1; }],
+  ['0144 duplicado', ledger => { ledger.push({ id: 146, ...contract.previousMarker }); }],
+  ['0144 conflito hash', ledger => { ledger[4].hash = contract.previousMarker.hash; }],
+  ['0144 conflito timestamp', ledger => { ledger[4].created_at = contract.previousMarker.created_at; }],
+  ['0145 presente', ledger => { ledger.push({ id: 145, ...contract.marker }); }],
+  ['0145 conflito hash', ledger => { ledger[4].hash = contract.marker.hash; }],
+  ['0145 conflito timestamp', ledger => { ledger[4].created_at = contract.marker.created_at; }],
+]) {
+  test(`helper puro recusa ${name} mesmo com política sintética recalculada`, () => {
+    const ledger = syntheticLegacyLedger(); change(ledger);
+    // Assinar inclusive registros inválidos sem converter id, para que somente o helper
+    // lance a exceção (BigInt de um id fracionário na fixture não provaria a guarda).
+    const policy = { rowCount: ledger.length, legacyHashCount: ledger.filter(row => !/^[0-9a-f]{64}$/.test(row.hash)).length,
+      sha256: sha(JSON.stringify(stableLedger(ledger))) };
+    assert.throws(() => wrapper.assert0145HistoricalLedger(ledger, contract, policy));
+  });
+}
+test('baseline legada não substitui prova pós-commit: preserva todas as linhas e aceita apenas marker exato adicional', () => {
+  const ledger = syntheticLegacyLedger(), policy = syntheticLegacyPolicy(ledger);
+  wrapper.assert0145HistoricalLedger(ledger, contract, policy);
+  const committed = [...clone(ledger), { id: 145, ...contract.marker }];
+  assert.equal(pure.assert0145CommittedLedger(ledger, committed, contract).ok, true);
+  for (const mutate of [rows => { rows[0].hash += '-changed'; }, rows => { rows.splice(4, 1); },
+    rows => { rows.at(-1).hash = 'f'.repeat(64); }, rows => { rows.push({ id: 146, ...contract.marker }); }]) {
+    const changed = clone(committed); mutate(changed);
+    assert.throws(() => pure.assert0145CommittedLedger(ledger, changed, contract));
+  }
+  assert.deepEqual(committed.slice(0, -1), ledger);
+});
 // Certificado público local, chave privada descartada; domínio .invalid sintético.
 const pem = `-----BEGIN CERTIFICATE-----
 MIIDOjCCAiKgAwIBAgIUQ8fdUnozB8oSEsmxVmtpLcdBMxIwDQYJKoZIhvcNAQEL
@@ -211,6 +325,35 @@ function resourcesClosed(database) {
   }
 }
 function mutateBoth(context, change) { change(context.gates); context.manifest = clone(context.gates); }
+
+for (const field of ['legacyPolicy', 'legacyLedgerPolicy', 'ledgerPolicy', 'legacyLedgerBaseline', 'historicalLedgerPolicy', 'baselinePolicy', 'LEGACY_LEDGER_BASELINE']) {
+  test(`wrapper ignora política arbitrária em options/gates.${field}, mesmo com manifesto igual`, async () => {
+    const context = await fixture(), ledger = syntheticLegacyLedger(), policy = syntheticLegacyPolicy(ledger);
+    assert.notEqual(policy.sha256, 'ddba1fe00d43958df2e585b43887c52b495736cce7a508279518b9dcd9bbb452');
+    assert.doesNotThrow(() => wrapper.assert0145HistoricalLedger(ledger, contract, policy));
+    context.database.ledger = clone(ledger);
+    context.options[field] = clone(policy);
+    mutateBoth(context, gates => { gates[field] = clone(policy); gates.allowAnyHash = true; gates.allowLegacyHashes = true; });
+    const preflight = await wrapper.preflightVerified0145(context.options);
+    assert.equal(preflight.ok, false); assert.equal(context.database.executions.length, 0);
+    assert.deepEqual(context.database.ledger, ledger); sanitized(preflight); resourcesClosed(context.database);
+  });
+}
+test('nenhum hash legado novo é aceito pelo wrapper sem assinatura fixa, nem com metadados preenchidos nos gates', async () => {
+  const context = await fixture();
+  context.database.ledger.unshift({ id: 1, hash: 'new-arbitrary-legacy', created_at: 1 });
+  const baseline = clone(context.database.ledger);
+  mutateBoth(context, gates => { gates.rowCount = baseline.length; gates.legacyHashCount = 1;
+    gates.sha256 = syntheticLegacyPolicy(baseline).sha256; gates.allowAnyHash = true; });
+  assert.equal((await wrapper.preflightVerified0145(context.options)).ok, false);
+  assert.equal(context.database.executions.length, 0); assert.deepEqual(context.database.ledger, baseline);
+});
+test('helper sintético não emite preflight consumível nem concede autorização de escrita', async () => {
+  const ledger = syntheticLegacyLedger(), context = await fixture();
+  const evidence = wrapper.assert0145HistoricalLedger(ledger, contract, syntheticLegacyPolicy(ledger));
+  assert.equal((await wrapper.applyVerified0145({ ...context.options, preflight: evidence })).ok, false);
+  assert.equal(context.database.executions.length, 0); assert.equal(context.database.connections.length, 0);
+});
 
 test('atestação soma hashes INTEGRAIS reais e exige igualdade byte a byte com Git simulado', async () => {
   gitState = {};
@@ -419,6 +562,47 @@ test('ledger alterado entre DDL impede marker sem reparar histórico', async () 
   const { result } = await run(context); assert.equal(result.ok, false); assert.equal(ddlOnly(context.database).length, 1);
   assert.equal(context.database.executions.some(item => item.sql.startsWith('INSERT')), false);
   assert.equal(context.database.ledger[0].hash, 'b'.repeat(64));
+});
+for (const id of [2, 3]) {
+  test(`ledger diferente apenas na conexão ${id} do preflight bloqueia mesmo com marcador válido`, async () => {
+    const context = await fixture({ mutateRows: (rows, sql, session) => {
+      if (session === id && sql.includes('FROM `__drizzle_migrations`')) rows[0].id = 143;
+    } });
+    assert.equal((await wrapper.preflightVerified0145(context.options)).ok, false);
+    assert.equal(context.database.executions.length, 0); noJournal(context.database); resourcesClosed(context.database);
+  });
+}
+test('id histórico alterado depois do preflight impede primeira DDL sem reparar ledger', async () => {
+  const context = await fixture(), preflight = await wrapper.preflightVerified0145(context.options);
+  assert.equal(preflight.ok, true); context.database.ledger[0].id = 143;
+  assert.equal((await wrapper.applyVerified0145({ ...context.options, preflight })).ok, false);
+  assert.equal(context.database.executions.length, 0); assert.equal(context.database.ledger[0].id, 143);
+});
+for (const stage of [1, 2]) {
+  test(`ledger divergente apenas na conexão independente após DDL ${stage} impede marker`, async () => {
+    const context = await fixture({ mutateRows: (rows, sql, id, current) => {
+      if (current === stage && id !== 5 && sql.includes('FROM `__drizzle_migrations`')) rows[0].id = 143;
+    } });
+    const { result } = await run(context);
+    assert.equal(result.ok, false); assert.equal(ddlOnly(context.database).length, stage);
+    noJournal(context.database); resourcesClosed(context.database);
+  });
+}
+test('última leitura FOR UPDATE divergente impede INSERT mesmo após duas DDL verificadas', async () => {
+  const context = await fixture({ mutateRows: (rows, sql) => {
+    if (sql.endsWith('FOR UPDATE')) rows[0].id = 143;
+  } });
+  const { result } = await run(context);
+  assert.equal(result.ok, false); assert.equal(result.ddlVerifiedCount, 2);
+  noJournal(context.database); assert.equal(context.database.events.some(event => event.operation === 'commit'), false);
+  resourcesClosed(context.database);
+});
+test('marker 0145 surgido antes da segunda DDL bloqueia sem apagar histórico ou executar INSERT', async () => {
+  const context = await fixture({ afterDdl: (db, stage) => { if (stage === 1) db.ledger.push({ id: 145, ...contract.marker }); } });
+  const { result } = await run(context);
+  assert.equal(result.ok, false); assert.equal(ddlOnly(context.database).length, 1);
+  assert.equal(context.database.executions.some(item => item.sql.startsWith('INSERT')), false);
+  assert.deepEqual(context.database.ledger, [{ id: 144, ...contract.previousMarker }, { id: 145, ...contract.marker }]);
 });
 test('marker com par inexato é rollback, não sucesso por count', async () => {
   const context = await fixture({ mutateMarker: ledger => { ledger.at(-1).hash = 'b'.repeat(64); } });

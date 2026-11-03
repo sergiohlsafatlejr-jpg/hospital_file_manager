@@ -42,6 +42,13 @@ const rawSql = Object.freeze({
   indexes: '/* 0145 verified indexes */ SELECT `TABLE_NAME`, `INDEX_NAME`, `SEQ_IN_INDEX`, `COLUMN_NAME`, `NON_UNIQUE`, `SUB_PART`, `INDEX_TYPE` FROM `information_schema`.`statistics` WHERE `table_schema` = DATABASE() AND `table_name` IN (?, ?) ORDER BY `TABLE_NAME`, `INDEX_NAME`, `SEQ_IN_INDEX`',
   foreignKeys: '/* 0145 verified foreign keys */ SELECT k.`TABLE_NAME`, k.`CONSTRAINT_NAME`, k.`ORDINAL_POSITION`, k.`COLUMN_NAME`, k.`REFERENCED_TABLE_NAME`, k.`REFERENCED_COLUMN_NAME`, r.`UPDATE_RULE`, r.`DELETE_RULE` FROM `information_schema`.`key_column_usage` k JOIN `information_schema`.`referential_constraints` r ON r.`CONSTRAINT_SCHEMA` = k.`CONSTRAINT_SCHEMA` AND r.`TABLE_NAME` = k.`TABLE_NAME` AND r.`CONSTRAINT_NAME` = k.`CONSTRAINT_NAME` WHERE k.`TABLE_SCHEMA` = DATABASE() AND k.`TABLE_NAME` IN (?, ?) AND k.`REFERENCED_TABLE_NAME` IS NOT NULL ORDER BY k.`TABLE_NAME`, k.`CONSTRAINT_NAME`, k.`ORDINAL_POSITION`',
 });
+// Baseline agregada específica, não exportada/injetável por options, gates ou manifesto.
+// Preservar divergência legada NÃO é reconciliar o histórico nem conceder autorização.
+const LEGACY_LEDGER_BASELINE = Object.freeze({
+  rowCount: 105,
+  legacyHashCount: 3,
+  sha256: 'ddba1fe00d43958df2e585b43887c52b495736cce7a508279518b9dcd9bbb452',
+});
 const preflights = new WeakMap();
 const applying = new WeakSet();
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -181,15 +188,35 @@ function rawValid(catalog) {
     requireThat(positions.every((position, i) => position === i + 1), 'raw_index_positions_invalid');
   }
 }
+/** Helper puro: política explícita apenas para testes/validação, nunca autorização.
+ * O wrapper chama com a constante privada acima. A assinatura cobre TODAS as linhas
+ * e campos, com stable existente e ordenação numérica por id, sem modificar o ledger.
+ */
+export function assert0145HistoricalLedger(ledger, contract, legacyPolicy) {
+  requireThat(Array.isArray(ledger) && ledger.every(row => row && typeof row === 'object' && !Array.isArray(row)), 'historical_ledger_invalid');
+  assert0145LedgerBaseline(ledger, contract);
+  const prior = contract.previousMarker;
+  const decimal = value => ['number', 'string', 'bigint'].includes(typeof value) && /^\d+$/.test(String(value))
+    && (typeof value !== 'number' || Number.isSafeInteger(value));
+  const related = ledger.filter(row => row.hash === prior.hash || String(row.created_at) === String(prior.created_at));
+  requireThat(related.length === 1 && ledger.every(row => decimal(row.id) && BigInt(row.id) > 0n
+    && typeof row.hash === 'string' && row.hash.length > 0
+    && decimal(row.created_at) && Number.isSafeInteger(Number(row.created_at))
+    && Number(row.created_at) > 0 && Number(row.created_at) <= prior.created_at), 'historical_ledger_invalid');
+  requireThat(new Set(ledger.map(row => BigInt(row.id).toString())).size === ledger.length, 'historical_ledger_invalid');
+  const legacyHashCount = ledger.filter(row => !digest(row.hash)).length;
+  if (legacyHashCount > 0) {
+    requireThat(legacyPolicy && Number.isSafeInteger(legacyPolicy.rowCount) && legacyPolicy.rowCount > 0
+      && Number.isSafeInteger(legacyPolicy.legacyHashCount) && legacyPolicy.legacyHashCount > 0
+      && legacyPolicy.legacyHashCount <= legacyPolicy.rowCount && digest(legacyPolicy.sha256)
+      && ledger.length === legacyPolicy.rowCount && legacyHashCount === legacyPolicy.legacyHashCount, 'legacy_ledger_baseline_invalid');
+    const ordered = [...ledger].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0);
+    requireThat(sha(JSON.stringify(stable(ordered))) === legacyPolicy.sha256, 'legacy_ledger_baseline_invalid');
+  }
+}
 function baselineValid(observed, contract) {
   layoutValid(observed.layout); rawValid(observed.catalog);
-  assert0145LedgerBaseline(observed.ledger, contract);
-  const prior = contract.previousMarker;
-  const related = observed.ledger.filter(row => row.hash === prior.hash || String(row.created_at) === String(prior.created_at));
-  requireThat(related.length === 1 && new Set(observed.ledger.map(row => String(row.id))).size === observed.ledger.length
-    && observed.ledger.every(row => /^\d+$/.test(String(row.id)) && BigInt(row.id) > 0n && digest(row.hash)
-      && /^\d+$/.test(String(row.created_at)) && Number.isSafeInteger(Number(row.created_at))
-      && Number(row.created_at) > 0 && Number(row.created_at) <= prior.created_at), 'historical_ledger_invalid');
+  assert0145HistoricalLedger(observed.ledger, contract, LEGACY_LEDGER_BASELINE);
   const added = ['codigoPrestadorOperadora', 'registroAns', 'parametrosExtras', 'statusCredencial'];
   requireThat(observed.catalog.tables.length === 1 && observed.catalog.tables[0].TABLE_NAME === 'credenciais_portais'
     && observed.catalog.columns.every(row => row.TABLE_NAME === 'credenciais_portais' && !added.includes(row.COLUMN_NAME))
