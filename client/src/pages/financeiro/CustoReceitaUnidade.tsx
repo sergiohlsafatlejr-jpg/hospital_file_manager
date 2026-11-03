@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { SAFATLE_ESTABELECIMENTO_ID } from "@shared/const";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
@@ -12,19 +13,20 @@ import { Label } from "@/components/ui/label";
 
 export function CustoReceitaUnidade() {
   const { estabelecimentoAtual } = useEstabelecimento();
+  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : SAFATLE_ESTABELECIMENTO_ID;
   const now = new Date();
   const defaultMes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const [mesSelecionado, setMesSelecionado] = useState<string>(defaultMes);
 
   // You can fetch actual competencias from rh.competencias
   const { data: competencias = [] } = trpc.rh.competencias.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id },
-    { enabled: !!estabelecimentoAtual }
+    { estabelecimentoId },
+    { enabled: Boolean(estabelecimentoId) }
   );
 
   const { data: analiseData = [], isLoading, refetch } = trpc.rh.custoReceitaUnidade.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id, mes: mesSelecionado },
-    { enabled: !!estabelecimentoAtual }
+    { estabelecimentoId, mes: mesSelecionado },
+    { enabled: Boolean(estabelecimentoId) }
   );
 
   const [ratearCustos, setRatearCustos] = useState(false);

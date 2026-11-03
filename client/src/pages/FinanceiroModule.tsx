@@ -25,12 +25,18 @@ import { CustoReceitaUnidade } from "./financeiro/CustoReceitaUnidade";
 import { formatDateBR } from "@/lib/dateUtils";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { SAFATLE_ESTABELECIMENTO_ID } from "@shared/const";
 import { parseContasPagarRows, parseDataCivil, parseValorConta, normalizarNome, type ContaPagarImportItem, type ImportIssue } from "@shared/contasPagarImport";
 import { formatarDataCivilBR, paraInputDataCivil, hojeCivilBrasil } from "@shared/financeiroCivilDate";
 
 // ==================== HELPERS ====================
 function formatCurrency(value: string | number | null | undefined) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function useEstabelecimentoFinanceiroId() {
+  const { estabelecimentoAtual } = useEstabelecimento();
+  return estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : SAFATLE_ESTABELECIMENTO_ID;
 }
 
 
@@ -44,7 +50,7 @@ const MONTHS = [
 // ==================== DASHBOARD ====================
 function FinDashboard() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const now = new Date();
   const [mes, setMes] = useState(() => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [fluxoDias, setFluxoDias] = useState(30);
@@ -116,8 +122,8 @@ function FinDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-slate-300">Saldo Bancário</p>
-                    <p className="text-2xl font-bold mt-1">-</p>
-                    <p className="text-xs text-slate-400 mt-1">Sem dados por unidade</p>
+                    <p className="text-2xl font-bold mt-1">{formatCurrency(d.saldoBancario)}</p>
+                    <p className="text-xs text-slate-400 mt-1">{d.qtdBancos} conta(s) bancária(s)</p>
                   </div>
                   <Landmark className="h-8 w-8 text-blue-400 opacity-80" />
                 </div>
@@ -531,7 +537,7 @@ function FinDashboard() {
 // ==================== CONTAS A PAGAR ====================
 function ContasPagar() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importItems, setImportItems] = useState<ContaPagarImportItem[]>([]);
   const [importIssues, setImportIssues] = useState<ImportIssue[]>([]);
@@ -602,6 +608,7 @@ function ContasPagar() {
   });
   const marcarPago = trpc.financeiro.transacoes.marcarPago.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Marcado como pago!"); },
+    onError: (e) => toast.error(e.message),
   });
   const atualizar = trpc.financeiro.transacoes.atualizar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta atualizada!"); setEditDialogOpen(false); setEditItem(null); },
@@ -609,6 +616,7 @@ function ContasPagar() {
   });
   const excluir = trpc.financeiro.transacoes.excluir.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta excluída!"); },
+    onError: (e) => toast.error(e.message),
   });
   const duplicar = trpc.financeiro.transacoes.duplicar.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Conta duplicada!"); },
@@ -620,6 +628,7 @@ function ContasPagar() {
   });
   const excluirEmLote = trpc.financeiro.transacoes.excluirEmLote.useMutation({
     onSuccess: () => { utils.financeiro.invalidate(); toast.success("Contas excluídas!"); setSelectedIds(new Set()); },
+    onError: (e) => toast.error(e.message),
   });
 
   const rawItems = lista.data?.items || [];
@@ -728,8 +737,8 @@ function ContasPagar() {
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const empresaId = Number(fd.get("empresaId"));
-    if (!estabelecimentoId || !importEmpresas.some((empresa: any) => empresa.id === empresaId)) {
+    const empresaId = Number(fd.get("empresaId")) || importEmpresas[0]?.id;
+    if (!estabelecimentoId || !empresaId || !importEmpresas.some((empresa: any) => empresa.id === empresaId)) {
       toast.error("Selecione uma empresa vinculada ao estabelecimento atual.");
       return;
     }
@@ -743,6 +752,7 @@ function ContasPagar() {
       bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
       centroCustoId: fd.get("centroCustoId") ? Number(fd.get("centroCustoId")) : undefined,
       dataPagamento: (fd.get("dataPagamento") as string) || undefined,
+      pago: ((fd.get("pago") as string) as "sim" | "nao") || (fd.get("dataPagamento") ? "sim" : "nao"),
       observacoes: (fd.get("observacoes") as string) || undefined,
     });
   };
@@ -800,12 +810,13 @@ function ContasPagar() {
                 <div><Label>Valor *</Label><Input name="valor" type="number" step="0.01" min="0" required /></div>
                 <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" required /></div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div><Label>Data de Pagamento</Label><Input name="dataPagamento" type="date" lang="pt-BR" /></div>
+                <div><Label>Status</Label><select name="pago" defaultValue="nao" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Pago</option></select></div>
                 <div><Label>Centro de Custo</Label><select name="centroCustoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(centrosCusto.data || []).map((cc: any) => <option key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</option>)}</select></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <div><Label>Empresa *</Label><select name="empresaId" required className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione</option>{importEmpresas.map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Empresa *</Label><select name="empresaId" required defaultValue={importEmpresas[0]?.id || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione</option>{importEmpresas.map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
                 <div><Label>Categoria</Label><select name="categoriaId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(categorias.data || []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
                 <div><Label>Banco</Label><select name="bancoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
               </div>
@@ -975,7 +986,7 @@ function ContasPagar() {
 // ==================== CONTAS A RECEBER ====================
 function ContasReceber() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
@@ -1154,10 +1165,10 @@ function ContasReceber() {
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const empresaId = Number(fd.get("empresaId"));
+    const empresaId = Number(fd.get("empresaId")) || empresas.data?.[0]?.id;
     const clienteId = fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined;
-    if (!estabelecimentoId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId && cliente.empresaId === empresaId))) {
-      toast.error("Selecione uma empresa e, se informado, um cliente vinculado a ela no estabelecimento atual.");
+    if (!estabelecimentoId || !empresaId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId))) {
+      toast.error("Selecione uma empresa válida do estabelecimento atual.");
       return;
     }
     criar.mutate({
@@ -1165,8 +1176,11 @@ function ContasReceber() {
       descricao: fd.get("descricao") as string,
       valor: fd.get("valor") as string,
       dataVencimento: fd.get("dataVencimento") as string,
+      dataRecebimento: (fd.get("dataRecebimento") as string) || undefined,
+      recebido: ((fd.get("recebido") as string) as "sim" | "nao") || (fd.get("dataRecebimento") ? "sim" : "nao"),
       empresaId,
       clienteId,
+      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
       tipoServico: (fd.get("tipoServico") as string) || undefined,
       descricaoServico: (fd.get("descricaoServico") as string) || undefined,
       observacoes: (fd.get("observacoes") as string) || undefined,
@@ -1177,10 +1191,10 @@ function ContasReceber() {
     e.preventDefault();
     if (!editItem) return;
     const fd = new FormData(e.currentTarget);
-    const empresaId = Number(fd.get("empresaId"));
+    const empresaId = Number(fd.get("empresaId")) || empresas.data?.[0]?.id;
     const clienteId = fd.get("clienteId") ? Number(fd.get("clienteId")) : undefined;
-    if (!estabelecimentoId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId && cliente.empresaId === empresaId))) {
-      toast.error("Selecione uma empresa e, se informado, um cliente vinculado a ela no estabelecimento atual.");
+    if (!estabelecimentoId || !empresaId || !empresas.data?.some((empresa: any) => empresa.id === empresaId) || (clienteId && !clientes.data?.some((cliente: any) => cliente.id === clienteId))) {
+      toast.error("Selecione uma empresa válida do estabelecimento atual.");
       return;
     }
     atualizarRecebivel.mutate({
@@ -1192,6 +1206,7 @@ function ContasReceber() {
       dataRecebimento: (fd.get("dataRecebimento") as string) || undefined,
       empresaId,
       clienteId,
+      bancoId: fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined,
       tipoServico: (fd.get("tipoServico") as string) || undefined,
       descricaoServico: (fd.get("descricaoServico") as string) || undefined,
       recebido: (fd.get("recebido") as string) as any || "nao",
@@ -1255,14 +1270,17 @@ function ContasReceber() {
                 <div><Label>Vencimento *</Label><Input name="dataVencimento" type="date" lang="pt-BR" required /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
+                <div><Label>Data de Recebimento</Label><Input name="dataRecebimento" type="date" lang="pt-BR" /></div>
+                <div><Label>Status</Label><select name="recebido" defaultValue="nao" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="nao">Pendente</option><option value="sim">Recebido</option></select></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div><Label>Tipo de Serviço</Label><select name="tipoServico" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{tiposServicoPadrao.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
                 <div><Label>Cliente</Label><select name="clienteId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(clientes.data || []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
               </div>
               <div><Label>Descrição do Serviço</Label><Textarea name="descricaoServico" rows={2} placeholder="Descreva detalhes do serviço prestado..." /></div>
-              <div className="grid grid-cols-3 gap-3">
-                <div><Label>Empresa *</Label><select name="empresaId" required className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
-                <div><Label>Banco</Label><Input value="Indisponível até segregação por estabelecimento" disabled className="text-xs" /></div>
-                <div></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Empresa *</Label><select name="empresaId" required defaultValue={empresas.data?.[0]?.id || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><select name="bancoId" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
               </div>
               <div><Label>Observações</Label><Textarea name="observacoes" rows={2} /></div>
               <DialogFooter><Button type="submit" disabled={criar.isPending}>{criar.isPending ? "Salvando..." : "Salvar"}</Button></DialogFooter>
@@ -1409,8 +1427,8 @@ function ContasReceber() {
               </div>
               <div><Label>Descrição do Serviço</Label><Textarea name="descricaoServico" rows={2} defaultValue={editItem.descricaoServico || ""} placeholder="Descreva detalhes do serviço prestado..." /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Empresa *</Label><select name="empresaId" required defaultValue={editItem.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
-                <div><Label>Banco</Label><Input value="Indisponível até segregação por estabelecimento" disabled className="text-xs" /></div>
+                <div><Label>Empresa *</Label><select name="empresaId" required defaultValue={editItem.empresaId || empresas.data?.[0]?.id || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></div>
+                <div><Label>Banco</Label><select name="bancoId" defaultValue={editItem.bancoId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">-</option>{(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
               </div>
               <div><Label>Observações</Label><Textarea name="observacoes" rows={2} defaultValue={editItem.observacoes || ""} /></div>
               <DialogFooter><Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button><Button type="submit" disabled={atualizarRecebivel.isPending}>{atualizarRecebivel.isPending ? "Salvando..." : "Salvar Alterações"}</Button></DialogFooter>
@@ -1470,15 +1488,22 @@ function ContasReceber() {
 // ==================== BANCOS ====================
 function BancosView() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editBanco, setEditBanco] = useState<any>(null);
   const utils = trpc.useUtils();
   const bancos = trpc.financeiro.bancos.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const criar = trpc.financeiro.bancos.criar.useMutation({
-    onSuccess: () => { utils.financeiro.bancos.invalidate(); toast.success("Banco criado!"); setDialogOpen(false); },
+    onSuccess: () => { utils.financeiro.bancos.invalidate(); utils.financeiro.dashboard.invalidate(); toast.success("Conta bancária cadastrada!"); setDialogOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+  const atualizar = trpc.financeiro.bancos.atualizar.useMutation({
+    onSuccess: () => { utils.financeiro.bancos.invalidate(); utils.financeiro.dashboard.invalidate(); toast.success("Conta bancária atualizada!"); setEditBanco(null); },
+    onError: (e) => toast.error(e.message),
   });
   const excluir = trpc.financeiro.bancos.excluir.useMutation({
-    onSuccess: () => { utils.financeiro.bancos.invalidate(); toast.success("Banco excluído!"); },
+    onSuccess: () => { utils.financeiro.bancos.invalidate(); utils.financeiro.dashboard.invalidate(); toast.success("Conta bancária excluída!"); },
+    onError: (e) => toast.error(e.message),
   });
 
   const handleCriar = (e: React.FormEvent<HTMLFormElement>) => {
@@ -1486,6 +1511,13 @@ function BancosView() {
     if (!estabelecimentoId) { toast.error("Selecione um estabelecimento antes de cadastrar um banco."); return; }
     const fd = new FormData(e.currentTarget);
     criar.mutate({ estabelecimentoId, nome: fd.get("nome") as string, cor: (fd.get("cor") as string) || "#3b82f6", saldoInicial: (fd.get("saldoInicial") as string) || "0" });
+  };
+
+  const handleEditar = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!estabelecimentoId || !editBanco) return;
+    const fd = new FormData(e.currentTarget);
+    atualizar.mutate({ id: editBanco.id, estabelecimentoId, nome: fd.get("nome") as string, cor: (fd.get("cor") as string) || "#3b82f6", saldoInicial: (fd.get("saldoInicial") as string) || "0" });
   };
 
   return (
@@ -1502,7 +1534,7 @@ function BancosView() {
                 <div><Label>Cor</Label><Input name="cor" type="color" defaultValue="#3b82f6" /></div>
                 <div><Label>Saldo Inicial</Label><Input name="saldoInicial" type="number" step="0.01" defaultValue="0" /></div>
               </div>
-              <DialogFooter><Button type="submit" disabled={criar.isPending}>Salvar</Button></DialogFooter>
+              <DialogFooter><Button type="submit" disabled={criar.isPending}>{criar.isPending ? "Salvando..." : "Salvar"}</Button></DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
@@ -1515,7 +1547,10 @@ function BancosView() {
             <CardContent className="pt-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2"><Landmark className="h-4 w-4" style={{ color: b.cor || "#3b82f6" }} /><span className="font-semibold">{b.nome}</span></div>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (estabelecimentoId && confirm("Excluir?")) excluir.mutate({ id: b.id, estabelecimentoId }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-500" onClick={() => setEditBanco(b)} title="Editar"><Edit className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => { if (estabelecimentoId && confirm("Excluir?")) excluir.mutate({ id: b.id, estabelecimentoId }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </div>
               </div>
               <p className="text-lg font-bold">{formatCurrency(b.saldoInicial)}</p>
               <p className="text-xs text-muted-foreground">Saldo inicial</p>
@@ -1523,6 +1558,21 @@ function BancosView() {
           </Card>
         ))}
       </div>
+      <Dialog open={Boolean(editBanco)} onOpenChange={(open) => { if (!open) setEditBanco(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar Conta Bancária</DialogTitle></DialogHeader>
+          {editBanco && (
+            <form onSubmit={handleEditar} className="space-y-3">
+              <div><Label>Nome *</Label><Input name="nome" required defaultValue={editBanco.nome || ""} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Cor</Label><Input name="cor" type="color" defaultValue={editBanco.cor || "#3b82f6"} /></div>
+                <div><Label>Saldo Inicial</Label><Input name="saldoInicial" type="number" step="0.01" defaultValue={Number(editBanco.saldoInicial || 0)} /></div>
+              </div>
+              <DialogFooter><Button type="button" variant="outline" onClick={() => setEditBanco(null)}>Cancelar</Button><Button type="submit" disabled={atualizar.isPending}>{atualizar.isPending ? "Salvando..." : "Salvar"}</Button></DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1686,7 +1736,7 @@ function CentrosCusto() {
 // ==================== IMPORTADOR EXCEL ====================
 function ImportadorExcel() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const utils = trpc.useUtils();
   const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
@@ -1943,7 +1993,7 @@ function ImportadorExcel() {
 // ==================== CADASTROS ====================
 function Cadastros() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const utils = trpc.useUtils();
   const empresas = trpc.financeiro.empresas.listar.useQuery({ estabelecimentoId: estabelecimentoId || 0 }, { enabled: Boolean(estabelecimentoId) });
   const categorias = trpc.financeiro.categorias.listar.useQuery();
@@ -1956,13 +2006,13 @@ function Cadastros() {
   const [editCliente, setEditCliente] = useState<any>(null);
   const [cepLoading, setCepLoading] = useState(false);
 
-  const criarEmpresa = trpc.financeiro.empresas.criar.useMutation({ onSuccess: () => { utils.financeiro.empresas.invalidate(); toast.success("Empresa criada!"); setEmpDialog(false); } });
-  const criarCategoria = trpc.financeiro.categorias.criar.useMutation({ onSuccess: () => { utils.financeiro.categorias.invalidate(); toast.success("Categoria criada!"); setCatDialog(false); } });
-  const criarCliente = trpc.financeiro.clientes.criar.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente criado!"); setCliDialog(false); setEditCliente(null); } });
-  const atualizarCliente = trpc.financeiro.clientes.atualizar.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente atualizado!"); setCliDialog(false); setEditCliente(null); } });
-  const excluirEmpresa = trpc.financeiro.empresas.excluir.useMutation({ onSuccess: () => { utils.financeiro.empresas.invalidate(); toast.success("Empresa excluída!"); } });
-  const excluirCategoria = trpc.financeiro.categorias.excluir.useMutation({ onSuccess: () => { utils.financeiro.categorias.invalidate(); toast.success("Categoria excluída!"); } });
-  const excluirCliente = trpc.financeiro.clientes.excluir.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente excluído!"); } });
+  const criarEmpresa = trpc.financeiro.empresas.criar.useMutation({ onSuccess: () => { utils.financeiro.empresas.invalidate(); toast.success("Empresa criada!"); setEmpDialog(false); }, onError: (e) => toast.error(e.message) });
+  const criarCategoria = trpc.financeiro.categorias.criar.useMutation({ onSuccess: () => { utils.financeiro.categorias.invalidate(); toast.success("Categoria criada!"); setCatDialog(false); }, onError: (e) => toast.error(e.message) });
+  const criarCliente = trpc.financeiro.clientes.criar.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente criado!"); setCliDialog(false); setEditCliente(null); }, onError: (e) => toast.error(e.message) });
+  const atualizarCliente = trpc.financeiro.clientes.atualizar.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente atualizado!"); setCliDialog(false); setEditCliente(null); }, onError: (e) => toast.error(e.message) });
+  const excluirEmpresa = trpc.financeiro.empresas.excluir.useMutation({ onSuccess: () => { utils.financeiro.empresas.invalidate(); toast.success("Empresa excluída!"); }, onError: (e) => toast.error(e.message) });
+  const excluirCategoria = trpc.financeiro.categorias.excluir.useMutation({ onSuccess: () => { utils.financeiro.categorias.invalidate(); toast.success("Categoria excluída!"); }, onError: (e) => toast.error(e.message) });
+  const excluirCliente = trpc.financeiro.clientes.excluir.useMutation({ onSuccess: () => { utils.financeiro.clientes.invalidate(); toast.success("Cliente excluído!"); }, onError: (e) => toast.error(e.message) });
 
   return (
     <div className="space-y-6">
@@ -2095,7 +2145,7 @@ function Cadastros() {
             }} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2"><Label>Nome *</Label><Input name="nome" required defaultValue={editCliente?.nome || ""} /></div>
-                <div className="col-span-2"><Label>Empresa *</Label><select name="empresaId" required defaultValue={editCliente?.empresaId || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((empresa: any) => <option key={empresa.id} value={empresa.id}>{empresa.nome}</option>)}</select></div>
+                <div className="col-span-2"><Label>Empresa *</Label><select name="empresaId" required defaultValue={editCliente?.empresaId || empresas.data?.[0]?.id || ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Selecione...</option>{(empresas.data || []).map((empresa: any) => <option key={empresa.id} value={empresa.id}>{empresa.nome}</option>)}</select></div>
                 <div><Label>CNPJ/CPF</Label><Input name="cnpj" defaultValue={editCliente?.cnpj || ""} placeholder="00.000.000/0000-00" /></div>
                 <div><Label>Email</Label><Input name="email" type="email" defaultValue={editCliente?.email || ""} /></div>
                 <div><Label>Telefone</Label><Input name="telefone" defaultValue={editCliente?.telefone || ""} placeholder="(00) 00000-0000" /></div>
@@ -2165,7 +2215,7 @@ function Cadastros() {
 function BancoInterView() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const { user } = useAuth();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const [bancoId, setBancoId] = useState<number | null>(null);
   const bancos = trpc.financeiro.bancos.listar.useQuery(
     { estabelecimentoId: estabelecimentoId || 0 },
@@ -2197,7 +2247,7 @@ function BancoInterView() {
 // ==================== DRE ====================
 function DREView() {
   const { estabelecimentoAtual } = useEstabelecimento();
-  const estabelecimentoId = estabelecimentoAtual?.id && estabelecimentoAtual.id > 0 ? estabelecimentoAtual.id : null;
+  const estabelecimentoId = useEstabelecimentoFinanceiroId();
   const now = new Date();
   const [mes, setMes] = useState(() => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [viewMode, setViewMode] = useState<"mensal" | "trimestral" | "anual">("mensal");

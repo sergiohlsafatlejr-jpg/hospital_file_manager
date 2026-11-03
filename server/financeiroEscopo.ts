@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { finClientes, finEmpresas, finRecebiveis, finTransacoes } from "../drizzle/schema";
 import { getDb, verificarPermissaoEstabelecimento } from "./db";
 
@@ -31,8 +31,14 @@ export async function exigirEmpresaDaUnidade(empresaId: number, estabelecimentoI
 
 export async function exigirClienteDaEmpresa(clienteId: number, empresaId: number) {
   const db = await getDb();
-  if (!db || !Number.isSafeInteger(clienteId) || clienteId <= 0 ||
-    !(await db.select({ id: finClientes.id }).from(finClientes).where(and(eq(finClientes.id, clienteId), eq(finClientes.empresaId, empresaId))).limit(1)).length) {
+  if (!db || !Number.isSafeInteger(clienteId) || clienteId <= 0 || !Number.isSafeInteger(empresaId) || empresaId <= 0 ||
+    !(await db.select({ id: finClientes.id }).from(finClientes).where(and(
+      eq(finClientes.id, clienteId),
+      or(
+        eq(finClientes.empresaId, empresaId),
+        sql`${finClientes.empresaId} IN (SELECT e2.id FROM ${finEmpresas} e1 INNER JOIN ${finEmpresas} e2 ON e1.estabelecimentoId = e2.estabelecimentoId WHERE e1.id = ${empresaId})`
+      )
+    )).limit(1)).length) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não vinculado à empresa financeira" });
   }
 }

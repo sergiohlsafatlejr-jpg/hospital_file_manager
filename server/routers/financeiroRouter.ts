@@ -16,13 +16,138 @@ import {
 import { eq, desc, and, sql, like, gte, lte, asc, inArray } from "drizzle-orm";
 import { isNull, or } from "drizzle-orm";
 import { chaveContaPagar, contasPagarImportSchema, normalizarNome } from "../../shared/contasPagarImport";
+import { SAFATLE_ESTABELECIMENTO_ID } from "../../shared/const";
 import { dataCivilFinanceiraSchema, dataCivilParaBanco, hojeCivilBrasil, somarDiasCivis, valorDataCivil } from "../../shared/financeiroCivilDate";
 import { clienteDaUnidade, exigirClienteDaEmpresa, exigirEmpresaDaUnidade, exigirRecebiveisDaUnidade, exigirTransacoesDaUnidade, exigirUnidadeFinanceira, recebivelDaUnidade, transacaoDaUnidade } from "../financeiroEscopo";
 
 // Para filtrar DATE, compare DATE com DATE: usar Date (meio-dia) excluiria o dia inicial.
 const limiteDiaCivil = (iso: string) => sql`DATE(${iso})`;
 
+function normalizarValorFinanceiro(valor: string): string {
+  const limpo = String(valor ?? "").trim().replace(/[R$\s]/g, "");
+  if (!limpo) throw new TRPCError({ code: "BAD_REQUEST", message: "Valor obrigatório" });
+  const normalizado = limpo.includes(",") && limpo.includes(".")
+    ? limpo.replace(/\./g, "").replace(",", ".")
+    : limpo.replace(",", ".");
+  const num = Number(normalizado);
+  if (!Number.isFinite(num) || num < 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Valor inválido" });
+  }
+  return num.toFixed(2);
+}
+
+let estruturaFinanceiraPromise: Promise<void> | null = null;
+
+async function garantirEstruturaFinanceira(): Promise<void> {
+  const db = await getDb();
+  if (!db || typeof (db as any).execute !== "function") return;
+  if (!estruturaFinanceiraPromise) {
+    estruturaFinanceiraPromise = (async () => {
+      try {
+        const ensureColumn = async (table: string, col: string, ddl: string) => {
+          const res: any = await (db as any).execute(
+            sql.raw(`SHOW COLUMNS FROM \`${table}\` LIKE '${col}'`)
+          );
+          const rows = Array.isArray(res?.[0]) ? res[0] : Array.isArray(res) ? res : [];
+          if (rows.length === 0) {
+            await (db as any).execute(sql.raw(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`));
+          }
+        };
+
+        await ensureColumn("fin_bancos", "estabelecimentoId", "`estabelecimentoId` int NULL");
+        await ensureColumn("fin_bancos", "interClientId", "`interClientId` varchar(100) NULL");
+        await ensureColumn("fin_bancos", "interClientSecret", "`interClientSecret` text NULL");
+        await ensureColumn("fin_bancos", "interCertPem", "`interCertPem` text NULL");
+        await ensureColumn("fin_bancos", "interKeyPem", "`interKeyPem` text NULL");
+        await ensureColumn("fin_bancos", "interContaCorrente", "`interContaCorrente` text NULL");
+        await ensureColumn("fin_bancos", "interBaseUrl", "`interBaseUrl` varchar(255) NULL");
+
+        await ensureColumn("fin_recebiveis", "boletoSolicitacaoId", "`boletoSolicitacaoId` varchar(100) NULL");
+        await ensureColumn("fin_recebiveis", "boletoLinhaDigitavel", "`boletoLinhaDigitavel` varchar(100) NULL");
+        await ensureColumn("fin_recebiveis", "boletoPixCopiaCola", "`boletoPixCopiaCola` text NULL");
+        await ensureColumn("fin_recebiveis", "notaFiscalKey", "`notaFiscalKey` varchar(255) NULL");
+        await ensureColumn("fin_recebiveis", "emailEnviado", "`emailEnviado` enum('sim','nao') NOT NULL DEFAULT 'nao'");
+
+        // Vincular empresas e bancos órfãos ao estabelecimento central Safatle (2160001)
+        await (db as any).execute(
+          sql`UPDATE fin_empresas SET estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} WHERE estabelecimentoId IS NULL`
+        );
+        await (db as any).execute(
+          sql`UPDATE fin_bancos SET estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} WHERE estabelecimentoId IS NULL`
+        );
+
+        const empRes: any = await (db as any).execute(
+          sql`SELECT id, cnpj FROM fin_empresas WHERE estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} ORDER BY id ASC`
+        );
+        let empRows: any[] = Array.isArray(empRes?.[0]) ? empRes[0] : Array.isArray(empRes) ? empRes : [];
+        if (empRows.length === 0) {
+          await (db as any).execute(
+            sql`INSERT INTO fin_empresas (estabelecimentoId, nome, cnpj, userId) VALUES (${SAFATLE_ESTABELECIMENTO_ID}, 'Safatle Administração de Faturas', '35.818.414/0001-07', 1)`
+          );
+          const empRes2: any = await (db as any).execute(
+            sql`SELECT id, cnpj FROM fin_empresas WHERE estabelecimentoId = ${SAFATLE_ESTABELECIMENTO_ID} ORDER BY id ASC`
+          );
+          empRows = Array.isArray(empRes2?.[0]) ? empRes2[0] : Array.isArray(empRes2) ? empRes2 : [];
+        }
+
+        // Vincular clientes órfãos (empresaId IS NULL) à empresa correspondente do grupo Safatle
+        if (empRows.length > 0) {
+          const defaultEmpresaId = Number(empRows[0].id);
+          const controltec = empRows.find((e: any) => String(e.cnpj || "").replace(/\D/g, "") === "24785393000154");
+          const safatleAdm = empRows.find((e: any) => String(e.cnpj || "").replace(/\D/g, "") === "35818414000107");
+          if (controltec) {
+            await (db as any).execute(
+              sql`UPDATE fin_clientes SET empresaId = ${Number(controltec.id)} WHERE empresaId IS NULL AND REPLACE(REPLACE(REPLACE(COALESCE(cnpjSafatle, ''), '.', ''), '/', ''), '-', '') = '24785393000154'`
+            );
+          }
+          if (safatleAdm) {
+            await (db as any).execute(
+              sql`UPDATE fin_clientes SET empresaId = ${Number(safatleAdm.id)} WHERE empresaId IS NULL AND REPLACE(REPLACE(REPLACE(COALESCE(cnpjSafatle, ''), '.', ''), '/', ''), '-', '') = '35818414000107'`
+            );
+          }
+          await (db as any).execute(
+            sql`UPDATE fin_clientes SET empresaId = ${defaultEmpresaId} WHERE empresaId IS NULL`
+          );
+        }
+      } catch (err) {
+        estruturaFinanceiraPromise = null;
+        console.error("[Financeiro] Erro ao garantir estrutura financeira:", err);
+      }
+    })();
+  }
+  await estruturaFinanceiraPromise;
+}
+
+async function garantirEmpresaPadraoUnidade(estabelecimentoId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db || typeof (db as any).execute !== "function") return;
+  try {
+    const existing = await db.select({ id: finEmpresas.id })
+      .from(finEmpresas)
+      .where(eq(finEmpresas.estabelecimentoId, estabelecimentoId))
+      .limit(1);
+    if (existing.length > 0) return;
+
+    const estRes: any = await (db as any).execute(
+      sql`SELECT id, nome, cnpj FROM estabelecimentos WHERE id = ${estabelecimentoId} LIMIT 1`
+    );
+    const estRows: any[] = Array.isArray(estRes?.[0]) ? estRes[0] : Array.isArray(estRes) ? estRes : [];
+    const est = estRows[0];
+    const nomePadrao = est?.nome ? String(est.nome).trim() : `Unidade ${estabelecimentoId}`;
+    const cnpjPadrao = est?.cnpj ? String(est.cnpj).trim() : null;
+    await db.insert(finEmpresas).values({
+      estabelecimentoId,
+      nome: nomePadrao,
+      cnpj: cnpjPadrao,
+      userId: userId || 1,
+    });
+  } catch (err) {
+    console.error("[Financeiro] Erro ao garantir empresa padrão da unidade:", err);
+  }
+}
+
 async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) {
+  await garantirEstruturaFinanceira();
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Base financeira indisponível" });
   const [banco] = await db.select({ id: finBancos.id })
@@ -39,6 +164,8 @@ async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) 
 const empresasRouter = router({
   listar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+    await garantirEstruturaFinanceira();
+    await garantirEmpresaPadraoUnidade(input.estabelecimentoId, ctx.user.id);
     const db = (await getDb())!;
     return db.select().from(finEmpresas).where(eq(finEmpresas.estabelecimentoId, input.estabelecimentoId)).orderBy(finEmpresas.nome);
   }),
@@ -49,6 +176,7 @@ const empresasRouter = router({
       estabelecimentoId: z.number().int().positive(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
       const db = (await getDb())!;
       const [result] = await db.insert(finEmpresas).values({
@@ -67,6 +195,7 @@ const empresasRouter = router({
       estabelecimentoId: z.number().int().positive(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
       const db = (await getDb())!;
       await exigirEmpresaDaUnidade(input.id, input.estabelecimentoId);
@@ -108,6 +237,7 @@ const clientesRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().int().positive().optional() }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const conditions = [clienteDaUnidade(input.estabelecimentoId)];
@@ -123,7 +253,9 @@ const clientesRouter = router({
       cidade: z.string().optional(), uf: z.string().optional(), cnpjSafatle: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await garantirEstruturaFinanceira();
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const [result] = await db.insert(finClientes).values({
@@ -146,13 +278,14 @@ const clientesRouter = router({
       cidade: z.string().optional(), uf: z.string().optional(), cnpjSafatle: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await garantirEstruturaFinanceira();
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const [original] = await db.select({ id: finClientes.id, empresaId: finClientes.empresaId }).from(finClientes)
         .where(and(eq(finClientes.id, input.id), clienteDaUnidade(input.estabelecimentoId))).limit(1);
       if (!original) throw new TRPCError({ code: "FORBIDDEN", message: "Cliente não pertence ao estabelecimento" });
-      if (original.empresaId !== input.empresaId) throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa do cliente não pode ser trocada em um cadastro existente" });
       const { id, estabelecimentoId, ...data } = input;
       await db.update(finClientes).set({
         ...data, empresaId: data.empresaId, cnpj: data.cnpj || null,
@@ -245,6 +378,7 @@ const tiposRecebivelRouter = router({
 const bancosRouter = router({
   listar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive() })).query(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+    await garantirEstruturaFinanceira();
     const db = (await getDb())!;
     return db.select({
       id: finBancos.id,
@@ -258,19 +392,24 @@ const bancosRouter = router({
   }),
   criar: protectedProcedure.input(z.object({ estabelecimentoId: z.number().int().positive(), nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await garantirEstruturaFinanceira();
     const db = (await getDb())!;
-    const [result] = await db.insert(finBancos).values({ estabelecimentoId: input.estabelecimentoId, nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0", userId: ctx.user.id });
+    const saldoNormalizado = input.saldoInicial ? normalizarValorFinanceiro(input.saldoInicial) : "0.00";
+    const [result] = await db.insert(finBancos).values({ estabelecimentoId: input.estabelecimentoId, nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: saldoNormalizado, userId: ctx.user.id });
     return { id: result.insertId };
   }),
   atualizar: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive(), nome: z.string().min(1), cor: z.string().optional(), saldoInicial: z.string().optional() })).mutation(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+    await garantirEstruturaFinanceira();
     await exigirBancoDaUnidade(input.id, input.estabelecimentoId);
     const db = (await getDb())!;
-    await db.update(finBancos).set({ nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: input.saldoInicial || "0" }).where(and(eq(finBancos.id, input.id), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
+    const saldoNormalizado = input.saldoInicial ? normalizarValorFinanceiro(input.saldoInicial) : "0.00";
+    await db.update(finBancos).set({ nome: input.nome, cor: input.cor || "#3b82f6", saldoInicial: saldoNormalizado }).where(and(eq(finBancos.id, input.id), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
     return { success: true };
   }),
   excluir: protectedProcedure.input(z.object({ id: z.number().int().positive(), estabelecimentoId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
     await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "excluir");
+    await garantirEstruturaFinanceira();
     await exigirBancoDaUnidade(input.id, input.estabelecimentoId);
     const db = (await getDb())!;
     await db.delete(finBancos).where(and(eq(finBancos.id, input.id), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
@@ -353,6 +492,7 @@ const transacoesRouter = router({
       if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso ao estabelecimento" });
       }
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const p = input;
       const conditions = [eq(finEmpresas.estabelecimentoId, p.estabelecimentoId)];
@@ -410,15 +550,19 @@ const transacoesRouter = router({
       if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão de edição neste estabelecimento" });
       }
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const [empresa] = await db.select({ id: finEmpresas.id }).from(finEmpresas)
         .where(and(eq(finEmpresas.id, input.empresaId), eq(finEmpresas.estabelecimentoId, input.estabelecimentoId))).limit(1);
       if (!empresa) throw new TRPCError({ code: "BAD_REQUEST", message: "Empresa não vinculada ao estabelecimento selecionado" });
+      if (input.bancoId) await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
+      const valorNormalizado = normalizarValorFinanceiro(input.valor);
+      const pagoStatus = input.pago ?? (input.dataPagamento ? "sim" : "nao");
       const [result] = await db.insert(finTransacoes).values({
         empresaId: input.empresaId, categoriaId: input.categoriaId || null, tipoId: input.tipoId || null,
         custoId: input.custoId || null, bancoId: input.bancoId || null, centroCustoId: input.centroCustoId || null, descricao: input.descricao,
-        valor: input.valor, dataVencimento: dataCivilParaBanco(input.dataVencimento), dataPagamento: input.dataPagamento ? dataCivilParaBanco(input.dataPagamento) : null,
-        pago: input.pago || "nao", observacoes: input.observacoes || null, userId: ctx.user.id,
+        valor: valorNormalizado, dataVencimento: dataCivilParaBanco(input.dataVencimento), dataPagamento: input.dataPagamento ? dataCivilParaBanco(input.dataPagamento) : null,
+        pago: pagoStatus, observacoes: input.observacoes || null, userId: ctx.user.id,
       });
       return { id: result.insertId };
     }),
@@ -431,16 +575,21 @@ const transacoesRouter = router({
       pago: z.enum(["sim", "nao"]).optional(), observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await garantirEstruturaFinanceira();
       await exigirTransacoesDaUnidade([input.id], input.estabelecimentoId);
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
+      if (input.bancoId) await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       const db = (await getDb())!;
       const { id, estabelecimentoId, ...data } = input;
+      const valorNormalizado = normalizarValorFinanceiro(data.valor);
+      const pagoStatus = data.pago ?? (data.dataPagamento ? "sim" : "nao");
       await db.update(finTransacoes).set({
         empresaId: data.empresaId || null, categoriaId: data.categoriaId || null, tipoId: data.tipoId || null,
         custoId: data.custoId || null, bancoId: data.bancoId || null, centroCustoId: data.centroCustoId || null, descricao: data.descricao,
-        valor: data.valor, dataVencimento: dataCivilParaBanco(data.dataVencimento), dataPagamento: data.dataPagamento ? dataCivilParaBanco(data.dataPagamento) : null,
-        pago: data.pago || "nao", observacoes: data.observacoes || null,
+        valor: valorNormalizado, dataVencimento: dataCivilParaBanco(data.dataVencimento), dataPagamento: data.dataPagamento ? dataCivilParaBanco(data.dataPagamento) : null,
+        pago: pagoStatus, observacoes: data.observacoes || null,
       }).where(and(eq(finTransacoes.id, id), transacaoDaUnidade(estabelecimentoId)));
       return { success: true };
     }),
@@ -555,6 +704,7 @@ const recebiveisRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const p = input;
@@ -623,16 +773,20 @@ const recebiveisRouter = router({
       observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await garantirEstruturaFinanceira();
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       if (input.clienteId) await exigirClienteDaEmpresa(input.clienteId, input.empresaId);
-      if (input.bancoId) throw new TRPCError({ code: "BAD_REQUEST", message: "Banco sem vínculo de estabelecimento não pode ser associado a recebível" });
+      if (input.bancoId) await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       const db = (await getDb())!;
+      const valorNormalizado = normalizarValorFinanceiro(input.valor);
+      const recebidoStatus = input.recebido ?? (input.dataRecebimento ? "sim" : "nao");
       const [result] = await db.insert(finRecebiveis).values({
         empresaId: input.empresaId, clienteId: input.clienteId || null, tipoId: input.tipoId || null,
-        bancoId: input.bancoId || null, descricao: input.descricao, valor: input.valor,
+        bancoId: input.bancoId || null, descricao: input.descricao, valor: valorNormalizado,
         dataVencimento: dataCivilParaBanco(input.dataVencimento), dataRecebimento: input.dataRecebimento ? dataCivilParaBanco(input.dataRecebimento) : null,
-        recebido: input.recebido || "nao", tipoServico: input.tipoServico || null, descricaoServico: input.descricaoServico || null,
+        recebido: recebidoStatus, tipoServico: input.tipoServico || null, descricaoServico: input.descricaoServico || null,
         observacoes: input.observacoes || null, userId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -647,18 +801,22 @@ const recebiveisRouter = router({
       observacoes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
+      await garantirEstruturaFinanceira();
       await exigirRecebiveisDaUnidade([input.id], input.estabelecimentoId);
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       if (input.clienteId) await exigirClienteDaEmpresa(input.clienteId, input.empresaId);
-      if (input.bancoId) throw new TRPCError({ code: "BAD_REQUEST", message: "Banco sem vínculo de estabelecimento não pode ser associado a recebível" });
+      if (input.bancoId) await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
       const db = (await getDb())!;
       const { id, estabelecimentoId, ...data } = input;
+      const valorNormalizado = normalizarValorFinanceiro(data.valor);
+      const recebidoStatus = data.recebido ?? (data.dataRecebimento ? "sim" : "nao");
       await db.update(finRecebiveis).set({
         empresaId: data.empresaId, clienteId: data.clienteId || null, tipoId: data.tipoId || null,
-        bancoId: data.bancoId || null, descricao: data.descricao, valor: data.valor,
+        bancoId: data.bancoId || null, descricao: data.descricao, valor: valorNormalizado,
         dataVencimento: dataCivilParaBanco(data.dataVencimento), dataRecebimento: data.dataRecebimento ? dataCivilParaBanco(data.dataRecebimento) : null,
-        recebido: data.recebido || "nao", tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
+        recebido: recebidoStatus, tipoServico: data.tipoServico || null, descricaoServico: data.descricaoServico || null,
         observacoes: data.observacoes || null,
       }).where(and(eq(finRecebiveis.id, id), recebivelDaUnidade(estabelecimentoId)));
       return { success: true };
@@ -1366,6 +1524,7 @@ const dashboardRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), empresaId: z.number().optional(), mes: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       if (input.empresaId) await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       const db = (await getDb())!;
       const hoje = hojeCivilBrasil();
@@ -1386,9 +1545,11 @@ const dashboardRouter = router({
         escopoReceber.push(eq(finRecebiveis.empresaId, input.empresaId));
       }
 
-      // Saldo bancário
-      // Bancos e custos fixos ainda não possuem estabelecimentoId: não somar dados globais à unidade.
-      const saldoBancario = [{ total: "0", qtdBancos: 0 }];
+      // Saldo bancário do estabelecimento
+      const saldoBancario = await db.select({
+        total: sql<string>`COALESCE(SUM(${finBancos.saldoInicial}), 0)`,
+        qtdBancos: sql<number>`COUNT(*)`,
+      }).from(finBancos).where(eq(finBancos.estabelecimentoId, input.estabelecimentoId)).catch(() => [{ total: "0", qtdBancos: 0 }]);
 
       const [[despPago], [despPendente], [despVencido], [despVencidoCount], [recRecebido], [recPendente], [recPendenteCount], [despPendenteCount],
         [pagDia], [pagDiaCount], [pagDiaTotal],
@@ -1552,9 +1713,9 @@ const dashboardRouter = router({
 
       return {
         mesRef,
-        bancosSemSegregacao: true,
+        bancosSemSegregacao: false,
         saldoBancario: saldoBancario[0]?.total || "0",
-        qtdBancos: saldoBancario[0]?.qtdBancos || 0,
+        qtdBancos: Number(saldoBancario[0]?.qtdBancos || 0),
         despesasPago: despPago.total,
         despesasPendente: despPendente.total,
         despesasPendenteCount: despPendenteCount.count,
@@ -1587,6 +1748,7 @@ const dashboardRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), dias: z.number().int().min(1).max(365).default(30) }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const hojeStr = hojeCivilBrasil();
       const fimStr = somarDiasCivis(hojeStr, input.dias);
@@ -1654,6 +1816,7 @@ const dashboardRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), mes1: z.string(), mes2: z.string(), tipo: z.enum(["categoria", "descricao"]).default("categoria") }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const parse = (m: string) => {
         const [a, n] = m.split("-").map(Number);
@@ -1711,6 +1874,7 @@ const dashboardRouter = router({
     .input(z.object({ estabelecimentoId: z.number().int().positive(), mes: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId);
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const now = new Date();
       const mesRef = input?.mes || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -1886,6 +2050,7 @@ const importadorRouter = router({
       if (ctx.user.role !== "admin" && !await verificarPermissaoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão de edição neste estabelecimento" });
       }
+      await garantirEstruturaFinanceira();
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível" });
       // Toda verificação ocorre antes do primeiro INSERT. O bloqueio da empresa
@@ -1967,6 +2132,7 @@ const importadorRouter = router({
       }).refine(row => (row.recebido === "sim") === Boolean(row.dataRecebimento), { message: "Status e data de recebimento divergentes" })).min(1).max(500),
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       await exigirUnidadeFinanceira(ctx.user.id, input.estabelecimentoId, "editar");
       await exigirEmpresaDaUnidade(input.empresaId, input.estabelecimentoId);
       if (input.items.some(item => item.empresaId != null && item.empresaId !== input.empresaId)) {
