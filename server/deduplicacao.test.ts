@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MySqlDialect } from "drizzle-orm/mysql-core";
+import type { SQL } from "drizzle-orm";
 
 // Mock getDb
 const mockExecute = vi.fn();
@@ -8,13 +10,10 @@ vi.mock("./db", () => ({
   })),
 }));
 
-// Helper to extract query string from sql.raw() object
-function extractQuery(sqlObj: any): string {
-  if (typeof sqlObj === 'string') return sqlObj;
-  if (sqlObj?.queryChunks) {
-    return sqlObj.queryChunks.map((c: any) => c.value?.join?.('') || String(c)).join('');
-  }
-  return String(sqlObj);
+// Compila também fragmentos SQL aninhados, preservando valores como parâmetros.
+const dialect = new MySqlDialect();
+function extractQuery(sqlObj: SQL): string {
+  return dialect.sqlToQuery(sqlObj).sql;
 }
 
 import {
@@ -144,7 +143,9 @@ describe("itensConciliadosPorGuia - COALESCE para descricaoItem", () => {
 
     const queryCall = mockExecute.mock.calls[0][0];
     const queryStr = extractQuery(queryCall);
-    expect(queryStr).toContain("ca.contaNumero = 'C12345'");
+    expect(queryStr).toContain("ca.contaNumero = ?");
+    expect(queryStr).not.toContain("C12345");
+    expect(dialect.sqlToQuery(queryCall).params).toContain("C12345");
   });
 
   it("deve retornar array vazio quando não há itens", async () => {

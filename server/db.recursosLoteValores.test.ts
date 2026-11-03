@@ -258,10 +258,13 @@ describe("Issue #106 — valores de lote de recurso", () => {
     const consultas = db.execute.mock.calls
       .map(([query]: any[]) => sqlText(query))
       .join("\n");
-    expect(consultas).toMatch(/d\.estabelecimentoId\s*=\s*10/i);
-    expect(consultas).toMatch(/d\.convenio_id\s*=\s*20/i);
-    expect(consultas).toMatch(/ca\.estabelecimentoId\s*=\s*10/i);
-    expect(consultas).toMatch(/ca\.convenioId\s*=\s*20/i);
+    expect(consultas).toMatch(/d\.estabelecimentoId\s*=\s*\?/i);
+    expect(consultas).toMatch(/d\.convenio_id\s*=\s*\?/i);
+    expect(consultas).toMatch(/ca\.estabelecimentoId\s*=\s*\?/i);
+    expect(consultas).toMatch(/ca\.convenioId\s*=\s*\?/i);
+    for (const [query] of db.execute.mock.calls) {
+      expect(sqlQuery(query).params).toEqual([71, 10, 20]);
+    }
   });
 
   it("exporta campos obrigatórios e não usa solicitado como acatado", async () => {

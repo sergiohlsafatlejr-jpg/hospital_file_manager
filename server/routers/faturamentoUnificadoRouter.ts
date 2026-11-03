@@ -13,6 +13,10 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { exportarConciliacaoExcel } from "../exportacaoConciliacaoService";
 import * as marcarGlosadoService from "../marcarGlosadoService";
+import { exigirPermissaoGlosaManual } from "../glosaManualPermissions";
+import { exigirAcessoEstabelecimento } from "../recursoGlosaPermissions";
+import { glosaManualReconciliationSchema, glosaManualSubmissionSchema } from "../../shared/glosaManualSubmission";
+import { consultarStatusGlosaManual } from "../glosaManualReconciliation";
 import {
   dataPagamentoDemonstrativoSchema,
   idPositivoDemonstrativoSchema,
@@ -1036,40 +1040,30 @@ export const faturamentoUnificadoRouter = router({
 
   buscarGuiaFaturamentoParaGlosaManual: protectedProcedure
     .input(z.object({
-      estabelecimentoId: z.number().int().positive(),
-      termo: z.string().min(1),
-      convenioId: z.number().int().positive().optional(),
+      estabelecimentoId: z.number().int().positive().max(2_147_483_647),
+      termo: z.string().trim().min(1).max(255),
+      convenioId: z.number().int().positive().max(2_147_483_647).optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      if (input.convenioId !== undefined) {
+        await exigirPermissaoGlosaManual(ctx.user.id, input.estabelecimentoId, input.convenioId);
+      } else {
+        await exigirAcessoEstabelecimento(ctx.user.id, input.estabelecimentoId, "editar");
+      }
       return await faturamentoService.buscarGuiaFaturamentoParaGlosaManual(input);
     }),
 
+  consultarStatusGlosaManual: protectedProcedure
+    .input(glosaManualReconciliationSchema)
+    .query(async ({ input, ctx }) => {
+      // Autorização e leituras correntes ocorrem na mesma transação/lock do hospital.
+      return await consultarStatusGlosaManual({ ...input, userId: ctx.user.id });
+    }),
+
   lancarGlosaManualDemonstrativo: protectedProcedure
-    .input(z.object({
-      estabelecimentoId: z.number().int().positive(),
-      convenioId: z.number().int().positive(),
-      numeroGuia: z.string().min(1),
-      protocolo: z.string().optional(),
-      lotePrestador: z.string().optional(),
-      dataPagamento: z.string().optional(),
-      carteiraBeneficiario: z.string().optional(),
-      nomeBeneficiario: z.string().min(1),
-      itens: z.array(z.object({
-        sequencialItem: z.number().int().positive().optional(),
-        codigoItem: z.string().min(1),
-        descricaoItem: z.string().min(1),
-        tipoLancamento: z.string().optional(),
-        dataExecucao: z.string().optional(),
-        quantidade: z.number().positive().optional(),
-        valorInformado: z.number().nonnegative(),
-        valorPago: z.number().nonnegative(),
-        valorGlosa: z.number().nonnegative(),
-        codigoGlosa: z.string().optional(),
-        erroTiss: z.string().optional(),
-        justificativa: z.string().optional(),
-      })).min(1),
-    }))
+    .input(glosaManualSubmissionSchema)
     .mutation(async ({ input, ctx }) => {
+      await exigirPermissaoGlosaManual(ctx.user.id, input.estabelecimentoId, input.convenioId);
       return await faturamentoService.lancarGlosaManualDemonstrativo({
         ...input,
         userId: ctx.user.id,

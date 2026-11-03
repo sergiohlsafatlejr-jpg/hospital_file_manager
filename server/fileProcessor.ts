@@ -23,6 +23,10 @@ import type {
   InsertRecebimentoExcel,
 } from "../drizzle/schema";
 import { deveLimparExcelRetorno } from "./retornoUploadDispatch";
+import {
+  GLOSA_MANUAL_NO_ORIGINAL_MESSAGE,
+  isGlosaManualOriginName,
+} from "../shared/glosaManualOrigin";
 
 const router = Router();
 
@@ -70,15 +74,20 @@ router.post("/api/internal/process-file", async (req, res) => {
   // Se respondermos imediatamente, o Cloud Run pode reciclar a instância antes do parse terminar.
   // Com o parser streaming (26 MB heap, ~30s), cabe no timeout de 180s.
   try {
-    await plog(arquivoId, "info", "Iniciando processamento");
-    
     const arquivo = await db.getArquivoById(arquivoId);
     if (!arquivo) {
       await plog(arquivoId, "error", "Arquivo não encontrado no banco");
       await db.updateArquivoStatus(arquivoId, "erro");
       return res.status(404).json({ error: "Arquivo não encontrado" });
     }
-    
+
+    // Recusa esperada, não falha de processamento: não lançar no catch que marca erro.
+    // A âncora manual precisa permanecer processada e intacta para retries idempotentes.
+    if (isGlosaManualOriginName(arquivo.nome)) {
+      return res.status(409).json({ error: GLOSA_MANUAL_NO_ORIGINAL_MESSAGE });
+    }
+
+    await plog(arquivoId, "info", "Iniciando processamento");
     await plog(
       arquivoId,
       "info",
