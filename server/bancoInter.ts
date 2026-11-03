@@ -20,10 +20,30 @@
 
 import https from "https";
 import type { IncomingHttpHeaders } from "node:http";
+import { createHash } from "node:crypto";
 import { getDb } from "./db";
 import { finBancos } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { decryptBancoInterField } from "./bancoInterVault";
+
+/**
+ * Garante que a chave de 32 bytes (64 hex) do cofre Banco Inter esteja disponível em runtime.
+ * Se BANCO_INTER_ENCRYPTION_KEY já for um hex de 64 caracteres, mantém inalterada.
+ */
+export function garantirChaveCriptografiaInter() {
+  const atual = process.env.BANCO_INTER_ENCRYPTION_KEY;
+  if (typeof atual === "string" && /^[a-fA-F0-9]{64}$/.test(atual)) {
+    return;
+  }
+  const semente =
+    (typeof atual === "string" && atual.trim().length > 0 ? atual.trim() : "") ||
+    process.env.JWT_SECRET ||
+    process.env.DATABASE_URL ||
+    "safatle-portal-banco-inter-key-v1";
+  process.env.BANCO_INTER_ENCRYPTION_KEY = createHash("sha256")
+    .update(`safatle.banco-inter.master:${semente}`)
+    .digest("hex");
+}
 
 export interface InterConfig {
   bancoId?: number;
@@ -47,6 +67,7 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 export async function getInterConfig(bancoId?: number): Promise<InterConfig | null> {
   if (!Number.isSafeInteger(bancoId) || !bancoId || bancoId <= 0) return null;
   try {
+    garantirChaveCriptografiaInter();
     const db = await getDb();
     if (!db) return null;
     const [banco] = await db.select().from(finBancos).where(eq(finBancos.id, bancoId)).limit(1);
@@ -140,7 +161,16 @@ async function getAccessToken(config: InterConfig): Promise<string> {
     body,
   });
 
-  if (res.status !== 200) throw new Error(`inter_oauth_http_${res.status}`);
+  if (res.status !== 200) {
+    let detalhe = "";
+    try {
+      const parsed = JSON.parse(res.data);
+      detalhe = parsed.error_description || parsed.title || parsed.detail || parsed.error || "";
+    } catch {
+      detalhe = res.data?.slice(0, 160) || "";
+    }
+    throw new Error(`Falha na autenticação OAuth Banco Inter (HTTP ${res.status})${detalhe ? `: ${detalhe}` : ""}`);
+  }
 
   const data = JSON.parse(res.data) as { access_token: string; expires_in: number };
   tokenCache.set(cacheKey, {
@@ -149,6 +179,14 @@ async function getAccessToken(config: InterConfig): Promise<string> {
   });
 
   return data.access_token;
+}
+
+export function invalidarCacheTokenInter(bancoId?: number) {
+  if (bancoId) {
+    tokenCache.delete(String(bancoId));
+  } else {
+    tokenCache.clear();
+  }
 }
 
 /**
@@ -207,7 +245,19 @@ async function interRequest(
     body: postBody,
   });
 
-  if (res.status >= 400) throw new Error(`inter_api_http_${res.status}`);
+  if (res.status >= 400) {
+    let detalhe = "";
+    try {
+      const parsed = JSON.parse(res.data);
+      const violacoes = Array.isArray(parsed.violacoes)
+        ? parsed.violacoes.map((v: any) => `${v.propriedade || ""}: ${v.razao || v.mensagem || ""}`).join("; ")
+        : "";
+      detalhe = violacoes || parsed.detail || parsed.title || parsed.message || parsed.mensagem || "";
+    } catch {
+      detalhe = res.data?.slice(0, 200) || "";
+    }
+    throw new Error(`Erro na API do Banco Inter (HTTP ${res.status})${detalhe ? `: ${detalhe}` : ""}`);
+  }
 
   if (res.data) {
     try {
@@ -230,11 +280,15 @@ export async function getInterStatus(bancoId?: number) {
     hasClientSecret: !!config?.clientSecret,
     hasCert: !!config?.certPem,
     hasKey: !!config?.keyPem,
+    hasContaCorrente: !!config?.contaCorrente,
+    clientIdPreview: config?.clientId ? `${config.clientId.slice(0, 8)}...` : null,
+    baseUrl: config?.baseUrl || "https://cdpj.partners.bancointer.com.br",
   };
 }
 
-function operationFailure() {
-  return { configured: true, error: "Não foi possível concluir a operação com o Banco Inter." };
+function operationFailure(err?: unknown) {
+  const msg = err instanceof Error && err.message ? err.message : "Não foi possível concluir a operação com o Banco Inter.";
+  return { configured: true, error: msg };
 }
 
 // ==================== BANKING ====================
@@ -243,8 +297,8 @@ export async function consultarSaldo(bancoId?: number | InterConfig) {
   try {
     const data = await interRequest("/banking/v2/saldo", undefined, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -252,8 +306,8 @@ export async function consultarExtrato(dataInicio: string, dataFim: string, banc
   try {
     const data = await interRequest("/banking/v2/extrato", { params: { dataInicio, dataFim } }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -270,8 +324,8 @@ export async function consultarExtratoCompleto(
     if (tamanhoPagina !== undefined) params.tamanhoPagina = String(tamanhoPagina);
     const data = await interRequest("/banking/v2/extrato/completo", { params }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -279,8 +333,8 @@ export async function exportarExtratoPdf(dataInicio: string, dataFim: string, ba
   try {
     const data = await interRequest("/banking/v2/extrato/exportar", { params: { dataInicio, dataFim } }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -378,8 +432,8 @@ export async function emitirBoleto(input: EmitirBoletoInput, bancoIdParam?: numb
     }
 
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -387,8 +441,8 @@ export async function consultarBoleto(codigoSolicitacao: string, bancoId?: numbe
   try {
     const data = await interRequest(`/cobranca/v3/cobrancas/${codigoSolicitacao}`, undefined, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -407,8 +461,8 @@ export async function listarBoletos(
     if (itensPorPagina !== undefined) params["paginacao.itensPorPagina"] = String(itensPorPagina);
     const data = await interRequest("/cobranca/v3/cobrancas", { params }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -416,8 +470,8 @@ export async function downloadBoletoPdf(codigoSolicitacao: string, bancoId?: num
   try {
     const data = await interRequest(`/cobranca/v3/cobrancas/${codigoSolicitacao}/pdf`, undefined, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -428,8 +482,8 @@ export async function cancelarBoleto(codigoSolicitacao: string, motivoCancelamen
       body: { motivoCancelamento },
     }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }
 
@@ -439,7 +493,7 @@ export async function sumarioBoletos(dataInicial: string, dataFinal: string, ban
       params: { dataInicial, dataFinal },
     }, bancoId);
     return { configured: true, ...data };
-  } catch {
-    return operationFailure();
+  } catch (err) {
+    return operationFailure(err);
   }
 }

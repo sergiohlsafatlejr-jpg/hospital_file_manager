@@ -5,7 +5,7 @@ import fs from "fs/promises";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
-import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos } from "../bancoInter";
+import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos, garantirChaveCriptografiaInter, invalidarCacheTokenInter } from "../bancoInter";
 import { bancoInterEncryptionKeyAvailable, encryptBancoInterField } from "../bancoInterVault";
 import { enviarBoletoPorEmail, enviarNotaFiscalPorEmail } from "../services/emailService";
 import {
@@ -61,6 +61,9 @@ async function garantirEstruturaFinanceira(): Promise<void> {
         await ensureColumn("fin_bancos", "interKeyPem", "`interKeyPem` text NULL");
         await ensureColumn("fin_bancos", "interContaCorrente", "`interContaCorrente` text NULL");
         await ensureColumn("fin_bancos", "interBaseUrl", "`interBaseUrl` varchar(255) NULL");
+        await (db as any).execute(
+          sql.raw("ALTER TABLE `fin_bancos` MODIFY COLUMN `interClientSecret` text NULL, MODIFY COLUMN `interCertPem` text NULL, MODIFY COLUMN `interKeyPem` text NULL, MODIFY COLUMN `interContaCorrente` text NULL")
+        );
 
         await ensureColumn("fin_recebiveis", "boletoSolicitacaoId", "`boletoSolicitacaoId` varchar(100) NULL");
         await ensureColumn("fin_recebiveis", "boletoLinhaDigitavel", "`boletoLinhaDigitavel` varchar(100) NULL");
@@ -428,19 +431,22 @@ const bancosRouter = router({
       "https://cdpj-sandbox.partners.bancointer.com.br",
     ]).optional(),
   })).mutation(async ({ input }) => {
+    await garantirEstruturaFinanceira();
+    garantirChaveCriptografiaInter();
     if (!bancoInterEncryptionKeyAvailable()) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A chave exclusiva da integração bancária ainda não está configurada" });
     }
     await exigirBancoDaUnidade(input.bancoId, input.estabelecimentoId);
     const db = (await getDb())!;
     await db.update(finBancos).set({
-      interClientId: input.clientId,
-      interClientSecret: encryptBancoInterField(input.bancoId, "clientSecret", input.clientSecret),
-      interCertPem: encryptBancoInterField(input.bancoId, "certPem", input.certPem),
-      interKeyPem: encryptBancoInterField(input.bancoId, "keyPem", input.keyPem),
-      interContaCorrente: input.contaCorrente ? encryptBancoInterField(input.bancoId, "contaCorrente", input.contaCorrente) : null,
-      interBaseUrl: input.baseUrl || null,
+      interClientId: input.clientId.trim(),
+      interClientSecret: encryptBancoInterField(input.bancoId, "clientSecret", input.clientSecret.trim()),
+      interCertPem: encryptBancoInterField(input.bancoId, "certPem", input.certPem.trim()),
+      interKeyPem: encryptBancoInterField(input.bancoId, "keyPem", input.keyPem.trim()),
+      interContaCorrente: input.contaCorrente ? encryptBancoInterField(input.bancoId, "contaCorrente", input.contaCorrente.trim()) : null,
+      interBaseUrl: input.baseUrl || "https://cdpj.partners.bancointer.com.br",
     }).where(and(eq(finBancos.id, input.bancoId), eq(finBancos.estabelecimentoId, input.estabelecimentoId)));
+    invalidarCacheTokenInter(input.bancoId);
     return { success: true };
   }),
 });
@@ -1205,6 +1211,7 @@ const recebiveisRouter = router({
   gerarBoleto: protectedProcedure
     .input(z.object({
       recebivelId: z.number().int().positive(),
+      bancoId: z.number().int().positive().optional(),
       pagador: z.object({
         cpfCnpj: z.string(),
         tipoPessoa: z.enum(["FISICA", "JURIDICA"]),
@@ -1222,14 +1229,23 @@ const recebiveisRouter = router({
       })
     }))
     .mutation(async ({ input, ctx }) => {
+      await garantirEstruturaFinanceira();
       const db = (await getDb())!;
       const [recebivel] = await db.select().from(finRecebiveis).where(eq(finRecebiveis.id, input.recebivelId)).limit(1);
       if (!recebivel) throw new TRPCError({ code: "NOT_FOUND", message: "Recebível não encontrado" });
       const [empresa] = await db.select({ estabelecimentoId: finEmpresas.estabelecimentoId }).from(finEmpresas).where(eq(finEmpresas.id, recebivel.empresaId)).limit(1);
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
-      if (!recebivel.bancoId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Selecione um banco do estabelecimento antes de gerar boleto" });
-      await exigirBancoDaUnidade(recebivel.bancoId, empresa.estabelecimentoId);
+
+      let bancoEmissorId = input.bancoId || recebivel.bancoId || null;
+      if (!bancoEmissorId) {
+        const [bancoConfigurado] = await db.select({ id: finBancos.id }).from(finBancos)
+          .where(and(eq(finBancos.estabelecimentoId, empresa.estabelecimentoId), sql`${finBancos.interClientId} IS NOT NULL`))
+          .limit(1);
+        bancoEmissorId = bancoConfigurado?.id || null;
+      }
+      if (!bancoEmissorId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Selecione um banco do estabelecimento com API Banco Inter configurada antes de gerar o boleto." });
+      await exigirBancoDaUnidade(bancoEmissorId, empresa.estabelecimentoId);
 
       const dataVenc = new Date(recebivel.dataVencimento);
       const dataVencimentoStr = dataVenc.toISOString().split("T")[0];
@@ -1238,7 +1254,7 @@ const recebiveisRouter = router({
       const cleanCep = input.pagador.cep.replace(/\D/g, "");
 
       const interInput = {
-        bancoId: recebivel.bancoId,
+        bancoId: bancoEmissorId,
         seuNumero: `REC-${recebivel.id}-${Date.now()}`.substring(0, 15),
         valorNominal: parseFloat(recebivel.valor),
         dataVencimento: dataVencimentoStr,
@@ -1247,11 +1263,11 @@ const recebiveisRouter = router({
         formasRecebimento: ["BOLETO", "PIX"] as Array<"BOLETO" | "PIX">
       };
 
-      const result = await emitirBoleto(interInput, recebivel.bancoId);
+      const result = await emitirBoleto(interInput, bancoEmissorId);
       if (!result.configured) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: result.message || "A API do Banco Inter não está totalmente configurada."
+          message: result.message || "A API do Banco Inter não está totalmente configurada para o banco selecionado."
         });
       }
       if (result.error) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
@@ -1260,6 +1276,7 @@ const recebiveisRouter = router({
       }
 
       await db.update(finRecebiveis).set({
+        bancoId: bancoEmissorId,
         boletoSolicitacaoId: result.codigoSolicitacao,
         boletoLinhaDigitavel: result.boleto?.linhaDigitavel || null,
         boletoPixCopiaCola: result.pix?.pixCopiaECola || null
@@ -1268,7 +1285,7 @@ const recebiveisRouter = router({
       // Se houver email, tenta baixar e disparar o anexo
       if (input.pagador.email) {
         try {
-          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, recebivel.bancoId);
+          const pdfResult = await downloadBoletoPdf(result.codigoSolicitacao, bancoEmissorId);
           if (pdfResult && pdfResult.pdf) {
             let base64Nf: string | undefined = undefined;
             if (recebivel.notaFiscalKey) {

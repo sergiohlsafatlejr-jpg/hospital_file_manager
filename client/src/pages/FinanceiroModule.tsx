@@ -1225,8 +1225,10 @@ function ContasReceber() {
     const fd = new FormData(e.currentTarget);
     const cpfCnpj = fd.get("cpfCnpj") as string;
     const isPf = cpfCnpj.replace(/\D/g, "").length <= 11;
+    const bancoId = fd.get("bancoId") ? Number(fd.get("bancoId")) : undefined;
     gerarBoleto.mutate({
       recebivelId: boletoItem.id,
+      bancoId,
       pagador: {
         cpfCnpj,
         tipoPessoa: isPf ? "FISICA" : "JURIDICA",
@@ -1448,11 +1450,15 @@ function ContasReceber() {
           </DialogHeader>
           {boletoItem && (() => {
             const clienteAtrelado = boletoItem?.clienteId ? clientes.data?.find((c: any) => c.id === boletoItem.clienteId) : null;
-            const bancoAtrelado = boletoItem?.bancoId ? bancos.data?.find((b: any) => b.id === boletoItem.bancoId) : null;
+            const defaultBancoEmissorId = boletoItem?.bancoId || (bancos.data || []).find((b: any) => String(b.nome || "").toLowerCase().includes("inter"))?.id || bancos.data?.[0]?.id || "";
             return (
               <form onSubmit={handleGerarBoleto} className="space-y-3">
-                <div className="bg-muted/50 p-3 rounded-md text-sm mb-4">
-                  <span className="font-semibold">Banco Emissor:</span> {bancoAtrelado ? bancoAtrelado.nome : "Padrão (.env)"}
+                <div>
+                  <Label>Conta Bancária Emissora (Banco Inter) *</Label>
+                  <select name="bancoId" required defaultValue={defaultBancoEmissorId} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1">
+                    <option value="">Selecione o banco...</option>
+                    {(bancos.data || []).map((b: any) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Nome / Razão Social *</Label><Input name="nome" defaultValue={boletoItem?.clienteNome || clienteAtrelado?.nome || ""} required /></div>
@@ -2213,35 +2219,853 @@ function Cadastros() {
 
 // ==================== BANCO INTER ====================
 function BancoInterView() {
-  const { estabelecimentoAtual } = useEstabelecimento();
   const { user } = useAuth();
   const estabelecimentoId = useEstabelecimentoFinanceiroId();
-  const [bancoId, setBancoId] = useState<number | null>(null);
+  const utils = trpc.useUtils();
+
   const bancos = trpc.financeiro.bancos.listar.useQuery(
     { estabelecimentoId: estabelecimentoId || 0 },
     { enabled: Boolean(estabelecimentoId) }
   );
-  const status = trpc.financeiro.bancoInter.status.useQuery(
-    { estabelecimentoId: estabelecimentoId || 0, bancoId: bancoId || 0 },
-    { enabled: Boolean(estabelecimentoId && bancoId && user?.role === "admin") }
+  const clientes = trpc.financeiro.clientes.listar.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0 },
+    { enabled: Boolean(estabelecimentoId) }
   );
 
-  if (!estabelecimentoId) return <div className="py-12 text-center text-muted-foreground">Selecione um estabelecimento antes de acessar a integração bancária.</div>;
+  const [bancoId, setBancoId] = useState<number | null>(null);
+  const effectiveBancoId = useMemo(() => {
+    if (bancoId && (bancos.data || []).some((b: any) => b.id === bancoId)) return bancoId;
+    const interBank = (bancos.data || []).find((b: any) => String(b.nome || "").toLowerCase().includes("inter"));
+    return interBank?.id || bancos.data?.[0]?.id || null;
+  }, [bancoId, bancos.data]);
+
+  const [configOpen, setConfigOpen] = useState(false);
+  const [novoBancoOpen, setNovoBancoOpen] = useState(false);
+  const [emitirOpen, setEmitirOpen] = useState(false);
+  const [certPemText, setCertPemText] = useState("");
+  const [keyPemText, setKeyPemText] = useState("");
+  const [certFileName, setCertFileName] = useState("");
+  const [keyFileName, setKeyFileName] = useState("");
+  const [subTab, setSubTab] = useState<"boletos" | "extrato">("boletos");
+
+  const hoje = hojeCivilBrasil();
+  const inicioMes = `${hoje.slice(0, 7)}-01`;
+  const [dataInicioExtrato, setDataInicioExtrato] = useState(inicioMes);
+  const [dataFimExtrato, setDataFimExtrato] = useState(hoje);
+  const [dataInicioBoletos, setDataInicioBoletos] = useState(inicioMes);
+  const [dataFimBoletos, setDataFimBoletos] = useState(hoje);
+  const [situacaoBoleto, setSituacaoBoleto] = useState("TODOS");
+
+  const status = trpc.financeiro.bancoInter.status.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0, bancoId: effectiveBancoId || 0 },
+    { enabled: Boolean(estabelecimentoId && effectiveBancoId && user?.role === "admin") }
+  );
+
+  const isConfigured = Boolean(status.data?.configured);
+
+  const saldo = trpc.financeiro.bancoInter.saldo.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0, bancoId: effectiveBancoId || 0 },
+    { enabled: Boolean(estabelecimentoId && effectiveBancoId && isConfigured && user?.role === "admin") }
+  );
+
+  const extrato = trpc.financeiro.bancoInter.extrato.useQuery(
+    { estabelecimentoId: estabelecimentoId || 0, bancoId: effectiveBancoId || 0, dataInicio: dataInicioExtrato, dataFim: dataFimExtrato },
+    { enabled: Boolean(estabelecimentoId && effectiveBancoId && isConfigured && user?.role === "admin" && subTab === "extrato") }
+  );
+
+  const boletos = trpc.financeiro.bancoInter.listarBoletos.useQuery(
+    {
+      estabelecimentoId: estabelecimentoId || 0,
+      bancoId: effectiveBancoId || 0,
+      dataInicial: dataInicioBoletos,
+      dataFinal: dataFimBoletos,
+      situacao: situacaoBoleto === "TODOS" ? undefined : situacaoBoleto,
+    },
+    { enabled: Boolean(estabelecimentoId && effectiveBancoId && isConfigured && user?.role === "admin" && subTab === "boletos") }
+  );
+
+  const sumario = trpc.financeiro.bancoInter.sumarioBoletos.useQuery(
+    {
+      estabelecimentoId: estabelecimentoId || 0,
+      bancoId: effectiveBancoId || 0,
+      dataInicial: dataInicioBoletos,
+      dataFinal: dataFimBoletos,
+    },
+    { enabled: Boolean(estabelecimentoId && effectiveBancoId && isConfigured && user?.role === "admin" && subTab === "boletos") }
+  );
+
+  const criarBanco = trpc.financeiro.bancos.criar.useMutation({
+    onSuccess: (res) => {
+      utils.financeiro.bancos.invalidate();
+      setBancoId(res.id);
+      setNovoBancoOpen(false);
+      toast.success("Conta bancária criada!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const configurarInter = trpc.financeiro.bancos.configurarInter.useMutation({
+    onSuccess: () => {
+      utils.financeiro.bancoInter.invalidate();
+      setConfigOpen(false);
+      toast.success("Credenciais e certificado do Banco Inter salvos com criptografia AES-256-GCM!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const emitirBoletoAvulso = trpc.financeiro.bancoInter.emitirBoleto.useMutation({
+    onSuccess: (res: any) => {
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      utils.financeiro.bancoInter.invalidate();
+      setEmitirOpen(false);
+      toast.success(`Boleto emitido com sucesso! Código: ${res?.codigoSolicitacao || ""}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const downloadPdf = trpc.financeiro.bancoInter.downloadBoletoPdf.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.error || !data?.pdf) {
+        toast.error(data?.error || "PDF indisponível para este boleto.");
+        return;
+      }
+      try {
+        const byteString = atob(data.pdf);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        const blob = new Blob([ab], { type: "application/pdf" });
+        window.open(URL.createObjectURL(blob), "_blank");
+      } catch {
+        toast.error("Erro ao abrir PDF do boleto.");
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const cancelarBoletoMut = trpc.financeiro.bancoInter.cancelarBoleto.useMutation({
+    onSuccess: (res: any) => {
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
+      utils.financeiro.bancoInter.invalidate();
+      toast.success("Boleto cancelado com sucesso!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const exportarExtratoPdf = trpc.financeiro.bancoInter.extratoPdf.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.error || !data?.pdf) {
+        toast.error(data?.error || "Não foi possível exportar o PDF do extrato.");
+        return;
+      }
+      try {
+        const byteString = atob(data.pdf);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        const blob = new Blob([ab], { type: "application/pdf" });
+        window.open(URL.createObjectURL(blob), "_blank");
+      } catch {
+        toast.error("Erro ao abrir PDF do extrato.");
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleFileUpload = (file: File | undefined, target: "cert" | "key") => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = String(ev.target?.result || "").trim();
+      if (target === "cert") {
+        setCertPemText(content);
+        setCertFileName(file.name);
+      } else {
+        setKeyPemText(content);
+        setKeyFileName(file.name);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSalvarConfig = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!estabelecimentoId || !effectiveBancoId) {
+      toast.error("Selecione uma conta bancária primeiro.");
+      return;
+    }
+    const fd = new FormData(e.currentTarget);
+    const clientId = String(fd.get("clientId") || "").trim();
+    const clientSecret = String(fd.get("clientSecret") || "").trim();
+    const contaCorrente = String(fd.get("contaCorrente") || "").trim();
+    const baseUrl = String(fd.get("baseUrl") || "https://cdpj.partners.bancointer.com.br") as
+      | "https://cdpj.partners.bancointer.com.br"
+      | "https://cdpj-sandbox.partners.bancointer.com.br";
+    const certPem = certPemText.trim() || String(fd.get("certPem") || "").trim();
+    const keyPem = keyPemText.trim() || String(fd.get("keyPem") || "").trim();
+
+    if (!clientId || !clientSecret || !certPem || !keyPem) {
+      toast.error("Preencha Client ID, Client Secret, Certificado (.crt) e Chave Privada (.key).");
+      return;
+    }
+    configurarInter.mutate({
+      estabelecimentoId,
+      bancoId: effectiveBancoId,
+      clientId,
+      clientSecret,
+      certPem,
+      keyPem,
+      contaCorrente: contaCorrente || undefined,
+      baseUrl,
+    });
+  };
+
+  const handleEmitirBoletoAvulso = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!estabelecimentoId || !effectiveBancoId) return;
+    const fd = new FormData(e.currentTarget);
+    const cpfCnpj = String(fd.get("cpfCnpj") || "").replace(/\D/g, "");
+    const cep = String(fd.get("cep") || "").replace(/\D/g, "");
+    emitirBoletoAvulso.mutate({
+      estabelecimentoId,
+      bancoId: effectiveBancoId,
+      seuNumero: String(fd.get("seuNumero") || `BOL-${Date.now()}`).slice(0, 15),
+      valorNominal: Number(fd.get("valorNominal") || 0),
+      dataVencimento: String(fd.get("dataVencimento") || ""),
+      numDiasAgenda: Number(fd.get("numDiasAgenda") || 30),
+      pagador: {
+        cpfCnpj,
+        tipoPessoa: cpfCnpj.length <= 11 ? "FISICA" : "JURIDICA",
+        nome: String(fd.get("nome") || ""),
+        endereco: String(fd.get("endereco") || ""),
+        numero: String(fd.get("numero") || "") || undefined,
+        complemento: String(fd.get("complemento") || "") || undefined,
+        bairro: String(fd.get("bairro") || ""),
+        cidade: String(fd.get("cidade") || ""),
+        uf: String(fd.get("uf") || "").toUpperCase(),
+        cep,
+        email: String(fd.get("email") || "") || undefined,
+      },
+      formasRecebimento: ["BOLETO", "PIX"],
+    });
+  };
+
   if (user?.role !== "admin") {
-    return <Card className="border-amber-500/30 bg-amber-500/5"><CardContent className="pt-6 flex gap-3"><AlertCircle className="h-5 w-5 text-amber-600 shrink-0" /><div><h2 className="font-semibold">Acesso administrativo necessário</h2><p className="text-sm text-muted-foreground mt-1">A configuração e as operações diretas do Banco Inter ficam restritas ao administrador do Portal.</p></div></CardContent></Card>;
+    return (
+      <Card className="border-amber-500/30 bg-amber-500/5">
+        <CardContent className="pt-6 flex gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+          <div>
+            <h2 className="font-semibold">Acesso administrativo necessário</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              A configuração de certificados mTLS e as operações diretas da API do Banco Inter são exclusivas para administradores.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
-  return <div className="space-y-5">
-    <Card><CardHeader><CardTitle className="text-base">Banco Inter — configuração segura</CardTitle></CardHeader><CardContent className="space-y-4">
-      <p className="text-sm text-muted-foreground">Selecione a conta bancária do estabelecimento. O Portal não exibe nem devolve segredo, certificado, chave privada ou conta de cobrança.</p>
-      <div className="max-w-md space-y-2"><Label>Conta bancária do estabelecimento</Label><Select value={bancoId ? String(bancoId) : ""} onValueChange={(value) => setBancoId(Number(value))}><SelectTrigger><SelectValue placeholder="Selecione uma conta" /></SelectTrigger><SelectContent>{(bancos.data || []).map((b: any) => <SelectItem key={b.id} value={String(b.id)}>{b.nome}</SelectItem>)}</SelectContent></Select></div>
-      {bancos.isLoading && <p className="text-sm text-muted-foreground">Carregando contas bancárias...</p>}
-      {!bancos.isLoading && (bancos.data || []).length === 0 && <p className="text-sm text-muted-foreground">Nenhuma conta bancária cadastrada para este estabelecimento.</p>}
-    </CardContent></Card>
-    {bancoId && <Card className={status.data?.configured ? "border-green-500/30" : "border-amber-500/30 bg-amber-500/5"}><CardContent className="pt-6 flex items-start gap-3">
-      {status.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" /> : status.data?.configured ? <CheckCircle className="h-5 w-5 text-green-600 shrink-0" /> : <WifiOff className="h-5 w-5 text-amber-600 shrink-0" />}
-      <div className="space-y-1"><h3 className="font-semibold">{status.data?.configured ? "Credenciais protegidas configuradas" : "Integração ainda não configurada"}</h3><p className="text-sm text-muted-foreground">As operações de saldo, extrato, emissão, download e cancelamento permanecem desativadas nesta entrega. Elas exigem chave exclusiva configurada fora do banco, credenciais gravadas pelo endpoint administrativo cifrado e uma autorização operacional separada para chamadas ao Banco Inter.</p></div>
-    </CardContent></Card>}
-  </div>;
+
+  const listaBoletos: any[] = (boletos.data as any)?.cobrancas || (boletos.data as any)?.content || [];
+  const listaTransacoesExtrato: any[] = (extrato.data as any)?.transacoes || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Cabeçalho e Seletor de Conta */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Landmark className="h-5 w-5 text-orange-500" /> Integração API Banco Inter (mTLS + OAuth2 + Cobrança PIX/Boleto)
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Credenciais e certificados são armazenados com criptografia autenticada AES-256-GCM vinculada à conta bancária.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => setNovoBancoOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" /> Nova Conta Bancária
+              </Button>
+              <Button size="sm" onClick={() => setConfigOpen(true)} disabled={!effectiveBancoId} className="bg-orange-600 hover:bg-orange-700 text-white">
+                <Landmark className="h-4 w-4 mr-1" /> {isConfigured ? "Atualizar Credenciais API" : "Configurar API Banco Inter"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            <div className="space-y-1.5">
+              <Label>Conta Bancária Vinculada</Label>
+              <Select value={effectiveBancoId ? String(effectiveBancoId) : ""} onValueChange={(v) => setBancoId(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma conta bancária" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(bancos.data || []).map((b: any) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {effectiveBancoId && (
+              <div className={cn("rounded-lg border p-3 flex items-center justify-between", isConfigured ? "border-green-500/40 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5")}>
+                <div className="flex items-center gap-2.5">
+                  {status.isLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : isConfigured ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                  ) : (
+                    <WifiOff className="h-5 w-5 text-amber-600 shrink-0" />
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {isConfigured ? "API Banco Inter Configurada e Ativa" : "Credenciais ainda não configuradas para esta conta"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {isConfigured
+                        ? `Client ID: ${(status.data as any)?.clientIdPreview || "Configurado"} • Certificado mTLS e Chave Privada ativos`
+                        : "Clique em 'Configurar API Banco Inter' para informar Client ID, Secret, .crt e .key"}
+                    </p>
+                  </div>
+                </div>
+                {isConfigured && (
+                  <Button variant="ghost" size="sm" onClick={() => { utils.financeiro.bancoInter.invalidate(); toast.success("Status atualizado!"); }}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Painel Operacional quando Configurado */}
+      {isConfigured && effectiveBancoId && (
+        <>
+          {/* Cards de Saldo em Tempo Real */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="pt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Saldo Disponível (API Inter)</p>
+                    <p className="text-2xl font-bold mt-1 text-green-600">
+                      {saldo.isLoading ? "Consultando..." : (saldo.data as any)?.disponivel !== undefined ? formatCurrency((saldo.data as any).disponivel) : "—"}
+                    </p>
+                    {(saldo.data as any)?.error && <p className="text-xs text-red-500 mt-1">{(saldo.data as any).error}</p>}
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => saldo.refetch()} disabled={saldo.isFetching} title="Atualizar Saldo">
+                    <RefreshCw className={cn("h-4 w-4", saldo.isFetching && "animate-spin")} />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Bloqueado por Cheque</p>
+                <p className="text-xl font-bold mt-1">{formatCurrency((saldo.data as any)?.bloqueadoCheque || 0)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Bloqueado Judicial / Adm.</p>
+                <p className="text-xl font-bold mt-1">
+                  {formatCurrency(Number((saldo.data as any)?.bloqueadoJudicialmente || 0) + Number((saldo.data as any)?.bloqueadoAdministrativo || 0))}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-muted-foreground">Limite da Conta</p>
+                <p className="text-xl font-bold mt-1">{formatCurrency((saldo.data as any)?.limite || 0)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sub-abas: Cobrança (Boletos/PIX) e Extrato */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex gap-2">
+              <Button variant={subTab === "boletos" ? "default" : "outline"} size="sm" onClick={() => setSubTab("boletos")}>
+                <Banknote className="h-4 w-4 mr-1" /> Cobrança / Boletos com PIX
+              </Button>
+              <Button variant={subTab === "extrato" ? "default" : "outline"} size="sm" onClick={() => setSubTab("extrato")}>
+                <FileText className="h-4 w-4 mr-1" /> Extrato Bancário
+              </Button>
+            </div>
+            {subTab === "boletos" && (
+              <Button size="sm" onClick={() => setEmitirOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                <Plus className="h-4 w-4 mr-1" /> Emitir Boleto Avulso (PIX + Código de Barras)
+              </Button>
+            )}
+          </div>
+
+          {subTab === "boletos" ? (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base">Boletos Emitidos no Banco Inter</CardTitle>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Input type="date" value={dataInicioBoletos} onChange={(e) => setDataInicioBoletos(e.target.value)} className="h-8 text-xs w-36" />
+                    <span className="text-xs text-muted-foreground">até</span>
+                    <Input type="date" value={dataFimBoletos} onChange={(e) => setDataFimBoletos(e.target.value)} className="h-8 text-xs w-36" />
+                    <Select value={situacaoBoleto} onValueChange={setSituacaoBoleto}>
+                      <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">Todas situações</SelectItem>
+                        <SelectItem value="A_RECEBER">A Receber</SelectItem>
+                        <SelectItem value="RECEBIDO">Recebido / Pago</SelectItem>
+                        <SelectItem value="VENCIDO">Vencido</SelectItem>
+                        <SelectItem value="CANCELADO">Cancelado</SelectItem>
+                        <SelectItem value="EXPIRADO">Expirado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { boletos.refetch(); sumario.refetch(); }}>
+                      <RefreshCw className={cn("h-3.5 w-3.5 mr-1", boletos.isFetching && "animate-spin")} /> Consultar
+                    </Button>
+                  </div>
+                </div>
+                {sumario.data && !(sumario.data as any)?.error && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+                    <div className="rounded-md border p-2.5">
+                      <p className="text-xs text-muted-foreground">Recebidos</p>
+                      <p className="text-sm font-bold text-green-600">{formatCurrency((sumario.data as any)?.recebidos?.valor || 0)} ({(sumario.data as any)?.recebidos?.quantidade || 0})</p>
+                    </div>
+                    <div className="rounded-md border p-2.5">
+                      <p className="text-xs text-muted-foreground">Em Aberto</p>
+                      <p className="text-sm font-bold text-blue-600">{formatCurrency((sumario.data as any)?.abertos?.valor || 0)} ({(sumario.data as any)?.abertos?.quantidade || 0})</p>
+                    </div>
+                    <div className="rounded-md border p-2.5">
+                      <p className="text-xs text-muted-foreground">Vencidos</p>
+                      <p className="text-sm font-bold text-amber-600">{formatCurrency((sumario.data as any)?.vencidos?.valor || 0)} ({(sumario.data as any)?.vencidos?.quantidade || 0})</p>
+                    </div>
+                    <div className="rounded-md border p-2.5">
+                      <p className="text-xs text-muted-foreground">Cancelados</p>
+                      <p className="text-sm font-bold text-muted-foreground">{formatCurrency((sumario.data as any)?.cancelados?.valor || 0)} ({(sumario.data as any)?.cancelados?.quantidade || 0})</p>
+                    </div>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="p-0">
+                {(boletos.data as any)?.error ? (
+                  <div className="p-6 text-center text-sm text-red-500">{(boletos.data as any).error}</div>
+                ) : boletos.isLoading ? (
+                  <div className="p-8 text-center text-muted-foreground">Consultando boletos no Banco Inter...</div>
+                ) : listaBoletos.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm">Nenhum boleto encontrado no período selecionado.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 border-y">
+                        <tr>
+                          <th className="text-left p-3 text-xs font-semibold">Pagador</th>
+                          <th className="text-left p-3 text-xs font-semibold">Seu Número / Solicitação</th>
+                          <th className="text-left p-3 text-xs font-semibold">Vencimento</th>
+                          <th className="text-right p-3 text-xs font-semibold">Valor</th>
+                          <th className="text-center p-3 text-xs font-semibold">Situação</th>
+                          <th className="text-right p-3 text-xs font-semibold">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listaBoletos.map((item: any, idx: number) => {
+                          const cob = item.cobranca || item;
+                          const bol = item.boleto || item;
+                          const pix = item.pix || {};
+                          const codSolicitacao = cob.codigoSolicitacao || item.codigoSolicitacao;
+                          const situacao = cob.situacao || item.situacao || "—";
+                          return (
+                            <tr key={codSolicitacao || idx} className="border-b hover:bg-muted/20">
+                              <td className="p-3">
+                                <p className="font-medium">{cob.pagador?.nome || "—"}</p>
+                                <p className="text-xs text-muted-foreground">{cob.pagador?.cpfCnpj || ""}</p>
+                              </td>
+                              <td className="p-3 font-mono text-xs">
+                                <div>{cob.seuNumero || "—"}</div>
+                                <div className="text-[11px] text-muted-foreground">{codSolicitacao}</div>
+                              </td>
+                              <td className="p-3 whitespace-nowrap">{cob.dataVencimento ? formatarDataCivilBR(cob.dataVencimento) : "—"}</td>
+                              <td className="p-3 text-right font-semibold">{formatCurrency(cob.valorNominal)}</td>
+                              <td className="p-3 text-center">
+                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted">{situacao}</span>
+                              </td>
+                              <td className="p-3 text-right">
+                                <div className="flex justify-end gap-1">
+                                  {codSolicitacao && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={() => downloadPdf.mutate({ estabelecimentoId, bancoId: effectiveBancoId, codigoSolicitacao: codSolicitacao })}
+                                      disabled={downloadPdf.isPending}
+                                    >
+                                      <Download className="h-3 w-3 mr-1" /> PDF
+                                    </Button>
+                                  )}
+                                  {bol?.linhaDigitavel && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs"
+                                      onClick={() => { navigator.clipboard.writeText(bol.linhaDigitavel); toast.success("Linha digitável copiada!"); }}
+                                      title="Copiar Linha Digitável"
+                                    >
+                                      <Copy className="h-3 w-3 mr-1" /> Linha
+                                    </Button>
+                                  )}
+                                  {pix?.pixCopiaECola && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-emerald-600"
+                                      onClick={() => { navigator.clipboard.writeText(pix.pixCopiaECola); toast.success("PIX Copia e Cola copiado!"); }}
+                                      title="Copiar PIX Copia e Cola"
+                                    >
+                                      <Copy className="h-3 w-3 mr-1" /> PIX
+                                    </Button>
+                                  )}
+                                  {codSolicitacao && situacao !== "CANCELADO" && situacao !== "RECEBIDO" && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-red-500"
+                                      onClick={() => {
+                                        const motivo = window.prompt("Informe o motivo do cancelamento do boleto:", "Cancelamento solicitado pelo emissor");
+                                        if (motivo) {
+                                          cancelarBoletoMut.mutate({ estabelecimentoId, bancoId: effectiveBancoId, codigoSolicitacao: codSolicitacao, motivoCancelamento: motivo.slice(0, 50) });
+                                        }
+                                      }}
+                                    >
+                                      <XCircle className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <CardTitle className="text-base">Extrato da Conta Corrente (Banco Inter)</CardTitle>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Input type="date" value={dataInicioExtrato} onChange={(e) => setDataInicioExtrato(e.target.value)} className="h-8 text-xs w-36" />
+                    <span className="text-xs text-muted-foreground">até</span>
+                    <Input type="date" value={dataFimExtrato} onChange={(e) => setDataFimExtrato(e.target.value)} className="h-8 text-xs w-36" />
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => extrato.refetch()}>
+                      <RefreshCw className={cn("h-3.5 w-3.5 mr-1", extrato.isFetching && "animate-spin")} /> Consultar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => exportarExtratoPdf.mutate({ estabelecimentoId, bancoId: effectiveBancoId, dataInicio: dataInicioExtrato, dataFim: dataFimExtrato })}
+                      disabled={exportarExtratoPdf.isPending}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" /> Exportar PDF
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {(extrato.data as any)?.error ? (
+                  <div className="p-6 text-center text-sm text-red-500">{(extrato.data as any).error}</div>
+                ) : extrato.isLoading ? (
+                  <div className="p-8 text-center text-muted-foreground">Consultando extrato no Banco Inter...</div>
+                ) : listaTransacoesExtrato.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm">Nenhuma movimentação encontrada no período.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 border-y">
+                        <tr>
+                          <th className="text-left p-3 text-xs font-semibold">Data</th>
+                          <th className="text-left p-3 text-xs font-semibold">Tipo</th>
+                          <th className="text-left p-3 text-xs font-semibold">Título / Descrição</th>
+                          <th className="text-right p-3 text-xs font-semibold">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listaTransacoesExtrato.map((t: any, i: number) => {
+                          const isCredito = String(t.tipoOperacao || "").toUpperCase() === "C";
+                          return (
+                            <tr key={i} className="border-b hover:bg-muted/20">
+                              <td className="p-3 whitespace-nowrap">{t.dataEntrada ? formatarDataCivilBR(t.dataEntrada) : "—"}</td>
+                              <td className="p-3 text-xs">{t.tipoTransacao || t.tipoOperacao || "—"}</td>
+                              <td className="p-3">
+                                <p className="font-medium">{t.titulo || "—"}</p>
+                                {t.descricao && <p className="text-xs text-muted-foreground">{t.descricao}</p>}
+                              </td>
+                              <td className={cn("p-3 text-right font-semibold whitespace-nowrap", isCredito ? "text-green-600" : "text-red-600")}>
+                                {isCredito ? "+" : "-"}{formatCurrency(Math.abs(Number(t.valor || 0)))}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Modal: Configurar Credenciais e Certificados mTLS do Banco Inter */}
+      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Configurar Integração API Banco Inter (mTLS + OAuth2)</DialogTitle>
+            <DialogDescription>
+              Informe os dados da aplicação criada no Internet Banking PJ do Banco Inter (menu Soluções para sua empresa → Integrações).
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSalvarConfig} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>Ambiente da API *</Label>
+                <select
+                  name="baseUrl"
+                  defaultValue={(status.data as any)?.baseUrl || "https://cdpj.partners.bancointer.com.br"}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+                >
+                  <option value="https://cdpj.partners.bancointer.com.br">Produção (cdpj.partners.bancointer.com.br)</option>
+                  <option value="https://cdpj-sandbox.partners.bancointer.com.br">Sandbox / Homologação</option>
+                </select>
+              </div>
+              <div>
+                <Label>Conta Corrente (com dígito, apenas números)</Label>
+                <Input name="contaCorrente" placeholder="Ex: 12345678" className="mt-1" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>Client ID *</Label>
+                <Input name="clientId" required placeholder="UUID gerado no painel do Banco Inter" className="mt-1 font-mono text-xs" />
+              </div>
+              <div>
+                <Label>Client Secret *</Label>
+                <Input name="clientSecret" type="password" required placeholder="Client Secret da integração" className="mt-1 font-mono text-xs" />
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <Label>Certificado Digital (.crt ou .pem) *</Label>
+                <label className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  <Upload className="h-3.5 w-3.5" /> {certFileName ? `Arquivo: ${certFileName}` : "Carregar arquivo .crt / .pem"}
+                  <input type="file" accept=".crt,.pem,.cer" className="hidden" onChange={(e) => handleFileUpload(e.target.files?.[0], "cert")} />
+                </label>
+              </div>
+              <Textarea
+                name="certPem"
+                rows={4}
+                value={certPemText}
+                onChange={(e) => setCertPemText(e.target.value)}
+                placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                className="font-mono text-xs"
+                required
+              />
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <Label>Chave Privada (.key) *</Label>
+                <label className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  <Upload className="h-3.5 w-3.5" /> {keyFileName ? `Arquivo: ${keyFileName}` : "Carregar arquivo .key"}
+                  <input type="file" accept=".key,.pem" className="hidden" onChange={(e) => handleFileUpload(e.target.files?.[0], "key")} />
+                </label>
+              </div>
+              <Textarea
+                name="keyPem"
+                rows={4}
+                value={keyPemText}
+                onChange={(e) => setKeyPemText(e.target.value)}
+                placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                className="font-mono text-xs"
+                required
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setConfigOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={configurarInter.isPending} className="bg-orange-600 hover:bg-orange-700 text-white">
+                {configurarInter.isPending ? "Criptografando e salvando..." : "Salvar Credenciais Criptografadas"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Nova Conta Bancária */}
+      <Dialog open={novoBancoOpen} onOpenChange={setNovoBancoOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova Conta Bancária</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              criarBanco.mutate({
+                estabelecimentoId,
+                nome: String(fd.get("nome") || "Banco Inter"),
+                cor: String(fd.get("cor") || "#ff7a00"),
+                saldoInicial: String(fd.get("saldoInicial") || "0"),
+              });
+            }}
+            className="space-y-3"
+          >
+            <div>
+              <Label>Nome do Banco / Conta *</Label>
+              <Input name="nome" required defaultValue="Banco Inter" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Cor</Label>
+                <Input name="cor" type="color" defaultValue="#ff7a00" />
+              </div>
+              <div>
+                <Label>Saldo Inicial</Label>
+                <Input name="saldoInicial" type="number" step="0.01" defaultValue="0" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNovoBancoOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={criarBanco.isPending}>{criarBanco.isPending ? "Salvando..." : "Criar Conta"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Emitir Boleto Avulso com PIX */}
+      <Dialog open={emitirOpen} onOpenChange={setEmitirOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Emitir Boleto Híbrido (Código de Barras + PIX)</DialogTitle>
+            <DialogDescription>Emissão direta na Cobrança v3 do Banco Inter.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEmitirBoletoAvulso} className="space-y-3">
+            <div>
+              <Label>Preencher a partir de Cliente Cadastrado (opcional)</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+                onChange={(ev) => {
+                  const cli = (clientes.data || []).find((c: any) => String(c.id) === ev.target.value);
+                  if (!cli) return;
+                  const form = ev.target.closest("form")!;
+                  const setVal = (name: string, val: string) => {
+                    const el = form.querySelector(`[name="${name}"]`) as HTMLInputElement;
+                    if (el) el.value = val || "";
+                  };
+                  setVal("nome", cli.nome || "");
+                  setVal("cpfCnpj", cli.cnpj || "");
+                  setVal("cep", cli.cep || "");
+                  setVal("endereco", cli.endereco || "");
+                  setVal("numero", cli.numero || "");
+                  setVal("complemento", cli.complemento || "");
+                  setVal("bairro", cli.bairro || "");
+                  setVal("cidade", cli.cidade || "");
+                  setVal("uf", cli.uf || "");
+                  setVal("email", cli.email || "");
+                }}
+              >
+                <option value="">-- Selecionar cliente para autopreencher --</option>
+                {(clientes.data || []).map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.nome} {c.cnpj ? `(${c.cnpj})` : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Seu Número *</Label>
+                <Input name="seuNumero" defaultValue={`SAF-${Date.now().toString().slice(-6)}`} maxLength={15} required />
+              </div>
+              <div>
+                <Label>Valor (R$) *</Label>
+                <Input name="valorNominal" type="number" step="0.01" min="2.50" required />
+              </div>
+              <div>
+                <Label>Vencimento *</Label>
+                <Input name="dataVencimento" type="date" defaultValue={hoje} required />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Nome / Razão Social *</Label>
+                <Input name="nome" required />
+              </div>
+              <div>
+                <Label>CPF / CNPJ *</Label>
+                <Input name="cpfCnpj" required />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <div className="col-span-3">
+                <Label>Endereço *</Label>
+                <Input name="endereco" required />
+              </div>
+              <div>
+                <Label>Nº *</Label>
+                <Input name="numero" required />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Complemento</Label>
+                <Input name="complemento" />
+              </div>
+              <div>
+                <Label>Bairro *</Label>
+                <Input name="bairro" required />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>CEP *</Label>
+                <Input name="cep" required />
+              </div>
+              <div>
+                <Label>Cidade *</Label>
+                <Input name="cidade" required />
+              </div>
+              <div>
+                <Label>UF *</Label>
+                <Input name="uf" maxLength={2} required />
+              </div>
+            </div>
+            <div>
+              <Label>E-mail do Pagador</Label>
+              <Input name="email" type="email" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEmitirOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={emitirBoletoAvulso.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                {emitirBoletoAvulso.isPending ? "Emitindo no Banco Inter..." : "Emitir Boleto + PIX"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 // ==================== DRE ====================
