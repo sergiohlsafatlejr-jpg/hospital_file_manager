@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { contasConvenioItens, contasConvenioResumo, padraoPrecoConvenio, padraoGlosaConvenio, padraoQuantidadeItem, padroesCobranca, logAnaliseComparacao, convenios } from "../../drizzle/schema";
+import { contasConvenioItens, contasConvenioResumo, padraoPrecoConvenio, padraoGlosaConvenio, padraoQuantidadeItem, padroesCobranca, logAnaliseComparacao, convenios, tabelasPreco, convenioMapeamento, vinculacaoCodigos } from "../../drizzle/schema";
 import { eq, and, sql, or, inArray, isNull } from "drizzle-orm";
 import { logger } from "../_core/logger";
 import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
@@ -8,6 +8,371 @@ import {
   avaliarContextoMedicoInformativo,
   type ResultadoContextoMedicoNaComparacao,
 } from "./comparadorContextoMedicoInformativo";
+
+export const TOLERANCIA_PRECO_TABELA = 0.02;
+
+export function normalizarCodigoPreco(codigo: string | null | undefined): string {
+  if (!codigo) return "";
+  const limpo = String(codigo).trim().toUpperCase().replace(/[.\-\s/]/g, "");
+  if (!limpo) return "";
+  return limpo.replace(/^0+/, "") || "0";
+}
+
+function mapearTipoItemParaTabelaPreco(
+  tipoItem: string | null | undefined,
+): "diarias" | "mat_med" | "taxas" | "procedimentos" | null {
+  if (!tipoItem) return null;
+  const t = tipoItem.trim().toUpperCase();
+  if (t.includes("DIAR") || t === "D") return "diarias";
+  if (t.includes("TAX") || t === "T") return "taxas";
+  if (t.includes("MAT") || t.includes("MED") || t === "M") return "mat_med";
+  if (
+    t.includes("PROC") ||
+    t === "P" ||
+    t === "C" ||
+    t === "O" ||
+    t === "01" ||
+    t === "SADT" ||
+    t === "EXAME"
+  ) {
+    return "procedimentos";
+  }
+  return null;
+}
+
+export interface ItemTabelaPrecoIndexado {
+  id: number;
+  convenioId: number;
+  estabelecimentoId: number | null;
+  tipo: "diarias" | "mat_med" | "taxas" | "procedimentos";
+  procedimentoFonte: string | null;
+  codigo: string;
+  nome: string;
+  valor: number;
+  vigenciaInicio: Date | string | null;
+}
+
+export async function resolverConvenioIdParaConta(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  estabelecimentoId: number,
+  nomeConvenio: string | null | undefined,
+  codigoConvenio?: string | null,
+): Promise<number | null> {
+  const nomeLimpo = nomeConvenio?.trim();
+  if (!nomeLimpo) return null;
+  const nomeUpper = nomeLimpo.toUpperCase().replace(/\s+/g, " ");
+
+  try {
+    const mapeamentos = await db
+      .select({
+        convenioId: convenioMapeamento.convenioId,
+        nomeOrigem: convenioMapeamento.nomeOrigem,
+        codigoOrigem: convenioMapeamento.codigoOrigem,
+      })
+      .from(convenioMapeamento)
+      .where(
+        and(
+          eq(convenioMapeamento.estabelecimentoId, estabelecimentoId),
+          eq(convenioMapeamento.ativo, "sim"),
+        ),
+      );
+    if (Array.isArray(mapeamentos)) {
+      for (const m of mapeamentos) {
+        if (!m || typeof m.nomeOrigem !== "string" || !m.convenioId) continue;
+        const origemUpper = m.nomeOrigem.trim().toUpperCase().replace(/\s+/g, " ");
+        if (origemUpper === nomeUpper) return Number(m.convenioId);
+        if (
+          codigoConvenio &&
+          m.codigoOrigem &&
+          m.codigoOrigem.trim().toUpperCase() === codigoConvenio.trim().toUpperCase()
+        ) {
+          return Number(m.convenioId);
+        }
+      }
+    }
+  } catch {
+    // Ignorar se mock ou tabela indisponível
+  }
+
+  try {
+    const listaConvenios = await db
+      .select({
+        id: convenios.id,
+        nome: convenios.nome,
+        codigo: convenios.codigo,
+        estabelecimentoId: convenios.estabelecimentoId,
+      })
+      .from(convenios)
+      .where(
+        and(
+          eq(convenios.ativo, "sim"),
+          or(
+            eq(convenios.estabelecimentoId, estabelecimentoId),
+            isNull(convenios.estabelecimentoId),
+            eq(convenios.estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE),
+          ),
+        ),
+      );
+
+    if (Array.isArray(listaConvenios) && listaConvenios.length > 0) {
+      let melhorId: number | null = null;
+      let melhorScore = 0;
+
+      for (const conv of listaConvenios) {
+        if (!conv || typeof conv.nome !== "string" || !conv.id) continue;
+        const nomeSaf = conv.nome.trim().toUpperCase().replace(/\s+/g, " ");
+        if (!nomeSaf) continue;
+
+        let score = 0;
+        if (nomeSaf === nomeUpper) {
+          score = 100;
+        } else if (
+          codigoConvenio &&
+          conv.codigo &&
+          conv.codigo.trim().toUpperCase() === codigoConvenio.trim().toUpperCase()
+        ) {
+          score = 95;
+        } else if (nomeUpper.includes(nomeSaf) || nomeSaf.includes(nomeUpper)) {
+          score = 85;
+        } else {
+          const pHosp = nomeUpper.split(" ")[0];
+          const pSaf = nomeSaf.split(" ")[0];
+          if (pHosp && pHosp === pSaf && pHosp.length >= 4) {
+            score = 75;
+          }
+        }
+
+        if (score > 0 && conv.estabelecimentoId === estabelecimentoId) {
+          score += 5;
+        }
+
+        if (score > melhorScore) {
+          melhorScore = score;
+          melhorId = Number(conv.id);
+        }
+      }
+
+      if (melhorScore >= 75 && melhorId) {
+        return melhorId;
+      }
+    }
+  } catch {
+    // Ignorar se mock ou tabela indisponível
+  }
+
+  return null;
+}
+
+async function carregarMapaTabelaPrecos({
+  db,
+  convenioId,
+  estabelecimentoId,
+}: {
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>;
+  convenioId: number | null;
+  estabelecimentoId: number;
+}): Promise<{
+  buscarItem: (opcoes: {
+    codigoItemTuss?: string | null;
+    codigoItem?: string | null;
+    tipoItem?: string | null;
+  }) => { itemTabela: ItemTabelaPrecoIndexado; origemCodigo: "TUSS" | "INTERNO" | "VINCULO" } | null;
+  totalItensTabela: number;
+}> {
+  const vazio = {
+    buscarItem: () => null,
+    totalItensTabela: 0,
+  };
+  if (!convenioId || convenioId <= 0) return vazio;
+
+  let rows: any[] = [];
+  try {
+    const res = await db
+      .select({
+        id: tabelasPreco.id,
+        convenioId: tabelasPreco.convenioId,
+        estabelecimentoId: tabelasPreco.estabelecimentoId,
+        tipo: tabelasPreco.tipo,
+        procedimentoFonte: tabelasPreco.procedimentoFonte,
+        codigo: tabelasPreco.codigo,
+        nome: tabelasPreco.nome,
+        valor: tabelasPreco.valor,
+        vigenciaInicio: tabelasPreco.vigenciaInicio,
+      })
+      .from(tabelasPreco)
+      .where(
+        and(
+          eq(tabelasPreco.convenioId, convenioId),
+          eq(tabelasPreco.ativo, "sim"),
+          or(
+            eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
+            isNull(tabelasPreco.estabelecimentoId),
+            eq(tabelasPreco.estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE),
+          ),
+        ),
+      );
+    if (Array.isArray(res)) {
+      rows = res;
+    }
+  } catch {
+    return vazio;
+  }
+
+  const tiposValidos = new Set(["diarias", "mat_med", "taxas", "procedimentos"]);
+  const itensValidos: ItemTabelaPrecoIndexado[] = [];
+
+  for (const r of rows) {
+    if (!r || typeof r.codigo !== "string" || r.valor == null || !tiposValidos.has(r.tipo)) {
+      continue;
+    }
+    if (r.procedimentoFonte === "preco_portes" || r.procedimentoFonte === "porte_anestesico") {
+      continue;
+    }
+    const valorNum = parseFloat(String(r.valor));
+    if (!Number.isFinite(valorNum) || valorNum <= 0) continue;
+
+    itensValidos.push({
+      id: Number(r.id || 0),
+      convenioId: Number(r.convenioId),
+      estabelecimentoId: r.estabelecimentoId != null ? Number(r.estabelecimentoId) : null,
+      tipo: r.tipo,
+      procedimentoFonte: r.procedimentoFonte ?? null,
+      codigo: r.codigo.trim(),
+      nome: typeof r.nome === "string" ? r.nome : "",
+      valor: valorNum,
+      vigenciaInicio: r.vigenciaInicio ?? null,
+    });
+  }
+
+  if (itensValidos.length === 0) return vazio;
+
+  itensValidos.sort((a, b) => {
+    const aEstab = a.estabelecimentoId === estabelecimentoId ? 1 : 0;
+    const bEstab = b.estabelecimentoId === estabelecimentoId ? 1 : 0;
+    if (aEstab !== bEstab) return bEstab - aEstab;
+
+    const aFonte = a.procedimentoFonte === "dados_completo" ? 1 : 0;
+    const bFonte = b.procedimentoFonte === "dados_completo" ? 1 : 0;
+    if (aFonte !== bFonte) return bFonte - aFonte;
+
+    const aVig = a.vigenciaInicio ? new Date(a.vigenciaInicio).getTime() : 0;
+    const bVig = b.vigenciaInicio ? new Date(b.vigenciaInicio).getTime() : 0;
+    if (aVig !== bVig) return bVig - aVig;
+
+    return b.id - a.id;
+  });
+
+  const mapaExato = new Map<string, ItemTabelaPrecoIndexado[]>();
+  const mapaNormalizado = new Map<string, ItemTabelaPrecoIndexado[]>();
+
+  for (const item of itensValidos) {
+    const chaveExata = item.codigo.toUpperCase();
+    if (!mapaExato.has(chaveExata)) mapaExato.set(chaveExata, []);
+    mapaExato.get(chaveExata)!.push(item);
+
+    const chaveNorm = normalizarCodigoPreco(item.codigo);
+    if (chaveNorm) {
+      if (!mapaNormalizado.has(chaveNorm)) mapaNormalizado.set(chaveNorm, []);
+      mapaNormalizado.get(chaveNorm)!.push(item);
+    }
+  }
+
+  const mapaVinculoHospitalParaConvenio = new Map<string, string>();
+  try {
+    const vinculos = await db
+      .select({
+        codigoHospital: vinculacaoCodigos.codigoHospital,
+        codigoConvenio: vinculacaoCodigos.codigoConvenio,
+        convenioId: vinculacaoCodigos.convenioId,
+      })
+      .from(vinculacaoCodigos)
+      .where(
+        and(
+          eq(vinculacaoCodigos.estabelecimentoId, estabelecimentoId),
+          eq(vinculacaoCodigos.ativo, "sim"),
+          or(eq(vinculacaoCodigos.convenioId, convenioId), isNull(vinculacaoCodigos.convenioId)),
+        ),
+      );
+    if (Array.isArray(vinculos)) {
+      for (const v of vinculos) {
+        if (!v || typeof v.codigoHospital !== "string" || typeof v.codigoConvenio !== "string") continue;
+        const chHosp = v.codigoHospital.trim().toUpperCase();
+        const chConv = v.codigoConvenio.trim();
+        if (chHosp && chConv) {
+          if (!mapaVinculoHospitalParaConvenio.has(chHosp) || v.convenioId === convenioId) {
+            mapaVinculoHospitalParaConvenio.set(chHosp, chConv);
+          }
+          const chHospNorm = normalizarCodigoPreco(chHosp);
+          if (chHospNorm && (!mapaVinculoHospitalParaConvenio.has(chHospNorm) || v.convenioId === convenioId)) {
+            mapaVinculoHospitalParaConvenio.set(chHospNorm, chConv);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignorar se mock ou tabela indisponível
+  }
+
+  const selecionarCandidatoPorTipo = (
+    candidatos: ItemTabelaPrecoIndexado[] | undefined,
+    tipoAlvo: "diarias" | "mat_med" | "taxas" | "procedimentos" | null,
+  ): ItemTabelaPrecoIndexado | null => {
+    if (!candidatos || candidatos.length === 0) return null;
+    if (tipoAlvo) {
+      const doMesmoTipo = candidatos.find(c => c.tipo === tipoAlvo);
+      if (doMesmoTipo) return doMesmoTipo;
+    }
+    return candidatos[0];
+  };
+
+  const buscarPorCodigoUnico = (
+    cod: string | null | undefined,
+    tipoAlvo: "diarias" | "mat_med" | "taxas" | "procedimentos" | null,
+  ): ItemTabelaPrecoIndexado | null => {
+    const limpo = cod?.trim();
+    if (!limpo) return null;
+    const exato = selecionarCandidatoPorTipo(mapaExato.get(limpo.toUpperCase()), tipoAlvo);
+    if (exato) return exato;
+    const norm = normalizarCodigoPreco(limpo);
+    if (!norm) return null;
+    return selecionarCandidatoPorTipo(mapaNormalizado.get(norm), tipoAlvo);
+  };
+
+  return {
+    totalItensTabela: itensValidos.length,
+    buscarItem: ({ codigoItemTuss, codigoItem, tipoItem }) => {
+      const tipoAlvo = mapearTipoItemParaTabelaPreco(tipoItem);
+
+      // Prioridade 1: Código TUSS
+      const matchTuss = buscarPorCodigoUnico(codigoItemTuss, tipoAlvo);
+      if (matchTuss) {
+        return { itemTabela: matchTuss, origemCodigo: "TUSS" };
+      }
+
+      // Prioridade 2: Código interno do item
+      const matchInterno = buscarPorCodigoUnico(codigoItem, tipoAlvo);
+      if (matchInterno) {
+        return { itemTabela: matchInterno, origemCodigo: "INTERNO" };
+      }
+
+      // Prioridade 3: De-Para (vinculação de códigos hospital -> convênio)
+      for (const codOrig of [codigoItem, codigoItemTuss]) {
+        if (!codOrig) continue;
+        const codVinculado =
+          mapaVinculoHospitalParaConvenio.get(codOrig.trim().toUpperCase()) ||
+          mapaVinculoHospitalParaConvenio.get(normalizarCodigoPreco(codOrig));
+        if (codVinculado) {
+          const matchVinculo = buscarPorCodigoUnico(codVinculado, tipoAlvo);
+          if (matchVinculo) {
+            return { itemTabela: matchVinculo, origemCodigo: "VINCULO" };
+          }
+        }
+      }
+
+      return null;
+    },
+  };
+}
 
 /**
  * Motor de Comparação de Padrões de Cobrança (com suporte a Gabarito e Setor)
@@ -30,6 +395,8 @@ export interface Divergencia {
   campo?: string;
   valorEsperado?: string;
   valorEncontrado?: string;
+  valorCobrado?: number | string;
+  diferenca?: number | string;
   padraoId?: number;
   codigoItem?: string;
   descricaoItem?: string;
@@ -117,6 +484,8 @@ export interface ItemParaComparacao {
   valorTotal?: string | number | null;
   setor?: string | null;
   codigoProcedimento?: string | null;
+  codigoItemTuss?: string | null;
+  convenioId?: number | null;
   [campo: string]: unknown;
 }
 
@@ -376,62 +745,209 @@ export async function compararItensComPadroes({
   let padroesUsados = 0;
   const padroesDetalhados: PadraoUsadoDetalhe[] = [];
 
+  // 6b. Resolver convenioId (caso a conta venha do BANCO_CLIENTE / WARLEINE sem convenioId)
+  // e carregar a Tabela de Preços contratada (tabelasPreco) para todos os tipos de itens.
+  const itemComConvenioId = itens.find(i => Number(i.convenioId) > 0);
+  const convenioIdDireto = itemComConvenioId ? Number(itemComConvenioId.convenioId) : null;
+  const convenioIdEfetivo =
+    convenioIdDireto ??
+    (await resolverConvenioIdParaConta(db, estabelecimentoId, convenioNormalizado));
+
+  const mapaTabelaPrecos = await carregarMapaTabelaPrecos({
+    db,
+    convenioId: convenioIdEfetivo,
+    estabelecimentoId,
+  });
+  let itensAvaliadosTabelaPreco = 0;
+
   // 7. Analisar cada item
   for (const item of itens) {
-    const codigo = item.codigoItem ? String(item.codigoItem) : "";
+    const codigoInterno = item.codigoItem ? String(item.codigoItem).trim() : "";
+    const codigoTuss = (item as any).codigoItemTuss
+      ? String((item as any).codigoItemTuss).trim()
+      : item.codigoProcedimento
+        ? String(item.codigoProcedimento).trim()
+        : "";
+    const codigo = codigoInterno || codigoTuss;
     if (!codigo) continue;
 
-    const valorUnitario = parseFloat(String(item.valorUnitario ?? "0"));
-    const valorTotal = parseFloat(String(item.valorTotal ?? "0"));
     const quantidade = parseFloat(String(item.quantidade ?? "0"));
+    const qtdEfetiva = quantidade > 0 ? quantidade : 1;
+    const valorTotal = parseFloat(String(item.valorTotal ?? "0"));
+    const valorUnitarioRaw = parseFloat(String(item.valorUnitario ?? "0"));
+    const valorUnitario =
+      valorUnitarioRaw > 0
+        ? valorUnitarioRaw
+        : valorTotal > 0
+          ? valorTotal / qtdEfetiva
+          : 0;
     const setorItem = (item as any).setor || null;
 
-    // 7a. Comparação de PREÇO (com suporte a setor)
-    const candidatosPreco = mapPrecoPorCodigo.get(codigo) || [];
-    // Selecionar o melhor padrão de preço: setor específico > genérico
-    let padraoP = candidatosPreco.find(p => p.setor && setorItem && p.setor.trim().toUpperCase() === setorItem.trim().toUpperCase());
-    if (!padraoP) padraoP = candidatosPreco.find(p => !p.setor); // fallback genérico
-    if (!padraoP && candidatosPreco.length > 0) padraoP = candidatosPreco[0]; // qualquer um como último recurso
-    if (padraoP) {
-      const mediaUnit = parseFloat(padraoP.mediaUnitario || "0");
-      const desvioUnit = parseFloat(padraoP.desvioUnitario || "0");
-      const minUnit = parseFloat(padraoP.minUnitario || "0");
-      const maxUnit = parseFloat(padraoP.maxUnitario || "0");
+    // 7a. Comparação de PREÇO:
+    // Prioridade 1: Tabela de Preços Contratada (tabelasPreco) — busca por TUSS primeiro, fallback para código interno
+    // Prioridade 2: Padrão estatístico aprendido (padraoPrecoConvenio) apenas quando o item não existir na tabela
+    const matchTabela = mapaTabelaPrecos.buscarItem({
+      codigoItemTuss: codigoTuss || null,
+      codigoItem: codigoInterno || null,
+      tipoItem: item.tipoItem,
+    });
 
-      if (mediaUnit > 0 && valorUnitario > 0) {
-        const limiteInferior = Math.max(0, mediaUnit - 2 * desvioUnit);
-        const limiteSuperior = mediaUnit + 2 * desvioUnit;
+    if (matchTabela) {
+      itensAvaliadosTabelaPreco++;
+      const { itemTabela, origemCodigo } = matchTabela;
+      const valorTabela = itemTabela.valor;
 
-        if (valorUnitario > limiteSuperior) {
-          const percentAcima = ((valorUnitario - mediaUnit) / mediaUnit * 100).toFixed(1);
-          const severidade = valorUnitario > maxUnit ? "critico" : "alerta";
-          divergencias.push({
-            tipo: "PRECO",
-            severidade,
-            mensagem: `Valor unitário ${percentAcima}% acima da média (R$ ${mediaUnit.toFixed(2)}). Limite superior: R$ ${limiteSuperior.toFixed(2)}${padraoP.setor ? ` [Setor: ${padraoP.setor}]` : ''}`,
-            campo: "valorUnitario",
-            valorEsperado: `R$ ${mediaUnit.toFixed(2)} (±R$ ${desvioUnit.toFixed(2)})`,
-            valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
-            padraoId: padraoP.id,
-            codigoItem: codigo,
-            descricaoItem: item.descricaoItem || undefined,
-            setor: setorItem || undefined,
-            detalhes: { mediaUnit, desvioUnit, minUnit, maxUnit, limiteInferior, limiteSuperior },
-          });
-        } else if (valorUnitario < limiteInferior && limiteInferior > 0) {
-          const percentAbaixo = ((mediaUnit - valorUnitario) / mediaUnit * 100).toFixed(1);
-          divergencias.push({
-            tipo: "PRECO",
-            severidade: "info",
-            mensagem: `Valor unitário ${percentAbaixo}% abaixo da média (R$ ${mediaUnit.toFixed(2)}).${padraoP.setor ? ` [Setor: ${padraoP.setor}]` : ''}`,
-            campo: "valorUnitario",
-            valorEsperado: `R$ ${mediaUnit.toFixed(2)} (±R$ ${desvioUnit.toFixed(2)})`,
-            valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
-            padraoId: padraoP.id,
-            codigoItem: codigo,
-            descricaoItem: item.descricaoItem || undefined,
-            setor: setorItem || undefined,
-          });
+      if (valorTabela > 0 && valorUnitario > 0) {
+        const diffUnitario = Number((valorUnitario - valorTabela).toFixed(4));
+        const absDiffUnitario = Math.abs(diffUnitario);
+
+        if (absDiffUnitario > TOLERANCIA_PRECO_TABELA + 1e-6) {
+          const valorTotalCobrado = valorTotal > 0 ? valorTotal : valorUnitario * qtdEfetiva;
+          const valorTotalEsperado = valorTabela * qtdEfetiva;
+          const diffTotal = Number((valorTotalCobrado - valorTotalEsperado).toFixed(2));
+          const origemLabel =
+            origemCodigo === "TUSS"
+              ? `TUSS ${itemTabela.codigo}`
+              : origemCodigo === "VINCULO"
+                ? `De-Para ${itemTabela.codigo}`
+                : `Cód. ${itemTabela.codigo}`;
+
+          if (diffUnitario > 0) {
+            const percentAcima = ((diffUnitario / valorTabela) * 100).toFixed(1);
+            const severidade =
+              diffUnitario / valorTabela > 0.2 || Math.abs(diffTotal) >= 100
+                ? "critico"
+                : "alerta";
+
+            divergencias.push({
+              tipo: "PRECO",
+              severidade,
+              mensagem: `Valor unitário cobrado (R$ ${valorUnitario.toFixed(2)}) está ${percentAcima}% acima da Tabela de Preços (R$ ${valorTabela.toFixed(2)} | Dif. unit.: +R$ ${diffUnitario.toFixed(2)} | Dif. total: +R$ ${diffTotal.toFixed(2)}) [${origemLabel}]${setorItem ? ` [Setor: ${setorItem}]` : ""}`,
+              campo: "valorUnitario",
+              valorCobrado: valorUnitario.toFixed(2),
+              valorEsperado: valorTabela.toFixed(2),
+              valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
+              diferenca: diffUnitario.toFixed(2),
+              padraoId: itemTabela.id,
+              codigoItem: codigo,
+              descricaoItem: item.descricaoItem || itemTabela.nome || undefined,
+              setor: setorItem || undefined,
+              detalhes: {
+                fontePreco: "TABELA_PRECO",
+                tabelaPrecoId: itemTabela.id,
+                codigoTabela: itemTabela.codigo,
+                origemCodigo,
+                codigoTuss: codigoTuss || null,
+                codigoInterno: codigoInterno || null,
+                tipoTabela: itemTabela.tipo,
+                valorUnitarioTabela: valorTabela,
+                valorUnitarioCobrado: valorUnitario,
+                diferencaUnitaria: Number(diffUnitario.toFixed(2)),
+                quantidade: qtdEfetiva,
+                valorTotalEsperado: Number(valorTotalEsperado.toFixed(2)),
+                valorTotalCobrado: Number(valorTotalCobrado.toFixed(2)),
+                diferencaTotal: diffTotal,
+                tolerancia: TOLERANCIA_PRECO_TABELA,
+              },
+            });
+          } else {
+            const percentAbaixo = ((absDiffUnitario / valorTabela) * 100).toFixed(1);
+            const severidade =
+              absDiffUnitario / valorTabela > 0.2 || Math.abs(diffTotal) >= 100
+                ? "critico"
+                : "alerta";
+
+            divergencias.push({
+              tipo: "PRECO",
+              severidade,
+              mensagem: `Valor unitário cobrado (R$ ${valorUnitario.toFixed(2)}) está ${percentAbaixo}% abaixo da Tabela de Preços (R$ ${valorTabela.toFixed(2)} | Dif. unit.: -R$ ${absDiffUnitario.toFixed(2)} | Dif. total: -R$ ${Math.abs(diffTotal).toFixed(2)}) [${origemLabel}]${setorItem ? ` [Setor: ${setorItem}]` : ""}`,
+              campo: "valorUnitario",
+              valorCobrado: valorUnitario.toFixed(2),
+              valorEsperado: valorTabela.toFixed(2),
+              valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
+              diferenca: diffUnitario.toFixed(2),
+              padraoId: itemTabela.id,
+              codigoItem: codigo,
+              descricaoItem: item.descricaoItem || itemTabela.nome || undefined,
+              setor: setorItem || undefined,
+              detalhes: {
+                fontePreco: "TABELA_PRECO",
+                tabelaPrecoId: itemTabela.id,
+                codigoTabela: itemTabela.codigo,
+                origemCodigo,
+                codigoTuss: codigoTuss || null,
+                codigoInterno: codigoInterno || null,
+                tipoTabela: itemTabela.tipo,
+                valorUnitarioTabela: valorTabela,
+                valorUnitarioCobrado: valorUnitario,
+                diferencaUnitaria: Number(diffUnitario.toFixed(2)),
+                quantidade: qtdEfetiva,
+                valorTotalEsperado: Number(valorTotalEsperado.toFixed(2)),
+                valorTotalCobrado: Number(valorTotalCobrado.toFixed(2)),
+                diferencaTotal: diffTotal,
+                tolerancia: TOLERANCIA_PRECO_TABELA,
+              },
+            });
+          }
+        }
+      }
+    } else {
+      // Fallback: Padrão estatístico histórico (padraoPrecoConvenio) quando item não está na tabela de preços
+      const candidatosPreco =
+        mapPrecoPorCodigo.get(codigo) ||
+        (codigoTuss ? mapPrecoPorCodigo.get(codigoTuss) : undefined) ||
+        [];
+      // Selecionar o melhor padrão de preço: setor específico > genérico
+      let padraoP = candidatosPreco.find(p => p.setor && setorItem && p.setor.trim().toUpperCase() === setorItem.trim().toUpperCase());
+      if (!padraoP) padraoP = candidatosPreco.find(p => !p.setor); // fallback genérico
+      if (!padraoP && candidatosPreco.length > 0) padraoP = candidatosPreco[0]; // qualquer um como último recurso
+      if (padraoP) {
+        const mediaUnit = parseFloat(padraoP.mediaUnitario || "0");
+        const desvioUnit = parseFloat(padraoP.desvioUnitario || "0");
+        const minUnit = parseFloat(padraoP.minUnitario || "0");
+        const maxUnit = parseFloat(padraoP.maxUnitario || "0");
+
+        if (mediaUnit > 0 && valorUnitario > 0) {
+          const limiteInferior = Math.max(0, mediaUnit - 2 * desvioUnit);
+          const limiteSuperior = mediaUnit + 2 * desvioUnit;
+          const diffHistorico = valorUnitario - mediaUnit;
+
+          if (valorUnitario > limiteSuperior) {
+            const percentAcima = ((valorUnitario - mediaUnit) / mediaUnit * 100).toFixed(1);
+            const severidade = valorUnitario > maxUnit ? "critico" : "alerta";
+            divergencias.push({
+              tipo: "PRECO",
+              severidade,
+              mensagem: `Valor unitário ${percentAcima}% acima da média (R$ ${mediaUnit.toFixed(2)}). Limite superior: R$ ${limiteSuperior.toFixed(2)}${padraoP.setor ? ` [Setor: ${padraoP.setor}]` : ''}`,
+              campo: "valorUnitario",
+              valorCobrado: valorUnitario.toFixed(2),
+              valorEsperado: mediaUnit.toFixed(2),
+              valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
+              diferenca: diffHistorico.toFixed(2),
+              padraoId: padraoP.id,
+              codigoItem: codigo,
+              descricaoItem: item.descricaoItem || undefined,
+              setor: setorItem || undefined,
+              detalhes: { fontePreco: "PADRAO_HISTORICO", mediaUnit, desvioUnit, minUnit, maxUnit, limiteInferior, limiteSuperior },
+            });
+          } else if (valorUnitario < limiteInferior && limiteInferior > 0) {
+            const percentAbaixo = ((mediaUnit - valorUnitario) / mediaUnit * 100).toFixed(1);
+            divergencias.push({
+              tipo: "PRECO",
+              severidade: "info",
+              mensagem: `Valor unitário ${percentAbaixo}% abaixo da média (R$ ${mediaUnit.toFixed(2)}).${padraoP.setor ? ` [Setor: ${padraoP.setor}]` : ''}`,
+              campo: "valorUnitario",
+              valorCobrado: valorUnitario.toFixed(2),
+              valorEsperado: mediaUnit.toFixed(2),
+              valorEncontrado: `R$ ${valorUnitario.toFixed(2)}`,
+              diferenca: diffHistorico.toFixed(2),
+              padraoId: padraoP.id,
+              codigoItem: codigo,
+              descricaoItem: item.descricaoItem || undefined,
+              setor: setorItem || undefined,
+              detalhes: { fontePreco: "PADRAO_HISTORICO", mediaUnit, desvioUnit, minUnit, maxUnit, limiteInferior, limiteSuperior },
+            });
+          }
         }
       }
     }
@@ -600,7 +1116,7 @@ export async function compararItensComPadroes({
         procedimentosCobertosGabarito.add(`${c}|${setor}`);
       }
       
-      processarPadraoComposicao(melhorGabarito, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento);
+      processarPadraoComposicao(melhorGabarito, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento, mapaTabelaPrecos);
       gabaritosUsados++;
       
       const scoreCombo = 200; // Gabarito composto = máxima prioridade
@@ -650,7 +1166,7 @@ export async function compararItensComPadroes({
               const chaveCombo = `${p.codigoProcedimentoPrincipal}|${setor}`;
               if (!procedimentosJaAnalisados.has(chaveCombo)) {
                 procedimentosJaAnalisados.add(chaveCombo);
-                processarPadraoComposicao(p, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento);
+                processarPadraoComposicao(p, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento, mapaTabelaPrecos);
                 if (p.isGabarito === 1) gabaritosUsados++;
                 else padroesUsados++;
                 padroesDetalhados.push({
@@ -669,7 +1185,7 @@ export async function compararItensComPadroes({
         continue;
       }
 
-      processarPadraoComposicao(padrao, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento);
+      processarPadraoComposicao(padrao, codigosNoSetor, codigosNaConta, itensDoSetor, itens, setor, divergencias, tiposProcedimento, mapaTabelaPrecos);
       if (padrao.isGabarito === 1) gabaritosUsados++;
       else padroesUsados++;
       padroesDetalhados.push({
@@ -715,6 +1231,19 @@ export async function compararItensComPadroes({
         motivoSelecao: "Gabarito aplicado via procedimentos do XML de honorários médicos",
       });
     }
+  }
+
+  if (itensAvaliadosTabelaPreco > 0) {
+    padroesUsados++;
+    padroesDetalhados.push({
+      padraoId: 0,
+      padraoNome: `Tabela de Preços Contratada (${convenioNormalizado})`,
+      isGabarito: true,
+      convenioNome: convenioNormalizado,
+      setor: "TODOS",
+      scoreMatch: 100,
+      motivoSelecao: `Validação contratual de preços (${itensAvaliadosTabelaPreco} item(ns) conferido(s) na Tabela de Preços com tolerância de R$ ${TOLERANCIA_PRECO_TABELA.toFixed(2)})`,
+    });
   }
 
   // 10. Calcular resumo
@@ -770,7 +1299,8 @@ function processarPadraoComposicao(
   todosItens: any[],
   setor: string,
   divergencias: Divergencia[],
-  tiposProcedimento: Set<string>
+  tiposProcedimento: Set<string>,
+  mapaTabelaPrecos?: Awaited<ReturnType<typeof carregarMapaTabelaPrecos>>,
 ) {
   const isGab = padrao.isGabarito === 1;
   const setorPadrao = padrao.setor || 'GERAL';
@@ -862,12 +1392,27 @@ function processarPadraoComposicao(
           ? (isGab ? "critico" : "alerta")
           : (isGab ? "alerta" : "aviso"); // condicional tem severidade menor
         
+        const matchPrecoFaltante = mapaTabelaPrecos?.buscarItem({
+          codigoItemTuss: itemEsperado.codigo,
+          codigoItem: itemEsperado.codigo,
+          tipoItem: itemEsperado.tipo,
+        });
+        const valorUnitarioReferencia =
+          matchPrecoFaltante?.itemTabela.valor ??
+          (itemEsperado.valorMedio && itemEsperado.valorMedio > 0 ? itemEsperado.valorMedio : undefined);
+        const qtdRefFaltante = itemEsperado.quantidadeMedia && itemEsperado.quantidadeMedia > 0 ? itemEsperado.quantidadeMedia : 1;
+        const valorTotalEsperadoFaltante =
+          valorUnitarioReferencia != null ? Number((valorUnitarioReferencia * qtdRefFaltante).toFixed(2)) : undefined;
+
         divergencias.push({
           tipo: "ITEM_FALTANTE",
           severidade,
           mensagem: `Item "${itemEsperado.descricao || itemEsperado.codigo}" [${categoriaLabel}] esperado no kit de "${padrao.descricaoProcedimentoPrincipal}" (frequência: ${itemEsperado.frequencia.toFixed(0)}%) não encontrado na conta.${setorLabel} [Fonte: ${fonteLabel}${fonteSetorLabel}]`,
           codigoItem: itemEsperado.codigo,
           descricaoItem: itemEsperado.descricao,
+          valorCobrado: valorTotalEsperadoFaltante != null ? "0.00" : undefined,
+          valorEsperado: valorTotalEsperadoFaltante != null ? valorTotalEsperadoFaltante.toFixed(2) : undefined,
+          diferenca: valorTotalEsperadoFaltante != null ? (-valorTotalEsperadoFaltante).toFixed(2) : undefined,
           padraoId: padrao.id,
           isGabarito: isGab,
           setor: setor !== 'GERAL' ? setor : undefined,
@@ -876,7 +1421,8 @@ function processarPadraoComposicao(
             descricaoProcedimentoPrincipal: padrao.descricaoProcedimentoPrincipal,
             frequenciaEsperada: itemEsperado.frequencia,
             quantidadeMedia: itemEsperado.quantidadeMedia,
-            valorMedio: itemEsperado.valorMedio,
+            valorMedio: valorUnitarioReferencia ?? itemEsperado.valorMedio,
+            valorTabela: matchPrecoFaltante?.itemTabela.valor ?? null,
             fonte: fonteLabel,
             setorPadrao: padrao.setor || null,
             setorConta: setor,

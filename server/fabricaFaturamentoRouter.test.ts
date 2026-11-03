@@ -375,6 +375,13 @@ describe("Fábrica de Faturamento: escopo hospitalar e falha fechada", () => {
       codigoPrestadorExecutante: "05562645000131",
     });
 
+    const { formatDateBR, toInputDateValue } = await import("../client/src/lib/dateUtils");
+    expect(formatDateBR(ccItemInserido.dataExecucao)).toBe("02/10/2026");
+    expect(toInputDateValue(ccItemInserido.dataExecucao)).toBe("2026-10-02");
+    expect(formatDateBR(new Date("2026-10-27T00:00:00.000Z"))).toBe("27/10/2026");
+    expect(formatDateBR("2026-10-27T00:00:00.000Z")).toBe("27/10/2026");
+    expect(toInputDateValue(new Date("2026-10-27T00:00:00.000Z"))).toBe("2026-10-27");
+
     expect(ccItemInserido).toMatchObject({
       estabelecimentoId: 3,
       numeroConta: "CONTA-REGRESSAO-SINTETICA",

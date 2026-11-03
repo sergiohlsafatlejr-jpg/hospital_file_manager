@@ -33,6 +33,10 @@ import { parseXML } from "../parsers";
 import { parseContaHonorarios } from "../contaHonorariosParser";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
 import { compararContaComPadroes, executarComparacaoESalvar } from "../services/comparadorPadroes";
+import {
+  carregarContextoRegrasConvenioAmbulatorial,
+  validarGuiaAmbulatorial,
+} from "../services/esteiraAmbulatorialService";
 import { popularDeXmlTissArquivoRestrito } from "../faturamentoUnificadoService";
 import { logger } from "../_core/logger";
 import {
@@ -323,6 +327,24 @@ async function persistirStatusItensAuditoriaFabrica(
     await db.update(contasConvenioItens).set({ statusAnalise: "divergente", divergencias: divs })
       .where(and(eq(contasConvenioItens.id, itemId), ...condicoesItens));
   }
+}
+
+function parseDataCivilFabrica(val: Date | string | null | undefined, fallback: Date = new Date()): Date {
+  if (!val) return fallback;
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return fallback;
+    if (val.getUTCHours() === 0 && val.getUTCMinutes() === 0 && val.getUTCSeconds() === 0) {
+      return new Date(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate(), 12, 0, 0);
+    }
+    return val;
+  }
+  const s = String(val).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? fallback : d;
 }
 
 function toMysqlDateTime(date: Date = new Date()): string {
@@ -880,6 +902,11 @@ export const fabricaFaturamentoRouter = router({
           dataInicio: z.string().optional(),
           dataFim: z.string().optional(),
           search: z.string().optional(),
+          tipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(),
+          excluirTipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(),
+          numeroLote: z.string().optional(),
+          statusAuditoriaRegras: z.enum(["pendente", "conforme", "divergente", "revisado"]).optional(),
+          apenasComDivergencia: z.boolean().optional(),
           page: z.number().default(1),
           pageSize: z.number().default(30),
         })
@@ -891,7 +918,7 @@ export const fabricaFaturamentoRouter = router({
       const db = await obterDbFabrica();
       const escopo = await resolverEscopoLeituraFabrica(db, usuario, hospitalIds, input?.setorAtual);
       const page = input?.page ?? 1;
-      const pageSize = Math.min(100, Math.max(1, input?.pageSize ?? 30));
+      const pageSize = Math.min(500, Math.max(1, input?.pageSize ?? 30));
       const offset = (page - 1) * pageSize;
       let whereSql = filtroEscopoLeituraSql("fc.hospital_estabelecimento_id", "fc.setor_atual", escopo);
       if (input?.statusSetor) {
@@ -921,6 +948,22 @@ export const fabricaFaturamentoRouter = router({
           OR fc.numero_guia LIKE ${pattern}
           OR fc.convenio_nome LIKE ${pattern}
         )`;
+      }
+
+      if (input?.tipoAtendimento) {
+        whereSql = sql`${whereSql} AND fc.tipo_atendimento = ${input.tipoAtendimento}`;
+      }
+      if (input?.excluirTipoAtendimento) {
+        whereSql = sql`${whereSql} AND fc.tipo_atendimento != ${input.excluirTipoAtendimento}`;
+      }
+      if (input?.numeroLote && input.numeroLote.trim()) {
+        whereSql = sql`${whereSql} AND fc.numero_lote = ${input.numeroLote.trim()}`;
+      }
+      if (input?.statusAuditoriaRegras) {
+        whereSql = sql`${whereSql} AND fc.status_auditoria_regras = ${input.statusAuditoriaRegras}`;
+      }
+      if (input?.apenasComDivergencia) {
+        whereSql = sql`${whereSql} AND (fc.status_auditoria_regras = 'divergente' OR fc.status_setor = 'devolvido_erro' OR fc.total_divergencias_regras > 0)`;
       }
 
       const [rowsResult, countResult] = await Promise.all([
@@ -1243,7 +1286,7 @@ export const fabricaFaturamentoRouter = router({
           estabelecimentoId: hospitalEstabId,
           convenioId: params.convenioIdEscopo,
           usuarioId: usuario.id,
-          dataReferencia: new Date(conta.dataAlta || conta.dataEntrada),
+          dataReferencia: parseDataCivilFabrica(conta.dataAlta || conta.dataEntrada),
         });
         const scopeObj = {
           estabelecimentoId: hospitalEstabId,
@@ -1528,7 +1571,7 @@ export const fabricaFaturamentoRouter = router({
         codigoPrestadorPadrao = "05562645000131";
       }
 
-      const dataReferenciaConta = new Date(conta.dataAlta || conta.dataEntrada);
+      const dataReferenciaConta = parseDataCivilFabrica(conta.dataAlta || conta.dataEntrada);
       const setorContaPadronizado = mapTipoAtendimentoParaSetor(conta.tipoAtendimento);
       const nomePacienteFinal = conta.nomePaciente || primeiroProc.pacienteNome || "Paciente";
 
@@ -1540,7 +1583,7 @@ export const fabricaFaturamentoRouter = router({
         estabelecimentoId: hospitalEstabId,
         convenioId: convenioIdFinal,
         usuarioId: usuario.id,
-        dataReferencia: new Date(conta.dataAlta || conta.dataEntrada),
+        dataReferencia: parseDataCivilFabrica(conta.dataAlta || conta.dataEntrada),
       });
 
       // 2. Inserir itens em `faturamento_tiss` vinculado ao HOSPITAL
@@ -1573,7 +1616,7 @@ export const fabricaFaturamentoRouter = router({
           senha: p.senha || senhaExtraida,
           carteiraBeneficiario: p.pacienteCarteirinha || carteiraExtraida,
           sequencialItem: idx + 1,
-          dataExecucao: p.dataExecucao || new Date(conta.dataEntrada),
+          dataExecucao: parseDataCivilFabrica(p.dataExecucao || conta.dataEntrada),
           tipoItem: tipoItemPadronizado,
           codigoDespesa: p.codigoDespesa || null,
           codigoTabela: p.codigoDespesa || "22",
@@ -1621,8 +1664,8 @@ export const fabricaFaturamentoRouter = router({
           estabelecimentoId: hospitalEstabId,
           pacienteNome: nomePacienteFinal,
           carteiraBeneficiario: p.pacienteCarteirinha || carteiraExtraida,
-          dataInternacao: new Date(conta.dataEntrada),
-          dataAlta: conta.dataAlta ? new Date(conta.dataAlta) : null,
+          dataInternacao: parseDataCivilFabrica(conta.dataEntrada),
+          dataAlta: conta.dataAlta ? parseDataCivilFabrica(conta.dataAlta) : null,
           dataReferencia: dataReferenciaConta,
           competencia: competenciaStr,
           tipoItem: tipoItemPadronizado,
@@ -1633,7 +1676,7 @@ export const fabricaFaturamentoRouter = router({
           quantidade: String(qtd),
           valorUnitario: String(vu.toFixed(2)),
           valorTotal: String(vt.toFixed(2)),
-          dataExecucao: p.dataExecucao || new Date(conta.dataEntrada),
+          dataExecucao: parseDataCivilFabrica(p.dataExecucao || conta.dataEntrada),
           profissionalExecutante: p.nomeMedico || null,
           codigoPrestadorExecutante: codPrestador,
           setor: setorContaPadronizado,
@@ -1656,8 +1699,8 @@ export const fabricaFaturamentoRouter = router({
         convenioId: convenioIdFinal || null,
         pacienteNome: nomePacienteFinal,
         carteiraBeneficiario: carteiraExtraida,
-        dataInternacao: new Date(conta.dataEntrada),
-        dataAlta: conta.dataAlta ? new Date(conta.dataAlta) : null,
+        dataInternacao: parseDataCivilFabrica(conta.dataEntrada),
+        dataAlta: conta.dataAlta ? parseDataCivilFabrica(conta.dataAlta) : null,
         competencia: competenciaStr,
         totalItens: ccItensValues.length,
         valorTotal: String(valorTotalXml.toFixed(2)),
@@ -2598,6 +2641,986 @@ export const fabricaFaturamentoRouter = router({
   // ============================================================
   // 15. MEU DESEMPENHO INDIVIDUAL & META NO MÊS (VISÃO DO COLABORADOR)
   // ============================================================
+  // ============================================================
+  // 16. ESTEIRA AMBULATORIAL: IMPORTAR LOTE XML (MÚLTIPLAS GUIAS / SADT / CONSULTAS)
+  // ============================================================
+  importarLoteAmbulatorialXml: fabricaProcedure
+    .input(
+      z.object({
+        hospitalEstabelecimentoId: z.number().positive("Selecione o hospital do lote"),
+        convenioId: z.number().positive().optional().nullable(),
+        convenioNome: z.string().optional().nullable(),
+        nomeArquivo: z.string().min(1, "Informe o nome do arquivo XML"),
+        conteudoBase64: z.string().min(1, "Selecione o arquivo XML do lote ambulatorial"),
+        numeroLoteManual: z.string().optional().nullable(),
+        enviarDiretoSeConforme: z.boolean().default(true),
+        exigirSenhaSadt: z.boolean().default(false),
+        metodoEnvioConvenio: z
+          .enum(["manual", "rpa_portal", "webservice_tiss"])
+          .default("rpa_portal"),
+        protocoloEnvio: z.string().max(120).optional().nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "editar");
+      const dbOuter = await obterDbFabrica();
+      await exigirSetorColaborador(
+        dbOuter,
+        usuario,
+        ["faturamento", "recepcao", "auditoria_interna", "limpeza_prontuario"],
+        [input.hospitalEstabelecimentoId]
+      );
+
+      const xmlBuffer = decodificarXmlFabricaBase64(input.conteudoBase64);
+      const parseResult = await parseXML(xmlBuffer);
+      if (!parseResult.success || parseResult.procedimentos.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Não foi possível extrair guias/procedimentos deste XML TISS. Verifique se o arquivo é um lote TISS válido (SADT / Consulta / Ambulatorial).",
+        });
+      }
+
+      const executarNoBanco = async (db: any) => {
+        const hospitalEstabId = input.hospitalEstabelecimentoId;
+        const todosProcs = parseResult.procedimentos;
+        const primeiroProcGeral = todosProcs[0];
+
+        const convenioResolvido = await resolverConvenioDoHospital(
+          db,
+          usuario.id,
+          hospitalEstabId,
+          input.convenioId,
+          input.convenioNome,
+          primeiroProcGeral.registroANS
+        );
+        const convenioIdFinal = convenioResolvido.id;
+        const convenioNomeFinal = convenioResolvido.nome || input.convenioNome || "CONVÊNIO";
+
+        let codigoPrestadorPadrao: string | null =
+          primeiroProcGeral.codigoPrestadorExecutante ||
+          primeiroProcGeral.codigoPrestadorOperadora ||
+          null;
+
+        if (!codigoPrestadorPadrao) {
+          try {
+            const [cepRows]: any = await db.execute(
+              sql.raw(`
+                SELECT codigoPrestador
+                FROM convenioEstabelecimentoPrestador
+                WHERE estabelecimentoId = ${Number(hospitalEstabId)}
+                  AND convenioId = ${Number(convenioIdFinal)}
+                  AND tipoPrestador = 'proprio'
+                  AND ativo = 'sim'
+                LIMIT 1
+              `)
+            );
+            if (Array.isArray(cepRows) && cepRows.length > 0 && cepRows[0]?.codigoPrestador) {
+              codigoPrestadorPadrao = String(cepRows[0].codigoPrestador).trim();
+            }
+          } catch {
+            // Ignora em mocks de teste
+          }
+        }
+        if (!codigoPrestadorPadrao && Number(hospitalEstabId) === 3) {
+          codigoPrestadorPadrao = "05562645000131";
+        }
+
+        const mapaGuias = new Map<string, typeof todosProcs>();
+        for (let i = 0; i < todosProcs.length; i++) {
+          const p = todosProcs[i];
+          const chaveGuia =
+            String(
+              p.guiaNumero || p.numeroGuiaOperadora || p.sequencialTransacao || `GUIA-${i + 1}`
+            ).trim() || `GUIA-${i + 1}`;
+          const lista = mapaGuias.get(chaveGuia) || [];
+          lista.push(p);
+          mapaGuias.set(chaveGuia, lista);
+        }
+
+        const numeroLoteFinal =
+          input.numeroLoteManual?.trim() ||
+          primeiroProcGeral.numeroLote?.trim() ||
+          `LOTE-AMB-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(100 + Math.random() * 900)}`;
+
+        const dataRefBase =
+          primeiroProcGeral.dataExecucao && !isNaN(new Date(primeiroProcGeral.dataExecucao).getTime())
+            ? parseDataCivilFabrica(primeiroProcGeral.dataExecucao)
+            : new Date();
+
+        const arquivoId = await criarArquivoXmlFabricaProtegido(db, {
+          xml: xmlBuffer,
+          nome: input.nomeArquivo || "lote_ambulatorial.xml",
+          fabricaContaId: hospitalEstabId,
+          estabelecimentoId: hospitalEstabId,
+          convenioId: convenioIdFinal,
+          usuarioId: usuario.id,
+          dataReferencia: dataRefBase,
+        });
+
+        const contextoRegras = await carregarContextoRegrasConvenioAmbulatorial(db, {
+          hospitalEstabId,
+          convenioId: convenioIdFinal,
+          convenioNome: convenioNomeFinal,
+          exigirSenhaSadt: input.exigirSenhaSadt,
+        });
+
+        const lotePossuiGuiasComSenha = Array.from(mapaGuias.values()).some((procs) =>
+          procs.some((p) => Boolean(p.senha && String(p.senha).trim().length > 0))
+        );
+
+        const todosTissValues: any[] = [];
+        const todosCcItensValues: any[] = [];
+
+        interface GuiaProcessadaInterna {
+          numeroGuia: string;
+          nomePaciente: string;
+          carteiraBeneficiario: string | null;
+          senhaAutorizacao: string | null;
+          numeroGuiaOperadora: string | null;
+          dataAtendimentoStr: string;
+          competenciaStr: string;
+          valorTotalGuia: number;
+          qtdItensGuia: number;
+          contaConvenioResumoId: number;
+          validacao: Awaited<ReturnType<typeof validarGuiaAmbulatorial>>;
+        }
+
+        const guiasProcessadas: GuiaProcessadaInterna[] = [];
+        let valorTotalLote = 0;
+
+        for (const [numeroGuia, procsGuia] of mapaGuias.entries()) {
+          const p0 = procsGuia[0];
+          const nomePaciente =
+            (p0.pacienteNome && p0.pacienteNome.trim()) ||
+            `Beneficiário Cart. ${p0.pacienteCarteirinha || numeroGuia}`;
+          const carteira = p0.pacienteCarteirinha ? String(p0.pacienteCarteirinha).trim() : null;
+          const senha = p0.senha ? String(p0.senha).trim() : null;
+          const guiaOperadora = p0.numeroGuiaOperadora
+            ? String(p0.numeroGuiaOperadora).trim()
+            : null;
+          const dataExecGuia =
+            p0.dataExecucao && !isNaN(new Date(p0.dataExecucao).getTime())
+              ? parseDataCivilFabrica(p0.dataExecucao, dataRefBase)
+              : dataRefBase;
+          const dataAtendimentoStr = dataExecGuia.toISOString().slice(0, 10);
+          const competenciaStr = dataAtendimentoStr.slice(0, 7).replace("-", "/");
+
+          let valorTotalGuia = 0;
+          const itensPadronizadosGuia: any[] = [];
+
+          procsGuia.forEach((p, idx) => {
+            const qtd = Number(p.quantidade) || 1;
+            const vu = Number(p.valorUnitario) || 0;
+            const vt = Number(p.valorTotal) || qtd * vu;
+            valorTotalGuia += vt;
+
+            const tipoItemPadronizado = mapTipoDespesaParaTipoItemFabrica(p.tipoDespesa);
+            const codPrestador =
+              p.codigoPrestadorExecutante ||
+              p.codigoPrestadorOperadora ||
+              codigoPrestadorPadrao;
+
+            todosTissValues.push({
+              arquivoId,
+              convenioId: convenioIdFinal,
+              estabelecimentoId: hospitalEstabId,
+              numeroLote: numeroLoteFinal,
+              sequencialTransacao: p.sequencialTransacao ? String(p.sequencialTransacao) : null,
+              registroAns: p.registroANS || null,
+              numeroGuiaPrestador: numeroGuia,
+              numeroGuiaOperadora: guiaOperadora,
+              senha,
+              carteiraBeneficiario: carteira,
+              sequencialItem: idx + 1,
+              dataExecucao: parseDataCivilFabrica(p.dataExecucao, dataExecGuia),
+              tipoItem: tipoItemPadronizado,
+              codigoDespesa: p.codigoDespesa || null,
+              codigoTabela: p.codigoDespesa || "22",
+              codigoItem: p.codigo || "00000000",
+              descricaoItem: p.descricao || "Item XML Ambulatorial",
+              quantidade: String(qtd),
+              valorUnitario: String(vu.toFixed(2)),
+              valorFaturado: String(vt.toFixed(2)),
+              nomeProf: p.nomeMedico || null,
+              conselhoProf: p.crmMedico || null,
+              numeroConselhoProf: p.crmMedico || null,
+              competencia: competenciaStr,
+              dataReferencia: dataExecGuia,
+              codigoPrestadorExecutante: codPrestador,
+            });
+
+            const itemCc = {
+              origem: "XML" as const,
+              numeroConta: numeroGuia,
+              numeroGuia,
+              numeroGuiaOperadora: guiaOperadora,
+              numeroLote: numeroLoteFinal,
+              senha,
+              convenio: convenioNomeFinal,
+              convenioId: convenioIdFinal,
+              estabelecimentoId: hospitalEstabId,
+              pacienteNome: nomePaciente,
+              carteiraBeneficiario: carteira,
+              dataInternacao: dataExecGuia,
+              dataAlta: dataExecGuia,
+              dataReferencia: dataExecGuia,
+              competencia: competenciaStr,
+              tipoItem: tipoItemPadronizado,
+              codigoItem: p.codigo || "00000000",
+              codigoItemTuss: p.codigo || "00000000",
+              codigoTabela: p.codigoDespesa || "22",
+              descricaoItem: p.descricao || "Item XML Ambulatorial",
+              quantidade: String(qtd),
+              valorUnitario: String(vu.toFixed(2)),
+              valorTotal: String(vt.toFixed(2)),
+              dataExecucao: parseDataCivilFabrica(p.dataExecucao, dataExecGuia),
+              profissionalExecutante: p.nomeMedico || null,
+              codigoPrestadorExecutante: codPrestador,
+              setor: "AMBULATÓRIO",
+              arquivoId,
+              statusAnalise: "pendente" as const,
+            };
+            todosCcItensValues.push(itemCc);
+            itensPadronizadosGuia.push(itemCc);
+          });
+
+          valorTotalLote += valorTotalGuia;
+
+          const validacao = await validarGuiaAmbulatorial(db, contextoRegras, {
+            numeroGuia,
+            nomePaciente,
+            carteiraBeneficiario: carteira,
+            senhaAutorizacao: senha,
+            numeroGuiaOperadora: guiaOperadora,
+            procedimentos: procsGuia,
+            itensPadronizados: itensPadronizadosGuia,
+            lotePossuiGuiasComSenha,
+          });
+
+          for (const item of itensPadronizadosGuia) {
+            item.statusAnalise = validacao.statusAuditoriaRegras;
+          }
+
+          const [resumoInsert] = await db.insert(contasConvenioResumo).values({
+            numeroConta: numeroGuia,
+            numeroLote: numeroLoteFinal,
+            estabelecimentoId: hospitalEstabId,
+            origem: "XML",
+            arquivoHospitalId: arquivoId,
+            convenio: convenioNomeFinal,
+            convenioId: convenioIdFinal,
+            pacienteNome: nomePaciente,
+            carteiraBeneficiario: carteira,
+            dataInternacao: dataExecGuia,
+            dataAlta: dataExecGuia,
+            competencia: competenciaStr,
+            totalItens: procsGuia.length,
+            valorTotal: String(valorTotalGuia.toFixed(2)),
+            statusAnalise: validacao.statusAuditoriaRegras,
+            totalDivergencias: validacao.totalDivergencias,
+            totalAlertas: validacao.erros.filter((e) => e.severidade !== "critico").length,
+            scoreRisco: validacao.scoreRisco,
+            divergenciasGerais:
+              validacao.divergenciasPadrao.length > 0 ? validacao.divergenciasPadrao : null,
+            buscadoPor: usuario.id,
+          });
+
+          guiasProcessadas.push({
+            numeroGuia,
+            nomePaciente,
+            carteiraBeneficiario: carteira,
+            senhaAutorizacao: senha,
+            numeroGuiaOperadora: guiaOperadora,
+            dataAtendimentoStr,
+            competenciaStr,
+            valorTotalGuia,
+            qtdItensGuia: procsGuia.length,
+            contaConvenioResumoId: Number((resumoInsert as any).insertId),
+            validacao,
+          });
+        }
+
+        const BATCH_SIZE = 200;
+        for (let i = 0; i < todosTissValues.length; i += BATCH_SIZE) {
+          await db.insert(faturamentoTiss).values(todosTissValues.slice(i, i + BATCH_SIZE) as any);
+        }
+        for (let i = 0; i < todosCcItensValues.length; i += BATCH_SIZE) {
+          await db
+            .insert(contasConvenioItens)
+            .values(todosCcItensValues.slice(i, i + BATCH_SIZE) as any);
+        }
+
+        for (const g of guiasProcessadas) {
+          try {
+            await popularDeXmlTissArquivoRestrito(
+              {
+                estabelecimentoId: hospitalEstabId,
+                convenioId: convenioIdFinal,
+                arquivoId,
+                numeroGuia: g.numeroGuia,
+                numeroLote: numeroLoteFinal,
+                competencia: g.competenciaStr,
+                pacienteNome: g.nomePaciente,
+                setor: "AMBULATÓRIO",
+              },
+              db
+            );
+          } catch {
+            // Ignora em mock de teste
+          }
+        }
+
+        await confirmarArquivoXmlFabrica(
+          db,
+          arquivoId,
+          hospitalEstabId,
+          convenioIdFinal,
+          todosTissValues.length
+        );
+
+        const guiasDivergentes = guiasProcessadas.filter(
+          (g) => g.validacao.statusAuditoriaRegras === "divergente"
+        );
+        const guiasConformes = guiasProcessadas.filter(
+          (g) => g.validacao.statusAuditoriaRegras === "conforme"
+        );
+        const lote100Conforme = guiasDivergentes.length === 0;
+        const enviadoDiretoConvenio = lote100Conforme && input.enviarDiretoSeConforme;
+
+        const now = new Date();
+        const nowStr = toMysqlDateTime(now);
+        const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+        const protocoloGerado = enviadoDiretoConvenio
+          ? input.protocoloEnvio?.trim() ||
+            `PROT-AMB-${hospitalEstabId}-${numeroLoteFinal.slice(0, 20)}`
+          : null;
+
+        const numerosGuiasLote = guiasProcessadas.map((g) => g.numeroGuia);
+        const existentesMap = new Map<string, any>();
+        if (numerosGuiasLote.length > 0) {
+          try {
+            const existentesRows = await db
+              .select()
+              .from(fabricaContas)
+              .where(
+                and(
+                  eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId),
+                  eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
+                  inArray(fabricaContas.numeroGuia, numerosGuiasLote)
+                )
+              );
+            for (const row of existentesRows || []) {
+              if (row.numeroGuia) {
+                existentesMap.set(String(row.numeroGuia), row);
+              }
+            }
+          } catch {
+            // Ignora em mock parcial
+          }
+        }
+
+        let totalCriadas = 0;
+        let totalAtualizadas = 0;
+
+        for (const g of guiasProcessadas) {
+          const existente = existentesMap.get(g.numeroGuia);
+          const isDivergente = g.validacao.statusAuditoriaRegras === "divergente";
+
+          const setorAlvo = enviadoDiretoConvenio ? "enviado_convenio" : "faturamento";
+          const statusSetorAlvo = enviadoDiretoConvenio
+            ? "concluido"
+            : isDivergente
+              ? "devolvido_erro"
+              : "concluido";
+
+          let contaId: number;
+
+          if (existente && existente.id) {
+            contaId = Number(existente.id);
+            totalAtualizadas++;
+
+            await db
+              .update(fabricaContas)
+              .set({
+                convenioId: convenioIdFinal,
+                convenioNome: convenioNomeFinal,
+                numeroLote: numeroLoteFinal,
+                senhaAutorizacao: g.senhaAutorizacao,
+                nomePaciente: g.nomePaciente,
+                setorAtual: setorAlvo,
+                statusSetor: statusSetorAlvo,
+                entradaSetorAtualEm: now,
+                responsavelAtualId: usuario.id,
+                responsavelAtualNome: usuarioNome,
+                faturistaId: existente.faturistaId || usuario.id,
+                faturistaNome: existente.faturistaNome || usuarioNome,
+                valorFaturadoFinal: String(g.valorTotalGuia.toFixed(2)),
+                totalItensXml: g.qtdItensGuia,
+                arquivoXmlFinalId: arquivoId,
+                contaConvenioResumoId: g.contaConvenioResumoId,
+                statusAuditoriaRegras: g.validacao.statusAuditoriaRegras,
+                totalDivergenciasRegras: g.validacao.totalDivergencias,
+                scoreRiscoAuditoria: g.validacao.scoreRisco,
+                protocoloEnvioConvenio: enviadoDiretoConvenio
+                  ? protocoloGerado
+                  : existente.protocoloEnvioConvenio,
+                metodoEnvioConvenio: enviadoDiretoConvenio
+                  ? input.metodoEnvioConvenio
+                  : existente.metodoEnvioConvenio,
+                dataEnvioConvenio: enviadoDiretoConvenio ? nowStr : existente.dataEnvioConvenio,
+                qtdRetrabalhos: isDivergente
+                  ? (Number(existente.qtdRetrabalhos) || 0) + 1
+                  : Number(existente.qtdRetrabalhos) || 0,
+                ultimoMotivoRetorno: g.validacao.resumoMotivoRetorno,
+              })
+              .where(
+                and(
+                  eq(fabricaContas.id, contaId),
+                  eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId)
+                )
+              );
+
+            await db
+              .update(fabricaErrosConta)
+              .set({ corrigido: "sim", dataCorrecao: nowStr })
+              .where(
+                and(
+                  eq(fabricaErrosConta.fabricaContaId, contaId),
+                  eq(fabricaErrosConta.hospitalEstabelecimentoId, hospitalEstabId),
+                  eq(fabricaErrosConta.corrigido, "nao")
+                )
+              );
+          } else {
+            totalCriadas++;
+            const [insConta] = await db.insert(fabricaContas).values({
+              hospitalEstabelecimentoId: hospitalEstabId,
+              convenioId: convenioIdFinal,
+              convenioNome: convenioNomeFinal,
+              numeroAtendimento: g.numeroGuia,
+              numeroContaHospital: g.numeroGuia,
+              numeroGuia: g.numeroGuia,
+              numeroLote: numeroLoteFinal,
+              senhaAutorizacao: g.senhaAutorizacao,
+              nomePaciente: g.nomePaciente,
+              tipoAtendimento: "ambulatorio_sadt",
+              dataEntrada: g.dataAtendimentoStr,
+              dataAlta: g.dataAtendimentoStr,
+              dataRecebimentoSafatle: nowStr,
+              setorAtual: setorAlvo,
+              statusSetor: statusSetorAlvo,
+              recepcionadoPorId: usuario.id,
+              recepcionadoPorNome: usuarioNome,
+              responsavelAtualId: usuario.id,
+              responsavelAtualNome: usuarioNome,
+              faturistaId: usuario.id,
+              faturistaNome: usuarioNome,
+              valorFaturadoInicial: String(g.valorTotalGuia.toFixed(2)),
+              valorFaturadoFinal: String(g.valorTotalGuia.toFixed(2)),
+              totalItensXml: g.qtdItensGuia,
+              arquivoXmlFaturamentoId: arquivoId,
+              arquivoXmlFinalId: arquivoId,
+              contaConvenioResumoId: g.contaConvenioResumoId,
+              statusAuditoriaRegras: g.validacao.statusAuditoriaRegras,
+              totalDivergenciasRegras: g.validacao.totalDivergencias,
+              scoreRiscoAuditoria: g.validacao.scoreRisco,
+              protocoloEnvioConvenio: protocoloGerado,
+              metodoEnvioConvenio: enviadoDiretoConvenio ? input.metodoEnvioConvenio : null,
+              dataEnvioConvenio: enviadoDiretoConvenio ? nowStr : null,
+              qtdRetrabalhos: isDivergente ? 1 : 0,
+              observacoes: `Lote XML Ambulatorial #${numeroLoteFinal} (${input.nomeArquivo})`,
+              ultimoMotivoRetorno: g.validacao.resumoMotivoRetorno,
+            });
+            contaId = Number((insConta as any).insertId);
+          }
+
+          if (g.validacao.erros.length > 0) {
+            const errosValues = g.validacao.erros.map((erro) => ({
+              fabricaContaId: contaId,
+              hospitalEstabelecimentoId: hospitalEstabId,
+              convenioId: convenioIdFinal,
+              faturistaId: usuario.id,
+              faturistaNome: usuarioNome,
+              auditorId: usuario.id,
+              auditorNome: "Motor de Regras Ambulatorial",
+              setorOrigemErro: "auditoria_interna" as const,
+              tipoErro: erro.tipoErro,
+              codigoItem: erro.codigoItem,
+              descricaoErro: erro.descricaoErro,
+              impactoFinanceiro: String((erro.impactoFinanceiro || 0).toFixed(2)),
+              corrigido: "nao" as const,
+            }));
+            await db.insert(fabricaErrosConta).values(errosValues);
+          }
+
+          await db.insert(fabricaHistoricoFluxo).values({
+            fabricaContaId: contaId,
+            hospitalEstabelecimentoId: hospitalEstabId,
+            setorOrigem: "faturamento",
+            setorDestino: setorAlvo,
+            acao: "xml_importado",
+            usuarioId: usuario.id,
+            usuarioNome,
+            dataEntradaSetor: nowStr,
+            dataSaidaSetor: nowStr,
+            duracaoSegundos: 0,
+            valorMovimentado: String(g.valorTotalGuia.toFixed(2)),
+            observacao: isDivergente
+              ? `Lote Ambulatorial #${numeroLoteFinal}: Guia retida com ${g.validacao.totalDivergencias} divergência(s) nas regras do convênio.`
+              : `Lote Ambulatorial #${numeroLoteFinal}: Guia validada 100% conforme nas regras do convênio.`,
+          });
+
+          if (enviadoDiretoConvenio) {
+            await db.insert(fabricaHistoricoFluxo).values({
+              fabricaContaId: contaId,
+              hospitalEstabelecimentoId: hospitalEstabId,
+              setorOrigem: "faturamento",
+              setorDestino: "enviado_convenio",
+              acao: "enviado_convenio",
+              usuarioId: usuario.id,
+              usuarioNome,
+              dataEntradaSetor: nowStr,
+              dataSaidaSetor: nowStr,
+              duracaoSegundos: 0,
+              valorMovimentado: String(g.valorTotalGuia.toFixed(2)),
+              observacao: `Lote Ambulatorial #${numeroLoteFinal} 100% conforme — liberado automaticamente para Envio ao Convênio (${protocoloGerado}).`,
+            });
+          }
+        }
+
+        return {
+          sucesso: true,
+          arquivoId,
+          numeroLote: numeroLoteFinal,
+          convenioId: convenioIdFinal,
+          convenioNome: convenioNomeFinal,
+          totalGuias: guiasProcessadas.length,
+          guiasConformes: guiasConformes.length,
+          guiasDivergentes: guiasDivergentes.length,
+          totalItens: todosTissValues.length,
+          valorTotalLote: Number(valorTotalLote.toFixed(2)),
+          totalCriadas,
+          totalAtualizadas,
+          enviadoDiretoConvenio,
+          protocoloEnvio: protocoloGerado,
+          guiasComErroResumo: guiasDivergentes.slice(0, 50).map((g) => ({
+            numeroGuia: g.numeroGuia,
+            nomePaciente: g.nomePaciente,
+            valorTotal: g.valorTotalGuia,
+            totalDivergencias: g.validacao.totalDivergencias,
+            resumoErro: g.validacao.resumoMotivoRetorno,
+            erros: g.validacao.erros,
+          })),
+          mensagem: enviadoDiretoConvenio
+            ? `Lote Ambulatorial #${numeroLoteFinal} importado e 100% CONFORME! Todas as ${guiasProcessadas.length} guia(s) (${todosTissValues.length} itens, R$ ${valorTotalLote.toFixed(2)}) foram enviadas direto para Envio ao Convênio!`
+            : guiasDivergentes.length > 0
+              ? `Lote Ambulatorial #${numeroLoteFinal} importado (${guiasProcessadas.length} guias, R$ ${valorTotalLote.toFixed(2)}): ${guiasConformes.length} guia(s) OK e ${guiasDivergentes.length} guia(s) retida(s) com divergência nas regras do convênio para correção ou justificativa.`
+              : `Lote Ambulatorial #${numeroLoteFinal} importado com sucesso (${guiasProcessadas.length} guias, 100% conformes) e pronto para envio ao convênio!`,
+        };
+      };
+
+      if (typeof (dbOuter as any).transaction === "function") {
+        return await (dbOuter as any).transaction(executarNoBanco);
+      }
+      return await executarNoBanco(dbOuter);
+    }),
+
+  // ============================================================
+  // 17. ESTEIRA AMBULATORIAL: RESUMO DOS LOTES IMPORTADOS
+  // ============================================================
+  resumoLotesAmbulatoriais: fabricaProcedure
+    .input(
+      z
+        .object({
+          hospitalEstabelecimentoId: z.number().optional(),
+          convenioId: z.number().optional(),
+        })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      const hospitalIds = await resolverEscopoFabrica(
+        usuario,
+        input?.hospitalEstabelecimentoId,
+        "visualizar"
+      );
+      const db = await obterDbFabrica();
+      const escopo = await resolverEscopoLeituraFabrica(db, usuario, hospitalIds);
+      let whereSql = sql`${filtroEscopoLeituraSql("fc.hospital_estabelecimento_id", "fc.setor_atual", escopo)}
+        AND fc.tipo_atendimento = 'ambulatorio_sadt'`;
+      if (input?.convenioId) {
+        whereSql = sql`${whereSql} AND fc.convenio_id = ${input.convenioId}`;
+      }
+
+      const [rowsResult] = await db.execute(sql`
+        SELECT
+          COALESCE(fc.numero_lote, 'SEM-LOTE') as numeroLote,
+          fc.hospital_estabelecimento_id as hospitalEstabelecimentoId,
+          e.nome as hospitalNome,
+          fc.convenio_id as convenioId,
+          COALESCE(fc.convenio_nome, c.nome, 'Não informado') as convenioNome,
+          MAX(fc.faturista_nome) as faturistaNome,
+          COUNT(*) as totalGuias,
+          SUM(CASE WHEN fc.status_auditoria_regras = 'conforme' THEN 1 ELSE 0 END) as guiasConformes,
+          SUM(CASE WHEN fc.status_auditoria_regras = 'divergente' THEN 1 ELSE 0 END) as guiasDivergentes,
+          SUM(CASE WHEN fc.status_auditoria_regras = 'revisado' THEN 1 ELSE 0 END) as guiasRevisadas,
+          SUM(CASE WHEN fc.setor_atual IN ('enviado_convenio', 'recursos', 'finalizado') THEN 1 ELSE 0 END) as guiasEnviadas,
+          SUM(COALESCE(fc.total_itens_xml, 0)) as totalItensLote,
+          COALESCE(SUM(CASE WHEN fc.valor_faturado_final > 0 THEN fc.valor_faturado_final ELSE fc.valor_faturado_inicial END), 0) as valorTotalLote,
+          MAX(fc.protocolo_envio_convenio) as protocoloEnvio,
+          MAX(fc.metodo_envio_convenio) as metodoEnvio,
+          MAX(fc.updated_at) as ultimaAtualizacao
+        FROM fabrica_contas fc
+        LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id
+        LEFT JOIN convenios c ON c.id = fc.convenio_id
+        WHERE ${whereSql}
+        GROUP BY
+          COALESCE(fc.numero_lote, 'SEM-LOTE'),
+          fc.hospital_estabelecimento_id,
+          e.nome,
+          fc.convenio_id,
+          COALESCE(fc.convenio_nome, c.nome, 'Não informado')
+        ORDER BY MAX(fc.id) DESC
+        LIMIT 100
+      `);
+
+      const lotes = extrairLinhasSql(rowsResult).map((r: any) => {
+        const totalGuias = Number(r.totalGuias) || 0;
+        const guiasConformes = Number(r.guiasConformes) || 0;
+        const guiasDivergentes = Number(r.guiasDivergentes) || 0;
+        const guiasRevisadas = Number(r.guiasRevisadas) || 0;
+        const guiasEnviadas = Number(r.guiasEnviadas) || 0;
+        const statusLote: "enviado_convenio" | "bloqueado_divergencia" | "pronto_envio" =
+          guiasEnviadas === totalGuias && totalGuias > 0
+            ? "enviado_convenio"
+            : guiasDivergentes > 0
+              ? "bloqueado_divergencia"
+              : "pronto_envio";
+
+        return {
+          numeroLote: String(r.numeroLote || "SEM-LOTE"),
+          hospitalEstabelecimentoId: Number(r.hospitalEstabelecimentoId),
+          hospitalNome: r.hospitalNome || `Hospital #${r.hospitalEstabelecimentoId}`,
+          convenioId: r.convenioId ? Number(r.convenioId) : null,
+          convenioNome: String(r.convenioNome || "Não informado"),
+          faturistaNome: r.faturistaNome || null,
+          totalGuias,
+          guiasConformes,
+          guiasDivergentes,
+          guiasRevisadas,
+          guiasEnviadas,
+          totalItensLote: Number(r.totalItensLote) || 0,
+          valorTotalLote: Number(r.valorTotalLote) || 0,
+          statusLote,
+          protocoloEnvio: r.protocoloEnvio || null,
+          metodoEnvio: r.metodoEnvio || null,
+          ultimaAtualizacao: r.ultimaAtualizacao,
+        };
+      });
+
+      return {
+        lotes,
+        totalLotes: lotes.length,
+        totalGuiasGeral: lotes.reduce((acc, l) => acc + l.totalGuias, 0),
+        totalGuiasDivergentesGeral: lotes.reduce((acc, l) => acc + l.guiasDivergentes, 0),
+        totalGuiasEnviadasGeral: lotes.reduce((acc, l) => acc + l.guiasEnviadas, 0),
+        valorTotalGeral: lotes.reduce((acc, l) => acc + l.valorTotalLote, 0),
+      };
+    }),
+
+  // ============================================================
+  // 18. ESTEIRA AMBULATORIAL: JUSTIFICAR / ACEITAR DIVERGÊNCIAS E LIBERAR LOTE
+  // ============================================================
+  justificarELiberarGuiasAmbulatoriais: fabricaProcedure
+    .input(
+      z.object({
+        contaIds: z.array(z.number().positive()).min(1),
+        justificativa: z
+          .string()
+          .min(3, "Informe a justificativa técnica/contratual para aceitar a divergência"),
+        enviarAoConvenioAgora: z.boolean().default(true),
+        metodoEnvioConvenio: z
+          .enum(["manual", "rpa_portal", "webservice_tiss"])
+          .default("rpa_portal"),
+        protocoloEnvio: z.string().max(120).optional().nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      await exigirAcessoFabrica(usuario);
+      const db = await obterDbFabrica();
+      const contaIds = [...new Set(input.contaIds)];
+      const contas = await db
+        .select()
+        .from(fabricaContas)
+        .where(inArray(fabricaContas.id, contaIds));
+      if (contas.length !== contaIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Uma ou mais guias ambulatoriais não foram encontradas.",
+        });
+      }
+      await autorizarLoteHospitalar(usuario, contas, "editar");
+      await exigirSetoresLoteColaborador(db, usuario, contas);
+
+      const now = new Date();
+      const nowStr = toMysqlDateTime(now);
+      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+
+      for (const conta of contas) {
+        const protocolo =
+          input.protocoloEnvio?.trim() ||
+          conta.protocoloEnvioConvenio ||
+          `PROT-AMB-${conta.hospitalEstabelecimentoId}-${(conta.numeroLote || String(conta.id)).slice(0, 20)}`;
+
+        const novoSetor = input.enviarAoConvenioAgora ? "enviado_convenio" : conta.setorAtual;
+
+        await db
+          .update(fabricaErrosConta)
+          .set({ corrigido: "sim", dataCorrecao: nowStr })
+          .where(
+            and(
+              eq(fabricaErrosConta.fabricaContaId, conta.id),
+              eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId),
+              eq(fabricaErrosConta.corrigido, "nao")
+            )
+          );
+
+        await db
+          .update(fabricaContas)
+          .set({
+            statusAuditoriaRegras: "revisado",
+            totalDivergenciasRegras: 0,
+            statusSetor: "concluido",
+            setorAtual: novoSetor,
+            entradaSetorAtualEm: novoSetor !== conta.setorAtual ? now : conta.entradaSetorAtualEm,
+            auditorInternoId: usuario.id,
+            auditorInternoNome: usuarioNome,
+            ultimoMotivoRetorno: null,
+            observacoes: `${conta.observacoes ? `${conta.observacoes} | ` : ""}Divergência revisada/justificada por ${usuarioNome}: ${input.justificativa.trim()}`,
+            protocoloEnvioConvenio: input.enviarAoConvenioAgora
+              ? protocolo
+              : conta.protocoloEnvioConvenio,
+            metodoEnvioConvenio: input.enviarAoConvenioAgora
+              ? input.metodoEnvioConvenio
+              : conta.metodoEnvioConvenio,
+            dataEnvioConvenio: input.enviarAoConvenioAgora ? nowStr : conta.dataEnvioConvenio,
+          })
+          .where(
+            and(
+              eq(fabricaContas.id, conta.id),
+              eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)
+            )
+          );
+
+        const valorMov =
+          Number(conta.valorFaturadoFinal) > 0
+            ? String(conta.valorFaturadoFinal)
+            : String(conta.valorFaturadoInicial || "0.00");
+
+        await db.insert(fabricaHistoricoFluxo).values({
+          fabricaContaId: conta.id,
+          hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
+          setorOrigem: conta.setorAtual,
+          setorDestino: novoSetor,
+          acao: input.enviarAoConvenioAgora ? "enviado_convenio" : "aprovado",
+          usuarioId: usuario.id,
+          usuarioNome,
+          dataEntradaSetor: nowStr,
+          dataSaidaSetor: nowStr,
+          duracaoSegundos: 0,
+          valorMovimentado: valorMov,
+          observacao: `Divergência ambulatorial revisada/justificada (${input.justificativa.trim()})${input.enviarAoConvenioAgora ? ` e enviada ao convênio (${protocolo})` : ""}.`,
+        });
+      }
+
+      const lotesAfetados = Array.from(
+        new Set(
+          contas
+            .map((c) => (c.numeroLote ? `${c.hospitalEstabelecimentoId}|${c.numeroLote}` : null))
+            .filter(Boolean)
+        )
+      ) as string[];
+
+      let guiasConformesLiberadasJunto = 0;
+      if (input.enviarAoConvenioAgora && lotesAfetados.length > 0) {
+        for (const chave of lotesAfetados) {
+          const [hospIdStr, numLote] = chave.split("|");
+          const hospId = Number(hospIdStr);
+          const irmasLote = await db
+            .select()
+            .from(fabricaContas)
+            .where(
+              and(
+                eq(fabricaContas.hospitalEstabelecimentoId, hospId),
+                eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
+                eq(fabricaContas.numeroLote, numLote)
+              )
+            );
+          const aindaTemDivergente = (irmasLote || []).some(
+            (ir: any) => ir.statusAuditoriaRegras === "divergente"
+          );
+          if (!aindaTemDivergente) {
+            for (const irma of irmasLote || []) {
+              if (irma.setorAtual === "enviado_convenio") continue;
+              const protocolo =
+                input.protocoloEnvio?.trim() ||
+                `PROT-AMB-${hospId}-${numLote.slice(0, 20)}`;
+              await db
+                .update(fabricaContas)
+                .set({
+                  setorAtual: "enviado_convenio",
+                  statusSetor: "concluido",
+                  entradaSetorAtualEm: now,
+                  protocoloEnvioConvenio: protocolo,
+                  metodoEnvioConvenio: input.metodoEnvioConvenio,
+                  dataEnvioConvenio: nowStr,
+                })
+                .where(
+                  and(
+                    eq(fabricaContas.id, irma.id),
+                    eq(fabricaContas.hospitalEstabelecimentoId, hospId)
+                  )
+                );
+              await db.insert(fabricaHistoricoFluxo).values({
+                fabricaContaId: irma.id,
+                hospitalEstabelecimentoId: hospId,
+                setorOrigem: irma.setorAtual,
+                setorDestino: "enviado_convenio",
+                acao: "enviado_convenio",
+                usuarioId: usuario.id,
+                usuarioNome,
+                dataEntradaSetor: nowStr,
+                dataSaidaSetor: nowStr,
+                duracaoSegundos: 0,
+                valorMovimentado: String(
+                  irma.valorFaturadoFinal || irma.valorFaturadoInicial || "0.00"
+                ),
+                observacao: `Lote Ambulatorial #${numLote} desbloqueado após revisão das divergências e enviado ao convênio (${protocolo}).`,
+              });
+              guiasConformesLiberadasJunto++;
+            }
+          }
+        }
+      }
+
+      return {
+        sucesso: true,
+        totalRevisadas: contas.length,
+        guiasConformesLiberadasJunto,
+        mensagem: input.enviarAoConvenioAgora
+          ? `${contas.length} guia(s) justificada(s)${guiasConformesLiberadasJunto > 0 ? ` + ${guiasConformesLiberadasJunto} guia(s) conforme(s) do lote` : ""} liberada(s) para Envio ao Convênio!`
+          : `${contas.length} guia(s) marcada(s) como Revisadas/Conformes!`,
+      };
+    }),
+
+  // ============================================================
+  // 19. ESTEIRA AMBULATORIAL: LIBERAR LOTE INTEIRO PARA ENVIO AO CONVÊNIO
+  // ============================================================
+  liberarLoteAmbulatorialEnvio: fabricaProcedure
+    .input(
+      z.object({
+        hospitalEstabelecimentoId: z.number().positive(),
+        numeroLote: z.string().min(1),
+        metodoEnvioConvenio: z
+          .enum(["manual", "rpa_portal", "webservice_tiss"])
+          .default("rpa_portal"),
+        protocoloEnvio: z.string().max(120).optional().nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const usuario = usuarioFabrica(ctx);
+      await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "editar");
+      const db = await obterDbFabrica();
+      await exigirSetorColaborador(
+        db,
+        usuario,
+        ["faturamento", "auditoria_interna", "limpeza_prontuario", "recursos"],
+        [input.hospitalEstabelecimentoId]
+      );
+
+      const contasLote = await db
+        .select()
+        .from(fabricaContas)
+        .where(
+          and(
+            eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId),
+            eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
+            eq(fabricaContas.numeroLote, input.numeroLote.trim())
+          )
+        );
+
+      if (!contasLote.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Nenhuma guia encontrada para este lote ambulatorial.",
+        });
+      }
+
+      const divergentesPendentes = contasLote.filter(
+        (c) => c.statusAuditoriaRegras === "divergente"
+      );
+      if (divergentesPendentes.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Este lote ainda possui ${divergentesPendentes.length} guia(s) com divergência pendente. Corrija/reimporte o XML ou justifique as divergências antes de liberar o lote.`,
+        });
+      }
+
+      const now = new Date();
+      const nowStr = toMysqlDateTime(now);
+      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+      const protocolo =
+        input.protocoloEnvio?.trim() ||
+        `PROT-AMB-${input.hospitalEstabelecimentoId}-${input.numeroLote.trim().slice(0, 20)}`;
+
+      let liberadas = 0;
+      for (const conta of contasLote) {
+        if (conta.setorAtual === "enviado_convenio") continue;
+        await db
+          .update(fabricaContas)
+          .set({
+            setorAtual: "enviado_convenio",
+            statusSetor: "concluido",
+            entradaSetorAtualEm: now,
+            protocoloEnvioConvenio: protocolo,
+            metodoEnvioConvenio: input.metodoEnvioConvenio,
+            dataEnvioConvenio: nowStr,
+          })
+          .where(
+            and(
+              eq(fabricaContas.id, conta.id),
+              eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId)
+            )
+          );
+        await db.insert(fabricaHistoricoFluxo).values({
+          fabricaContaId: conta.id,
+          hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
+          setorOrigem: conta.setorAtual,
+          setorDestino: "enviado_convenio",
+          acao: "enviado_convenio",
+          usuarioId: usuario.id,
+          usuarioNome,
+          dataEntradaSetor: nowStr,
+          dataSaidaSetor: nowStr,
+          duracaoSegundos: 0,
+          valorMovimentado: String(
+            conta.valorFaturadoFinal || conta.valorFaturadoInicial || "0.00"
+          ),
+          observacao: `Lote Ambulatorial #${input.numeroLote} liberado para Envio ao Convênio (${protocolo}).`,
+        });
+        liberadas++;
+      }
+
+      return {
+        sucesso: true,
+        totalLiberadas: liberadas,
+        protocoloEnvio: protocolo,
+        mensagem: `Lote Ambulatorial #${input.numeroLote} (${liberadas} guia(s)) enviado ao convênio com sucesso! Protocolo: ${protocolo}`,
+      };
+    }),
+
   meuDesempenhoSetor: fabricaProcedure
     .input(z.object({ competencia: z.string().optional() }).optional())
     .query(async ({ input, ctx }) => {

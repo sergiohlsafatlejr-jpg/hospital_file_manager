@@ -12,7 +12,7 @@ import { SqlServerConnector } from "../connectors/SqlServerConnector";
 import { MysqlConnector } from "../connectors/MysqlConnector";
 import { ENV } from "../_core/env";
 import { logger } from "../_core/logger";
-import { compararContaComPadroes } from "../services/comparadorPadroes";
+import { compararContaComPadroes, resolverConvenioIdParaConta } from "../services/comparadorPadroes";
 import { agruparResumosContaXml } from "../contasConvenioResumoUtils";
 import { criarServicoContaContextoMedicoParaUsuario } from "../contaContextoMedicoDrizzle";
 import { exigirAcessoEstabelecimento, exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
@@ -31,6 +31,34 @@ import {
  * 
  * Dados são salvos na tabela contas_convenio_itens para análise e comparação com padrões.
  */
+function parseDataCivilConta(val: unknown): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    if (val.getUTCHours() === 0 && val.getUTCMinutes() === 0 && val.getUTCSeconds() === 0) {
+      return new Date(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate(), 12, 0, 0);
+    }
+    return val;
+  }
+  const s = String(val).trim();
+  if (!s) return null;
+  const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?)?$/i);
+  if (mIso) {
+    return new Date(Number(mIso[1]), Number(mIso[2]) - 1, Number(mIso[3]), 12, 0, 0);
+  }
+  const mBr = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (mBr) {
+    return new Date(Number(mBr[3]), Number(mBr[2]) - 1, Number(mBr[1]), 12, 0, 0);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDataCivilBR(val: unknown): string {
+  const d = parseDataCivilConta(val);
+  return d ? d.toLocaleDateString("pt-BR") : "";
+}
+
 export const contasConvenioRouter = router({
 
   // ============================================================
@@ -417,6 +445,15 @@ export const contasConvenioRouter = router({
           return isNaN(n) ? 0 : n;
         };
 
+        const resumoConvenioInicial = getField(primeiroItem, 'nomeconv', 'nome_conv', 'convenio', 'nomeconvenio');
+        const resumoCodConvInicial = getField(primeiroItem, 'codconv', 'cod_conv', 'codigo_convenio');
+        const convenioIdResolvidoConta = await resolverConvenioIdParaConta(
+          db,
+          input.estabelecimentoId,
+          resumoConvenioInicial ? String(resumoConvenioInicial) : null,
+          resumoCodConvInicial ? String(resumoCodConvInicial) : null,
+        );
+
         for (let i = 0; i < dados.length; i += BATCH_SIZE) {
           const batch = dados.slice(i, i + BATCH_SIZE);
           const values = batch.map((row: any) => {
@@ -483,6 +520,7 @@ export const contasConvenioRouter = router({
               pacienteNome: paciente ? String(paciente) : null,
               carteiraBeneficiario: matricula ? String(matricula) : null,
               convenio: nomeConv ? String(nomeConv).trim() : null,
+              convenioId: convenioIdResolvidoConta,
               estabelecimentoId: input.estabelecimentoId,
               tipoItem,
               codigoItem: codItem ? String(codItem) : null,
@@ -491,7 +529,7 @@ export const contasConvenioRouter = router({
               quantidade: qtd ? String(parseNum(qtd)) : null,
               valorUnitario: vlUnitario ? String(parseNum(vlUnitario)) : null,
               valorTotal: vt ? String(vt) : null,
-              dataExecucao: dataExec ? new Date(dataExec) : null,
+              dataExecucao: parseDataCivilConta(dataExec),
               competencia: comp ? String(comp).replace('/', '-') : null,
               profissionalExecutante: prest ? String(prest) : (nomeMedSolic ? String(nomeMedSolic) : null),
               setor: setor ? String(setor) : null,
@@ -516,12 +554,13 @@ export const contasConvenioRouter = router({
           estabelecimentoId: input.estabelecimentoId,
           origem: "BANCO_CLIENTE",
           convenio: resumoConvenio ? String(resumoConvenio).trim() : null,
+          convenioId: convenioIdResolvidoConta,
           pacienteNome: resumoPaciente ? String(resumoPaciente) : null,
           carteiraBeneficiario: resumoMatricula ? String(resumoMatricula) : null,
           totalItens: totalInseridos,
           valorTotal: String(valorTotalConta),
-          dataInternacao: resumoDataInt ? new Date(resumoDataInt) : null,
-          dataAlta: resumoDataAlta ? new Date(resumoDataAlta) : null,
+          dataInternacao: parseDataCivilConta(resumoDataInt),
+          dataAlta: parseDataCivilConta(resumoDataAlta),
           competencia: resumoComp ? String(resumoComp).replace('/', '-') : null,
           statusAnalise: "pendente",
           buscadoPor: ctx.user?.id || null,
@@ -713,7 +752,7 @@ export const contasConvenioRouter = router({
           const mapaItemIdData = new Map<number, string>();
           for (const item of dadosAntigos) {
             if (item.id && item.dataExecucao) {
-              mapaItemIdData.set(item.id, new Date(item.dataExecucao).toLocaleDateString('pt-BR'));
+              mapaItemIdData.set(item.id, formatDataCivilBR(item.dataExecucao));
             }
           }
 
@@ -737,7 +776,7 @@ export const contasConvenioRouter = router({
             const itensNovos = mapaNovosPorCodigo.get(cod) || [];
             const itemNovo = itensNovos[0];
             // Obter data de execução do item (do ajuste via itemId, ou do item novo)
-            const dataExecItem = aj.itemId ? (mapaItemIdData.get(aj.itemId) || null) : (itemNovo?.dataExecucao ? new Date(itemNovo.dataExecucao).toLocaleDateString('pt-BR') : null);
+            const dataExecItem = aj.itemId ? (mapaItemIdData.get(aj.itemId) || null) : (itemNovo?.dataExecucao ? formatDataCivilBR(itemNovo.dataExecucao) : null);
 
             if (aj.tipoAjuste === 'ADICIONAR_ITEM') {
               // Verificar se o item foi adicionado
@@ -1003,7 +1042,9 @@ export const contasConvenioRouter = router({
           const divergenciasGerais: any[] = []; // Divergências sem item (ITEM_FALTANTE, etc.)
 
           for (const div of resultadoComparacao.divergencias) {
-            if (div.codigoItem) {
+            if (div.tipo === "ITEM_FALTANTE") {
+              divergenciasGerais.push(div);
+            } else if (div.codigoItem) {
               if (!divergenciasPorItem.has(div.codigoItem)) {
                 divergenciasPorItem.set(div.codigoItem, []);
               }
@@ -1800,8 +1841,8 @@ export const contasConvenioRouter = router({
             quantidade: item.quantidade ? String(item.quantidade) : null,
             valorUnitario: item.valorUnitario ? String(item.valorUnitario) : null,
             valorTotal: item.valorTotal ? String(item.valorTotal) : null,
-            dataExecucao: item.dataExecucao ? new Date(item.dataExecucao) : null,
-            dataReferencia: item.dataReferencia ? new Date(item.dataReferencia) : null,
+            dataExecucao: parseDataCivilConta(item.dataExecucao),
+            dataReferencia: parseDataCivilConta(item.dataReferencia),
             profissionalExecutante: item.profissionalExecutante || null,
             arquivoId: input.arquivoId,
             statusAnalise: "pendente" as const,
@@ -2478,8 +2519,8 @@ export const contasConvenioRouter = router({
             quantidade: qtd ? String(qtd) : null,
             valorUnitario: vlUnit ? String(vlUnit) : null,
             valorTotal: vlTotal ? String(vlTotal) : null,
-            dataExecucao: row.data_execucao ? new Date(row.data_execucao) : null,
-            dataReferencia: row.data_referencia ? new Date(row.data_referencia) : null,
+            dataExecucao: parseDataCivilConta(row.data_execucao),
+            dataReferencia: parseDataCivilConta(row.data_referencia),
             competencia: row.competencia_xml ? String(row.competencia_xml) : (row.data_referencia ? `${new Date(row.data_referencia).getFullYear()}/${String(new Date(row.data_referencia).getMonth() + 1).padStart(2, '0')}` : null),
             profissionalExecutante: row.nome_prof ? String(row.nome_prof) : null,
             setor: null,
@@ -2553,7 +2594,9 @@ export const contasConvenioRouter = router({
               const divergenciasGerais: any[] = [];
 
               for (const div of resultadoComparacao.divergencias) {
-                if (div.codigoItem) {
+                if (div.tipo === "ITEM_FALTANTE") {
+                  divergenciasGerais.push(div);
+                } else if (div.codigoItem) {
                   if (!divergenciasPorItem.has(div.codigoItem)) {
                     divergenciasPorItem.set(div.codigoItem, []);
                   }

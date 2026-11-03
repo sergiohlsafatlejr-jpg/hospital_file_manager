@@ -75,7 +75,7 @@ function parseDate(value: unknown): Date | undefined {
     const day = parseInt(brMatch[1], 10);
     const month = parseInt(brMatch[2], 10) - 1; // Month is 0-indexed
     const year = parseInt(brMatch[3], 10);
-    const date = new Date(year, month, day);
+    const date = new Date(year, month, day, 12, 0, 0);
     return isNaN(date.getTime()) ? undefined : date;
   }
   
@@ -92,6 +92,18 @@ function parseDate(value: unknown): Date | undefined {
     return isNaN(date.getTime()) ? undefined : date;
   }
   
+  // Fallback to standard Date parsing (ISO format, etc.)
+  // Try to detect ISO date-only format YYYY-MM-DD (TISS st_data)
+  // Fixar às 12:00:00 evita recuo de 1 dia em fuso UTC-3 (Brasil)
+  const isoDateMatch = str.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const year = parseInt(isoDateMatch[1], 10);
+    const month = parseInt(isoDateMatch[2], 10) - 1;
+    const day = parseInt(isoDateMatch[3], 10);
+    const date = new Date(year, month, day, 12, 0, 0);
+    return isNaN(date.getTime()) ? undefined : date;
+  }
+
   // Fallback to standard Date parsing (ISO format, etc.)
   const date = new Date(str);
   return isNaN(date.getTime()) ? undefined : date;
@@ -902,7 +914,67 @@ function extractCodigoPrestadorExecutante(guia: unknown): string | undefined {
 /**
  * Extract procedimentos executados from guia
  */
+function extractProfissionalDaGuia(record: Record<string, unknown>): {
+  nomeMedico?: string;
+  crmMedico?: string;
+  cbos?: string;
+} {
+  const profExec = record["profissionalExecutante"] as Record<string, unknown> | undefined;
+  const dadosSolic = record["dadosSolicitante"] as Record<string, unknown> | undefined;
+  const profSolic = (dadosSolic?.["profissionalSolicitante"] || record["profissionalSolicitante"]) as
+    | Record<string, unknown>
+    | undefined;
+  const fonte = profExec || profSolic;
+  if (!fonte || typeof fonte !== "object") return {};
+  return {
+    nomeMedico:
+      getTextValue(fonte["nomeProfissional"]) ||
+      getTextValue(fonte["nomeProf"]) ||
+      getTextValue(fonte["nome"]),
+    crmMedico:
+      getTextValue(fonte["numeroConselhoProfissional"]) ||
+      getTextValue(fonte["numeroConselho"]),
+    cbos: getTextValue(fonte["CBOS"]) || getTextValue(fonte["cbos"]),
+  };
+}
+
 function extractProcedimentosExecutados(guia: unknown): ParsedProcedimento[] {
+  if (!guia || typeof guia !== "object") return [];
+  const recordGuia = guia as Record<string, unknown>;
+  const profGuia = extractProfissionalDaGuia(recordGuia);
+  if (!recordGuia["procedimentosExecutados"] && recordGuia["dadosAtendimento"]) {
+    const dadosAtend = recordGuia["dadosAtendimento"] as Record<string, unknown>;
+    const procNode = (dadosAtend["procedimento"] || dadosAtend) as Record<string, unknown>;
+    const codigo =
+      getTextValue(procNode["codigoProcedimento"]) ||
+      getTextValue(dadosAtend["codigoProcedimento"]);
+    if (codigo) {
+      const valor =
+        parseNumber(procNode["valorProcedimento"]) ??
+        parseNumber(procNode["valorUnitario"]) ??
+        parseNumber(dadosAtend["valorProcedimento"]) ??
+        0;
+      const dataExecucao =
+        parseDate(dadosAtend["dataAtendimento"]) ||
+        parseDate(dadosAtend["dataExecucao"]);
+      return [
+        {
+          codigo,
+          descricao:
+            getTextValue(procNode["descricaoProcedimento"]) ||
+            "Consulta Médica Ambulatorial",
+          quantidade: 1,
+          valorUnitario: valor,
+          valorTotal: valor,
+          dataExecucao,
+          nomeMedico: profGuia.nomeMedico,
+          crmMedico: profGuia.crmMedico,
+          tipoDespesa: "procedimento",
+          dadosExtras: dadosAtend,
+        },
+      ];
+    }
+  }
   if (!guia || typeof guia !== "object") return [];
   
   const record = guia as Record<string, unknown>;
@@ -922,7 +994,14 @@ function extractProcedimentosExecutados(guia: unknown): ParsedProcedimento[] {
   }
   
   for (const item of items as unknown[]) {
-    const proc = extractProcedimentoFromNode(item);
+    const rawProc = extractProcedimentoFromNode(item);
+    const proc = rawProc
+      ? {
+          ...rawProc,
+          nomeMedico: rawProc.nomeMedico || profGuia.nomeMedico,
+          crmMedico: rawProc.crmMedico || profGuia.crmMedico,
+        }
+      : null;
     if (proc) {
       procedimentos.push(proc);
     }

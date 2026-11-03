@@ -93,6 +93,7 @@ export function resolverSelecaoSetorFabrica(
 
 export function resolverAbaFabrica(acesso: AcessoFabrica, solicitada: string): string {
   if (solicitada === "recepcao" && acesso.podeRecepcionar) return solicitada;
+  if (solicitada === "ambulatorial" && acesso.podeConsultarSetores) return solicitada;
   if (solicitada === "relatorios" && acesso.podeVerRelatorios) return solicitada;
   if (solicitada === "equipe" && acesso.podeGerenciarEquipe) return solicitada;
   return "esteira";

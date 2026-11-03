@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { falhasProntuario, ajustesAuditoria, aprendizadoAuditoria, feedbackDivergencias, contasConvenioItens, contasConvenioResumo } from "../../drizzle/schema";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
 
 // Categorias de falhas de prontuário com seus tipos comuns
@@ -365,7 +365,7 @@ export const auditoriaRouter = router({
           )
         ).limit(1);
 
-        await db.insert(contasConvenioItens).values({
+        const insertItemRes = await db.insert(contasConvenioItens).values({
           origem: "BANCO_CLIENTE",
           numeroConta: input.numeroConta,
           estabelecimentoId: input.estabelecimentoId,
@@ -380,9 +380,10 @@ export const auditoriaRouter = router({
             ? (parseFloat(input.quantidadeAjustada) * parseFloat(input.valorAjustado)).toFixed(2)
             : "0",
           setor: input.setorNovoItem || null,
-          dataExecucao: input.dataNovoItem ? new Date(input.dataNovoItem) : null,
+          dataExecucao: input.dataNovoItem ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(input.dataNovoItem.trim()) ? `${input.dataNovoItem.trim()}T12:00:00` : input.dataNovoItem) : null,
           statusAnalise: "revisado",
         });
+        const novoItemId = Number((insertItemRes as any)?.[0]?.insertId || (insertItemRes as any)?.insertId || 0) || null;
 
         if (resumo) {
           const valorAdicional = input.quantidadeAjustada && input.valorAjustado
@@ -396,7 +397,10 @@ export const auditoriaRouter = router({
         const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
           .orderBy(desc(ajustesAuditoria.id)).limit(1);
         if (ajuste) {
-          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(eq(ajustesAuditoria.id, ajuste.id));
+          await db.update(ajustesAuditoria).set({
+            status: "aplicado",
+            ...(novoItemId ? { itemId: novoItemId } : {}),
+          }).where(eq(ajustesAuditoria.id, ajuste.id));
         }
       }
 
@@ -442,12 +446,94 @@ export const auditoriaRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
-      return await db.select().from(ajustesAuditoria).where(
+      const ajustes = await db.select().from(ajustesAuditoria).where(
         and(
           eq(ajustesAuditoria.numeroConta, input.numeroConta),
           eq(ajustesAuditoria.estabelecimentoId, input.estabelecimentoId),
         )
       ).orderBy(desc(ajustesAuditoria.createdAt));
+
+      if (ajustes.length === 0) return [];
+
+      const itensConta = await db.select({
+        id: contasConvenioItens.id,
+        codigoItem: contasConvenioItens.codigoItem,
+        dataExecucao: contasConvenioItens.dataExecucao,
+        setor: contasConvenioItens.setor,
+        statusAnalise: contasConvenioItens.statusAnalise,
+      }).from(contasConvenioItens).where(
+        and(
+          eq(contasConvenioItens.numeroConta, input.numeroConta),
+          eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+        )
+      );
+
+      const itemPorId = new Map<number, typeof itensConta[number]>();
+      for (const item of itensConta) {
+        itemPorId.set(item.id, item);
+      }
+
+      return ajustes.map((ajuste) => {
+        const itemDireto = ajuste.itemId ? itemPorId.get(ajuste.itemId) : undefined;
+        const itemFallback = !itemDireto && ajuste.codigoItem
+          ? (itensConta.find((it) => it.codigoItem === ajuste.codigoItem && it.statusAnalise === "revisado") ||
+             itensConta.find((it) => it.codigoItem === ajuste.codigoItem))
+          : undefined;
+        const itemRef = itemDireto || itemFallback;
+
+        return {
+          ...ajuste,
+          dataExecucao: itemRef?.dataExecucao ?? null,
+          setorItem: itemRef?.setor ?? ajuste.setorAjustado ?? ajuste.setorOriginal ?? null,
+        };
+      });
+    }),
+
+  marcarItensAuditados: protectedProcedure
+    .input(z.object({
+      numeroConta: z.string().min(1),
+      estabelecimentoId: z.number(),
+      itemIds: z.array(z.number().int().positive()).min(1),
+      auditado: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+
+      if (input.auditado) {
+        await db.update(contasConvenioItens)
+          .set({ statusAnalise: "revisado" })
+          .where(
+            and(
+              eq(contasConvenioItens.numeroConta, input.numeroConta),
+              eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+              inArray(contasConvenioItens.id, input.itemIds),
+            )
+          );
+      } else {
+        const itens = await db.select({
+          id: contasConvenioItens.id,
+          divergencias: contasConvenioItens.divergencias,
+        }).from(contasConvenioItens).where(
+          and(
+            eq(contasConvenioItens.numeroConta, input.numeroConta),
+            eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
+            inArray(contasConvenioItens.id, input.itemIds),
+          )
+        );
+
+        for (const item of itens) {
+          const divs = Array.isArray(item.divergencias) ? item.divergencias : [];
+          const temDivergencia = divs.some(
+            (d: any) => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso"
+          );
+          await db.update(contasConvenioItens)
+            .set({ statusAnalise: temDivergencia ? "divergente" : "pendente" })
+            .where(eq(contasConvenioItens.id, item.id));
+        }
+      }
+
+      return { sucesso: true, totalAtualizados: input.itemIds.length };
     }),
 
   reverterAjuste: protectedProcedure

@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import EsteiraAmbulatorialPanel from "@/components/EsteiraAmbulatorialPanel";
 import { caminhoContaFabricaImportada } from "@/lib/fabricaContaDestino";
 import { podeAcessarSetorVisivelFabrica, resolverAcessoFabrica, resolverAbaFabrica, resolverSelecaoSetorFabrica } from "@/lib/fabricaSetoresVisiveis";
 import type { SetorConsultaFabrica } from "@shared/fabricaSetores";
@@ -737,6 +738,16 @@ export default function FabricaFaturamento() {
               <Factory className="h-4 w-4" />
               Esteira de Setores ({podeConsultarSetores ? resumoSetores?.totalGeralContas || 0 : 0})
             </Button>
+            {podeConsultarSetores && (
+              <Button
+                variant={abaPrincipal === "ambulatorial" ? "default" : "outline"}
+                onClick={() => setAbaPrincipal("ambulatorial")}
+                className="gap-2 border-indigo-300"
+              >
+                <FileText className="h-4 w-4" />
+                Esteira Ambulatorial (Lotes XML)
+              </Button>
+            )}
             {podeVerRelatorios && (
               <Button
                 variant={abaPrincipal === "relatorios" ? "default" : "outline"}
@@ -1279,6 +1290,16 @@ export default function FabricaFaturamento() {
         {/* ============================================================
             ABA 2: ESTEIRA OPERACIONAL DOS 6 SETORES
            ============================================================ */}
+        {abaPrincipal === "ambulatorial" && podeConsultarSetores && (
+          <EsteiraAmbulatorialPanel
+            hospitais={hospitais}
+            convenios={listaConvenios}
+            hospitalFiltroGlobal={hospitalFiltro}
+            convenioFiltroGlobal={convenioFiltro}
+            onRecarregarEsteiraGeral={recarregarTudo}
+          />
+        )}
+
         {abaPrincipal === "esteira" && !podeConsultarSetores && (
           <Card role="status">
             <CardHeader>

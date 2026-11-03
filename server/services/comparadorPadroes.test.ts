@@ -217,4 +217,147 @@ describe("compararItensComPadroes", () => {
     expect(routerSource).toContain("estabelecimentoId: input.contextoMedicoScope.estabelecimentoId ?? input.estabelecimentoId");
     expect(routerSource).toContain("numeroConta: input.contextoMedicoScope.numeroConta ?? input.numeroConta");
   });
+
+  it("valida preços contra tabelasPreco para todos os tipos (procedimentos, diárias, taxas e mat/med) com prioridade TUSS, fallback código interno e tolerância de R$ 0,02", async () => {
+    const tabelaPrecosRows = [
+      {
+        id: 501,
+        convenioId: 10,
+        estabelecimentoId: 1,
+        tipo: "procedimentos",
+        procedimentoFonte: "dados_completo",
+        codigo: "31102360",
+        nome: "Ureterorrenolitotripsia",
+        valor: "500.00",
+        vigenciaInicio: new Date("2026-01-01"),
+      },
+      {
+        id: 502,
+        convenioId: 10,
+        estabelecimentoId: null,
+        tipo: "diarias",
+        procedimentoFonte: null,
+        codigo: "1001",
+        nome: "Diária de Apartamento",
+        valor: "300.00",
+        vigenciaInicio: new Date("2026-01-01"),
+      },
+      {
+        id: 503,
+        convenioId: 10,
+        estabelecimentoId: 1,
+        tipo: "taxas",
+        procedimentoFonte: null,
+        codigo: "60023155",
+        nome: "Taxa de Sala Cirúrgica",
+        valor: "120.00",
+        vigenciaInicio: new Date("2026-01-01"),
+      },
+      {
+        id: 504,
+        convenioId: 10,
+        estabelecimentoId: 1,
+        tipo: "mat_med",
+        procedimentoFonte: null,
+        codigo: "90008332",
+        nome: "Fio Cirúrgico",
+        valor: "25.00",
+        vigenciaInicio: new Date("2026-01-01"),
+      },
+    ];
+
+    let whereCall = 0;
+    const bancoMock = {
+      select: () => ({
+        from: () => ({
+          where: () => {
+            whereCall++;
+            if (whereCall <= 4) return Promise.resolve([]);
+            if (whereCall === 5) {
+              return Promise.resolve([
+                { convenioId: 10, nomeOrigem: "UNIMED CATALAO", codigoOrigem: "001" },
+              ]);
+            }
+            if (whereCall === 6) {
+              return Promise.resolve(tabelaPrecosRows);
+            }
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    };
+
+    const resultado = await compararItensComPadroes({
+      numeroConta: "CONTA-TABELA-PRECO",
+      estabelecimentoId: 1,
+      convenio: "UNIMED CATALAO",
+      banco: bancoMock as any,
+      itens: [
+        {
+          codigoItem: "INT-999",
+          codigoItemTuss: "031102360",
+          descricaoItem: "Ureterorrenolitotripsia",
+          tipoItem: "PROCEDIMENTO",
+          quantidade: "1",
+          valorUnitario: "500.02",
+          valorTotal: "500.02",
+          setor: "CENTRO CIRURGICO",
+        },
+        {
+          codigoItem: "1001",
+          codigoItemTuss: null,
+          descricaoItem: "Diária de Apartamento",
+          tipoItem: "DIARIA",
+          quantidade: "2",
+          valorUnitario: "350.00",
+          valorTotal: "700.00",
+          setor: "INTERNACAO",
+        },
+        {
+          codigoItem: "60023155",
+          codigoItemTuss: null,
+          descricaoItem: "Taxa de Sala Cirúrgica",
+          tipoItem: "TAXA",
+          quantidade: "1",
+          valorUnitario: "119.97",
+          valorTotal: "119.97",
+          setor: "CENTRO CIRURGICO",
+        },
+        {
+          codigoItem: "90008332",
+          codigoItemTuss: "90008332",
+          descricaoItem: "Fio Cirúrgico",
+          tipoItem: "MAT_MED",
+          quantidade: "4",
+          valorUnitario: "15.00",
+          valorTotal: "60.00",
+          setor: "CENTRO CIRURGICO",
+        },
+      ],
+    });
+
+    expect(resultado.statusGeral).toBe("divergente");
+    const divsPreco = resultado.divergencias.filter(d => d.tipo === "PRECO");
+    expect(divsPreco).toHaveLength(3);
+
+    const divDiaria = divsPreco.find(d => d.codigoItem === "1001");
+    expect(divDiaria).toBeDefined();
+    expect(divDiaria?.valorCobrado).toBe("350.00");
+    expect(divDiaria?.valorEsperado).toBe("300.00");
+    expect(divDiaria?.diferenca).toBe("50.00");
+    expect(divDiaria?.detalhes?.diferencaTotal).toBe(100);
+
+    const divTaxa = divsPreco.find(d => d.codigoItem === "60023155");
+    expect(divTaxa).toBeDefined();
+    expect(divTaxa?.valorCobrado).toBe("119.97");
+    expect(divTaxa?.valorEsperado).toBe("120.00");
+    expect(divTaxa?.diferenca).toBe("-0.03");
+
+    const divMatMed = divsPreco.find(d => d.codigoItem === "90008332");
+    expect(divMatMed).toBeDefined();
+    expect(divMatMed?.valorCobrado).toBe("15.00");
+    expect(divMatMed?.valorEsperado).toBe("25.00");
+    expect(divMatMed?.diferenca).toBe("-10.00");
+    expect(divMatMed?.detalhes?.diferencaTotal).toBe(-40);
+  });
 });

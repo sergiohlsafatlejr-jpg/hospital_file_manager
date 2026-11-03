@@ -413,6 +413,11 @@ function ContaConvenioDetalhesPadrao() {
   const [filtroDataAjuste, setFiltroDataAjuste] = useState<string>("");
   const [filtroTipoItemAjuste, setFiltroTipoItemAjuste] =
     useState<string>("todos");
+  const [filtroStatusAuditoriaAjuste, setFiltroStatusAuditoriaAjuste] =
+    useState<string>("todos");
+  const [itensAuditadosOtimista, setItensAuditadosOtimista] = useState<
+    Record<number, boolean>
+  >({});
 
   // Buscar itens da conta na nova tabela
   const {
@@ -597,11 +602,132 @@ function ContaConvenioDetalhesPadrao() {
   const reverterAjusteMutation = trpc.auditoria.reverterAjuste.useMutation({
     onSuccess: () => {
       toast.success("Ajuste revertido!");
+      setItensAuditadosOtimista({});
       refetchAjustes();
       refetch();
     },
     onError: err => toast.error(err.message),
   });
+
+  const marcarItensAuditadosMutation =
+    trpc.auditoria.marcarItensAuditados.useMutation({
+      onSuccess: () => {
+        refetch();
+      },
+      onError: err => {
+        setItensAuditadosOtimista({});
+        toast.error(err.message);
+      },
+    });
+
+  // Mapa de ajustes ativos por itemId (para destacar itens ajustados na aba Ajustes)
+  const ajustesAplicadosPorItemId = useMemo(() => {
+    const map = new Map<number, any[]>();
+    if (!ajustesData) return map;
+    for (const aj of ajustesData) {
+      if (aj.status === "revertido") continue;
+      if (aj.itemId) {
+        if (!map.has(aj.itemId)) map.set(aj.itemId, []);
+        map.get(aj.itemId)!.push(aj);
+      }
+    }
+    return map;
+  }, [ajustesData]);
+
+  // Verifica se um item já foi auditado pela enfermagem (revisado manualmente ou com ajuste aplicado)
+  const isItemAuditadoEnfermagem = useCallback(
+    (item: any): boolean => {
+      if (!item) return false;
+      if (item.id && item.id in itensAuditadosOtimista) {
+        return itensAuditadosOtimista[item.id];
+      }
+      if (item.statusAnalise === "revisado") return true;
+      if (item.id && ajustesAplicadosPorItemId.has(item.id)) return true;
+      return false;
+    },
+    [itensAuditadosOtimista, ajustesAplicadosPorItemId]
+  );
+
+  // Resolve a data de execução do item referente a um ajuste do histórico
+  const obterDataItemAjuste = useCallback(
+    (ajuste: any) => {
+      if (ajuste?.dataExecucao) return ajuste.dataExecucao;
+      const listaItens = itensData?.items || [];
+      if (ajuste?.itemId) {
+        const porId = listaItens.find((it: any) => it.id === ajuste.itemId);
+        if (porId?.dataExecucao) return porId.dataExecucao;
+      }
+      if (ajuste?.codigoItem) {
+        const porCodigoRevisado = listaItens.find(
+          (it: any) =>
+            it.codigoItem === ajuste.codigoItem &&
+            it.statusAnalise === "revisado" &&
+            it.dataExecucao
+        );
+        if (porCodigoRevisado?.dataExecucao) {
+          return porCodigoRevisado.dataExecucao;
+        }
+        const porCodigo = listaItens.find(
+          (it: any) => it.codigoItem === ajuste.codigoItem && it.dataExecucao
+        );
+        if (porCodigo?.dataExecucao) return porCodigo.dataExecucao;
+      }
+      return null;
+    },
+    [itensData?.items]
+  );
+
+  const handleToggleItemAuditado = useCallback(
+    (item: any) => {
+      if (!item?.id) return;
+      const novoValor = !isItemAuditadoEnfermagem(item);
+      setItensAuditadosOtimista(prev => ({ ...prev, [item.id]: novoValor }));
+      marcarItensAuditadosMutation.mutate({
+        numeroConta,
+        estabelecimentoId,
+        itemIds: [item.id],
+        auditado: novoValor,
+      });
+    },
+    [
+      isItemAuditadoEnfermagem,
+      marcarItensAuditadosMutation,
+      numeroConta,
+      estabelecimentoId,
+    ]
+  );
+
+  const handleMarcarItensVisiveisAuditados = useCallback(
+    (itensVisiveis: any[], auditado: boolean) => {
+      const ids = itensVisiveis
+        .map((it: any) => it.id)
+        .filter((id): id is number => typeof id === "number" && id > 0);
+      if (ids.length === 0) return;
+      setItensAuditadosOtimista(prev => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = auditado;
+        return next;
+      });
+      marcarItensAuditadosMutation.mutate(
+        {
+          numeroConta,
+          estabelecimentoId,
+          itemIds: ids,
+          auditado,
+        },
+        {
+          onSuccess: () => {
+            toast.success(
+              auditado
+                ? `${ids.length} item(ns) marcado(s) como auditado(s)!`
+                : `Marcação removida de ${ids.length} item(ns).`
+            );
+          },
+        }
+      );
+    },
+    [marcarItensAuditadosMutation, numeroConta, estabelecimentoId]
+  );
 
   // Buscar feedbacks existentes para esta conta
   const { data: feedbacksData, refetch: refetchFeedbacks } =
@@ -933,14 +1059,23 @@ function ContaConvenioDetalhesPadrao() {
       for (const div of divergenciasData.divergencias) {
         const fb = getFeedbackForDiv(div);
         const diferenca =
-          div.diferenca != null ? parseFloat(div.diferenca) : null;
+          div.detalhes?.diferencaTotal != null
+            ? parseFloat(div.detalhes.diferencaTotal)
+            : div.diferenca != null
+              ? parseFloat(div.diferenca)
+              : null;
         
         let acaoNecessaria = "Verificar e corrigir";
-        if (div.tipo === "VALOR_ACIMA")
+        if (div.tipo === "PRECO")
+          acaoNecessaria =
+            diferenca != null && diferenca < 0
+              ? "Ajustar valor cobrado abaixo da Tabela de Preços"
+              : "Revisar valor cobrado acima da Tabela de Preços";
+        else if (div.tipo === "VALOR_ACIMA")
           acaoNecessaria = "Revisar valor cobrado";
         else if (div.tipo === "VALOR_ABAIXO")
           acaoNecessaria = "Verificar se valor está correto";
-        else if (div.tipo === "QUANTIDADE_DIVERGENTE")
+        else if (div.tipo === "QUANTIDADE_DIVERGENTE" || div.tipo === "QUANTIDADE" || div.tipo === "COMPOSICAO")
           acaoNecessaria = "Corrigir quantidade";
         else if (div.tipo === "ITEM_NAO_PADRAO")
           acaoNecessaria = "Verificar se item é procedente";
@@ -1026,6 +1161,10 @@ function ContaConvenioDetalhesPadrao() {
           impacto = null;
         }
 
+        const dataItemRef = obterDataItemAjuste(ajuste);
+        if (dataItemRef) {
+          descricao += ` | Data do item: ${formatDateBR(dataItemRef)}`;
+        }
         if (ajuste.justificativa) {
           descricao += ` | Motivo: ${ajuste.justificativa}`;
         }
@@ -1050,7 +1189,7 @@ function ContaConvenioDetalhesPadrao() {
     }
 
     return items;
-  }, [divergenciasData, falhasData, ajustesData, feedbackMap]);
+  }, [divergenciasData, falhasData, ajustesData, feedbackMap, obterDataItemAjuste]);
 
   // Exportar Relatório do Faturista para Excel
   const handleExportRelatorioFaturista = () => {
@@ -3088,22 +3227,26 @@ function ContaConvenioDetalhesPadrao() {
                                     </p>
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
-                                    {div.valorCobrado != null
-                                      ? formatCurrency(div.valorCobrado)
-                                      : "-"}
+                                    {div.tipo === "QUANTIDADE" || div.tipo === "COMPOSICAO"
+                                      ? div.valorEncontrado || "-"
+                                      : div.valorCobrado != null
+                                        ? formatCurrency(div.valorCobrado)
+                                        : "-"}
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
-                                    {div.valorEsperado != null
-                                      ? formatCurrency(div.valorEsperado)
-                                      : "-"}
+                                    {div.tipo === "QUANTIDADE" || div.tipo === "COMPOSICAO"
+                                      ? div.valorEsperado || "-"
+                                      : div.valorEsperado != null
+                                        ? formatCurrency(div.valorEsperado)
+                                        : "-"}
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
                                   {div.diferenca != null ? (
                                       <span
                                         className={
                                           parseFloat(div.diferenca) > 0
-                                            ? "text-red-600"
-                                            : "text-green-600"
+                                            ? "text-red-600 font-medium"
+                                            : "text-amber-600 font-medium"
                                         }
                                       >
                                       {formatCurrency(div.diferenca)}
@@ -3713,6 +3856,70 @@ function ContaConvenioDetalhesPadrao() {
                   </div>
                 )}
 
+                {/* Painel de Progresso de Auditoria da Enfermagem */}
+                {(() => {
+                  const todosItens = itensData?.items || [];
+                  const totalItensConta = todosItens.length;
+                  if (totalItensConta === 0) return null;
+                  const totalAuditados = todosItens.filter((it: any) =>
+                    isItemAuditadoEnfermagem(it)
+                  ).length;
+                  const totalComAjuste = todosItens.filter(
+                    (it: any) => it.id && ajustesAplicadosPorItemId.has(it.id)
+                  ).length;
+                  const totalPendentes = Math.max(
+                    0,
+                    totalItensConta - totalAuditados
+                  );
+                  const percentualAuditado = Math.round(
+                    (totalAuditados / totalItensConta) * 100
+                  );
+
+                  return (
+                    <div className="mb-4 p-3 rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+                          <span className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                            Marcador de Auditoria da Enfermagem
+                          </span>
+                          <Badge className="bg-emerald-600 text-white text-xs">
+                            {totalAuditados} de {totalItensConta} auditados (
+                            {percentualAuditado}%)
+                          </Badge>
+                          {totalPendentes > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-amber-300 bg-amber-50 text-amber-800"
+                            >
+                              {totalPendentes} pendente
+                              {totalPendentes > 1 ? "s" : ""}
+                            </Badge>
+                          )}
+                          {totalComAjuste > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-blue-300 bg-blue-50 text-blue-800"
+                            >
+                              {totalComAjuste} com ajuste
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          Marque na coluna <strong>Auditado</strong> os itens já
+                          conferidos no prontuário
+                        </span>
+                      </div>
+                      <div className="w-full bg-emerald-100 dark:bg-emerald-900/40 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${percentualAuditado}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Filtros para a tabela de itens */}
                 <div className="mb-4">
                   <div className="flex flex-wrap items-end gap-3">
@@ -3806,9 +4013,35 @@ function ContaConvenioDetalhesPadrao() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="flex-1 min-w-[180px]">
+                      <Label className="text-xs text-muted-foreground mb-1 block">
+                        Status de Auditoria
+                      </Label>
+                      <Select
+                        value={filtroStatusAuditoriaAjuste}
+                        onValueChange={setFiltroStatusAuditoriaAjuste}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Todos os itens" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos os itens</SelectItem>
+                          <SelectItem value="pendentes">
+                            Não auditados (pendentes)
+                          </SelectItem>
+                          <SelectItem value="auditados">
+                            Já auditados pela enfermagem
+                          </SelectItem>
+                          <SelectItem value="ajustados">
+                            Com ajuste aplicado
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     {(filtroSetorAjuste !== "todos" ||
                       filtroDataAjuste ||
-                      filtroTipoItemAjuste !== "todos") && (
+                      filtroTipoItemAjuste !== "todos" ||
+                      filtroStatusAuditoriaAjuste !== "todos") && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -3817,6 +4050,7 @@ function ContaConvenioDetalhesPadrao() {
                           setFiltroSetorAjuste("todos");
                           setFiltroDataAjuste("");
                           setFiltroTipoItemAjuste("todos");
+                          setFiltroStatusAuditoriaAjuste("todos");
                         }}
                       >
                         <XCircle className="h-4 w-4 mr-1" /> Limpar filtros
@@ -3826,291 +4060,429 @@ function ContaConvenioDetalhesPadrao() {
                 </div>
 
                 {/* Tabela de itens editáveis */}
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Itens da Conta (clique para ajustar)
-                    {(() => {
-                      const filtered = itensData?.items?.filter((item: any) => {
-                        if (filtroSetorAjuste !== "todos") {
-                          if (filtroSetorAjuste === "sem_setor") {
-                            if (item.setor) return false;
-                          } else {
-                            if (item.setor !== filtroSetorAjuste) return false;
-                          }
+                {(() => {
+                  const itensFiltradosAjuste = (itensData?.items || []).filter(
+                    (item: any) => {
+                      if (filtroSetorAjuste !== "todos") {
+                        if (filtroSetorAjuste === "sem_setor") {
+                          if (item.setor) return false;
+                        } else {
+                          if (item.setor !== filtroSetorAjuste) return false;
                         }
-                        if (filtroDataAjuste && item.dataExecucao) {
-                          const itemDate = toInputDateValue(item.dataExecucao);
-                          if (itemDate !== filtroDataAjuste) return false;
-                        } else if (filtroDataAjuste && !item.dataExecucao) {
-                          return false;
-                        }
-                        if (filtroTipoItemAjuste !== "todos") {
-                          if (filtroTipoItemAjuste === "sem_tipo") {
-                            if (item.tipoItem) return false;
-                          } else {
-                            if (item.tipoItem !== filtroTipoItemAjuste)
-                              return false;
-                          }
-                        }
-                        return true;
-                      });
-                      const total = itensData?.items?.length || 0;
-                      const shown = filtered?.length || 0;
-                      if (
-                        filtroSetorAjuste !== "todos" ||
-                        filtroDataAjuste ||
-                        filtroTipoItemAjuste !== "todos"
-                      ) {
-                        return (
-                          <Badge variant="secondary" className="text-xs ml-2">
-                            {shown} de {total}
-                          </Badge>
-                        );
                       }
-                      return null;
-                    })()}
-                  </h4>
-                  {isLoading ? (
-                    <div className="space-y-2">
-                      {[1, 2, 3].map(i => (
-                        <Skeleton key={i} className="h-10 w-full" />
-                      ))}
-                    </div>
-                  ) : !itensData?.items?.length ? (
-                    <p className="text-muted-foreground text-center py-4">
-                      Nenhum item na conta
-                    </p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Código</TableHead>
-                            <TableHead>Descrição</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Setor</TableHead>
-                            <TableHead>Data</TableHead>
-                            <TableHead className="text-right">Qtd</TableHead>
-                            <TableHead className="text-right">
-                              Valor Unit.
-                            </TableHead>
-                            <TableHead className="text-right">
-                              Valor Total
-                            </TableHead>
-                            <TableHead>Ações</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {itensData.items
-                            .filter((item: any) => {
-                              if (filtroSetorAjuste !== "todos") {
-                                if (filtroSetorAjuste === "sem_setor") {
-                                  if (item.setor) return false;
-                                } else {
-                                  if (item.setor !== filtroSetorAjuste)
-                                    return false;
-                                }
+                      if (filtroDataAjuste && item.dataExecucao) {
+                        const itemDate = toInputDateValue(item.dataExecucao);
+                        if (itemDate !== filtroDataAjuste) return false;
+                      } else if (filtroDataAjuste && !item.dataExecucao) {
+                        return false;
+                      }
+                      if (filtroTipoItemAjuste !== "todos") {
+                        if (filtroTipoItemAjuste === "sem_tipo") {
+                          if (item.tipoItem) return false;
+                        } else {
+                          if (item.tipoItem !== filtroTipoItemAjuste)
+                            return false;
+                        }
+                      }
+                      if (filtroStatusAuditoriaAjuste !== "todos") {
+                        const auditado = isItemAuditadoEnfermagem(item);
+                        const temAjuste = Boolean(
+                          item.id && ajustesAplicadosPorItemId.has(item.id)
+                        );
+                        if (
+                          filtroStatusAuditoriaAjuste === "pendentes" &&
+                          auditado
+                        )
+                          return false;
+                        if (
+                          filtroStatusAuditoriaAjuste === "auditados" &&
+                          !auditado
+                        )
+                          return false;
+                        if (
+                          filtroStatusAuditoriaAjuste === "ajustados" &&
+                          !temAjuste
+                        )
+                          return false;
+                      }
+                      return true;
+                    }
+                  );
+
+                  const total = itensData?.items?.length || 0;
+                  const shown = itensFiltradosAjuste.length;
+                  const todosVisiveisAuditados =
+                    shown > 0 &&
+                    itensFiltradosAjuste.every((it: any) =>
+                      isItemAuditadoEnfermagem(it)
+                    );
+
+                  return (
+                    <div className="mb-6">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h4 className="text-sm font-medium flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          Itens da Conta (clique para ajustar ou marcar como
+                          auditado)
+                          {(filtroSetorAjuste !== "todos" ||
+                            filtroDataAjuste ||
+                            filtroTipoItemAjuste !== "todos" ||
+                            filtroStatusAuditoriaAjuste !== "todos") && (
+                            <Badge variant="secondary" className="text-xs ml-2">
+                              {shown} de {total}
+                            </Badge>
+                          )}
+                        </h4>
+                        {shown > 0 && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={
+                                todosVisiveisAuditados
+                                  ? "h-8 text-xs border-gray-300 text-gray-700"
+                                  : "h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                               }
-                              if (filtroDataAjuste && item.dataExecucao) {
-                                const itemDate = toInputDateValue(
-                                  item.dataExecucao
-                                );
-                                if (itemDate !== filtroDataAjuste) return false;
-                              } else if (
-                                filtroDataAjuste &&
-                                !item.dataExecucao
-                              ) {
-                                return false;
+                              disabled={marcarItensAuditadosMutation.isPending}
+                              onClick={() =>
+                                handleMarcarItensVisiveisAuditados(
+                                  itensFiltradosAjuste,
+                                  !todosVisiveisAuditados
+                                )
                               }
-                              if (filtroTipoItemAjuste !== "todos") {
-                                if (filtroTipoItemAjuste === "sem_tipo") {
-                                  if (item.tipoItem) return false;
-                                } else {
-                                  if (item.tipoItem !== filtroTipoItemAjuste)
-                                    return false;
-                                }
-                              }
-                              return true;
-                            })
-                            .map((item: any, index: number) => (
-                            <TableRow key={item.id || index}>
-                                <TableCell className="font-mono text-sm">
-                                  {item.codigoItem || "-"}
-                                </TableCell>
-                                <TableCell className="max-w-[200px] truncate">
-                                  {item.descricaoItem || "-"}
-                                </TableCell>
-                              <TableCell>
-                                {(() => {
-                                  const labelMap: Record<string, string> = {
-                                      PROCEDIMENTO: "Proc",
-                                      DIARIA: "Di\u00e1ria",
-                                      MAT_MED: "Mat/Med",
-                                      TAXA: "Taxa",
-                                      GASES: "G\u00e1s",
-                                      procedimento: "Proc",
-                                      diaria: "Di\u00e1ria",
-                                      taxa: "Taxa",
-                                      medicamento: "Med",
-                                      material: "Mat",
-                                      gas: "G\u00e1s",
-                                  };
-                                  const colorMap: Record<string, string> = {
-                                      PROCEDIMENTO:
-                                        "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-                                      procedimento:
-                                        "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-                                      DIARIA:
-                                        "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-                                      diaria:
-                                        "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-                                      MAT_MED:
-                                        "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-                                      medicamento:
-                                        "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-                                      material:
-                                        "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-                                      TAXA: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-                                      taxa: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-                                      GASES:
-                                        "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-                                      gas: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
-                                  };
-                                  const tipo = item.tipoItem || "";
-                                    const label =
-                                      labelMap[tipo] || tipo || "N/D";
-                                    const color =
-                                      colorMap[tipo] ||
-                                      "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
-                                    return (
-                                      <Badge
-                                        className={`text-xs font-normal whitespace-nowrap ${color}`}
-                                      >
-                                        {label}
-                                      </Badge>
-                                    );
-                                })()}
-                              </TableCell>
-                              <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className="text-xs font-normal whitespace-nowrap"
-                                  >
-                                  {item.setor || "N/D"}
-                                </Badge>
-                              </TableCell>
-                                <TableCell className="text-sm whitespace-nowrap">
-                                  {item.dataExecucao
-                                    ? formatDateBR(item.dataExecucao)
-                                    : "-"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {item.quantidade || 1}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {formatCurrency(item.valorUnitario)}
-                                </TableCell>
-                                <TableCell className="text-right font-semibold">
-                                  {formatCurrency(item.valorTotal)}
-                                </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-1">
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7"
-                                          onClick={() => {
-                                              setAjusteDialog({
-                                                open: true,
-                                                tipo: "ALTERAR_QUANTIDADE",
-                                                item,
-                                              });
-                                              setAjusteQtd(
-                                                item.quantidade?.toString() ||
-                                                  "1"
-                                              );
-                                              setAjusteValor(
-                                                item.valorUnitario?.toString() ||
-                                                  "0"
-                                              );
-                                          }}
-                                        >
-                                          <Hash className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                        <TooltipContent>
-                                          Alterar quantidade
-                                        </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7"
-                                          onClick={() => {
-                                              setAjusteDialog({
-                                                open: true,
-                                                tipo: "ALTERAR_VALOR",
-                                                item,
-                                              });
-                                              setAjusteValor(
-                                                item.valorUnitario?.toString() ||
-                                                  "0"
-                                              );
-                                              setAjusteQtd(
-                                                item.quantidade?.toString() ||
-                                                  "1"
-                                              );
-                                          }}
-                                        >
-                                          <DollarSign className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                        <TooltipContent>
-                                          Alterar valor
-                                        </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7"
-                                          onClick={() => {
-                                              setAjusteDialog({
-                                                open: true,
-                                                tipo: "ALTERAR_SETOR",
-                                                item,
-                                              });
-                                            setAjusteSetor(item.setor || "");
-                                          }}
-                                        >
-                                          <Bed className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                        <TooltipContent>
-                                          Alterar setor
-                                        </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                            >
+                              {todosVisiveisAuditados ? (
+                                <>
+                                  <Square className="h-3.5 w-3.5 mr-1.5" />
+                                  Desmarcar visíveis ({shown})
+                                </>
+                              ) : (
+                                <>
+                                  <CheckSquare className="h-3.5 w-3.5 mr-1.5" />
+                                  Marcar visíveis como auditados ({shown})
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                      {isLoading ? (
+                        <div className="space-y-2">
+                          {[1, 2, 3].map(i => (
+                            <Skeleton key={i} className="h-10 w-full" />
                           ))}
-                        </TableBody>
-                      </Table>
+                        </div>
+                      ) : !itensData?.items?.length ? (
+                        <p className="text-muted-foreground text-center py-4">
+                          Nenhum item na conta
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[90px] text-center">
+                                  Auditado
+                                </TableHead>
+                                <TableHead>Código</TableHead>
+                                <TableHead>Descrição</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Setor</TableHead>
+                                <TableHead>Data</TableHead>
+                                <TableHead className="text-right">
+                                  Qtd
+                                </TableHead>
+                                <TableHead className="text-right">
+                                  Valor Unit.
+                                </TableHead>
+                                <TableHead className="text-right">
+                                  Valor Total
+                                </TableHead>
+                                <TableHead>Ações</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {itensFiltradosAjuste.map(
+                                (item: any, index: number) => {
+                                  const auditado =
+                                    isItemAuditadoEnfermagem(item);
+                                  const ajustesDoItem = item.id
+                                    ? ajustesAplicadosPorItemId.get(item.id) ||
+                                      []
+                                    : [];
+
+                                  return (
+                                    <TableRow
+                                      key={item.id || index}
+                                      className={
+                                        auditado
+                                          ? "bg-emerald-50/60 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 transition-colors"
+                                          : "transition-colors"
+                                      }
+                                    >
+                                      <TableCell className="text-center">
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleToggleItemAuditado(item)
+                                                }
+                                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                                                  auditado
+                                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-200"
+                                                    : "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400"
+                                                }`}
+                                                aria-label={
+                                                  auditado
+                                                    ? `Desmarcar item ${item.codigoItem || ""} como auditado`
+                                                    : `Marcar item ${item.codigoItem || ""} como auditado`
+                                                }
+                                              >
+                                                {auditado ? (
+                                                  <>
+                                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                                    <span>Auditado</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Square className="h-3.5 w-3.5 text-gray-400" />
+                                                    <span>Marcar</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              {auditado
+                                                ? "Item já auditado pela enfermagem (clique para desmarcar)"
+                                                : "Clique para marcar este item como auditado"}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
+                                      </TableCell>
+                                      <TableCell className="font-mono text-sm">
+                                        {item.codigoItem || "-"}
+                                      </TableCell>
+                                      <TableCell className="max-w-[240px]">
+                                        <div className="flex flex-col gap-1">
+                                          <span
+                                            className="truncate"
+                                            title={item.descricaoItem}
+                                          >
+                                            {item.descricaoItem || "-"}
+                                          </span>
+                                          {ajustesDoItem.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {ajustesDoItem.map(
+                                                (aj: any, ajIdx: number) => (
+                                                  <Badge
+                                                    key={aj.id || ajIdx}
+                                                    variant="outline"
+                                                    className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200"
+                                                  >
+                                                    {aj.tipoAjuste ===
+                                                    "ALTERAR_QUANTIDADE"
+                                                      ? `Ajustado Qtd (${aj.quantidadeOriginal} → ${aj.quantidadeAjustada})`
+                                                      : aj.tipoAjuste ===
+                                                          "ALTERAR_VALOR"
+                                                        ? `Ajustado Valor`
+                                                        : aj.tipoAjuste ===
+                                                            "ALTERAR_SETOR"
+                                                          ? `Ajustado Setor (${aj.setorAjustado})`
+                                                          : aj.tipoAjuste ===
+                                                              "ADICIONAR_ITEM"
+                                                            ? "Item Adicionado"
+                                                            : "Ajustado"}
+                                                  </Badge>
+                                                )
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        {(() => {
+                                          const labelMap: Record<
+                                            string,
+                                            string
+                                          > = {
+                                            PROCEDIMENTO: "Proc",
+                                            DIARIA: "Di\u00e1ria",
+                                            MAT_MED: "Mat/Med",
+                                            TAXA: "Taxa",
+                                            GASES: "G\u00e1s",
+                                            procedimento: "Proc",
+                                            diaria: "Di\u00e1ria",
+                                            taxa: "Taxa",
+                                            medicamento: "Med",
+                                            material: "Mat",
+                                            gas: "G\u00e1s",
+                                          };
+                                          const colorMap: Record<
+                                            string,
+                                            string
+                                          > = {
+                                            PROCEDIMENTO:
+                                              "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+                                            procedimento:
+                                              "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+                                            DIARIA:
+                                              "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+                                            diaria:
+                                              "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+                                            MAT_MED:
+                                              "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                                            medicamento:
+                                              "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                                            material:
+                                              "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+                                            TAXA: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                                            taxa: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                                            GASES:
+                                              "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+                                            gas: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+                                          };
+                                          const tipo = item.tipoItem || "";
+                                          const label =
+                                            labelMap[tipo] || tipo || "N/D";
+                                          const color =
+                                            colorMap[tipo] ||
+                                            "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+                                          return (
+                                            <Badge
+                                              className={`text-xs font-normal whitespace-nowrap ${color}`}
+                                            >
+                                              {label}
+                                            </Badge>
+                                          );
+                                        })()}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-xs font-normal whitespace-nowrap"
+                                        >
+                                          {item.setor || "N/D"}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-sm whitespace-nowrap">
+                                        {item.dataExecucao
+                                          ? formatDateBR(item.dataExecucao)
+                                          : "-"}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {item.quantidade || 1}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {formatCurrency(item.valorUnitario)}
+                                      </TableCell>
+                                      <TableCell className="text-right font-semibold">
+                                        {formatCurrency(item.valorTotal)}
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-1">
+                                          <TooltipProvider>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-7 w-7"
+                                                  onClick={() => {
+                                                    setAjusteDialog({
+                                                      open: true,
+                                                      tipo: "ALTERAR_QUANTIDADE",
+                                                      item,
+                                                    });
+                                                    setAjusteQtd(
+                                                      item.quantidade?.toString() ||
+                                                        "1"
+                                                    );
+                                                    setAjusteValor(
+                                                      item.valorUnitario?.toString() ||
+                                                        "0"
+                                                    );
+                                                  }}
+                                                >
+                                                  <Hash className="h-3.5 w-3.5" />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                Alterar quantidade
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                          <TooltipProvider>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-7 w-7"
+                                                  onClick={() => {
+                                                    setAjusteDialog({
+                                                      open: true,
+                                                      tipo: "ALTERAR_VALOR",
+                                                      item,
+                                                    });
+                                                    setAjusteValor(
+                                                      item.valorUnitario?.toString() ||
+                                                        "0"
+                                                    );
+                                                    setAjusteQtd(
+                                                      item.quantidade?.toString() ||
+                                                        "1"
+                                                    );
+                                                  }}
+                                                >
+                                                  <DollarSign className="h-3.5 w-3.5" />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                Alterar valor
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                          <TooltipProvider>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-7 w-7"
+                                                  onClick={() => {
+                                                    setAjusteDialog({
+                                                      open: true,
+                                                      tipo: "ALTERAR_SETOR",
+                                                      item,
+                                                    });
+                                                    setAjusteSetor(
+                                                      item.setor || ""
+                                                    );
+                                                  }}
+                                                >
+                                                  <Bed className="h-3.5 w-3.5" />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                Alterar setor
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                }
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Histórico de Ajustes */}
                 {ajustesData && ajustesData.length > 0 && (
@@ -4120,103 +4492,124 @@ function ContaConvenioDetalhesPadrao() {
                       Histórico de Ajustes ({ajustesData.length})
                     </h4>
                     <div className="space-y-2">
-                      {ajustesData.map((ajuste: any) => (
-                        <div
-                          key={ajuste.id}
-                          className={`p-3 rounded-lg border ${
-                            ajuste.status === "aplicado"
-                              ? "border-green-200 bg-green-50/50"
-                              : ajuste.status === "revertido"
-                                ? "border-gray-200 bg-gray-50/50 opacity-60"
-                                : "border-yellow-200 bg-yellow-50/50"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant="outline" className="text-xs">
-                                  {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE"
-                                    ? "Qtd"
-                                    : ajuste.tipoAjuste === "ALTERAR_VALOR"
-                                      ? "Valor"
-                                      : ajuste.tipoAjuste === "ADICIONAR_ITEM"
-                                        ? "+ Item"
-                                        : ajuste.tipoAjuste === "ALTERAR_SETOR"
-                                          ? "Setor"
-                                          : "- Item"}
-                                </Badge>
-                                <Badge
-                                  className={`text-xs ${
-                                    ajuste.status === "aplicado"
-                                      ? "bg-green-100 text-green-800"
-                                      : ajuste.status === "revertido"
-                                        ? "bg-gray-100 text-gray-800"
-                                        : "bg-yellow-100 text-yellow-800"
-                                  }`}
-                                >
-                                  {ajuste.status}
-                                </Badge>
-                                <span className="font-mono text-xs">
-                                  {ajuste.codigoItem || "-"}
-                                </span>
+                      {ajustesData.map((ajuste: any) => {
+                        const dataItemAjuste = obterDataItemAjuste(ajuste);
+                        return (
+                          <div
+                            key={ajuste.id}
+                            className={`p-3 rounded-lg border ${
+                              ajuste.status === "aplicado"
+                                ? "border-green-200 bg-green-50/50"
+                                : ajuste.status === "revertido"
+                                  ? "border-gray-200 bg-gray-50/50 opacity-60"
+                                  : "border-yellow-200 bg-yellow-50/50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <Badge variant="outline" className="text-xs">
+                                    {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE"
+                                      ? "Qtd"
+                                      : ajuste.tipoAjuste === "ALTERAR_VALOR"
+                                        ? "Valor"
+                                        : ajuste.tipoAjuste === "ADICIONAR_ITEM"
+                                          ? "+ Item"
+                                          : ajuste.tipoAjuste ===
+                                              "ALTERAR_SETOR"
+                                            ? "Setor"
+                                            : "- Item"}
+                                  </Badge>
+                                  <Badge
+                                    className={`text-xs ${
+                                      ajuste.status === "aplicado"
+                                        ? "bg-green-100 text-green-800"
+                                        : ajuste.status === "revertido"
+                                          ? "bg-gray-100 text-gray-800"
+                                          : "bg-yellow-100 text-yellow-800"
+                                    }`}
+                                  >
+                                    {ajuste.status}
+                                  </Badge>
+                                  <span className="font-mono text-xs">
+                                    {ajuste.codigoItem || "-"}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 flex items-center gap-1"
+                                  >
+                                    <Calendar className="h-3 w-3" />
+                                    Data do item:{" "}
+                                    {dataItemAjuste
+                                      ? formatDateBR(dataItemAjuste)
+                                      : "Não informada"}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm">
+                                  {ajuste.descricaoItem || "Item sem descrição"}
+                                </p>
+                                {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE" && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Quantidade: {ajuste.quantidadeOriginal} →{" "}
+                                    {ajuste.quantidadeAjustada}
+                                  </p>
+                                )}
+                                {ajuste.tipoAjuste === "ALTERAR_VALOR" && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Valor:{" "}
+                                    {formatCurrency(ajuste.valorOriginal)} →{" "}
+                                    {formatCurrency(ajuste.valorAjustado)}
+                                  </p>
+                                )}
+                                {ajuste.tipoAjuste === "ALTERAR_SETOR" && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Setor: {ajuste.setorOriginal || "N/D"} →{" "}
+                                    {ajuste.setorAjustado || "N/D"}
+                                  </p>
+                                )}
+                                {ajuste.justificativa && (
+                                  <p className="text-xs text-muted-foreground italic mt-1">
+                                    "{ajuste.justificativa}"
+                                  </p>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Data do item:{" "}
+                                  <strong>
+                                    {dataItemAjuste
+                                      ? formatDateBR(dataItemAjuste)
+                                      : "-"}
+                                  </strong>{" "}
+                                  • Alterado por {ajuste.usuarioNome} em{" "}
+                                  {formatDateTimeBR(ajuste.createdAt)}
+                                </p>
                               </div>
-                              <p className="text-sm">
-                                {ajuste.descricaoItem || "Item sem descrição"}
-                              </p>
-                              {ajuste.tipoAjuste === "ALTERAR_QUANTIDADE" && (
-                                <p className="text-xs text-muted-foreground">
-                                  Quantidade: {ajuste.quantidadeOriginal} →{" "}
-                                  {ajuste.quantidadeAjustada}
-                                </p>
+                              {ajuste.status === "aplicado" && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-100"
+                                        onClick={() =>
+                                          reverterAjusteMutation.mutate({
+                                            id: ajuste.id,
+                                          })
+                                        }
+                                      >
+                                        <Undo2 className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Reverter ajuste
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               )}
-                              {ajuste.tipoAjuste === "ALTERAR_VALOR" && (
-                                <p className="text-xs text-muted-foreground">
-                                  Valor: {formatCurrency(ajuste.valorOriginal)}{" "}
-                                  → {formatCurrency(ajuste.valorAjustado)}
-                                </p>
-                              )}
-                              {ajuste.tipoAjuste === "ALTERAR_SETOR" && (
-                                <p className="text-xs text-muted-foreground">
-                                  Setor: {ajuste.setorOriginal || "N/D"} →{" "}
-                                  {ajuste.setorAjustado || "N/D"}
-                                </p>
-                              )}
-                              {ajuste.justificativa && (
-                                <p className="text-xs text-muted-foreground italic mt-1">
-                                  "{ajuste.justificativa}"
-                                </p>
-                              )}
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Por {ajuste.usuarioNome} em{" "}
-                                {formatDateTimeBR(ajuste.createdAt)}
-                              </p>
                             </div>
-                            {ajuste.status === "aplicado" && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-orange-500 hover:text-orange-600 hover:bg-orange-100"
-                                      onClick={() =>
-                                        reverterAjusteMutation.mutate({
-                                          id: ajuste.id,
-                                        })
-                                      }
-                                    >
-                                      <Undo2 className="h-4 w-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    Reverter ajuste
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -5017,7 +5410,11 @@ function ContaConvenioDetalhesPadrao() {
                     <p className="text-sm">
                       <strong>Qtd atual:</strong> {ajusteDialog.item.quantidade}{" "}
                       | <strong>Valor atual:</strong>{" "}
-                      {formatCurrency(ajusteDialog.item.valorUnitario)}
+                      {formatCurrency(ajusteDialog.item.valorUnitario)} |{" "}
+                      <strong>Data:</strong>{" "}
+                      {ajusteDialog.item.dataExecucao
+                        ? formatDateBR(ajusteDialog.item.dataExecucao)
+                        : "-"}
                     </p>
                   )}
                 </div>

@@ -262,3 +262,147 @@ describe("filtro por tipo de item na aba Ajustes", () => {
     expect(result.length).toBe(0);
   });
 });
+
+
+describe("auditoria.marcarItensAuditados - Marcador de auditoria da enfermagem", () => {
+  it("procedure exists and is callable", () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+    expect(caller.auditoria.marcarItensAuditados).toBeDefined();
+    expect(typeof caller.auditoria.marcarItensAuditados).toBe("function");
+  });
+
+  it("accepts valid itemIds array and auditado boolean", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    try {
+      await caller.auditoria.marcarItensAuditados({
+        numeroConta: "TEST-AUDIT-001",
+        estabelecimentoId: 1,
+        itemIds: [101, 102],
+        auditado: true,
+      });
+    } catch (error: any) {
+      // Should not fail Zod input validation
+      expect(error.code).not.toBe("BAD_REQUEST");
+    }
+  });
+
+  it("rejects empty itemIds array", async () => {
+    const { ctx } = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    try {
+      await caller.auditoria.marcarItensAuditados({
+        numeroConta: "TEST-AUDIT-001",
+        estabelecimentoId: 1,
+        itemIds: [],
+        auditado: true,
+      });
+      expect.unreachable("Should have thrown");
+    } catch (error: any) {
+      expect(error.code).toBe("BAD_REQUEST");
+    }
+  });
+});
+
+describe("marcador de itens auditados e data do item no histórico de ajustes", () => {
+  const mockItems = [
+    { id: 10, codigoItem: "10102019", descricaoItem: "VISITA HOSPITALAR", statusAnalise: "revisado", dataExecucao: "2026-03-01" },
+    { id: 11, codigoItem: "60000694", descricaoItem: "DIARIA DE ENFERMARIA", statusAnalise: "pendente", dataExecucao: "2026-03-02" },
+    { id: 12, codigoItem: "90001234", descricaoItem: "DIPIRONA 500MG", statusAnalise: "pendente", dataExecucao: "2026-03-03" },
+  ];
+
+  const mockAjustes = [
+    {
+      id: 1,
+      itemId: 11,
+      codigoItem: "60000694",
+      tipoAjuste: "ALTERAR_QUANTIDADE",
+      status: "aplicado",
+      dataExecucao: "2026-03-02",
+    },
+    {
+      id: 2,
+      itemId: null,
+      codigoItem: "90001234",
+      tipoAjuste: "ADICIONAR_ITEM",
+      status: "revertido",
+      dataExecucao: null,
+    },
+    {
+      id: 3,
+      itemId: null,
+      codigoItem: "10102019",
+      tipoAjuste: "ADICIONAR_ITEM",
+      status: "aplicado",
+      dataExecucao: null,
+    },
+  ];
+
+  function buildAjustesAplicadosMap(ajustes: typeof mockAjustes) {
+    const map = new Map<number, (typeof mockAjustes)[number][]>();
+    for (const aj of ajustes) {
+      if (aj.status === "revertido") continue;
+      if (aj.itemId) {
+        const current = map.get(Number(aj.itemId)) || [];
+        current.push(aj);
+        map.set(Number(aj.itemId), current);
+      }
+    }
+    return map;
+  }
+
+  function isItemAuditado(
+    item: (typeof mockItems)[number],
+    ajustesMap: Map<number, (typeof mockAjustes)[number][]>,
+    otimista: Record<number, boolean> = {}
+  ) {
+    if (item.id in otimista) return otimista[item.id];
+    if (item.statusAnalise === "revisado") return true;
+    if (ajustesMap.has(item.id)) return true;
+    return false;
+  }
+
+  function obterDataItemAjuste(
+    ajuste: (typeof mockAjustes)[number],
+    items: typeof mockItems
+  ): string | null {
+    if (ajuste.dataExecucao) return String(ajuste.dataExecucao);
+    if (ajuste.itemId) {
+      const found = items.find((i) => Number(i.id) === Number(ajuste.itemId));
+      if (found?.dataExecucao) return String(found.dataExecucao);
+    }
+    if (ajuste.codigoItem) {
+      const foundByCode = items.find(
+        (i) => String(i.codigoItem) === String(ajuste.codigoItem) && i.dataExecucao
+      );
+      if (foundByCode?.dataExecucao) return String(foundByCode.dataExecucao);
+    }
+    return null;
+  }
+
+  it("identifies items as audited when statusAnalise is revisado or item has active adjustment", () => {
+    const ajustesMap = buildAjustesAplicadosMap(mockAjustes);
+    // Item 10: statusAnalise = revisado -> true
+    expect(isItemAuditado(mockItems[0], ajustesMap)).toBe(true);
+    // Item 11: statusAnalise = pendente, but has active adjustment -> true
+    expect(isItemAuditado(mockItems[1], ajustesMap)).toBe(true);
+    // Item 12: statusAnalise = pendente, adjustment is revertido -> false
+    expect(isItemAuditado(mockItems[2], ajustesMap)).toBe(false);
+  });
+
+  it("respects optimistic toggle state when nurse marks/unmarks an item", () => {
+    const ajustesMap = buildAjustesAplicadosMap(mockAjustes);
+    expect(isItemAuditado(mockItems[2], ajustesMap, { 12: true })).toBe(true);
+    expect(isItemAuditado(mockItems[0], ajustesMap, { 10: false })).toBe(false);
+  });
+
+  it("resolves the execution date of the item in adjustment history directly or via fallback", () => {
+    // Ajuste 1 has dataExecucao directly from backend enrichment
+    expect(obterDataItemAjuste(mockAjustes[0], mockItems)).toBe("2026-03-02");
+    // Ajuste 3 has no itemId/dataExecucao on record, falls back to matching codigoItem
+    expect(obterDataItemAjuste(mockAjustes[2], mockItems)).toBe("2026-03-01");
+  });
+});
