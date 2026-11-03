@@ -9,7 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3, FileText } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Sparkles, Copy, Check, Ban, Users, ListTree, Tag, ArrowLeft, BarChart3, FileText, FilePlus2, Download, Loader2 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { resolverGlosaDicionario } from "@shared/glossaryGlosas";
+import { LancamentoGlosaManualDialog } from "@/components/LancamentoGlosaManualDialog";
 import { useLocation } from "wouter";
 import { RecursoGlosaMultiSelect } from "@/components/recurso-glosa/RecursoGlosaMultiSelect";
 import { MAX_RECEBIMENTO_IDS_DEMONSTRATIVO } from "@shared/recursoGlosaDemonstrativoFiltros";
@@ -43,6 +46,9 @@ export default function RecursoGlosaDemonstrativo() {
   const [editingJustificativa, setEditingJustificativa] = useState<{ id: number; value: string; fonte?: string } | null>(null);
   const [editingValorRecurso, setEditingValorRecurso] = useState<{ id: number; value: string; fonte?: string } | null>(null);
   const [page, setPage] = useState(1);
+  const [dialogGlosaManualOpen, setDialogGlosaManualOpen] = useState(false);
+  const utils = trpc.useUtils();
+  const { data: motivosGlosaDb } = trpc.motivosGlosa.list.useQuery();
 
   const convenioIdNumero = convenioId !== "todos" ? Number(convenioId) : undefined;
   const scopeKey = useMemo(() => criarEscopoDemonstrativo({
@@ -385,6 +391,43 @@ export default function RecursoGlosaDemonstrativo() {
 
   const [, navigate] = useLocation();
 
+  const exportarPlanilhaMutation = trpc.faturamentoUnificado.exportarPlanilhaRecursoDemonstrativo.useMutation({
+    onSuccess: (res) => {
+      if (!res.dados || res.dados.length === 0) {
+        toast.info("Nenhum item encontrado para exportar com os filtros atuais.");
+        return;
+      }
+      const ws = XLSX.utils.json_to_sheet(res.dados);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Recursos Demonstrativo");
+      const totaisSheet = XLSX.utils.json_to_sheet([
+        {
+          "Total de Itens": res.totais.totalItens,
+          "Total Valor Glosado": res.totais.totalValorGlosado,
+          "Total Valor Recursado": res.totais.totalValorRecursado,
+        },
+      ]);
+      XLSX.utils.book_append_sheet(wb, totaisSheet, "Totais");
+      const dataStr = new Date().toISOString().split("T")[0];
+      XLSX.writeFile(wb, `recurso_glosa_demonstrativo_${dataStr}.xlsx`);
+      toast.success(`Planilha exportada com sucesso (${res.totais.totalItens} itens)!`);
+    },
+    onError: (err) => {
+      toast.error(err.message || "Erro ao exportar planilha de recurso.");
+    },
+  });
+
+  const handleExportarPlanilha = () => {
+    if (!estabelecimentoId) return;
+    exportarPlanilhaMutation.mutate({
+      estabelecimentoId,
+      competencias: competenciasSelecionadas,
+      convenioId: convenioIdNumero,
+      datasPagto: datasPagtoSelecionadas,
+      busca: busca || undefined,
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col items-start gap-2 md:flex-row md:items-center md:justify-between">
@@ -394,7 +437,45 @@ export default function RecursoGlosaDemonstrativo() {
           </Button>
           <h1 className="text-xl font-bold sm:text-2xl">Recurso Glosa Demonstrativo</h1>
         </div>
-        <Badge variant="outline" className="text-xs">Fonte: Demonstrativo XML + Recebimentos Excel</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDialogGlosaManualOpen(true)}
+            disabled={!estabelecimentoId}
+            className="text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            <FilePlus2 className="h-4 w-4 mr-1.5" />
+            Lançar Glosa Manual (Ex: FUSEX)
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportarPlanilha}
+            disabled={!estabelecimentoId || exportarPlanilhaMutation.isPending}
+            className="text-xs"
+          >
+            {exportarPlanilhaMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-1.5" />
+            )}
+            Exportar Planilha Recurso (Excel)
+          </Button>
+          <Badge variant="outline" className="text-xs">Fonte: Demonstrativo XML + Excel + Manual</Badge>
+        </div>
+        <LancamentoGlosaManualDialog
+          open={dialogGlosaManualOpen}
+          onOpenChange={setDialogGlosaManualOpen}
+          estabelecimentoId={estabelecimentoId}
+          convenioIdInicial={convenioIdNumero}
+          onSuccess={() => {
+            void utils.faturamentoUnificado.competenciasDemonstrativo.invalidate();
+            void utils.faturamentoUnificado.conveniosDemonstrativo.invalidate();
+            void utils.faturamentoUnificado.datasPagamentoDemonstrativo.invalidate();
+            void refetch();
+          }}
+        />
       </div>
 
       {/* Filtros */}
@@ -876,8 +957,8 @@ export default function RecursoGlosaDemonstrativo() {
                 <td className="p-2 text-right">{formatCurrency(row.valorFaturado)}</td>
                 <td className="p-2 text-right">{formatCurrency(row.valorPago)}</td>
                 <td className="p-2 text-right text-red-600">{formatCurrency(row.valorGlosa)}</td>
-                <td className="p-2 font-mono">{row.codigoGlosa || '-'}</td>
-                <td className="p-2 max-w-[150px] truncate">{row.motivoGlosa}</td>
+                <td className="p-2 font-mono" title={resolverGlosaDicionario(row.codigoGlosa, row.motivoGlosa, motivosGlosaDb as any[])?.textoFormatado || ""}>{row.codigoGlosa || '-'}</td>
+                <td className="p-2 max-w-[180px] truncate" title={resolverGlosaDicionario(row.codigoGlosa, row.motivoGlosa, motivosGlosaDb as any[])?.descricao || row.motivoGlosa || ""}>{resolverGlosaDicionario(row.codigoGlosa, row.motivoGlosa, motivosGlosaDb as any[])?.descricao || row.motivoGlosa}</td>
                 <td className="p-2 text-right">
                   {row.glosaAceita ? (
                     <span className="text-muted-foreground">R$ 0,00</span>

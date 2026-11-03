@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm";
  * - 20103093: Atendimento Fisiátrico No Pré E Pós-Operatório
  * - 20203047: Assistência Fisiátrica Respiratória Em Doente Clínico Internado
  * 
- * IMPORTANTE: O agrupamento por mês usa data_referencia (data do demonstrativo/pagamento),
+ * IMPORTANTE: O agrupamento por mês usa data_referencia (com fallback para data_pagto/data_pagamento),
  * NÃO data_execucao (data em que o procedimento foi realizado).
  */
 
@@ -34,8 +34,8 @@ export const relatorioFisioterapiaRouter = router({
       let whereClause = `re.estabelecimentoId = ${estabelecimentoId} AND re.item IN ('20103093', '20203047') AND COALESCE(re.valor_pagamento, 0) > 0`;
       
       if (mesAno) {
-        // Filtrar pela data_referencia (data do demonstrativo), não data_execucao
-        whereClause += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${mesAno}'`;
+        // Filtrar pela data_referencia (data do demonstrativo), com fallback para data_pagto/data_pagamento, não data_execucao
+        whereClause += ` AND DATE_FORMAT(COALESCE(re.data_referencia, re.data_pagto, re.data_pagamento), '%Y-%m') = '${mesAno}'`;
       }
 
       // Buscar dados detalhados
@@ -46,7 +46,7 @@ export const relatorioFisioterapiaRouter = router({
           re.item as codigoItem,
           re.item_desc as descricaoItem,
           re.data_execucao as dataExecucao,
-          re.data_referencia as dataReferencia,
+          COALESCE(re.data_referencia, re.data_pagto, re.data_pagamento) as dataReferencia,
           COALESCE(re.valor_pagamento, 0) as valorPago,
           COALESCE(re.quantidade, 0) as quantidade,
           re.situacao_item as situacao
@@ -56,7 +56,7 @@ export const relatorioFisioterapiaRouter = router({
       `;
 
       const [rows] = await db.execute(sql.raw(query));
-      const itens = rows as any[];
+      const itens = rows as unknown as any[];
 
       // Agrupar por paciente
       const pacientesMap = new Map<string, {
@@ -70,11 +70,13 @@ export const relatorioFisioterapiaRouter = router({
       }>();
 
       for (const item of itens) {
-        const key = `${item.paciente}|${item.numeroGuia}`;
+        const nomePaciente = item.paciente || "Sem nome";
+        const numeroGuia = item.numeroGuia || "-";
+        const key = `${nomePaciente}|${numeroGuia}`;
         if (!pacientesMap.has(key)) {
           pacientesMap.set(key, {
-            paciente: item.paciente,
-            numeroGuia: item.numeroGuia,
+            paciente: nomePaciente,
+            numeroGuia,
             totalPago: 0,
             totalSessoes: 0,
             itens: [],
@@ -105,7 +107,7 @@ export const relatorioFisioterapiaRouter = router({
       }
 
       const pacientes = Array.from(pacientesMap.values()).sort((a, b) => 
-        a.paciente.localeCompare(b.paciente)
+        (a.paciente || "").localeCompare(b.paciente || "")
       );
 
       // Resumo geral
@@ -125,7 +127,7 @@ export const relatorioFisioterapiaRouter = router({
 
   /**
    * Buscar meses disponíveis para o filtro
-   * Usa data_referencia (data do demonstrativo) para agrupar por mês
+   * Usa data_referencia (com fallback para data_pagto/data_pagamento) para agrupar por mês
    */
   getMesesDisponiveis: relatorioProcedure
     .input(z.object({
@@ -137,7 +139,7 @@ export const relatorioFisioterapiaRouter = router({
 
       const query = `
         SELECT 
-          DATE_FORMAT(data_referencia, '%Y-%m') as mes,
+          DATE_FORMAT(COALESCE(data_referencia, data_pagto, data_pagamento), '%Y-%m') as mes,
           COUNT(*) as qtd,
           SUM(valor_pagamento) as totalPago,
           COUNT(DISTINCT nome_beneficiario) as pacientes
@@ -145,22 +147,25 @@ export const relatorioFisioterapiaRouter = router({
         WHERE estabelecimentoId = ${estabelecimentoId}
           AND item IN ('20103093', '20203047')
           AND COALESCE(valor_pagamento, 0) > 0
-        GROUP BY DATE_FORMAT(data_referencia, '%Y-%m')
+          AND COALESCE(data_referencia, data_pagto, data_pagamento) IS NOT NULL
+        GROUP BY DATE_FORMAT(COALESCE(data_referencia, data_pagto, data_pagamento), '%Y-%m')
         ORDER BY mes DESC
       `;
 
       const [rows] = await db.execute(sql.raw(query));
-      return (rows as any[]).map(r => ({
-        mes: r.mes,
-        qtd: Number(r.qtd),
-        totalPago: Number(r.totalPago),
-        pacientes: Number(r.pacientes),
-      }));
+      return (rows as unknown as any[])
+        .filter(r => Boolean(r.mes))
+        .map(r => ({
+          mes: String(r.mes),
+          qtd: Number(r.qtd),
+          totalPago: Number(r.totalPago),
+          pacientes: Number(r.pacientes),
+        }));
     }),
 
   /**
    * Exportar dados para Excel (retorna dados formatados para download)
-   * Usa data_referencia para filtrar por mês
+   * Usa data_referencia (com fallback para data_pagto/data_pagamento) para filtrar por mês
    */
   exportarExcel: relatorioProcedure
     .input(z.object({
@@ -174,7 +179,7 @@ export const relatorioFisioterapiaRouter = router({
       let whereClause = `re.estabelecimentoId = ${estabelecimentoId} AND re.item IN ('20103093', '20203047') AND COALESCE(re.valor_pagamento, 0) > 0`;
       
       if (mesAno) {
-        whereClause += ` AND DATE_FORMAT(re.data_referencia, '%Y-%m') = '${mesAno}'`;
+        whereClause += ` AND DATE_FORMAT(COALESCE(re.data_referencia, re.data_pagto, re.data_pagamento), '%Y-%m') = '${mesAno}'`;
       }
 
       const query = `
@@ -184,7 +189,7 @@ export const relatorioFisioterapiaRouter = router({
           re.item as codigoItem,
           re.item_desc as descricaoItem,
           DATE_FORMAT(re.data_execucao, '%d/%m/%Y') as dataExecucao,
-          DATE_FORMAT(re.data_referencia, '%d/%m/%Y') as dataReferencia,
+          DATE_FORMAT(COALESCE(re.data_referencia, re.data_pagto, re.data_pagamento), '%d/%m/%Y') as dataReferencia,
           COALESCE(re.quantidade, 0) as quantidade,
           COALESCE(re.valor_pagamento, 0) as valorPago,
           re.situacao_item as situacao
@@ -194,6 +199,6 @@ export const relatorioFisioterapiaRouter = router({
       `;
 
       const [rows] = await db.execute(sql.raw(query));
-      return rows as any[];
+      return rows as unknown as any[];
     }),
 });

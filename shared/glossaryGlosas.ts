@@ -1634,3 +1634,118 @@ export function obterEstatisticasPorGrupo(): Record<string, { total: number; med
   
   return result;
 }
+
+
+export interface MotivoGlosaPersonalizadoRef {
+  codigo: string;
+  descricao: string;
+  descricaoSimplificada?: string | null;
+  grupo?: string | null;
+}
+
+export interface GlosaPadronizadaDicionario {
+  codigo: string;
+  descricao: string;
+  descricaoSimplificada?: string;
+  grupo?: string;
+  descricaoOperadora?: string;
+  encontradoNoDicionario: boolean;
+  textoFormatado: string;
+}
+
+/**
+ * Extrai o código principal de glosa e resolve a descrição padronizada
+ * a partir do Dicionário de Glosas (motivos personalizados do banco + Tabela 38 TISS/ANS),
+ * com fallback para a descrição informada em erroTiss/codigoGlosa.
+ */
+export function resolverGlosaDicionario(
+  codigoGlosa?: string | null,
+  erroTiss?: string | null,
+  motivosPersonalizados?: MotivoGlosaPersonalizadoRef[] | null
+): GlosaPadronizadaDicionario | null {
+  const rawCodigo = (codigoGlosa ?? "").trim();
+  const rawErro = (erroTiss ?? "").trim();
+
+  if (!rawCodigo && !rawErro) {
+    return null;
+  }
+
+  const extrairCodigo = (valor: string): string => {
+    if (!valor) return "";
+    const matchInicio = valor.match(/^(\d{3,5})\b/);
+    if (matchInicio) return matchInicio[1];
+    const matchQualquer = valor.match(/\b(\d{4})\b/);
+    if (matchQualquer) return matchQualquer[1];
+    const prefixo = valor.split(/[-:]/)[0]?.trim() || "";
+    return prefixo.length <= 15 ? prefixo : "";
+  };
+
+  const extrairDescricaoBruta = (valor: string, codigoExtraido: string): string => {
+    if (!valor) return "";
+    const semPrefixo = valor.replace(/^\d{3,5}\s*[-:]\s*/, "").trim();
+    if (semPrefixo && semPrefixo !== codigoExtraido) {
+      return semPrefixo;
+    }
+    return valor !== codigoExtraido ? valor : "";
+  };
+
+  const codigo =
+    extrairCodigo(rawCodigo) ||
+    extrairCodigo(rawErro) ||
+    rawCodigo ||
+    rawErro.split("-")[0]?.trim() ||
+    "N/A";
+  const descricaoOperadora =
+    extrairDescricaoBruta(rawErro, codigo) ||
+    extrairDescricaoBruta(rawCodigo, codigo) ||
+    undefined;
+
+  // 1. Verificar no dicionário do banco (motivosGlosa personalizados/cadastrados)
+  if (motivosPersonalizados && motivosPersonalizados.length > 0 && codigo) {
+    const personalizado = motivosPersonalizados.find(
+      (m) => String(m.codigo).trim() === codigo
+    );
+    if (personalizado && personalizado.descricao) {
+      const descricao = personalizado.descricao.trim();
+      return {
+        codigo,
+        descricao,
+        descricaoSimplificada: personalizado.descricaoSimplificada?.trim() || undefined,
+        grupo: personalizado.grupo?.trim() || undefined,
+        descricaoOperadora:
+          descricaoOperadora && descricaoOperadora.toLowerCase() !== descricao.toLowerCase()
+            ? descricaoOperadora
+            : undefined,
+        encontradoNoDicionario: true,
+        textoFormatado: `${codigo} - ${descricao}`,
+      };
+    }
+  }
+
+  // 2. Verificar no dicionário padrão TISS/ANS (GLOSAS_TISS)
+  const glosaTiss = codigo ? GLOSAS_TISS[codigo] : undefined;
+  if (glosaTiss) {
+    return {
+      codigo: glosaTiss.codigo,
+      descricao: glosaTiss.descricao,
+      descricaoSimplificada: glosaTiss.descricaoSimplificada,
+      grupo: glosaTiss.grupo,
+      descricaoOperadora:
+        descricaoOperadora && descricaoOperadora.toLowerCase() !== glosaTiss.descricao.toLowerCase()
+          ? descricaoOperadora
+          : undefined,
+      encontradoNoDicionario: true,
+      textoFormatado: `${glosaTiss.codigo} - ${glosaTiss.descricao}`,
+    };
+  }
+
+  // 3. Fallback quando o código não consta no dicionário
+  const descricaoFallback = descricaoOperadora || "Código não catalogado no Dicionário de Glosas";
+  return {
+    codigo,
+    descricao: descricaoFallback,
+    descricaoOperadora: undefined,
+    encontradoNoDicionario: false,
+    textoFormatado: descricaoOperadora ? `${codigo} - ${descricaoOperadora}` : codigo,
+  };
+}

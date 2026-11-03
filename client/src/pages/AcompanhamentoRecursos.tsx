@@ -286,7 +286,8 @@ export default function AcompanhamentoRecursos() {
       setExportandoLote(null);
       const dadosFormatados = data.recursos.map((r: any) => ({
         "Seq.": r.sequencial,
-        "Protocolo (DP)": r.protocoloDP,
+        "Protocolo (DP)": r.protocoloDP || r.protocoloTiss || "",
+        "Protocolo TISS": r.protocoloTiss || r.protocoloDP || "",
         "Nº Guia": r.guia,
         "Seq. (DP)": r.seqDP,
         "Nome do Beneficiário": r.paciente,
@@ -299,7 +300,8 @@ export default function AcompanhamentoRecursos() {
         "Qtde": r.quantidade,
         "Valor Recursado": r.valorRecursado,
         "Local Atendimento": r.localAtendimento,
-        "Motivo da Glosa": r.motivoGlosa,
+        "Erro TISS": r.erroTiss || r.motivoGlosa || "",
+        "Motivo da Glosa": r.motivoGlosa || r.erroTiss || "",
         "Justificativa para o pagamento": r.justificativaPagamento,
         "Anexo": r.anexo,
         "Qtde Acatado": r.qtdeAcatado,

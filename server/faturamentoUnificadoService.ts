@@ -3106,7 +3106,9 @@ export async function itensConciliadosPorGuia(params: {
       COALESCE(ca.valorPago, 0) as valorPago,
       COALESCE(ca.valorGlosa, 0) as valorGlosa,
       ca.codigoGlosa,
-      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      COALESCE(mg.descricao, NULLIF(TRIM(d.erro_tiss), ''), ca.motivoGlosa) as motivoGlosa,
+      COALESCE(NULLIF(TRIM(d.protocolo), ''), '') as protocoloTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), mg.descricao, ca.codigoGlosa, '') as erroTiss,
       mg.grupo as grupoGlosa,
       ca.statusConciliacao, ca.metodoConciliacao, ca.vinculadoAoId,
       COALESCE(ca.diferenca, 0) as diferenca,
@@ -3116,6 +3118,10 @@ export async function itensConciliadosPorGuia(params: {
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     ${whereClause}
     ORDER BY ca.codigoItem, ca.id
   `;
@@ -3997,7 +4003,9 @@ export async function itensGlosadosDetalheGuia(params: {
       COALESCE(ca.valorPago, 0) as valorPago,
       COALESCE(ca.valorGlosa, 0) as valorGlosa,
       ca.codigoGlosa,
-      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      COALESCE(mg.descricao, NULLIF(TRIM(d.erro_tiss), ''), ca.motivoGlosa) as motivoGlosa,
+      COALESCE(NULLIF(TRIM(d.protocolo), ''), '') as protocoloTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), mg.descricao, ca.codigoGlosa, '') as erroTiss,
       mg.grupo as grupoGlosa,
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
@@ -4010,6 +4018,10 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.statusRecursoItem
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id
     ${whereClause}
     ORDER BY ca.dataExecucao, ca.codigoItem
@@ -4118,7 +4130,9 @@ export async function gerarExcelRecursoConciliacao(params: {
       COALESCE(ca.valorPago, 0) as valorPago,
       COALESCE(ca.valorGlosa, 0) as valorGlosa,
       ca.codigoGlosa,
-      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      COALESCE(mg.descricao, NULLIF(TRIM(d.erro_tiss), ''), ca.motivoGlosa) as motivoGlosa,
+      COALESCE(NULLIF(TRIM(d.protocolo), ''), '') as protocoloTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), mg.descricao, ca.codigoGlosa, '') as erroTiss,
       ca.statusConciliacao,
       ca.pacienteNome,
       ca.convenio,
@@ -4128,6 +4142,10 @@ export async function gerarExcelRecursoConciliacao(params: {
     FROM conciliados_automatico ca
     LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     ${whereClause}
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
   `;
@@ -4151,6 +4169,8 @@ export async function gerarExcelRecursoConciliacao(params: {
 
     return {
       "Seq.": idx + 1,
+      "Protocolo (DP)": r.protocoloTiss || '',
+      "Protocolo TISS": r.protocoloTiss || '',
       "Nº Guia": r.numeroGuia,
       "Nome do Beneficiário": r.pacienteNome || '',
       "Carteirinha": r.carteiraBeneficiario || '',
@@ -4164,7 +4184,8 @@ export async function gerarExcelRecursoConciliacao(params: {
       "Valor Glosa": vGlosa,
       "Valor Recursado": vGlosa,
       "Código Glosa": r.codigoGlosa || '',
-      "Motivo Glosa": r.motivoGlosa || '',
+      "Erro TISS": r.erroTiss || r.motivoGlosa || '',
+      "Motivo Glosa": r.motivoGlosa || r.erroTiss || '',
       "Justificativa Recurso": params.justificativa || '',
       "Competência": r.competencia || '',
       "Convênio": r.convenio || '',
@@ -4726,7 +4747,9 @@ export async function itensGlosadosDetalhePorItem(params: {
       COALESCE(ca.valorPago, 0) as valorPago,
       COALESCE(ca.valorGlosa, 0) as valorGlosa,
       ca.codigoGlosa,
-      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      COALESCE(mg.descricao, NULLIF(TRIM(d.erro_tiss), ''), ca.motivoGlosa) as motivoGlosa,
+      COALESCE(NULLIF(TRIM(d.protocolo), ''), '') as protocoloTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), mg.descricao, ca.codigoGlosa, '') as erroTiss,
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
       ca.competencia,
@@ -4736,6 +4759,10 @@ export async function itensGlosadosDetalhePorItem(params: {
       rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     ${whereClause}
     ORDER BY ca.pacienteNome, ca.dataExecucao
@@ -4813,7 +4840,9 @@ export async function itensGlosadosDetalhePorMotivo(params: {
       COALESCE(ca.valorPago, 0) as valorPago,
       COALESCE(ca.valorGlosa, 0) as valorGlosa,
       ca.codigoGlosa,
-      COALESCE(mg.descricao, ca.motivoGlosa) as motivoGlosa,
+      COALESCE(mg.descricao, NULLIF(TRIM(d.erro_tiss), ''), ca.motivoGlosa) as motivoGlosa,
+      COALESCE(NULLIF(TRIM(d.protocolo), ''), '') as protocoloTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), mg.descricao, ca.codigoGlosa, '') as erroTiss,
       ca.statusConciliacao,
       ca.xmlRecursoGerado,
       ca.competencia,
@@ -4823,6 +4852,10 @@ export async function itensGlosadosDetalhePorMotivo(params: {
       rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     ${whereClause}
     ORDER BY ca.pacienteNome, ca.dataExecucao
@@ -5391,7 +5424,8 @@ export async function itensGlosadosDetalhePorMotivoDemonstrativo(params: {
   if (!db) throw new Error("Database não disponível");
   const { codigoGlosa } = params;
 
-  const codigoFilterDemo = codigoGlosa === 'SEM_CODIGO' ? `AND d.codigo_glosa IS NULL` : `AND d.codigo_glosa = '${codigoGlosa.replace(/'/g, "''")}'`;
+  const codigoGlosaExpr = `COALESCE(d.codigo_glosa, CASE WHEN d.erro_tiss REGEXP '^[0-9]+' THEN CAST(REGEXP_SUBSTR(d.erro_tiss, '^[0-9]+') AS CHAR) ELSE NULL END)`;
+  const codigoFilterDemo = codigoGlosa === 'SEM_CODIGO' ? `AND ${codigoGlosaExpr} IS NULL` : `AND ${codigoGlosaExpr} = '${codigoGlosa.replace(/'/g, "''")}'`;
   const whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql('d', recorte)} ${codigoFilterDemo} AND d.valor_glosa > 0`;
 
   const [rows] = await db.execute(sql.raw(`
@@ -5762,7 +5796,7 @@ export async function verificarGuiaFinalizadaECriarRecursos(params: {
     // Pular se já existe recurso para este item nesta guia
     if (recursosExistentes.has(item.codigoItem)) continue;
 
-    const motivoGlosa = item.codigoGlosa || item.erroTiss || '';
+    const motivoGlosa = item.erroTiss || item.codigoGlosa || '';
     const valorGlosado = Number(item.valorGlosa) || 0;
     const valorRecurso = Number(item.valorRecurso) || valorGlosado;
 
@@ -5825,4 +5859,394 @@ export async function verificarGuiaFinalizadaECriarRecursos(params: {
   }
 
   return { finalizada: true, recursosCriados };
+}
+
+
+import { resolverGlosaDicionario } from "../shared/glossaryGlosas";
+
+/**
+ * Busca guias/contas no faturamento (faturamento_unificado / faturamento_tiss)
+ * para auxiliar o lançamento manual de glosa de convênios sem demonstrativo (ex: FUSEX).
+ */
+export async function buscarGuiaFaturamentoParaGlosaManual(params: {
+  estabelecimentoId: number;
+  termo: string;
+  convenioId?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  const termoLimpo = params.termo.trim().replace(/'/g, "''");
+  if (!termoLimpo) return [];
+
+  let whereConv = "";
+  if (params.convenioId) {
+    whereConv = ` AND fu.convenioId = ${Number(params.convenioId)}`;
+  }
+
+  const [rows] = await db.execute(sql.raw(`
+    SELECT
+      fu.id,
+      fu.contaNumero,
+      fu.numeroGuia,
+      fu.pacienteNome,
+      fu.carteiraBeneficiario,
+      fu.convenioId,
+      fu.convenio,
+      fu.competencia,
+      fu.protocolo,
+      fu.lote,
+      fu.codigoItem,
+      fu.descricaoItem,
+      fu.tipoItem,
+      DATE_FORMAT(fu.dataExecucao, '%Y-%m-%d') as dataExecucao,
+      COALESCE(fu.quantidade, 1) as quantidade,
+      COALESCE(fu.valorFaturado, 0) as valorFaturado
+    FROM faturamento_unificado fu
+    WHERE fu.estabelecimentoId = ${Number(params.estabelecimentoId)}
+      ${whereConv}
+      AND (
+        fu.numeroGuia LIKE '%${termoLimpo}%'
+        OR fu.contaNumero LIKE '%${termoLimpo}%'
+        OR fu.pacienteNome LIKE '%${termoLimpo}%'
+      )
+    ORDER BY fu.numeroGuia, fu.dataExecucao, fu.codigoItem
+    LIMIT 200
+  `));
+
+  const itens = (rows as unknown as any[]) || [];
+
+  // Agrupar por guia/conta para facilitar seleção pelo usuário
+  const guiasMap = new Map<string, {
+    chave: string;
+    numeroGuia: string;
+    contaNumero: string;
+    pacienteNome: string;
+    carteiraBeneficiario: string;
+    convenioId: number | null;
+    convenio: string;
+    competencia: string;
+    protocolo: string;
+    lote: string;
+    valorTotalFaturado: number;
+    itens: Array<{
+      id: number;
+      codigoItem: string;
+      descricaoItem: string;
+      tipoItem: string;
+      dataExecucao: string | null;
+      quantidade: number;
+      valorFaturado: number;
+    }>;
+  }>();
+
+  for (const r of itens) {
+    const guia = r.numeroGuia || r.contaNumero || "SEM_GUIA";
+    const chave = `${guia}::${r.convenioId || 0}`;
+    if (!guiasMap.has(chave)) {
+      guiasMap.set(chave, {
+        chave,
+        numeroGuia: guia,
+        contaNumero: r.contaNumero || "",
+        pacienteNome: r.pacienteNome || "",
+        carteiraBeneficiario: r.carteiraBeneficiario || "",
+        convenioId: r.convenioId ? Number(r.convenioId) : null,
+        convenio: r.convenio || "",
+        competencia: r.competencia || "",
+        protocolo: r.protocolo || "",
+        lote: r.lote || "",
+        valorTotalFaturado: 0,
+        itens: [],
+      });
+    }
+    const g = guiasMap.get(chave)!;
+    const vFat = Number(r.valorFaturado) || 0;
+    g.valorTotalFaturado += vFat;
+    g.itens.push({
+      id: Number(r.id),
+      codigoItem: r.codigoItem || "",
+      descricaoItem: r.descricaoItem || "",
+      tipoItem: r.tipoItem || "CON",
+      dataExecucao: r.dataExecucao || null,
+      quantidade: Number(r.quantidade) || 1,
+      valorFaturado: vFat,
+    });
+  }
+
+  return Array.from(guiasMap.values());
+}
+
+/**
+ * Lança glosa manual diretamente na tabela demonstrativo para convênios
+ * que não possuem arquivo de demonstrativo para importação (ex.: FUSEX).
+ * Permite seguir todo o fluxo padrão: RecursoGlosaDemonstrativo -> EnvioRecursosLote -> AcompanhamentoRecursos.
+ */
+export async function lancarGlosaManualDemonstrativo(params: {
+  estabelecimentoId: number;
+  convenioId: number;
+  userId: number;
+  numeroGuia: string;
+  protocolo?: string;
+  lotePrestador?: string;
+  dataPagamento?: string;
+  carteiraBeneficiario?: string;
+  nomeBeneficiario: string;
+  itens: Array<{
+    sequencialItem?: number;
+    codigoItem: string;
+    descricaoItem: string;
+    tipoLancamento?: string;
+    dataExecucao?: string;
+    quantidade?: number;
+    valorInformado: number;
+    valorPago: number;
+    valorGlosa: number;
+    codigoGlosa?: string;
+    erroTiss?: string;
+    justificativa?: string;
+  }>;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  if (!params.itens || params.itens.length === 0) {
+    throw new Error("Informe pelo menos um item glosado para o lançamento manual.");
+  }
+
+  const esc = (v: string | null | undefined) => {
+    if (v === null || v === undefined || String(v).trim() === "") return "NULL";
+    return `'${String(v).trim().replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+  };
+
+  const hoje = new Date().toISOString().split("T")[0];
+  const dataPagto = params.dataPagamento && /^\d{4}-\d{2}-\d{2}$/.test(params.dataPagamento.trim())
+    ? params.dataPagamento.trim()
+    : hoje;
+
+  // Buscar motivos personalizados do banco para enriquecer o erro_tiss com o Dicionário de Glosas
+  const [motivosRows] = await db.execute(sql.raw(`SELECT codigo, descricao, descricaoSimplificada, grupo FROM motivosGlosa WHERE ativo = 'sim'`));
+  const motivosDb = (motivosRows as unknown as any[]) || [];
+
+  const idsInseridos: number[] = [];
+
+  for (let i = 0; i < params.itens.length; i++) {
+    const item = params.itens[i];
+    const seq = item.sequencialItem || i + 1;
+    const qtd = Number(item.quantidade) > 0 ? Number(item.quantidade) : 1;
+    const valorInformado = Math.max(0, Number(item.valorInformado) || 0);
+    const valorPago = Math.max(0, Number(item.valorPago) || 0);
+    const valorGlosa = Number(item.valorGlosa) > 0
+      ? Number(item.valorGlosa)
+      : Math.max(0, valorInformado - valorPago);
+
+    if (valorGlosa <= 0) continue;
+
+    const infoGlosa = resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosDb);
+    const codigoGlosaFinal = infoGlosa?.codigo || item.codigoGlosa?.trim() || null;
+    const erroTissFinal = item.erroTiss?.trim() || infoGlosa?.textoFormatado || codigoGlosaFinal || null;
+
+    const justificativaLimpa = item.justificativa?.trim() || "";
+    const temJustificativa = justificativaLimpa.length > 0;
+    const recursoStatus = temJustificativa ? "recurso_criado" : "sem_recurso";
+    const classificacaoGlosa = temJustificativa ? "recursar" : "pendente";
+    const dataExec = item.dataExecucao && /^\d{4}-\d{2}-\d{2}$/.test(item.dataExecucao.trim())
+      ? `'${item.dataExecucao.trim()}'`
+      : `'${dataPagto}'`;
+
+    const [insertResult] = await db.execute(sql.raw(`
+      INSERT INTO demonstrativo (
+        arquivo_id,
+        origem_tipo,
+        estabelecimentoId,
+        convenio_id,
+        numero_guia,
+        protocolo,
+        lote_prestador,
+        data_pagamento,
+        data_referencia,
+        carteira_beneficiario,
+        nome_beneficiario,
+        sequencial_item,
+        codigo_item,
+        descricao_item,
+        tipo_lancamento,
+        data_execucao,
+        quantidade,
+        valor_informado,
+        valor_pago,
+        valor_glosa,
+        valor_recurso,
+        codigo_glosa,
+        erro_tiss,
+        situacao_item,
+        justificativa_recurso,
+        recurso_status,
+        classificacao_glosa
+      ) VALUES (
+        0,
+        'excel',
+        ${Number(params.estabelecimentoId)},
+        ${Number(params.convenioId)},
+        ${esc(params.numeroGuia)},
+        ${esc(params.protocolo)},
+        ${esc(params.lotePrestador)},
+        '${dataPagto}',
+        '${dataPagto}',
+        ${esc(params.carteiraBeneficiario)},
+        ${esc(params.nomeBeneficiario)},
+        ${seq},
+        ${esc(item.codigoItem)},
+        ${esc(item.descricaoItem)},
+        ${esc(item.tipoLancamento || "CON")},
+        ${dataExec},
+        ${qtd},
+        ${valorInformado.toFixed(2)},
+        ${valorPago.toFixed(2)},
+        ${valorGlosa.toFixed(2)},
+        ${valorGlosa.toFixed(2)},
+        ${esc(codigoGlosaFinal)},
+        ${esc(erroTissFinal)},
+        'GLOSADO_MANUAL',
+        ${temJustificativa ? esc(justificativaLimpa) : "NULL"},
+        '${recursoStatus}',
+        '${classificacaoGlosa}'
+      )
+    `));
+
+    const insertId = Number((insertResult as any)?.insertId || 0);
+    if (insertId > 0) idsInseridos.push(insertId);
+  }
+
+  // Se todos os itens da guia já vieram com justificativa, sincronizar também em recursosGlosa
+  if (idsInseridos.length > 0) {
+    await verificarGuiaFinalizadaECriarRecursos({
+      estabelecimentoId: params.estabelecimentoId,
+      guia: params.numeroGuia,
+      userId: params.userId,
+      convenioId: params.convenioId,
+    });
+  }
+
+  return {
+    success: true,
+    totalInseridos: idsInseridos.length,
+    idsInseridos,
+    dataPagamento: dataPagto,
+    competencia: dataPagto.slice(0, 7),
+  };
+}
+
+/**
+ * Exporta planilha Excel de Recurso de Glosa diretamente a partir do Demonstrativo
+ * (padrão Unimed / geral), trazendo Protocolo TISS (d.protocolo) e Erro TISS / Motivo da Glosa (d.erro_tiss / Dicionário).
+ */
+export async function exportarPlanilhaRecursoDemonstrativo(params: {
+  estabelecimentoId: RecursoGlosaDemonstrativoRecorteInput["estabelecimentoId"];
+  competencia?: RecursoGlosaDemonstrativoRecorteInput["competencia"];
+  competencias?: RecursoGlosaDemonstrativoRecorteInput["competencias"];
+  convenioId?: RecursoGlosaDemonstrativoRecorteInput["convenioId"];
+  dataPagto?: RecursoGlosaDemonstrativoRecorteInput["dataPagto"];
+  datasPagto?: RecursoGlosaDemonstrativoRecorteInput["datasPagto"];
+  busca?: string;
+  apenasRecursados?: boolean;
+}) {
+  const recorte = normalizarRecorteRecursoGlosaDemonstrativo(params);
+  const db = await getDb();
+  if (!db) throw new Error("Database não disponível");
+
+  let whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql("d", recorte)} AND d.valor_glosa > 0`;
+  if (params.busca && params.busca.trim() !== "") {
+    const b = params.busca.trim().replace(/'/g, "''");
+    whereDemo += ` AND (d.numero_guia LIKE '%${b}%' OR d.nome_beneficiario LIKE '%${b}%' OR d.codigo_item LIKE '%${b}%' OR d.descricao_item LIKE '%${b}%' OR d.protocolo LIKE '%${b}%')`;
+  }
+  if (params.apenasRecursados) {
+    whereDemo += ` AND (d.glosa_aceita IS NULL OR d.glosa_aceita = 0) AND d.justificativa_recurso IS NOT NULL AND d.justificativa_recurso != ''`;
+  }
+
+  const [motivosRows] = await db.execute(sql.raw(`SELECT codigo, descricao, descricaoSimplificada, grupo FROM motivosGlosa WHERE ativo = 'sim'`));
+  const motivosDb = (motivosRows as unknown as any[]) || [];
+
+  const [rows] = await db.execute(sql.raw(`
+    SELECT
+      d.id,
+      d.numero_guia AS guia,
+      d.protocolo AS protocolo,
+      d.lote_prestador AS lote,
+      d.sequencial_item AS sequencialItem,
+      d.nome_beneficiario AS paciente,
+      d.carteira_beneficiario AS carteirinha,
+      DATE_FORMAT(COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento), '%Y-%m-%d') AS dataAtendimento,
+      DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') AS dataPagamento,
+      d.codigo_item AS codigoItem,
+      d.descricao_item AS descricaoItem,
+      d.tipo_lancamento AS tipoLancamento,
+      COALESCE(d.quantidade, 1) AS quantidade,
+      COALESCE(d.valor_informado, COALESCE(d.valor_pago, 0) + COALESCE(d.valor_glosa, 0)) AS valorInformado,
+      COALESCE(d.valor_pago, 0) AS valorPago,
+      COALESCE(d.valor_glosa, 0) AS valorGlosa,
+      CASE WHEN d.valor_recurso IS NOT NULL AND d.valor_recurso > 0 THEN d.valor_recurso ELSE COALESCE(d.valor_glosa, 0) END AS valorRecursado,
+      d.codigo_glosa AS codigoGlosa,
+      d.erro_tiss AS erroTiss,
+      d.justificativa_recurso AS justificativa,
+      d.recurso_status AS recursoStatus,
+      COALESCE(d.glosa_aceita, 0) AS glosaAceita,
+      c.nome AS convenioNome
+    FROM demonstrativo d
+    LEFT JOIN convenios c ON c.id = d.convenio_id
+    ${whereDemo}
+    ORDER BY d.protocolo, d.numero_guia, d.sequencial_item, d.id
+  `));
+
+  const itens = (rows as unknown as any[]) || [];
+  let totalValorGlosado = 0;
+  let totalValorRecursado = 0;
+
+  const dados = itens.map((r: any, idx: number) => {
+    const infoGlosa = resolverGlosaDicionario(r.codigoGlosa, r.erroTiss, motivosDb);
+    const vGlosa = Number(r.valorGlosa) || 0;
+    const vRecursado = Number(r.glosaAceita) === 1 ? 0 : (Number(r.valorRecursado) || vGlosa);
+    totalValorGlosado += vGlosa;
+    totalValorRecursado += vRecursado;
+
+    const dataAtendBR = r.dataAtendimento
+      ? r.dataAtendimento.split("-").reverse().join("/")
+      : "";
+    const erroTissPadronizado = r.erroTiss || infoGlosa?.textoFormatado || r.codigoGlosa || "";
+    const descricaoDicionario = infoGlosa?.descricao || r.erroTiss || "";
+
+    return {
+      "Seq.": idx + 1,
+      "Protocolo (DP)": r.protocolo || "",
+      "Protocolo TISS": r.protocolo || "",
+      "Nº Guia": r.guia || "",
+      "Seq. (DP)": r.sequencialItem || r.guia || "",
+      "Nome do Beneficiário": r.paciente || "",
+      "Cód.Beneficiário": r.carteirinha || "",
+      "Data Atendto": dataAtendBR,
+      "Período Atendto": dataAtendBR,
+      "Código Serviço": r.codigoItem || "",
+      "Descrição": r.descricaoItem || "",
+      "Participação": "",
+      "Qtde": Number(r.quantidade) || 1,
+      "Valor Glosado": vGlosa,
+      "Valor Recursado": vRecursado,
+      "Local Atendimento": "",
+      "Código Glosa": infoGlosa?.codigo || r.codigoGlosa || "",
+      "Erro TISS": erroTissPadronizado,
+      "Motivo da Glosa": erroTissPadronizado,
+      "Descrição Dicionário de Glosa": descricaoDicionario,
+      "Justificativa para o pagamento": r.justificativa || "",
+      "Convênio": r.convenioNome || "",
+      "Lote Prestador": r.lote || "",
+    };
+  });
+
+  return {
+    dados,
+    totais: {
+      totalItens: dados.length,
+      totalValorGlosado,
+      totalValorRecursado,
+    },
+  };
 }

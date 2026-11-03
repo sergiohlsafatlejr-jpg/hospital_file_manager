@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
@@ -30,6 +31,7 @@ import React, { useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { formatDateBR } from "@/lib/dateUtils";
+import { resolverGlosaDicionario } from "@shared/glossaryGlosas";
 
 // Formatar valor em reais
 const formatCurrency = (value: number | string | null | undefined) => {
@@ -81,6 +83,7 @@ export default function ContaDetalhesDemonstrativo() {
   // Buscar convênio
   const { data: convenios } = trpc.convenios.list.useQuery({});
   const convenio = convenios?.find(c => c.id === params.convenioId);
+  const { data: motivosGlosaDb } = trpc.motivosGlosa.list.useQuery();
 
   // Buscar itens da conta
   const { data: itens, isLoading, refetch } = trpc.demonstrativo.itensPorGuia.useQuery(
@@ -137,7 +140,8 @@ export default function ContaDetalhesDemonstrativo() {
       "Valor Informado": parseFloat(item.valorInformado || "0"),
       "Valor Pago": parseFloat(item.valorPago || "0"),
       "Valor Glosa": parseFloat(item.valorGlosa || "0"),
-      "Código Glosa": item.codigoGlosa || "",
+      "Código Glosa": resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb)?.codigo || item.codigoGlosa || "",
+      "Descrição Glosa": resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb)?.descricao || item.erroTiss || "",
       "Situação": item.situacaoItem || "",
       "Tipo Lançamento": item.tipoLancamento || "",
     }));
@@ -366,6 +370,7 @@ export default function ContaDetalhesDemonstrativo() {
                         const status = getStatusItem(item);
                         const StatusIcon = status.icon;
                         const hasGlosa = parseFloat(item.valorGlosa || "0") > 0;
+                        const glosaDicionario = resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb);
                         
                         return (
                           <TableRow 
@@ -404,7 +409,29 @@ export default function ContaDetalhesDemonstrativo() {
                               {hasGlosa ? formatCurrency(item.valorGlosa) : "-"}
                             </TableCell>
                             <TableCell>
-                              {item.codigoGlosa && (
+                              {glosaDicionario ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge variant="destructive" className="text-xs cursor-help">
+                                        {glosaDicionario.codigo}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-[300px]">
+                                      <p className="font-semibold">
+                                        Glosa: {glosaDicionario.codigo}
+                                        {glosaDicionario.grupo ? ` (${glosaDicionario.grupo})` : ""}
+                                      </p>
+                                      <p className="text-sm">{glosaDicionario.descricao}</p>
+                                      {glosaDicionario.descricaoOperadora && (
+                                        <p className="text-xs text-muted-foreground mt-1 border-t pt-1">
+                                          Operadora: {glosaDicionario.descricaoOperadora}
+                                        </p>
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : "-"}{false && (
                                 <Badge variant="destructive" className="text-xs">
                                   {item.codigoGlosa}
                                 </Badge>

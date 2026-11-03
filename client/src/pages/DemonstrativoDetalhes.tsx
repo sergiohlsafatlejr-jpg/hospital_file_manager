@@ -40,6 +40,7 @@ import React, { useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import * as XLSX from "xlsx";
 import { formatDateBR } from "@/lib/dateUtils";
+import { resolverGlosaDicionario } from "@shared/glossaryGlosas";
 
 // Formatar valor em reais
 const formatCurrency = (value: number | string | null | undefined) => {
@@ -137,6 +138,7 @@ export default function DemonstrativoDetalhes() {
   // Buscar convênio
   const { data: convenios } = trpc.convenios.list.useQuery({});
   const convenio = convenios?.find(c => c.id === params.convenioId);
+  const { data: motivosGlosaDb } = trpc.motivosGlosa.list.useQuery();
 
   // Buscar itens da conta
   const { data: itens, isLoading, refetch } = trpc.demonstrativo.itensPorGuia.useQuery(
@@ -223,8 +225,8 @@ export default function DemonstrativoDetalhes() {
       "Valor Informado": parseFloat(item.valorInformado || "0"),
       "Valor Pago": parseFloat(item.valorPago || "0"),
       "Valor Glosa": parseFloat(item.valorGlosa || "0"),
-      "Código Glosa": item.codigoGlosa || "",
-      "Descrição Glosa": item.erroTiss || "",
+      "Código Glosa": resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb)?.codigo || item.codigoGlosa || "",
+      "Descrição Glosa": resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb)?.descricao || item.erroTiss || "",
       "Situação": item.situacaoItem || "",
     }));
 
@@ -547,6 +549,7 @@ export default function DemonstrativoDetalhes() {
                         const tipoInfo = getTipoInfo(tipoEfetivo);
                         const TipoIcon = tipoInfo.icon;
                         const isInferido = !item.tipoLancamento && tipoEfetivo;
+                        const glosaDicionario = resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosGlosaDb);
                         
                         return (
                           <TableRow 
@@ -607,12 +610,20 @@ export default function DemonstrativoDetalhes() {
                                   <Tooltip>
                                     <TooltipTrigger>
                                       <Badge variant="destructive" className="text-xs cursor-help">
-                                        {item.codigoGlosa || (item.erroTiss ? item.erroTiss.split('-')[0] : '-')}
+                                        {glosaDicionario?.codigo || item.codigoGlosa || (item.erroTiss ? item.erroTiss.split('-')[0] : '-')}
                                       </Badge>
                                     </TooltipTrigger>
                                     <TooltipContent className="max-w-[300px]">
-                                      <p className="font-semibold">Glosa: {item.codigoGlosa || (item.erroTiss ? item.erroTiss.split('-')[0] : 'N/A')}</p>
-                                      <p className="text-sm">{item.erroTiss || item.codigoGlosa || "Sem descrição"}</p>
+                                      <p className="font-semibold">
+                                        Glosa: {glosaDicionario?.codigo || 'N/A'}
+                                        {glosaDicionario?.grupo ? ` (${glosaDicionario.grupo})` : ''}
+                                      </p>
+                                      <p className="text-sm">{glosaDicionario?.descricao || "Sem descrição"}</p>
+                                      {glosaDicionario?.descricaoOperadora && (
+                                        <p className="text-xs text-muted-foreground mt-1 border-t pt-1">
+                                          Operadora: {glosaDicionario.descricaoOperadora}
+                                        </p>
+                                      )}
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>

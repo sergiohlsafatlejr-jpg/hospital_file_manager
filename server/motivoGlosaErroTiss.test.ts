@@ -110,3 +110,41 @@ describe("Motivo de Glosa - Fallback erroTiss para Unimed", () => {
     });
   });
 });
+
+
+import { resolverGlosaDicionario } from "../shared/glossaryGlosas";
+
+describe("resolverGlosaDicionario — Padronização de Tooltip e Descrição pelo Dicionário de Glosas", () => {
+  it("resolve a descrição padronizada da Tabela 38 TISS quando apenas codigoGlosa é informado", () => {
+    const info = resolverGlosaDicionario("1001", null);
+    expect(info).not.toBeNull();
+    expect(info!.codigo).toBe("1001");
+    expect(info!.encontradoNoDicionario).toBe(true);
+    expect(info!.descricao).toBe("Número da carteira inválido");
+    expect(info!.grupo).toBe("Elegibilidade");
+  });
+
+  it("extrai o código de erroTiss da Unimed e traz a descrição padronizada do Dicionário de Glosas", () => {
+    const info = resolverGlosaDicionario(null, "1001-CARTEIRA INVALIDA NA OPERADORA");
+    expect(info).not.toBeNull();
+    expect(info!.codigo).toBe("1001");
+    expect(info!.encontradoNoDicionario).toBe(true);
+    expect(info!.descricao).toBe("Número da carteira inválido");
+    expect(info!.descricaoOperadora).toBe("CARTEIRA INVALIDA NA OPERADORA");
+  });
+
+  it("prioriza motivo personalizado cadastrado no banco (motivosGlosa) quando disponível", () => {
+    const info = resolverGlosaDicionario("9501", null, [
+      {
+        codigo: "9501",
+        descricao: "Glosa específica FUSEX — Guia sem carimbo",
+        grupo: "Administrativa",
+      },
+    ]);
+    expect(info).not.toBeNull();
+    expect(info!.codigo).toBe("9501");
+    expect(info!.encontradoNoDicionario).toBe(true);
+    expect(info!.descricao).toBe("Glosa específica FUSEX — Guia sem carimbo");
+    expect(info!.grupo).toBe("Administrativa");
+  });
+});

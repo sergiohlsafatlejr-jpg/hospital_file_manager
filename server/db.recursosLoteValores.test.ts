@@ -687,3 +687,62 @@ describe("Issue #106 — valores de lote de recurso", () => {
     );
   });
 });
+
+
+describe("Exportação de Lote Unimed — Protocolo TISS e Erro TISS do Demonstrativo", () => {
+  it("traz protocoloDP/protocoloTiss e erroTiss/motivoGlosa diretamente do demonstrativo", async () => {
+    const loteUnimed = lote({
+      id: 88,
+      numeroLote: "L-UNIMED-88",
+      estabelecimentoId: 10,
+      convenioId: 20,
+      protocoloEnvio: null,
+    });
+    const db = mockSelectDb(
+      [
+        [loteUnimed],
+        [],
+        [{ id: 20, nome: "UNIMED" }],
+      ],
+      [
+        [
+          [
+            {
+              id: 501,
+              estabelecimentoId: 10,
+              convenioId: 20,
+              guiaNumero: "GUIA-UNIMED-1",
+              protocoloDemonstrativo: "PROT-TISS-987654",
+              sequencialItem: 1,
+              erroTiss: "2012-COBRANÇA DE MATERIAL INCOMPATÍVEL COM O PROCEDIMENTO",
+              motivoGlosaConvenio: "2012",
+              pacienteNome: "Maria Unimed",
+              pacienteCarteirinha: "00123456789",
+              dataGlosa: "2026-10-15",
+              valorGlosado: "120.50",
+              valorRecursado: "120.50",
+              justificativaRecurso: "Material utilizado conforme prescrição médica em prontuário.",
+              codigoProcedimento: "70101012",
+              descricaoProcedimento: "CATETER VENOSO CENTRAL",
+              status: "recurso_criado",
+              quantidade: "1",
+              valorPagoOriginal: "0.00",
+              dataPagamentoOriginal: "2026-10-20",
+              fonte: "demonstrativo",
+            },
+          ],
+        ],
+        [[]],
+      ]
+    );
+
+    const exportacao = await getRecursosLoteParaExportacao(88, db);
+    expect(exportacao).not.toBeNull();
+    expect(exportacao!.recursos).toHaveLength(1);
+    const item = exportacao!.recursos[0] as any;
+    expect(item.protocoloDP).toBe("PROT-TISS-987654");
+    expect(item.protocoloTiss).toBe("PROT-TISS-987654");
+    expect(item.erroTiss).toBe("2012-COBRANÇA DE MATERIAL INCOMPATÍVEL COM O PROCEDIMENTO");
+    expect(item.motivoGlosa).toBe("2012-COBRANÇA DE MATERIAL INCOMPATÍVEL COM O PROCEDIMENTO");
+  });
+});

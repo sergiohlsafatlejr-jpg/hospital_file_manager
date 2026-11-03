@@ -35,6 +35,13 @@ const MESES_LABEL: Record<string, string> = {
   "09": "Setembro", "10": "Outubro", "11": "Novembro", "12": "Dezembro",
 };
 
+const fmtMesAno = (mes: string | null | undefined) => {
+  if (!mes || typeof mes !== "string") return "-";
+  const [ano, mesNum] = mes.split("-");
+  if (!ano || !mesNum) return mes;
+  return `${MESES_LABEL[mesNum] || mesNum}/${ano}`;
+};
+
 export default function RelatorioFisioterapia() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const [mesAno, setMesAno] = useState<string>("");
@@ -53,12 +60,17 @@ export default function RelatorioFisioterapia() {
     { enabled: !!estabelecimentoAtual }
   );
 
+  const mesesValidos = useMemo(
+    () => (mesesDisponiveis || []).filter((m: any) => typeof m?.mes === "string" && m.mes.includes("-")),
+    [mesesDisponiveis]
+  );
+
   // Auto-selecionar o mês mais recente
   useEffect(() => {
-    if (mesesDisponiveis?.length && !mesAno) {
-      setMesAno(mesesDisponiveis[0].mes);
+    if (mesesValidos.length && !mesAno) {
+      setMesAno(mesesValidos[0].mes);
     }
-  }, [mesesDisponiveis, mesAno]);
+  }, [mesesValidos, mesAno]);
 
   // Buscar dados do relatório
   const { data, isLoading } = trpc.relatorioFisioterapia.getDados.useQuery(
@@ -75,8 +87,8 @@ export default function RelatorioFisioterapia() {
     if (!buscaDebounced) return data.pacientes;
     const termo = buscaDebounced.toLowerCase();
     return data.pacientes.filter((p: any) =>
-      p.paciente.toLowerCase().includes(termo) ||
-      p.numeroGuia.includes(termo)
+      String(p.paciente || "").toLowerCase().includes(termo) ||
+      String(p.numeroGuia || "").toLowerCase().includes(termo)
     );
   }, [data?.pacientes, buscaDebounced]);
 
@@ -137,7 +149,7 @@ export default function RelatorioFisioterapia() {
     toast.success("Relatório exportado com sucesso!");
   };
 
-  const mesLabel = mesAno ? `${MESES_LABEL[mesAno.split("-")[1]] || mesAno.split("-")[1]}/${mesAno.split("-")[0]}` : "";
+  const mesLabel = mesAno ? fmtMesAno(mesAno) : "";
 
   return (
     <DashboardLayout>
@@ -172,9 +184,9 @@ export default function RelatorioFisioterapia() {
                     <SelectValue placeholder="Selecione o mês" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mesesDisponiveis?.map((m: any) => (
+                    {mesesValidos.map((m: any) => (
                       <SelectItem key={m.mes} value={m.mes}>
-                        {MESES_LABEL[m.mes.split("-")[1]] || m.mes.split("-")[1]}/{m.mes.split("-")[0]} ({m.pacientes} pac.)
+                        {fmtMesAno(m.mes)} ({m.pacientes} pac.)
                       </SelectItem>
                     ))}
                   </SelectContent>

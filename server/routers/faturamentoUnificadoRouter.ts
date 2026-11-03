@@ -1033,4 +1033,55 @@ export const faturamentoUnificadoRouter = router({
     .mutation(async ({ input }) => {
       return await marcarGlosadoService.desfazerMarcarGlosado(input.itemId, input.estabelecimentoId);
     }),
+
+  buscarGuiaFaturamentoParaGlosaManual: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number().int().positive(),
+      termo: z.string().min(1),
+      convenioId: z.number().int().positive().optional(),
+    }))
+    .query(async ({ input }) => {
+      return await faturamentoService.buscarGuiaFaturamentoParaGlosaManual(input);
+    }),
+
+  lancarGlosaManualDemonstrativo: protectedProcedure
+    .input(z.object({
+      estabelecimentoId: z.number().int().positive(),
+      convenioId: z.number().int().positive(),
+      numeroGuia: z.string().min(1),
+      protocolo: z.string().optional(),
+      lotePrestador: z.string().optional(),
+      dataPagamento: z.string().optional(),
+      carteiraBeneficiario: z.string().optional(),
+      nomeBeneficiario: z.string().min(1),
+      itens: z.array(z.object({
+        sequencialItem: z.number().int().positive().optional(),
+        codigoItem: z.string().min(1),
+        descricaoItem: z.string().min(1),
+        tipoLancamento: z.string().optional(),
+        dataExecucao: z.string().optional(),
+        quantidade: z.number().positive().optional(),
+        valorInformado: z.number().nonnegative(),
+        valorPago: z.number().nonnegative(),
+        valorGlosa: z.number().nonnegative(),
+        codigoGlosa: z.string().optional(),
+        erroTiss: z.string().optional(),
+        justificativa: z.string().optional(),
+      })).min(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await faturamentoService.lancarGlosaManualDemonstrativo({
+        ...input,
+        userId: ctx.user.id,
+      });
+    }),
+
+  exportarPlanilhaRecursoDemonstrativo: protectedProcedure
+    .input(filtrosDemonstrativoSchema.extend({
+      busca: z.string().optional(),
+      apenasRecursados: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return await faturamentoService.exportarPlanilhaRecursoDemonstrativo(input);
+    }),
 });

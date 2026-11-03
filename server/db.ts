@@ -110,7 +110,7 @@ import { ENV } from "./_core/env";
 import { storageGet } from "./storage";
 import { extrairChaveXmlDaUrl, extrairRecursosDoXml } from "./recursoExcelFallback";
 
-import { GLOSAS_TISS } from '../shared/glossaryGlosas';
+import { GLOSAS_TISS, resolverGlosaDicionario } from '../shared/glossaryGlosas';
 import { getModulePermissionsForGroup, sanitizeCustomModulePermissions, type StandardServiceGroup } from "../shared/permissions";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -9080,7 +9080,9 @@ export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
       d.valor_pago AS valorPagoOriginal,
       d.data_pagamento AS dataPagamentoOriginal,
       d.recurso_status AS status,
-      d.codigo_glosa AS motivoGlosa,
+      d.protocolo AS protocolo,
+      d.erro_tiss AS erroTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), d.codigo_glosa) AS motivoGlosa,
       d.justificativa_recurso AS justificativa
     FROM demonstrativo d
     WHERE d.recurso_id = ${Number(loteId)}
@@ -9104,9 +9106,15 @@ export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
       ca.valorPago AS valorPagoOriginal,
       NULL AS dataPagamentoOriginal,
       ca.statusRecursoItem AS status,
-      ca.codigoGlosa AS motivoGlosa,
+      d.protocolo AS protocolo,
+      d.erro_tiss AS erroTiss,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), ca.codigoGlosa, d.codigo_glosa) AS motivoGlosa,
       '' AS justificativa
     FROM conciliados_automatico ca
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
       AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
       AND ca.convenioId = ${Number(lote.convenioId)}
@@ -10476,6 +10484,9 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       COALESCE(d.data_execucao, d.data_referencia, d.data_pagamento) AS dataGlosa,
       d.valor_glosa AS valorGlosado,
       COALESCE(d.valor_recurso, d.valor_glosa) AS valorRecursado,
+      d.protocolo AS protocoloDemonstrativo,
+      d.sequencial_item AS sequencialItem,
+      d.erro_tiss AS erroTiss,
       d.codigo_glosa AS motivoGlosaConvenio,
       d.justificativa_recurso AS justificativaRecurso,
       d.codigo_item AS codigoProcedimento,
@@ -10503,7 +10514,10 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       ca.dataExecucao AS dataGlosa,
       ca.valorGlosa AS valorGlosado,
       COALESCE(ca.valorRecurso, ca.valorGlosa) AS valorRecursado,
-      ca.codigoGlosa AS motivoGlosaConvenio,
+      d.protocolo AS protocoloDemonstrativo,
+      d.sequencial_item AS sequencialItem,
+      COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), '')) AS erroTiss,
+      COALESCE(ca.codigoGlosa, d.codigo_glosa) AS motivoGlosaConvenio,
       '' AS justificativaRecurso,
       ca.codigoItem AS codigoProcedimento,
       ca.descricaoItem AS descricaoProcedimento,
@@ -10513,6 +10527,10 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       NULL AS dataPagamentoOriginal,
       'conciliacao' AS fonte
     FROM conciliados_automatico ca
+    LEFT JOIN demonstrativo d ON (
+      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
+    )
     WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
       AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
       AND ca.convenioId = ${Number(lote.convenioId)}
@@ -10576,6 +10594,9 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
               pacienteNome: demonstrativo.nomeBeneficiario,
               pacienteCarteirinha: demonstrativo.carteiraBeneficiario,
               quantidade: demonstrativo.quantidade,
+              protocolo: demonstrativo.protocolo,
+              erroTiss: demonstrativo.erroTiss,
+              codigoGlosa: demonstrativo.codigoGlosa,
             })
             .from(demonstrativo)
             .where(and(
@@ -10601,7 +10622,9 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
             status: lote.status,
             fonte: "xml_lote",
             quantidade: complemento?.quantidade || "1",
-            protocoloDP: item.protocoloDP,
+            protocoloDP: complemento?.protocolo || item.protocoloDP,
+            protocoloDemonstrativo: complemento?.protocolo || item.protocoloDP || "",
+            erroTiss: complemento?.erroTiss || "",
             valorPagoOriginal: null,
             dataPagamentoOriginal: null,
           }, "xml_lote"));
@@ -10635,7 +10658,8 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       dataItem: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "N/A",
       valorGlosado,
       valorRecursado,
-      motivoGlosa: recurso.motivoGlosaConvenio || recurso.motivoGlosa || "N/A",
+      erroTiss: recurso.erroTiss || ((recurso.fonte === "demonstrativo" || recurso.fonte === "conciliacao") ? resolverGlosaDicionario(recurso.motivoGlosaConvenio || recurso.motivoGlosa, recurso.erroTiss)?.textoFormatado : "") || recurso.motivoGlosaConvenio || recurso.motivoGlosa || "",
+      motivoGlosa: recurso.erroTiss || ((recurso.fonte === "demonstrativo" || recurso.fonte === "conciliacao") ? resolverGlosaDicionario(recurso.motivoGlosaConvenio || recurso.motivoGlosa, recurso.erroTiss)?.textoFormatado : "") || recurso.motivoGlosaConvenio || recurso.motivoGlosa || "N/A",
       descricaoRecurso: recurso.justificativaRecurso || recurso.justificativa || "N/A",
       codigoProcedimento: recurso.codigoProcedimento || "N/A",
       descricaoProcedimento: recurso.descricaoProcedimento || "N/A",
@@ -10652,7 +10676,8 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       valorAcatado,
       valorRecuperado: valorAcatado,
       sequencial: index + 1,
-      protocoloDP: recurso.protocoloDP || lote.protocoloEnvio || "",
+      protocoloDP: recurso.protocoloDemonstrativo || recurso.protocoloDP || recurso.protocolo || recurso.protocoloRecurso || lote.protocoloEnvio || "",
+      protocoloTiss: recurso.protocoloDemonstrativo || recurso.protocoloDP || recurso.protocolo || recurso.protocoloRecurso || lote.protocoloEnvio || "",
       seqDP: recurso.guiaNumero || "",
       codigoBeneficiario: recurso.pacienteCarteirinha || "",
       dataAtendimento: recurso.dataGlosa ? new Date(recurso.dataGlosa).toLocaleDateString("pt-BR") : "",
