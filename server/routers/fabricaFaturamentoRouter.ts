@@ -482,25 +482,33 @@ export const fabricaFaturamentoRouter = router({
     }
 
     const meuPerfilSalvo = mapaPerfis.get(usuario.id);
-    const meuPerfil: PerfilColaboradorFabrica = isGestorGlobal
-      ? {
-          usuarioId: usuario.id,
-          usuarioNome: usuarioNomeLogado,
-          cargoSetor: meuPerfilSalvo?.cargoSetor || "Gestor / Administrador Safatle",
-          setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
-          hospitaisPermitidos: [],
-          verRelatoriosGerenciais: true,
-          isGestorFabrica: true,
-        }
-      : meuPerfilSalvo || {
-          usuarioId: usuario.id,
-          usuarioNome: usuarioNomeLogado,
-          cargoSetor: "Equipe Operacional",
-          setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
-          hospitaisPermitidos: [],
-          verRelatoriosGerenciais: false,
-          isGestorFabrica: false,
-        };
+    const temPerfilRestritoSalvo =
+      Boolean(meuPerfilSalvo) &&
+      usuario.role !== "admin" &&
+      (meuPerfilSalvo!.setoresPermitidos.length < TODOS_SETORES_OPERACIONAIS.length ||
+        meuPerfilSalvo!.hospitaisPermitidos.length > 0 ||
+        !meuPerfilSalvo!.verRelatoriosGerenciais);
+
+    const meuPerfil: PerfilColaboradorFabrica =
+      isGestorGlobal && !temPerfilRestritoSalvo
+        ? {
+            usuarioId: usuario.id,
+            usuarioNome: usuarioNomeLogado,
+            cargoSetor: meuPerfilSalvo?.cargoSetor || "Gestor / Administrador Safatle",
+            setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
+            hospitaisPermitidos: [],
+            verRelatoriosGerenciais: true,
+            isGestorFabrica: true,
+          }
+        : meuPerfilSalvo || {
+            usuarioId: usuario.id,
+            usuarioNome: usuarioNomeLogado,
+            cargoSetor: "Equipe Operacional",
+            setoresPermitidos: [...TODOS_SETORES_OPERACIONAIS],
+            hospitaisPermitidos: [],
+            verRelatoriosGerenciais: false,
+            isGestorFabrica: false,
+          };
 
     // Se o colaborador possui hospitais específicos restritos no perfil da Fábrica, filtrar a lista
     const hospitaisFiltrados =

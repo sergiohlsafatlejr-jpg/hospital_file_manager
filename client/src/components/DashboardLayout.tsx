@@ -100,6 +100,7 @@ import { Button } from "./ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
 import { MotorRegrasNotificationBell } from "./MotorRegrasNotificationBell";
 import { SettingsMenu } from "./SettingsMenu";
+import { trpc } from "@/lib/trpc";
 
 import type { ModuloPermissao } from "@/contexts/EstabelecimentoContext";
 import { SAFATLE_ESTABELECIMENTO_ID } from "@shared/const";
@@ -111,6 +112,8 @@ type MenuItem = {
   modulo?: ModuloPermissao;
   adminOnly?: boolean;
   estabelecimentoIds?: number[]; // Se definido, item só aparece para estes estabelecimentos
+  setorFabrica?: string; // Se definido, filtra pelo perfil de setores da Esteira de Faturamento
+  relatoriosFabrica?: boolean; // Se true, exige permissão de relatórios gerenciais na Esteira
   children?: MenuItem[]; // Sub-itens para menus expansíveis
 };
 
@@ -120,14 +123,14 @@ const menuItems: MenuItem[] = [
 
   // Fábrica de Faturamento Safatle (Esteira 6 Setores)
   { icon: Factory, label: "Esteira de Faturamento", path: "/fabrica-faturamento", modulo: "faturamento", children: [
-    { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao", modulo: "faturamento" },
-    { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento", modulo: "faturamento" },
-    { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna", modulo: "faturamento" },
-    { icon: Stethoscope, label: "4. Auditoria Externa", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_externa", modulo: "faturamento" },
-    { icon: Sparkles, label: "5. Limpeza e Envio XML", path: "/fabrica-faturamento?aba=esteira&setor=limpeza_prontuario", modulo: "faturamento" },
-    { icon: Gavel, label: "6. Setor de Recursos", path: "/fabrica-faturamento?aba=esteira&setor=enviado_convenio", modulo: "faturamento" },
+    { icon: Inbox, label: "1. Recepção de Contas", path: "/fabrica-faturamento?aba=recepcao&setor=recepcao", modulo: "faturamento", setorFabrica: "recepcao" },
+    { icon: FileText, label: "2. Setor de Faturamento", path: "/fabrica-faturamento?aba=esteira&setor=faturamento", modulo: "faturamento", setorFabrica: "faturamento" },
+    { icon: ClipboardCheck, label: "3. Auditoria Interna", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_interna", modulo: "faturamento", setorFabrica: "auditoria_interna" },
+    { icon: Stethoscope, label: "4. Auditoria Externa", path: "/fabrica-faturamento?aba=esteira&setor=auditoria_externa", modulo: "faturamento", setorFabrica: "auditoria_externa" },
+    { icon: Sparkles, label: "5. Limpeza e Envio XML", path: "/fabrica-faturamento?aba=esteira&setor=limpeza_prontuario", modulo: "faturamento", setorFabrica: "limpeza_prontuario" },
+    { icon: Gavel, label: "6. Setor de Recursos", path: "/fabrica-faturamento?aba=esteira&setor=enviado_convenio", modulo: "faturamento", setorFabrica: "recursos" },
     { icon: List, label: "Contas Feitas (Conta Convênio)", path: "/conta-convenio", modulo: "contaConvenio" },
-    { icon: BarChart3, label: "Relatórios & Metas Safatle", path: "/fabrica-faturamento?aba=relatorios", modulo: "faturamento" },
+    { icon: BarChart3, label: "Relatórios & Metas Safatle", path: "/fabrica-faturamento?aba=relatorios", modulo: "faturamento", relatoriosFabrica: true },
   ]},
 
   // Módulo 7 - Gerenciamento
@@ -477,6 +480,12 @@ function DashboardLayoutContent({
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
   const { estabelecimentos, estabelecimentoAtual, setEstabelecimentoAtual, isGestor, temAcessoModulo, grupoServico } = useEstabelecimento();
+  const { data: fabricaAux } = trpc.fabricaFaturamento.dadosAuxiliares.useQuery(undefined, {
+    retry: false,
+    staleTime: 30000,
+    enabled: Boolean(user),
+  });
+  const meuPerfilFabrica = (fabricaAux as any)?.meuPerfil;
 
   useEffect(() => {
     if (isCollapsed) {
@@ -658,6 +667,15 @@ function DashboardLayoutContent({
                             {item.children
                               .filter(child => {
                                 if (child.estabelecimentoIds && estabelecimentoAtual && !child.estabelecimentoIds.includes(estabelecimentoAtual.id)) return false;
+                                if (child.setorFabrica && meuPerfilFabrica && !meuPerfilFabrica.isGestorFabrica) {
+                                  const permitidos: string[] = Array.isArray(meuPerfilFabrica.setoresPermitidos)
+                                    ? meuPerfilFabrica.setoresPermitidos
+                                    : [];
+                                  if (!permitidos.includes(child.setorFabrica)) return false;
+                                }
+                                if (child.relatoriosFabrica && meuPerfilFabrica && !meuPerfilFabrica.isGestorFabrica && !meuPerfilFabrica.verRelatoriosGerenciais) {
+                                  return false;
+                                }
                                 if (!child.modulo && !child.adminOnly) return true;
                                 if (child.adminOnly && !isGestor) return false;
                                 if (child.modulo && !temAcessoModulo(child.modulo)) return false;

@@ -191,7 +191,7 @@ export default function FabricaFaturamento() {
 
   const [abaPrincipal, setAbaPrincipal] = useState<string>(abaInicial);
   const [setorSelecionado, setSetorSelecionado] = useState<SetorFabrica | "todos">(
-    (urlParams.get("setor") as SetorFabrica) || "recepcao"
+    (urlParams.get("setor") as SetorFabrica) || "faturamento"
   );
 
   // Filtros da Esteira
@@ -300,6 +300,11 @@ export default function FabricaFaturamento() {
     return filtrados.length > 0 ? filtrados : SETORES_CONFIG;
   }, [meuPerfil]);
 
+  const podeRecepcionar =
+    !meuPerfil ||
+    meuPerfil.isGestorFabrica ||
+    (meuPerfil.setoresPermitidos || []).includes("recepcao");
+
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     const abaUrl = params.get("aba");
@@ -309,19 +314,25 @@ export default function FabricaFaturamento() {
   }, [searchString]);
 
   useEffect(() => {
-    if (
-      setorSelecionado !== "todos" &&
-      setoresVisiveis.length > 0 &&
-      !setoresVisiveis.some((s) => s.id === setorSelecionado)
-    ) {
-      setSetorSelecionado(setoresVisiveis[0].id);
+    if (!meuPerfil) return;
+    if (!podeRecepcionar && abaPrincipal === "recepcao") {
+      setAbaPrincipal("esteira");
     }
-  }, [setoresVisiveis, setorSelecionado]);
-
-  const podeRecepcionar =
-    !meuPerfil ||
-    meuPerfil.isGestorFabrica ||
-    (meuPerfil.setoresPermitidos || []).includes("recepcao");
+    if (!podeVerRelatorios && abaPrincipal === "relatorios") {
+      setAbaPrincipal("esteira");
+    }
+    if (!podeGerenciarEquipe && abaPrincipal === "equipe") {
+      setAbaPrincipal("esteira");
+    }
+    if (setoresVisiveis.length > 0) {
+      if (
+        (setorSelecionado === "todos" && !meuPerfil.isGestorFabrica && setoresVisiveis.length === 1) ||
+        (setorSelecionado !== "todos" && !setoresVisiveis.some((s) => s.id === setorSelecionado))
+      ) {
+        setSetorSelecionado(setoresVisiveis[0].id);
+      }
+    }
+  }, [meuPerfil, podeRecepcionar, podeVerRelatorios, podeGerenciarEquipe, abaPrincipal, setoresVisiveis, setorSelecionado]);
 
   // Sugestões de autocompletar pacientes recorrentes na Recepção
   const { data: sugestoesPacientes } = trpc.fabricaFaturamento.buscarPacientesSugestao.useQuery(
@@ -910,7 +921,7 @@ export default function FabricaFaturamento() {
         {/* ============================================================
             ABA 1: CADASTRO INICIAL — RECEPÇÃO DE CONTAS
            ============================================================ */}
-        {abaPrincipal === "recepcao" && (
+        {abaPrincipal === "recepcao" && podeRecepcionar && (
           <div className="grid lg:grid-cols-3 gap-6">
             <Card className="lg:col-span-2 border-t-4 border-t-primary shadow-sm">
               <CardHeader>
@@ -1294,30 +1305,35 @@ export default function FabricaFaturamento() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSetorSelecionado("todos")}
-                    className={setorSelecionado === "todos" ? "bg-primary/10 border-primary font-semibold" : ""}
-                  >
-                    Ver Todos os Setores
-                  </Button>
+                  {(meuPerfil?.isGestorFabrica || setoresVisiveis.length > 1) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSetorSelecionado("todos")}
+                      className={setorSelecionado === "todos" ? "bg-primary/10 border-primary font-semibold" : ""}
+                    >
+                      Ver Todos os Setores Liberados
+                    </Button>
+                  )}
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSetorSelecionado("faturamento");
-                      setFiltroFilaRapida("todas");
-                    }}
-                    className={
-                      setorSelecionado === "faturamento"
-                        ? "bg-amber-50 border-amber-400 text-amber-900 font-semibold"
-                        : ""
-                    }
-                  >
-                    Contas Encaminhadas p/ Faturamento
-                  </Button>
+                  {setoresVisiveis.some((s) => s.id === "faturamento") &&
+                    setoresVisiveis.length > 1 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSetorSelecionado("faturamento");
+                          setFiltroFilaRapida("todas");
+                        }}
+                        className={
+                          setorSelecionado === "faturamento"
+                            ? "bg-amber-50 border-amber-400 text-amber-900 font-semibold"
+                            : ""
+                        }
+                      >
+                        Contas Encaminhadas p/ Faturamento
+                      </Button>
+                    )}
 
                   {(setorSelecionado === "faturamento" || setorSelecionado === "recepcao") && (
                     <Button
