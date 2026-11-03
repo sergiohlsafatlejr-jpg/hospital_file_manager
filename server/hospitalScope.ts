@@ -37,10 +37,14 @@ export async function exigirHospitalProprietario(
   usuario: UsuarioHospital,
   hospitalId: number,
   acao: HospitalAcao = "visualizar",
+  connection?: Parameters<typeof verificarPermissaoEstabelecimento>[3],
 ): Promise<void> {
   exigirUsuario(usuario);
   exigirIdHospital(hospitalId);
-  if (!await verificarPermissaoEstabelecimento(usuario.id, hospitalId, acao)) {
+  const permitido = connection === undefined
+    ? await verificarPermissaoEstabelecimento(usuario.id, hospitalId, acao)
+    : await verificarPermissaoEstabelecimento(usuario.id, hospitalId, acao, connection);
+  if (!permitido) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para esta operação no hospital de origem." });
   }
 }

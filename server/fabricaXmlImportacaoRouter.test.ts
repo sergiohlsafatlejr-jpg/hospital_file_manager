@@ -144,7 +144,7 @@ describe("Fábrica: API de dois XMLs, proteção e transação", () => {
 
     await expect(caller().importarXmlNaConta({ ...request, conteudoHonorariosBase64: undefined }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(deps.convenio).toHaveBeenLastCalledWith(71, 31, 20, "editar");
+    expect(deps.convenio).toHaveBeenLastCalledWith(71, 31, 20, "editar", undefined);
     expect(deps.cofre).not.toHaveBeenCalled();
     expect(b.pendentes).toEqual([]);
     expect(b.confirmados).toEqual([]);

@@ -1,4 +1,6 @@
 import { getDb } from "../db";
+import { TRPCError } from "@trpc/server";
+import { normalizarDataExecucao, dataReferenciaUnica, selecionarPrecosAplicaveis } from "../contratosPrecoAplicavel";
 import { contasConvenioItens, contasConvenioResumo, padraoPrecoConvenio, padraoGlosaConvenio, padraoQuantidadeItem, padroesCobranca, logAnaliseComparacao, convenios, tabelasPreco, convenioMapeamento, vinculacaoCodigos } from "../../drizzle/schema";
 import { eq, and, sql, or, inArray, isNull } from "drizzle-orm";
 import { logger } from "../_core/logger";
@@ -49,118 +51,61 @@ export interface ItemTabelaPrecoIndexado {
   codigo: string;
   nome: string;
   valor: number;
-  vigenciaInicio: Date | string | null;
+  vigenciaInicio: Date;
+  ativo: "sim" | "nao";
+  porte: string | null;
 }
 
+/** Resolução estrita: ID canônico elegível ou nome exato normalizado unívoco. */
 export async function resolverConvenioIdParaConta(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   estabelecimentoId: number,
   nomeConvenio: string | null | undefined,
   codigoConvenio?: string | null,
+  convenioIdCanonico?: number | null,
 ): Promise<number | null> {
-  const nomeLimpo = nomeConvenio?.trim();
-  if (!nomeLimpo) return null;
-  const nomeUpper = nomeLimpo.toUpperCase().replace(/\s+/g, " ");
-
+  const normalizarNome = (nome: string) => nome.normalize("NFKC").trim().toUpperCase().replace(/\s+/g, " ");
+  const nome = normalizarNome(nomeConvenio ?? "");
+  // Códigos externos não são IDs canônicos nem autorizam aproximação por nome.
+  void codigoConvenio;
   try {
-    const mapeamentos = await db
-      .select({
-        convenioId: convenioMapeamento.convenioId,
-        nomeOrigem: convenioMapeamento.nomeOrigem,
-        codigoOrigem: convenioMapeamento.codigoOrigem,
-      })
-      .from(convenioMapeamento)
-      .where(
-        and(
-          eq(convenioMapeamento.estabelecimentoId, estabelecimentoId),
-          eq(convenioMapeamento.ativo, "sim"),
-        ),
-      );
-    if (Array.isArray(mapeamentos)) {
-      for (const m of mapeamentos) {
-        if (!m || typeof m.nomeOrigem !== "string" || !m.convenioId) continue;
-        const origemUpper = m.nomeOrigem.trim().toUpperCase().replace(/\s+/g, " ");
-        if (origemUpper === nomeUpper) return Number(m.convenioId);
-        if (
-          codigoConvenio &&
-          m.codigoOrigem &&
-          m.codigoOrigem.trim().toUpperCase() === codigoConvenio.trim().toUpperCase()
-        ) {
-          return Number(m.convenioId);
-        }
+    const listaConvenios = await db.select({
+      id: convenios.id, nome: convenios.nome, estabelecimentoId: convenios.estabelecimentoId, ativo: convenios.ativo,
+    }).from(convenios).where(and(
+      eq(convenios.ativo, "sim"),
+      or(eq(convenios.estabelecimentoId, estabelecimentoId), isNull(convenios.estabelecimentoId)),
+    ));
+    if (!Array.isArray(listaConvenios)) throw new Error("resultado_indisponivel");
+    const elegiveis = listaConvenios.filter(conv =>
+      conv.ativo === "sim" && Number.isSafeInteger(conv.id) && conv.id > 0 &&
+      (conv.estabelecimentoId === estabelecimentoId || conv.estabelecimentoId === null),
+    );
+    if (convenioIdCanonico != null) {
+      if (!Number.isSafeInteger(convenioIdCanonico) || convenioIdCanonico <= 0) return null;
+      return elegiveis.some(conv => conv.id === convenioIdCanonico) ? convenioIdCanonico : null;
+    }
+    if (!nome) return null;
+    const mapeamentos = await db.select({
+      convenioId: convenioMapeamento.convenioId, nomeOrigem: convenioMapeamento.nomeOrigem,
+    }).from(convenioMapeamento).where(and(
+      eq(convenioMapeamento.estabelecimentoId, estabelecimentoId), eq(convenioMapeamento.ativo, "sim"),
+    ));
+    if (!Array.isArray(mapeamentos)) throw new Error("resultado_indisponivel");
+    const idsElegiveis = new Set(elegiveis.map(conv => conv.id));
+    const candidatos = new Set(elegiveis.filter(conv =>
+      typeof conv.nome === "string" && normalizarNome(conv.nome) === nome,
+    ).map(conv => conv.id));
+    for (const m of mapeamentos) {
+      if (typeof m.nomeOrigem === "string" && normalizarNome(m.nomeOrigem) === nome) {
+        // Um de-para inválido não pode ocultar uma identidade conflitante.
+        if (!idsElegiveis.has(m.convenioId)) return null;
+        candidatos.add(m.convenioId);
       }
     }
+    return candidatos.size === 1 ? [...candidatos][0] : null;
   } catch {
-    // Ignorar se mock ou tabela indisponível
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível validar o convênio da conta." });
   }
-
-  try {
-    const listaConvenios = await db
-      .select({
-        id: convenios.id,
-        nome: convenios.nome,
-        codigo: convenios.codigo,
-        estabelecimentoId: convenios.estabelecimentoId,
-      })
-      .from(convenios)
-      .where(
-        and(
-          eq(convenios.ativo, "sim"),
-          or(
-            eq(convenios.estabelecimentoId, estabelecimentoId),
-            isNull(convenios.estabelecimentoId),
-            eq(convenios.estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE),
-          ),
-        ),
-      );
-
-    if (Array.isArray(listaConvenios) && listaConvenios.length > 0) {
-      let melhorId: number | null = null;
-      let melhorScore = 0;
-
-      for (const conv of listaConvenios) {
-        if (!conv || typeof conv.nome !== "string" || !conv.id) continue;
-        const nomeSaf = conv.nome.trim().toUpperCase().replace(/\s+/g, " ");
-        if (!nomeSaf) continue;
-
-        let score = 0;
-        if (nomeSaf === nomeUpper) {
-          score = 100;
-        } else if (
-          codigoConvenio &&
-          conv.codigo &&
-          conv.codigo.trim().toUpperCase() === codigoConvenio.trim().toUpperCase()
-        ) {
-          score = 95;
-        } else if (nomeUpper.includes(nomeSaf) || nomeSaf.includes(nomeUpper)) {
-          score = 85;
-        } else {
-          const pHosp = nomeUpper.split(" ")[0];
-          const pSaf = nomeSaf.split(" ")[0];
-          if (pHosp && pHosp === pSaf && pHosp.length >= 4) {
-            score = 75;
-          }
-        }
-
-        if (score > 0 && conv.estabelecimentoId === estabelecimentoId) {
-          score += 5;
-        }
-
-        if (score > melhorScore) {
-          melhorScore = score;
-          melhorId = Number(conv.id);
-        }
-      }
-
-      if (melhorScore >= 75 && melhorId) {
-        return melhorId;
-      }
-    }
-  } catch {
-    // Ignorar se mock ou tabela indisponível
-  }
-
-  return null;
 }
 
 async function carregarMapaTabelaPrecos({
@@ -176,6 +121,7 @@ async function carregarMapaTabelaPrecos({
     codigoItemTuss?: string | null;
     codigoItem?: string | null;
     tipoItem?: string | null;
+    dataExecucao?: unknown;
   }) => { itemTabela: ItemTabelaPrecoIndexado; origemCodigo: "TUSS" | "INTERNO" | "VINCULO" } | null;
   totalItensTabela: number;
 }> {
@@ -185,38 +131,17 @@ async function carregarMapaTabelaPrecos({
   };
   if (!convenioId || convenioId <= 0) return vazio;
 
-  let rows: any[] = [];
-  try {
-    const res = await db
-      .select({
-        id: tabelasPreco.id,
-        convenioId: tabelasPreco.convenioId,
-        estabelecimentoId: tabelasPreco.estabelecimentoId,
-        tipo: tabelasPreco.tipo,
-        procedimentoFonte: tabelasPreco.procedimentoFonte,
-        codigo: tabelasPreco.codigo,
-        nome: tabelasPreco.nome,
-        valor: tabelasPreco.valor,
-        vigenciaInicio: tabelasPreco.vigenciaInicio,
-      })
-      .from(tabelasPreco)
-      .where(
-        and(
-          eq(tabelasPreco.convenioId, convenioId),
-          eq(tabelasPreco.ativo, "sim"),
-          or(
-            eq(tabelasPreco.estabelecimentoId, estabelecimentoId),
-            isNull(tabelasPreco.estabelecimentoId),
-            eq(tabelasPreco.estabelecimentoId, ESTABELECIMENTO_CENTRAL_SAFATLE),
-          ),
-        ),
-      );
-    if (Array.isArray(res)) {
-      rows = res;
-    }
-  } catch {
-    return vazio;
-  }
+  const rows = await db.select({
+    id: tabelasPreco.id, convenioId: tabelasPreco.convenioId,
+    estabelecimentoId: tabelasPreco.estabelecimentoId, tipo: tabelasPreco.tipo,
+    procedimentoFonte: tabelasPreco.procedimentoFonte, codigo: tabelasPreco.codigo,
+    nome: tabelasPreco.nome, valor: tabelasPreco.valor, vigenciaInicio: tabelasPreco.vigenciaInicio,
+    ativo: tabelasPreco.ativo, porte: tabelasPreco.porte,
+  }).from(tabelasPreco).where(and(
+    eq(tabelasPreco.convenioId, convenioId), eq(tabelasPreco.ativo, "sim"),
+    or(eq(tabelasPreco.estabelecimentoId, estabelecimentoId), isNull(tabelasPreco.estabelecimentoId)),
+  ));
+  if (!Array.isArray(rows)) throw new Error("precos_indisponiveis");
 
   const tiposValidos = new Set(["diarias", "mat_med", "taxas", "procedimentos"]);
   const itensValidos: ItemTabelaPrecoIndexado[] = [];
@@ -240,27 +165,15 @@ async function carregarMapaTabelaPrecos({
       codigo: r.codigo.trim(),
       nome: typeof r.nome === "string" ? r.nome : "",
       valor: valorNum,
-      vigenciaInicio: r.vigenciaInicio ?? null,
+      vigenciaInicio: normalizarDataExecucao(r.vigenciaInicio)
+        ? r.vigenciaInicio instanceof Date ? r.vigenciaInicio : new Date(String(r.vigenciaInicio))
+        : new Date(NaN),
+      ativo: r.ativo,
+      porte: r.porte ?? null,
     });
   }
 
   if (itensValidos.length === 0) return vazio;
-
-  itensValidos.sort((a, b) => {
-    const aEstab = a.estabelecimentoId === estabelecimentoId ? 1 : 0;
-    const bEstab = b.estabelecimentoId === estabelecimentoId ? 1 : 0;
-    if (aEstab !== bEstab) return bEstab - aEstab;
-
-    const aFonte = a.procedimentoFonte === "dados_completo" ? 1 : 0;
-    const bFonte = b.procedimentoFonte === "dados_completo" ? 1 : 0;
-    if (aFonte !== bFonte) return bFonte - aFonte;
-
-    const aVig = a.vigenciaInicio ? new Date(a.vigenciaInicio).getTime() : 0;
-    const bVig = b.vigenciaInicio ? new Date(b.vigenciaInicio).getTime() : 0;
-    if (aVig !== bVig) return bVig - aVig;
-
-    return b.id - a.id;
-  });
 
   const mapaExato = new Map<string, ItemTabelaPrecoIndexado[]>();
   const mapaNormalizado = new Map<string, ItemTabelaPrecoIndexado[]>();
@@ -278,7 +191,7 @@ async function carregarMapaTabelaPrecos({
   }
 
   const mapaVinculoHospitalParaConvenio = new Map<string, string>();
-  try {
+  {
     const vinculos = await db
       .select({
         codigoHospital: vinculacaoCodigos.codigoHospital,
@@ -293,6 +206,7 @@ async function carregarMapaTabelaPrecos({
           or(eq(vinculacaoCodigos.convenioId, convenioId), isNull(vinculacaoCodigos.convenioId)),
         ),
       );
+    if (!Array.isArray(vinculos)) throw new Error("vinculos_indisponiveis");
     if (Array.isArray(vinculos)) {
       for (const v of vinculos) {
         if (!v || typeof v.codigoHospital !== "string" || typeof v.codigoConvenio !== "string") continue;
@@ -309,48 +223,50 @@ async function carregarMapaTabelaPrecos({
         }
       }
     }
-  } catch {
-    // Ignorar se mock ou tabela indisponível
   }
 
   const selecionarCandidatoPorTipo = (
     candidatos: ItemTabelaPrecoIndexado[] | undefined,
     tipoAlvo: "diarias" | "mat_med" | "taxas" | "procedimentos" | null,
+    dataExecucao: unknown,
   ): ItemTabelaPrecoIndexado | null => {
-    if (!candidatos || candidatos.length === 0) return null;
-    if (tipoAlvo) {
-      const doMesmoTipo = candidatos.find(c => c.tipo === tipoAlvo);
-      if (doMesmoTipo) return doMesmoTipo;
-    }
-    return candidatos[0];
+    const dataReferencia = normalizarDataExecucao(dataExecucao);
+    if (!candidatos?.length || !dataReferencia) return null;
+    const doMesmoTipo = tipoAlvo ? candidatos.filter(c => c.tipo === tipoAlvo) : [];
+    const precos = doMesmoTipo.length ? doMesmoTipo : candidatos;
+    const selecionado = selecionarPrecosAplicaveis(precos.map(preco => ({ ...preco, valor: String(preco.valor) })), {
+      estabelecimentoId, convenioId: convenioId!, dataReferencia, codigos: precos.map(c => c.codigo),
+    })[0];
+    return selecionado ? precos.find(preco => preco.id === selecionado.id) ?? null : null;
   };
 
   const buscarPorCodigoUnico = (
     cod: string | null | undefined,
     tipoAlvo: "diarias" | "mat_med" | "taxas" | "procedimentos" | null,
+    dataExecucao: unknown,
   ): ItemTabelaPrecoIndexado | null => {
     const limpo = cod?.trim();
     if (!limpo) return null;
-    const exato = selecionarCandidatoPorTipo(mapaExato.get(limpo.toUpperCase()), tipoAlvo);
+    const exato = selecionarCandidatoPorTipo(mapaExato.get(limpo.toUpperCase()), tipoAlvo, dataExecucao);
     if (exato) return exato;
     const norm = normalizarCodigoPreco(limpo);
     if (!norm) return null;
-    return selecionarCandidatoPorTipo(mapaNormalizado.get(norm), tipoAlvo);
+    return selecionarCandidatoPorTipo(mapaNormalizado.get(norm), tipoAlvo, dataExecucao);
   };
 
   return {
     totalItensTabela: itensValidos.length,
-    buscarItem: ({ codigoItemTuss, codigoItem, tipoItem }) => {
+    buscarItem: ({ codigoItemTuss, codigoItem, tipoItem, dataExecucao }) => {
       const tipoAlvo = mapearTipoItemParaTabelaPreco(tipoItem);
 
       // Prioridade 1: Código TUSS
-      const matchTuss = buscarPorCodigoUnico(codigoItemTuss, tipoAlvo);
+      const matchTuss = buscarPorCodigoUnico(codigoItemTuss, tipoAlvo, dataExecucao);
       if (matchTuss) {
         return { itemTabela: matchTuss, origemCodigo: "TUSS" };
       }
 
       // Prioridade 2: Código interno do item
-      const matchInterno = buscarPorCodigoUnico(codigoItem, tipoAlvo);
+      const matchInterno = buscarPorCodigoUnico(codigoItem, tipoAlvo, dataExecucao);
       if (matchInterno) {
         return { itemTabela: matchInterno, origemCodigo: "INTERNO" };
       }
@@ -362,7 +278,7 @@ async function carregarMapaTabelaPrecos({
           mapaVinculoHospitalParaConvenio.get(codOrig.trim().toUpperCase()) ||
           mapaVinculoHospitalParaConvenio.get(normalizarCodigoPreco(codOrig));
         if (codVinculado) {
-          const matchVinculo = buscarPorCodigoUnico(codVinculado, tipoAlvo);
+          const matchVinculo = buscarPorCodigoUnico(codVinculado, tipoAlvo, dataExecucao);
           if (matchVinculo) {
             return { itemTabela: matchVinculo, origemCodigo: "VINCULO" };
           }
@@ -486,6 +402,7 @@ export interface ItemParaComparacao {
   codigoProcedimento?: string | null;
   codigoItemTuss?: string | null;
   convenioId?: number | null;
+  dataExecucao?: Date | string | null;
   [campo: string]: unknown;
 }
 
@@ -538,7 +455,7 @@ export async function compararContaComPadroes(
   if (!db) throw new Error("Database não disponível");
 
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
-    throw new Error("A comparação exige o hospital de origem concreto da conta.");
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A comparação exige o hospital de origem concreto da conta." });
   }
   if (opcoes?.escopoContextoMedico && (
     opcoes.escopoContextoMedico.estabelecimentoId !== estabelecimentoId ||
@@ -577,7 +494,18 @@ export async function compararContaComPadroes(
  * coleção já autorizada de itens. O chamador deve preservar a fonte e a
  * versão do snapshot ao persistir o resultado.
  */
-export async function compararItensComPadroes({
+export async function compararItensComPadroes(
+  params: Parameters<typeof compararItensComPadroesInterno>[0],
+): Promise<ResultadoComparacao> {
+  try {
+    return await compararItensComPadroesInterno(params);
+  } catch (erro) {
+    if (erro instanceof TRPCError && erro.code === "PRECONDITION_FAILED") throw erro;
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a comparação da conta." });
+  }
+}
+
+async function compararItensComPadroesInterno({
   numeroConta,
   estabelecimentoId,
   convenio,
@@ -595,7 +523,7 @@ export async function compararItensComPadroes({
   const db = banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
   if (!Number.isSafeInteger(estabelecimentoId) || estabelecimentoId <= 0 || estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE) {
-    throw new Error("A comparação exige o hospital de origem concreto da conta.");
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A comparação exige o hospital de origem concreto da conta." });
   }
   const contextoMedicoComparacao = avaliarContextoMedicoInformativo(contextoMedico);
 
@@ -608,7 +536,7 @@ export async function compararItensComPadroes({
       totalCriticos: 0,
       divergencias: [],
       resumoPorTipo: {},
-      statusGeral: contextoMedicoComparacao.estado === "incompleto" ? "incompleta" : "conforme",
+      statusGeral: "incompleta",
       contextoMedico: contextoMedicoComparacao,
       gabaritosUsados: 0,
       padroesUsados: 0,
@@ -619,15 +547,19 @@ export async function compararItensComPadroes({
   }
 
   // 2. Identificar o convênio e setores da conta
-  const convenioNormalizado = convenio?.trim() || null;
+  let convenioNormalizado = convenio?.trim() || null;
   const setoresNaConta = [...new Set(itens.map(i => typeof i.setor === "string" ? i.setor : null).filter(Boolean))] as string[];
   
-  if (!convenioNormalizado) {
+  const idsItens = [...new Set(itens.filter(i => i.convenioId != null).map(i => Number(i.convenioId)))];
+  if (idsItens.length > 1 || idsItens.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Convênio da conta não identificado de forma unívoca." });
+  }
+  if (!convenioNormalizado && idsItens.length === 0) {
     logger.warn({ message: "Conta sem convênio identificado" });
     return {
       numeroConta,
       totalItensAnalisados: itens.length,
-      totalDivergencias: 0,
+      totalDivergencias: 1,
       totalAlertas: 0,
       totalCriticos: 0,
       divergencias: [{
@@ -636,7 +568,7 @@ export async function compararItensComPadroes({
         mensagem: "Convênio não identificado na conta. Não é possível comparar com padrões.",
       }],
       resumoPorTipo: { COMPOSICAO: 1 },
-      statusGeral: contextoMedicoComparacao.estado === "incompleto" ? "incompleta" : "conforme",
+      statusGeral: "incompleta",
       contextoMedico: contextoMedicoComparacao,
       gabaritosUsados: 0,
       padroesUsados: 0,
@@ -646,6 +578,20 @@ export async function compararItensComPadroes({
     };
   }
 
+  const convenioIdEfetivo = await resolverConvenioIdParaConta(db, estabelecimentoId, convenioNormalizado, undefined, idsItens[0]);
+  if (!convenioIdEfetivo) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Convênio da conta não identificado de forma unívoca." });
+  }
+  // O nome também pertence à identidade canônica: aliases ou nomes fornecidos
+  // com um ID não podem selecionar dados aprendidos de outra operadora.
+  const convenioCanonico = await db.select({ nome: convenios.nome }).from(convenios).where(and(
+    eq(convenios.id, convenioIdEfetivo), eq(convenios.ativo, "sim"),
+    or(eq(convenios.estabelecimentoId, estabelecimentoId), isNull(convenios.estabelecimentoId)),
+  ));
+  if (!Array.isArray(convenioCanonico) || !convenioCanonico[0]?.nome?.trim()) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Convênio da conta não identificado de forma unívoca." });
+  }
+  convenioNormalizado = convenioCanonico[0].nome.trim();
   const divergencias: Divergencia[] = [];
   // A central fornece somente templates. Dados aprendidos de outro hospital
   // nunca são elegíveis para a comparação desta conta.
@@ -719,40 +665,22 @@ export async function compararItensComPadroes({
         mapaConvenioNomes.set(c.id, c.nome.trim().toUpperCase());
       }
     } catch(e) {
-      logger.warn({ message: "Erro ao buscar nomes de convênios", error: "configuracao_de_gabarito_invalida" });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a comparação da conta." });
     }
   }
 
-  // Filtrar por convênio
-  // Quando a conta não tem convenioId (null), incluir todos os padrões:
-  // - Gabaritos sempre são incluídos (isGabarito=1) pois são criados manualmente
-  // - Padrões sem convenioId (genéricos) são incluídos
-  // - Padrões com convenioId são incluídos apenas se bate com o da conta
-  const convenioIdConta = itens[0].convenioId;
-  const padroesCompFiltrados = padroesComposicao.filter(p => {
-    // Gabaritos manuais sempre são incluídos (foram criados especificamente para este cenário)
-    if (p.isGabarito === 1) return true;
-    // Padrões sem convenioId (genéricos) sempre passam
-    if (!p.convenioId) return true;
-    // Padrões com convenioId: só incluir se bate com o da conta
-    if (convenioIdConta && p.convenioId === convenioIdConta) return true;
-    // Se a conta não tem convenioId, incluir todos (melhor ter mais padrões que menos)
-    if (!convenioIdConta) return true;
-    return false;
-  });
+  // A identidade já foi validada; gabaritos genéricos permanecem elegíveis,
+  // mas um gabarito explícito de outro convênio nunca pode ser escolhido.
+  const convenioIdConta = convenioIdEfetivo;
+  const padroesCompFiltrados = padroesComposicao.filter(p =>
+    !p.convenioId || p.convenioId === convenioIdConta,
+  );
 
   let gabaritosUsados = 0;
   let padroesUsados = 0;
   const padroesDetalhados: PadraoUsadoDetalhe[] = [];
 
-  // 6b. Resolver convenioId (caso a conta venha do BANCO_CLIENTE / WARLEINE sem convenioId)
-  // e carregar a Tabela de Preços contratada (tabelasPreco) para todos os tipos de itens.
-  const itemComConvenioId = itens.find(i => Number(i.convenioId) > 0);
-  const convenioIdDireto = itemComConvenioId ? Number(itemComConvenioId.convenioId) : null;
-  const convenioIdEfetivo =
-    convenioIdDireto ??
-    (await resolverConvenioIdParaConta(db, estabelecimentoId, convenioNormalizado));
-
+  // Preços contratados são selecionados pela data de cada item.
   const mapaTabelaPrecos = await carregarMapaTabelaPrecos({
     db,
     convenioId: convenioIdEfetivo,
@@ -790,12 +718,13 @@ export async function compararItensComPadroes({
       codigoItemTuss: codigoTuss || null,
       codigoItem: codigoInterno || null,
       tipoItem: item.tipoItem,
+      dataExecucao: item.dataExecucao,
     });
 
     if (matchTabela) {
       itensAvaliadosTabelaPreco++;
       const { itemTabela, origemCodigo } = matchTabela;
-      const valorTabela = itemTabela.valor;
+      const valorTabela = Number(itemTabela.valor);
 
       if (valorTabela > 0 && valorUnitario > 0) {
         const diffUnitario = Number((valorUnitario - valorTabela).toFixed(4));
@@ -1091,7 +1020,7 @@ export async function compararItensComPadroes({
           // Buscar o nome do convênio pelo ID usando o mapa carregado
           const nomeConvGabarito = mapaConvenioNomes.get(g.convenioId as number) || '';
           if (nomeConvGabarito && convenioNomeConta) {
-            if (nomeConvGabarito.includes(convenioNomeConta) || convenioNomeConta.includes(nomeConvGabarito)) {
+            if (nomeConvGabarito === convenioNomeConta) {
               score += 80; // Match por nome de convênio
             }
           }
@@ -1133,8 +1062,6 @@ export async function compararItensComPadroes({
       logger.info({ 
         message: "Gabarito composto selecionado (melhor match convênio)", 
         padraoId: melhorGabarito.id, 
-        proc: melhorGabarito.codigoProcedimentoPrincipal, 
-        setor, 
         totalCandidatos: candidatos.length,
         scoreVencedor: pontuados[0].score,
       });
@@ -1261,7 +1188,10 @@ export async function compararItensComPadroes({
     d => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso"
   );
 
-  const statusGeral = temDivergenciaRelevante
+  const precoTemporalIncompleto = mapaTabelaPrecos.totalItensTabela > 0 && itens.some(item => !normalizarDataExecucao(item.dataExecucao));
+  const statusGeral = precoTemporalIncompleto
+    ? "incompleta" as const
+    : temDivergenciaRelevante
     ? "divergente" as const
     : contextoMedicoComparacao.estado === "incompleto" && gabaritosUsados === 0 && padroesUsados === 0
       ? "incompleta" as const
@@ -1327,16 +1257,15 @@ function processarPadraoComposicao(
     try {
       itensAssociados = JSON.parse(rawItens);
     } catch(e) {
-      logger.warn({ message: "Erro ao parsear itensAssociados", padraoId: padrao.id, error: "configuracao_de_gabarito_invalida" });
-      return;
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a comparação da conta." });
     }
   } else if (Array.isArray(rawItens)) {
     itensAssociados = rawItens;
   } else {
-    return;
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a comparação da conta." });
   }
 
-  if (!Array.isArray(itensAssociados)) return;
+  if (!Array.isArray(itensAssociados)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a comparação da conta." });
 
   // ========== LÓGICA DE GRUPOS CONDICIONAIS (Opção 3) ==========
   // Montar mapa de grupos e verificar quais estão "ativos" na conta
@@ -1396,9 +1325,11 @@ function processarPadraoComposicao(
           codigoItemTuss: itemEsperado.codigo,
           codigoItem: itemEsperado.codigo,
           tipoItem: itemEsperado.tipo,
+          // Um item ausente só tem data de referência se o setor tiver uma única data válida.
+          dataExecucao: dataReferenciaUnica(itensDoSetor.map(i => i.dataExecucao)),
         });
         const valorUnitarioReferencia =
-          matchPrecoFaltante?.itemTabela.valor ??
+          (matchPrecoFaltante ? Number(matchPrecoFaltante.itemTabela.valor) : undefined) ??
           (itemEsperado.valorMedio && itemEsperado.valorMedio > 0 ? itemEsperado.valorMedio : undefined);
         const qtdRefFaltante = itemEsperado.quantidadeMedia && itemEsperado.quantidadeMedia > 0 ? itemEsperado.quantidadeMedia : 1;
         const valorTotalEsperadoFaltante =
@@ -1422,7 +1353,7 @@ function processarPadraoComposicao(
             frequenciaEsperada: itemEsperado.frequencia,
             quantidadeMedia: itemEsperado.quantidadeMedia,
             valorMedio: valorUnitarioReferencia ?? itemEsperado.valorMedio,
-            valorTabela: matchPrecoFaltante?.itemTabela.valor ?? null,
+            valorTabela: (matchPrecoFaltante ? Number(matchPrecoFaltante.itemTabela.valor) : undefined) ?? null,
             fonte: fonteLabel,
             setorPadrao: padrao.setor || null,
             setorConta: setor,
@@ -1552,12 +1483,13 @@ export async function executarComparacaoESalvar(
   opcoes?: {
     escopoContextoMedico?: EscopoContextoMedicoParaComparacao;
     contextoMedico?: ContaContextoMedicoResultado;
+    banco?: NonNullable<Awaited<ReturnType<typeof getDb>>>;
   },
 ): Promise<ResultadoComparacao> {
-  const db = await getDb();
+  const db = opcoes?.banco ?? await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  const resultado = await compararContaComPadroes(numeroConta, estabelecimentoId, opcoes);
+  const resultado = await compararContaComPadroes(numeroConta, estabelecimentoId, { ...opcoes, banco: db });
   if (resultado.totalItensAnalisados === 0 || resultado.statusGeral === "incompleta") return resultado;
 
   // Condições de escopo para atualizar apenas a versão hospitalar analisada quando aplicável
@@ -1671,7 +1603,7 @@ export async function executarComparacaoESalvar(
           statusGeral: statusResumo,
         });
       } catch (e) {
-        logger.warn({ message: "Erro ao salvar log de análise", error: "registro_de_analise_indisponivel" });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível registrar a comparação da conta." });
       }
     }
   } else {
@@ -1692,7 +1624,7 @@ export async function executarComparacaoESalvar(
         statusGeral: statusResumo,
       });
     } catch (e) {
-      logger.warn({ message: "Erro ao salvar log de análise (sem padrão)", error: e });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível registrar a comparação da conta." });
     }
   }
 
@@ -1701,8 +1633,6 @@ export async function executarComparacaoESalvar(
     totalDivergencias: resultado.totalDivergencias,
     gabaritosUsados: resultado.gabaritosUsados,
     padroesUsados: resultado.padroesUsados,
-    padroesDetalhados: resultado.padroesDetalhados.map(p => `${p.padraoNome} (${p.isGabarito ? 'gabarito' : 'padrão'})`),
-    setoresAnalisados: resultado.setoresAnalisados,
     statusGeral: resultado.statusGeral,
   });
 

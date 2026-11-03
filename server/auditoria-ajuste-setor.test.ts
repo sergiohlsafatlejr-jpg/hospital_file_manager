@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
+import { describe, expect, it, vi } from "vitest";
+// Validação de schema apenas: nenhum módulo de banco real é importado ou executado.
+vi.mock("./db", () => ({
+  getDb: vi.fn().mockResolvedValue(null),
+  verificarPermissaoEstabelecimento: vi.fn().mockResolvedValue(true),
+  verificarAcessoModulo: vi.fn(),
+  getConvenioById: vi.fn(),
+  getRecursoById: vi.fn(),
+  getLoteRecursoById: vi.fn(),
+}));
+import { router } from "./_core/trpc";
+import { auditoriaRouter } from "./routers/auditoriaRouter";
 import type { TrpcContext } from "./_core/context";
+
+const appRouter = router({ auditoria: auditoriaRouter });
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 

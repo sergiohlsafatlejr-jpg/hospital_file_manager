@@ -345,8 +345,11 @@ export async function getConvenios(ativo?: "sim" | "nao", estabelecimentoId?: nu
   return db.select().from(convenios).orderBy(desc(convenios.createdAt));
 }
 
-export async function getConvenioById(id: number) {
-  const db = await getDb();
+export async function getConvenioById(
+  id: number,
+  connection?: Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select">,
+) {
+  const db = connection ?? await getDb();
   if (!db) return null;
 
   const result = await db
@@ -6802,9 +6805,10 @@ export async function getPermissaoUsuarioEstabelecimento(userId: number, estabel
 export async function verificarPermissaoEstabelecimento(
   userId: number,
   estabelecimentoId: number,
-  tipoPermissao: "visualizar" | "editar" | "excluir" | "gerenciar" = "visualizar"
+  tipoPermissao: "visualizar" | "editar" | "excluir" | "gerenciar" = "visualizar",
+  connection?: Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select">,
 ): Promise<boolean> {
-  const db = await getDb();
+  const db = connection ?? await getDb();
   if (!db) return false;
 
   // Admins têm acesso total

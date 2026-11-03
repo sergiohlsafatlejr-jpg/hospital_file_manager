@@ -3,7 +3,8 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
-import { ESTABELECIMENTO_CENTRAL_SAFATLE } from "../hospitalScope";
+import { ESTABELECIMENTO_CENTRAL_SAFATLE, resolverHospitaisAutorizados } from "../hospitalScope";
+import { resolverEscopoLeituraFabrica } from "../fabricaPerfilColaborador";
 import { fabricaSetorEnum } from "../../drizzle/schema";
 
 const SETORES_PARADOS = [
@@ -63,7 +64,7 @@ export const dashboardHomeRouter = router({
   resumoGeral: protectedProcedure
     .input(
       z.object({
-        estabelecimentoId: z.number(),
+        estabelecimentoId: z.number().int().nonnegative(),
         competencia: z.string().optional(), // formato YYYY-MM ou YYYY/MM
       })
     )
@@ -80,80 +81,63 @@ export const dashboardHomeRouter = router({
       const compDash = normalizarCompetenciaHifen(competencia);
       const compSlash = compDash ? compDash.replace("-", "/") : null;
 
-      // 0. Resolver estabelecimentos (hospitais) ativos e autorizados para o usuário
-      let hospitaisAtivos: Array<{ id: number; nome: string }> = [];
-      try {
-        const resEstab = await database.execute(
-          sql.raw(`
-            SELECT id, nome
-            FROM estabelecimentos
-            WHERE ativo = 'sim'
-            ORDER BY nome ASC
-          `)
-        );
-        const todosEstabs = extrairLinhas(resEstab).map((r: any) => ({
-          id: Number(r.id),
-          nome: String(r.nome || `Estabelecimento #${r.id}`),
-        }));
-
-        const hospitaisFisicos = todosEstabs.filter(
-          (e) => e.id > 0 && e.id !== ESTABELECIMENTO_CENTRAL_SAFATLE
-        );
-
-        if (ctx.user.role === "admin") {
-          hospitaisAtivos = hospitaisFisicos.length > 0 ? hospitaisFisicos : todosEstabs;
-        } else {
-          const resPerm = await database.execute(
-            sql.raw(`
-              SELECT estabelecimentoId, podeVisualizar, podeGerenciar, grupoServico
-              FROM permissoesEstabelecimento
-              WHERE userId = ${Number(ctx.user.id)} AND podeVisualizar = 'sim'
-            `)
-          );
-          const perms = extrairLinhas(resPerm);
-          const idsPermitidos = new Set(perms.map((p: any) => Number(p.estabelecimentoId)));
-          const temCentralSafatle = idsPermitidos.has(ESTABELECIMENTO_CENTRAL_SAFATLE);
-          const isGestorCentral = perms.some(
-            (p: any) =>
-              Number(p.estabelecimentoId) === ESTABELECIMENTO_CENTRAL_SAFATLE &&
-              (p.podeGerenciar === "sim" || p.grupoServico === "administrador")
-          );
-
-          const filtrados = hospitaisFisicos.filter((h) => idsPermitidos.has(h.id));
-          if (isGestorCentral || (temCentralSafatle && filtrados.length === 0)) {
-            hospitaisAtivos = hospitaisFisicos;
-          } else if (filtrados.length > 0) {
-            hospitaisAtivos = filtrados;
-          } else {
-            hospitaisAtivos = hospitaisFisicos;
-          }
-        }
-      } catch {
-        hospitaisAtivos = [];
-      }
-
-      if (hospitaisAtivos.length === 0) {
-        const fallbackId =
-          estabelecimentoId > 0 && estabelecimentoId !== ESTABELECIMENTO_CENTRAL_SAFATLE
-            ? estabelecimentoId
-            : 1;
-        hospitaisAtivos = [{ id: fallbackId, nome: `Estabelecimento #${fallbackId}` }];
-      }
-
-      const todosHospitaisIds = hospitaisAtivos.map((h) => h.id);
-      const isVisaoConsolidada =
-        !estabelecimentoId ||
-        estabelecimentoId <= 0 ||
+      // 0. A Central é somente a entrada no workspace; nunca amplia os hospitais.
+      // O ID zero da Home mantém a visão consolidada, com a mesma guarda da Central.
+      const isVisaoConsolidada = estabelecimentoId === 0 ||
         estabelecimentoId === ESTABELECIMENTO_CENTRAL_SAFATLE;
+      const hospitaisAutorizados = await resolverHospitaisAutorizados(
+        ctx.user,
+        isVisaoConsolidada ? ESTABELECIMENTO_CENTRAL_SAFATLE : estabelecimentoId,
+        "visualizar",
+      );
+      const escopoFabrica = await resolverEscopoLeituraFabrica(database, ctx.user, hospitaisAutorizados);
+      if (!isVisaoConsolidada && !escopoFabrica.hospitais.includes(estabelecimentoId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Seu perfil na Fábrica não permite consultar este hospital." });
+      }
 
-      const escopoIds = isVisaoConsolidada
-        ? todosHospitaisIds
-        : todosHospitaisIds.includes(estabelecimentoId)
-          ? [estabelecimentoId]
-          : [estabelecimentoId];
+      // A interseção hospitalar vale para todos os indicadores, inclusive os
+      // valores que cruzam faturamento/convênio com a Esteira. Vazio nunca vira 1.
+      const escopoIds = escopoFabrica.hospitais;
+      const inEscopoIds = escopoIds.join(", ") || "NULL";
+      const inTodosHospitaisIds = inEscopoIds;
+      const resEstab = await database.execute(sql.raw(`
+        SELECT id, nome
+        FROM estabelecimentos
+        WHERE ativo = 'sim' AND id IN (${inTodosHospitaisIds})
+        ORDER BY nome ASC
+      `));
+      const hospitaisAtivos = extrairLinhas(resEstab)
+        .filter((r: any) => escopoIds.includes(Number(r.id)))
+        .map((r: any) => ({ id: Number(r.id), nome: String(r.nome || `Estabelecimento #${r.id}`) }));
+      if (escopoIds.some((id) => !hospitaisAtivos.some((h) => h.id === id))) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível validar o catálogo de hospitais." });
+      }
 
-      const inEscopoIds = escopoIds.map((id) => Number(id)).join(", ");
-      const inTodosHospitaisIds = todosHospitaisIds.map((id) => Number(id)).join(", ");
+      // Os setores vêm exclusivamente do perfil canônico validado pelo helper
+      // da PR156; admin/ausência comprovada de perfil preservam os setores legados.
+      const inSetores = escopoFabrica.setores.map((setor) => `'${setor}'`).join(", ");
+      const filtroSetoresFabrica = inSetores ? `AND fc.setor_atual IN (${inSetores})` : "AND 1 = 0";
+      const restringeSetores = fabricaSetorEnum.some((setor) =>
+        !escopoFabrica.setores.some((permitido) => permitido === setor),
+      );
+      // Histórico antigo pode sobreviver à conta. Sem restrição de setor,
+      // preservamos essa produção legada, sempre limitada ao hospital autorizado.
+      // Em perfil restrito, a origem governa a produção (destino na recepção),
+      // e o vínculo proprietário + setor atual impedem revelar contas invisíveis.
+      const vinculoContaVisivel = (tabela: "fabrica_historico_fluxo" | "fabrica_erros_conta") => `
+        AND EXISTS (
+          SELECT 1 FROM fabrica_contas fc
+          WHERE fc.id = ${tabela}.fabrica_conta_id
+            AND fc.hospital_estabelecimento_id = ${tabela}.hospital_estabelecimento_id
+            AND fc.hospital_estabelecimento_id IN (${inTodosHospitaisIds})
+            ${filtroSetoresFabrica}
+        )`;
+      const filtroSetoresHistorico = !restringeSetores ? "" : inSetores
+        ? `AND COALESCE(setor_origem, setor_destino) IN (${inSetores}) ${vinculoContaVisivel("fabrica_historico_fluxo")}`
+        : "AND 1 = 0";
+      const filtroSetoresErros = !restringeSetores ? "" : inSetores
+        ? `AND setor_origem_erro IN (${inSetores}) ${vinculoContaVisivel("fabrica_erros_conta")}`
+        : "AND 1 = 0";
 
       const filtroCompUnificado = compDash
         ? `AND competencia IN ('${compDash}', '${compSlash}')`
@@ -196,6 +180,7 @@ export const dashboardHomeRouter = router({
                 MAX(TIMESTAMPDIFF(HOUR, fc.entrada_setor_atual_em, NOW())) as maxHorasNoSetor
               FROM fabrica_contas fc
               WHERE fc.hospital_estabelecimento_id IN (${inTodosHospitaisIds})
+              ${filtroSetoresFabrica}
               ${filtroCompFabrica}
               GROUP BY fc.hospital_estabelecimento_id, fc.setor_atual
             `)
@@ -214,6 +199,7 @@ export const dashboardHomeRouter = router({
                 COUNT(DISTINCT fabrica_conta_id) as totalContasMovimentadas
               FROM fabrica_historico_fluxo
               WHERE hospital_estabelecimento_id IN (${inTodosHospitaisIds})
+              ${filtroSetoresHistorico}
               ${filtroCompHistorico}
               GROUP BY usuario_id, usuario_nome
               ORDER BY contasFaturadas DESC, totalContasMovimentadas DESC
@@ -225,6 +211,7 @@ export const dashboardHomeRouter = router({
               SELECT COUNT(*) as totalErros
               FROM fabrica_erros_conta
               WHERE hospital_estabelecimento_id IN (${inTodosHospitaisIds})
+              ${filtroSetoresErros}
               ${filtroCompHistorico}
             `)
           ),
@@ -293,6 +280,7 @@ export const dashboardHomeRouter = router({
       for (const r of fabricaSetorRows) {
         const hId = Number(r.hospitalId);
         const setorRaw = String(r.setor || "recepcao");
+        if (!escopoIds.includes(hId) || !escopoFabrica.setores.some((setor) => setor === setorRaw)) continue;
         const setorAlvo =
           setorRaw === "recursos" || setorRaw === "finalizado" ? "enviado_convenio" : setorRaw;
 
@@ -637,6 +625,7 @@ export const dashboardHomeRouter = router({
               FROM fabrica_contas fc
               LEFT JOIN convenios c ON fc.convenio_id = c.id
               WHERE fc.hospital_estabelecimento_id IN (${inEscopoIds})
+              ${filtroSetoresFabrica}
               ${filtroCompFabrica}
               GROUP BY COALESCE(fc.convenio_nome, c.nome, 'Convênio')
               ORDER BY totalFaturado DESC, totalGuias DESC
@@ -676,6 +665,7 @@ export const dashboardHomeRouter = router({
                 COALESCE(SUM(CASE WHEN fc.valor_faturado_final > 0 THEN fc.valor_faturado_final ELSE fc.valor_faturado_inicial END), 0) as valorFaturado
               FROM fabrica_contas fc
               WHERE fc.hospital_estabelecimento_id IN (${inEscopoIds})
+                ${filtroSetoresFabrica}
                 AND fc.data_recebimento_safatle IS NOT NULL
               GROUP BY DATE_FORMAT(DATE(fc.data_recebimento_safatle), '%Y-%m')
               ORDER BY competencia DESC

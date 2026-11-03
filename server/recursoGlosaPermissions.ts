@@ -12,6 +12,7 @@ export async function exigirAcessoEstabelecimento(
   userId: number,
   estabelecimentoId: number | null | undefined,
   permissao: PermissaoRecurso = "visualizar",
+  connection?: Parameters<typeof verificarPermissaoEstabelecimento>[3],
 ) {
   if (!estabelecimentoId) {
     throw new TRPCError({
@@ -20,7 +21,9 @@ export async function exigirAcessoEstabelecimento(
     });
   }
 
-  const permitido = await verificarPermissaoEstabelecimento(userId, estabelecimentoId, permissao);
+  const permitido = connection === undefined
+    ? await verificarPermissaoEstabelecimento(userId, estabelecimentoId, permissao)
+    : await verificarPermissaoEstabelecimento(userId, estabelecimentoId, permissao, connection);
   if (!permitido) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -72,10 +75,13 @@ export async function exigirConvenioDoEstabelecimento(
   convenioId: number,
   estabelecimentoId: number | null | undefined,
   permissao: PermissaoRecurso = "visualizar",
+  connection?: Parameters<typeof verificarPermissaoEstabelecimento>[3],
 ) {
-  await exigirAcessoEstabelecimento(userId, estabelecimentoId, permissao);
+  await exigirAcessoEstabelecimento(userId, estabelecimentoId, permissao, connection);
 
-  const convenio = await getConvenioById(convenioId);
+  const convenio = connection === undefined
+    ? await getConvenioById(convenioId)
+    : await getConvenioById(convenioId, connection);
   if (!convenio) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Convênio não encontrado" });
   }
