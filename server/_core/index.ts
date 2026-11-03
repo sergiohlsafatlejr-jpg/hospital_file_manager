@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash, randomBytes } from "node:crypto";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -18,6 +19,8 @@ import { registrarDownloadProntuarioPdf } from "../prontuarioPdfDownload";
 import { registrarUploadProntuarioPdf } from "../prontuarioPdfUpload";
 import { xmlImportacaoLoteUploadRouter } from "../xmlImportacaoLoteUpload";
 import { initializeXmlImportacaoLoteWorker } from "../xmlImportacaoLoteWorker";
+import { getRawPool } from "../db";
+import { dispatchInternalFileProcessing } from "../internalFileDispatch";
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -37,7 +40,72 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+async function ensureInternalProcessingInfrastructure() {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    const seed =
+      process.env.JWT_SECRET ||
+      process.env.BUILT_IN_FORGE_API_KEY ||
+      process.env.DATABASE_URL ||
+      randomBytes(32).toString("hex");
+    process.env.JWT_SECRET = createHash("sha256")
+      .update(`safatle-internal-dispatch:${seed}`)
+      .digest("hex");
+  }
+
+  try {
+    const pool = await getRawPool();
+    if (!pool) return;
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS process_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        arquivo_id INT NOT NULL,
+        level VARCHAR(20) NOT NULL,
+        message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_process_logs_arquivo (arquivo_id)
+      )
+    `);
+    await pool
+      .execute(
+        "UPDATE convenios SET estabelecimentoId = NULL WHERE estabelecimentoId IS NOT NULL"
+      )
+      .catch(() => undefined);
+  } catch (err) {
+    console.warn("[Server] Aviso ao garantir tabela process_logs:", err);
+  }
+}
+
+async function resumeStuckInitialUploads() {
+  try {
+    const pool = await getRawPool();
+    if (!pool) return;
+    const [rows] = (await pool.execute(
+      "SELECT id, direcao, tipoArquivo, itensProcessados, totalItens FROM arquivos WHERE status = 'processando' AND COALESCE(progresso, 0) <= 5 AND COALESCE(itensProcessados, 0) = 0 ORDER BY id DESC LIMIT 10"
+    )) as any;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    for (const row of rows) {
+      const arquivoId = Number(row.id);
+      if (!Number.isSafeInteger(arquivoId) || arquivoId <= 0) continue;
+      await pool
+        .execute("DELETE FROM process_logs WHERE arquivo_id = ?", [arquivoId])
+        .catch(() => undefined);
+      void dispatchInternalFileProcessing({
+        arquivoId,
+        limparDadosAnteriores: !(
+          row.direcao === "retornado" &&
+          row.tipoArquivo === "excel" &&
+          Number(row.itensProcessados || 0) === 0 &&
+          !row.totalItens
+        ),
+      }).catch(() => undefined);
+    }
+  } catch (err) {
+    console.warn("[Server] Aviso ao retomar uploads iniciais pendentes:", err);
+  }
+}
+
 async function startServer() {
+  await ensureInternalProcessingInfrastructure();
   const app = express();
   // A aplicação fica atrás de exatamente um proxy de borda da plataforma.
   // Não confiar genericamente em faixas privadas impede spoofing por hosts internos.
@@ -90,6 +158,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    void resumeStuckInitialUploads();
   });
 
   // Inicializar JobScheduler

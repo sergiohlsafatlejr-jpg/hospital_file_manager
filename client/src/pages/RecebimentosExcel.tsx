@@ -181,6 +181,7 @@ export default function RecebimentosExcel() {
     const pendingFiles = selectedFiles.filter(f => f.status === "pending" || f.status === "error");
     let successCount = 0;
     let errorCount = 0;
+    let lastErrorMessage = "";
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const fileItem = pendingFiles[i];
@@ -250,6 +251,7 @@ export default function RecebimentosExcel() {
       } catch (error: any) {
         console.error("Upload error:", error);
         const errorMsg = error?.message || "Erro ao enviar";
+        lastErrorMessage = errorMsg;
         setSelectedFiles(prev => prev.map((f, idx) => idx === fileIndex ? { ...f, status: "error" as const, error: errorMsg } : f));
         errorCount++;
       }
@@ -259,9 +261,9 @@ export default function RecebimentosExcel() {
     if (successCount > 0 && errorCount === 0) {
       toast.success(`${successCount} arquivo(s) enviado(s)! Processamento em andamento...`);
     } else if (successCount > 0) {
-      toast.warning(`${successCount} enviado(s), ${errorCount} com erro`);
+      toast.warning(`${successCount} enviado(s), ${errorCount} com erro${lastErrorMessage ? `: ${lastErrorMessage}` : ""}`);
     } else {
-      toast.error(`Erro ao enviar ${errorCount} arquivo(s)`);
+      toast.error(lastErrorMessage ? `Erro ao enviar: ${lastErrorMessage}` : `Erro ao enviar ${errorCount} arquivo(s)`);
     }
 
     // Invalidar queries
@@ -698,6 +700,11 @@ export default function RecebimentosExcel() {
                                item.status === "error" ? <AlertCircle className="h-4 w-4 shrink-0" /> :
                                <FileText className="h-4 w-4 shrink-0" />}
                               <span className="truncate">{item.file.name}</span>
+                              {item.status === "error" && item.error && (
+                                <span className="text-xs text-red-600 truncate" title={item.error}>
+                                  — {item.error}
+                                </span>
+                              )}
                             </div>
                             {item.status === "pending" && (
                               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); removeFile(index); }}>

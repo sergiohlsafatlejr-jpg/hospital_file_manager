@@ -177,20 +177,28 @@ function parseDate(value: unknown): Date | null {
   
   // Se for string
   if (typeof value === 'string') {
-    // Formato DD/MM/YYYY
-    const brMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const trimmed = value.trim();
+    // Formato DD/MM/YYYY ou DD/MM/YYYY HH:mm(:ss)
+    const brMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
     if (brMatch) {
-      return new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]));
+      return new Date(
+        parseInt(brMatch[3], 10),
+        parseInt(brMatch[2], 10) - 1,
+        parseInt(brMatch[1], 10),
+        brMatch[4] ? parseInt(brMatch[4], 10) : 0,
+        brMatch[5] ? parseInt(brMatch[5], 10) : 0,
+        brMatch[6] ? parseInt(brMatch[6], 10) : 0
+      );
     }
     
     // Formato YYYY-MM-DD
-    const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) {
-      return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+      return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
     }
     
     // Tentar parse genérico
-    const date = new Date(value);
+    const date = new Date(trimmed);
     if (!isNaN(date.getTime())) {
       return date;
     }
@@ -516,7 +524,10 @@ export function parseExcelRecebimentosExcel(
     for (let col = range.s.c; col <= range.e.c; col++) {
       const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
       const cell = worksheet[cellRef];
-      const value = cell?.w || cell?.v || null;
+      const value =
+        cell?.t === 'd' && cell?.v instanceof Date
+          ? cell.v
+          : (cell?.w || cell?.v || null);
       rowData[headers[col]] = value;
       if (value) hasData = true;
     }

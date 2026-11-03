@@ -542,6 +542,11 @@ function convertRowAlternativeFormat(
     valorGlosaStr = '0';
   }
   
+  const erroTissVal = getByName(['erro tiss']) || undefined;
+  const codigoGlosaMatch = erroTissVal ? erroTissVal.match(/^(\d{3,4})/) : null;
+  const seqNum = getNumberByName(['seq']);
+  const qtdNum = getNumberByName(['quantidade']);
+
   const record: InsertRecebimentoExcel = {
     arquivoId,
     convenioId,
@@ -556,17 +561,21 @@ function convertRowAlternativeFormat(
     nomePrestadorPagamento: getByName(['nome prestador pagamento']) || undefined,
     codigoPrestador: getByName(['código prestador', 'codigo prestador']).replace('.0', '') || undefined,
     nomePrestador: getByName(['nome prestador']) || undefined,
+    prestadorExecutante: getByName(['prestador executante']).replace('.0', '') || undefined,
+    nomePrestadorExecutante: getByName(['nome prestador executante']) || undefined,
     
     beneficiario: getByName(['beneficiário', 'beneficiario']) || undefined,
     nomeBeneficiario: getByName(['nome beneficiário', 'nome beneficiario']) || undefined,
     
     numeroGuia: getByName(['número guia', 'numero guia', 'número guia prestador', 'numero guia prestador']) || undefined,
+    seq: seqNum > 0 ? Math.round(seqNum) : undefined,
     codigoSolicitante: getByName(['código solicitante', 'codigo solicitante']) || undefined,
     horaExecucao: getByName(['hora execução', 'hora execucao']) || undefined,
     dataExecucao: dataExecDate || undefined,
     
     item: getByName(['item']) || undefined,
     itemDesc: getByName(['item desc', 'descrição procedimento', 'descricao procedimento']) || undefined,
+    quantidade: qtdNum > 0 ? Math.round(qtdNum) : undefined,
     
     tipoItem: undefined,
     tipoLancamento: getByName(['tipo lançamento', 'tipo lancamento']) || undefined,
@@ -579,8 +588,8 @@ function convertRowAlternativeFormat(
     valorPagamento: valorPagoStr,
     valorGlosa: valorGlosaStr,
     
-    codigoGlosa: undefined,
-    erroTiss: getByName(['erro tiss']) || undefined,
+    codigoGlosa: codigoGlosaMatch ? codigoGlosaMatch[1] : undefined,
+    erroTiss: erroTissVal,
     situacaoItem,
     
     nomeSolicitante: getByName(['nome solicitante']) || undefined,
