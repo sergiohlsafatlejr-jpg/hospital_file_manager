@@ -50,6 +50,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateBR } from "@/lib/dateUtils";
 import { criarUrlReenvioIntegralXml } from "@/lib/xmlImportacaoReenvio";
+import {
+  GLOSA_MANUAL_NO_ORIGINAL_MESSAGE,
+  GLOSA_MANUAL_ORIGIN_LABEL,
+  isGlosaManualOrigin,
+} from "@shared/glosaManualOrigin";
 
 export default function Arquivos() {
   const [, setLocation] = useLocation();
@@ -61,7 +66,7 @@ export default function Arquivos() {
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [filtroConvenio, setFiltroConvenio] = useState<string>("todos");
   const [selectedArquivo, setSelectedArquivo] = useState<number | null>(null);
-  const [arquivoToDelete, setArquivoToDelete] = useState<{ id: number; nome: string } | null>(null);
+  const [arquivoToDelete, setArquivoToDelete] = useState<{ id: number; nome: string; origemManual?: boolean } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReprocessing, setIsReprocessing] = useState<number | null>(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState<number | null>(null);
@@ -120,11 +125,19 @@ export default function Arquivos() {
   });
 
   const handleReprocessar = (arquivoId: number) => {
+    if (isGlosaManualOrigin(arquivos?.find(arquivo => arquivo.id === arquivoId))) {
+      toast.error(GLOSA_MANUAL_NO_ORIGINAL_MESSAGE);
+      return;
+    }
     setIsReprocessing(arquivoId);
     reprocessarArquivo.mutate({ id: arquivoId });
   };
 
   const handleReenviarSelecaoProtegida = (arquivo: any) => {
+    if (isGlosaManualOrigin(arquivo)) {
+      toast.error(GLOSA_MANUAL_NO_ORIGINAL_MESSAGE);
+      return;
+    }
     toast.info(
       "Selecione novamente todos os XMLs desta seleção. O escopo foi mantido."
     );
@@ -169,6 +182,11 @@ export default function Arquivos() {
 
   const handleDeleteArquivo = () => {
     if (!arquivoToDelete) return;
+    if (isGlosaManualOrigin(arquivoToDelete) ||
+        isGlosaManualOrigin(arquivos?.find(arquivo => arquivo.id === arquivoToDelete.id))) {
+      toast.error(GLOSA_MANUAL_NO_ORIGINAL_MESSAGE);
+      return;
+    }
     setIsDeleting(true);
     deleteArquivo.mutate({ id: arquivoToDelete.id });
   };
@@ -386,15 +404,19 @@ export default function Arquivos() {
                             </div>
                             <div>
                               <p className="font-medium text-slate-900 truncate max-w-[200px]">
-                                {arquivo.nome}
+                                {isGlosaManualOrigin(arquivo) ? GLOSA_MANUAL_ORIGIN_LABEL : arquivo.nome}
                               </p>
                               <p className="text-xs text-slate-500">
-                                {arquivo.tamanho ? `${(arquivo.tamanho / 1024).toFixed(1)} KB` : "-"}
+                                {isGlosaManualOrigin(arquivo)
+                                  ? "Sem arquivo original"
+                                  : arquivo.tamanho ? `${(arquivo.tamanho / 1024).toFixed(1)} KB` : "-"}
                               </p>
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>{getTipoBadge(arquivo.tipoArquivo)}</TableCell>
+                        <TableCell>{isGlosaManualOrigin(arquivo)
+                          ? <Badge variant="outline">Manual</Badge>
+                          : getTipoBadge(arquivo.tipoArquivo)}</TableCell>
                         <TableCell>
                           <span className={`text-sm ${
                             arquivo.direcao === "enviado" ? "text-blue-600" : "text-green-600"
@@ -436,6 +458,7 @@ export default function Arquivos() {
                                 <Sparkles className="h-4 w-4" />
                               )}
                             </Button>
+                            {!isGlosaManualOrigin(arquivo) && <>
                             {arquivo.loteAcao === "reenvio_completo_necessario" ? (
                               <Button
                                 variant="outline"
@@ -467,12 +490,13 @@ export default function Arquivos() {
                               variant="ghost" 
                               size="sm"
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => setArquivoToDelete({ id: arquivo.id, nome: arquivo.nome })}
+                              onClick={() => setArquivoToDelete({ id: arquivo.id, nome: arquivo.nome, origemManual: arquivo.origemManual })}
                               disabled={arquivo.loteProtegido}
                               title={arquivo.loteProtegido ? "O lote protegido não pode ser excluído por esta tela" : "Excluir arquivo"}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            </>}
                           </div>
                         </TableCell>
                       </TableRow>

@@ -2,6 +2,11 @@ import { finalizarCsvBradescoInvalido } from "./bradescoCsvFinalizacao";
 import { delegarPlanilhaRetorno } from "./retornoUploadDispatch";
 import { assertInternalProcessingReady, dispatchInternalFileProcessing } from "./internalFileDispatch";
 import {
+  GLOSA_MANUAL_NO_ORIGINAL_MESSAGE,
+  GLOSA_MANUAL_ORIGIN_LABEL,
+  isGlosaManualOriginName,
+} from "../shared/glosaManualOrigin";
+import {
   confirmarEnvioLote,
   confirmarEnvioLoteSchema,
 } from "./recursoLoteEnvioService";
@@ -249,7 +254,14 @@ function arquivoEhLoteXmlProtegido(arquivo: {
 }): boolean {
   return arquivo.s3Key === "xml-importacao-protegido" && !arquivo.s3Url;
 }
-
+function exigirArquivoOriginal(arquivo: { nome?: unknown }): void {
+  if (isGlosaManualOriginName(arquivo.nome)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: GLOSA_MANUAL_NO_ORIGINAL_MESSAGE,
+    });
+  }
+}
 async function obterArquivoAutorizado(
   user: { id: number; role: string },
   arquivoId: number,
@@ -708,8 +720,11 @@ export const appRouter = router({
         return arquivosList.map((a: any) => {
           const { s3Key: _s3Key, s3Url: _s3Url, ...arquivoPublico } = a;
           const loteProtegido = arquivoEhLoteXmlProtegido(a);
+          const origemManual = isGlosaManualOriginName(a.nome);
           return {
             ...arquivoPublico,
+            nome: origemManual ? GLOSA_MANUAL_ORIGIN_LABEL : a.nome,
+            origemManual,
             loteProtegido,
             loteAcao: loteProtegido
               ? acoesLote.get(a.id) ?? "sem_acao_manual"
@@ -741,8 +756,11 @@ export const appRouter = router({
               estabelecimentoId: estabelecimentoArquivoId,
             })
           : new Map();
+        const origemManual = isGlosaManualOriginName(arquivo.nome);
         return {
           ...arquivoPublico,
+          nome: origemManual ? GLOSA_MANUAL_ORIGIN_LABEL : arquivo.nome,
+          origemManual,
           loteProtegido,
           loteAcao: loteProtegido
             ? acoesLote.get(arquivo.id) ?? "sem_acao_manual"
@@ -823,6 +841,8 @@ export const appRouter = router({
         }
 
         // Decode base64 content
+        // O namespace da âncora não pode ser usado para criar/substituir documento.
+        exigirArquivoOriginal({ nome: input.nome });
         assertInternalProcessingReady();
         const buffer = Buffer.from(input.conteudo, "base64");
 
@@ -853,6 +873,7 @@ export const appRouter = router({
         let isReimportacao = false;
 
         if (arquivoExistente) {
+          exigirArquivoOriginal(arquivoExistente);
           // Reimportação: atualizar arquivo existente
           console.log(
             "[Upload] Arquivo existente encontrado, atualizando:",
@@ -993,6 +1014,7 @@ export const appRouter = router({
           input.id,
           "excluir"
         );
+        exigirArquivoOriginal(arquivo);
         if (arquivoEhLoteXmlProtegido(arquivo)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -1113,6 +1135,7 @@ export const appRouter = router({
           input.id,
           "editar"
         );
+        exigirArquivoOriginal(arquivo);
         if (arquivoEhLoteXmlProtegido(arquivo)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -1165,9 +1188,11 @@ export const appRouter = router({
           input.id,
           "visualizar"
         );
+        const origemManual = isGlosaManualOriginName(arquivo.nome);
         return {
           id: arquivo.id,
-          nome: arquivo.nome,
+          nome: origemManual ? GLOSA_MANUAL_ORIGIN_LABEL : arquivo.nome,
+          origemManual,
           status: arquivo.status,
           progresso: arquivo.progresso || 0,
           itensProcessados: arquivo.itensProcessados || 0,
@@ -8611,6 +8636,7 @@ export const appRouter = router({
           throw new Error("Arquivo não encontrado");
         }
 
+        exigirArquivoOriginal(arquivo);
         // Baixar conteúdo do S3
         assertInternalProcessingReady();
         const downloadController = new AbortController();

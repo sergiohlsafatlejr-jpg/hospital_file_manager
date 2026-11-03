@@ -587,6 +587,16 @@ export async function deleteArquivo(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Defesa direta: esta linha é memória idempotente, não documento descartável.
+  const [arquivo] = await db
+    .select({ nome: arquivos.nome })
+    .from(arquivos)
+    .where(eq(arquivos.id, id))
+    .limit(1);
+  if (arquivo?.nome?.startsWith("manual-glosa:v1:")) {
+    throw new Error("Registro manual não possui arquivo original.");
+  }
+
   await db.delete(arquivos).where(eq(arquivos.id, id));
   return { success: true };
 }
@@ -9057,6 +9067,54 @@ export async function getLoteRecursoById(loteId: number) {
   return lote || null;
 }
 
+/**
+ * Complemento descritivo, nunca fonte financeira. As origens auxiliares são
+ * ligadas por PK/ID de origem e escopo, portanto não multiplicam ca.
+ * MIN não desempata: HAVING COUNT(*) = 1 só o libera se o candidato for único.
+ */
+function joinDemonstrativoConciliadoLote() {
+  return sql`
+    LEFT JOIN faturamento_unificado fu
+      ON fu.id = ca.faturamentoUnificadoId
+      AND fu.estabelecimentoId = ca.estabelecimentoId
+      AND fu.convenioId = ca.convenioId
+      AND fu.numeroGuia = ca.numeroGuia
+      AND fu.codigoItem = ca.codigoItem
+    LEFT JOIN faturamento_tiss ft
+      ON fu.origemSistema = 'XML_TISS'
+      AND CAST(ft.id AS CHAR) = fu.origemId
+      AND ft.estabelecimentoId = ca.estabelecimentoId
+      AND ft.convenioId = ca.convenioId
+      AND (ft.numero_guia_prestador = ca.numeroGuia OR ft.numero_guia_operadora = ca.numeroGuia)
+      AND ft.codigo_item = ca.codigoItem
+    LEFT JOIN demonstrativo d
+      ON d.estabelecimentoId = ca.estabelecimentoId
+      AND d.convenio_id = ca.convenioId
+      AND (
+        (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+        OR (
+          ca.recebimentoId IS NULL
+          AND (NULLIF(TRIM(ca.recebimentoOrigem), '') IS NULL OR ca.recebimentoOrigem = 'demonstrativo')
+          AND d.id = (
+            SELECT MIN(candidato.id)
+            FROM demonstrativo candidato
+            WHERE candidato.estabelecimentoId = ca.estabelecimentoId
+              AND candidato.convenio_id = ca.convenioId
+              AND NULLIF(TRIM(ca.numeroGuia), '') IS NOT NULL
+              AND NULLIF(TRIM(ca.codigoItem), '') IS NOT NULL
+              AND candidato.numero_guia = ca.numeroGuia
+              AND candidato.codigo_item = ca.codigoItem
+              AND (COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao) IS NULL
+                OR candidato.data_execucao = DATE(COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao)))
+              AND (ft.sequencial_item IS NULL OR candidato.sequencial_item = ft.sequencial_item)
+              AND (NULLIF(TRIM(fu.protocolo), '') IS NULL OR candidato.protocolo = TRIM(fu.protocolo))
+            HAVING COUNT(*) = 1
+          )
+        )
+      )
+  `;
+}
+
 export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
   const db = dbOverride ?? await getDb();
   if (!db) return null;
@@ -9069,7 +9127,7 @@ export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
 
   if (!lote) return null;
 
-  const [demoRows] = await db.execute(sql.raw(`
+  const [demoRows] = await db.execute(sql`
     SELECT
       d.id,
       d.estabelecimentoId AS estabelecimentoId,
@@ -9089,13 +9147,13 @@ export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
       COALESCE(NULLIF(TRIM(d.erro_tiss), ''), d.codigo_glosa) AS motivoGlosa,
       d.justificativa_recurso AS justificativa
     FROM demonstrativo d
-    WHERE d.recurso_id = ${Number(loteId)}
-      AND d.estabelecimentoId = ${Number(lote.estabelecimentoId)}
-      AND d.convenio_id = ${Number(lote.convenioId)}
+    WHERE d.recurso_id = ${loteId}
+      AND d.estabelecimentoId = ${lote.estabelecimentoId}
+      AND d.convenio_id = ${lote.convenioId}
     ORDER BY d.nome_beneficiario, d.numero_guia, d.id
-  `));
+  `);
 
-  const [concRows] = await db.execute(sql.raw(`
+  const [concRows] = await db.execute(sql`
     SELECT
       ca.id,
       ca.estabelecimentoId AS estabelecimentoId,
@@ -9115,15 +9173,12 @@ export async function getDetalhesLoteRecurso(loteId: number, dbOverride?: any) {
       COALESCE(NULLIF(TRIM(d.erro_tiss), ''), NULLIF(TRIM(ca.motivoGlosa), ''), ca.codigoGlosa, d.codigo_glosa) AS motivoGlosa,
       '' AS justificativa
     FROM conciliados_automatico ca
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
-    WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
-      AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
-      AND ca.convenioId = ${Number(lote.convenioId)}
+    ${joinDemonstrativoConciliadoLote()}
+    WHERE ca.xmlRecursoLoteId = ${loteId}
+      AND ca.estabelecimentoId = ${lote.estabelecimentoId}
+      AND ca.convenioId = ${lote.convenioId}
     ORDER BY ca.pacienteNome, ca.numeroGuia, ca.id
-  `));
+  `);
 
   const recursosDoLote = await db
     .select()
@@ -10477,7 +10532,7 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
     .limit(1);
   if (!lote) return null;
 
-  const [demoItems] = await db.execute(sql.raw(`
+  const [demoItems] = await db.execute(sql`
     SELECT
       d.id,
       d.estabelecimentoId AS estabelecimentoId,
@@ -10501,13 +10556,13 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       d.data_pagamento AS dataPagamentoOriginal,
       'demonstrativo' AS fonte
     FROM demonstrativo d
-    WHERE d.recurso_id = ${Number(loteId)}
-      AND d.estabelecimentoId = ${Number(lote.estabelecimentoId)}
-      AND d.convenio_id = ${Number(lote.convenioId)}
+    WHERE d.recurso_id = ${loteId}
+      AND d.estabelecimentoId = ${lote.estabelecimentoId}
+      AND d.convenio_id = ${lote.convenioId}
     ORDER BY d.nome_beneficiario, d.numero_guia
-  `));
+  `);
 
-  const [concItems] = await db.execute(sql.raw(`
+  const [concItems] = await db.execute(sql`
     SELECT
       ca.id,
       ca.estabelecimentoId AS estabelecimentoId,
@@ -10531,15 +10586,12 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
       NULL AS dataPagamentoOriginal,
       'conciliacao' AS fonte
     FROM conciliados_automatico ca
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
-    WHERE ca.xmlRecursoLoteId = ${Number(loteId)}
-      AND ca.estabelecimentoId = ${Number(lote.estabelecimentoId)}
-      AND ca.convenioId = ${Number(lote.convenioId)}
+    ${joinDemonstrativoConciliadoLote()}
+    WHERE ca.xmlRecursoLoteId = ${loteId}
+      AND ca.estabelecimentoId = ${lote.estabelecimentoId}
+      AND ca.convenioId = ${lote.convenioId}
     ORDER BY ca.pacienteNome, ca.numeroGuia
-  `));
+  `);
 
   const recursosAntigos = await db
     .select()
@@ -10593,7 +10645,7 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
         const xml = await response.text();
         const itens = extrairRecursosDoXml(xml);
         for (const item of itens) {
-          const [complemento] = await db
+          const candidatos = await db
             .select({
               pacienteNome: demonstrativo.nomeBeneficiario,
               pacienteCarteirinha: demonstrativo.carteiraBeneficiario,
@@ -10608,8 +10660,11 @@ export async function getRecursosLoteParaExportacao(loteId: number, dbOverride?:
               eq(demonstrativo.convenioId, lote.convenioId),
               eq(demonstrativo.numeroGuia, item.guiaNumero),
               eq(demonstrativo.codigoItem, item.codigoProcedimento),
+              item.dataAtendimento ? sql`${demonstrativo.dataExecucao} = ${item.dataAtendimento}` : undefined,
+              item.protocoloDP?.trim() ? eq(demonstrativo.protocolo, item.protocoloDP.trim()) : undefined,
             ))
-            .limit(1);
+            .limit(2);
+          const complemento = candidatos.length === 1 ? candidatos[0] : undefined;
           itensXml.push(normalizarItemFinanceiroRecurso({
             id: `xml-${itensXml.length + 1}`,
             guiaNumero: item.guiaNumero,

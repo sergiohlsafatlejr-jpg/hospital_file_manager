@@ -8,7 +8,9 @@
 import { getDb, getRawPool } from "./db";
 import { sql } from "drizzle-orm";
 import { buscarPrecosPorItens, dataReferenciaUnica } from "./contratosPrecoAplicavel";
+import { registrarGlosaManualSegura, type RegistrarGlosaManualInput, type RegistrarGlosaManualResult } from "./glosaManualService";
 import {
+  dataPagamentoDemonstrativoSchema,
   idPositivoDemonstrativoSchema,
   montarRecorteRecursoGlosaDemonstrativoSql,
   normalizarRecorteRecursoGlosaDemonstrativo,
@@ -32,6 +34,63 @@ export function obterGuiasCandidatas(item: {
       .map(valor => String(valor || '').trim())
       .filter(Boolean)
   )];
+}
+
+/** Complemento descritivo: um ID exato ou um único candidato legado, nunca desempate. */
+function joinDemonstrativoConciliadoSeguro() {
+  return sql`
+    LEFT JOIN faturamento_unificado fu
+      ON fu.id = ca.faturamentoUnificadoId
+      AND fu.estabelecimentoId = ca.estabelecimentoId
+      AND fu.convenioId = ca.convenioId
+      AND fu.numeroGuia = ca.numeroGuia
+      AND fu.codigoItem = ca.codigoItem
+    LEFT JOIN faturamento_tiss ft
+      ON fu.origemSistema = 'XML_TISS'
+      AND CAST(ft.id AS CHAR) = fu.origemId
+      AND ft.estabelecimentoId = ca.estabelecimentoId
+      AND ft.convenioId = ca.convenioId
+      AND (ft.numero_guia_prestador = ca.numeroGuia OR ft.numero_guia_operadora = ca.numeroGuia)
+      AND ft.codigo_item = ca.codigoItem
+    LEFT JOIN demonstrativo d
+      ON d.estabelecimentoId = ca.estabelecimentoId
+      AND d.convenio_id = ca.convenioId
+      AND (
+        (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
+        OR (
+          ca.recebimentoId IS NULL
+          AND (NULLIF(TRIM(ca.recebimentoOrigem), '') IS NULL OR ca.recebimentoOrigem = 'demonstrativo')
+          AND d.id = (
+            SELECT MIN(candidato.id) FROM demonstrativo candidato
+            WHERE candidato.estabelecimentoId = ca.estabelecimentoId
+              AND candidato.convenio_id = ca.convenioId
+              AND NULLIF(TRIM(ca.numeroGuia), '') IS NOT NULL
+              AND NULLIF(TRIM(ca.codigoItem), '') IS NOT NULL
+              AND candidato.numero_guia = ca.numeroGuia
+              AND candidato.codigo_item = ca.codigoItem
+              AND (COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao) IS NULL
+                OR candidato.data_execucao = DATE(COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao)))
+              AND (ft.sequencial_item IS NULL OR candidato.sequencial_item = ft.sequencial_item)
+              AND (NULLIF(TRIM(fu.protocolo), '') IS NULL OR candidato.protocolo = TRIM(fu.protocolo))
+            HAVING COUNT(*) = 1
+          )
+        )
+      )
+  `;
+}
+
+/** Mesmo filtro público legado, mas com data parametrizada nas consultas corrigidas. */
+function condicaoDataPagamentoConciliadoParametrizada(dataPagto: string) {
+  const data = dataPagamentoDemonstrativoSchema.parse(dataPagto.trim());
+  return sql`(
+    ((ca.recebimentoOrigem = 'excel' OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
+      AND EXISTS (SELECT 1 FROM recebimentos_excel re_data_pagto
+        WHERE re_data_pagto.id = ca.recebimentoId AND DATE(re_data_pagto.data_pagto) = ${data}))
+    OR
+    ((ca.recebimentoOrigem IN ('demonstrativo', 'xml') OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
+      AND EXISTS (SELECT 1 FROM demonstrativo d_data_pagto
+        WHERE d_data_pagto.id = ca.recebimentoId AND DATE(d_data_pagto.data_pagamento) = ${data}))
+  )`;
 }
 
 /**
@@ -3082,15 +3141,15 @@ export async function itensConciliadosPorGuia(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId} AND ca.statusConciliacao != 'absorvido'`;
+  const condicoes = [sql`ca.estabelecimentoId = ${params.estabelecimentoId}`, sql`ca.statusConciliacao != 'absorvido'`];
   if (params.numeroGuia) {
-    whereClause += ` AND ca.numeroGuia = '${params.numeroGuia.replace(/'/g, "''")}'`;
+    condicoes.push(sql`ca.numeroGuia = ${params.numeroGuia}`);
   }
   if (params.contaNumero) {
-    whereClause += ` AND ca.contaNumero = '${params.contaNumero.replace(/'/g, "''")}'`;
+    condicoes.push(sql`ca.contaNumero = ${params.contaNumero}`);
   }
 
-  const query = `
+  const query = sql`
     SELECT 
       ca.id, ca.faturamentoUnificadoId, ca.contaNumero, ca.numeroGuia,
       ca.pacienteNome, ca.convenio, ca.convenioId, ca.competencia,
@@ -3116,17 +3175,13 @@ export async function itensConciliadosPorGuia(params: {
       ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm,
       ca.executadoPor, ca.executadoPorNome
     FROM conciliados_automatico ca
-    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
-    ${whereClause}
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.codigoItem, ca.id
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  const [rows] = await db.execute(query);
   const lista = (rows as unknown as any[]) ?? [];
   if (lista.length === 0) return lista;
 
@@ -3975,22 +4030,21 @@ export async function itensGlosadosDetalheGuia(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
-  whereClause += ` AND ca.numeroGuia = '${params.numeroGuia.replace(/'/g, "''")}'`;
-  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
-  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+  const condicoes = [sql`ca.estabelecimentoId = ${params.estabelecimentoId}`,
+    sql`ca.numeroGuia = ${params.numeroGuia}`, sql`ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`,
+    sql`ca.statusConciliacao != 'absorvido'`];
 
   if (params.convenioId) {
-    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+    condicoes.push(sql`ca.convenioId = ${params.convenioId}`);
   }
   if (params.competencia) {
-    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+    condicoes.push(sql`ca.competencia LIKE ${`${params.competencia}%`}`);
   }
   if (params.dataPagto) {
-    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
+    condicoes.push(condicaoDataPagamentoConciliadoParametrizada(params.dataPagto));
   }
 
-  const query = `
+  const query = sql`
     SELECT 
       ca.id,
       ca.convenioId,
@@ -4017,17 +4071,16 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.valorRecurso,
       ca.statusRecursoItem
     FROM conciliados_automatico ca
+    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
     LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id
-    ${whereClause}
+      AND (ca.recebimentoOrigem = 'excel' OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
+      AND re.estabelecimentoId = ca.estabelecimentoId AND re.convenioId = ca.convenioId
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.dataExecucao, ca.codigoItem
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  const [rows] = await db.execute(query);
   const listaBase = (rows as unknown as any[]).map((r: any) => ({
     id: Number(r.id),
     convenioId: r.convenioId ? Number(r.convenioId) : undefined,
@@ -4099,25 +4152,23 @@ export async function gerarExcelRecursoConciliacao(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
-  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
-  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+  const condicoes = [sql`ca.estabelecimentoId = ${params.estabelecimentoId}`,
+    sql`ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`, sql`ca.statusConciliacao != 'absorvido'`];
 
   if (params.guias && params.guias.length > 0) {
-    const esc = (v: string) => `'${v.replace(/'/g, "''")}'`;
-    whereClause += ` AND ca.numeroGuia IN (${params.guias.map(g => esc(g)).join(',')})`;
+    condicoes.push(sql`ca.numeroGuia IN (${sql.join(params.guias.map(guia => sql`${guia}`), sql`, `)})`);
   }
   if (params.itensIds && params.itensIds.length > 0) {
-    whereClause += ` AND ca.id IN (${params.itensIds.join(',')})`;
+    condicoes.push(sql`ca.id IN (${sql.join(params.itensIds.map(id => sql`${id}`), sql`, `)})`);
   }
   if (params.convenioId) {
-    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+    condicoes.push(sql`ca.convenioId = ${params.convenioId}`);
   }
   if (params.competencia && params.competencia !== 'todos') {
-    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+    condicoes.push(sql`ca.competencia LIKE ${`${params.competencia}%`}`);
   }
 
-  const query = `
+  const query = sql`
     SELECT 
       ca.id,
       ca.numeroGuia,
@@ -4140,17 +4191,13 @@ export async function gerarExcelRecursoConciliacao(params: {
       fu.senha,
       fu.carteiraBeneficiario
     FROM conciliados_automatico ca
-    LEFT JOIN faturamento_unificado fu ON ca.faturamentoUnificadoId = fu.id
+    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
-    ${whereClause}
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  const [rows] = await db.execute(query);
   const itens = rows as unknown as any[];
 
   let totalValorFaturado = 0;
@@ -4718,22 +4765,22 @@ export async function itensGlosadosDetalhePorItem(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
-  whereClause += ` AND ca.codigoItem = '${params.codigoItem.replace(/'/g, "''")}'`;
-  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
-  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+  const condicoes = [sql`ca.estabelecimentoId = ${params.estabelecimentoId}`];
+  condicoes.push(sql`ca.codigoItem = ${params.codigoItem}`);
+  condicoes.push(sql`ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`);
+  condicoes.push(sql`ca.statusConciliacao != 'absorvido'`);
 
   if (params.convenioId) {
-    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+    condicoes.push(sql`ca.convenioId = ${params.convenioId}`);
   }
   if (params.competencia) {
-    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+    condicoes.push(sql`ca.competencia LIKE ${`${params.competencia}%`}`);
   }
   if (params.dataPagto) {
-    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
+    condicoes.push(condicaoDataPagamentoConciliadoParametrizada(params.dataPagto));
   }
 
-  const query = `
+  const query = sql`
     SELECT 
       ca.id,
       ca.codigoItem,
@@ -4759,16 +4806,13 @@ export async function itensGlosadosDetalhePorItem(params: {
       rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
+    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
-    ${whereClause}
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.pacienteNome, ca.dataExecucao
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  const [rows] = await db.execute(query);
   return (rows as unknown as any[]).map((r: any) => ({
     id: Number(r.id),
     codigoItem: r.codigoItem,
@@ -4807,26 +4851,26 @@ export async function itensGlosadosDetalhePorMotivo(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereClause = `WHERE ca.estabelecimentoId = ${params.estabelecimentoId}`;
+  const condicoes = [sql`ca.estabelecimentoId = ${params.estabelecimentoId}`];
   if (params.codigoGlosa === 'SEM_CODIGO') {
-    whereClause += ` AND (ca.codigoGlosa IS NULL OR ca.codigoGlosa = '')`;
+    condicoes.push(sql`(ca.codigoGlosa IS NULL OR ca.codigoGlosa = '')`);
   } else {
-    whereClause += ` AND ca.codigoGlosa = '${params.codigoGlosa.replace(/'/g, "''")}'`;
+    condicoes.push(sql`ca.codigoGlosa = ${params.codigoGlosa}`);
   }
-  whereClause += ` AND ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`;
-  whereClause += ` AND ca.statusConciliacao != 'absorvido'`;
+  condicoes.push(sql`ca.statusConciliacao IN ('glosa_parcial', 'glosa_total')`);
+  condicoes.push(sql`ca.statusConciliacao != 'absorvido'`);
 
   if (params.convenioId) {
-    whereClause += ` AND ca.convenioId = ${params.convenioId}`;
+    condicoes.push(sql`ca.convenioId = ${params.convenioId}`);
   }
   if (params.competencia) {
-    whereClause += ` AND ca.competencia LIKE '${params.competencia.replace(/'/g, "''")}%'`;
+    condicoes.push(sql`ca.competencia LIKE ${`${params.competencia}%`}`);
   }
   if (params.dataPagto) {
-    whereClause += ` AND ${montarCondicaoDataPagamentoConciliado('ca', params.dataPagto)}`;
+    condicoes.push(condicaoDataPagamentoConciliadoParametrizada(params.dataPagto));
   }
 
-  const query = `
+  const query = sql`
     SELECT 
       ca.id,
       ca.codigoItem,
@@ -4852,16 +4896,13 @@ export async function itensGlosadosDetalhePorMotivo(params: {
       rj.justificativa as justificativaRecurso
     FROM conciliados_automatico ca
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    LEFT JOIN demonstrativo d ON (
-      (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-      OR (ca.recebimentoId IS NULL AND d.estabelecimentoId = ca.estabelecimentoId AND d.convenio_id = ca.convenioId AND d.numero_guia = ca.numeroGuia AND d.codigo_item = ca.codigoItem)
-    )
+    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
-    ${whereClause}
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.pacienteNome, ca.dataExecucao
   `;
 
-  const [rows] = await db.execute(sql.raw(query));
+  const [rows] = await db.execute(query);
   return (rows as unknown as any[]).map((r: any) => ({
     id: Number(r.id),
     codigoItem: r.codigoItem,
@@ -5876,15 +5917,17 @@ export async function buscarGuiaFaturamentoParaGlosaManual(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  const termoLimpo = params.termo.trim().replace(/'/g, "''");
+  const termoLimpo = params.termo.trim();
   if (!termoLimpo) return [];
 
-  let whereConv = "";
+  const condicoes = [sql`fu.estabelecimentoId = ${params.estabelecimentoId}`];
   if (params.convenioId) {
-    whereConv = ` AND fu.convenioId = ${Number(params.convenioId)}`;
+    condicoes.push(sql`fu.convenioId = ${params.convenioId}`);
   }
+  const busca = `%${termoLimpo}%`;
+  condicoes.push(sql`(fu.numeroGuia LIKE ${busca} OR fu.contaNumero LIKE ${busca} OR fu.pacienteNome LIKE ${busca})`);
 
-  const [rows] = await db.execute(sql.raw(`
+  const [rows] = await db.execute(sql`
     SELECT
       fu.id,
       fu.contaNumero,
@@ -5895,7 +5938,7 @@ export async function buscarGuiaFaturamentoParaGlosaManual(params: {
       fu.convenio,
       fu.competencia,
       fu.protocolo,
-      fu.lote,
+      fu.lotePrestador AS lote,
       fu.codigoItem,
       fu.descricaoItem,
       fu.tipoItem,
@@ -5903,16 +5946,10 @@ export async function buscarGuiaFaturamentoParaGlosaManual(params: {
       COALESCE(fu.quantidade, 1) as quantidade,
       COALESCE(fu.valorFaturado, 0) as valorFaturado
     FROM faturamento_unificado fu
-    WHERE fu.estabelecimentoId = ${Number(params.estabelecimentoId)}
-      ${whereConv}
-      AND (
-        fu.numeroGuia LIKE '%${termoLimpo}%'
-        OR fu.contaNumero LIKE '%${termoLimpo}%'
-        OR fu.pacienteNome LIKE '%${termoLimpo}%'
-      )
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY fu.numeroGuia, fu.dataExecucao, fu.codigoItem
     LIMIT 200
-  `));
+  `);
 
   const itens = (rows as unknown as any[]) || [];
 
@@ -5980,160 +6017,13 @@ export async function buscarGuiaFaturamentoParaGlosaManual(params: {
  * Lança glosa manual diretamente na tabela demonstrativo para convênios
  * que não possuem arquivo de demonstrativo para importação (ex.: FUSEX).
  * Permite seguir todo o fluxo padrão: RecursoGlosaDemonstrativo -> EnvioRecursosLote -> AcompanhamentoRecursos.
+ * Wrapper exclusivo do caminho transacional/idempotente; não sincroniza por guia.
+ * O router fornece userId da sessão e idempotencyKey obrigatório por submissão.
  */
-export async function lancarGlosaManualDemonstrativo(params: {
-  estabelecimentoId: number;
-  convenioId: number;
-  userId: number;
-  numeroGuia: string;
-  protocolo?: string;
-  lotePrestador?: string;
-  dataPagamento?: string;
-  carteiraBeneficiario?: string;
-  nomeBeneficiario: string;
-  itens: Array<{
-    sequencialItem?: number;
-    codigoItem: string;
-    descricaoItem: string;
-    tipoLancamento?: string;
-    dataExecucao?: string;
-    quantidade?: number;
-    valorInformado: number;
-    valorPago: number;
-    valorGlosa: number;
-    codigoGlosa?: string;
-    erroTiss?: string;
-    justificativa?: string;
-  }>;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database não disponível");
-
-  if (!params.itens || params.itens.length === 0) {
-    throw new Error("Informe pelo menos um item glosado para o lançamento manual.");
-  }
-
-  const esc = (v: string | null | undefined) => {
-    if (v === null || v === undefined || String(v).trim() === "") return "NULL";
-    return `'${String(v).trim().replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
-  };
-
-  const hoje = new Date().toISOString().split("T")[0];
-  const dataPagto = params.dataPagamento && /^\d{4}-\d{2}-\d{2}$/.test(params.dataPagamento.trim())
-    ? params.dataPagamento.trim()
-    : hoje;
-
-  // Buscar motivos personalizados do banco para enriquecer o erro_tiss com o Dicionário de Glosas
-  const [motivosRows] = await db.execute(sql.raw(`SELECT codigo, descricao, descricaoSimplificada, grupo FROM motivosGlosa WHERE ativo = 'sim'`));
-  const motivosDb = (motivosRows as unknown as any[]) || [];
-
-  const idsInseridos: number[] = [];
-
-  for (let i = 0; i < params.itens.length; i++) {
-    const item = params.itens[i];
-    const seq = item.sequencialItem || i + 1;
-    const qtd = Number(item.quantidade) > 0 ? Number(item.quantidade) : 1;
-    const valorInformado = Math.max(0, Number(item.valorInformado) || 0);
-    const valorPago = Math.max(0, Number(item.valorPago) || 0);
-    const valorGlosa = Number(item.valorGlosa) > 0
-      ? Number(item.valorGlosa)
-      : Math.max(0, valorInformado - valorPago);
-
-    if (valorGlosa <= 0) continue;
-
-    const infoGlosa = resolverGlosaDicionario(item.codigoGlosa, item.erroTiss, motivosDb);
-    const codigoGlosaFinal = infoGlosa?.codigo || item.codigoGlosa?.trim() || null;
-    const erroTissFinal = item.erroTiss?.trim() || infoGlosa?.textoFormatado || codigoGlosaFinal || null;
-
-    const justificativaLimpa = item.justificativa?.trim() || "";
-    const temJustificativa = justificativaLimpa.length > 0;
-    const recursoStatus = temJustificativa ? "recurso_criado" : "sem_recurso";
-    const classificacaoGlosa = temJustificativa ? "recursar" : "pendente";
-    const dataExec = item.dataExecucao && /^\d{4}-\d{2}-\d{2}$/.test(item.dataExecucao.trim())
-      ? `'${item.dataExecucao.trim()}'`
-      : `'${dataPagto}'`;
-
-    const [insertResult] = await db.execute(sql.raw(`
-      INSERT INTO demonstrativo (
-        arquivo_id,
-        origem_tipo,
-        estabelecimentoId,
-        convenio_id,
-        numero_guia,
-        protocolo,
-        lote_prestador,
-        data_pagamento,
-        data_referencia,
-        carteira_beneficiario,
-        nome_beneficiario,
-        sequencial_item,
-        codigo_item,
-        descricao_item,
-        tipo_lancamento,
-        data_execucao,
-        quantidade,
-        valor_informado,
-        valor_pago,
-        valor_glosa,
-        valor_recurso,
-        codigo_glosa,
-        erro_tiss,
-        situacao_item,
-        justificativa_recurso,
-        recurso_status,
-        classificacao_glosa
-      ) VALUES (
-        0,
-        'excel',
-        ${Number(params.estabelecimentoId)},
-        ${Number(params.convenioId)},
-        ${esc(params.numeroGuia)},
-        ${esc(params.protocolo)},
-        ${esc(params.lotePrestador)},
-        '${dataPagto}',
-        '${dataPagto}',
-        ${esc(params.carteiraBeneficiario)},
-        ${esc(params.nomeBeneficiario)},
-        ${seq},
-        ${esc(item.codigoItem)},
-        ${esc(item.descricaoItem)},
-        ${esc(item.tipoLancamento || "CON")},
-        ${dataExec},
-        ${qtd},
-        ${valorInformado.toFixed(2)},
-        ${valorPago.toFixed(2)},
-        ${valorGlosa.toFixed(2)},
-        ${valorGlosa.toFixed(2)},
-        ${esc(codigoGlosaFinal)},
-        ${esc(erroTissFinal)},
-        'GLOSADO_MANUAL',
-        ${temJustificativa ? esc(justificativaLimpa) : "NULL"},
-        '${recursoStatus}',
-        '${classificacaoGlosa}'
-      )
-    `));
-
-    const insertId = Number((insertResult as any)?.insertId || 0);
-    if (insertId > 0) idsInseridos.push(insertId);
-  }
-
-  // Se todos os itens da guia já vieram com justificativa, sincronizar também em recursosGlosa
-  if (idsInseridos.length > 0) {
-    await verificarGuiaFinalizadaECriarRecursos({
-      estabelecimentoId: params.estabelecimentoId,
-      guia: params.numeroGuia,
-      userId: params.userId,
-      convenioId: params.convenioId,
-    });
-  }
-
-  return {
-    success: true,
-    totalInseridos: idsInseridos.length,
-    idsInseridos,
-    dataPagamento: dataPagto,
-    competencia: dataPagto.slice(0, 7),
-  };
+export async function lancarGlosaManualDemonstrativo(
+  params: RegistrarGlosaManualInput,
+): Promise<RegistrarGlosaManualResult> {
+  return registrarGlosaManualSegura(params);
 }
 
 /**
@@ -6154,19 +6044,26 @@ export async function exportarPlanilhaRecursoDemonstrativo(params: {
   const db = await getDb();
   if (!db) throw new Error("Database não disponível");
 
-  let whereDemo = `WHERE ${montarRecorteRecursoGlosaDemonstrativoSql("d", recorte)} AND d.valor_glosa > 0`;
+  const condicoes = [sql`d.estabelecimentoId = ${recorte.estabelecimentoId}`, sql`d.valor_glosa > 0`];
+  if (recorte.convenioId !== undefined) condicoes.push(sql`d.convenio_id = ${recorte.convenioId}`);
+  if (recorte.competencias?.length) {
+    condicoes.push(sql`DATE_FORMAT(d.data_pagamento, '%Y-%m') IN (${sql.join(recorte.competencias.map(v => sql`${v}`), sql`, `)})`);
+  }
+  if (recorte.datasPagto?.length) {
+    condicoes.push(sql`DATE_FORMAT(d.data_pagamento, '%Y-%m-%d') IN (${sql.join(recorte.datasPagto.map(v => sql`${v}`), sql`, `)})`);
+  }
   if (params.busca && params.busca.trim() !== "") {
-    const b = params.busca.trim().replace(/'/g, "''");
-    whereDemo += ` AND (d.numero_guia LIKE '%${b}%' OR d.nome_beneficiario LIKE '%${b}%' OR d.codigo_item LIKE '%${b}%' OR d.descricao_item LIKE '%${b}%' OR d.protocolo LIKE '%${b}%')`;
+    const busca = `%${params.busca.trim()}%`;
+    condicoes.push(sql`(d.numero_guia LIKE ${busca} OR d.nome_beneficiario LIKE ${busca} OR d.codigo_item LIKE ${busca} OR d.descricao_item LIKE ${busca} OR d.protocolo LIKE ${busca})`);
   }
   if (params.apenasRecursados) {
-    whereDemo += ` AND (d.glosa_aceita IS NULL OR d.glosa_aceita = 0) AND d.justificativa_recurso IS NOT NULL AND d.justificativa_recurso != ''`;
+    condicoes.push(sql`(d.glosa_aceita IS NULL OR d.glosa_aceita = 0) AND d.justificativa_recurso IS NOT NULL AND d.justificativa_recurso != ''`);
   }
 
-  const [motivosRows] = await db.execute(sql.raw(`SELECT codigo, descricao, descricaoSimplificada, grupo FROM motivosGlosa WHERE ativo = 'sim'`));
+  const [motivosRows] = await db.execute(sql`SELECT codigo, descricao, descricaoSimplificada, grupo FROM motivosGlosa WHERE ativo = 'sim'`);
   const motivosDb = (motivosRows as unknown as any[]) || [];
 
-  const [rows] = await db.execute(sql.raw(`
+  const [rows] = await db.execute(sql`
     SELECT
       d.id,
       d.numero_guia AS guia,
@@ -6193,9 +6090,9 @@ export async function exportarPlanilhaRecursoDemonstrativo(params: {
       c.nome AS convenioNome
     FROM demonstrativo d
     LEFT JOIN convenios c ON c.id = d.convenio_id
-    ${whereDemo}
+    WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY d.protocolo, d.numero_guia, d.sequencial_item, d.id
-  `));
+  `);
 
   const itens = (rows as unknown as any[]) || [];
   let totalValorGlosado = 0;

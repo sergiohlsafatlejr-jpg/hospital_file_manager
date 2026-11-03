@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { GLOSAS_TISS, resolverGlosaDicionario } from "@shared/glossaryGlosas";
 import { FilePlus2, Loader2, Plus, Search, Trash2, CheckCircle2 } from "lucide-react";
+import { criarControleSubmissaoGlosaManual, glosaManualSubmissionSchema, MAX_ITENS_GLOSA_MANUAL, type GlosaManualReconciliationResult } from "@shared/glosaManualSubmission";
 
 interface ItemGlosaManualForm {
   codigoItem: string;
@@ -46,14 +48,30 @@ const criarItemVazio = (dataPadrao: string, codigoGlosaPadrao = ""): ItemGlosaMa
   justificativa: "",
 });
 
-export function LancamentoGlosaManualDialog({
+export function LancamentoGlosaManualDialog(props: LancamentoGlosaManualDialogProps) {
+  const { user } = useAuth();
+  if (!user || !Number.isInteger(props.estabelecimentoId) || props.estabelecimentoId <= 0) return null;
+  // Mudança de usuário/hospital desmonta a memória de PHI, não a chave durável.
+  return <LancamentoGlosaManualDialogSessao key={`${user.id}:${props.estabelecimentoId}`} {...props} userId={user.id} />;
+}
+
+function LancamentoGlosaManualDialogSessao({
   open,
   onOpenChange,
   estabelecimentoId,
   convenioIdInicial,
   onSuccess,
-}: LancamentoGlosaManualDialogProps) {
+  userId,
+}: LancamentoGlosaManualDialogProps & { userId: number }) {
   const hoje = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const [submissao] = useState(() => criarControleSubmissaoGlosaManual({
+    userId, estabelecimentoId, storage: () => window.sessionStorage,
+  }));
+  const [estadoTentativa, setEstadoTentativa] = useState(() => submissao.estado());
+  const [retomarOriginal, setRetomarOriginal] = useState(false);
+  const montado = useRef(true);
+  useEffect(() => { montado.current = true; return () => { montado.current = false; }; }, []);
+  const utils = trpc.useUtils();
 
   const [convenioId, setConvenioId] = useState<string>(convenioIdInicial ? String(convenioIdInicial) : "");
   const [numeroGuia, setNumeroGuia] = useState("");
@@ -71,7 +89,13 @@ export function LancamentoGlosaManualDialog({
 
   const [itens, setItens] = useState<ItemGlosaManualForm[]>([criarItemVazio(hoje)]);
 
-  const { data: conveniosLista } = trpc.convenios.list.useQuery({}, { enabled: open });
+  const { data: conveniosLista } = trpc.convenios.list.useQuery(
+    { ativo: "sim", estabelecimentoId },
+    { enabled: open && estabelecimentoId > 0 }
+  );
+  // Política canônica: globais ativos OU pertencentes ao hospital ativo, por ID.
+  const conveniosAutorizados = (conveniosLista || []).filter(c => (c.estabelecimentoId === null || c.estabelecimentoId === estabelecimentoId) && c.ativo === "sim");
+  const convenioAutorizado = conveniosAutorizados.some(c => c.id === Number(convenioId));
   const { data: motivosGlosaDb } = trpc.motivosGlosa.list.useQuery(undefined, { enabled: open });
 
   const { data: guiasFaturamento, isFetching: buscandoFaturamento } =
@@ -82,25 +106,67 @@ export function LancamentoGlosaManualDialog({
         convenioId: convenioId && convenioId !== "todos" ? Number(convenioId) : undefined,
       },
       {
-        enabled: open && estabelecimentoId > 0 && termoSubmetido.trim().length >= 2,
+        enabled: open && estabelecimentoId > 0 && convenioAutorizado && termoSubmetido.trim().length >= 2,
       }
     );
 
+  const limparFormulario = () => {
+    setConvenioId(""); setNumeroGuia(""); setProtocolo(""); setLotePrestador("");
+    setDataPagamento(""); setNomeBeneficiario(""); setCarteiraBeneficiario("");
+    setCodigoGlosaPadrao(""); setBuscaMotivo(""); setTermoBuscaFaturamento(""); setTermoSubmetido("");
+    setItens([criarItemVazio("")]); setRetomarOriginal(false);
+  };
+  const confirmar = (res: GlosaManualReconciliationResult, key: string) => {
+    submissao.reconciliar(res, key);
+    if (res.status !== "concluido") return; // ausência nunca descarta UUID
+    limparFormulario(); // TODOS os campos/itens antes de reset/fechar
+    submissao.resetAposConfirmacao(key);
+    setEstadoTentativa(submissao.estado());
+  };
   const lancarMutation = trpc.faturamentoUnificado.lancarGlosaManualDemonstrativo.useMutation({
-    onSuccess: (res) => {
-      toast.success(`Glosa manual registrada com sucesso (${res.totalInseridos} item(ns))! A guia já está disponível para análise e lote.`);
-      onSuccess?.({
-        convenioId: Number(convenioId),
-        competencia: res.competencia,
-        dataPagamento: res.dataPagamento,
-        numeroGuia: numeroGuia.trim(),
-      });
+    onSuccess: (res, variables) => {
+      try {
+        confirmar({ status: "concluido", totalInseridos: res.totalInseridos, competencia: res.competencia, dataPagamento: res.dataPagamento }, variables.idempotencyKey);
+      } catch (error) {
+        setEstadoTentativa(submissao.estado());
+        toast.error(error instanceof Error ? error.message : "Falha na confirmação local; solicite revisão responsável.");
+        return;
+      }
+      if (!montado.current) return;
+      toast.success(`Glosa manual confirmada (${res.totalInseridos} item(ns)).`);
+      onSuccess?.({ convenioId: variables.convenioId, competencia: res.competencia, dataPagamento: res.dataPagamento, numeroGuia: variables.numeroGuia });
+      void utils.faturamentoUnificado.invalidate();
       onOpenChange(false);
     },
-    onError: (err) => {
-      toast.error(err.message || "Erro ao registrar glosa manual.");
+    onError: (err, variables) => {
+      submissao.falhou(variables.idempotencyKey);
+      setEstadoTentativa(submissao.estado());
+      toast.error(`${err.message || "Resposta não recebida."} Resultado incerto: a mesma tentativa foi preservada. Consulte o status ou retome os dados originais; não inicie outro lançamento.`);
     },
   });
+  const [consultandoStatus, setConsultandoStatus] = useState(false);
+  const consultarStatus = async () => {
+    const key = submissao.estado().key;
+    if (!key || submissao.estado().emVoo || consultandoStatus) return;
+    setConsultandoStatus(true);
+    try {
+      const res = await utils.faturamentoUnificado.consultarStatusGlosaManual.fetch({ estabelecimentoId, idempotencyKey: key }, { staleTime: 0 });
+      confirmar(res, key);
+      if (!montado.current) return;
+      if (res.status === "concluido") {
+        toast.success(`Lançamento original confirmado (${res.totalInseridos} item(ns)). Formulário limpo.`);
+        void utils.faturamentoUnificado.invalidate();
+        onOpenChange(false);
+      } else {
+        toast.info("Resultado ainda não confirmado. O envio original pode concluir depois; a chave permanece preservada. Retome somente a tentativa original ou solicite revisão responsável.");
+      }
+    } catch (error) {
+      setEstadoTentativa(submissao.estado());
+      toast.error(error instanceof Error ? error.message : "Não foi possível confirmar o resultado. A tentativa foi preservada.");
+    } finally { setConsultandoStatus(false); }
+  };
+  const formularioBloqueado = estadoTentativa.emVoo || lancarMutation.isPending || consultandoStatus || !!estadoTentativa.erroPersistencia ||
+    (estadoTentativa.pendente && (estadoTentativa.temPayload || !retomarOriginal));
 
   // Lista combinada do Dicionário de Glosas (Banco + ANS/TISS)
   const opcoesDicionarioGlosa = useMemo(() => {
@@ -128,6 +194,14 @@ export function LancamentoGlosaManualDialog({
   }, [motivosGlosaDb, buscaMotivo]);
 
   const handleCarregarGuiaFaturamento = (guia: any) => {
+    if (!conveniosAutorizados.some(c => c.id === Number(guia.convenioId))) {
+      toast.error("A guia não possui convênio ativo global ou pertencente ao hospital selecionado.");
+      return;
+    }
+    if (guia.itens?.length > MAX_ITENS_GLOSA_MANUAL) {
+      toast.error(`Informe no máximo ${MAX_ITENS_GLOSA_MANUAL} itens por lançamento.`);
+      return;
+    }
     if (guia.convenioId) setConvenioId(String(guia.convenioId));
     setNumeroGuia(guia.numeroGuia || guia.contaNumero || "");
     if (guia.protocolo) setProtocolo(guia.protocolo);
@@ -177,8 +251,24 @@ export function LancamentoGlosaManualDialog({
   };
 
   const handleSalvar = () => {
-    if (!convenioId || Number(convenioId) <= 0) {
-      toast.error("Selecione o convênio (ex.: FUSEX).");
+    if (submissao.estado().emVoo || lancarMutation.isPending || consultandoStatus || estadoTentativa.erroPersistencia) return;
+    if (estadoTentativa.pendente && !estadoTentativa.temPayload && !retomarOriginal) return;
+    if (estadoTentativa.temPayload) {
+      try {
+        // preparar ignora alterações do formulário e repete o payload original em memória.
+        const tentativa = submissao.preparar();
+        setEstadoTentativa(submissao.estado());
+        lancarMutation.mutate(tentativa);
+      } catch (error) {
+        const key = submissao.estado().key;
+        if (key) submissao.falhou(key);
+        setEstadoTentativa(submissao.estado());
+        toast.error(error instanceof Error ? error.message : "Tentativa preservada; solicite revisão responsável.");
+      }
+      return;
+    }
+    if (!convenioAutorizado) {
+      toast.error("Selecione um convênio ativo global ou pertencente ao hospital.");
       return;
     }
     if (!numeroGuia.trim()) {
@@ -189,15 +279,12 @@ export function LancamentoGlosaManualDialog({
       toast.error("Informe o nome do beneficiário/paciente.");
       return;
     }
-    const itensValidos = itens.filter(
-      (it) => it.codigoItem.trim() !== "" && it.descricaoItem.trim() !== "" && Number(it.valorGlosa) > 0
-    );
-    if (itensValidos.length === 0) {
-      toast.error("Preencha pelo menos um item com código, descrição e valor glosado maior que zero.");
+    if (itens.some(it => !it.codigoItem.trim() || !it.descricaoItem.trim() || !(it.valorGlosa > 0))) {
+      toast.error("Preencha todos os itens com código, descrição e valor glosado maior que zero.");
       return;
     }
 
-    lancarMutation.mutate({
+    const payload = {
       estabelecimentoId,
       convenioId: Number(convenioId),
       numeroGuia: numeroGuia.trim(),
@@ -206,7 +293,7 @@ export function LancamentoGlosaManualDialog({
       dataPagamento: dataPagamento || hoje,
       carteiraBeneficiario: carteiraBeneficiario.trim() || undefined,
       nomeBeneficiario: nomeBeneficiario.trim(),
-      itens: itensValidos.map((it, idx) => {
+      itens: itens.map((it, idx) => {
         const info = resolverGlosaDicionario(it.codigoGlosa, undefined, motivosGlosaDb as any[]);
         return {
           sequencialItem: idx + 1,
@@ -214,21 +301,36 @@ export function LancamentoGlosaManualDialog({
           descricaoItem: it.descricaoItem.trim(),
           tipoLancamento: it.tipoLancamento || "CON",
           dataExecucao: it.dataExecucao || dataPagamento || hoje,
-          quantidade: Number(it.quantidade) || 1,
-          valorInformado: Number(it.valorInformado) || 0,
-          valorPago: Number(it.valorPago) || 0,
-          valorGlosa: Number(it.valorGlosa) || 0,
+          quantidade: Number(it.quantidade),
+          valorInformado: Number(it.valorInformado),
+          valorPago: Number(it.valorPago),
+          valorGlosa: Number(it.valorGlosa),
           codigoGlosa: info?.codigo || it.codigoGlosa.trim() || undefined,
           erroTiss: info?.textoFormatado || it.codigoGlosa.trim() || undefined,
           justificativa: it.justificativa.trim() || undefined,
         };
       }),
-    });
+    };
+    const validacao = glosaManualSubmissionSchema.omit({ idempotencyKey: true }).safeParse(payload);
+    if (!validacao.success) {
+      toast.error(validacao.error.issues[0]?.message || "Revise os campos do lançamento manual.");
+      return;
+    }
+    try {
+      const tentativa = submissao.preparar(validacao.data);
+      setEstadoTentativa(submissao.estado());
+      lancarMutation.mutate(tentativa);
+    } catch (error) {
+      const key = submissao.estado().key;
+      if (key) submissao.falhou(key);
+      setEstadoTentativa(submissao.estado());
+      toast.error(error instanceof Error ? error.message : "Não foi possível preservar a chave segura; nenhum envio permitido.");
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(value) => { if (!submissao.estado().emVoo && !consultandoStatus) onOpenChange(value); }}>
+      <DialogContent className="max-w-5xl sm:max-w-5xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FilePlus2 className="h-5 w-5 text-blue-600" />
@@ -240,7 +342,16 @@ export function LancamentoGlosaManualDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        {estadoTentativa.erroPersistencia && <p role="alert" className="text-sm text-red-700">{estadoTentativa.erroPersistencia}</p>}
+        {estadoTentativa.pendente && <div role="status" className="rounded border border-amber-400 p-3 space-y-2 text-sm">
+          <p>Há uma tentativa pendente neste usuário/hospital. Falha HTTP não significa que ela não foi registrada. Nenhum novo lançamento será iniciado até confirmação. A consulta sem confirmação não libera outra chave.</p>
+          <p>Após recarregar, somente o UUID é recuperado, nunca dados de paciente. Retome exatamente os dados originais; diferenças podem gerar CONFLICT e exigem revisão responsável.</p>
+          <Button type="button" variant="outline" onClick={consultarStatus} disabled={estadoTentativa.emVoo || lancarMutation.isPending || consultandoStatus}>
+            {consultandoStatus ? "Consultando..." : "Consultar resultado da tentativa"}
+          </Button>
+          {!estadoTentativa.temPayload && !retomarOriginal && <Button type="button" variant="outline" onClick={() => setRetomarOriginal(true)} disabled={consultandoStatus || !!estadoTentativa.erroPersistencia}>Retomar os dados originais com a mesma chave</Button>}
+        </div>}
+        <fieldset disabled={formularioBloqueado} className="space-y-5 py-2 min-w-0">
           {/* Passo Opcional: Buscar Guia do Faturamento */}
           <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -257,6 +368,7 @@ export function LancamentoGlosaManualDialog({
                   placeholder="Nº guia, conta ou paciente..."
                   value={termoBuscaFaturamento}
                   onChange={(e) => setTermoBuscaFaturamento(e.target.value)}
+                  maxLength={255}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -271,7 +383,7 @@ export function LancamentoGlosaManualDialog({
                   variant="secondary"
                   className="h-8 text-xs"
                   onClick={() => setTermoSubmetido(termoBuscaFaturamento)}
-                  disabled={buscandoFaturamento || termoBuscaFaturamento.trim().length < 2}
+                  disabled={!convenioAutorizado || buscandoFaturamento || termoBuscaFaturamento.trim().length < 2}
                 >
                   {buscandoFaturamento ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Search className="h-3.5 w-3.5 mr-1" />}
                   Buscar
@@ -334,12 +446,12 @@ export function LancamentoGlosaManualDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Convênio *</Label>
-              <Select value={convenioId} onValueChange={setConvenioId}>
+              <Select value={convenioId} onValueChange={setConvenioId} disabled={formularioBloqueado}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Selecione o convênio (ex: FUSEX)" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(conveniosLista || []).map((c: any) => (
+                  {conveniosAutorizados.map((c) => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {c.nome}
                     </SelectItem>
@@ -355,6 +467,7 @@ export function LancamentoGlosaManualDialog({
                 placeholder="Ex: 2026000123"
                 value={numeroGuia}
                 onChange={(e) => setNumeroGuia(e.target.value)}
+                maxLength={50}
               />
             </div>
 
@@ -365,6 +478,7 @@ export function LancamentoGlosaManualDialog({
                 placeholder="Protocolo (opcional)"
                 value={protocolo}
                 onChange={(e) => setProtocolo(e.target.value)}
+                maxLength={50}
               />
             </div>
 
@@ -385,6 +499,7 @@ export function LancamentoGlosaManualDialog({
                 placeholder="Nome completo do paciente"
                 value={nomeBeneficiario}
                 onChange={(e) => setNomeBeneficiario(e.target.value)}
+                maxLength={255}
               />
             </div>
 
@@ -395,6 +510,7 @@ export function LancamentoGlosaManualDialog({
                 placeholder="Código do beneficiário"
                 value={carteiraBeneficiario}
                 onChange={(e) => setCarteiraBeneficiario(e.target.value)}
+                maxLength={50}
               />
             </div>
 
@@ -405,6 +521,7 @@ export function LancamentoGlosaManualDialog({
                 placeholder="Nº do lote (opcional)"
                 value={lotePrestador}
                 onChange={(e) => setLotePrestador(e.target.value)}
+                maxLength={50}
               />
             </div>
           </div>
@@ -423,7 +540,7 @@ export function LancamentoGlosaManualDialog({
               />
             </div>
             <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-              <Select value={codigoGlosaPadrao} onValueChange={aplicarMotivoPadraoEmTodos}>
+              <Select value={codigoGlosaPadrao} onValueChange={aplicarMotivoPadraoEmTodos} disabled={formularioBloqueado}>
                 <SelectTrigger className="h-8 text-xs flex-1">
                   <SelectValue placeholder="Selecione um motivo do Dicionário de Glosas para aplicar aos itens..." />
                 </SelectTrigger>
@@ -455,6 +572,7 @@ export function LancamentoGlosaManualDialog({
                 variant="outline"
                 className="h-7 text-xs"
                 onClick={() => setItens((prev) => [...prev, criarItemVazio(dataPagamento || hoje, codigoGlosaPadrao)])}
+                disabled={itens.length >= MAX_ITENS_GLOSA_MANUAL || lancarMutation.isPending}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Adicionar Item
@@ -487,6 +605,7 @@ export function LancamentoGlosaManualDialog({
                             placeholder="Código"
                             value={it.codigoItem}
                             onChange={(e) => atualizarItem(idx, { codigoItem: e.target.value })}
+                            maxLength={50}
                           />
                         </TableCell>
                         <TableCell className="p-1.5 space-y-1">
@@ -495,18 +614,21 @@ export function LancamentoGlosaManualDialog({
                             placeholder="Descrição do item"
                             value={it.descricaoItem}
                             onChange={(e) => atualizarItem(idx, { descricaoItem: e.target.value })}
+                            maxLength={65535}
                           />
                           <Textarea
                             className="min-h-[34px] text-xs py-1"
                             placeholder="Justificativa do recurso (opcional — pode ser gerada com IA depois)"
                             value={it.justificativa}
                             onChange={(e) => atualizarItem(idx, { justificativa: e.target.value })}
+                            maxLength={65535}
                           />
                         </TableCell>
                         <TableCell className="p-1.5">
                           <Select
                             value={it.tipoLancamento}
                             onValueChange={(v) => atualizarItem(idx, { tipoLancamento: v })}
+                            disabled={formularioBloqueado}
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
@@ -525,11 +647,12 @@ export function LancamentoGlosaManualDialog({
                         <TableCell className="p-1.5">
                           <Input
                             type="number"
-                            min="1"
-                            step="1"
+                            min="0.001"
+                            max="999999999.999"
+                            step="0.001"
                             className="h-8 text-xs font-mono"
                             value={it.quantidade}
-                            onChange={(e) => atualizarItem(idx, { quantidade: Number(e.target.value) || 1 })}
+                            onChange={(e) => atualizarItem(idx, { quantidade: Number(e.target.value) })}
                           />
                         </TableCell>
                         <TableCell className="p-1.5">
@@ -568,6 +691,7 @@ export function LancamentoGlosaManualDialog({
                             placeholder="Ex: 1705"
                             value={it.codigoGlosa}
                             onChange={(e) => atualizarItem(idx, { codigoGlosa: e.target.value })}
+                            maxLength={500}
                           />
                           {infoDic && (
                             <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2" title={infoDic.descricao}>
@@ -594,15 +718,15 @@ export function LancamentoGlosaManualDialog({
               </Table>
             </div>
           </div>
-        </div>
+        </fieldset>
 
         <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={estadoTentativa.emVoo || lancarMutation.isPending || consultandoStatus}>
+            {estadoTentativa.pendente ? "Fechar mantendo tentativa" : "Cancelar"}
           </Button>
-          <Button type="button" onClick={handleSalvar} disabled={lancarMutation.isPending}>
+          <Button type="button" onClick={handleSalvar} disabled={estadoTentativa.emVoo || lancarMutation.isPending || consultandoStatus || !!estadoTentativa.erroPersistencia || (!estadoTentativa.temPayload && !convenioAutorizado) || (estadoTentativa.pendente && !estadoTentativa.temPayload && !retomarOriginal)}>
             {lancarMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Salvar e Incluir no Recurso de Glosa
+            {estadoTentativa.pendente ? "Reenviar a mesma tentativa original" : "Salvar e Incluir no Recurso de Glosa"}
           </Button>
         </DialogFooter>
       </DialogContent>
