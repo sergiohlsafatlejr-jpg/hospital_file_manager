@@ -425,15 +425,22 @@ export const fabricaFaturamentoRouter = router({
     const colaboradoresScope = filtroHospitaisSql("pe.estabelecimentoId", hospitalIdsBase);
     const contasHospScope = filtroHospitaisSql("fc.hospital_estabelecimento_id", hospitalIdsBase);
 
+    const colaboradoresQuery =
+      isGestorGlobal || usuario.role === "admin"
+        ? sql`SELECT u.id, u.name, u.email, u.role FROM users u ORDER BY COALESCE(u.name, u.email), u.id`
+        : sql`SELECT DISTINCT u.id, u.name, u.email, u.role FROM users u
+            INNER JOIN permissoesEstabelecimento pe ON pe.userId = u.id
+            WHERE pe.podeVisualizar = 'sim'
+              AND (pe.estabelecimentoId = ${ESTABELECIMENTO_CENTRAL_SAFATLE} OR ${colaboradoresScope})
+            ORDER BY COALESCE(u.name, u.email), u.id`;
+
     const [hospitaisResult, conveniosResult, colaboradoresResult, perfisResult, cargaAtivaResult] = await Promise.all([
       db.execute(sql`SELECT e.id, e.nome, e.cnpj, e.cnes FROM estabelecimentos e
         WHERE e.ativo = 'sim' AND ${hospitaisScope} ORDER BY e.nome`),
       db.execute(sql`SELECT c.id, c.nome, c.codigo, c.registro_ans as registroAns,
           c.estabelecimentoId FROM convenios c
         WHERE c.ativo = 'sim' AND (c.estabelecimentoId IS NULL OR ${conveniosScope}) ORDER BY c.nome`),
-      db.execute(sql`SELECT DISTINCT u.id, u.name, u.email, u.role FROM users u
-        INNER JOIN permissoesEstabelecimento pe ON pe.userId = u.id
-        WHERE pe.podeVisualizar = 'sim' AND ${colaboradoresScope} ORDER BY u.name, u.id`),
+      db.execute(colaboradoresQuery),
       db.execute(sql`SELECT id, usuario_id, usuario_nome, observacao FROM fabrica_metas
         WHERE competencia = 'PERFIL' ORDER BY id DESC`),
       db.execute(sql`SELECT responsavel_atual_id as usuarioId, setor_atual as setorAtual, COUNT(*) as totalAtivas
@@ -2462,12 +2469,12 @@ export const fabricaFaturamentoRouter = router({
       if (!colab) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Colaborador não encontrado." });
       }
-      await exigirColaboradorNoEscopo(targetUserId, input.hospitaisPermitidos);
       const nomeColab = colab.name || `Usuário #${targetUserId}`;
+      const hospitaisSelecionados = [...new Set(input.hospitaisPermitidos.filter((id) => Number.isFinite(id) && id > 0))];
       const payloadJson = JSON.stringify({
         cargoSetor: input.cargoSetor.trim(),
         setoresPermitidos: [...new Set(input.setoresPermitidos)],
-        hospitaisPermitidos: [...new Set(input.hospitaisPermitidos)],
+        hospitaisPermitidos: hospitaisSelecionados,
         verRelatoriosGerenciais: input.verRelatoriosGerenciais,
         auditoria: { alteradoPor: usuario.id, alteradoEm: new Date().toISOString() },
       });
@@ -2485,11 +2492,110 @@ export const fabricaFaturamentoRouter = router({
         observacao: payloadJson,
       });
 
+      // Sincronizar automaticamente as permissões de estabelecimento (Central Safatle + Hospitais atendidos)
+      // para que o colaborador consiga acessar a Esteira e visualizar/operar as contas encaminhadas pela Recepção.
+      let hospitaisParaLiberar = hospitaisSelecionados;
+      if (hospitaisParaLiberar.length === 0) {
+        const [todosHospRes] = await db.execute(
+          sql`SELECT id FROM estabelecimentos WHERE ativo = 'sim' AND id != ${ESTABELECIMENTO_CENTRAL_SAFATLE}`
+        );
+        hospitaisParaLiberar = extrairLinhasSql(todosHospRes)
+          .map((r: any) => Number(r.id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+      }
+
+      const estabelecimentosParaVincular = [
+        ESTABELECIMENTO_CENTRAL_SAFATLE,
+        ...hospitaisParaLiberar.filter((id) => id !== ESTABELECIMENTO_CENTRAL_SAFATLE),
+      ];
+
+      for (const estabId of estabelecimentosParaVincular) {
+        const [existRes] = await db.execute(
+          sql`SELECT id FROM permissoesEstabelecimento WHERE userId = ${targetUserId} AND estabelecimentoId = ${estabId} LIMIT 1`
+        );
+        const existRows = extrairLinhasSql(existRes);
+        if (existRows.length > 0) {
+          await db.execute(sql`
+            UPDATE permissoesEstabelecimento
+            SET podeVisualizar = 'sim', podeEditar = 'sim', acessoFaturamentoExterno = 'sim'
+            WHERE userId = ${targetUserId} AND estabelecimentoId = ${estabId}
+          `);
+        } else {
+          await db.execute(sql`
+            INSERT INTO permissoesEstabelecimento (
+              userId, estabelecimentoId, grupoServico, podeVisualizar, podeEditar, acessoFaturamentoExterno
+            ) VALUES (
+              ${targetUserId}, ${estabId}, 'faturista', 'sim', 'sim', 'sim'
+            )
+          `);
+        }
+      }
+
       return {
         sucesso: true,
-        mensagem: `Permissões de setor e hospitais atualizadas para ${nomeColab}!`,
+        mensagem: `Permissões de setor e hospitais liberadas para ${nomeColab}!`,
       };
     }),
+
+  // ============================================================
+  // 14B. LIBERAR ACESSO ÀS CONTAS DA RECEPÇÃO PARA TODA A EQUIPE
+  // ============================================================
+  liberarAcessoEquipeRecepcao: fabricaProcedure.mutation(async ({ ctx }) => {
+    const usuario = usuarioFabrica(ctx);
+    await exigirAcessoFabrica(usuario);
+    if (!(await podeGerenciarMetaGlobal(usuario))) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Apenas gestores ou administradores da Fábrica podem liberar acesso em lote para a equipe.",
+      });
+    }
+    const db = await obterDbFabrica();
+    const [usersRes, hospRes] = await Promise.all([
+      db.execute(sql`SELECT id, name, email FROM users ORDER BY id`),
+      db.execute(sql`SELECT id FROM estabelecimentos WHERE ativo = 'sim' AND id != ${ESTABELECIMENTO_CENTRAL_SAFATLE}`),
+    ]);
+    const listaUsuarios = extrairLinhasSql(usersRes);
+    const listaHospitais = extrairLinhasSql(hospRes)
+      .map((r: any) => Number(r.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    const estabelecimentosAlvo = [ESTABELECIMENTO_CENTRAL_SAFATLE, ...listaHospitais];
+    let totalUsuariosLiberados = 0;
+
+    for (const u of listaUsuarios) {
+      const uId = Number(u.id);
+      if (!uId) continue;
+      for (const estabId of estabelecimentosAlvo) {
+        const [existRes] = await db.execute(
+          sql`SELECT id FROM permissoesEstabelecimento WHERE userId = ${uId} AND estabelecimentoId = ${estabId} LIMIT 1`
+        );
+        const existRows = extrairLinhasSql(existRes);
+        if (existRows.length > 0) {
+          await db.execute(sql`
+            UPDATE permissoesEstabelecimento
+            SET podeVisualizar = 'sim', podeEditar = 'sim', acessoFaturamentoExterno = 'sim'
+            WHERE userId = ${uId} AND estabelecimentoId = ${estabId}
+          `);
+        } else {
+          await db.execute(sql`
+            INSERT INTO permissoesEstabelecimento (
+              userId, estabelecimentoId, grupoServico, podeVisualizar, podeEditar, acessoFaturamentoExterno
+            ) VALUES (
+              ${uId}, ${estabId}, 'faturista', 'sim', 'sim', 'sim'
+            )
+          `);
+        }
+      }
+      totalUsuariosLiberados++;
+    }
+
+    return {
+      sucesso: true,
+      totalUsuariosLiberados,
+      totalHospitais: listaHospitais.length,
+      mensagem: `Acesso à Esteira e às contas de todos os ${listaHospitais.length} hospitais liberado para ${totalUsuariosLiberados} usuário(s)!`,
+    };
+  }),
 
   // ============================================================
   // 15. MEU DESEMPENHO INDIVIDUAL & META NO MÊS (VISÃO DO COLABORADOR)

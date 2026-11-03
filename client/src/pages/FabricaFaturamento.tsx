@@ -433,6 +433,16 @@ export default function FabricaFaturamento() {
       onError: (err) => toast.error(err.message),
     });
 
+  const liberarAcessoEquipeMutation =
+    trpc.fabricaFaturamento.liberarAcessoEquipeRecepcao.useMutation({
+      onSuccess: (res) => {
+        toast.success(res.mensagem);
+        refetchAuxData();
+        recarregarTudo();
+      },
+      onError: (err) => toast.error(err.message),
+    });
+
   const transicionarMutation = trpc.fabricaFaturamento.transicionarSetor.useMutation({
     onSuccess: (res) => {
       toast.success(res.mensagem);
@@ -1284,16 +1294,30 @@ export default function FabricaFaturamento() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {meuPerfil?.isGestorFabrica && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSetorSelecionado("todos")}
-                      className={setorSelecionado === "todos" ? "bg-primary/10 border-primary" : ""}
-                    >
-                      Ver Todos os Setores
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSetorSelecionado("todos")}
+                    className={setorSelecionado === "todos" ? "bg-primary/10 border-primary font-semibold" : ""}
+                  >
+                    Ver Todos os Setores
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSetorSelecionado("faturamento");
+                      setFiltroFilaRapida("todas");
+                    }}
+                    className={
+                      setorSelecionado === "faturamento"
+                        ? "bg-amber-50 border-amber-400 text-amber-900 font-semibold"
+                        : ""
+                    }
+                  >
+                    Contas Encaminhadas p/ Faturamento
+                  </Button>
 
                   {(setorSelecionado === "faturamento" || setorSelecionado === "recepcao") && (
                     <Button
@@ -2578,13 +2602,29 @@ export default function FabricaFaturamento() {
         {abaPrincipal === "equipe" && podeGerenciarEquipe && (
           <Card className="shadow-sm border-t-4 border-t-primary">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserCheck className="h-5 w-5 text-primary" />
-                Gestão de Colaboradores por Setor & Hospital — Fábrica Safatle
-              </CardTitle>
-              <CardDescription>
-                Defina quais setores da esteira cada colaborador pode visualizar e operar (ex: somente Faturamento, somente Auditoria Interna, ou múltiplos setores) e quais hospitais atende.
-              </CardDescription>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <UserCheck className="h-5 w-5 text-primary" />
+                    Gestão de Colaboradores por Setor & Hospital — Fábrica Safatle
+                  </CardTitle>
+                  <CardDescription>
+                    Todos os usuários cadastrados no sistema aparecem abaixo. Ao clicar em{" "}
+                    <strong>Configurar / Liberar Acesso</strong> (ou no botão em lote ao lado), o sistema libera automaticamente a Central Safatle e os hospitais selecionados para o usuário acessar as contas encaminhadas pela Recepção.
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => liberarAcessoEquipeMutation.mutate()}
+                  disabled={liberarAcessoEquipeMutation.isPending}
+                  className="gap-2 shrink-0"
+                >
+                  <UserCheck className="h-4 w-4" />
+                  {liberarAcessoEquipeMutation.isPending
+                    ? "Liberando..."
+                    : "Liberar Contas da Recepção p/ Todos os Usuários"}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -2678,7 +2718,7 @@ export default function FabricaFaturamento() {
                               setModalPerfilOpen(true);
                             }}
                           >
-                            Configurar Setores
+                            Configurar / Liberar Acesso
                           </Button>
                         </TableCell>
                       </TableRow>
