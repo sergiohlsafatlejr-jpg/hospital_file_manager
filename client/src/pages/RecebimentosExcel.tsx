@@ -851,7 +851,7 @@ export default function RecebimentosExcel() {
                 utils.demonstrativo.resumo.invalidate();
                 utils.demonstrativo.competencias.invalidate();
                 utils.arquivos.list.invalidate();
-                utils.faturadoRecebidoUnificado.dados.invalidate();
+                utils.faturadoRecebidoUnificado.dados.invalidate(); checkProcessingFiles();
               }}
             />
           </TabsContent>
@@ -894,7 +894,7 @@ function ArquivosImportadosExcelTab({
 
   const reprocessarMutation = trpc.arquivos.reprocessar.useMutation({
     onSuccess: () => {
-      toast.success("Reprocessamento iniciado! Acompanhe o progresso na lista.");
+      toast.success("Reprocessamento iniciado! Acompanhe o progresso na lista."); refetch(); onDeleted();
       refetch();
     },
     onError: (error) => {

@@ -108,9 +108,13 @@ export const credenciaisPortais = mysqlTable("credenciais_portais", {
   id: int("id").autoincrement().primaryKey(),
   convenioId: int("convenioId").notNull().references(() => convenios.id, { onDelete: 'cascade' }),
   estabelecimentoId: int("estabelecimentoId"),
+  codigoPrestadorOperadora: varchar("codigoPrestadorOperadora", { length: 80 }),
+  registroAns: varchar("registroAns", { length: 20 }),
   login: varchar("login", { length: 255 }).notNull(),
   senha: text("senha").notNull(),
   urlLogin: varchar("urlLogin", { length: 255 }),
+  parametrosExtras: json("parametrosExtras"),
+  statusCredencial: varchar("statusCredencial", { length: 40 }).default("ATIVA"),
   ativo: mysqlEnum("ativo", ["sim", "nao"]).default("sim").notNull(),
   ultimoAcesso: timestamp("ultimoAcesso"),
   statusAcesso: mysqlEnum("statusAcesso", ["sucesso", "erro", "pendente"]).default("pendente"),
@@ -5181,3 +5185,4 @@ export * from "./schema-atendimentos-hop-diario";
 export * from "./schema-xml-importacao-lote";
 
 export * from "./schema-fabrica-faturamento";
+export * from "./schema-rpa-envio-xml";

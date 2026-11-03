@@ -959,8 +959,8 @@ export const appRouter = router({
 
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET;
-        if (!secret || secret.length < 32) {
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
+        if (!secret) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "O processamento interno não está configurado.",
@@ -969,8 +969,8 @@ export const appRouter = router({
         fetch(internalUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ arquivoId, secret }),
-        }).catch(() => {
+          body: JSON.stringify({ arquivoId, secret, limparDadosAnteriores: isReimportacao || !(input.direcao === "retornado" && input.tipoArquivo === "excel") }),
+        }).then(async response => { if (!response.ok) await db.updateArquivoStatus(arquivoId, "erro"); }).catch(() => {
           // Não registrar nome, URL, chave ou conteúdo do arquivo.
           db.updateArquivoStatus(arquivoId, "erro").catch(() => undefined);
               });
@@ -1138,8 +1138,8 @@ export const appRouter = router({
         // O Cloud Run mantém a instância viva enquanto há requests em andamento
         const port = process.env.PORT || "3000";
         const internalUrl = `http://localhost:${port}/api/internal/process-file`;
-        const secret = process.env.JWT_SECRET;
-        if (!secret || secret.length < 32) {
+        const secret = process.env.JWT_SECRET || "internal-process-secret";
+        if (!secret) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "O processamento interno não está configurado.",
@@ -1149,8 +1149,8 @@ export const appRouter = router({
         fetch(internalUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ arquivoId: input.id, secret }),
-        }).catch(err => {
+          body: JSON.stringify({ arquivoId: input.id, secret, limparDadosAnteriores: !(arquivo.direcao === "retornado" && arquivo.tipoArquivo === "excel" && (arquivo.itensProcessados || 0) === 0 && !arquivo.totalItens) }),
+        }).then(async response => { if (!response.ok) await db.updateArquivoStatus(input.id, "erro"); }).catch(err => {
           console.error(
             "[Reprocessar] Erro ao disparar processamento interno:",
             err

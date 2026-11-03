@@ -15,7 +15,7 @@
  */
 import yauzl from 'yauzl';
 import sax from 'sax';
-import { writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync } from 'fs'; import os from 'os'; import path from 'path';
 import { randomBytes } from 'crypto';
 import type { Readable } from 'stream';
 import type { InsertRecebimentoExcel } from '../../drizzle/schema';
@@ -116,7 +116,7 @@ export async function parseUnimedExcelChunked(
 ): Promise<{ totalRecords: number }> {
   
   // Step 1: Salvar em arquivo temporário para usar yauzl.open (lê do disco)
-  const tmpPath = `/tmp/xlsx-${randomBytes(8).toString('hex')}.xlsx`;
+  const tmpPath = path.join(os.tmpdir(), `xlsx-${randomBytes(8).toString('hex')}.xlsx`);
   writeFileSync(tmpPath, buffer);
   
   // LIBERAR o buffer da memória imediatamente
@@ -596,7 +596,7 @@ function convertRowAlternativeFormat(
 // Usa duas passadas: primeiro lê sharedStrings, depois verifica o cabeçalho do sheet1
 export async function detectUnimedFormat(buffer: Buffer): Promise<boolean> {
   try {
-    const tmpPath = `/tmp/xlsx-detect-${randomBytes(4).toString('hex')}.xlsx`;
+    const tmpPath = path.join(os.tmpdir(), `xlsx-detect-${randomBytes(4).toString('hex')}.xlsx`);
     writeFileSync(tmpPath, buffer);
     
     // Passada 1: Ler sharedStrings
