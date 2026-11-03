@@ -145,12 +145,14 @@ async function readApproval(options, attested, target) {
   validatePayload(options.gates, manifest, attested.publicAttestation, target, Date.now());
 }
 function layoutValid(layout) {
-  const definitions = [ ['id', 'bigint unsigned', 'auto_increment'], ['hash', 'text', ''], ['created_at', 'bigint', ''] ];
-  requireThat(layout.length === 3 && definitions.every(([name, type, extra], index) => {
+  // Ledger Drizzle legado confirmado somente por catálogo: created_at permite NULL
+  // no schema; baselineValid continua rejeitando NULL nos registros do histórico.
+  const definitions = [ ['id', 'bigint unsigned', 'auto_increment', 'no'], ['hash', 'text', '', 'no'], ['created_at', 'bigint', '', 'yes'] ];
+  requireThat(layout.length === 3 && definitions.every(([name, type, extra, nullable], index) => {
     const row = layout[index];
     return row.COLUMN_NAME === name && Number(row.ORDINAL_POSITION) === index + 1
       && norm(row.COLUMN_TYPE).replace(/bigint\(\d+\)/g, 'bigint') === type
-      && norm(row.IS_NULLABLE) === 'no' && row.COLUMN_DEFAULT === null && norm(row.EXTRA) === extra;
+      && norm(row.IS_NULLABLE) === nullable && row.COLUMN_DEFAULT === null && norm(row.EXTRA) === extra;
   }), 'ledger_layout_invalid');
 }
 function rawValid(catalog) {
