@@ -95,7 +95,7 @@ const stages = [catalog(previous, ['credenciais_portais']), catalog(contract.sna
 const layout = [
   { COLUMN_NAME: 'id', ORDINAL_POSITION: 1, COLUMN_TYPE: 'bigint unsigned', IS_NULLABLE: 'NO', COLUMN_DEFAULT: null, EXTRA: 'auto_increment' },
   { COLUMN_NAME: 'hash', ORDINAL_POSITION: 2, COLUMN_TYPE: 'text', IS_NULLABLE: 'NO', COLUMN_DEFAULT: null, EXTRA: '' },
-  { COLUMN_NAME: 'created_at', ORDINAL_POSITION: 3, COLUMN_TYPE: 'bigint', IS_NULLABLE: 'NO', COLUMN_DEFAULT: null, EXTRA: '' },
+  { COLUMN_NAME: 'created_at', ORDINAL_POSITION: 3, COLUMN_TYPE: 'bigint', IS_NULLABLE: 'YES', COLUMN_DEFAULT: null, EXTRA: '' },
 ];
 class SyntheticDatabase {
   constructor(options = {}) {
@@ -317,6 +317,7 @@ test('manifesto confiável injetado é obrigatório; divergência entre payload 
 for (const [name, change] of [
   ['tipo', rows => { rows[1].COLUMN_TYPE = 'varchar(64)'; }],
   ['nulidade', rows => { rows[1].IS_NULLABLE = 'YES'; }],
+  ['nulidade created_at fora da baseline', rows => { rows[2].IS_NULLABLE = 'NO'; }],
   ['ordem', rows => { rows[1].ORDINAL_POSITION = 3; }],
   ['default', rows => { rows[2].COLUMN_DEFAULT = '0'; }],
   ['auto_increment', rows => { rows[0].EXTRA = ''; }],
@@ -334,6 +335,7 @@ for (const [name, change] of [
   ['0145 histórico', ledger => { ledger.push({ id: 145, ...contract.marker }); }],
   ['0145 conflito hash', ledger => { ledger.push({ id: 145, hash: contract.marker.hash, created_at: 1 }); }],
   ['marcador posterior desconhecido', ledger => { ledger.push({ id: 145, hash: 'b'.repeat(64), created_at: contract.previousMarker.created_at + 1 }); }],
+  ['created_at nulo em registro legado', ledger => { ledger.push({ id: 143, hash: 'b'.repeat(64), created_at: null }); }],
 ]) {
   test(`histórico ${name} não autoriza replay`, async () => {
     const context = await fixture(); change(context.database.ledger);
