@@ -1,6 +1,8 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { randomBytes } from "node:crypto";
+import { normalizarDataExecucao } from "../contratosPrecoAplicavel";
 import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
 import {
@@ -143,7 +145,8 @@ async function resolverConvenioDoHospital(
   hospitalEstabId: number,
   convenioIdInput?: number | null,
   convenioNomeInput?: string | null,
-  registroAnsXml?: string | null
+  registroAnsXml?: string | null,
+  connection?: Parameters<typeof exigirConvenioDoEstabelecimento>[4],
 ): Promise<{ id: number; nome: string }> {
   if (convenioIdInput) {
     try {
@@ -151,7 +154,8 @@ async function resolverConvenioDoHospital(
         usuarioId,
         Number(convenioIdInput),
         hospitalEstabId,
-        "editar"
+        "editar",
+        connection,
       );
       return { id: convDireto.id, nome: convDireto.nome };
     } catch {
@@ -273,7 +277,8 @@ async function resolverConvenioDoHospital(
         usuarioId,
         Number(escolhido.id),
         hospitalEstabId,
-        "editar"
+        "editar",
+        connection,
       );
       return { id: convValidado.id, nome: convValidado.nome || escolhido.nome };
     } catch {
@@ -284,7 +289,8 @@ async function resolverConvenioDoHospital(
       usuarioId,
       Number(escolhido.id),
       hospitalEstabId,
-      "editar"
+      "editar",
+      connection,
     );
     return { id: convValidado.id, nome: convValidado.nome || escolhido.nome };
   }
@@ -294,7 +300,8 @@ async function resolverConvenioDoHospital(
       usuarioId,
       Number(convenioIdInput),
       hospitalEstabId,
-      "editar"
+      "editar",
+      connection,
     );
     return { id: convValidado.id, nome: convValidado.nome };
   }
@@ -351,6 +358,144 @@ function toMysqlDateTime(date: Date = new Date()): string {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+/** Ausência/invalidez permanece null; metadados da guia não são data de preço. */
+function dataExecucaoItemAmbulatorial(valor: unknown): Date | null {
+  const dia = normalizarDataExecucao(valor);
+  if (!dia) return null;
+  return valor instanceof Date ? valor : new Date(`${dia}T12:00:00.000Z`);
+}
+
+function exigirNumeroAmbulatorial(valor: string, campo: string): void {
+  if (!valor || valor.length > 20 || /[\u0000-\u001f]/.test(valor)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `${campo} deve conter de 1 a 20 caracteres, sem caracteres de controle. Corrija o identificador antes de importar o XML.` });
+  }
+}
+
+type IdentidadeLoteAmbulatorial = {
+  hospitalEstabelecimentoId: number;
+  convenioId: number;
+  numeroLote: string;
+  competencia: string;
+  arquivoXmlFinalId: number;
+};
+const competenciaAmbulatorialSchema = z.string().regex(/^\d{4}\/(0[1-9]|1[0-2])$/);
+
+async function selecionarContasAmbulatoriaisBloqueadas(db: any, condicao: any): Promise<any[]> {
+  // Leitura bloqueante obrigatória: nunca degradar para operação fora de tx.
+  return db.select().from(fabricaContas).where(condicao).for("update");
+}
+
+async function snapshotsAmbulatoriaisBloqueados(db: any, contas: any[]) {
+  const ids = [...new Set(contas.map(c => Number(c.contaConvenioResumoId)))];
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Guia sem snapshot XML seguro. Revise a vinculação antes de continuar." });
+  }
+  const rows = ids.length
+    ? await db.select().from(contasConvenioResumo).where(inArray(contasConvenioResumo.id, ids)).for("update")
+    : [];
+  const mapa = new Map<number, any>();
+  for (const row of rows) {
+    if (mapa.has(Number(row.id))) throw new TRPCError({ code: "CONFLICT", message: "Snapshot ambulatorial ambíguo." });
+    mapa.set(Number(row.id), row);
+  }
+  for (const conta of contas) {
+    const snapshot = mapa.get(Number(conta.contaConvenioResumoId));
+    if (!snapshot || snapshot.origem !== "XML"
+      || Number(snapshot.estabelecimentoId) !== Number(conta.hospitalEstabelecimentoId)
+      || !conta.convenioId || Number(snapshot.convenioId) !== Number(conta.convenioId)
+      || !conta.numeroGuia || snapshot.numeroConta !== conta.numeroGuia
+      || !conta.numeroLote || snapshot.numeroLote !== conta.numeroLote
+      || !conta.arquivoXmlFinalId || Number(snapshot.arquivoHospitalId) !== Number(conta.arquivoXmlFinalId)
+      || !competenciaAmbulatorialSchema.safeParse(snapshot.competencia).success) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "A identidade da guia não corresponde ao snapshot XML vigente." });
+    }
+  }
+  return mapa;
+}
+
+function identidadeLoteAmbulatorial(conta: any, snapshot: any): IdentidadeLoteAmbulatorial {
+  return {
+    hospitalEstabelecimentoId: Number(conta.hospitalEstabelecimentoId),
+    convenioId: Number(conta.convenioId),
+    numeroLote: conta.numeroLote,
+    competencia: snapshot.competencia,
+    arquivoXmlFinalId: Number(conta.arquivoXmlFinalId),
+  };
+}
+
+function exigirIdentidadeAmbulatorial(conta: any, snapshot: any, identidade: IdentidadeLoteAmbulatorial) {
+  if (conta.tipoAtendimento !== "ambulatorio_sadt"
+    || JSON.stringify(identidadeLoteAmbulatorial(conta, snapshot)) !== JSON.stringify(identidade)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Guia não pertence à identidade ambulatorial selecionada." });
+  }
+}
+
+function exigirEstadoAmbulatorial(conta: any, operacao: "reimportar" | "revisar" | "liberar") {
+  const setoresAntesEnvio = ["recepcao", "faturamento", "auditoria_interna", "auditoria_externa", "limpeza_prontuario"];
+  const antesEnvio = setoresAntesEnvio.includes(conta.setorAtual);
+  const divergencias = Number(conta.totalDivergenciasRegras);
+  const auditoriaConforme = ["conforme", "revisado"].includes(conta.statusAuditoriaRegras) && divergencias === 0;
+  const elegivel = conta.tipoAtendimento === "ambulatorio_sadt" && (
+    operacao === "reimportar"
+      ? antesEnvio && ["fila", "em_andamento", "devolvido_erro", "concluido"].includes(conta.statusSetor)
+      : operacao === "revisar"
+        ? antesEnvio && conta.statusAuditoriaRegras === "divergente" && divergencias > 0
+          && ["devolvido_erro", "em_andamento"].includes(conta.statusSetor)
+        : (antesEnvio || conta.setorAtual === "enviado_convenio") && conta.statusSetor === "concluido" && auditoriaConforme
+  );
+  if (!elegivel) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Uma ou mais guias possuem tipo, estado ou divergências inelegíveis para esta operação." });
+  }
+}
+
+async function autorizarContasAmbulatoriais(db: any, usuario: UsuarioHospital, contas: any[]) {
+  for (const hospitalId of new Set(contas.map(c => Number(c.hospitalEstabelecimentoId)))) {
+    await exigirHospitalProprietario(usuario, hospitalId, "editar", db);
+  }
+  await exigirSetoresLoteColaborador(db, usuario, contas);
+  for (const chave of new Set(contas.map(c => `${c.hospitalEstabelecimentoId}:${c.convenioId}`))) {
+    const [hospitalId, convenioId] = chave.split(":").map(Number);
+    if (!convenioId) throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione o convênio canônico da guia." });
+    await exigirConvenioDoEstabelecimento(usuario.id, convenioId, hospitalId, "editar", db);
+  }
+}
+
+async function atualizarContaAmbulatorialCondicional(db: any, conta: any, valores: any) {
+  const resultado = await db.update(fabricaContas).set(valores).where(and(
+    eq(fabricaContas.id, conta.id),
+    eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId),
+    eq(fabricaContas.convenioId, conta.convenioId),
+    eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
+    eq(fabricaContas.numeroGuia, conta.numeroGuia),
+    eq(fabricaContas.numeroLote, conta.numeroLote),
+    eq(fabricaContas.contaConvenioResumoId, conta.contaConvenioResumoId),
+    eq(fabricaContas.arquivoXmlFinalId, conta.arquivoXmlFinalId),
+    eq(fabricaContas.setorAtual, conta.setorAtual),
+    eq(fabricaContas.statusSetor, conta.statusSetor),
+    sql`${fabricaContas.statusAuditoriaRegras} <=> ${conta.statusAuditoriaRegras}`,
+    sql`${fabricaContas.totalDivergenciasRegras} <=> ${conta.totalDivergenciasRegras}`,
+    eq(fabricaContas.updatedAt, conta.updatedAt),
+  ));
+  const header = Array.isArray(resultado) ? resultado[0] : resultado;
+  if (Number(header?.affectedRows) !== 1) {
+    throw new TRPCError({ code: "CONFLICT", message: "A guia foi alterada durante a operação. Atualize a esteira e tente novamente." });
+  }
+}
+
+async function carregarLoteAmbulatorialBloqueado(db: any, identidade: IdentidadeLoteAmbulatorial) {
+  const contas = await selecionarContasAmbulatoriaisBloqueadas(db, and(
+    eq(fabricaContas.hospitalEstabelecimentoId, identidade.hospitalEstabelecimentoId),
+    eq(fabricaContas.convenioId, identidade.convenioId),
+    eq(fabricaContas.numeroLote, identidade.numeroLote),
+    eq(fabricaContas.arquivoXmlFinalId, identidade.arquivoXmlFinalId),
+  ));
+  const snapshots = await snapshotsAmbulatoriaisBloqueados(db, contas);
+  const daCompetencia = contas.filter(c => snapshots.get(Number(c.contaConvenioResumoId))?.competencia === identidade.competencia);
+  for (const conta of daCompetencia) {
+    exigirIdentidadeAmbulatorial(conta, snapshots.get(Number(conta.contaConvenioResumoId)), identidade);
+  }
+  return daCompetencia;
+}
 function usuarioFabrica(ctx: { user: UsuarioHospital | null }): UsuarioHospital {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário autenticado obrigatório." });
@@ -905,6 +1050,8 @@ export const fabricaFaturamentoRouter = router({
           tipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(),
           excluirTipoAtendimento: z.enum(fabricaTipoAtendimentoEnum).optional(),
           numeroLote: z.string().optional(),
+          competenciaAmbulatorial: competenciaAmbulatorialSchema.optional(),
+          arquivoXmlFinalId: z.number().int().positive().optional(),
           statusAuditoriaRegras: z.enum(["pendente", "conforme", "divergente", "revisado"]).optional(),
           apenasComDivergencia: z.boolean().optional(),
           page: z.number().default(1),
@@ -958,6 +1105,19 @@ export const fabricaFaturamentoRouter = router({
       }
       if (input?.numeroLote && input.numeroLote.trim()) {
         whereSql = sql`${whereSql} AND fc.numero_lote = ${input.numeroLote.trim()}`;
+      }
+      if (input?.arquivoXmlFinalId) {
+        whereSql = sql`${whereSql} AND fc.arquivo_xml_final_id = ${input.arquivoXmlFinalId}`;
+      }
+      if (input?.competenciaAmbulatorial) {
+        whereSql = sql`${whereSql} AND EXISTS (
+          SELECT 1 FROM contas_convenio_resumo snap
+          WHERE snap.id = fc.conta_convenio_resumo_id AND snap.origem = 'XML'
+            AND snap.estabelecimentoId = fc.hospital_estabelecimento_id
+            AND snap.convenioId = fc.convenio_id AND snap.numeroConta = fc.numero_guia
+            AND snap.numeroLote = fc.numero_lote AND snap.arquivoHospitalId = fc.arquivo_xml_final_id
+            AND snap.competencia = ${input.competenciaAmbulatorial}
+        )`;
       }
       if (input?.statusAuditoriaRegras) {
         whereSql = sql`${whereSql} AND fc.status_auditoria_regras = ${input.statusAuditoriaRegras}`;
@@ -1041,6 +1201,7 @@ export const fabricaFaturamentoRouter = router({
         diasEntreAltaERecebimento:
           r.diasEntreAltaERecebimento !== null ? Number(r.diasEntreAltaERecebimento) : null,
         diasNaSafatle: Number(r.diasNaSafatle) || 0,
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
         createdAt: r.created_at,
       }));
 
@@ -2652,7 +2813,7 @@ export const fabricaFaturamentoRouter = router({
         convenioNome: z.string().optional().nullable(),
         nomeArquivo: z.string().min(1, "Informe o nome do arquivo XML"),
         conteudoBase64: z.string().min(1, "Selecione o arquivo XML do lote ambulatorial"),
-        numeroLoteManual: z.string().optional().nullable(),
+        numeroLoteManual: z.string().trim().max(20, "Nº do lote deve ter no máximo 20 caracteres.").optional().nullable(),
         enviarDiretoSeConforme: z.boolean().default(true),
         exigirSenhaSadt: z.boolean().default(false),
         metodoEnvioConvenio: z
@@ -2687,13 +2848,18 @@ export const fabricaFaturamentoRouter = router({
         const todosProcs = parseResult.procedimentos;
         const primeiroProcGeral = todosProcs[0];
 
+        // Um ID explícito nunca pode ser substituído por outro cadastro equivalente.
+        if (input.convenioId) {
+          await exigirConvenioDoEstabelecimento(usuario.id, input.convenioId, hospitalEstabId, "editar", db);
+        }
         const convenioResolvido = await resolverConvenioDoHospital(
           db,
           usuario.id,
           hospitalEstabId,
           input.convenioId,
           input.convenioNome,
-          primeiroProcGeral.registroANS
+          primeiroProcGeral.registroANS,
+          db,
         );
         const convenioIdFinal = convenioResolvido.id;
         const convenioNomeFinal = convenioResolvido.nome || input.convenioNome || "CONVÊNIO";
@@ -2704,8 +2870,7 @@ export const fabricaFaturamentoRouter = router({
           null;
 
         if (!codigoPrestadorPadrao) {
-          try {
-            const [cepRows]: any = await db.execute(
+          const [cepRows]: any = await db.execute(
               sql.raw(`
                 SELECT codigoPrestador
                 FROM convenioEstabelecimentoPrestador
@@ -2716,11 +2881,8 @@ export const fabricaFaturamentoRouter = router({
                 LIMIT 1
               `)
             );
-            if (Array.isArray(cepRows) && cepRows.length > 0 && cepRows[0]?.codigoPrestador) {
-              codigoPrestadorPadrao = String(cepRows[0].codigoPrestador).trim();
-            }
-          } catch {
-            // Ignora em mocks de teste
+          if (Array.isArray(cepRows) && cepRows.length > 0 && cepRows[0]?.codigoPrestador) {
+            codigoPrestadorPadrao = String(cepRows[0].codigoPrestador).trim();
           }
         }
         if (!codigoPrestadorPadrao && Number(hospitalEstabId) === 3) {
@@ -2742,12 +2904,40 @@ export const fabricaFaturamentoRouter = router({
         const numeroLoteFinal =
           input.numeroLoteManual?.trim() ||
           primeiroProcGeral.numeroLote?.trim() ||
-          `LOTE-AMB-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(100 + Math.random() * 900)}`;
+          `AMB-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${randomBytes(4).toString("hex").slice(0, 7)}`;
+        exigirNumeroAmbulatorial(numeroLoteFinal, "Nº do lote");
+        for (const numeroGuia of mapaGuias.keys()) exigirNumeroAmbulatorial(numeroGuia, "Nº da guia");
 
-        const dataRefBase =
-          primeiroProcGeral.dataExecucao && !isNaN(new Date(primeiroProcGeral.dataExecucao).getTime())
-            ? parseDataCivilFabrica(primeiroProcGeral.dataExecucao)
-            : new Date();
+        // Data administrativa de recepção/cofre, nunca utilizada para precificar itens.
+        const dataRecepcao = new Date();
+        const dataRefBase = dataExecucaoItemAmbulatorial(primeiroProcGeral.dataExecucao) || dataRecepcao;
+        const dataMetadadosGuia = (procs: typeof todosProcs) =>
+          procs.map(p => dataExecucaoItemAmbulatorial(p.dataExecucao)).find((data): data is Date => data !== null) || dataRecepcao;
+
+        const existentes = await selecionarContasAmbulatoriaisBloqueadas(db, and(
+          eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId),
+          eq(fabricaContas.convenioId, convenioIdFinal),
+          eq(fabricaContas.numeroLote, numeroLoteFinal),
+          inArray(fabricaContas.numeroGuia, [...mapaGuias.keys()]),
+        ));
+        const snapshotsExistentes = await snapshotsAmbulatoriaisBloqueados(db, existentes);
+        const existentesMap = new Map<string, any>();
+        for (const row of existentes) {
+          const snapshot = snapshotsExistentes.get(Number(row.contaConvenioResumoId));
+          const procs = mapaGuias.get(String(row.numeroGuia));
+          if (!procs) throw new TRPCError({ code: "CONFLICT", message: "Identidade da guia ambulatorial alterada." });
+          const competencia = dataMetadadosGuia(procs).toISOString().slice(0, 7).replace("-", "/");
+          if (snapshot.competencia !== competencia) continue;
+          if (Number(row.hospitalEstabelecimentoId) !== hospitalEstabId || Number(row.convenioId) !== convenioIdFinal
+            || row.numeroLote !== numeroLoteFinal || existentesMap.has(String(row.numeroGuia))) {
+            throw new TRPCError({ code: "CONFLICT", message: "Há mais de uma conta para a identidade ambulatorial selecionada." });
+          }
+          exigirEstadoAmbulatorial(row, "reimportar");
+          existentesMap.set(String(row.numeroGuia), row);
+        }
+        await autorizarContasAmbulatoriais(db, usuario, [...existentesMap.values()]);
+        await exigirSetorColaborador(db, usuario,
+          ["faturamento", "recepcao", "auditoria_interna", "limpeza_prontuario"], [hospitalEstabId]);
 
         const arquivoId = await criarArquivoXmlFabricaProtegido(db, {
           xml: xmlBuffer,
@@ -2800,10 +2990,7 @@ export const fabricaFaturamentoRouter = router({
           const guiaOperadora = p0.numeroGuiaOperadora
             ? String(p0.numeroGuiaOperadora).trim()
             : null;
-          const dataExecGuia =
-            p0.dataExecucao && !isNaN(new Date(p0.dataExecucao).getTime())
-              ? parseDataCivilFabrica(p0.dataExecucao, dataRefBase)
-              : dataRefBase;
+          const dataExecGuia = dataMetadadosGuia(procsGuia);
           const dataAtendimentoStr = dataExecGuia.toISOString().slice(0, 10);
           const competenciaStr = dataAtendimentoStr.slice(0, 7).replace("-", "/");
 
@@ -2834,7 +3021,7 @@ export const fabricaFaturamentoRouter = router({
               senha,
               carteiraBeneficiario: carteira,
               sequencialItem: idx + 1,
-              dataExecucao: parseDataCivilFabrica(p.dataExecucao, dataExecGuia),
+              dataExecucao: dataExecucaoItemAmbulatorial(p.dataExecucao),
               tipoItem: tipoItemPadronizado,
               codigoDespesa: p.codigoDespesa || null,
               codigoTabela: p.codigoDespesa || "22",
@@ -2875,7 +3062,7 @@ export const fabricaFaturamentoRouter = router({
               quantidade: String(qtd),
               valorUnitario: String(vu.toFixed(2)),
               valorTotal: String(vt.toFixed(2)),
-              dataExecucao: parseDataCivilFabrica(p.dataExecucao, dataExecGuia),
+              dataExecucao: dataExecucaoItemAmbulatorial(p.dataExecucao),
               profissionalExecutante: p.nomeMedico || null,
               codigoPrestadorExecutante: codPrestador,
               setor: "AMBULATÓRIO",
@@ -2899,6 +3086,12 @@ export const fabricaFaturamentoRouter = router({
             lotePossuiGuiasComSenha,
           });
 
+          if (!Number.isSafeInteger(validacao.totalDivergencias) || validacao.totalDivergencias < 0
+            || (validacao.statusAuditoriaRegras === "conforme" && (validacao.totalDivergencias !== 0 || validacao.erros.length !== 0))
+            || (validacao.statusAuditoriaRegras === "divergente" && validacao.totalDivergencias === 0)
+            || !["conforme", "divergente"].includes(validacao.statusAuditoriaRegras)) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Validação ambulatorial incompleta. Nenhuma guia foi liberada." });
+          }
           for (const item of itensPadronizadosGuia) {
             item.statusAnalise = validacao.statusAuditoriaRegras;
           }
@@ -2953,8 +3146,7 @@ export const fabricaFaturamentoRouter = router({
         }
 
         for (const g of guiasProcessadas) {
-          try {
-            await popularDeXmlTissArquivoRestrito(
+          await popularDeXmlTissArquivoRestrito(
               {
                 estabelecimentoId: hospitalEstabId,
                 convenioId: convenioIdFinal,
@@ -2967,9 +3159,6 @@ export const fabricaFaturamentoRouter = router({
               },
               db
             );
-          } catch {
-            // Ignora em mock de teste
-          }
         }
 
         await confirmarArquivoXmlFabrica(
@@ -2986,7 +3175,7 @@ export const fabricaFaturamentoRouter = router({
         const guiasConformes = guiasProcessadas.filter(
           (g) => g.validacao.statusAuditoriaRegras === "conforme"
         );
-        const lote100Conforme = guiasDivergentes.length === 0;
+        const lote100Conforme = guiasConformes.length === guiasProcessadas.length;
         const enviadoDiretoConvenio = lote100Conforme && input.enviarDiretoSeConforme;
 
         const now = new Date();
@@ -2996,30 +3185,6 @@ export const fabricaFaturamentoRouter = router({
           ? input.protocoloEnvio?.trim() ||
             `PROT-AMB-${hospitalEstabId}-${numeroLoteFinal.slice(0, 20)}`
           : null;
-
-        const numerosGuiasLote = guiasProcessadas.map((g) => g.numeroGuia);
-        const existentesMap = new Map<string, any>();
-        if (numerosGuiasLote.length > 0) {
-          try {
-            const existentesRows = await db
-              .select()
-              .from(fabricaContas)
-              .where(
-                and(
-                  eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId),
-                  eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
-                  inArray(fabricaContas.numeroGuia, numerosGuiasLote)
-                )
-              );
-            for (const row of existentesRows || []) {
-              if (row.numeroGuia) {
-                existentesMap.set(String(row.numeroGuia), row);
-              }
-            }
-          } catch {
-            // Ignora em mock parcial
-          }
-        }
 
         let totalCriadas = 0;
         let totalAtualizadas = 0;
@@ -3041,46 +3206,36 @@ export const fabricaFaturamentoRouter = router({
             contaId = Number(existente.id);
             totalAtualizadas++;
 
-            await db
-              .update(fabricaContas)
-              .set({
-                convenioId: convenioIdFinal,
-                convenioNome: convenioNomeFinal,
-                numeroLote: numeroLoteFinal,
-                senhaAutorizacao: g.senhaAutorizacao,
-                nomePaciente: g.nomePaciente,
-                setorAtual: setorAlvo,
-                statusSetor: statusSetorAlvo,
-                entradaSetorAtualEm: now,
-                responsavelAtualId: usuario.id,
-                responsavelAtualNome: usuarioNome,
-                faturistaId: existente.faturistaId || usuario.id,
-                faturistaNome: existente.faturistaNome || usuarioNome,
-                valorFaturadoFinal: String(g.valorTotalGuia.toFixed(2)),
-                totalItensXml: g.qtdItensGuia,
-                arquivoXmlFinalId: arquivoId,
-                contaConvenioResumoId: g.contaConvenioResumoId,
-                statusAuditoriaRegras: g.validacao.statusAuditoriaRegras,
-                totalDivergenciasRegras: g.validacao.totalDivergencias,
-                scoreRiscoAuditoria: g.validacao.scoreRisco,
-                protocoloEnvioConvenio: enviadoDiretoConvenio
-                  ? protocoloGerado
-                  : existente.protocoloEnvioConvenio,
-                metodoEnvioConvenio: enviadoDiretoConvenio
-                  ? input.metodoEnvioConvenio
-                  : existente.metodoEnvioConvenio,
-                dataEnvioConvenio: enviadoDiretoConvenio ? nowStr : existente.dataEnvioConvenio,
-                qtdRetrabalhos: isDivergente
-                  ? (Number(existente.qtdRetrabalhos) || 0) + 1
-                  : Number(existente.qtdRetrabalhos) || 0,
-                ultimoMotivoRetorno: g.validacao.resumoMotivoRetorno,
-              })
-              .where(
-                and(
-                  eq(fabricaContas.id, contaId),
-                  eq(fabricaContas.hospitalEstabelecimentoId, hospitalEstabId)
-                )
-              );
+            await atualizarContaAmbulatorialCondicional(db, existente, {
+              convenioNome: convenioNomeFinal,
+              senhaAutorizacao: g.senhaAutorizacao,
+              nomePaciente: g.nomePaciente,
+              setorAtual: setorAlvo,
+              statusSetor: statusSetorAlvo,
+              entradaSetorAtualEm: now,
+              responsavelAtualId: usuario.id,
+              responsavelAtualNome: usuarioNome,
+              faturistaId: existente.faturistaId || usuario.id,
+              faturistaNome: existente.faturistaNome || usuarioNome,
+              valorFaturadoFinal: String(g.valorTotalGuia.toFixed(2)),
+              totalItensXml: g.qtdItensGuia,
+              arquivoXmlFinalId: arquivoId,
+              contaConvenioResumoId: g.contaConvenioResumoId,
+              statusAuditoriaRegras: g.validacao.statusAuditoriaRegras,
+              totalDivergenciasRegras: g.validacao.totalDivergencias,
+              scoreRiscoAuditoria: g.validacao.scoreRisco,
+              protocoloEnvioConvenio: enviadoDiretoConvenio
+                ? protocoloGerado
+                : existente.protocoloEnvioConvenio,
+              metodoEnvioConvenio: enviadoDiretoConvenio
+                ? input.metodoEnvioConvenio
+                : existente.metodoEnvioConvenio,
+              dataEnvioConvenio: enviadoDiretoConvenio ? nowStr : existente.dataEnvioConvenio,
+              qtdRetrabalhos: isDivergente
+                ? (Number(existente.qtdRetrabalhos) || 0) + 1
+                : Number(existente.qtdRetrabalhos) || 0,
+              ultimoMotivoRetorno: g.validacao.resumoMotivoRetorno,
+            });
 
             await db
               .update(fabricaErrosConta)
@@ -3089,6 +3244,7 @@ export const fabricaFaturamentoRouter = router({
                 and(
                   eq(fabricaErrosConta.fabricaContaId, contaId),
                   eq(fabricaErrosConta.hospitalEstabelecimentoId, hospitalEstabId),
+                  eq(fabricaErrosConta.convenioId, convenioIdFinal),
                   eq(fabricaErrosConta.corrigido, "nao")
                 )
               );
@@ -3157,7 +3313,7 @@ export const fabricaFaturamentoRouter = router({
           await db.insert(fabricaHistoricoFluxo).values({
             fabricaContaId: contaId,
             hospitalEstabelecimentoId: hospitalEstabId,
-            setorOrigem: "faturamento",
+            setorOrigem: existente?.setorAtual || "faturamento",
             setorDestino: setorAlvo,
             acao: "xml_importado",
             usuarioId: usuario.id,
@@ -3220,10 +3376,7 @@ export const fabricaFaturamentoRouter = router({
         };
       };
 
-      if (typeof (dbOuter as any).transaction === "function") {
-        return await (dbOuter as any).transaction(executarNoBanco);
-      }
-      return await executarNoBanco(dbOuter);
+      return await dbOuter.transaction(executarNoBanco);
     }),
 
   // ============================================================
@@ -3260,12 +3413,19 @@ export const fabricaFaturamentoRouter = router({
           e.nome as hospitalNome,
           fc.convenio_id as convenioId,
           COALESCE(fc.convenio_nome, c.nome, 'Não informado') as convenioNome,
+          snap.competencia as competencia,
+          fc.arquivo_xml_final_id as arquivoXmlFinalId,
           MAX(fc.faturista_nome) as faturistaNome,
           COUNT(*) as totalGuias,
           SUM(CASE WHEN fc.status_auditoria_regras = 'conforme' THEN 1 ELSE 0 END) as guiasConformes,
           SUM(CASE WHEN fc.status_auditoria_regras = 'divergente' THEN 1 ELSE 0 END) as guiasDivergentes,
           SUM(CASE WHEN fc.status_auditoria_regras = 'revisado' THEN 1 ELSE 0 END) as guiasRevisadas,
           SUM(CASE WHEN fc.setor_atual IN ('enviado_convenio', 'recursos', 'finalizado') THEN 1 ELSE 0 END) as guiasEnviadas,
+          SUM(CASE WHEN snap.id IS NOT NULL
+            AND fc.status_auditoria_regras IN ('conforme', 'revisado') AND fc.total_divergencias_regras = 0
+            AND fc.status_setor = 'concluido'
+            AND fc.setor_atual IN ('recepcao', 'faturamento', 'auditoria_interna', 'auditoria_externa', 'limpeza_prontuario', 'enviado_convenio')
+            THEN 0 ELSE 1 END) as guiasInelegiveis,
           SUM(COALESCE(fc.total_itens_xml, 0)) as totalItensLote,
           COALESCE(SUM(CASE WHEN fc.valor_faturado_final > 0 THEN fc.valor_faturado_final ELSE fc.valor_faturado_inicial END), 0) as valorTotalLote,
           MAX(fc.protocolo_envio_convenio) as protocoloEnvio,
@@ -3274,13 +3434,19 @@ export const fabricaFaturamentoRouter = router({
         FROM fabrica_contas fc
         LEFT JOIN estabelecimentos e ON e.id = fc.hospital_estabelecimento_id
         LEFT JOIN convenios c ON c.id = fc.convenio_id
+        LEFT JOIN contas_convenio_resumo snap ON snap.id = fc.conta_convenio_resumo_id
+          AND snap.origem = 'XML' AND snap.estabelecimentoId = fc.hospital_estabelecimento_id
+          AND snap.convenioId = fc.convenio_id AND snap.numeroConta = fc.numero_guia
+          AND snap.numeroLote = fc.numero_lote AND snap.arquivoHospitalId = fc.arquivo_xml_final_id
         WHERE ${whereSql}
         GROUP BY
           COALESCE(fc.numero_lote, 'SEM-LOTE'),
           fc.hospital_estabelecimento_id,
           e.nome,
           fc.convenio_id,
-          COALESCE(fc.convenio_nome, c.nome, 'Não informado')
+          COALESCE(fc.convenio_nome, c.nome, 'Não informado'),
+          snap.competencia,
+          fc.arquivo_xml_final_id
         ORDER BY MAX(fc.id) DESC
         LIMIT 100
       `);
@@ -3291,10 +3457,11 @@ export const fabricaFaturamentoRouter = router({
         const guiasDivergentes = Number(r.guiasDivergentes) || 0;
         const guiasRevisadas = Number(r.guiasRevisadas) || 0;
         const guiasEnviadas = Number(r.guiasEnviadas) || 0;
+        const guiasInelegiveis = Number(r.guiasInelegiveis) || 0;
         const statusLote: "enviado_convenio" | "bloqueado_divergencia" | "pronto_envio" =
           guiasEnviadas === totalGuias && totalGuias > 0
             ? "enviado_convenio"
-            : guiasDivergentes > 0
+            : guiasDivergentes > 0 || guiasInelegiveis > 0
               ? "bloqueado_divergencia"
               : "pronto_envio";
 
@@ -3304,12 +3471,15 @@ export const fabricaFaturamentoRouter = router({
           hospitalNome: r.hospitalNome || `Hospital #${r.hospitalEstabelecimentoId}`,
           convenioId: r.convenioId ? Number(r.convenioId) : null,
           convenioNome: String(r.convenioNome || "Não informado"),
+          competencia: r.competencia || null,
+          arquivoXmlFinalId: r.arquivoXmlFinalId ? Number(r.arquivoXmlFinalId) : null,
           faturistaNome: r.faturistaNome || null,
           totalGuias,
           guiasConformes,
           guiasDivergentes,
           guiasRevisadas,
           guiasEnviadas,
+          guiasInelegiveis,
           totalItensLote: Number(r.totalItensLote) || 0,
           valorTotalLote: Number(r.valorTotalLote) || 0,
           statusLote,
@@ -3335,9 +3505,17 @@ export const fabricaFaturamentoRouter = router({
   justificarELiberarGuiasAmbulatoriais: fabricaProcedure
     .input(
       z.object({
-        contaIds: z.array(z.number().positive()).min(1),
+        contaIds: z.array(z.number().int().positive()).min(1),
+        // Versão efetivamente apresentada ao humano, nunca relida na confirmação.
+        expectedSnapshots: z.array(z.object({
+          contaId: z.number().int().positive(),
+          arquivoXmlFinalId: z.number().int().positive(),
+          contaConvenioResumoId: z.number().int().positive(),
+          updatedAt: z.string().datetime(),
+        })).min(1),
         justificativa: z
           .string()
+          .trim()
           .min(3, "Informe a justificativa técnica/contratual para aceitar a divergência"),
         enviarAoConvenioAgora: z.boolean().default(true),
         metodoEnvioConvenio: z
@@ -3349,47 +3527,82 @@ export const fabricaFaturamentoRouter = router({
     .mutation(async ({ input, ctx }) => {
       const usuario = usuarioFabrica(ctx);
       await exigirAcessoFabrica(usuario);
-      const db = await obterDbFabrica();
-      const contaIds = [...new Set(input.contaIds)];
-      const contas = await db
-        .select()
-        .from(fabricaContas)
-        .where(inArray(fabricaContas.id, contaIds));
-      if (contas.length !== contaIds.length) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Uma ou mais guias ambulatoriais não foram encontradas.",
-        });
-      }
-      await autorizarLoteHospitalar(usuario, contas, "editar");
-      await exigirSetoresLoteColaborador(db, usuario, contas);
+      const dbOuter = await obterDbFabrica();
+      return dbOuter.transaction(async (db) => {
+        const contaIds = [...new Set(input.contaIds)];
+        const contas = await selecionarContasAmbulatoriaisBloqueadas(db, inArray(fabricaContas.id, contaIds));
+        if (contas.length !== contaIds.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Uma ou mais guias ambulatoriais não foram encontradas.",
+          });
+        }
+        const expected = new Map(input.expectedSnapshots.map(snapshot => [snapshot.contaId, snapshot]));
+        if (expected.size !== input.expectedSnapshots.length || expected.size !== contaIds.length
+          || [...expected.keys()].some(id => !contaIds.includes(id))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe exatamente um snapshot esperado por guia selecionada." });
+        }
+        // Todas as linhas estão FOR UPDATE; validar o lote inteiro antes de qualquer escrita.
+        for (const conta of contas) {
+          const snapshot = expected.get(Number(conta.id));
+          const updatedAt = conta.updatedAt ? new Date(conta.updatedAt).getTime() : NaN;
+          if (!snapshot || Number(conta.arquivoXmlFinalId) !== snapshot.arquivoXmlFinalId
+            || Number(conta.contaConvenioResumoId) !== snapshot.contaConvenioResumoId
+            || !Number.isFinite(updatedAt) || updatedAt !== new Date(snapshot.updatedAt).getTime()) {
+            throw new TRPCError({ code: "CONFLICT", message: "Uma ou mais guias foram alteradas desde a abertura da justificativa. Atualize a esteira, confira o novo XML e abra a justificativa novamente." });
+          }
+        }
+        for (const conta of contas) exigirEstadoAmbulatorial(conta, "revisar");
+        const snapshots = await snapshotsAmbulatoriaisBloqueados(db, contas);
+        await autorizarContasAmbulatoriais(db, usuario, contas);
 
-      const now = new Date();
-      const nowStr = toMysqlDateTime(now);
-      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+        const irmasParaLiberar = new Map<number, any>();
+        if (input.enviarAoConvenioAgora) {
+          const identidades = new Map<string, IdentidadeLoteAmbulatorial>();
+          for (const conta of contas) {
+            const identidade = identidadeLoteAmbulatorial(conta, snapshots.get(Number(conta.contaConvenioResumoId)));
+            identidades.set(JSON.stringify(identidade), identidade);
+          }
+          for (const identidade of identidades.values()) {
+            const irmas = await carregarLoteAmbulatorialBloqueado(db, identidade);
+            if (!contas.filter(c => JSON.stringify(identidadeLoteAmbulatorial(c, snapshots.get(Number(c.contaConvenioResumoId)))) === JSON.stringify(identidade))
+              .every(c => irmas.some(i => Number(i.id) === Number(c.id)))) {
+              throw new TRPCError({ code: "CONFLICT", message: "O lote foi alterado. Atualize a esteira." });
+            }
+            await autorizarContasAmbulatoriais(db, usuario, irmas);
+            for (const irma of irmas) {
+              if (contaIds.includes(Number(irma.id))) continue;
+              exigirEstadoAmbulatorial(irma, "liberar");
+              if (irma.setorAtual !== "enviado_convenio") irmasParaLiberar.set(Number(irma.id), irma);
+            }
+          }
+        }
 
-      for (const conta of contas) {
-        const protocolo =
-          input.protocoloEnvio?.trim() ||
-          conta.protocoloEnvioConvenio ||
-          `PROT-AMB-${conta.hospitalEstabelecimentoId}-${(conta.numeroLote || String(conta.id)).slice(0, 20)}`;
+        const now = new Date();
+        const nowStr = toMysqlDateTime(now);
+        const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
 
-        const novoSetor = input.enviarAoConvenioAgora ? "enviado_convenio" : conta.setorAtual;
+        for (const conta of contas) {
+          const protocolo =
+            input.protocoloEnvio?.trim() ||
+            conta.protocoloEnvioConvenio ||
+            `PROT-AMB-${conta.hospitalEstabelecimentoId}-${(conta.numeroLote || String(conta.id)).slice(0, 20)}`;
 
-        await db
-          .update(fabricaErrosConta)
-          .set({ corrigido: "sim", dataCorrecao: nowStr })
-          .where(
-            and(
-              eq(fabricaErrosConta.fabricaContaId, conta.id),
-              eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId),
-              eq(fabricaErrosConta.corrigido, "nao")
-            )
-          );
+          const novoSetor = input.enviarAoConvenioAgora ? "enviado_convenio" : conta.setorAtual;
 
-        await db
-          .update(fabricaContas)
-          .set({
+          await db
+            .update(fabricaErrosConta)
+            .set({ corrigido: "sim", dataCorrecao: nowStr })
+            .where(
+              and(
+                eq(fabricaErrosConta.fabricaContaId, conta.id),
+                eq(fabricaErrosConta.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId),
+                eq(fabricaErrosConta.convenioId, conta.convenioId),
+                eq(fabricaErrosConta.corrigido, "nao")
+              )
+            );
+
+          await atualizarContaAmbulatorialCondicional(db, conta, {
             statusAuditoriaRegras: "revisado",
             totalDivergenciasRegras: 0,
             statusSetor: "concluido",
@@ -3406,113 +3619,72 @@ export const fabricaFaturamentoRouter = router({
               ? input.metodoEnvioConvenio
               : conta.metodoEnvioConvenio,
             dataEnvioConvenio: input.enviarAoConvenioAgora ? nowStr : conta.dataEnvioConvenio,
-          })
-          .where(
-            and(
-              eq(fabricaContas.id, conta.id),
-              eq(fabricaContas.hospitalEstabelecimentoId, conta.hospitalEstabelecimentoId)
-            )
-          );
+          });
 
-        const valorMov =
-          Number(conta.valorFaturadoFinal) > 0
-            ? String(conta.valorFaturadoFinal)
-            : String(conta.valorFaturadoInicial || "0.00");
+          const valorMov =
+            Number(conta.valorFaturadoFinal) > 0
+              ? String(conta.valorFaturadoFinal)
+              : String(conta.valorFaturadoInicial || "0.00");
 
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: conta.id,
-          hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
-          setorOrigem: conta.setorAtual,
-          setorDestino: novoSetor,
-          acao: input.enviarAoConvenioAgora ? "enviado_convenio" : "aprovado",
-          usuarioId: usuario.id,
-          usuarioNome,
-          dataEntradaSetor: nowStr,
-          dataSaidaSetor: nowStr,
-          duracaoSegundos: 0,
-          valorMovimentado: valorMov,
-          observacao: `Divergência ambulatorial revisada/justificada (${input.justificativa.trim()})${input.enviarAoConvenioAgora ? ` e enviada ao convênio (${protocolo})` : ""}.`,
-        });
-      }
-
-      const lotesAfetados = Array.from(
-        new Set(
-          contas
-            .map((c) => (c.numeroLote ? `${c.hospitalEstabelecimentoId}|${c.numeroLote}` : null))
-            .filter(Boolean)
-        )
-      ) as string[];
-
-      let guiasConformesLiberadasJunto = 0;
-      if (input.enviarAoConvenioAgora && lotesAfetados.length > 0) {
-        for (const chave of lotesAfetados) {
-          const [hospIdStr, numLote] = chave.split("|");
-          const hospId = Number(hospIdStr);
-          const irmasLote = await db
-            .select()
-            .from(fabricaContas)
-            .where(
-              and(
-                eq(fabricaContas.hospitalEstabelecimentoId, hospId),
-                eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
-                eq(fabricaContas.numeroLote, numLote)
-              )
-            );
-          const aindaTemDivergente = (irmasLote || []).some(
-            (ir: any) => ir.statusAuditoriaRegras === "divergente"
-          );
-          if (!aindaTemDivergente) {
-            for (const irma of irmasLote || []) {
-              if (irma.setorAtual === "enviado_convenio") continue;
-              const protocolo =
-                input.protocoloEnvio?.trim() ||
-                `PROT-AMB-${hospId}-${numLote.slice(0, 20)}`;
-              await db
-                .update(fabricaContas)
-                .set({
-                  setorAtual: "enviado_convenio",
-                  statusSetor: "concluido",
-                  entradaSetorAtualEm: now,
-                  protocoloEnvioConvenio: protocolo,
-                  metodoEnvioConvenio: input.metodoEnvioConvenio,
-                  dataEnvioConvenio: nowStr,
-                })
-                .where(
-                  and(
-                    eq(fabricaContas.id, irma.id),
-                    eq(fabricaContas.hospitalEstabelecimentoId, hospId)
-                  )
-                );
-              await db.insert(fabricaHistoricoFluxo).values({
-                fabricaContaId: irma.id,
-                hospitalEstabelecimentoId: hospId,
-                setorOrigem: irma.setorAtual,
-                setorDestino: "enviado_convenio",
-                acao: "enviado_convenio",
-                usuarioId: usuario.id,
-                usuarioNome,
-                dataEntradaSetor: nowStr,
-                dataSaidaSetor: nowStr,
-                duracaoSegundos: 0,
-                valorMovimentado: String(
-                  irma.valorFaturadoFinal || irma.valorFaturadoInicial || "0.00"
-                ),
-                observacao: `Lote Ambulatorial #${numLote} desbloqueado após revisão das divergências e enviado ao convênio (${protocolo}).`,
-              });
-              guiasConformesLiberadasJunto++;
-            }
-          }
+          await db.insert(fabricaHistoricoFluxo).values({
+            fabricaContaId: conta.id,
+            hospitalEstabelecimentoId: conta.hospitalEstabelecimentoId,
+            setorOrigem: conta.setorAtual,
+            setorDestino: novoSetor,
+            acao: input.enviarAoConvenioAgora ? "enviado_convenio" : "aprovado",
+            usuarioId: usuario.id,
+            usuarioNome,
+            dataEntradaSetor: nowStr,
+            dataSaidaSetor: nowStr,
+            duracaoSegundos: 0,
+            valorMovimentado: valorMov,
+            observacao: `Divergência ambulatorial revisada/justificada (${input.justificativa.trim()})${input.enviarAoConvenioAgora ? ` e enviada ao convênio (${protocolo})` : ""}.`,
+          });
         }
-      }
 
-      return {
-        sucesso: true,
-        totalRevisadas: contas.length,
-        guiasConformesLiberadasJunto,
-        mensagem: input.enviarAoConvenioAgora
-          ? `${contas.length} guia(s) justificada(s)${guiasConformesLiberadasJunto > 0 ? ` + ${guiasConformesLiberadasJunto} guia(s) conforme(s) do lote` : ""} liberada(s) para Envio ao Convênio!`
-          : `${contas.length} guia(s) marcada(s) como Revisadas/Conformes!`,
-      };
+        let guiasConformesLiberadasJunto = 0;
+        for (const irma of irmasParaLiberar.values()) {
+          const hospId = irma.hospitalEstabelecimentoId;
+          const numLote = irma.numeroLote;
+          const protocolo =
+            input.protocoloEnvio?.trim() ||
+            `PROT-AMB-${hospId}-${numLote.slice(0, 20)}`;
+          await atualizarContaAmbulatorialCondicional(db, irma, {
+            setorAtual: "enviado_convenio",
+            statusSetor: "concluido",
+            entradaSetorAtualEm: now,
+            protocoloEnvioConvenio: protocolo,
+            metodoEnvioConvenio: input.metodoEnvioConvenio,
+            dataEnvioConvenio: nowStr,
+          });
+          await db.insert(fabricaHistoricoFluxo).values({
+            fabricaContaId: irma.id,
+            hospitalEstabelecimentoId: hospId,
+            setorOrigem: irma.setorAtual,
+            setorDestino: "enviado_convenio",
+            acao: "enviado_convenio",
+            usuarioId: usuario.id,
+            usuarioNome,
+            dataEntradaSetor: nowStr,
+            dataSaidaSetor: nowStr,
+            duracaoSegundos: 0,
+            valorMovimentado: String(
+              irma.valorFaturadoFinal || irma.valorFaturadoInicial || "0.00"
+            ),
+            observacao: `Lote Ambulatorial #${numLote} desbloqueado após revisão das divergências e enviado ao convênio (${protocolo}).`,
+          });
+          guiasConformesLiberadasJunto++;
+        }
+
+        return {
+          sucesso: true,
+          totalRevisadas: contas.length,
+          guiasConformesLiberadasJunto,
+          mensagem: input.enviarAoConvenioAgora
+            ? `${contas.length} guia(s) justificada(s)${guiasConformesLiberadasJunto > 0 ? ` + ${guiasConformesLiberadasJunto} guia(s) conforme(s) do lote` : ""} liberada(s) para Envio ao Convênio!`
+            : `${contas.length} guia(s) marcada(s) como Revisadas/Justificadas!`,
+        };
+      });
     }),
 
   // ============================================================
@@ -3522,7 +3694,10 @@ export const fabricaFaturamentoRouter = router({
     .input(
       z.object({
         hospitalEstabelecimentoId: z.number().positive(),
+        convenioId: z.number().int().positive(),
         numeroLote: z.string().min(1),
+        competencia: competenciaAmbulatorialSchema,
+        arquivoXmlFinalId: z.number().int().positive(),
         metodoEnvioConvenio: z
           .enum(["manual", "rpa_portal", "webservice_tiss"])
           .default("rpa_portal"),
@@ -3532,93 +3707,70 @@ export const fabricaFaturamentoRouter = router({
     .mutation(async ({ input, ctx }) => {
       const usuario = usuarioFabrica(ctx);
       await resolverEscopoFabrica(usuario, input.hospitalEstabelecimentoId, "editar");
-      const db = await obterDbFabrica();
-      await exigirSetorColaborador(
-        db,
-        usuario,
-        ["faturamento", "auditoria_interna", "limpeza_prontuario", "recursos"],
-        [input.hospitalEstabelecimentoId]
-      );
-
-      const contasLote = await db
-        .select()
-        .from(fabricaContas)
-        .where(
-          and(
-            eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId),
-            eq(fabricaContas.tipoAtendimento, "ambulatorio_sadt"),
-            eq(fabricaContas.numeroLote, input.numeroLote.trim())
-          )
-        );
-
-      if (!contasLote.length) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Nenhuma guia encontrada para este lote ambulatorial.",
+      const dbOuter = await obterDbFabrica();
+      return dbOuter.transaction(async (db) => {
+        const contasLote = await carregarLoteAmbulatorialBloqueado(db, {
+          hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
+          convenioId: input.convenioId,
+          numeroLote: input.numeroLote.trim(),
+          competencia: input.competencia,
+          arquivoXmlFinalId: input.arquivoXmlFinalId,
         });
-      }
 
-      const divergentesPendentes = contasLote.filter(
-        (c) => c.statusAuditoriaRegras === "divergente"
-      );
-      if (divergentesPendentes.length > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Este lote ainda possui ${divergentesPendentes.length} guia(s) com divergência pendente. Corrija/reimporte o XML ou justifique as divergências antes de liberar o lote.`,
-        });
-      }
+        if (!contasLote.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Nenhuma guia encontrada para este lote ambulatorial.",
+          });
+        }
 
-      const now = new Date();
-      const nowStr = toMysqlDateTime(now);
-      const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
-      const protocolo =
-        input.protocoloEnvio?.trim() ||
-        `PROT-AMB-${input.hospitalEstabelecimentoId}-${input.numeroLote.trim().slice(0, 20)}`;
+        await autorizarContasAmbulatoriais(db, usuario, contasLote);
+        for (const conta of contasLote) exigirEstadoAmbulatorial(conta, "liberar");
 
-      let liberadas = 0;
-      for (const conta of contasLote) {
-        if (conta.setorAtual === "enviado_convenio") continue;
-        await db
-          .update(fabricaContas)
-          .set({
+        const now = new Date();
+        const nowStr = toMysqlDateTime(now);
+        const usuarioNome = ctx.user.name || ctx.user.email || `Usuário #${usuario.id}`;
+        const protocolo =
+          input.protocoloEnvio?.trim() ||
+          `PROT-AMB-${input.hospitalEstabelecimentoId}-${input.numeroLote.trim().slice(0, 20)}`;
+
+        let liberadas = 0;
+        for (const conta of contasLote) {
+          if (conta.setorAtual === "enviado_convenio") continue;
+          await atualizarContaAmbulatorialCondicional(db, conta, {
             setorAtual: "enviado_convenio",
             statusSetor: "concluido",
             entradaSetorAtualEm: now,
             protocoloEnvioConvenio: protocolo,
             metodoEnvioConvenio: input.metodoEnvioConvenio,
             dataEnvioConvenio: nowStr,
-          })
-          .where(
-            and(
-              eq(fabricaContas.id, conta.id),
-              eq(fabricaContas.hospitalEstabelecimentoId, input.hospitalEstabelecimentoId)
-            )
-          );
-        await db.insert(fabricaHistoricoFluxo).values({
-          fabricaContaId: conta.id,
-          hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
-          setorOrigem: conta.setorAtual,
-          setorDestino: "enviado_convenio",
-          acao: "enviado_convenio",
-          usuarioId: usuario.id,
-          usuarioNome,
-          dataEntradaSetor: nowStr,
-          dataSaidaSetor: nowStr,
-          duracaoSegundos: 0,
-          valorMovimentado: String(
-            conta.valorFaturadoFinal || conta.valorFaturadoInicial || "0.00"
-          ),
-          observacao: `Lote Ambulatorial #${input.numeroLote} liberado para Envio ao Convênio (${protocolo}).`,
-        });
-        liberadas++;
-      }
+          });
+          await db.insert(fabricaHistoricoFluxo).values({
+            fabricaContaId: conta.id,
+            hospitalEstabelecimentoId: input.hospitalEstabelecimentoId,
+            setorOrigem: conta.setorAtual,
+            setorDestino: "enviado_convenio",
+            acao: "enviado_convenio",
+            usuarioId: usuario.id,
+            usuarioNome,
+            dataEntradaSetor: nowStr,
+            dataSaidaSetor: nowStr,
+            duracaoSegundos: 0,
+            valorMovimentado: String(
+              conta.valorFaturadoFinal || conta.valorFaturadoInicial || "0.00"
+            ),
+            observacao: `Lote Ambulatorial #${input.numeroLote} liberado para Envio ao Convênio (${protocolo}).`,
+          });
+          liberadas++;
+        }
 
-      return {
-        sucesso: true,
-        totalLiberadas: liberadas,
-        protocoloEnvio: protocolo,
-        mensagem: `Lote Ambulatorial #${input.numeroLote} (${liberadas} guia(s)) enviado ao convênio com sucesso! Protocolo: ${protocolo}`,
-      };
+        return {
+          sucesso: true,
+          totalLiberadas: liberadas,
+          protocoloEnvio: protocolo,
+          mensagem: `Lote Ambulatorial #${input.numeroLote} (${liberadas} guia(s)) enviado ao convênio com sucesso! Protocolo: ${protocolo}`,
+        };
+      });
     }),
 
   meuDesempenhoSetor: fabricaProcedure

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,15 +111,34 @@ export default function EsteiraAmbulatorialPanel({
 
   // Filtros da Esteira Ambulatorial
   const [loteSelecionado, setLoteSelecionado] = useState<string>("todos");
+  const [identidadeLoteSelecionado, setIdentidadeLoteSelecionado] = useState<{
+    hospitalEstabelecimentoId: number;
+    convenioId: number;
+    numeroLote: string;
+    competencia: string;
+    arquivoXmlFinalId: number;
+  } | null>(null);
   const [filtroConformidade, setFiltroConformidade] = useState<
     "todas" | "divergentes" | "conformes" | "revisadas" | "enviadas"
   >("todas");
   const [buscaGuia, setBuscaGuia] = useState<string>("");
   const [guiasSelecionadas, setGuiasSelecionadas] = useState<number[]>([]);
 
+  useEffect(() => {
+    setLoteSelecionado("todos");
+    setIdentidadeLoteSelecionado(null);
+    setGuiasSelecionadas([]);
+  }, [hospitalFiltroGlobal, convenioFiltroGlobal]);
+
   // Modal de Justificativa / Liberação de Divergência
   const [modalJustificativaOpen, setModalJustificativaOpen] = useState<boolean>(false);
   const [contasAlvoJustificativa, setContasAlvoJustificativa] = useState<number[]>([]);
+  const [snapshotsAlvoJustificativa, setSnapshotsAlvoJustificativa] = useState<Array<{
+    contaId: number;
+    arquivoXmlFinalId: number;
+    contaConvenioResumoId: number;
+    updatedAt: string;
+  }>>([]);
   const [textoJustificativa, setTextoJustificativa] = useState<string>("");
   const [enviarAposJustificar, setEnviarAposJustificar] = useState<boolean>(true);
   const [protocoloLiberacao, setProtocoloLiberacao] = useState<string>("");
@@ -146,9 +165,11 @@ export default function EsteiraAmbulatorialPanel({
     refetch: refetchGuias,
   } = trpc.fabricaFaturamento.listarContas.useQuery({
     tipoAtendimento: "ambulatorio_sadt",
-    hospitalEstabelecimentoId: hospitalQueryId,
-    convenioId: convenioQueryId,
+    hospitalEstabelecimentoId: identidadeLoteSelecionado?.hospitalEstabelecimentoId ?? hospitalQueryId,
+    convenioId: identidadeLoteSelecionado?.convenioId ?? convenioQueryId,
     numeroLote: loteSelecionado !== "todos" ? loteSelecionado : undefined,
+    competenciaAmbulatorial: identidadeLoteSelecionado?.competencia,
+    arquivoXmlFinalId: identidadeLoteSelecionado?.arquivoXmlFinalId,
     setorAtual: filtroConformidade === "enviadas" ? "enviado_convenio" : undefined,
     statusAuditoriaRegras:
       filtroConformidade === "divergentes"
@@ -178,7 +199,8 @@ export default function EsteiraAmbulatorialPanel({
         setUltimoResultadoImportacao(res);
         setArquivoXmlLote(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
-        setLoteSelecionado(res.numeroLote);
+        setLoteSelecionado("todos");
+        setIdentidadeLoteSelecionado(null);
         if (res.guiasDivergentes > 0) {
           setFiltroConformidade("divergentes");
           toast.warning(res.mensagem);
@@ -199,6 +221,7 @@ export default function EsteiraAmbulatorialPanel({
         setModalJustificativaOpen(false);
         setTextoJustificativa("");
         setContasAlvoJustificativa([]);
+        setSnapshotsAlvoJustificativa([]);
         setFiltroConformidade("todas");
         recarregarTudoAmbulatorial();
       },
@@ -235,6 +258,10 @@ export default function EsteiraAmbulatorialPanel({
       toast.error("Selecione o arquivo XML do lote ambulatorial.");
       return;
     }
+    if (impNumeroLoteManual.trim().length > 20) {
+      toast.error("Nº do lote deve ter no máximo 20 caracteres. Corrija antes de importar o XML.");
+      return;
+    }
     const base64 = await fileToBase64(arquivoXmlLote);
     const convSelecionado =
       impConvenioId && impConvenioId !== "auto"
@@ -260,7 +287,24 @@ export default function EsteiraAmbulatorialPanel({
       toast.error("Selecione pelo menos uma guia com divergência.");
       return;
     }
-    setContasAlvoJustificativa(ids);
+    const idsUnicos = [...new Set(ids)];
+    const snapshots = idsUnicos.map(contaId => {
+      const guia = guiasData?.contas.find((g: { id: number }) => g.id === contaId);
+      if (!guia?.arquivoXmlFinalId || !guia.contaConvenioResumoId || !guia.updatedAt) return null;
+      return {
+        contaId,
+        arquivoXmlFinalId: Number(guia.arquivoXmlFinalId),
+        contaConvenioResumoId: Number(guia.contaConvenioResumoId),
+        updatedAt: guia.updatedAt,
+      };
+    });
+    if (snapshots.some(snapshot => snapshot === null)) {
+      toast.error("Snapshot indisponível. Atualize a esteira e selecione as guias novamente.");
+      return;
+    }
+    // Copiar apenas valores da versão exibida; refetch enquanto o modal está aberto não os altera.
+    setSnapshotsAlvoJustificativa(snapshots.filter((snapshot): snapshot is NonNullable<typeof snapshot> => snapshot !== null));
+    setContasAlvoJustificativa(idsUnicos);
     setTextoJustificativa("");
     setEnviarAposJustificar(true);
     setModalJustificativaOpen(true);
@@ -273,6 +317,7 @@ export default function EsteiraAmbulatorialPanel({
     }
     justificarMutation.mutate({
       contaIds: contasAlvoJustificativa,
+      expectedSnapshots: snapshotsAlvoJustificativa,
       justificativa: textoJustificativa.trim(),
       enviarAoConvenioAgora: enviarAposJustificar,
       metodoEnvioConvenio: impMetodoEnvio,
@@ -292,7 +337,10 @@ export default function EsteiraAmbulatorialPanel({
   }, [convenios, impHospitalId]);
 
   const guiasDivergentesVisiveis = useMemo(
-    () => guias.filter((g: any) => g.statusAuditoriaRegras === "divergente"),
+    () => guias.filter((g: any) => g.statusAuditoriaRegras === "divergente"
+      && Number(g.totalDivergenciasRegras) > 0
+      && ["devolvido_erro", "em_andamento"].includes(g.statusSetor)
+      && ["recepcao", "faturamento", "auditoria_interna", "auditoria_externa", "limpeza_prontuario"].includes(g.setorAtual)),
     [guias]
   );
 
@@ -356,10 +404,11 @@ export default function EsteiraAmbulatorialPanel({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label>Nº do Lote (Opcional)</Label>
+                  <Label>Nº do Lote (Opcional, máximo 20 caracteres)</Label>
                   <Input
                     value={impNumeroLoteManual}
                     onChange={(e) => setImpNumeroLoteManual(e.target.value)}
+                    maxLength={20}
                     placeholder="Extraído automático do XML..."
                   />
                 </div>
@@ -541,7 +590,11 @@ export default function EsteiraAmbulatorialPanel({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setLoteSelecionado("todos")}
+                  onClick={() => {
+                    setLoteSelecionado("todos");
+                    setIdentidadeLoteSelecionado(null);
+                    setGuiasSelecionadas([]);
+                  }}
                 >
                   Mostrar Todos os Lotes
                 </Button>
@@ -570,17 +623,32 @@ export default function EsteiraAmbulatorialPanel({
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {lotes.map((lote: any) => {
-                const selecionado = loteSelecionado === lote.numeroLote;
-                const temErro = lote.guiasDivergentes > 0;
+                const identidade = {
+                  hospitalEstabelecimentoId: lote.hospitalEstabelecimentoId,
+                  convenioId: lote.convenioId,
+                  numeroLote: lote.numeroLote,
+                  competencia: lote.competencia,
+                  arquivoXmlFinalId: lote.arquivoXmlFinalId,
+                };
+                const identidadeSegura = Boolean(lote.convenioId && lote.competencia && lote.arquivoXmlFinalId);
+                const chave = JSON.stringify(identidade);
+                const selecionado = chave === JSON.stringify(identidadeLoteSelecionado);
+                const temErro = lote.guiasDivergentes > 0 || lote.guiasInelegiveis > 0;
                 const jaEnviado = lote.statusLote === "enviado_convenio";
 
                 return (
                   <div
-                    key={`${lote.hospitalEstabelecimentoId}-${lote.numeroLote}`}
+                    key={chave}
                     onClick={() => {
+                      if (!identidadeSegura) {
+                        toast.error("Lote sem identidade XML segura. Revise a vinculação antes de operar.");
+                        return;
+                      }
                       setLoteSelecionado(
                         selecionado ? "todos" : String(lote.numeroLote)
                       );
+                      setIdentidadeLoteSelecionado(selecionado ? null : identidade);
+                      setGuiasSelecionadas([]);
                       if (temErro) {
                         setFiltroConformidade("divergentes");
                       } else {
@@ -601,6 +669,9 @@ export default function EsteiraAmbulatorialPanel({
                         <div className="text-xs text-muted-foreground truncate max-w-[190px]">
                           {lote.convenioNome} • {lote.hospitalNome}
                         </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {lote.competencia || "Snapshot indisponível"} • XML #{lote.arquivoXmlFinalId || "-"}
+                        </div>
                       </div>
                       {jaEnviado ? (
                         <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px]">
@@ -608,7 +679,7 @@ export default function EsteiraAmbulatorialPanel({
                         </Badge>
                       ) : temErro ? (
                         <Badge variant="destructive" className="text-[10px]">
-                          {lote.guiasDivergentes} c/ Erro
+                          {lote.guiasDivergentes > 0 ? `${lote.guiasDivergentes} c/ Erro` : "Pendente"}
                         </Badge>
                       ) : (
                         <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-[10px]">
@@ -646,13 +717,11 @@ export default function EsteiraAmbulatorialPanel({
                         <Button
                           size="sm"
                           className="w-full h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                          disabled={liberarLoteMutation.isPending}
+                          disabled={liberarLoteMutation.isPending || !identidadeSegura}
                           onClick={(e) => {
                             e.stopPropagation();
                             liberarLoteMutation.mutate({
-                              hospitalEstabelecimentoId:
-                                lote.hospitalEstabelecimentoId,
-                              numeroLote: lote.numeroLote,
+                              ...identidade,
                               metodoEnvioConvenio: impMetodoEnvio,
                             });
                           }}
@@ -798,12 +867,12 @@ export default function EsteiraAmbulatorialPanel({
                       <input
                         type="checkbox"
                         checked={
-                          guias.length > 0 &&
-                          guiasSelecionadas.length === guias.length
+                          guiasDivergentesVisiveis.length > 0 &&
+                          guiasDivergentesVisiveis.every((g: any) => guiasSelecionadas.includes(g.id))
                         }
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setGuiasSelecionadas(guias.map((g: any) => g.id));
+                            setGuiasSelecionadas(guiasDivergentesVisiveis.map((g: any) => g.id));
                           } else {
                             setGuiasSelecionadas([]);
                           }
@@ -842,6 +911,7 @@ export default function EsteiraAmbulatorialPanel({
                           <input
                             type="checkbox"
                             checked={checked}
+                            disabled={!guiasDivergentesVisiveis.some((guia: any) => guia.id === g.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
                                 setGuiasSelecionadas((prev) => [...prev, g.id]);
@@ -979,7 +1049,7 @@ export default function EsteiraAmbulatorialPanel({
                               </Button>
                             )}
 
-                            {isDivergente && (
+                            {guiasDivergentesVisiveis.some((guia: any) => guia.id === g.id) && (
                               <Button
                                 size="sm"
                                 variant="outline"

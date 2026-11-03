@@ -65,8 +65,17 @@ function parseNumber(value: unknown): number | undefined {
  * Parse date from string
  * Supports Brazilian format DD/MM/YYYY and ISO format YYYY-MM-DD
  */
+function dataLocalEstrita(year: number, month: number, day: number, hour = 12, minute = 0, second = 0): Date | undefined {
+  const date = new Date(year, month, day, hour, minute, second);
+  if (!Number.isFinite(date.getTime()) || date.getFullYear() !== year || date.getMonth() !== month ||
+      date.getDate() !== day || date.getHours() !== hour || date.getMinutes() !== minute || date.getSeconds() !== second) {
+    return undefined;
+  }
+  return date;
+}
+
 function parseDate(value: unknown): Date | undefined {
-  const str = getTextValue(value);
+  const str = getTextValue(value)?.trim();
   if (!str) return undefined;
   
   // Try to detect Brazilian format DD/MM/YYYY
@@ -75,8 +84,7 @@ function parseDate(value: unknown): Date | undefined {
     const day = parseInt(brMatch[1], 10);
     const month = parseInt(brMatch[2], 10) - 1; // Month is 0-indexed
     const year = parseInt(brMatch[3], 10);
-    const date = new Date(year, month, day, 12, 0, 0);
-    return isNaN(date.getTime()) ? undefined : date;
+    return dataLocalEstrita(year, month, day);
   }
   
   // Try to detect Brazilian format DD/MM/YYYY HH:MM:SS
@@ -88,8 +96,7 @@ function parseDate(value: unknown): Date | undefined {
     const hour = parseInt(brMatchTime[4], 10);
     const minute = parseInt(brMatchTime[5], 10);
     const second = brMatchTime[6] ? parseInt(brMatchTime[6], 10) : 0;
-    const date = new Date(year, month, day, hour, minute, second);
-    return isNaN(date.getTime()) ? undefined : date;
+    return dataLocalEstrita(year, month, day, hour, minute, second);
   }
   
   // Fallback to standard Date parsing (ISO format, etc.)
@@ -100,10 +107,14 @@ function parseDate(value: unknown): Date | undefined {
     const year = parseInt(isoDateMatch[1], 10);
     const month = parseInt(isoDateMatch[2], 10) - 1;
     const day = parseInt(isoDateMatch[3], 10);
-    const date = new Date(year, month, day, 12, 0, 0);
-    return isNaN(date.getTime()) ? undefined : date;
+    return dataLocalEstrita(year, month, day);
   }
 
+  // O parse ISO com horário também normaliza dias inexistentes; validar o calendário antes de perder a forma original.
+  const isoCalendar = str.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if (isoCalendar && !dataLocalEstrita(Number(isoCalendar[1]), Number(isoCalendar[2]) - 1, Number(isoCalendar[3]))) {
+    return undefined;
+  }
   // Fallback to standard Date parsing (ISO format, etc.)
   const date = new Date(str);
   return isNaN(date.getTime()) ? undefined : date;

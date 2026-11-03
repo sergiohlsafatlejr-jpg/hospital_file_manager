@@ -1,6 +1,7 @@
+import { TRPCError } from "@trpc/server";
+import { normalizarDataExecucao, selecionarPrecosAplicaveis, type PrecoAplicavel } from "../contratosPrecoAplicavel";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import {
-  convenios,
   itensRegraNegocio,
   regrasNegocio,
   tabelasPreco,
@@ -8,9 +9,15 @@ import {
 import type { ParsedProcedimento } from "../parsers";
 import {
   compararItensComPadroes,
+  resolverConvenioIdParaConta,
   type Divergencia,
   type ItemParaComparacao,
 } from "./comparadorPadroes";
+
+/** Sem causa bruta: o importador deve deixar esse erro abortar a transação. */
+function falhaValidacaoAmbulatorial(): TRPCError {
+  return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir a validação ambulatorial. Nenhuma guia foi liberada." });
+}
 
 export interface ErroValidacaoAmbulatorial {
   tipoErro:
@@ -51,7 +58,7 @@ export interface ContextoRegrasConvenioAmbulatorial {
   exigirSenhaSadt?: boolean;
   mapaPrecosPorCodigo: Map<
     string,
-    { codigo: string; nome: string; valor: number; proprioHospital: boolean }
+    PrecoAplicavel[]
   >;
   regrasAtivas: Array<{
     id: number;
@@ -101,10 +108,13 @@ export async function carregarContextoRegrasConvenioAmbulatorial(
     exigirSenhaSadt?: boolean;
   }
 ): Promise<ContextoRegrasConvenioAmbulatorial> {
-  const mapaPrecosPorCodigo = new Map<
-    string,
-    { codigo: string; nome: string; valor: number; proprioHospital: boolean }
-  >();
+  const mapaPrecosPorCodigo = new Map<string, PrecoAplicavel[]>();
+  try {
+    const convenioId = await resolverConvenioIdParaConta(db, params.hospitalEstabId, params.convenioNome, undefined, params.convenioId);
+    if (convenioId !== params.convenioId) throw new Error("convenio_invalido");
+  } catch {
+    throw falhaValidacaoAmbulatorial();
+  }
 
   try {
     const precosRows = await db
@@ -121,32 +131,26 @@ export async function carregarContextoRegrasConvenioAmbulatorial(
         )
       );
 
-    for (const row of precosRows || []) {
+    if (!Array.isArray(precosRows)) throw new Error("precos_indisponiveis");
+    for (const row of precosRows) {
       const codBruto = String(row.codigo || "").trim();
-      if (!codBruto) continue;
-      const valorNum = Number(row.valor);
-      if (!Number.isFinite(valorNum) || valorNum <= 0) continue;
-
-      const proprioHospital =
-        Number(row.estabelecimentoId) === Number(params.hospitalEstabId);
-      const chaves = [codBruto, normalizarCodigoProcedimento(codBruto)].filter(
-        Boolean
-      );
-
-      for (const chave of chaves) {
-        const existente = mapaPrecosPorCodigo.get(chave);
-        if (!existente || (proprioHospital && !existente.proprioHospital)) {
-          mapaPrecosPorCodigo.set(chave, {
-            codigo: codBruto,
-            nome: String(row.nome || codBruto),
-            valor: valorNum,
-            proprioHospital,
-          });
-        }
+      if (!codBruto || !Number.isFinite(Number(row.valor)) || Number(row.valor) <= 0) continue;
+      // Portes não são valores unitários faturáveis.
+      if (row.procedimentoFonte === "preco_portes" || row.procedimentoFonte === "porte_anestesico") continue;
+      const preco: PrecoAplicavel = {
+        ...row, codigo: codBruto,
+        vigenciaInicio: normalizarDataExecucao(row.vigenciaInicio)
+          ? row.vigenciaInicio instanceof Date ? row.vigenciaInicio : new Date(String(row.vigenciaInicio))
+          : new Date(NaN),
+      };
+      for (const chave of new Set([codBruto, normalizarCodigoProcedimento(codBruto)].filter(Boolean))) {
+        const versoes = mapaPrecosPorCodigo.get(chave) ?? [];
+        versoes.push(preco);
+        mapaPrecosPorCodigo.set(chave, versoes);
       }
     }
   } catch {
-    // Em ambientes de teste com mock parcial sem tabelasPreco, segue sem bloquear
+    throw falhaValidacaoAmbulatorial();
   }
 
   const regrasAtivas: ContextoRegrasConvenioAmbulatorial["regrasAtivas"] = [];
@@ -168,7 +172,8 @@ export async function carregarContextoRegrasConvenioAmbulatorial(
         )
       );
 
-    if (Array.isArray(regrasRows) && regrasRows.length > 0) {
+    if (!Array.isArray(regrasRows)) throw new Error("regras_indisponiveis");
+    if (regrasRows.length > 0) {
       const regraIds = regrasRows
         .map((r: any) => Number(r.id))
         .filter((id: number) => Number.isFinite(id) && id > 0);
@@ -181,6 +186,7 @@ export async function carregarContextoRegrasConvenioAmbulatorial(
               .where(inArray(itensRegraNegocio.regraId, regraIds))
           : [];
 
+      if (!Array.isArray(itensRows)) throw new Error("itens_regra_indisponiveis");
       const itensPorRegra = new Map<number, any[]>();
       for (const item of itensRows || []) {
         const rId = Number(item.regraId);
@@ -221,7 +227,7 @@ export async function carregarContextoRegrasConvenioAmbulatorial(
       }
     }
   } catch {
-    // Em ambientes de teste com mock parcial sem regrasNegocio, segue sem bloquear
+    throw falhaValidacaoAmbulatorial();
   }
 
   return {
@@ -254,6 +260,9 @@ export async function validarGuiaAmbulatorial(
     lotePossuiGuiasComSenha?: boolean;
   }
 ): Promise<ResultadoValidacaoGuiaAmbulatorial> {
+  if (guia.itensPadronizados.some(item => item.convenioId != null && item.convenioId !== contexto.convenioId)) {
+    throw falhaValidacaoAmbulatorial();
+  }
   const erros: ErroValidacaoAmbulatorial[] = [];
   const divergenciasPadrao: Divergencia[] = [];
 
@@ -367,9 +376,14 @@ export async function validarGuiaAmbulatorial(
   for (const proc of guia.procedimentos) {
     const codBruto = String(proc.codigo || "").trim();
     const codNorm = normalizarCodigoProcedimento(codBruto);
-    const precoContratado =
-      contexto.mapaPrecosPorCodigo.get(codBruto) ||
-      contexto.mapaPrecosPorCodigo.get(codNorm);
+    const candidatos = contexto.mapaPrecosPorCodigo.get(codBruto) || contexto.mapaPrecosPorCodigo.get(codNorm) || [];
+    const dataReferencia = normalizarDataExecucao(proc.dataExecucao);
+    if (candidatos.length > 0 && !dataReferencia) throw falhaValidacaoAmbulatorial();
+    const precoSelecionado = dataReferencia ? selecionarPrecosAplicaveis(candidatos, {
+      estabelecimentoId: contexto.hospitalEstabId, convenioId: contexto.convenioId,
+      dataReferencia, codigos: candidatos.map(preco => preco.codigo),
+    })[0] : undefined;
+    const precoContratado = precoSelecionado ? { ...precoSelecionado, valor: Number(precoSelecionado.valor) } : undefined;
 
     if (precoContratado) {
       const qtd = Number(proc.quantidade) || 1;
@@ -518,9 +532,10 @@ export async function validarGuiaAmbulatorial(
       numeroConta: guia.numeroGuia,
       estabelecimentoId: contexto.hospitalEstabId,
       convenio: contexto.convenioNome,
-      itens: guia.itensPadronizados,
+      itens: guia.itensPadronizados.map(item => ({ ...item, convenioId: contexto.convenioId })),
       banco: db,
     });
+    if (resultadoPadroes.statusGeral === "incompleta") throw falhaValidacaoAmbulatorial();
     scoreRisco = resultadoPadroes.scoreRisco?.score || 0;
 
     for (const div of resultadoPadroes.divergencias || []) {
@@ -558,7 +573,7 @@ export async function validarGuiaAmbulatorial(
       });
     }
   } catch {
-    // Em ambientes de teste com mock parcial sem padroesCobranca, mantém erros já coletados
+    throw falhaValidacaoAmbulatorial();
   }
 
   const totalDivergencias = erros.length;

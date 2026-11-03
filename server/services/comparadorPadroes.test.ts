@@ -7,6 +7,7 @@ vi.mock("../db", () => ({
 }));
 
 import { getDb } from "../db";
+import { contasConvenioItens, convenios, convenioMapeamento, tabelasPreco } from "../../drizzle/schema";
 import { compararItensComPadroes, executarComparacaoESalvar } from "./comparadorPadroes";
 
 describe("compararItensComPadroes", () => {
@@ -36,7 +37,7 @@ describe("compararItensComPadroes", () => {
     expect(resultado.divergencias).toMatchObject([
       { tipo: "COMPOSICAO", severidade: "aviso" },
     ]);
-    expect(resultado.statusGeral).toBe("conforme");
+    expect(resultado.statusGeral).toBe("incompleta");
   });
 
   it("retorna resultado vazio determinístico para uma conta publicada sem itens", async () => {
@@ -50,7 +51,7 @@ describe("compararItensComPadroes", () => {
     expect(resultado).toMatchObject({
       totalItensAnalisados: 0,
       totalDivergencias: 0,
-      statusGeral: "conforme",
+      statusGeral: "incompleta",
       setoresAnalisados: [],
     });
   });
@@ -64,8 +65,10 @@ describe("compararItensComPadroes", () => {
 
     let selectCall = 0;
     const selectMock = vi.fn().mockImplementation(() => ({
-      from: () => ({
+      from: (table: unknown) => ({
         where: () => {
+          if (table === convenios) return Promise.resolve([{ id: 10, nome: "SULAMERICA", estabelecimentoId: 1, ativo: "sim" }]);
+          if (table !== contasConvenioItens) return Promise.resolve([]);
           selectCall++;
           if (selectCall === 1) {
             // 1ª chamada: itens da conta em compararContaComPadroes
@@ -266,23 +269,16 @@ describe("compararItensComPadroes", () => {
       },
     ];
 
-    let whereCall = 0;
     const bancoMock = {
       select: () => ({
-        from: () => ({
-          where: () => {
-            whereCall++;
-            if (whereCall <= 4) return Promise.resolve([]);
-            if (whereCall === 5) {
-              return Promise.resolve([
-                { convenioId: 10, nomeOrigem: "UNIMED CATALAO", codigoOrigem: "001" },
-              ]);
-            }
-            if (whereCall === 6) {
-              return Promise.resolve(tabelaPrecosRows);
-            }
-            return Promise.resolve([]);
-          },
+        from: (table: unknown) => ({
+          where: () => Promise.resolve(table === convenios
+            ? [{ id: 10, nome: "UNIMED CATALAO", estabelecimentoId: 1, ativo: "sim" }]
+            : table === convenioMapeamento
+              ? [{ convenioId: 10, nomeOrigem: "UNIMED CATALAO", codigoOrigem: "001" }]
+              : table === tabelasPreco
+                ? tabelaPrecosRows.map(preco => ({ ...preco, ativo: "sim", porte: null }))
+                : []),
         }),
       }),
     };
@@ -294,6 +290,7 @@ describe("compararItensComPadroes", () => {
       banco: bancoMock as any,
       itens: [
         {
+          dataExecucao: "2026-10-15",
           codigoItem: "INT-999",
           codigoItemTuss: "031102360",
           descricaoItem: "Ureterorrenolitotripsia",
@@ -304,6 +301,7 @@ describe("compararItensComPadroes", () => {
           setor: "CENTRO CIRURGICO",
         },
         {
+          dataExecucao: "2026-10-15",
           codigoItem: "1001",
           codigoItemTuss: null,
           descricaoItem: "Diária de Apartamento",
@@ -314,6 +312,7 @@ describe("compararItensComPadroes", () => {
           setor: "INTERNACAO",
         },
         {
+          dataExecucao: "2026-10-15",
           codigoItem: "60023155",
           codigoItemTuss: null,
           descricaoItem: "Taxa de Sala Cirúrgica",
@@ -324,6 +323,7 @@ describe("compararItensComPadroes", () => {
           setor: "CENTRO CIRURGICO",
         },
         {
+          dataExecucao: "2026-10-15",
           codigoItem: "90008332",
           codigoItemTuss: "90008332",
           descricaoItem: "Fio Cirúrgico",

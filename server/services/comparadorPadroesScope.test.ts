@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
-import { contasConvenioResumo } from "../../drizzle/schema";
+import { contasConvenioItens, contasConvenioResumo, convenios } from "../../drizzle/schema";
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), where: vi.fn(), select: vi.fn() }));
 vi.mock("../db", () => ({ getDb: mocks.getDb }));
 vi.mock("../_core/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -63,7 +63,12 @@ describe("comparação usa hospital proprietário concreto", () => {
   });
   it("persiste o resumo apenas na tupla XML completa, nunca em arquivo nulo", async () => {
     const updates: { table: unknown; condition: unknown }[] = [];
-    mocks.where.mockResolvedValue([{ id: 7, codigoItem: "ITEM-TESTE", convenio: null }]);
+    mocks.select.mockImplementation(() => ({ from: (table: unknown) => ({ where: async (condition: unknown) => {
+      mocks.where(condition);
+      if (table === convenios) return [{ id: 77, nome: "CONVENIO-TESTE", estabelecimentoId: 101, ativo: "sim" }];
+      if (table === contasConvenioItens) return [{ id: 7, codigoItem: "ITEM-TESTE", convenio: "CONVENIO-TESTE", convenioId: 77 }];
+      return [];
+    } }) }));
     mocks.getDb.mockResolvedValue({
       select: mocks.select,
       update: (table: unknown) => ({ set: () => ({ where: async (condition: unknown) => { updates.push({ table, condition }); } }) }),

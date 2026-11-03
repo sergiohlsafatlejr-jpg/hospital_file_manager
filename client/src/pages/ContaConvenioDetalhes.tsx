@@ -5547,6 +5547,10 @@ function ContaConvenioDetalhesPadrao() {
                     estabelecimentoId,
                     tipoAjuste: ajusteDialog.tipo,
                     itemId: ajusteDialog.item?.id,
+                    snapshotItemId:
+                      ajusteDialog.tipo === "ADICIONAR_ITEM"
+                        ? primeiroItem?.id
+                        : undefined,
                     codigoItem:
                       ajusteDialog.tipo === "ADICIONAR_ITEM"
                         ? ajusteCodigo

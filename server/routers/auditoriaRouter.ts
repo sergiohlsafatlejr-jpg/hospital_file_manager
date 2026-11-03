@@ -5,6 +5,42 @@ import { getDb } from "../db";
 import { falhasProntuario, ajustesAuditoria, aprendizadoAuditoria, feedbackDivergencias, contasConvenioItens, contasConvenioResumo } from "../../drizzle/schema";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { logger } from "../_core/logger";
+import { exigirHospitalProprietario } from "../hospitalScope";
+import { exigirConvenioDoEstabelecimento } from "../recursoGlosaPermissions";
+
+type ItemAuditoria = typeof contasConvenioItens.$inferSelect;
+
+function idInserido(resultado: unknown): number {
+  const retorno = Array.isArray(resultado) ? resultado[0] : resultado;
+  const id = Number((retorno as { insertId?: unknown } | undefined)?.insertId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "INSERT não retornou um ID válido" });
+  }
+  return id;
+}
+
+function identidadeItem(item: ItemAuditoria): string {
+  return JSON.stringify([
+    item.estabelecimentoId, item.numeroConta, item.origem,
+    item.convenioId ?? null, item.convenio ?? null, item.arquivoId ?? null,
+    item.loteImportacaoId ?? null, item.numeroLote ?? null, item.competencia ?? null,
+  ]);
+}
+
+// Repetir o proprietário e o snapshot na escrita, além da PK, evita ampliar o escopo.
+function escopoItem(item: ItemAuditoria) {
+  return and(
+    eq(contasConvenioItens.estabelecimentoId, item.estabelecimentoId),
+    eq(contasConvenioItens.numeroConta, item.numeroConta),
+    eq(contasConvenioItens.origem, item.origem),
+    sql`${contasConvenioItens.convenioId} <=> ${item.convenioId ?? null}`,
+    sql`${contasConvenioItens.convenio} <=> ${item.convenio ?? null}`,
+    sql`${contasConvenioItens.arquivoId} <=> ${item.arquivoId ?? null}`,
+    sql`${contasConvenioItens.loteImportacaoId} <=> ${item.loteImportacaoId ?? null}`,
+    sql`${contasConvenioItens.numeroLote} <=> ${item.numeroLote ?? null}`,
+    sql`${contasConvenioItens.competencia} <=> ${item.competencia ?? null}`,
+  );
+}
 
 // Categorias de falhas de prontuário com seus tipos comuns
 const CATEGORIAS_FALHAS: Record<string, { label: string; falhas: string[] }> = {
@@ -276,6 +312,7 @@ export const auditoriaRouter = router({
       estabelecimentoId: z.number(),
       tipoAjuste: z.enum(["ALTERAR_QUANTIDADE", "ALTERAR_VALOR", "ADICIONAR_ITEM", "REMOVER_ITEM", "ALTERAR_SETOR"]),
       itemId: z.number().optional(),
+      snapshotItemId: z.number().int().positive().optional(),
       codigoItem: z.string().optional(),
       descricaoItem: z.string().optional(),
       quantidadeOriginal: z.string().optional(),
@@ -290,151 +327,215 @@ export const auditoriaRouter = router({
       justificativa: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
+      const connection = await getDb();
+      if (!connection) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
-      await db.insert(ajustesAuditoria).values({
-        numeroConta: input.numeroConta,
-        estabelecimentoId: input.estabelecimentoId,
-        tipoAjuste: input.tipoAjuste,
-        itemId: input.itemId || null,
-        codigoItem: input.codigoItem || null,
-        descricaoItem: input.descricaoItem || null,
-        quantidadeOriginal: input.quantidadeOriginal || null,
-        valorOriginal: input.valorOriginal || null,
-        quantidadeAjustada: input.quantidadeAjustada || null,
-        valorAjustado: input.valorAjustado || null,
-        tipoItemAdicionado: input.tipoItemAdicionado || null,
-        setorOriginal: input.setorOriginal || null,
-        setorAjustado: input.setorAjustado || null,
-        justificativa: input.justificativa || null,
-        status: "pendente",
-        usuarioId: ctx.user.id,
-        usuarioNome: ctx.user.name || "Desconhecido",
-      });
+      return connection.transaction(async (db) => {
+        let itemAlvo: ItemAuditoria | undefined;
+        if (input.itemId) {
+          const [item] = await db.select().from(contasConvenioItens)
+            .where(eq(contasConvenioItens.id, input.itemId)).limit(1).for("update");
+          if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado" });
+          if (item.numeroConta !== input.numeroConta || item.estabelecimentoId !== input.estabelecimentoId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Item não pertence à conta e hospital informados" });
+          }
+          await exigirHospitalProprietario(ctx.user, item.estabelecimentoId, "editar", db);
+          if (item.convenioId != null) {
+            await exigirConvenioDoEstabelecimento(ctx.user.id, item.convenioId, item.estabelecimentoId, "editar", db);
+          }
+          itemAlvo = item;
+        }
 
-      // Aplicar ajuste no item
-      if (input.itemId && (input.tipoAjuste === "ALTERAR_QUANTIDADE" || input.tipoAjuste === "ALTERAR_VALOR")) {
-        const updateData: any = {};
-        if (input.tipoAjuste === "ALTERAR_QUANTIDADE" && input.quantidadeAjustada) {
-          updateData.quantidade = input.quantidadeAjustada;
-          const [item] = await db.select().from(contasConvenioItens).where(eq(contasConvenioItens.id, input.itemId)).limit(1);
-          if (item?.valorUnitario) {
-            updateData.valorTotal = (parseFloat(input.quantidadeAjustada) * parseFloat(item.valorUnitario)).toFixed(2);
+        // A âncora é somente um seletor: identidade e autorização são derivadas do item persistido.
+        let itemSnapshot: ItemAuditoria | undefined;
+        if (input.tipoAjuste === "ADICIONAR_ITEM" && input.snapshotItemId) {
+          const [anchor] = await db.select().from(contasConvenioItens)
+            .where(eq(contasConvenioItens.id, input.snapshotItemId)).limit(1).for("update");
+          if (!anchor) throw new TRPCError({ code: "NOT_FOUND", message: "Snapshot selecionado não encontrado" });
+          if (anchor.numeroConta !== input.numeroConta || anchor.estabelecimentoId !== input.estabelecimentoId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Snapshot não pertence à conta e hospital informados" });
+          }
+          if (anchor.convenioId != null) {
+            await exigirConvenioDoEstabelecimento(ctx.user.id, anchor.convenioId, anchor.estabelecimentoId, "editar", db);
+          }
+          itemSnapshot = anchor;
+        }
+        const filtrosResumoAdicao = [
+          eq(contasConvenioResumo.numeroConta, input.numeroConta),
+          eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
+        ];
+        if (itemSnapshot) {
+          filtrosResumoAdicao.push(
+            eq(contasConvenioResumo.origem, itemSnapshot.origem),
+            sql`${contasConvenioResumo.convenioId} <=> ${itemSnapshot.convenioId ?? null}`,
+            sql`${contasConvenioResumo.convenio} <=> ${itemSnapshot.convenio ?? null}`,
+            sql`${contasConvenioResumo.arquivoHospitalId} <=> ${itemSnapshot.arquivoId ?? null}`,
+            sql`${contasConvenioResumo.loteImportacaoId} <=> ${itemSnapshot.loteImportacaoId ?? null}`,
+            sql`${contasConvenioResumo.numeroLote} <=> ${itemSnapshot.numeroLote ?? null}`,
+            sql`${contasConvenioResumo.competencia} <=> ${itemSnapshot.competencia ?? null}`,
+          );
+        }
+        // Sem âncora, preservar o contrato legado somente para uma conta inequivocamente única.
+        const resumosAdicao = input.tipoAjuste === "ADICIONAR_ITEM"
+          ? await db.select().from(contasConvenioResumo).where(and(...filtrosResumoAdicao)).limit(2).for("update")
+          : [];
+        const resumoAdicao = resumosAdicao[0];
+        if (input.tipoAjuste === "ADICIONAR_ITEM") {
+          if (!resumoAdicao) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada" });
+          if (resumosAdicao.length !== 1) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Conta possui múltiplos convênios ou snapshots; selecione um escopo inequívoco" });
+          }
+          await exigirHospitalProprietario(ctx.user, resumoAdicao.estabelecimentoId, "editar", db);
+          if (resumoAdicao.convenioId != null) {
+            await exigirConvenioDoEstabelecimento(ctx.user.id, resumoAdicao.convenioId, resumoAdicao.estabelecimentoId, "editar", db);
           }
         }
-        if (input.tipoAjuste === "ALTERAR_VALOR" && input.valorAjustado) {
-          updateData.valorUnitario = input.valorAjustado;
-          const [item] = await db.select().from(contasConvenioItens).where(eq(contasConvenioItens.id, input.itemId)).limit(1);
-          if (item?.quantidade) {
-            updateData.valorTotal = (parseFloat(item.quantidade) * parseFloat(input.valorAjustado)).toFixed(2);
+
+        const ajusteRes = await db.insert(ajustesAuditoria).values({
+          numeroConta: input.numeroConta,
+          estabelecimentoId: input.estabelecimentoId,
+          tipoAjuste: input.tipoAjuste,
+          itemId: input.itemId || null,
+          codigoItem: input.codigoItem || null,
+          descricaoItem: input.descricaoItem || null,
+          quantidadeOriginal: input.quantidadeOriginal || null,
+          valorOriginal: input.valorOriginal || null,
+          quantidadeAjustada: input.quantidadeAjustada || null,
+          valorAjustado: input.valorAjustado || null,
+          tipoItemAdicionado: input.tipoItemAdicionado || null,
+          setorOriginal: input.setorOriginal || null,
+          setorAjustado: input.setorAjustado || null,
+          justificativa: input.justificativa || null,
+          status: "pendente",
+          usuarioId: ctx.user.id,
+          usuarioNome: ctx.user.name || "Desconhecido",
+        });
+        const ajusteId = idInserido(ajusteRes);
+        const escopoAjuste = and(
+          eq(ajustesAuditoria.id, ajusteId),
+          eq(ajustesAuditoria.estabelecimentoId, input.estabelecimentoId),
+          eq(ajustesAuditoria.numeroConta, input.numeroConta),
+        );
+
+        // Aplicar ajuste no item
+        if (input.itemId && (input.tipoAjuste === "ALTERAR_QUANTIDADE" || input.tipoAjuste === "ALTERAR_VALOR")) {
+          const updateData: any = {};
+          if (input.tipoAjuste === "ALTERAR_QUANTIDADE" && input.quantidadeAjustada) {
+            updateData.quantidade = input.quantidadeAjustada;
+            if (itemAlvo?.valorUnitario) {
+              updateData.valorTotal = (parseFloat(input.quantidadeAjustada) * parseFloat(itemAlvo.valorUnitario)).toFixed(2);
+            }
           }
+          if (input.tipoAjuste === "ALTERAR_VALOR" && input.valorAjustado) {
+            updateData.valorUnitario = input.valorAjustado;
+            if (itemAlvo?.quantidade) {
+              updateData.valorTotal = (parseFloat(itemAlvo.quantidade) * parseFloat(input.valorAjustado)).toFixed(2);
+            }
+          }
+          if (Object.keys(updateData).length > 0) {
+            updateData.statusAnalise = "revisado";
+            await db.update(contasConvenioItens).set(updateData).where(and(
+              eq(contasConvenioItens.id, input.itemId),
+              escopoItem(itemAlvo!),
+            ));
+          }
+          // Marcar como aplicado
+          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(escopoAjuste);
         }
-        if (Object.keys(updateData).length > 0) {
-          updateData.statusAnalise = "revisado";
-          await db.update(contasConvenioItens).set(updateData).where(eq(contasConvenioItens.id, input.itemId));
-        }
-        // Marcar como aplicado
-        const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
-          .orderBy(desc(ajustesAuditoria.id)).limit(1);
-        if (ajuste) {
-          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(eq(ajustesAuditoria.id, ajuste.id));
-        }
-      }
 
-      // Alterar setor
-      if (input.tipoAjuste === "ALTERAR_SETOR" && input.itemId && input.setorAjustado) {
-        await db.update(contasConvenioItens).set({
-          setor: input.setorAjustado,
-          statusAnalise: "revisado",
-        }).where(eq(contasConvenioItens.id, input.itemId));
-        // Marcar como aplicado
-        const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
-          .orderBy(desc(ajustesAuditoria.id)).limit(1);
-        if (ajuste) {
-          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(eq(ajustesAuditoria.id, ajuste.id));
+        // Alterar setor
+        if (input.tipoAjuste === "ALTERAR_SETOR" && input.itemId && input.setorAjustado) {
+          await db.update(contasConvenioItens).set({
+            setor: input.setorAjustado,
+            statusAnalise: "revisado",
+          }).where(and(
+            eq(contasConvenioItens.id, input.itemId),
+            escopoItem(itemAlvo!),
+          ));
+          // Marcar como aplicado
+          await db.update(ajustesAuditoria).set({ status: "aplicado" }).where(escopoAjuste);
         }
-      }
 
-      // Adicionar novo item
-      if (input.tipoAjuste === "ADICIONAR_ITEM") {
-        const [resumo] = await db.select().from(contasConvenioResumo).where(
+        // Adicionar novo item
+        if (input.tipoAjuste === "ADICIONAR_ITEM") {
+          const resumo = resumoAdicao!;
+
+          const insertItemRes = await db.insert(contasConvenioItens).values({
+            origem: resumo.origem,
+            numeroConta: input.numeroConta,
+            estabelecimentoId: input.estabelecimentoId,
+            convenio: resumo?.convenio || null,
+            convenioId: resumo?.convenioId || null,
+            arquivoId: resumo.arquivoHospitalId,
+            loteImportacaoId: resumo.loteImportacaoId,
+            numeroLote: resumo.numeroLote,
+            competencia: resumo.competencia,
+            tipoItem: input.tipoItemAdicionado || "PROCEDIMENTO",
+            codigoItem: input.codigoItem || null,
+            descricaoItem: input.descricaoItem || null,
+            quantidade: input.quantidadeAjustada || "1",
+            valorUnitario: input.valorAjustado || "0",
+            valorTotal: input.quantidadeAjustada && input.valorAjustado
+              ? (parseFloat(input.quantidadeAjustada) * parseFloat(input.valorAjustado)).toFixed(2)
+              : "0",
+            setor: input.setorNovoItem || null,
+            dataExecucao: input.dataNovoItem ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(input.dataNovoItem.trim()) ? `${input.dataNovoItem.trim()}T12:00:00` : input.dataNovoItem) : null,
+            statusAnalise: "revisado",
+          });
+          const novoItemId = idInserido(insertItemRes);
+
+          if (resumo) {
+            const valorAdicional = input.quantidadeAjustada && input.valorAjustado
+              ? parseFloat(input.quantidadeAjustada) * parseFloat(input.valorAjustado) : 0;
+            await db.update(contasConvenioResumo).set({
+              totalItens: sql`${contasConvenioResumo.totalItens} + 1`,
+              valorTotal: sql`COALESCE(${contasConvenioResumo.valorTotal}, 0) + ${valorAdicional}`,
+            }).where(and(
+              eq(contasConvenioResumo.id, resumo.id),
+              eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
+              eq(contasConvenioResumo.numeroConta, input.numeroConta),
+            ));
+          }
+
+          await db.update(ajustesAuditoria).set({
+            status: "aplicado",
+            itemId: novoItemId,
+          }).where(escopoAjuste);
+        }
+
+        // Alimentar aprendizado
+        const tipoAprendizado = input.tipoAjuste === "ADICIONAR_ITEM" ? "ITEM_FALTANTE" as const
+          : input.tipoAjuste === "ALTERAR_QUANTIDADE" ? "AJUSTE_QUANTIDADE" as const
+          : "AJUSTE_VALOR" as const;
+
+        const [resumoConta] = resumoAdicao || itemAlvo ? [resumoAdicao || itemAlvo] : await db.select().from(contasConvenioResumo).where(
           and(
             eq(contasConvenioResumo.numeroConta, input.numeroConta),
             eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
           )
         ).limit(1);
 
-        const insertItemRes = await db.insert(contasConvenioItens).values({
-          origem: "BANCO_CLIENTE",
-          numeroConta: input.numeroConta,
+        await atualizarAprendizado(db, {
           estabelecimentoId: input.estabelecimentoId,
-          convenio: resumo?.convenio || null,
-          convenioId: resumo?.convenioId || null,
-          tipoItem: input.tipoItemAdicionado || "PROCEDIMENTO",
+          tipoAprendizado,
+          convenio: resumoConta?.convenio || null,
           codigoItem: input.codigoItem || null,
           descricaoItem: input.descricaoItem || null,
-          quantidade: input.quantidadeAjustada || "1",
-          valorUnitario: input.valorAjustado || "0",
-          valorTotal: input.quantidadeAjustada && input.valorAjustado
-            ? (parseFloat(input.quantidadeAjustada) * parseFloat(input.valorAjustado)).toFixed(2)
-            : "0",
-          setor: input.setorNovoItem || null,
-          dataExecucao: input.dataNovoItem ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(input.dataNovoItem.trim()) ? `${input.dataNovoItem.trim()}T12:00:00` : input.dataNovoItem) : null,
-          statusAnalise: "revisado",
+          dadosAprendizado: {
+            tipoAjuste: input.tipoAjuste,
+            quantidadeOriginal: input.quantidadeOriginal,
+            quantidadeAjustada: input.quantidadeAjustada,
+            valorOriginal: input.valorOriginal,
+            valorAjustado: input.valorAjustado,
+            direcao: input.quantidadeAjustada && input.quantidadeOriginal
+              ? parseFloat(input.quantidadeAjustada) > parseFloat(input.quantidadeOriginal) ? "aumentar" : "diminuir"
+              : null,
+          },
         });
-        const novoItemId = Number((insertItemRes as any)?.[0]?.insertId || (insertItemRes as any)?.insertId || 0) || null;
 
-        if (resumo) {
-          const valorAdicional = input.quantidadeAjustada && input.valorAjustado
-            ? parseFloat(input.quantidadeAjustada) * parseFloat(input.valorAjustado) : 0;
-          await db.update(contasConvenioResumo).set({
-            totalItens: (resumo.totalItens || 0) + 1,
-            valorTotal: ((parseFloat(resumo.valorTotal || "0")) + valorAdicional).toFixed(2),
-          }).where(eq(contasConvenioResumo.id, resumo.id));
-        }
-
-        const [ajuste] = await db.select({ id: ajustesAuditoria.id }).from(ajustesAuditoria)
-          .orderBy(desc(ajustesAuditoria.id)).limit(1);
-        if (ajuste) {
-          await db.update(ajustesAuditoria).set({
-            status: "aplicado",
-            ...(novoItemId ? { itemId: novoItemId } : {}),
-          }).where(eq(ajustesAuditoria.id, ajuste.id));
-        }
-      }
-
-      // Alimentar aprendizado
-      const tipoAprendizado = input.tipoAjuste === "ADICIONAR_ITEM" ? "ITEM_FALTANTE" as const
-        : input.tipoAjuste === "ALTERAR_QUANTIDADE" ? "AJUSTE_QUANTIDADE" as const
-        : "AJUSTE_VALOR" as const;
-
-      const [resumoConta] = await db.select().from(contasConvenioResumo).where(
-        and(
-          eq(contasConvenioResumo.numeroConta, input.numeroConta),
-          eq(contasConvenioResumo.estabelecimentoId, input.estabelecimentoId),
-        )
-      ).limit(1);
-
-      await atualizarAprendizado(db, {
-        estabelecimentoId: input.estabelecimentoId,
-        tipoAprendizado,
-        convenio: resumoConta?.convenio || null,
-        codigoItem: input.codigoItem || null,
-        descricaoItem: input.descricaoItem || null,
-        dadosAprendizado: {
-          tipoAjuste: input.tipoAjuste,
-          quantidadeOriginal: input.quantidadeOriginal,
-          quantidadeAjustada: input.quantidadeAjustada,
-          valorOriginal: input.valorOriginal,
-          valorAjustado: input.valorAjustado,
-          direcao: input.quantidadeAjustada && input.quantidadeOriginal
-            ? parseFloat(input.quantidadeAjustada) > parseFloat(input.quantidadeOriginal) ? "aumentar" : "diminuir"
-            : null,
-        },
+        return { sucesso: true };
       });
-
-      return { sucesso: true };
     }),
 
   listarAjustes: protectedProcedure
@@ -492,48 +593,51 @@ export const auditoriaRouter = router({
   marcarItensAuditados: protectedProcedure
     .input(z.object({
       numeroConta: z.string().min(1),
-      estabelecimentoId: z.number(),
+      estabelecimentoId: z.number().int().positive(),
       itemIds: z.array(z.number().int().positive()).min(1),
       auditado: z.boolean(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await exigirHospitalProprietario(ctx.user, input.estabelecimentoId, "editar");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
-      if (input.auditado) {
-        await db.update(contasConvenioItens)
-          .set({ statusAnalise: "revisado" })
-          .where(
-            and(
-              eq(contasConvenioItens.numeroConta, input.numeroConta),
-              eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-              inArray(contasConvenioItens.id, input.itemIds),
-            )
-          );
-      } else {
-        const itens = await db.select({
-          id: contasConvenioItens.id,
-          divergencias: contasConvenioItens.divergencias,
-        }).from(contasConvenioItens).where(
-          and(
-            eq(contasConvenioItens.numeroConta, input.numeroConta),
-            eq(contasConvenioItens.estabelecimentoId, input.estabelecimentoId),
-            inArray(contasConvenioItens.id, input.itemIds),
-          )
-        );
-
-        for (const item of itens) {
-          const divs = Array.isArray(item.divergencias) ? item.divergencias : [];
-          const temDivergencia = divs.some(
-            (d: any) => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso"
-          );
-          await db.update(contasConvenioItens)
-            .set({ statusAnalise: temDivergencia ? "divergente" : "pendente" })
-            .where(eq(contasConvenioItens.id, item.id));
+      const itemIds = [...new Set(input.itemIds)];
+      return db.transaction(async (tx) => {
+        const itens = await tx.select().from(contasConvenioItens)
+          .where(inArray(contasConvenioItens.id, itemIds)).for("update");
+        if (itens.length !== itemIds.length || itens.some(item =>
+          item.numeroConta !== input.numeroConta || item.estabelecimentoId !== input.estabelecimentoId,
+        )) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Todos os itens devem pertencer à conta e hospital informados" });
         }
-      }
+        const primeiro = itens[0];
+        if (itens.some(item => identidadeItem(item) !== identidadeItem(primeiro))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Todos os itens devem pertencer ao mesmo convênio e snapshot" });
+        }
+        await exigirHospitalProprietario(ctx.user, primeiro.estabelecimentoId, "editar", tx);
+        if (primeiro.convenioId != null) {
+          await exigirConvenioDoEstabelecimento(ctx.user.id, primeiro.convenioId, primeiro.estabelecimentoId, "editar", tx);
+        }
 
-      return { sucesso: true, totalAtualizados: input.itemIds.length };
+        if (input.auditado) {
+          await tx.update(contasConvenioItens)
+            .set({ statusAnalise: "revisado" })
+            .where(and(escopoItem(primeiro), inArray(contasConvenioItens.id, itemIds)));
+        } else {
+          for (const item of itens) {
+            const divs = Array.isArray(item.divergencias) ? item.divergencias : [];
+            const temDivergencia = divs.some(
+              (d: any) => d.severidade === "critico" || d.severidade === "alerta" || d.severidade === "aviso"
+            );
+            await tx.update(contasConvenioItens)
+              .set({ statusAnalise: temDivergencia ? "divergente" : "pendente" })
+              .where(and(escopoItem(item), eq(contasConvenioItens.id, item.id)));
+          }
+        }
+
+        return { sucesso: true, totalAtualizados: itemIds.length };
+      });
     }),
 
   reverterAjuste: protectedProcedure

@@ -31,6 +31,12 @@ vi.mock("./faturamentoUnificadoService", () => ({
   popularDeXmlTissArquivoRestrito: vi.fn(async () => ({ inseridos: 1, total: 1 })),
 }));
 
+vi.mock("./services/comparadorPadroes", async (original) => ({
+  ...(await original<typeof import("./services/comparadorPadroes")>()),
+  // O comparador externo é isolado; preço/TISS/regras continuam reais nesta suíte.
+  compararItensComPadroes: vi.fn(async () => ({ statusGeral: "conforme", divergencias: [], scoreRisco: { score: 0 } })),
+}));
+
 import { getDb, getConvenioById, verificarPermissaoEstabelecimento } from "./db";
 import { fabricaFaturamentoRouter } from "./routers/fabricaFaturamentoRouter";
 import {
@@ -96,6 +102,7 @@ describe("Esteira Ambulatorial (Lotes XML com Múltiplas Guias e Validador Tripl
         codigo: "10101012",
         nome: "CONSULTA EM CONSULTORIO",
         valor: "120.00",
+        vigenciaInicio: new Date("2026-01-01T00:00:00Z"),
         ativo: "sim",
       },
       {
@@ -105,6 +112,7 @@ describe("Esteira Ambulatorial (Lotes XML com Múltiplas Guias e Validador Tripl
         codigo: "40304361",
         nome: "HEMOGRAMA COMPLETO",
         valor: "25.00",
+        vigenciaInicio: new Date("2026-01-01T00:00:00Z"),
         ativo: "sim",
       },
     ];
@@ -121,6 +129,7 @@ describe("Esteira Ambulatorial (Lotes XML com Múltiplas Guias e Validador Tripl
           where: () =>
             Object.assign(Promise.resolve(rows), {
               limit: async () => rows,
+              for: async () => rows,
             }),
           limit: async () => rows,
         });
@@ -279,6 +288,7 @@ describe("Esteira Ambulatorial (Lotes XML com Múltiplas Guias e Validador Tripl
         estabelecimentoId: 3,
         codigo: "40304361",
         nome: "HEMOGRAMA COMPLETO",
+        vigenciaInicio: new Date("2026-01-01T00:00:00Z"),
         valor: "25.00", // Na tabela é R$ 25,00, mas na Guia 2 foi cobrado R$ 40,00!
         ativo: "sim",
       },
@@ -296,6 +306,7 @@ describe("Esteira Ambulatorial (Lotes XML com Múltiplas Guias e Validador Tripl
           where: () =>
             Object.assign(Promise.resolve(rows), {
               limit: async () => rows,
+              for: async () => rows,
             }),
           limit: async () => rows,
         });
