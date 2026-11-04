@@ -81,6 +81,13 @@ const MODULOS_SAFATLE = [
     color: "text-purple-500"
   },
   { 
+    key: "acessoRecursosHumanos", 
+    label: "Recursos Humanos", 
+    description: "Quadro de colaboradores, plano de salários e folha de pagamento",
+    icon: Users,
+    color: "text-amber-500"
+  },
+  { 
     key: "acessoAtendimentosConsolidados", 
     label: "Atendimentos Consolidados", 
     description: "Visão consolidada de atendimentos de todos os estabelecimentos",

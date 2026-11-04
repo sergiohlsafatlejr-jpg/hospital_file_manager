@@ -104,6 +104,7 @@ export const PERMISSION_SECTIONS: PermissionSection[] = [
       { key: "acessoFinanceiro", label: "Financeiro", description: "Gestão financeira interna", icon: DollarSign },
       { key: "acessoContratos", label: "Contratos", description: "Gestão de contratos", icon: FileText },
       { key: "acessoPropostas", label: "Propostas", description: "Gestão de propostas", icon: Briefcase },
+      { key: "acessoRecursosHumanos", label: "Recursos Humanos", description: "Colaboradores, folha e salários", icon: Users },
       { key: "acessoAtendimentosConsolidados", label: "Atendimentos Consolidados", description: "Consolidação operacional", icon: Users },
       { key: "acessoNfseConsolidado", label: "NFS-e Consolidado", description: "Visão consolidada de notas", icon: Receipt },
     ],

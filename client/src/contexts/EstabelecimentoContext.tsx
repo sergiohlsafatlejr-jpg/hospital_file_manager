@@ -72,6 +72,7 @@ export type ModuloPermissao =
   | "financeiro"
   | "contratos"
   | "propostas"
+  | "recursosHumanos"
   | "atendimentosConsolidados"
   | "nfseConsolidado";
 
@@ -127,6 +128,7 @@ interface PermissoesModulo {
   acessoFinanceiro: "sim" | "nao";
   acessoContratos: "sim" | "nao";
   acessoPropostas: "sim" | "nao";
+  acessoRecursosHumanos: "sim" | "nao";
   acessoAtendimentosConsolidados: "sim" | "nao";
   acessoNfseConsolidado: "sim" | "nao";
   grupoServico: string | null;
@@ -204,6 +206,7 @@ const moduloParaCampo: Record<ModuloPermissao, keyof PermissoesModulo> = {
   financeiro: "acessoFinanceiro",
   contratos: "acessoContratos",
   propostas: "acessoPropostas",
+  recursosHumanos: "acessoRecursosHumanos",
   atendimentosConsolidados: "acessoAtendimentosConsolidados",
   nfseConsolidado: "acessoNfseConsolidado",
 };
@@ -291,6 +294,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoFinanceiro: "sim",
           acessoContratos: "sim",
           acessoPropostas: "sim",
+          acessoRecursosHumanos: "sim",
           acessoAtendimentosConsolidados: "sim",
           acessoNfseConsolidado: "sim",
           grupoServico: "administrador",
@@ -359,6 +363,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
           acessoFinanceiro: "sim",
           acessoContratos: "sim",
           acessoPropostas: "sim",
+          acessoRecursosHumanos: "sim",
           acessoAtendimentosConsolidados: "sim",
           acessoNfseConsolidado: "sim",
           grupoServico: "administrador",
@@ -418,6 +423,7 @@ export function EstabelecimentoProvider({ children }: { children: ReactNode }) {
       acessoFinanceiro: (permissao as any).acessoFinanceiro || "nao",
       acessoContratos: (permissao as any).acessoContratos || "nao",
       acessoPropostas: (permissao as any).acessoPropostas || "nao",
+      acessoRecursosHumanos: (permissao as any).acessoRecursosHumanos || "nao",
       acessoAtendimentosConsolidados: (permissao as any).acessoAtendimentosConsolidados || "nao",
       acessoNfseConsolidado: (permissao as any).acessoNfseConsolidado || "nao",
       grupoServico: permissao.grupoServico || null,

@@ -48,6 +48,7 @@ export const MODULE_PERMISSION_KEYS = [
   "acessoFinanceiro",
   "acessoContratos",
   "acessoPropostas",
+  "acessoRecursosHumanos",
   "acessoAtendimentosConsolidados",
   "acessoNfseConsolidado",
 ] as const;

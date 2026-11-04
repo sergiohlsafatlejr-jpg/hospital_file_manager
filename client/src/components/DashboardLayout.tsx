@@ -256,11 +256,11 @@ const menuItems: MenuItem[] = [
     { icon: Bot, label: "Gerenciar Robôs", path: "/rpa-manager", modulo: "regrasNegocio", adminOnly: true },
   ]},
   // Módulo RH
-  { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
-    { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: FileSpreadsheet, label: "Plano de Salários", path: "/rh/plano-salarios", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: Upload, label: "Importar Folha", path: "/rh/upload", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
-    { icon: FileSpreadsheet, label: "Folha de Pagamento", path: "/rh/folha-pagamento", modulo: "financeiro", adminOnly: true, estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+  { icon: Users, label: "Recursos Humanos", path: "/rh/folha-pagamento", modulo: "recursosHumanos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID], children: [
+    { icon: Users, label: "Colaboradores", path: "/rh/colaboradores", modulo: "recursosHumanos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Plano de Salários", path: "/rh/plano-salarios", modulo: "recursosHumanos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: Upload, label: "Importar Folha", path: "/rh/upload", modulo: "recursosHumanos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
+    { icon: FileSpreadsheet, label: "Folha de Pagamento", path: "/rh/folha-pagamento", modulo: "recursosHumanos", estabelecimentoIds: [SAFATLE_ESTABELECIMENTO_ID] },
   ]},
 
 ];

@@ -5027,6 +5027,7 @@ export const appRouter = router({
         acessoFinanceiro: z.enum(["sim", "nao"]).optional(),
         acessoContratos: z.enum(["sim", "nao"]).optional(),
         acessoPropostas: z.enum(["sim", "nao"]).optional(),
+        acessoRecursosHumanos: z.enum(["sim", "nao"]).optional(),
         acessoAtendimentosConsolidados: z.enum(["sim", "nao"]).optional(),
         acessoNfseConsolidado: z.enum(["sim", "nao"]).optional(),
         })
@@ -5072,7 +5073,12 @@ export const appRouter = router({
           input.userId,
           input.estabelecimentoId
         );
-        const normalizado = normalizeBiParent(input);
+        const normalizado = normalizeBiParent({
+          ...input,
+          acessoRecursosHumanos:
+            input.acessoRecursosHumanos ??
+            (anterior as any)?.acessoRecursosHumanos,
+        });
         const resultado = await db.upsertPermissaoEstabelecimento(normalizado);
         const usuarioAfetado = await db.getUserById(input.userId);
         await db.registrarLogAuditoria({

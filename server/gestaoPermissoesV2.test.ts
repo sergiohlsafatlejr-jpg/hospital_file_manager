@@ -23,6 +23,7 @@ describe("Gestão de Permissões V2", () => {
     expect(MODULE_PERMISSION_KEYS).toContain("acessoRelFisioterapia");
     expect(MODULE_PERMISSION_KEYS).toContain("acessoRelComparativoMesAMes");
     expect(MODULE_PERMISSION_KEYS).toContain("acessoNfseConsolidado");
+    expect(MODULE_PERMISSION_KEYS).toContain("acessoRecursosHumanos");
     expect(ACTIVE_BI_PERMISSION_KEYS).toContain("acessoRelatoriosGlosasBi");
     const migration = read("drizzle/0113_clumsy_leo.sql");
     expect(migration.indexOf("duplicateRank > 1")).toBeLessThan(migration.indexOf("ADD CONSTRAINT"));
@@ -156,11 +157,16 @@ describe("Gestão de Permissões V2", () => {
     expect(menu).toContain('path: "/contratos", modulo: "contratos"');
     expect(menu).toContain('path: "/contratos-convenios", modulo: "convenios"');
     expect(menu).toContain('path: "/propostas", modulo: "propostas"');
+    expect(menu).toContain('path: "/rh/folha-pagamento", modulo: "recursosHumanos"');
+    expect(menu).toContain('path: "/rh/colaboradores", modulo: "recursosHumanos"');
+    expect(menu).toContain('path: "/rh/plano-salarios", modulo: "recursosHumanos"');
+    expect(menu).toContain('path: "/rh/upload", modulo: "recursosHumanos"');
     expect(menu).toContain('path: "/permissoes-safatle", modulo: "permissoes", adminOnly: true');
 
     expect(context).toContain('if (valorPermissao === "nao") return false;');
     expect(db).toContain('if (valor === "nao") return false;');
     expect(db).toContain("acessoPainelExecutivo: permissoesEstabelecimento.acessoPainelExecutivo");
     expect(db).toContain('painelExecutivo: "acessoPainelExecutivo"');
+    expect(db).toContain('recursosHumanos: "acessoRecursosHumanos"');
   });
 });
