@@ -6644,8 +6644,6 @@ export async function obterEstatisticasValidacaoXml(estabelecimentoId: number) {
 
 // ============ PERMISSÕES DE ESTABELECIMENTO ============
 
-const recursosHumanosMemoryOverlay = new Map<string, "sim" | "nao">();
-
 function chavePermissaoRh(userId: number, estabelecimentoId: number): string {
   return `${userId}:${estabelecimentoId}`;
 }
@@ -6666,6 +6664,21 @@ function extrairAcessoRhDeJson(valor: unknown): "sim" | "nao" | undefined {
   return undefined;
 }
 
+async function executarEmTransacaoPermissao<T>(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  operacao: (tx: NonNullable<Awaited<ReturnType<typeof getDb>>>) => Promise<T>
+): Promise<T> {
+  const transacionavel = db as unknown as {
+    transaction?: (
+      fn: (tx: NonNullable<Awaited<ReturnType<typeof getDb>>>) => Promise<T>
+    ) => Promise<T>;
+  };
+  if (typeof transacionavel.transaction === "function") {
+    return transacionavel.transaction(operacao);
+  }
+  return operacao(db);
+}
+
 async function anexarAcessoRecursosHumanos<
   T extends {
     userId: number;
@@ -6674,7 +6687,10 @@ async function anexarAcessoRecursosHumanos<
     grupoId?: number | null;
     acessoRecursosHumanos?: "sim" | "nao";
   }
->(permissoes: T[]): Promise<Array<T & { acessoRecursosHumanos: "sim" | "nao" }>> {
+>(
+  permissoes: T[],
+  connection?: Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select">
+): Promise<Array<T & { acessoRecursosHumanos: "sim" | "nao" }>> {
   if (permissoes.length === 0) return [];
 
   const resolvidos = new Map<string, "sim" | "nao">();
@@ -6682,15 +6698,11 @@ async function anexarAcessoRecursosHumanos<
     const k = chavePermissaoRh(p.userId, p.estabelecimentoId);
     if (p.acessoRecursosHumanos === "sim" || p.acessoRecursosHumanos === "nao") {
       resolvidos.set(k, p.acessoRecursosHumanos);
-      continue;
-    }
-    const mem = recursosHumanosMemoryOverlay.get(k);
-    if (mem) {
-      resolvidos.set(k, mem);
     }
   }
 
-  const db = await getDb();
+  const db = connection ?? (await getDb());
+  let falhaLeituraDuravel = !db;
   if (db) {
     const pendentes = permissoes.filter(
       (p) => !resolvidos.has(chavePermissaoRh(p.userId, p.estabelecimentoId))
@@ -6729,16 +6741,16 @@ async function anexarAcessoRecursosHumanos<
           if (resolvidos.has(k) || bloqueadosPorRemocao.has(k)) continue;
           if (log.tipoAcao === "remover_permissao") {
             bloqueadosPorRemocao.add(k);
+            resolvidos.set(k, "nao");
             continue;
           }
           const extraido = extrairAcessoRhDeJson(log.valoresNovos);
           if (extraido) {
             resolvidos.set(k, extraido);
-            recursosHumanosMemoryOverlay.set(k, extraido);
           }
         }
       } catch {
-        // Ignora caso a consulta auxiliar não esteja disponível em mocks de teste
+        falhaLeituraDuravel = true;
       }
     }
 
@@ -6748,7 +6760,7 @@ async function anexarAcessoRecursosHumanos<
         typeof p.grupoId === "number" &&
         p.grupoId > 0
     );
-    if (pendentesComGrupo.length > 0) {
+    if (!falhaLeituraDuravel && pendentesComGrupo.length > 0) {
       try {
         const grupoIds = [...new Set(pendentesComGrupo.map((p) => p.grupoId!))];
         const grupos = await db
@@ -6771,7 +6783,7 @@ async function anexarAcessoRecursosHumanos<
           }
         }
       } catch {
-        // Ignora caso a consulta auxiliar não esteja disponível em mocks de teste
+        falhaLeituraDuravel = true;
       }
     }
   }
@@ -6779,7 +6791,8 @@ async function anexarAcessoRecursosHumanos<
   return permissoes.map((p) => {
     const k = chavePermissaoRh(p.userId, p.estabelecimentoId);
     const acessoRecursosHumanos =
-      resolvidos.get(k) ?? (p.grupoServico === "administrador" ? "sim" : "nao");
+      resolvidos.get(k) ??
+      (!falhaLeituraDuravel && p.grupoServico === "administrador" ? "sim" : "nao");
     return {
       ...p,
       acessoRecursosHumanos,
@@ -7002,98 +7015,127 @@ export async function verificarPermissaoEstabelecimento(
 export async function upsertPermissaoEstabelecimento(
   data: InsertPermissaoEstabelecimento & { acessoRecursosHumanos?: "sim" | "nao" }
 ) {
-  if (data.acessoRecursosHumanos === "sim" || data.acessoRecursosHumanos === "nao") {
-    recursosHumanosMemoryOverlay.set(
-      chavePermissaoRh(data.userId, data.estabelecimentoId),
-      data.acessoRecursosHumanos
-    );
-  }
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Verificar se já existe
-  const [existente] = await db
-    .select()
-    .from(permissoesEstabelecimento)
-    .where(and(
-      eq(permissoesEstabelecimento.userId, data.userId),
-      eq(permissoesEstabelecimento.estabelecimentoId, data.estabelecimentoId)
-    ))
-    .limit(1);
+  return executarEmTransacaoPermissao(db, async (tx) => {
+    const [existente] = await tx
+      .select()
+      .from(permissoesEstabelecimento)
+      .where(and(
+        eq(permissoesEstabelecimento.userId, data.userId),
+        eq(permissoesEstabelecimento.estabelecimentoId, data.estabelecimentoId)
+      ))
+      .limit(1);
 
-  if (existente) {
-    // Atualizar
-    await db
-      .update(permissoesEstabelecimento)
-      .set({
-        grupoServico: data.grupoServico,
-        grupoId: data.grupoId,
-        podeVisualizar: data.podeVisualizar,
-        podeEditar: data.podeEditar,
-        podeExcluir: data.podeExcluir,
-        podeGerenciar: data.podeGerenciar,
-        acessoDashboard: data.acessoDashboard,
-        acessoArquivos: data.acessoArquivos,
-        acessoComparacoes: data.acessoComparacoes,
-        acessoFaturamento: data.acessoFaturamento,
-        acessoTabelasPreco: data.acessoTabelasPreco,
-        acessoAnaliseGlosa: data.acessoAnaliseGlosa,
-        acessoDicionarioGlosas: data.acessoDicionarioGlosas,
-        acessoRecursosGlosa: data.acessoRecursosGlosa,
-        acessoConvenios: data.acessoConvenios,
-        acessoRegrasNegocio: data.acessoRegrasNegocio,
-        acessoProdutividade: data.acessoProdutividade,
-        acessoEstabelecimentos: data.acessoEstabelecimentos,
-        acessoPermissoes: data.acessoPermissoes,
-        acessoImportacaoTasy: data.acessoImportacaoTasy,
-        acessoContasFaturadas: data.acessoContasFaturadas,
-        acessoRelatoriosTasy: data.acessoRelatoriosTasy,
-        acessoRelatoriosBi: data.acessoRelatoriosBi,
-        acessoConciliacaoContasPagas: data.acessoConciliacaoContasPagas,
-        acessoRecebimentosXml: data.acessoRecebimentosXml,
-        acessoRecebimentosExcel: data.acessoRecebimentosExcel,
-        acessoDemonstrativo: data.acessoDemonstrativo,
-        acessoContaConvenio: data.acessoContaConvenio,
-        acessoRecursos: data.acessoRecursos,
-        acessoAtendimentos: data.acessoAtendimentos,
-        acessoAtendimentosFaturar: data.acessoAtendimentosFaturar,
-        // Permissões granulares por relatório
-        acessoRelFaturadoRecebido: data.acessoRelFaturadoRecebido,
-        acessoRelPrevisaoPagamentosImec: data.acessoRelPrevisaoPagamentosImec,
-        acessoRelLaboratorio: data.acessoRelLaboratorio,
-        acessoRelUltrassom: data.acessoRelUltrassom,
-        acessoRelVisitaHospitalar: data.acessoRelVisitaHospitalar,
-        acessoRelVisitasFaturadasXml: data.acessoRelVisitasFaturadasXml,
-        acessoRelOxUti: data.acessoRelOxUti,
-        acessoRelOxUtiFaturado: data.acessoRelOxUtiFaturado,
-        acessoRelResumoPacienteOxUti: data.acessoRelResumoPacienteOxUti,
-        acessoRelFisioterapia: data.acessoRelFisioterapia,
-        acessoRelComparativoMesAMes: data.acessoRelComparativoMesAMes,
-        acessoRelRecebimentoGeral: data.acessoRelRecebimentoGeral,
-        acessoRelFaturamento: data.acessoRelFaturamento,
-        acessoRelAtendimentos: data.acessoRelAtendimentos,
-        acessoRelCustos: data.acessoRelCustos,
-        acessoRelNaoRecebidos: data.acessoRelNaoRecebidos,
-        acessoRelPrevisaoGlosa: data.acessoRelPrevisaoGlosa,
-        acessoRelatoriosGlosasBi: data.acessoRelatoriosGlosasBi,
-        acessoFaturamentoExterno: data.acessoFaturamentoExterno,
-        // Módulos Safatle
-        acessoPainelExecutivo: data.acessoPainelExecutivo,
-        acessoVisaoGeral: data.acessoVisaoGeral,
-        acessoFinanceiro: data.acessoFinanceiro,
-        acessoContratos: data.acessoContratos,
-        acessoPropostas: data.acessoPropostas,
-        acessoAtendimentosConsolidados: data.acessoAtendimentosConsolidados,
-        acessoNfseConsolidado: data.acessoNfseConsolidado,
-      })
-      .where(eq(permissoesEstabelecimento.id, existente.id));
-    return { id: existente.id, updated: true };
-  } else {
-    // Criar
-    const { acessoRecursosHumanos: _acessoRecursosHumanos, ...insertValues } = data;
-    const result = await db.insert(permissoesEstabelecimento).values(insertValues);
-    return { id: Number(result[0].insertId), updated: false };
-  }
+    let acessoRhEfetivo: "sim" | "nao" =
+      data.acessoRecursosHumanos === "sim" || data.acessoRecursosHumanos === "nao"
+        ? data.acessoRecursosHumanos
+        : data.grupoServico === "administrador"
+          ? "sim"
+          : "nao";
+
+    if (
+      data.acessoRecursosHumanos !== "sim" &&
+      data.acessoRecursosHumanos !== "nao" &&
+      existente
+    ) {
+      const [anteriorCompleta] = await anexarAcessoRecursosHumanos([existente], tx);
+      if (anteriorCompleta?.acessoRecursosHumanos) {
+        acessoRhEfetivo = anteriorCompleta.acessoRecursosHumanos;
+      }
+    }
+
+    let resultado: { id: number; updated: boolean };
+    if (existente) {
+      await tx
+        .update(permissoesEstabelecimento)
+        .set({
+          grupoServico: data.grupoServico,
+          grupoId: data.grupoId,
+          podeVisualizar: data.podeVisualizar,
+          podeEditar: data.podeEditar,
+          podeExcluir: data.podeExcluir,
+          podeGerenciar: data.podeGerenciar,
+          acessoDashboard: data.acessoDashboard,
+          acessoArquivos: data.acessoArquivos,
+          acessoComparacoes: data.acessoComparacoes,
+          acessoFaturamento: data.acessoFaturamento,
+          acessoTabelasPreco: data.acessoTabelasPreco,
+          acessoAnaliseGlosa: data.acessoAnaliseGlosa,
+          acessoDicionarioGlosas: data.acessoDicionarioGlosas,
+          acessoRecursosGlosa: data.acessoRecursosGlosa,
+          acessoConvenios: data.acessoConvenios,
+          acessoRegrasNegocio: data.acessoRegrasNegocio,
+          acessoProdutividade: data.acessoProdutividade,
+          acessoEstabelecimentos: data.acessoEstabelecimentos,
+          acessoPermissoes: data.acessoPermissoes,
+          acessoImportacaoTasy: data.acessoImportacaoTasy,
+          acessoContasFaturadas: data.acessoContasFaturadas,
+          acessoRelatoriosTasy: data.acessoRelatoriosTasy,
+          acessoRelatoriosBi: data.acessoRelatoriosBi,
+          acessoConciliacaoContasPagas: data.acessoConciliacaoContasPagas,
+          acessoRecebimentosXml: data.acessoRecebimentosXml,
+          acessoRecebimentosExcel: data.acessoRecebimentosExcel,
+          acessoDemonstrativo: data.acessoDemonstrativo,
+          acessoContaConvenio: data.acessoContaConvenio,
+          acessoRecursos: data.acessoRecursos,
+          acessoAtendimentos: data.acessoAtendimentos,
+          acessoAtendimentosFaturar: data.acessoAtendimentosFaturar,
+          // Permissões granulares por relatório
+          acessoRelFaturadoRecebido: data.acessoRelFaturadoRecebido,
+          acessoRelPrevisaoPagamentosImec: data.acessoRelPrevisaoPagamentosImec,
+          acessoRelLaboratorio: data.acessoRelLaboratorio,
+          acessoRelUltrassom: data.acessoRelUltrassom,
+          acessoRelVisitaHospitalar: data.acessoRelVisitaHospitalar,
+          acessoRelVisitasFaturadasXml: data.acessoRelVisitasFaturadasXml,
+          acessoRelOxUti: data.acessoRelOxUti,
+          acessoRelOxUtiFaturado: data.acessoRelOxUtiFaturado,
+          acessoRelResumoPacienteOxUti: data.acessoRelResumoPacienteOxUti,
+          acessoRelFisioterapia: data.acessoRelFisioterapia,
+          acessoRelComparativoMesAMes: data.acessoRelComparativoMesAMes,
+          acessoRelRecebimentoGeral: data.acessoRelRecebimentoGeral,
+          acessoRelFaturamento: data.acessoRelFaturamento,
+          acessoRelAtendimentos: data.acessoRelAtendimentos,
+          acessoRelCustos: data.acessoRelCustos,
+          acessoRelNaoRecebidos: data.acessoRelNaoRecebidos,
+          acessoRelPrevisaoGlosa: data.acessoRelPrevisaoGlosa,
+          acessoRelatoriosGlosasBi: data.acessoRelatoriosGlosasBi,
+          acessoFaturamentoExterno: data.acessoFaturamentoExterno,
+          // Módulos Safatle
+          acessoPainelExecutivo: data.acessoPainelExecutivo,
+          acessoVisaoGeral: data.acessoVisaoGeral,
+          acessoFinanceiro: data.acessoFinanceiro,
+          acessoContratos: data.acessoContratos,
+          acessoPropostas: data.acessoPropostas,
+          acessoAtendimentosConsolidados: data.acessoAtendimentosConsolidados,
+          acessoNfseConsolidado: data.acessoNfseConsolidado,
+        })
+        .where(eq(permissoesEstabelecimento.id, existente.id));
+      resultado = { id: existente.id, updated: true };
+    } else {
+      const { acessoRecursosHumanos: _acessoRecursosHumanos, ...insertValues } = data;
+      const result = await tx.insert(permissoesEstabelecimento).values(insertValues);
+      resultado = { id: Number(result[0].insertId), updated: false };
+    }
+
+    await tx.insert(logAuditoriaPermissoes).values({
+      usuarioId: data.userId,
+      usuarioAfetadoId: data.userId,
+      estabelecimentoId: data.estabelecimentoId,
+      tipoAcao: existente ? "alterar_permissao" : "criar_permissao",
+      descricao: existente
+        ? "Persistência atômica de permissão de estabelecimento"
+        : "Criação atômica de permissão de estabelecimento",
+      valoresAnteriores: existente || undefined,
+      valoresNovos: {
+        ...data,
+        acessoRecursosHumanos: acessoRhEfetivo,
+      },
+    });
+
+    return resultado;
+  });
 }
 
 /**
@@ -7112,78 +7154,101 @@ export async function criarPermissaoEstabelecimento(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Buscar grupo de serviço se fornecido
-  let grupoServico: StandardServiceGroup = data.grupoServico || "visualizador";
-  let permissoesModulo = getModulePermissionsForGroup(grupoServico);
-  
-  if (data.grupoId) {
-    const [grupo] = await db
-      .select()
-      .from(gruposServico)
-      .where(and(
-        eq(gruposServico.id, data.grupoId),
-        eq(gruposServico.ativo, "sim"),
-        or(
-          isNull(gruposServico.estabelecimentoId),
-          eq(gruposServico.estabelecimentoId, data.estabelecimentoId),
-        ),
-      ))
-      .limit(1);
-    if (!grupo) {
-      throw new Error("Grupo personalizado inexistente, inativo ou indisponível para este estabelecimento");
-    }
-    const nomeNormalizado = grupo.nome.toLowerCase().replace(/\s+/g, "_");
-    // Mapear para valores válidos do enum
-    const grupoMap: Record<string, StandardServiceGroup> = {
-      "administrador": "administrador",
-      "faturista": "faturista",
-      "recurso_glosa": "recurso_glosa",
-      "recurso_de_glosa": "recurso_glosa",
-      "gestor": "gestor",
-      "visualizador": "visualizador",
-      "usuario_tasy": "usuario_tasy",
-    };
-    grupoServico = grupoMap[nomeNormalizado] || "visualizador";
-    permissoesModulo = grupo.permissoesPadrao
-      ? sanitizeCustomModulePermissions(grupo.permissoesPadrao)
-      : getModulePermissionsForGroup(grupoServico);
-  }
+  return executarEmTransacaoPermissao(db, async (tx) => {
+    let grupoServico: StandardServiceGroup = data.grupoServico || "visualizador";
+    let permissoesModulo = getModulePermissionsForGroup(grupoServico);
 
-  const result = await db.insert(permissoesEstabelecimento).values({
-    userId: data.usuarioId,
-    estabelecimentoId: data.estabelecimentoId,
-    grupoServico,
-    grupoId: data.grupoId,
-    podeVisualizar: data.podeVisualizar ? "sim" : "nao",
-    podeEditar: data.podeEditar ? "sim" : "nao",
-    podeExcluir: data.podeExcluir ? "sim" : "nao",
-    podeGerenciar: data.podeGerenciar ? "sim" : "nao",
-    ...(() => {
-      const { acessoRecursosHumanos, ...permissoesTabela } = permissoesModulo;
-      recursosHumanosMemoryOverlay.set(
-        chavePermissaoRh(data.usuarioId, data.estabelecimentoId),
-        acessoRecursosHumanos
-      );
-      return permissoesTabela;
-    })(),
+    if (data.grupoId) {
+      const [grupo] = await tx
+        .select()
+        .from(gruposServico)
+        .where(and(
+          eq(gruposServico.id, data.grupoId),
+          eq(gruposServico.ativo, "sim"),
+          or(
+            isNull(gruposServico.estabelecimentoId),
+            eq(gruposServico.estabelecimentoId, data.estabelecimentoId),
+          ),
+        ))
+        .limit(1);
+      if (!grupo) {
+        throw new Error("Grupo personalizado inexistente, inativo ou indisponível para este estabelecimento");
+      }
+      const nomeNormalizado = grupo.nome.toLowerCase().replace(/\s+/g, "_");
+      const grupoMap: Record<string, StandardServiceGroup> = {
+        "administrador": "administrador",
+        "faturista": "faturista",
+        "recurso_glosa": "recurso_glosa",
+        "recurso_de_glosa": "recurso_glosa",
+        "gestor": "gestor",
+        "visualizador": "visualizador",
+        "usuario_tasy": "usuario_tasy",
+      };
+      grupoServico = grupoMap[nomeNormalizado] || "visualizador";
+      permissoesModulo = grupo.permissoesPadrao
+        ? sanitizeCustomModulePermissions(grupo.permissoesPadrao)
+        : getModulePermissionsForGroup(grupoServico);
+    }
+
+    const { acessoRecursosHumanos, ...permissoesTabela } = permissoesModulo;
+    const result = await tx.insert(permissoesEstabelecimento).values({
+      userId: data.usuarioId,
+      estabelecimentoId: data.estabelecimentoId,
+      grupoServico,
+      grupoId: data.grupoId,
+      podeVisualizar: data.podeVisualizar ? "sim" : "nao",
+      podeEditar: data.podeEditar ? "sim" : "nao",
+      podeExcluir: data.podeExcluir ? "sim" : "nao",
+      podeGerenciar: data.podeGerenciar ? "sim" : "nao",
+      ...permissoesTabela,
+    });
+
+    await tx.insert(logAuditoriaPermissoes).values({
+      usuarioId: data.usuarioId,
+      usuarioAfetadoId: data.usuarioId,
+      estabelecimentoId: data.estabelecimentoId,
+      tipoAcao: "criar_permissao",
+      descricao: "Criação atômica de permissão de estabelecimento",
+      valoresNovos: {
+        userId: data.usuarioId,
+        estabelecimentoId: data.estabelecimentoId,
+        grupoServico,
+        grupoId: data.grupoId,
+        ...permissoesModulo,
+        acessoRecursosHumanos: acessoRecursosHumanos ?? (grupoServico === "administrador" ? "sim" : "nao"),
+      },
+    });
+
+    return { id: Number(result[0].insertId) };
   });
-  return { id: Number(result[0].insertId) };
 }
 
 /**
  * Remove permissão de um usuário para um estabelecimento
  */
 export async function deletePermissaoEstabelecimento(userId: number, estabelecimentoId: number) {
-  recursosHumanosMemoryOverlay.delete(chavePermissaoRh(userId, estabelecimentoId));
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await db
-    .delete(permissoesEstabelecimento)
-    .where(and(
-      eq(permissoesEstabelecimento.userId, userId),
-      eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentoId)
-    ));
+  await executarEmTransacaoPermissao(db, async (tx) => {
+    await tx
+      .delete(permissoesEstabelecimento)
+      .where(and(
+        eq(permissoesEstabelecimento.userId, userId),
+        eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentoId)
+      ));
+
+    await tx.insert(logAuditoriaPermissoes).values({
+      usuarioId: userId,
+      usuarioAfetadoId: userId,
+      estabelecimentoId,
+      tipoAcao: "remover_permissao",
+      descricao: "Revogação atômica de permissão de estabelecimento",
+      valoresNovos: {
+        acessoRecursosHumanos: "nao",
+      },
+    });
+  });
 }
 
 /**
@@ -8159,7 +8224,7 @@ export async function getMetricasEnvioXML(filters: {
 export async function verificarAcessoModulo(
   userId: number,
   estabelecimentoId: number,
-  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relRecebimentoGeral" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "relNaoRecebidos" | "relPrevisaoGlosa" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos" | "atendimentos" | "atendimentosFaturar" | "painelExecutivo" | "visaoGeral" | "financeiro" | "contratos" | "propostas" | "atendimentosConsolidados" | "nfseConsolidado"
+  modulo: "dashboard" | "arquivos" | "comparacoes" | "faturamento" | "tabelasPreco" | "analiseGlosa" | "dicionarioGlosas" | "recursosGlosa" | "convenios" | "regrasNegocio" | "produtividade" | "estabelecimentos" | "permissoes" | "importacaoTasy" | "contasFaturadas" | "relatoriosTasy" | "relatoriosBi" | "relatoriosGlosasBi" | "relFaturadoRecebido" | "relPrevisaoPagamentosImec" | "relLaboratorio" | "relUltrassom" | "relVisitaHospitalar" | "relVisitasFaturadasXml" | "relOxUti" | "relOxUtiFaturado" | "relResumoPacienteOxUti" | "relFisioterapia" | "relComparativoMesAMes" | "relRecebimentoGeral" | "relFaturamento" | "faturamentoExterno" | "relAtendimentos" | "relCustos" | "relNaoRecebidos" | "relPrevisaoGlosa" | "conciliacaoContasPagas" | "recebimentosXml" | "recebimentosExcel" | "demonstrativo" | "contaConvenio" | "recursos" | "atendimentos" | "atendimentosFaturar" | "painelExecutivo" | "visaoGeral" | "financeiro" | "contratos" | "propostas" | "recursosHumanos" | "atendimentosConsolidados" | "nfseConsolidado"
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -8180,7 +8245,7 @@ export async function verificarAcessoModulo(
   if (!permissao) return false;
 
   // Verificar permissão específica do módulo
-  const moduloMap: Record<string, keyof typeof permissao> = {
+  const moduloMap: Record<string, keyof typeof permissao | "acessoRecursosHumanos"> = {
     dashboard: "acessoDashboard",
     arquivos: "acessoArquivos",
     comparacoes: "acessoComparacoes",
@@ -8755,14 +8820,7 @@ export async function atualizarEstabelecimentosUsuario(
 
   // Remover estabelecimentos
   for (const estabelecimentoId of idsParaRemover) {
-    await db
-      .delete(permissoesEstabelecimento)
-      .where(
-        and(
-          eq(permissoesEstabelecimento.userId, userId),
-          eq(permissoesEstabelecimento.estabelecimentoId, estabelecimentoId)
-        )
-      );
+    await deletePermissaoEstabelecimento(userId, estabelecimentoId);
 
     // Registrar no log de auditoria
     await registrarLogAuditoria({

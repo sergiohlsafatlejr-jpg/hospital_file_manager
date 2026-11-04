@@ -32,8 +32,8 @@ export default function Colaboradores() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const { data: colaboradores = [], isLoading } = trpc.rh.listColaboradores.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id },
-    { enabled: !!estabelecimentoAtual }
+    { estabelecimentoId: estabelecimentoAtual?.id ?? 0 },
+    { enabled: !!estabelecimentoAtual?.id }
   );
 
   const updateMutation = trpc.rh.updateColaborador.useMutation({
@@ -66,6 +66,8 @@ export default function Colaboradores() {
     
     if (colaboradorEdit && !colaboradorEdit.isNew) {
       updateMutation.mutate({
+        estabelecimentoId: estabelecimentoAtual!.id,
+        id: colaboradorEdit.id,
         originalCpf: colaboradorEdit.cpf,
         originalNome: colaboradorEdit.colaboradorNome,
         nome: formData.get("nome") as string,

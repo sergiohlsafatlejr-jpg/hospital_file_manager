@@ -23,9 +23,19 @@ export default function PlanoSalarios() {
   const [editValues, setEditValues] = useState<{ salarioBase: string, tetoSalarial: string }>({ salarioBase: "", tetoSalarial: "" });
 
   const { data: cargosSalarios = [], isLoading } = trpc.rh.listCargosSalarios.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id },
-    { enabled: !!estabelecimentoAtual }
+    { estabelecimentoId: estabelecimentoAtual?.id ?? 0 },
+    { enabled: !!estabelecimentoAtual?.id }
   );
+
+  const sincronizarMutation = trpc.rh.sincronizarCargosSalarios.useMutation({
+    onSuccess: () => {
+      toast.success("Cargos sincronizados a partir da folha!");
+      utils.rh.listCargosSalarios.invalidate();
+    },
+    onError: (err) => {
+      toast.error("Erro ao sincronizar cargos: " + err.message);
+    }
+  });
 
   const updateMutation = trpc.rh.updateCargoSalario.useMutation({
     onSuccess: () => {
@@ -54,6 +64,7 @@ export default function PlanoSalarios() {
   const handleSave = (id: number) => {
     updateMutation.mutate({
       id,
+      estabelecimentoId: estabelecimentoAtual?.id,
       salarioBase: editValues.salarioBase ? parseFloat(editValues.salarioBase.replace(',', '.')) : null,
       tetoSalarial: editValues.tetoSalarial ? parseFloat(editValues.tetoSalarial.replace(',', '.')) : null,
     });
@@ -86,6 +97,20 @@ export default function PlanoSalarios() {
             Gestão do plano de cargos e salários (piso e teto) por cargo.
           </p>
         </div>
+        <Button
+          variant="outline"
+          disabled={sincronizarMutation.isPending}
+          onClick={() => sincronizarMutation.mutate({ estabelecimentoId: estabelecimentoAtual.id })}
+        >
+          {sincronizarMutation.isPending ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Sincronizando...
+            </>
+          ) : (
+            "Sincronizar Cargos da Folha"
+          )}
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 shrink-0">

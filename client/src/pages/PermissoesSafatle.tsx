@@ -80,9 +80,9 @@ const MODULOS_SAFATLE = [
     icon: FileSpreadsheet,
     color: "text-purple-500"
   },
-  { 
-    key: "acessoRecursosHumanos", 
-    label: "Recursos Humanos", 
+  {
+    key: "acessoRecursosHumanos",
+    label: "Recursos Humanos",
     description: "Quadro de colaboradores, plano de salários e folha de pagamento",
     icon: Users,
     color: "text-amber-500"

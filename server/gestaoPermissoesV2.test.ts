@@ -168,5 +168,7 @@ describe("Gestão de Permissões V2", () => {
     expect(db).toContain("acessoPainelExecutivo: permissoesEstabelecimento.acessoPainelExecutivo");
     expect(db).toContain('painelExecutivo: "acessoPainelExecutivo"');
     expect(db).toContain('recursosHumanos: "acessoRecursosHumanos"');
+    expect(db).not.toContain("recursosHumanosMemoryOverlay");
+    expect(db).toContain("executarEmTransacaoPermissao");
   });
 });

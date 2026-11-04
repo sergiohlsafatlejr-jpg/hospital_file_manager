@@ -22,16 +22,16 @@ export default function FolhaPagamento() {
   const [competenciaSelecionada, setCompetenciaSelecionada] = useState<string>("todos");
 
   const { data: competencias = [] } = trpc.rh.competencias.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id },
-    { enabled: !!estabelecimentoAtual }
+    { estabelecimentoId: estabelecimentoAtual?.id ?? 0 },
+    { enabled: !!estabelecimentoAtual?.id }
   );
 
   const { data: folhaData = [], isLoading } = trpc.rh.listFolha.useQuery(
     { 
-      estabelecimentoId: estabelecimentoAtual?.id,
+      estabelecimentoId: estabelecimentoAtual?.id ?? 0,
       competencia: competenciaSelecionada !== "todos" ? competenciaSelecionada : undefined 
     },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual?.id }
   );
 
   const [unidadeSelecionada, setUnidadeSelecionada] = useState<string>("todas");
