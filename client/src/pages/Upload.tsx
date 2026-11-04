@@ -21,6 +21,7 @@ import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { estadoRetentativaXml } from "@/lib/xmlImportacaoRetry";
+import { invalidateAllBiQueries } from "@shared/biAutoRefresh";
 import {
   Upload as UploadIcon,
   FileText,
@@ -350,6 +351,8 @@ export default function Upload() {
         utils.arquivos.stats.invalidate();
         utils.dashboard.resumo.invalidate();
         utils.dashboard.ultimosArquivos.invalidate();
+        utils.faturadoRecebidoUnificado.dados.invalidate();
+        invalidateAllBiQueries(utils);
         setIsUploading(false);
       }
       return;
@@ -516,6 +519,7 @@ export default function Upload() {
     utils.dashboard.ultimosArquivos.invalidate();
     utils.procedimentos.list.invalidate();
     utils.faturadoRecebidoUnificado.dados.invalidate();
+    invalidateAllBiQueries(utils);
 
     setIsUploading(false);
   };

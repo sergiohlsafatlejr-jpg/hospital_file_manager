@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import PptxGenJS from "pptxgenjs";
@@ -288,13 +290,34 @@ export function RelatoriosGlosasView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
   const [competencia2, setCompetencia2] = useState("");
   const [comparativo, setComparativo] = useState<any>(null);
 
+  const utils = trpc.useUtils();
+  const refetchAllGlosas = useCallback(async () => {
+    await Promise.all([
+      utils.relatoriosGlosasBi.painelExecutivo.invalidate(),
+      utils.relatoriosGlosasBi.filtros.invalidate(),
+      utils.warleineFaturamento.glosasBi.invalidate(),
+      utils.warleineFaturamento.filtrosGlosas.invalidate(),
+    ]);
+  }, [utils]);
+
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId,
+    onRefetch: refetchAllGlosas,
+    monitorarProcessamento: !isWarleine,
+  });
+
   const officialFiltersQuery = trpc.relatoriosGlosasBi.filtros.useQuery(
     { estabelecimentoId },
-    { enabled: hasEstabelecimento && !isWarleine, staleTime: 60_000 },
+    { enabled: hasEstabelecimento && !isWarleine, ...queryOptions },
   );
   const warleineFiltersQuery = trpc.warleineFaturamento.filtrosGlosas.useQuery(
     { estabelecimentoId },
-    { enabled: hasEstabelecimento && isWarleine, staleTime: 60_000 },
+    { enabled: hasEstabelecimento && isWarleine, ...queryOptions },
   );
   const filtrosQuery = (isWarleine ? warleineFiltersQuery : officialFiltersQuery) as typeof officialFiltersQuery;
 
@@ -319,11 +342,11 @@ export function RelatoriosGlosasView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
 
   const officialPanelQuery = trpc.relatoriosGlosasBi.painelExecutivo.useQuery(
     painelInput,
-    { enabled: hasEstabelecimento && !isWarleine, staleTime: 60_000, placeholderData: (previousData) => previousData },
+    { enabled: hasEstabelecimento && !isWarleine, placeholderData: (previousData) => previousData, ...queryOptions },
   );
   const warleinePanelQuery = trpc.warleineFaturamento.glosasBi.useQuery(
     warleinePanelInput,
-    { enabled: hasEstabelecimento && isWarleine, staleTime: 60_000, placeholderData: (previousData) => previousData },
+    { enabled: hasEstabelecimento && isWarleine, placeholderData: (previousData) => previousData, ...queryOptions },
   );
   const painelQuery = (isWarleine ? warleinePanelQuery : officialPanelQuery) as typeof officialPanelQuery;
 
@@ -596,6 +619,16 @@ export function RelatoriosGlosasView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
               </div>
             </div>
           </header>
+
+          <BiAutoRefreshBar
+            autoRefreshAtivo={autoRefreshAtivo}
+            onToggleAutoRefresh={toggleAutoRefresh}
+            isFetching={painelQuery.isFetching}
+            isError={painelQuery.isError}
+            dataUpdatedAt={painelQuery.dataUpdatedAt}
+            arquivosEmProcessamento={isWarleine ? 0 : arquivosEmProcessamento}
+            fonteIsoladaLabel={isWarleine ? "Fonte isolada Warleine" : undefined}
+          />
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <div className="mb-4 flex items-center justify-between gap-4">

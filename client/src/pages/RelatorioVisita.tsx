@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -64,17 +66,34 @@ export default function RelatorioVisita() {
     [medicoFiltro]
   );
 
-  const { data: convenios } = trpc.relatorioVisita.convenios.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
-  );
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabelecimentoAtual?.id,
+    enabled: !!estabelecimentoAtual,
+    onRefresh: () => {
+      void conveniosQuery.refetch();
+      void medicosQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
 
-  const { data: medicos } = trpc.relatorioVisita.medicos.useQuery(
+  const conveniosQuery = trpc.relatorioVisita.convenios.useQuery(
     { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const convenios = conveniosQuery.data;
 
-  const { data, isLoading, refetch } = trpc.relatorioVisita.dados.useQuery(
+  const medicosQuery = trpc.relatorioVisita.medicos.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id! },
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
+  );
+  const medicos = medicosQuery.data;
+
+  const dadosQuery = trpc.relatorioVisita.dados.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id!,
       mesReferencia: mesRef,
@@ -84,8 +103,9 @@ export default function RelatorioVisita() {
       medico: profissionalSelecionado.medico,
       crm: profissionalSelecionado.crm,
     },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const { data, isLoading, refetch } = dadosQuery;
 
   useEffect(() => {
     if (data?.competencias?.length && !competencia) {
@@ -197,6 +217,15 @@ export default function RelatorioVisita() {
           </div>
           <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Atualizar</Button>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+        />
 
         {/* Filtros */}
         <Card>

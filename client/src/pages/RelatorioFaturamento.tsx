@@ -1,7 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -232,39 +234,86 @@ export default function RelatorioFaturamento() {
 
   // ============ QUERIES ============
 
-  const { data, isLoading, error } = trpc.relatorioFaturamento.buscar.useQuery(
-    queryParams ?? { estabelecimentoId: 0, anoAtual, anoAnterior },
-    { enabled: !!queryParams && queryParams.estabelecimentoId > 0 }
-  );
+  // Inicializa e sincroniza automaticamente ao selecionar estabelecimento/anos
+  useEffect(() => {
+    if (estabelecimentoId > 0) {
+      setCarregado(true);
+      setQueryParams({ estabelecimentoId, anoAtual, anoAnterior });
+    }
+  }, [estabelecimentoId, anoAtual, anoAnterior]);
 
-  const { data: conveniosDisponiveis } = trpc.relatorioFaturamento.listarConvenios.useQuery(
+  const buscarQuery = trpc.relatorioFaturamento.buscar.useQuery(
+    queryParams ?? { estabelecimentoId: 0, anoAtual, anoAnterior },
+    {
+      enabled: !!queryParams && queryParams.estabelecimentoId > 0,
+      refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+      refetchInterval: false, // gerenciado via useBiAutoRefresh abaixo
+      refetchIntervalInBackground: false,
+    }
+  );
+  const { data, isLoading, error } = buscarQuery;
+
+  const conveniosQuery = trpc.relatorioFaturamento.listarConvenios.useQuery(
     { estabelecimentoId },
     { enabled: estabelecimentoId > 0 && carregado }
   );
+  const conveniosDisponiveis = conveniosQuery.data;
 
   // Dados filtrados por convênio (aba tabela)
-  const { data: dadosConvenio, isLoading: isLoadingConvenio } = trpc.relatorioFaturamento.buscarPorConvenio.useQuery(
+  const convenioTabQuery = trpc.relatorioFaturamento.buscarPorConvenio.useQuery(
     { estabelecimentoId, anoAtual, anoAnterior, convenio: convenioSelecionado },
     { enabled: estabelecimentoId > 0 && carregado && convenioSelecionado.length > 0 }
   );
+  const { data: dadosConvenio, isLoading: isLoadingConvenio } = convenioTabQuery;
 
   // Dados filtrados por convênio (dashboard)
-  const { data: dadosConvenioDash, isLoading: isLoadingConvenioDash } = trpc.relatorioFaturamento.buscarPorConvenio.useQuery(
+  const convenioDashQuery = trpc.relatorioFaturamento.buscarPorConvenio.useQuery(
     { estabelecimentoId, anoAtual, anoAnterior, convenio: filtroConvenio },
     { enabled: estabelecimentoId > 0 && carregado && filtroConvenio.length > 0 }
   );
+  const { data: dadosConvenioDash, isLoading: isLoadingConvenioDash } = convenioDashQuery;
 
   // Dados filtrados por setor (dashboard)
-  const { data: dadosSetorDash, isLoading: isLoadingSetorDash } = trpc.relatorioFaturamento.buscarPorSetor.useQuery(
+  const setorDashQuery = trpc.relatorioFaturamento.buscarPorSetor.useQuery(
     { estabelecimentoId, anoAtual, anoAnterior, setor: filtroSetor },
     { enabled: estabelecimentoId > 0 && carregado && filtroSetor.length > 0 }
   );
+  const { data: dadosSetorDash, isLoading: isLoadingSetorDash } = setorDashQuery;
 
   // Dados filtrados por tipo de atendimento (dashboard)
-  const { data: dadosTipoDash, isLoading: isLoadingTipoDash } = trpc.relatorioFaturamento.buscarPorTipoAtendimento.useQuery(
+  const tipoDashQuery = trpc.relatorioFaturamento.buscarPorTipoAtendimento.useQuery(
     { estabelecimentoId, anoAtual, anoAnterior, tipoAtendimento: filtroTipo },
     { enabled: estabelecimentoId > 0 && carregado && filtroTipo.length > 0 }
   );
+  const { data: dadosTipoDash, isLoading: isLoadingTipoDash } = tipoDashQuery;
+
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+  } = useBiAutoRefresh({
+    estabelecimentoId,
+    enabled: estabelecimentoId > 0 && carregado,
+    onRefresh: () => {
+      void buscarQuery.refetch();
+      void conveniosQuery.refetch();
+      if (convenioSelecionado.length > 0) void convenioTabQuery.refetch();
+      if (filtroConvenio.length > 0) void convenioDashQuery.refetch();
+      if (filtroSetor.length > 0) void setorDashQuery.refetch();
+      if (filtroTipo.length > 0) void tipoDashQuery.refetch();
+    },
+  });
+
+  useEffect(() => {
+    if (!autoRefreshAtivo || estabelecimentoId <= 0 || !carregado) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void buscarQuery.refetch();
+      }
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [autoRefreshAtivo, estabelecimentoId, carregado, buscarQuery]);
 
   // ============ HANDLERS ============
 
@@ -589,6 +638,20 @@ export default function RelatorioFaturamento() {
             </p>
           </div>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={buscarQuery.isFetching || isLoadingDashFilter}
+          isError={buscarQuery.isError}
+          dataUpdatedAt={buscarQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+          showRefreshButton
+          onRefresh={() => {
+            void buscarQuery.refetch();
+            void conveniosQuery.refetch();
+          }}
+        />
 
         {/* Filtros de Ano */}
         <Card>

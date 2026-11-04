@@ -66,6 +66,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { formatDateBR } from "@/lib/dateUtils";
+import { invalidateAllBiQueries } from "@shared/biAutoRefresh";
 
 interface FileItem {
   file: File;
@@ -303,6 +304,7 @@ export default function RecebimentosXml() {
     utils.demonstrativo.competencias.invalidate();
     utils.arquivos.list.invalidate();
     utils.faturadoRecebidoUnificado.dados.invalidate();
+    invalidateAllBiQueries(utils);
 
     setIsUploading(false);
     if (successCount > 0) setActiveTab("listagem");

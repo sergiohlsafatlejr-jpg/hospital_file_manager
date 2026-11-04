@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -44,25 +46,43 @@ export default function RelatorioVisitaXml() {
   const convId = convenioId !== "todos" ? Number(convenioId) : undefined;
   const medFilter = medicoFilter !== "todos" ? medicoFilter : undefined;
 
-  const { data: convenios } = trpc.relatorioVisitaXml.convenios.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
-  );
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabelecimentoAtual?.id,
+    enabled: !!estabelecimentoAtual,
+    onRefresh: () => {
+      void conveniosQuery.refetch();
+      void competenciasQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
 
-  const { data: competencias } = trpc.relatorioVisitaXml.competencias.useQuery(
+  const conveniosQuery = trpc.relatorioVisitaXml.convenios.useQuery(
     { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const convenios = conveniosQuery.data;
 
-  const { data, isLoading, refetch } = trpc.relatorioVisitaXml.dados.useQuery(
+  const competenciasQuery = trpc.relatorioVisitaXml.competencias.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id! },
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
+  );
+  const competencias = competenciasQuery.data;
+
+  const dadosQuery = trpc.relatorioVisitaXml.dados.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id!,
       competencia: competencia && competencia !== "all" ? competencia : undefined,
       convenioId: convId,
       medico: medFilter,
     },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const { data, isLoading, refetch } = dadosQuery;
 
   useEffect(() => {
     if (competencias?.length && !competencia) {
@@ -142,6 +162,15 @@ export default function RelatorioVisitaXml() {
           </div>
           <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Atualizar</Button>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+        />
 
         {/* Filtros */}
         <Card>

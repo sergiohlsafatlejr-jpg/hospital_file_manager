@@ -166,7 +166,7 @@ describe("dashboardHomeRouter.resumoGeral", () => {
     expect(res.esteiraFaturamento.porSetor.auditoria_interna.totalContas).toBe(5);
     expect(res.esteiraFaturamento.porSetor.enviado_convenio.totalContas).toBe(12);
 
-    // 3. Verifica valores e quantidade faturados por estabelecimento
+    // 3. Verifica valores e quantidade faturados por estabelecimento (somente produção na Esteira)
     expect(res.faturamentoPorEstabelecimento).toHaveLength(2);
     const samaritano = res.faturamentoPorEstabelecimento.find((e) => e.estabelecimentoId === 20);
     const santaHelena = res.faturamentoPorEstabelecimento.find((e) => e.estabelecimentoId === 10);
@@ -174,12 +174,12 @@ describe("dashboardHomeRouter.resumoGeral", () => {
     expect(samaritano?.quantidadeFaturada).toBe(12);
     expect(samaritano?.valorFaturado).toBe(190000);
     expect(santaHelena?.contasParadasSetores).toBe(17);
-    expect(santaHelena?.quantidadeFaturada).toBe(15);
-    expect(santaHelena?.valorFaturado).toBe(150000);
+    expect(santaHelena?.quantidadeFaturada).toBe(8);
+    expect(santaHelena?.valorFaturado).toBe(130000);
 
     // 4. Verifica consolidação no topo para Safatle (2160001)
-    expect(res.faturista.totalContas).toBe(27);
-    expect(res.faturista.valorTotalFaturado).toBe(340000);
+    expect(res.faturista.totalContas).toBe(20);
+    expect(res.faturista.valorTotalFaturado).toBe(320000);
   });
 });
 

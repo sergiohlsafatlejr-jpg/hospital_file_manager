@@ -11,6 +11,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
@@ -287,32 +289,52 @@ export default function RelatorioOxUti() {
   } | null>(null);
 
   // ── queries ──
-  const { data: meses = [], isLoading: loadingMeses } = trpc.relatorioOxUti.mesesDisponiveis.useQuery(
-    { estabelecimentoId: estabId },
-    { enabled: estabId > 0 }
-  );
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabId,
+    enabled: estabId > 0,
+    onRefresh: () => {
+      void mesesQuery.refetch();
+      void conveniosQuery.refetch();
+      void mesesPagQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
 
-  const { data: convenios = [] } = trpc.relatorioOxUti.convenios.useQuery(
+  const mesesQuery = trpc.relatorioOxUti.mesesDisponiveis.useQuery(
     { estabelecimentoId: estabId },
-    { enabled: estabId > 0 }
+    { enabled: estabId > 0, ...queryOptions }
   );
+  const { data: meses = [], isLoading: loadingMeses } = mesesQuery;
 
-  const { data: mesesPag = [] } = trpc.relatorioOxUti.mesesPagamentoDisponiveis.useQuery(
+  const conveniosQuery = trpc.relatorioOxUti.convenios.useQuery(
     { estabelecimentoId: estabId },
-    { enabled: estabId > 0 }
+    { enabled: estabId > 0, ...queryOptions }
   );
+  const { data: convenios = [] } = conveniosQuery;
+
+  const mesesPagQuery = trpc.relatorioOxUti.mesesPagamentoDisponiveis.useQuery(
+    { estabelecimentoId: estabId },
+    { enabled: estabId > 0, ...queryOptions }
+  );
+  const { data: mesesPag = [] } = mesesPagQuery;
 
   const mesEfetivo = mesRef || (meses.length > 0 ? meses[0] : "");
 
-  const { data, isLoading, isFetching } = trpc.relatorioOxUti.dados.useQuery(
+  const dadosQuery = trpc.relatorioOxUti.dados.useQuery(
     {
       estabelecimentoId: estabId,
       mesRef: mesEfetivo,
       convenioId: convenioId !== "todos" ? parseInt(convenioId) : undefined,
       mesPagamento: mesPagamento !== "todos" ? mesPagamento : undefined,
     },
-    { enabled: estabId > 0 && !!mesEfetivo }
+    { enabled: estabId > 0 && !!mesEfetivo, ...queryOptions }
   );
+  const { data, isLoading, isFetching } = dadosQuery;
 
   // ── filtros ──
   const pacientesFiltrados = useMemo(() => {
@@ -406,6 +428,19 @@ export default function RelatorioOxUti() {
             Exportar Excel
           </Button>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+          showRefreshButton
+          onRefresh={() => {
+            void dadosQuery.refetch();
+          }}
+        />
 
         {/* ── Filtros ── */}
         <Card>

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -49,12 +51,27 @@ export default function RelatorioUltrassom() {
 
   const convId = convenioId !== "todos" ? Number(convenioId) : undefined;
 
-  const { data: convenios } = trpc.relatorioUltrassom.convenios.useQuery(
-    { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
-  );
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabelecimentoAtual?.id,
+    enabled: !!estabelecimentoAtual,
+    onRefresh: () => {
+      void conveniosQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
 
-  const { data, isLoading, refetch } = trpc.relatorioUltrassom.dados.useQuery(
+  const conveniosQuery = trpc.relatorioUltrassom.convenios.useQuery(
+    { estabelecimentoId: estabelecimentoAtual?.id! },
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
+  );
+  const convenios = conveniosQuery.data;
+
+  const dadosQuery = trpc.relatorioUltrassom.dados.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id!,
       mesReferencia: mesRef,
@@ -62,8 +79,9 @@ export default function RelatorioUltrassom() {
       convenioId: convId,
       statusFiltro: statusFiltro as any,
     },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const { data, isLoading, refetch } = dadosQuery;
 
   useEffect(() => {
     if (data?.competencias?.length && !competencia) {
@@ -160,6 +178,15 @@ export default function RelatorioUltrassom() {
           </div>
           <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Atualizar</Button>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+        />
 
         {/* Filtros */}
         <Card>

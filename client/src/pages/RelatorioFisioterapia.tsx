@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -54,11 +56,26 @@ export default function RelatorioFisioterapia() {
     return () => clearTimeout(t);
   }, [busca]);
 
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabelecimentoAtual?.id,
+    enabled: !!estabelecimentoAtual,
+    onRefresh: () => {
+      void mesesQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
+
   // Buscar meses disponíveis
-  const { data: mesesDisponiveis } = trpc.relatorioFisioterapia.getMesesDisponiveis.useQuery(
+  const mesesQuery = trpc.relatorioFisioterapia.getMesesDisponiveis.useQuery(
     { estabelecimentoId: estabelecimentoAtual?.id! },
-    { enabled: !!estabelecimentoAtual }
+    { enabled: !!estabelecimentoAtual, ...queryOptions }
   );
+  const mesesDisponiveis = mesesQuery.data;
 
   const mesesValidos = useMemo(
     () => (mesesDisponiveis || []).filter((m: any) => typeof m?.mes === "string" && m.mes.includes("-")),
@@ -73,13 +90,14 @@ export default function RelatorioFisioterapia() {
   }, [mesesValidos, mesAno]);
 
   // Buscar dados do relatório
-  const { data, isLoading } = trpc.relatorioFisioterapia.getDados.useQuery(
+  const dadosQuery = trpc.relatorioFisioterapia.getDados.useQuery(
     {
       estabelecimentoId: estabelecimentoAtual?.id!,
       mesAno: mesAno || undefined,
     },
-    { enabled: !!estabelecimentoAtual && !!mesAno }
+    { enabled: !!estabelecimentoAtual && !!mesAno, ...queryOptions }
   );
+  const { data, isLoading } = dadosQuery;
 
   // Filtrar pacientes pela busca
   const pacientesFiltrados = useMemo(() => {
@@ -172,6 +190,19 @@ export default function RelatorioFisioterapia() {
             </Button>
           </div>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+          showRefreshButton
+          onRefresh={() => {
+            void dadosQuery.refetch();
+          }}
+        />
 
         {/* Filtros */}
         <Card>

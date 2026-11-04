@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Download, Search, Users, Calendar, DollarSign } from 'lucide-react';
 import { useEstabelecimento } from '@/contexts/EstabelecimentoContext';
+import { useBiAutoRefresh } from '@/hooks/useBiAutoRefresh';
+import { BiAutoRefreshBar } from '@/components/bi/BiAutoRefreshBar';
 
 function formatCurrency(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -28,12 +30,31 @@ export default function ResumoPacienteOxUti() {
   const { estabelecimentoAtual } = useEstabelecimento();
   const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
 
-  const { data: meses } = trpc.resumoPacienteOxUti.mesesDisponiveis.useQuery(
-    { estabelecimentoId }, { enabled: estabelecimentoId > 0 }
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId,
+    enabled: estabelecimentoId > 0,
+    onRefresh: () => {
+      void mesesQuery.refetch();
+      void conveniosQuery.refetch();
+      void fatQuery.refetch();
+      void recQuery.refetch();
+    },
+  });
+
+  const mesesQuery = trpc.resumoPacienteOxUti.mesesDisponiveis.useQuery(
+    { estabelecimentoId }, { enabled: estabelecimentoId > 0, ...queryOptions }
   );
-  const { data: conveniosList } = trpc.resumoPacienteOxUti.convenios.useQuery(
-    { estabelecimentoId }, { enabled: estabelecimentoId > 0 }
+  const meses = mesesQuery.data;
+
+  const conveniosQuery = trpc.resumoPacienteOxUti.convenios.useQuery(
+    { estabelecimentoId }, { enabled: estabelecimentoId > 0, ...queryOptions }
   );
+  const conveniosList = conveniosQuery.data;
 
   const [mesRef, setMesRef] = useState('');
   const [convenio, setConvenio] = useState('');
@@ -42,15 +63,17 @@ export default function ResumoPacienteOxUti() {
 
   const mesAtual = mesRef || (meses && meses.length > 0 ? meses[0] : '');
 
-  const { data: dataFat, isLoading: loadingFat } = trpc.resumoPacienteOxUti.faturado.useQuery(
+  const fatQuery = trpc.resumoPacienteOxUti.faturado.useQuery(
     { estabelecimentoId, mesRef: mesAtual, convenio: convenio || undefined },
-    { enabled: estabelecimentoId > 0 && !!mesAtual }
+    { enabled: estabelecimentoId > 0 && !!mesAtual, ...queryOptions }
   );
+  const { data: dataFat, isLoading: loadingFat } = fatQuery;
 
-  const { data: dataRec, isLoading: loadingRec } = trpc.resumoPacienteOxUti.recebido.useQuery(
+  const recQuery = trpc.resumoPacienteOxUti.recebido.useQuery(
     { estabelecimentoId, mesRef: mesAtual, convenio: convenio || undefined },
-    { enabled: estabelecimentoId > 0 && !!mesAtual }
+    { enabled: estabelecimentoId > 0 && !!mesAtual, ...queryOptions }
   );
+  const { data: dataRec, isLoading: loadingRec } = recQuery;
 
   const dadosFatFiltrados = useMemo(() => {
     if (!dataFat?.dados) return [];
@@ -123,6 +146,20 @@ export default function ResumoPacienteOxUti() {
           <p className="text-sm text-muted-foreground mt-1">Faturado e Recebido por paciente — separados por Guia, Lote e Protocolo</p>
         </div>
       </div>
+
+      <BiAutoRefreshBar
+        autoRefreshAtivo={autoRefreshAtivo}
+        onToggleAutoRefresh={toggleAutoRefresh}
+        isFetching={fatQuery.isFetching || recQuery.isFetching}
+        isError={fatQuery.isError || recQuery.isError}
+        dataUpdatedAt={Math.max(fatQuery.dataUpdatedAt || 0, recQuery.dataUpdatedAt || 0)}
+        arquivosEmProcessamento={arquivosEmProcessamento}
+        showRefreshButton
+        onRefresh={() => {
+          void fatQuery.refetch();
+          void recQuery.refetch();
+        }}
+      />
 
       {/* Filtros compartilhados */}
       <Card>

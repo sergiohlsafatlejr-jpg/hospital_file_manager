@@ -140,6 +140,7 @@ export default function DashboardHome() {
   const [competencia, setCompetencia] = useState<string>("");
   const [activeTab, setActiveTab] = useState("gerente");
   const [filtroHospitalEsteira, setFiltroHospitalEsteira] = useState<string>("todos");
+  const [mostrarTodosEstabelecimentos, setMostrarTodosEstabelecimentos] = useState<boolean>(false);
 
   // Usar o contexto de estabelecimento
   const { estabelecimentoAtual } = useEstabelecimento();
@@ -151,6 +152,25 @@ export default function DashboardHome() {
   });
 
   const estabelecimentosLista = data?.faturamentoPorEstabelecimento || [];
+  const estabelecimentosComProducaoEsteira = useMemo(
+    () =>
+      estabelecimentosLista.filter(
+        (est) =>
+          (est.contasNaEsteira || 0) > 0 ||
+          (est.contasParadasSetores || 0) > 0 ||
+          (est.contasConcluidasEsteira || 0) > 0 ||
+          (est.quantidadeFaturada || 0) > 0 ||
+          (est.valorFaturado || 0) > 0
+      ),
+    [estabelecimentosLista]
+  );
+  const estabelecimentosExibidos = useMemo(
+    () =>
+      !mostrarTodosEstabelecimentos && estabelecimentosComProducaoEsteira.length > 0
+        ? estabelecimentosComProducaoEsteira
+        : estabelecimentosLista,
+    [mostrarTodosEstabelecimentos, estabelecimentosComProducaoEsteira, estabelecimentosLista]
+  );
 
   // Dados da Esteira filtrados por hospital (quando o usuário seleciona um hospital no filtro rápido da Esteira) ou consolidados
   const dadosEsteiraExibicao = useMemo(() => {
@@ -341,12 +361,12 @@ export default function DashboardHome() {
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Valor Faturado</p>
+                    <p className="text-sm text-muted-foreground">Valor Faturado na Esteira</p>
                     <p className="text-2xl font-bold text-foreground">
-                      {formatCurrency(faturista.valorTotalFaturado)}
+                      {formatCurrency(dadosEsteiraExibicao.valorFaturadoEsteira)}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {faturista.totalContas.toLocaleString("pt-BR")} contas faturadas
+                      {dadosEsteiraExibicao.contasFaturadas.toLocaleString("pt-BR")} contas faturadas na esteira
                     </p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -654,20 +674,36 @@ export default function DashboardHome() {
             </CardContent>
           </Card>
 
-          {/* ===== BLOCO 2: VALORES E QUANTIDADE FATURADOS POR ESTABELECIMENTO ===== */}
+          {/* ===== BLOCO 2: VALORES E QUANTIDADE FATURADOS POR ESTABELECIMENTO (SOMENTE ESTEIRA) ===== */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Building2 className="h-5 w-5 text-blue-600" />
-                    Valores e Quantidade Faturados por Estabelecimento
+                    Valores e Quantidade Faturados por Estabelecimento (Esteira)
                   </CardTitle>
                   <CardDescription>
-                    Consolidado de contas faturadas, valores faturados e contas paradas nos setores por unidade hospitalar
+                    Somente a produção que está na Esteira de Faturamento no mês acompanhado ({competencia === "todas" ? "Todas as competências" : formatCompetencia(competencia || faturista.competenciaAtual || new Date().toISOString().slice(0, 7))})
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-3 text-xs">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  {estabelecimentosComProducaoEsteira.length > 0 &&
+                    estabelecimentosComProducaoEsteira.length < estabelecimentosLista.length && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setMostrarTodosEstabelecimentos((v) => !v)}
+                      >
+                        {mostrarTodosEstabelecimentos
+                          ? `Apenas na Esteira (${estabelecimentosComProducaoEsteira.length})`
+                          : `Ver todos (${estabelecimentosLista.length})`}
+                      </Button>
+                    )}
+                  <Badge variant="outline" className="font-semibold">
+                    {totaisEstabelecimentos.contasNaEsteira.toLocaleString("pt-BR")} na esteira
+                  </Badge>
                   <Badge variant="secondary" className="font-semibold">
                     Total Faturado: {formatCurrency(totaisEstabelecimentos.valorFaturado)}
                   </Badge>
@@ -678,9 +714,9 @@ export default function DashboardHome() {
               </div>
             </CardHeader>
             <CardContent>
-              {estabelecimentosLista.length === 0 ? (
+              {estabelecimentosExibidos.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  Nenhum estabelecimento encontrado.
+                  Nenhuma produção encontrada na Esteira de Faturamento para o período selecionado.
                 </p>
               ) : (
                 <div className="rounded-lg border overflow-x-auto">
@@ -688,6 +724,7 @@ export default function DashboardHome() {
                     <TableHeader>
                       <TableRow className="bg-muted/40">
                         <TableHead>Estabelecimento</TableHead>
+                        <TableHead className="text-center">Total na Esteira</TableHead>
                         <TableHead className="text-center">Contas Paradas nos Setores</TableHead>
                         <TableHead className="text-center">Enviadas / Concluídas</TableHead>
                         <TableHead className="text-right">Qtd. Contas Faturadas</TableHead>
@@ -696,7 +733,7 @@ export default function DashboardHome() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {estabelecimentosLista.map((est) => {
+                      {estabelecimentosExibidos.map((est) => {
                         const percValor =
                           totaisEstabelecimentos.valorFaturado > 0
                             ? (est.valorFaturado / totaisEstabelecimentos.valorFaturado) * 100
@@ -730,6 +767,12 @@ export default function DashboardHome() {
                                   </div>
                                 </div>
                               </div>
+                            </TableCell>
+
+                            <TableCell className="text-center">
+                              <Badge variant="outline" className="font-semibold">
+                                {(est.contasNaEsteira || 0).toLocaleString("pt-BR")}
+                              </Badge>
                             </TableCell>
 
                             <TableCell className="text-center">
@@ -809,7 +852,12 @@ export default function DashboardHome() {
 
                       {/* Linha de Total Geral */}
                       <TableRow className="bg-muted/60 font-bold border-t-2">
-                        <TableCell>TOTAL GERAL ({estabelecimentosLista.length} estabelecimentos)</TableCell>
+                        <TableCell>
+                          TOTAL NA ESTEIRA ({estabelecimentosExibidos.length} estabelecimentos)
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {totaisEstabelecimentos.contasNaEsteira.toLocaleString("pt-BR")}
+                        </TableCell>
                         <TableCell className="text-center text-amber-600 dark:text-amber-400">
                           {totaisEstabelecimentos.contasParadasSetores.toLocaleString("pt-BR")} paradas
                         </TableCell>

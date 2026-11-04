@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Download, Landmark, Loader2, ShieldCheck, TrendingDown, WalletCards } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -75,10 +77,24 @@ export default function PrevisaoPagamentosImec() {
   const [mesSelecionado, setMesSelecionado] = useState("todos");
   const isImec = estabelecimentoAtual?.id === IMEC_ID;
 
-  const { data, isLoading, error, refetch, isRefetching } = trpc.previsaoPagamentosImec.dados.useQuery(
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: isImec ? IMEC_ID : null,
+    enabled: isImec,
+    onRefresh: () => {
+      void dadosQuery.refetch();
+    },
+  });
+
+  const dadosQuery = trpc.previsaoPagamentosImec.dados.useQuery(
     { estabelecimentoId: IMEC_ID, horizonteMeses },
-    { enabled: isImec, staleTime: 60_000 },
+    { enabled: isImec, ...queryOptions },
   );
+  const { data, isLoading, error, refetch, isRefetching } = dadosQuery;
 
   const convenioId = convenioSelecionado === "todos" ? null : Number(convenioSelecionado);
 
@@ -222,6 +238,15 @@ export default function PrevisaoPagamentosImec() {
             <Button onClick={exportarExcel} disabled={!data}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button>
           </div>
         </header>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+        />
 
         <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 px-4 py-3 text-sm text-muted-foreground">
           <strong className="text-foreground">Metodologia:</strong> pagamentos já presentes no demonstrativo são classificados como programados. Meses sem demonstrativo usam média ponderada dos últimos três meses, dia típico do convênio e taxa histórica de glosa. Valores estimados não representam confirmação bancária.

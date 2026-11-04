@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download, ChevronDown, ChevronRight, TrendingUp, TrendingDown, Calendar } from "lucide-react";
@@ -46,10 +48,24 @@ export default function ComparativoMesAMes() {
   const [anoAnterior, setAnoAnterior] = useState(currentYear - 1);
   const [expandedMeses, setExpandedMeses] = useState<Set<number>>(new Set());
 
-  const { data, isLoading } = trpc.comparativoMesAMes.getDados.useQuery(
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabId,
+    enabled: !!estabId,
+    onRefresh: () => {
+      void dadosQuery.refetch();
+    },
+  });
+
+  const dadosQuery = trpc.comparativoMesAMes.getDados.useQuery(
     { estabelecimentoId: estabId!, anoAtual, anoAnterior },
-    { enabled: !!estabId }
+    { enabled: !!estabId, ...queryOptions }
   );
+  const { data, isLoading } = dadosQuery;
 
   const toggleMes = (mes: number) => {
     setExpandedMeses(prev => {
@@ -147,6 +163,19 @@ export default function ComparativoMesAMes() {
             </Button>
           </div>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+          showRefreshButton
+          onRefresh={() => {
+            void dadosQuery.refetch();
+          }}
+        />
 
         {/* Filtros */}
         <div className="flex items-center gap-4 bg-card p-4 rounded-lg border">

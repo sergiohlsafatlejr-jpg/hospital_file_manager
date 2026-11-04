@@ -148,12 +148,17 @@ export const dashboardHomeRouter = router({
       const filtroCompResumo = compDash
         ? `AND competencia IN ('${compDash}', '${compSlash}')`
         : "";
+      const isTodasCompetencias = competencia === "todas";
       const filtroCompFabrica = compDash
-        ? `AND (DATE_FORMAT(DATE(fc.data_recebimento_safatle), '%Y-%m') = '${compDash}' OR DATE_FORMAT(COALESCE(fc.data_alta, fc.data_entrada), '%Y-%m') = '${compDash}')`
-        : "";
+        ? `AND (DATE_FORMAT(DATE(fc.data_recebimento_safatle), '%Y-%m') = '${compDash}' OR DATE_FORMAT(DATE(fc.entrada_setor_atual_em), '%Y-%m') = '${compDash}' OR DATE_FORMAT(COALESCE(fc.data_alta, fc.data_entrada), '%Y-%m') = '${compDash}')`
+        : isTodasCompetencias
+          ? ""
+          : `AND (fc.setor_atual NOT IN ('enviado_convenio', 'recursos', 'finalizado') OR DATE_FORMAT(COALESCE(fc.enviado_convenio_em, fc.entrada_setor_atual_em, fc.data_recebimento_safatle, fc.created_at), '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m'))`;
       const filtroCompHistorico = compDash
         ? `AND DATE_FORMAT(DATE(created_at), '%Y-%m') = '${compDash}'`
-        : "";
+        : isTodasCompetencias
+          ? ""
+          : `AND DATE_FORMAT(DATE(created_at), '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m')`;
 
       // ============================================================
       // 1. ESTEIRA DE FATURAMENTO: Contas por Estabelecimento e por Setor
@@ -524,21 +529,10 @@ export const dashboardHomeRouter = router({
             valorFaturado: 0,
           };
 
-          const quantidadeFaturada = Math.max(
-            unif.totalContas,
-            resumo.totalContas,
-            estFab.contasFaturadasEsteira
-          );
-          const valorFaturado = Math.max(
-            unif.valorFaturado,
-            resumo.valorFaturado,
-            estFab.valorTotalEsteira
-          );
-          const totalItens = Math.max(
-            unif.totalItens,
-            resumo.totalItens,
-            estFab.totalItensEsteira
-          );
+          // Somente a produção que estiver na Esteira de Faturamento (no mês acompanhado)
+          const quantidadeFaturada = estFab.contasFaturadasEsteira;
+          const valorFaturado = estFab.valorTotalEsteira;
+          const totalItens = estFab.totalItensEsteira;
 
           return {
             estabelecimentoId: h.id,
@@ -559,8 +553,8 @@ export const dashboardHomeRouter = router({
           };
         })
         .sort((a, b) => {
-          if (b.valorFaturado !== a.valorFaturado) return b.valorFaturado - a.valorFaturado;
           if (b.contasNaEsteira !== a.contasNaEsteira) return b.contasNaEsteira - a.contasNaEsteira;
+          if (b.valorFaturado !== a.valorFaturado) return b.valorFaturado - a.valorFaturado;
           return a.estabelecimentoNome.localeCompare(b.estabelecimentoNome);
         });
 

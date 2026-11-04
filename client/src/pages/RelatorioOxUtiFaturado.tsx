@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
+import { useBiAutoRefresh } from "@/hooks/useBiAutoRefresh";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
 import { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
 import {
@@ -62,26 +64,44 @@ export default function RelatorioOxUtiFaturado() {
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todos");
 
   // ── queries ──
-  const { data: meses = [], isLoading: loadingMeses } = trpc.relatorioOxUtiFaturado.mesesDisponiveis.useQuery(
-    { estabelecimentoId: estabId },
-    { enabled: estabId > 0 }
-  );
+  const {
+    autoRefreshAtivo,
+    toggleAutoRefresh,
+    arquivosEmProcessamento,
+    queryOptions,
+  } = useBiAutoRefresh({
+    estabelecimentoId: estabId,
+    enabled: estabId > 0,
+    onRefresh: () => {
+      void mesesQuery.refetch();
+      void conveniosQuery.refetch();
+      void dadosQuery.refetch();
+    },
+  });
 
-  const { data: convenios = [] } = trpc.relatorioOxUtiFaturado.convenios.useQuery(
+  const mesesQuery = trpc.relatorioOxUtiFaturado.mesesDisponiveis.useQuery(
     { estabelecimentoId: estabId },
-    { enabled: estabId > 0 }
+    { enabled: estabId > 0, ...queryOptions }
   );
+  const { data: meses = [], isLoading: loadingMeses } = mesesQuery;
+
+  const conveniosQuery = trpc.relatorioOxUtiFaturado.convenios.useQuery(
+    { estabelecimentoId: estabId },
+    { enabled: estabId > 0, ...queryOptions }
+  );
+  const { data: convenios = [] } = conveniosQuery;
 
   const mesEfetivo = mesRef || (meses.length > 0 ? meses[0] : "");
 
-  const { data, isLoading, isFetching } = trpc.relatorioOxUtiFaturado.dados.useQuery(
+  const dadosQuery = trpc.relatorioOxUtiFaturado.dados.useQuery(
     {
       estabelecimentoId: estabId,
       mesRef: mesEfetivo,
       convenio: convenio !== "todos" ? convenio : undefined,
     },
-    { enabled: estabId > 0 && !!mesEfetivo }
+    { enabled: estabId > 0 && !!mesEfetivo, ...queryOptions }
   );
+  const { data, isLoading, isFetching } = dadosQuery;
 
   // ── filtros ──
   const pacientesFiltrados = useMemo(() => {
@@ -179,6 +199,19 @@ export default function RelatorioOxUtiFaturado() {
             Exportar Excel
           </Button>
         </div>
+
+        <BiAutoRefreshBar
+          autoRefreshAtivo={autoRefreshAtivo}
+          onToggleAutoRefresh={toggleAutoRefresh}
+          isFetching={dadosQuery.isFetching}
+          isError={dadosQuery.isError}
+          dataUpdatedAt={dadosQuery.dataUpdatedAt}
+          arquivosEmProcessamento={arquivosEmProcessamento}
+          showRefreshButton
+          onRefresh={() => {
+            void dadosQuery.refetch();
+          }}
+        />
 
         {/* ── Filtros ── */}
         <Card>
