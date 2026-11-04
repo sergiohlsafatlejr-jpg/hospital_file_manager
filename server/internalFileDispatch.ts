@@ -4,15 +4,38 @@ import { getRawPool } from "./db";
 export const INTERNAL_FILE_PROCESSING_TIMEOUT_MS = 180_000;
 export const INTERNAL_DISPATCH_REVIEW_MARKER = "internal-dispatch: reconciliation-required; automatic-retry-blocked";
 
-type InternalProcessingEnv = { JWT_SECRET?: string; PORT?: string };
+type InternalProcessingEnv = {
+  INTERNAL_PROCESSING_SECRET_KEY?: string;
+  JWT_SECRET?: string;
+  PORT?: string;
+};
+
+function currentInternalProcessingEnv(): InternalProcessingEnv {
+  return {
+    INTERNAL_PROCESSING_SECRET_KEY: process.env.INTERNAL_PROCESSING_SECRET_KEY,
+    JWT_SECRET: process.env.JWT_SECRET,
+    PORT: process.env.PORT,
+  };
+}
+
+/** Uma chave dedicada configurada nunca pode ser contornada pelo JWT legado. */
+export function resolveInternalProcessingSecret(
+  env: InternalProcessingEnv = currentInternalProcessingEnv()
+): string {
+  const dedicated = env.INTERNAL_PROCESSING_SECRET_KEY;
+  if (dedicated !== undefined) {
+    if (/^[a-fA-F0-9]{64}$/.test(dedicated)) return dedicated;
+  } else if (env.JWT_SECRET && env.JWT_SECRET.length >= 32) {
+    return env.JWT_SECRET;
+  }
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O processamento interno não está configurado." });
+}
 
 /** Verificar antes de qualquer upload, registro, progresso ou tentativa de retry. */
 export function assertInternalProcessingReady(
-  env: InternalProcessingEnv = { JWT_SECRET: process.env.JWT_SECRET, PORT: process.env.PORT }
+  env: InternalProcessingEnv = currentInternalProcessingEnv()
 ): void {
-  if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O processamento interno não está configurado." });
-  }
+  resolveInternalProcessingSecret(env);
 }
 
 export type InternalFileProcessingInput = {
@@ -46,8 +69,8 @@ export async function dispatchInternalFileProcessing(
   input: InternalFileProcessingInput,
   options: DispatchOptions = {}
 ): Promise<void> {
-  const env = options.env ?? { JWT_SECRET: process.env.JWT_SECRET, PORT: process.env.PORT };
-  assertInternalProcessingReady(env);
+  const env = options.env ?? currentInternalProcessingEnv();
+  const secret = resolveInternalProcessingSecret(env);
   if (!Number.isSafeInteger(input.arquivoId) || input.arquivoId <= 0) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Arquivo inválido para processamento." });
   }
@@ -80,7 +103,7 @@ export async function dispatchInternalFileProcessing(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             arquivoId: input.arquivoId,
-            secret: env.JWT_SECRET,
+            secret,
             skipContaConvenioSync: input.skipContaConvenioSync,
             limparDadosAnteriores: input.limparDadosAnteriores,
           }),

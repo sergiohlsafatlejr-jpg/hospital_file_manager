@@ -23,17 +23,13 @@ import type {
   InsertRecebimentoExcel,
 } from "../drizzle/schema";
 import { deveLimparExcelRetorno } from "./retornoUploadDispatch";
+import { resolveInternalProcessingSecret } from "./internalFileDispatch";
 import {
   GLOSA_MANUAL_NO_ORIGINAL_MESSAGE,
   isGlosaManualOriginName,
 } from "../shared/glosaManualOrigin";
 
 const router = Router();
-
-// Sem fallback: um endpoint interno nunca pode usar segredo previsível.
-function segredoInternoAtual(): string | undefined {
-  return process.env.JWT_SECRET;
-}
 
 // Log persistente no banco para diagnóstico em produção
 async function plog(arquivoId: number, level: string, message: string) {
@@ -59,9 +55,14 @@ router.post("/api/internal/process-file", async (req, res) => {
     limparDadosAnteriores,
   } = req.body;
   
-  // Validar segredo interno
-  const internalSecret = segredoInternoAtual();
-  if (!internalSecret || internalSecret.length < 32 || secret !== internalSecret) {
+  // A mesma seleção do emissor, sem derivação ou fallback de chave dedicada inválida.
+  let internalSecret: string;
+  try {
+    internalSecret = resolveInternalProcessingSecret();
+  } catch {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  if (typeof secret !== "string" || secret !== internalSecret) {
     return res.status(403).json({ error: "Forbidden" });
   }
   
