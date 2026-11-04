@@ -4,6 +4,7 @@ import { createPool, Pool } from "mysql2/promise";
 import Decimal from "decimal.js";
 import { describeAuthFailure } from "./authDiagnostics";
 import type { ProcedimentoFonte } from "./procedimentosTabela";
+import { isRhPermissionAuditOnly, markRhPermissionAuditOnly } from "./rhPermissionAuditOrigin";
 export { getItemsPorCategoria, getGlosasPorMotivo, getPerformanceMedico } from './db-queries-reais';
 import {
   InsertUser,
@@ -6736,6 +6737,7 @@ async function anexarAcessoRecursosHumanos<
 
         const bloqueadosPorRemocao = new Set<string>();
         for (const log of logs) {
+          if (isRhPermissionAuditOnly(log.valoresNovos)) continue;
           if (!log.estabelecimentoId) continue;
           const k = chavePermissaoRh(log.usuarioAfetadoId, log.estabelecimentoId);
           if (resolvidos.has(k) || bloqueadosPorRemocao.has(k)) continue;
@@ -8553,7 +8555,10 @@ export async function registrarLogAuditoria(dados: InsertLogAuditoriaPermissoes)
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  await db.insert(logAuditoriaPermissoes).values(dados);
+  await db.insert(logAuditoriaPermissoes).values({
+    ...dados,
+    valoresNovos: markRhPermissionAuditOnly(dados.tipoAcao, dados.valoresNovos),
+  });
 }
 
 /**
