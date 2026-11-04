@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useEstabelecimento } from "@/contexts/EstabelecimentoContext";
 import { trpc } from "@/lib/trpc";
 import { LancamentosManuaisDialog } from "@/components/bi/LancamentosManuaisDialog";
+import { BiAutoRefreshBar } from "@/components/bi/BiAutoRefreshBar";
+import { BI_AUTO_REFRESH_INTERVAL_MS } from "@shared/biAutoRefresh";
 import { criarTooltipFinanceiro, type FinanceiroTooltipMetric } from "@/lib/faturadoRecebidoTooltip";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,11 +25,16 @@ import {
   AlertCircle,
   BarChart3,
   Building2,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
   CircleDollarSign,
   Download,
   FilePenLine,
   FileSpreadsheet,
+  Filter,
   HandCoins,
+  Layers,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -122,33 +129,45 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
   const estabelecimentoId = estabelecimentoAtual?.id ?? 0;
   const isHopHup = isWarleine && estabelecimentoId === 1260036;
   const [observouProcessamento, setObservouProcessamento] = useState(false);
+  const [autoRefreshAtivo, setAutoRefreshAtivo] = useState(true);
+  const [visaoDrilldown, setVisaoDrilldown] = useState<"CONVENIO_MES" | "MES_CONVENIO">("CONVENIO_MES");
+  const [conveniosExpandidos, setConveniosExpandidos] = useState<Set<string>>(new Set());
+  const [mesesExpandidos, setMesesExpandidos] = useState<Set<string>>(new Set());
   useEffect(() => {
     setCompetencia(undefined);
     setConvenio(undefined);
     setCriterioPeriodo("PAGAMENTO");
     setObservouProcessamento(false);
+    setConveniosExpandidos(new Set());
+    setMesesExpandidos(new Set());
   }, [estabelecimentoId]);
   const officialInput = useMemo(() => ({ estabelecimentoId, criterioPeriodo, competencia, convenio, limite: 10 }), [estabelecimentoId, criterioPeriodo, competencia, convenio]);
   const warleineInput = useMemo(() => ({ estabelecimentoId, competencia, convenio, limite: 10 }), [estabelecimentoId, competencia, convenio]);
   const officialQuery = trpc.faturadoRecebidoUnificado.dados.useQuery(officialInput, {
     enabled: estabelecimentoId > 0 && !isWarleine,
-    staleTime: 60_000,
+    staleTime: 0,
     placeholderData: (previous) => previous,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchOnReconnect: "always",
+    refetchInterval: autoRefreshAtivo ? BI_AUTO_REFRESH_INTERVAL_MS : false,
+    refetchIntervalInBackground: false,
   });
   const warleineQuery = trpc.warleineFaturamento.faturadoRecebido.useQuery(warleineInput, {
     enabled: estabelecimentoId > 0 && isWarleine,
-    staleTime: 60_000,
+    staleTime: 0,
     placeholderData: (previous) => previous,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchOnReconnect: "always",
+    refetchInterval: autoRefreshAtivo ? BI_AUTO_REFRESH_INTERVAL_MS : false,
+    refetchIntervalInBackground: false,
   });
   const query = (isWarleine ? warleineQuery : officialQuery) as typeof officialQuery;
   const processamentoQuery = trpc.arquivos.processando.useQuery(
     { estabelecimentoId },
     {
-      enabled: estabelecimentoId > 0 && !isWarleine,
+      enabled: estabelecimentoId > 0 && !isWarleine && autoRefreshAtivo,
       refetchInterval: (state) => state.state.data?.length ? 3_000 : 15_000,
       refetchIntervalInBackground: true,
     },
@@ -156,7 +175,7 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
   const arquivosEmProcessamento = processamentoQuery.data?.length || 0;
 
   useEffect(() => {
-    if (isWarleine) return;
+    if (isWarleine || !autoRefreshAtivo) return;
     if (arquivosEmProcessamento > 0) {
       setObservouProcessamento(true);
       return;
@@ -165,7 +184,7 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
       setObservouProcessamento(false);
       void query.refetch().then(() => toast.success("Importações concluídas e relatório atualizado."));
     }
-  }, [arquivosEmProcessamento, observouProcessamento, query.refetch, isWarleine]);
+  }, [arquivosEmProcessamento, observouProcessamento, query.refetch, isWarleine, autoRefreshAtivo]);
   const data = query.data;
   const convenioOptions: Array<{ chave: string; nome: string }> = isWarleine
     ? ((data as any)?.filtrosDisponiveis?.conveniosDetalhes || [])
@@ -182,6 +201,48 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
     setCompetencia(undefined);
   };
 
+  const toggleExpandirConvenio = (chave: string) => {
+    setConveniosExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(chave)) next.delete(chave);
+      else next.add(chave);
+      return next;
+    });
+  };
+
+  const toggleExpandirMes = (comp: string) => {
+    setMesesExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(comp)) next.delete(comp);
+      else next.add(comp);
+      return next;
+    });
+  };
+
+  const mesesOrdenadosDesc = useMemo(() => {
+    if (!data?.porMes) return [];
+    return [...data.porMes].sort((a: any, b: any) => {
+      if (a.competencia === "Sem competência") return 1;
+      if (b.competencia === "Sem competência") return -1;
+      return String(b.competencia).localeCompare(String(a.competencia));
+    });
+  }, [data?.porMes]);
+
+  const expandirTodos = () => {
+    if (!data) return;
+    if (visaoDrilldown === "CONVENIO_MES") {
+      const todasChaves = data.porConvenio.map((row: any) => isWarleine ? (row.convenioChave || row.convenio) : row.convenio);
+      setConveniosExpandidos(new Set(todasChaves));
+    } else {
+      setMesesExpandidos(new Set(mesesOrdenadosDesc.map((row: any) => String(row.competencia))));
+    }
+  };
+
+  const recolherTodos = () => {
+    if (visaoDrilldown === "CONVENIO_MES") setConveniosExpandidos(new Set());
+    else setMesesExpandidos(new Set());
+  };
+
   const exportExcel = () => {
     if (!data) return toast.error("Não há dados para exportar.");
     const wb = XLSX.utils.book_new();
@@ -193,6 +254,28 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
       ["Critério de consolidação", isHopHup ? "Snapshot Hop HUP isolado na visão do sistema Warleine; não somado às fontes oficiais" : isWarleine ? "Fonte isolada Warleine" : "Faturado: XML > manual > planilha externa > estimativa do demonstrativo, por período e convênio. Recebido/glosa manuais são complementares. A aba Valores Externos mostra lançamentos brutos para auditoria, não valores necessariamente somados ao Resumo."],
     ]), "Resumo");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.porConvenio.map((row: any) => ({ "Convênio": row.convenio, "Faturado": row.totalFaturado, "A baixar": row.totalSaldo, "Acréscimo": row.totalAcrescimo, "Glosa a recursar": row.glosaARecursar, "Glosa recursada": row.glosaRecursada, "Glosa em recurso": row.glosaEmRecurso, "Glosa recuperada": row.glosaRecuperada, "Glosa aceita": row.glosaAceita, "Recebido": row.totalRecebido, "Glosado": row.totalGlosado, "% Recebido": row.percentualRecebido, "% Glosa": row.percentualGlosa, "% Recurso": row.percentualRecurso }))), "Por Convênio");
+    const linhasDrilldown = data.porConvenio.flatMap((row: any) =>
+      ((row.meses as any[]) || []).map((mesRow: any) => ({
+        "Convênio": row.convenio,
+        [periodoLabel]: monthLabel(String(mesRow.competencia)),
+        "Faturado": mesRow.totalFaturado,
+        "A baixar": mesRow.totalSaldo,
+        "Acréscimo": mesRow.totalAcrescimo,
+        "Glosa a recursar": mesRow.glosaARecursar,
+        "Glosa recursada": mesRow.glosaRecursada,
+        "Glosa em recurso": mesRow.glosaEmRecurso,
+        "Glosa recuperada": mesRow.glosaRecuperada,
+        "Glosa aceita": mesRow.glosaAceita,
+        "Recebido": mesRow.totalRecebido,
+        "Glosado": mesRow.totalGlosado,
+        "% Recebido": mesRow.percentualRecebido,
+        "% Glosa": mesRow.percentualGlosa,
+        "% Recurso": mesRow.percentualRecurso,
+      }))
+    );
+    if (linhasDrilldown.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhasDrilldown), "Convênio x Mês");
+    }
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.porMes.map((row: any) => ({ [periodoLabel]: row.competencia, "Faturado": row.totalFaturado, "Recebido": row.totalRecebido, "Glosado": row.totalGlosado, "Saldo": row.totalSaldo, "Glosa recursada": row.glosaRecursada, "Glosa em recurso": row.glosaEmRecurso, "Glosa recuperada": row.glosaRecuperada }))), "Por Período");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.motivosGlosa.map((row) => ({ "Código": row.codigo, "Motivo": row.motivo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Motivos de Glosa");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.itensGlosados.map((row) => ({ "Código": row.codigo, "Item": row.item, "Tipo": row.tipo, "Valor glosado": row.valorGlosado, "Quantidade": row.quantidade }))), "Itens Glosados");
@@ -207,6 +290,16 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
   return <DashboardLayout><main className="min-h-screen bg-[#f4f7fb] px-4 py-5 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1800px] space-y-5">
     <header className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-1.5 bg-gradient-to-r from-slate-900 via-blue-600 to-teal-500" /><div className="flex flex-col gap-5 px-5 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7"><div className="flex items-start gap-4"><div className="rounded-2xl bg-blue-50 p-3 text-blue-700"><BarChart3 className="h-6 w-6" /></div><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold tracking-tight text-slate-950">Faturado x Recebido{isHopHup ? " — Sistema HUP (Hop)" : isWarleine ? " — Sistema Warleine" : ""}</h1><span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">{estabelecimentoAtual.nome}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${isWarleine ? "bg-indigo-50 text-indigo-700" : arquivosEmProcessamento > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{isHopHup ? "Fonte Hop isolada" : isWarleine ? "Fonte isolada Warleine" : arquivosEmProcessamento > 0 ? `${arquivosEmProcessamento} arquivo(s) em processamento` : "Atualização automática ativa"}</span></div><p className="mt-1 text-sm text-slate-500">{isHopHup ? "Snapshot faturado x recebido do HUP importado via Hop, separado dos demonstrativos oficiais" : isWarleine ? "Valores faturados, recebidos, em aberto e glosados informados pelo sistema Warleine" : "Resultado mensal por convênio, retorno financeiro, glosas e recursos"}</p></div></div><div className="flex flex-wrap gap-2">{!isWarleine && temAcessoModulo("faturamentoExterno") && <Button variant="outline" size="sm" className="bg-white" onClick={() => setCadastroManualAberto(true)}><FilePenLine className="mr-2 h-4 w-4" />Cadastrar valores</Button>}<Button variant="outline" size="sm" className="bg-white" onClick={() => query.refetch()} disabled={query.isRefetching}><RefreshCw className={`mr-2 h-4 w-4 ${query.isRefetching ? "animate-spin" : ""}`} />Atualizar</Button><Button size="sm" className="bg-slate-900 text-white hover:bg-slate-800" onClick={exportExcel} disabled={!data}><Download className="mr-2 h-4 w-4" />Exportar Excel</Button></div></div></header>
 
+    <BiAutoRefreshBar
+      autoRefreshAtivo={autoRefreshAtivo}
+      onToggleAutoRefresh={() => setAutoRefreshAtivo((atual) => !atual)}
+      isFetching={query.isFetching}
+      isError={query.isError}
+      dataUpdatedAt={query.dataUpdatedAt}
+      arquivosEmProcessamento={isWarleine ? 0 : arquivosEmProcessamento}
+      fonteIsoladaLabel={isHopHup ? "Fonte Hop isolada" : isWarleine ? "Fonte isolada Warleine" : undefined}
+    />
+
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className={`grid gap-3 ${isWarleine ? "md:grid-cols-[220px_260px_1fr]" : "md:grid-cols-[230px_220px_260px_1fr]"} md:items-end`}>{!isWarleine && <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Organizar recebido por</label><Select value={criterioPeriodo} onValueChange={(value) => alterarCriterioPeriodo(value as "PAGAMENTO" | "FATURAMENTO")}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="PAGAMENTO">Mês do pagamento</SelectItem><SelectItem value="FATURAMENTO">Competência do faturamento</SelectItem></SelectContent></Select></div>}<div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">{periodoLabel}</label><Select value={competencia || "todos"} onValueChange={(value) => setCompetencia(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todo o histórico</SelectItem>{data?.filtrosDisponiveis.competencias.map((item) => <SelectItem key={item} value={item}>{monthLabel(item)}</SelectItem>)}</SelectContent></Select></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Convênio</label><Select value={convenio || "todos"} onValueChange={(value) => setConvenio(value === "todos" ? undefined : value)}><SelectTrigger className="bg-slate-50"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todos os convênios</SelectItem>{convenioOptions.map((item) => <SelectItem key={item.chave} value={item.chave}>{item.nome}</SelectItem>)}</SelectContent></Select></div><div className="flex flex-wrap items-center gap-2">{competencia && <button onClick={() => setCompetencia(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">{periodoLabel} {monthLabel(competencia)}<X className="h-3.5 w-3.5" /></button>}{convenio && <button onClick={() => setConvenio(undefined)} className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800">{convenioSelecionadoNome}<X className="h-3.5 w-3.5" /></button>}{(competencia || convenio) && <Button variant="ghost" size="sm" onClick={clear}><RotateCcw className="mr-2 h-4 w-4" />Limpar filtros</Button>}</div></div></section>
 
     {query.isLoading && <div className="flex min-h-96 items-center justify-center rounded-2xl bg-white"><Loader2 className="mr-3 h-6 w-6 animate-spin text-blue-600" /><span className="text-sm text-slate-500">Calculando o resultado de {estabelecimentoAtual.nome}...</span></div>}
@@ -216,7 +309,301 @@ export function FaturadoRecebidoView({ fonte = "OFICIAL" }: { fonte?: "OFICIAL" 
       {!!data.lancamentosExternosConsiderados.length && <div className="flex flex-col gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 sm:flex-row sm:items-center sm:justify-between"><span><strong>{data.lancamentosExternosConsiderados.length} lançamento(s) externo(s)</strong> encontrado(s) neste recorte. Para o faturado, a prioridade é conta XML, manual, planilha externa e estimativa do demonstrativo; recebido e glosa manuais continuam complementares e devem ser revisados quando houver importação.</span><Button variant="outline" size="sm" className="border-violet-200 bg-white" onClick={() => setCadastroManualAberto(true)}>Revisar lançamentos</Button></div>}
       <section className={`grid grid-cols-2 gap-3 lg:grid-cols-4 ${isWarleine ? "xl:grid-cols-4 2xl:grid-cols-8" : "xl:grid-cols-5 2xl:grid-cols-9"}`}><MetricCard label="Faturado" value={money(data.resumo.totalFaturado)} helper="Base reconhecida no recorte" icon={CircleDollarSign} tone="navy" /><MetricCard label="Recebido" value={money(data.resumo.totalRecebido)} helper={isWarleine ? percent(data.resumo.percentualRecebido) : criterioPeriodo === "PAGAMENTO" ? "Total informado no pagamento" : "Total atribuído ao período"} icon={HandCoins} tone="teal" /><MetricCard label="Glosado" value={money(data.resumo.totalGlosado)} helper={`${percent(data.resumo.percentualGlosa)} do faturado`} icon={TrendingDown} tone="coral" /><MetricCard label="A baixar" value={money(data.resumo.totalSaldo)} helper="Saldo ainda sem baixa" icon={WalletCards} tone="amber" /><MetricCard label="Glosa a recursar" value={money(data.resumo.glosaARecursar)} helper="Sem decisão registrada" icon={AlertCircle} tone="amber" /><MetricCard label="Glosa recursada" value={money(data.resumo.glosaRecursada)} helper="Total já colocado em recurso" icon={ShieldCheck} tone="blue" /><MetricCard label="Em recurso" value={money(data.resumo.glosaEmRecurso)} helper={`${percent(data.resumo.percentualRecurso)} já recursado`} icon={ShieldCheck} tone="blue" /><MetricCard label="Recuperada" value={money(data.resumo.glosaRecuperada)} helper="Retorno favorável registrado" icon={RefreshCw} tone="teal" /><MetricCard label="Glosa aceita" value={money(data.resumo.glosaAceita)} helper="Aceite registrado na análise" icon={FileSpreadsheet} tone="violet" /></section>
 
-      <Panel title={`Resultado ${competencia ? `de ${monthLabel(competencia)}` : "consolidado"}`} subtitle={`${periodoLabel}: clique em um convênio para recalcular indicadores, motivos, itens e evolução`}><div className="overflow-x-auto"><table className="w-full min-w-[1320px] text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-left uppercase tracking-wide text-slate-500"><th className="px-3 py-3">Convênio</th><th className="px-3 py-3 text-right">Faturado</th><th className="px-3 py-3 text-right">A baixar</th><th className="px-3 py-3 text-right">Acréscimo</th><th className="px-3 py-3 text-right">Glosa a rec.</th><th className="px-3 py-3 text-right">Recursada</th><th className="px-3 py-3 text-right">Em recurso</th><th className="px-3 py-3 text-right">Recuperada</th><th className="px-3 py-3 text-right">Aceita</th><th className="px-3 py-3 text-right">Recebido</th><th className="px-3 py-3 text-right">Glosado</th><th className="px-3 py-3 text-right">% receb.</th><th className="px-3 py-3 text-right">% glosa</th><th className="px-3 py-3 text-right">% recurso</th></tr></thead><tbody>{data.porConvenio.map((row: any) => { const convenioChave = isWarleine ? (row.convenioChave || row.convenio) : row.convenio; const active = convenio === convenioChave; return <tr key={convenioChave} onClick={() => toggleConvenio(convenioChave)} className={`cursor-pointer border-b border-slate-100 transition-colors ${active ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50"}`}><td className="px-3 py-3 font-semibold text-slate-900"><span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-slate-400" />{row.convenio}</span></td><td className="px-3 py-3 text-right font-medium text-slate-900">{money(row.totalFaturado)}</td><td className="px-3 py-3 text-right text-amber-700">{money(row.totalSaldo)}</td><td className="px-3 py-3 text-right text-slate-600">{money(row.totalAcrescimo)}</td><td className="px-3 py-3 text-right text-amber-700">{money(row.glosaARecursar)}</td><td className="px-3 py-3 text-right text-cyan-700">{money(row.glosaRecursada)}</td><td className="px-3 py-3 text-right text-blue-700">{money(row.glosaEmRecurso)}</td><td className="px-3 py-3 text-right text-teal-700">{money(row.glosaRecuperada)}</td><td className="px-3 py-3 text-right text-violet-700">{money(row.glosaAceita)}</td><td className="px-3 py-3 text-right font-medium text-teal-700">{money(row.totalRecebido)}</td><td className="px-3 py-3 text-right font-medium text-rose-700">{money(row.totalGlosado)}</td><td className="px-3 py-3 text-right">{percent(row.percentualRecebido)}</td><td className="px-3 py-3 text-right">{percent(row.percentualGlosa)}</td><td className="px-3 py-3 text-right">{percent(row.percentualRecurso)}</td></tr>; })}</tbody></table></div></Panel>
+      <Panel
+        title={`Resultado ${competencia ? `de ${monthLabel(competencia)}` : "consolidado"}`}
+        subtitle={`${periodoLabel}: clique na linha para abrir o drill-down por ${visaoDrilldown === "CONVENIO_MES" ? "mês sem precisar filtrar" : "convênio sem precisar filtrar"}, ou use o botão Filtrar para recalcular os gráficos`}
+      >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100/80 p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setVisaoDrilldown("CONVENIO_MES")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition-all ${
+                visaoDrilldown === "CONVENIO_MES"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Building2 className="h-3.5 w-3.5 text-blue-600" />
+              Convênio → Mês
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisaoDrilldown("MES_CONVENIO")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition-all ${
+                visaoDrilldown === "MES_CONVENIO"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Calendar className="h-3.5 w-3.5 text-teal-600" />
+              {periodoLabel} → Convênio
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={expandirTodos} className="h-8 text-xs">
+              <Layers className="mr-1.5 h-3.5 w-3.5" />
+              Expandir todos
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={recolherTodos} className="h-8 text-xs text-slate-600">
+              Recolher todos
+            </Button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1320px] text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-3">{visaoDrilldown === "CONVENIO_MES" ? "Convênio / Mês" : `${periodoLabel} / Convênio`}</th>
+                <th className="px-3 py-3 text-right">Faturado</th>
+                <th className="px-3 py-3 text-right">A baixar</th>
+                <th className="px-3 py-3 text-right">Acréscimo</th>
+                <th className="px-3 py-3 text-right">Glosa a rec.</th>
+                <th className="px-3 py-3 text-right">Recursada</th>
+                <th className="px-3 py-3 text-right">Em recurso</th>
+                <th className="px-3 py-3 text-right">Recuperada</th>
+                <th className="px-3 py-3 text-right">Aceita</th>
+                <th className="px-3 py-3 text-right">Recebido</th>
+                <th className="px-3 py-3 text-right">Glosado</th>
+                <th className="px-3 py-3 text-right">% receb.</th>
+                <th className="px-3 py-3 text-right">% glosa</th>
+                <th className="px-3 py-3 text-right">% recurso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visaoDrilldown === "CONVENIO_MES" ? (
+                data.porConvenio.map((row: any) => {
+                  const convenioChave = isWarleine ? (row.convenioChave || row.convenio) : row.convenio;
+                  const active = convenio === convenioChave;
+                  const mesesSub: any[] = row.meses || [];
+                  const isExpanded = conveniosExpandidos.has(convenioChave);
+                  return (
+                    <Fragment key={convenioChave}>
+                      <tr
+                        onClick={() => toggleExpandirConvenio(convenioChave)}
+                        className={`cursor-pointer border-b border-slate-100 transition-colors ${
+                          active ? "bg-blue-50/90 ring-1 ring-inset ring-blue-200" : isExpanded ? "bg-slate-50/90" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="px-3 py-3 font-semibold text-slate-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-2">
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4 shrink-0 text-blue-600" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                              )}
+                              <Building2 className="h-4 w-4 shrink-0 text-slate-400" />
+                              <span>{row.convenio}</span>
+                              {mesesSub.length > 0 && (
+                                <span className="rounded-full bg-slate-200/75 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                  {mesesSub.length} {mesesSub.length === 1 ? "mês" : "meses"}
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleConvenio(convenioChave);
+                              }}
+                              title={active ? "Remover filtro deste convênio" : "Filtrar gráficos e indicadores por este convênio"}
+                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                                active
+                                  ? "border-blue-300 bg-blue-600 text-white"
+                                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                              }`}
+                            >
+                              <Filter className="h-2.5 w-2.5" />
+                              {active ? "Filtrado" : "Filtrar"}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right font-medium text-slate-900">{money(row.totalFaturado)}</td>
+                        <td className="px-3 py-3 text-right text-amber-700">{money(row.totalSaldo)}</td>
+                        <td className="px-3 py-3 text-right text-slate-600">{money(row.totalAcrescimo)}</td>
+                        <td className="px-3 py-3 text-right text-amber-700">{money(row.glosaARecursar)}</td>
+                        <td className="px-3 py-3 text-right text-cyan-700">{money(row.glosaRecursada)}</td>
+                        <td className="px-3 py-3 text-right text-blue-700">{money(row.glosaEmRecurso)}</td>
+                        <td className="px-3 py-3 text-right text-teal-700">{money(row.glosaRecuperada)}</td>
+                        <td className="px-3 py-3 text-right text-violet-700">{money(row.glosaAceita)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-teal-700">{money(row.totalRecebido)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-rose-700">{money(row.totalGlosado)}</td>
+                        <td className="px-3 py-3 text-right">{percent(row.percentualRecebido)}</td>
+                        <td className="px-3 py-3 text-right">{percent(row.percentualGlosa)}</td>
+                        <td className="px-3 py-3 text-right">{percent(row.percentualRecurso)}</td>
+                      </tr>
+                      {isExpanded &&
+                        mesesSub.map((mesRow: any) => {
+                          const mesAtivo = competencia === mesRow.competencia && active;
+                          return (
+                            <tr
+                              key={`${convenioChave}-${mesRow.competencia}`}
+                              onClick={() => {
+                                if (mesRow.competencia !== "Sem competência") {
+                                  setConvenio(convenioChave);
+                                  toggleMes(mesRow.competencia);
+                                }
+                              }}
+                              className={`cursor-pointer border-b border-slate-100/80 bg-slate-50/60 text-[11px] transition-colors hover:bg-blue-50/50 ${
+                                mesAtivo ? "bg-blue-50/80 font-semibold" : ""
+                              }`}
+                            >
+                              <td className="py-2.5 pl-10 pr-3 text-slate-700">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="inline-flex items-center gap-2 border-l-2 border-blue-300 pl-2.5">
+                                    <Calendar className="h-3.5 w-3.5 text-blue-600" />
+                                    <span className="font-medium">{monthLabel(String(mesRow.competencia))}</span>
+                                  </span>
+                                  {mesRow.competencia !== "Sem competência" && (
+                                    <span className="text-[10px] text-slate-400">clique p/ focar mês</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">{money(mesRow.totalFaturado)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{money(mesRow.totalSaldo)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{money(mesRow.totalAcrescimo)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{money(mesRow.glosaARecursar)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-cyan-700">{money(mesRow.glosaRecursada)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-blue-700">{money(mesRow.glosaEmRecurso)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-teal-700">{money(mesRow.glosaRecuperada)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-violet-700">{money(mesRow.glosaAceita)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums font-medium text-teal-700">{money(mesRow.totalRecebido)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums font-medium text-rose-700">{money(mesRow.totalGlosado)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(mesRow.percentualRecebido)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(mesRow.percentualGlosa)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(mesRow.percentualRecurso)}</td>
+                            </tr>
+                          );
+                        })}
+                    </Fragment>
+                  );
+                })
+              ) : (
+                mesesOrdenadosDesc.map((mesRow: any) => {
+                  const comp = String(mesRow.competencia);
+                  const activeMes = competencia === comp;
+                  const conveniosSub: any[] = mesRow.convenios || [];
+                  const isExpanded = mesesExpandidos.has(comp);
+                  return (
+                    <Fragment key={comp}>
+                      <tr
+                        onClick={() => toggleExpandirMes(comp)}
+                        className={`cursor-pointer border-b border-slate-100 transition-colors ${
+                          activeMes ? "bg-teal-50/90 ring-1 ring-inset ring-teal-200" : isExpanded ? "bg-slate-50/90" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="px-3 py-3 font-semibold text-slate-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-2">
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4 shrink-0 text-teal-600" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                              )}
+                              <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
+                              <span>{monthLabel(comp)}</span>
+                              {conveniosSub.length > 0 && (
+                                <span className="rounded-full bg-slate-200/75 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                  {conveniosSub.length} {conveniosSub.length === 1 ? "convênio" : "convênios"}
+                                </span>
+                              )}
+                            </span>
+                            {comp !== "Sem competência" && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleMes(comp);
+                                }}
+                                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                                  activeMes
+                                    ? "border-teal-300 bg-teal-600 text-white"
+                                    : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-700"
+                                }`}
+                              >
+                                <Filter className="h-2.5 w-2.5" />
+                                {activeMes ? "Filtrado" : "Filtrar"}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right font-medium text-slate-900">{money(mesRow.totalFaturado)}</td>
+                        <td className="px-3 py-3 text-right text-amber-700">{money(mesRow.totalSaldo)}</td>
+                        <td className="px-3 py-3 text-right text-slate-600">{money(mesRow.totalAcrescimo)}</td>
+                        <td className="px-3 py-3 text-right text-amber-700">{money(mesRow.glosaARecursar)}</td>
+                        <td className="px-3 py-3 text-right text-cyan-700">{money(mesRow.glosaRecursada)}</td>
+                        <td className="px-3 py-3 text-right text-blue-700">{money(mesRow.glosaEmRecurso)}</td>
+                        <td className="px-3 py-3 text-right text-teal-700">{money(mesRow.glosaRecuperada)}</td>
+                        <td className="px-3 py-3 text-right text-violet-700">{money(mesRow.glosaAceita)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-teal-700">{money(mesRow.totalRecebido)}</td>
+                        <td className="px-3 py-3 text-right font-medium text-rose-700">{money(mesRow.totalGlosado)}</td>
+                        <td className="px-3 py-3 text-right">{percent(mesRow.percentualRecebido)}</td>
+                        <td className="px-3 py-3 text-right">{percent(mesRow.percentualGlosa)}</td>
+                        <td className="px-3 py-3 text-right">{percent(mesRow.percentualRecurso)}</td>
+                      </tr>
+                      {isExpanded &&
+                        conveniosSub.map((convRow: any) => {
+                          const convChave = isWarleine ? (convRow.convenioChave || convRow.convenio) : convRow.convenio;
+                          return (
+                            <tr
+                              key={`${comp}-${convChave}`}
+                              onClick={() => {
+                                setConvenio(convChave);
+                                if (comp !== "Sem competência") setCompetencia(comp);
+                              }}
+                              className="cursor-pointer border-b border-slate-100/80 bg-slate-50/60 text-[11px] transition-colors hover:bg-teal-50/50"
+                            >
+                              <td className="py-2.5 pl-10 pr-3 text-slate-700">
+                                <span className="inline-flex items-center gap-2 border-l-2 border-teal-300 pl-2.5">
+                                  <Building2 className="h-3.5 w-3.5 text-teal-600" />
+                                  <span className="font-medium">{convRow.convenio}</span>
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">{money(convRow.totalFaturado)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{money(convRow.totalSaldo)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{money(convRow.totalAcrescimo)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{money(convRow.glosaARecursar)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-cyan-700">{money(convRow.glosaRecursada)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-blue-700">{money(convRow.glosaEmRecurso)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-teal-700">{money(convRow.glosaRecuperada)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-violet-700">{money(convRow.glosaAceita)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums font-medium text-teal-700">{money(convRow.totalRecebido)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums font-medium text-rose-700">{money(convRow.totalGlosado)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(convRow.percentualRecebido)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(convRow.percentualGlosa)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums">{percent(convRow.percentualRecurso)}</td>
+                            </tr>
+                          );
+                        })}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 bg-slate-100/90 font-bold text-slate-900">
+                <td className="px-3 py-3 uppercase tracking-wide">Total Consolidado</td>
+                <td className="px-3 py-3 text-right">{money(data.resumo.totalFaturado)}</td>
+                <td className="px-3 py-3 text-right text-amber-800">{money(data.resumo.totalSaldo)}</td>
+                <td className="px-3 py-3 text-right text-slate-700">{money(data.resumo.totalAcrescimo)}</td>
+                <td className="px-3 py-3 text-right text-amber-800">{money(data.resumo.glosaARecursar)}</td>
+                <td className="px-3 py-3 text-right text-cyan-800">{money(data.resumo.glosaRecursada)}</td>
+                <td className="px-3 py-3 text-right text-blue-800">{money(data.resumo.glosaEmRecurso)}</td>
+                <td className="px-3 py-3 text-right text-teal-800">{money(data.resumo.glosaRecuperada)}</td>
+                <td className="px-3 py-3 text-right text-violet-800">{money(data.resumo.glosaAceita)}</td>
+                <td className="px-3 py-3 text-right text-teal-800">{money(data.resumo.totalRecebido)}</td>
+                <td className="px-3 py-3 text-right text-rose-800">{money(data.resumo.totalGlosado)}</td>
+                <td className="px-3 py-3 text-right">{percent(data.resumo.percentualRecebido)}</td>
+                <td className="px-3 py-3 text-right">{percent(data.resumo.percentualGlosa)}</td>
+                <td className="px-3 py-3 text-right">{percent(data.resumo.percentualRecurso)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </Panel>
 
       <section className="grid gap-5 xl:grid-cols-2"><Panel title={`Evolução por ${periodoLabel}`} subtitle="Passe o mouse ou toque para ver os detalhes; clique em um período para filtrar todo o relatório">{mesesGrafico.length ? <ResponsiveContainer width="100%" height={330}><BarChart data={mesesGrafico} margin={{ top: 10, right: 8, left: 2, bottom: 6 }} accessibilityLayer><CartesianGrid stroke={COLORS.grid} vertical={false} /><XAxis dataKey="competencia" tickFormatter={monthLabel} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tickFormatter={compact} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><RechartsTooltip content={<FinancialTooltip context="mes" />} cursor={{ fill: "#eff6ff", opacity: 0.75 }} animationDuration={150} wrapperStyle={{ outline: "none", zIndex: 30 }} allowEscapeViewBox={{ x: false, y: true }} /><Legend wrapperStyle={{ fontSize: 11 }} /><Bar dataKey="totalFaturado" name="Faturado" fill={COLORS.blue} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)}>{mesesGrafico.map((item: any) => <Cell key={item.competencia} fill={competencia && competencia !== item.competencia ? "#cbd5e1" : COLORS.blue} />)}</Bar><Bar dataKey="totalRecebido" name="Recebido" fill={COLORS.teal} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)} /><Bar dataKey="totalGlosado" name="Glosado" fill={COLORS.coral} radius={[5, 5, 0, 0]} cursor="pointer" onClick={(entry: any) => toggleMes(entry?.competencia || entry?.payload?.competencia)} /></BarChart></ResponsiveContainer> : <div className="flex h-64 items-center justify-center text-sm text-slate-500">Sem evolução mensal para o recorte.</div>}</Panel><Panel title="Convênios por faturamento" subtitle="Passe o mouse ou toque para comparar os valores; clique para filtrar a operadora"><ResponsiveContainer width="100%" height={330}><BarChart data={data.porConvenio.slice(0, 10)} layout="vertical" margin={{ left: 5, right: 18 }} accessibilityLayer><CartesianGrid stroke={COLORS.grid} horizontal={false} /><XAxis type="number" tickFormatter={compact} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="convenio" width={125} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><RechartsTooltip content={<FinancialTooltip context="convenio" />} cursor={{ fill: "#f0fdfa" }} animationDuration={150} wrapperStyle={{ outline: "none", zIndex: 30 }} allowEscapeViewBox={{ x: false, y: true }} /><Bar dataKey="totalFaturado" name="Faturado" fill={COLORS.navy} radius={[0, 7, 7, 0]} barSize={20} cursor="pointer" onClick={(entry: any) => toggleConvenio((isWarleine ? (entry?.convenioChave || entry?.payload?.convenioChave) : undefined) || entry?.convenio || entry?.payload?.convenio)}>{data.porConvenio.slice(0, 10).map((item: any) => <Cell key={(isWarleine ? item.convenioChave : item.convenio) || item.convenio} fill={convenio === ((isWarleine ? item.convenioChave : item.convenio) || item.convenio) ? COLORS.teal : convenio ? "#cbd5e1" : COLORS.navy} />)}</Bar></BarChart></ResponsiveContainer></Panel></section>
 

@@ -162,22 +162,55 @@ export async function getWarleineFinancialData(filters: WarleineFinancialFilters
   if (!pool) throw new Error("Banco indisponível");
   const where = financialWhere(filters);
   const limit = Math.max(5, Math.min(30, filters.limite || 10));
-  const [[summaryRows], [byConventionRows], [byMonthRows], [reasonRows], [itemRows], [filterRows], nome] = await Promise.all([
+  const [[summaryRows], [byConventionRows], [byMonthRows], [byConventionMonthRows], [reasonRows], [itemRows], [filterRows], nome] = await Promise.all([
     pool.query<RowDataPacket[]>(`SELECT ${financialSelect()} FROM warleine_faturamento_itens_ativos WHERE ${where.sql}`, where.params),
     pool.query<RowDataPacket[]>(`SELECT ${financialSelect(`${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio,`)} FROM warleine_faturamento_itens_ativos WHERE ${where.sql} GROUP BY convenioChave ORDER BY totalFaturado DESC LIMIT ?`, [...where.params, limit]),
     pool.query<RowDataPacket[]>(`SELECT ${financialSelect("competencia,")} FROM warleine_faturamento_itens_ativos WHERE ${where.sql} GROUP BY competencia ORDER BY competencia`, where.params),
+    pool.query<RowDataPacket[]>(`SELECT ${financialSelect(`${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio, competencia,`)} FROM warleine_faturamento_itens_ativos WHERE ${where.sql} GROUP BY convenioChave, competencia ORDER BY competencia DESC, totalFaturado DESC`, where.params),
     pool.query<RowDataPacket[]>(`SELECT COALESCE(NULLIF(codigoGlosa,''),'SEM_CODIGO') AS codigo, COALESCE(NULLIF(motivoGlosa,''),'Motivo não informado') AS motivo, SUM(valorGlosa) AS valorGlosado, COUNT(*) AS quantidade FROM warleine_faturamento_itens_ativos WHERE ${where.sql} AND valorGlosa>0 GROUP BY codigo,motivo ORDER BY valorGlosado DESC LIMIT ?`, [...where.params, limit]),
     pool.query<RowDataPacket[]>(`SELECT COALESCE(NULLIF(codigoTuss,''),NULLIF(codigoItemInterno,''),'SEM_CODIGO') AS codigo, COALESCE(NULLIF(servicoNome,''),'Item não informado') AS item, COALESCE(NULLIF(tipoItem,''),'Não informado') AS tipo, SUM(valorGlosa) AS valorGlosado, COUNT(*) AS quantidade FROM warleine_faturamento_itens_ativos WHERE ${where.sql} AND valorGlosa>0 GROUP BY codigo,item,tipo ORDER BY valorGlosado DESC LIMIT ?`, [...where.params, limit]),
     pool.query<RowDataPacket[]>(`SELECT competencia, ${CONVENIO_CHAVE_SQL} AS convenioChave, MAX(${CONVENIO_NOME_SQL}) AS convenio FROM warleine_faturamento_itens_ativos WHERE estabelecimentoId=? AND ${ACTIVE} GROUP BY competencia,convenioChave ORDER BY competencia DESC, convenio`, [filters.estabelecimentoId]),
     establishmentName(filters.estabelecimentoId),
   ]);
   const resumo = financialRow(summaryRows[0] || {} as RowDataPacket);
+  const mesesPorConvenio = new Map<string, Array<{ competencia: string } & ReturnType<typeof financialRow>>>();
+  const conveniosPorMes = new Map<string, Array<{ convenioChave: string; convenio: string } & ReturnType<typeof financialRow>>>();
+  for (const row of byConventionMonthRows) {
+    const convChave = String(row.convenioChave);
+    const convNome = String(row.convenio);
+    const comp = String(row.competencia);
+    const metrics = financialRow(row);
+
+    const listaMeses = mesesPorConvenio.get(convChave) || [];
+    listaMeses.push({ competencia: comp, ...metrics });
+    mesesPorConvenio.set(convChave, listaMeses);
+
+    const listaConvs = conveniosPorMes.get(comp) || [];
+    listaConvs.push({ convenioChave: convChave, convenio: convNome, ...metrics });
+    conveniosPorMes.set(comp, listaConvs);
+  }
+
   return {
     estabelecimento: { id: filters.estabelecimentoId, nome },
     filtrosAplicados: { competencia: filters.competencia || null, convenio: filters.convenio || null },
     resumo,
-    porConvenio: byConventionRows.map((row) => ({ convenioChave: String(row.convenioChave), convenio: String(row.convenio), ...financialRow(row) })),
-    porMes: byMonthRows.map((row) => ({ competencia: String(row.competencia), ...financialRow(row) })),
+    porConvenio: byConventionRows.map((row) => {
+      const convChave = String(row.convenioChave);
+      return {
+        convenioChave: convChave,
+        convenio: String(row.convenio),
+        ...financialRow(row),
+        meses: (mesesPorConvenio.get(convChave) || []).sort((a, b) => b.competencia.localeCompare(a.competencia)),
+      };
+    }),
+    porMes: byMonthRows.map((row) => {
+      const comp = String(row.competencia);
+      return {
+        competencia: comp,
+        ...financialRow(row),
+        convenios: (conveniosPorMes.get(comp) || []).sort((a, b) => b.totalFaturado - a.totalFaturado),
+      };
+    }),
     motivosGlosa: reasonRows.map((row) => ({ codigo: String(row.codigo), motivo: String(row.motivo), valorGlosado: money(row.valorGlosado), quantidade: n(row.quantidade) })),
     itensGlosados: itemRows.map((row) => ({ codigo: String(row.codigo), item: String(row.item), tipo: String(row.tipo), valorGlosado: money(row.valorGlosado), quantidade: n(row.quantidade) })),
     lancamentosExternosConsiderados: [],

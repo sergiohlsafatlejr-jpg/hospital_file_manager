@@ -129,4 +129,27 @@ describe("faturadoRecebidoUnificadoService", () => {
     const apenasPlanilha = consolidarRegistrosFinanceiros(registros.filter((r) => r.origem !== "manual"))[0];
     expect(apenasPlanilha).toMatchObject({ faturado: 200, recebido: 75, quantidade: 30 });
   });
+
+  it("gera drill-down por mês dentro de cada convênio e por convênio dentro de cada mês", () => {
+    const consolidado = consolidarRegistrosFinanceiros([
+      { competencia: "2026/07", convenio: "Unimed", fonte: "faturado", faturado: 1000 },
+      { competencia: "2026/07", convenio: "Unimed", fonte: "retorno", recebido: 850, glosado: 50 },
+      { competencia: "2026/08", convenio: "Unimed", fonte: "faturado", faturado: 2000 },
+      { competencia: "2026/08", convenio: "Unimed", fonte: "retorno", recebido: 1800, glosado: 100 },
+      { competencia: "2026/08", convenio: "Ipasgo", fonte: "faturado", faturado: 500 },
+    ]);
+
+    const porConvenio = agruparFinanceiro(consolidado, "convenio") as any[];
+    const unimed = porConvenio.find((item) => item.convenio === "Unimed");
+    expect(unimed.totalFaturado).toBe(3000);
+    expect(unimed.meses).toHaveLength(2);
+    expect(unimed.meses[0]).toMatchObject({ competencia: "2026/08", totalFaturado: 2000, totalRecebido: 1800, totalGlosado: 100 });
+    expect(unimed.meses[1]).toMatchObject({ competencia: "2026/07", totalFaturado: 1000, totalRecebido: 850, totalGlosado: 50 });
+
+    const porMes = agruparFinanceiro(consolidado, "competencia") as any[];
+    const agosto = porMes.find((item) => item.competencia === "2026/08");
+    expect(agosto.convenios).toHaveLength(2);
+    expect(agosto.convenios[0]).toMatchObject({ convenio: "Unimed", totalFaturado: 2000 });
+    expect(agosto.convenios[1]).toMatchObject({ convenio: "Ipasgo", totalFaturado: 500 });
+  });
 });

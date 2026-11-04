@@ -216,6 +216,13 @@ export function calcularIndicadoresFinanceiros(registros: RegistroFinanceiroUnif
   };
 }
 
+function ordenarCompetenciaDesc(a: string, b: string) {
+  if (a === "Sem competência" && b === "Sem competência") return 0;
+  if (a === "Sem competência") return 1;
+  if (b === "Sem competência") return -1;
+  return b.localeCompare(a);
+}
+
 export function agruparFinanceiro(registros: RegistroFinanceiroUnificado[], dimensao: "competencia" | "convenio") {
   const grupos = new Map<string, RegistroFinanceiroUnificado[]>();
   for (const registro of registros) {
@@ -224,8 +231,47 @@ export function agruparFinanceiro(registros: RegistroFinanceiroUnificado[], dime
     atual.push(registro);
     grupos.set(chave, atual);
   }
-  return [...grupos.entries()].map(([chave, itens]) => ({
-    [dimensao]: chave,
-    ...calcularIndicadoresFinanceiros(itens),
-  }));
+  return [...grupos.entries()].map(([chave, itens]) => {
+    if (dimensao === "convenio") {
+      const porCompetencia = new Map<string, RegistroFinanceiroUnificado[]>();
+      for (const item of itens) {
+        const comp = item.competencia || "Sem competência";
+        const lista = porCompetencia.get(comp) || [];
+        lista.push(item);
+        porCompetencia.set(comp, lista);
+      }
+      const meses = [...porCompetencia.entries()]
+        .map(([competencia, itensMes]) => ({
+          competencia,
+          ...calcularIndicadoresFinanceiros(itensMes),
+        }))
+        .sort((a, b) => ordenarCompetenciaDesc(a.competencia, b.competencia));
+
+      return {
+        convenio: chave,
+        ...calcularIndicadoresFinanceiros(itens),
+        meses,
+      };
+    }
+
+    const porConv = new Map<string, RegistroFinanceiroUnificado[]>();
+    for (const item of itens) {
+      const conv = item.convenio || "Sem convênio";
+      const lista = porConv.get(conv) || [];
+      lista.push(item);
+      porConv.set(conv, lista);
+    }
+    const convenios = [...porConv.entries()]
+      .map(([convenio, itensConv]) => ({
+        convenio,
+        ...calcularIndicadoresFinanceiros(itensConv),
+      }))
+      .sort((a, b) => b.totalFaturado - a.totalFaturado);
+
+    return {
+      competencia: chave,
+      ...calcularIndicadoresFinanceiros(itens),
+      convenios,
+    };
+  });
 }
