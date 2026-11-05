@@ -8,6 +8,7 @@ import { getDb, verificarPermissaoEstabelecimento } from "../db";
 import { consultarSaldo, consultarExtrato, consultarExtratoCompleto, exportarExtratoPdf, getInterStatus, emitirBoleto, consultarBoleto, listarBoletos, downloadBoletoPdf, cancelarBoleto, sumarioBoletos, invalidarCacheTokenInter } from "../bancoInter";
 import { bancoInterEncryptionKeyAvailable, encryptBancoInterField } from "../bancoInterVault";
 import { enviarBoletoPorEmail, enviarNotaFiscalPorEmail } from "../services/emailService";
+import { storageGet, storagePut } from "../storage";
 import {
   finEmpresas, finClientes, finCategorias, finTiposPagamento,
   finTiposRecebivel, finBancos, finCustos, finTransacoes,
@@ -50,6 +51,65 @@ async function exigirBancoDaUnidade(bancoId: number, estabelecimentoId: number) 
     .limit(1);
   if (!banco) throw new TRPCError({ code: "FORBIDDEN", message: "Banco não pertence ao estabelecimento informado" });
   return banco;
+}
+
+async function salvarNotaFiscalRecebivel(recebivelId: number, buffer: Buffer): Promise<string> {
+  const fileName = `nf_${recebivelId}_${Date.now()}.pdf`;
+  const dirPath = path.join(process.cwd(), "uploads");
+  await fs.mkdir(dirPath, { recursive: true });
+  await fs.writeFile(path.join(dirPath, fileName), buffer);
+
+  if (process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY) {
+    try {
+      const storageKey = `nfs/${fileName}`;
+      await storagePut(storageKey, buffer, "application/pdf");
+      return storageKey;
+    } catch (err) {
+      console.error("[Financeiro] Falha ao persistir NF no storage durável, mantendo cópia local:", err);
+    }
+  }
+  return fileName;
+}
+
+async function carregarNotaFiscalRecebivelBase64(notaFiscalKey: string): Promise<string> {
+  const safeFileName = path.basename(notaFiscalKey);
+  const localPath = path.join(process.cwd(), "uploads", safeFileName);
+  try {
+    const nfBuffer = await fs.readFile(localPath);
+    return nfBuffer.toString("base64");
+  } catch {
+    // Tenta recuperar do storage durável caso o container tenha reiniciado
+  }
+
+  if (process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY) {
+    const candidateKeys = Array.from(new Set([
+      notaFiscalKey,
+      `nfs/${safeFileName}`,
+    ]));
+    for (const candidateKey of candidateKeys) {
+      try {
+        const { url } = await storageGet(candidateKey);
+        const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (response.ok) {
+          const arrayBuf = await response.arrayBuffer();
+          const nfBuffer = Buffer.from(arrayBuf);
+          if (nfBuffer.length > 0) {
+            const dirPath = path.join(process.cwd(), "uploads");
+            await fs.mkdir(dirPath, { recursive: true }).catch(() => {});
+            await fs.writeFile(localPath, nfBuffer).catch(() => {});
+            return nfBuffer.toString("base64");
+          }
+        }
+      } catch {
+        // Tenta próxima chave candidata
+      }
+    }
+  }
+
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: "O arquivo PDF da Nota Fiscal vinculada não foi encontrado no servidor. Clique em '📄 Alterar NF' para anexar o PDF da Nota Fiscal novamente antes de enviar.",
+  });
 }
 
 // ============================================================
@@ -1166,7 +1226,8 @@ const recebiveisRouter = router({
         bancoId: bancoEmissorId,
         boletoSolicitacaoId: result.codigoSolicitacao,
         boletoLinhaDigitavel: result.boleto?.linhaDigitavel || null,
-        boletoPixCopiaCola: result.pix?.pixCopiaECola || null
+        boletoPixCopiaCola: result.pix?.pixCopiaECola || null,
+        emailEnviado: "nao",
       }).where(eq(finRecebiveis.id, input.recebivelId));
 
       // Se houver email, tenta baixar e disparar o anexo
@@ -1177,14 +1238,15 @@ const recebiveisRouter = router({
             let base64Nf: string | undefined = undefined;
             if (recebivel.notaFiscalKey) {
               try {
-                const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
-                const nfBuffer = await fs.readFile(filePath);
-                base64Nf = nfBuffer.toString("base64");
-              } catch (e) { console.error("Erro nf:", e); }
+                base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
+              } catch (e) {
+                console.error("Erro nf:", e);
+              }
             }
-            enviarBoletoPorEmail(input.pagador.email, pdfResult.pdf, result.codigoSolicitacao, recebivel.valor, base64Nf).then(async (success) => {
-              if (success) await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
-            });
+            const success = await enviarBoletoPorEmail(input.pagador.email, pdfResult.pdf, result.codigoSolicitacao, recebivel.valor, base64Nf);
+            if (success) {
+              await db.update(finRecebiveis).set({ emailEnviado: "sim" }).where(eq(finRecebiveis.id, input.recebivelId));
+            }
           }
         } catch (err) {
           console.error("Falha ao enviar email do boleto gerado:", err);
@@ -1228,11 +1290,7 @@ const recebiveisRouter = router({
       
       let base64Nf: string | undefined = undefined;
       if (recebivel.notaFiscalKey) {
-        try {
-          const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
-          const nfBuffer = await fs.readFile(filePath);
-          base64Nf = nfBuffer.toString("base64");
-        } catch (e) { console.error("Erro nf:", e); }
+        base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
       }
 
       const enviado = await enviarBoletoPorEmail(input.email, pdfResult.pdf, recebivel.boletoSolicitacaoId, recebivel.valor, base64Nf);
@@ -1256,12 +1314,8 @@ const recebiveisRouter = router({
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
 
-      const key = `nf_${input.recebivelId}_${Date.now()}.pdf`;
       const buffer = Buffer.from(input.base64File, "base64");
-      
-      const dirPath = path.join(process.cwd(), "uploads");
-      await fs.mkdir(dirPath, { recursive: true });
-      await fs.writeFile(path.join(dirPath, key), buffer);
+      const key = await salvarNotaFiscalRecebivel(input.recebivelId, buffer);
       
       await db.update(finRecebiveis).set({ notaFiscalKey: key }).where(eq(finRecebiveis.id, input.recebivelId));
       return { success: true, key };
@@ -1277,12 +1331,7 @@ const recebiveisRouter = router({
       if (!empresa?.estabelecimentoId) throw new TRPCError({ code: "FORBIDDEN", message: "Recebível sem unidade vinculada" });
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "editar");
       
-      let base64Nf: string | undefined = undefined;
-      try {
-        const filePath = path.join(process.cwd(), "uploads", path.basename(recebivel.notaFiscalKey));
-        const nfBuffer = await fs.readFile(filePath);
-        base64Nf = nfBuffer.toString("base64");
-      } catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao recuperar a NF original dos arquivos locais." }); }
+      const base64Nf = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
 
       const enviado = await enviarNotaFiscalPorEmail(input.email, base64Nf, recebivel.valor);
       if (!enviado) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao enviar o e-mail via SMTP." });
@@ -1302,9 +1351,8 @@ const recebiveisRouter = router({
       await exigirUnidadeFinanceira(ctx.user.id, empresa.estabelecimentoId, "visualizar");
 
       const safeFileName = path.basename(recebivel.notaFiscalKey);
-      const filePath = path.join(process.cwd(), "uploads", safeFileName);
-      const buffer = await fs.readFile(filePath);
-      return { base64: buffer.toString("base64"), fileName: safeFileName };
+      const base64 = await carregarNotaFiscalRecebivelBase64(recebivel.notaFiscalKey);
+      return { base64, fileName: safeFileName };
     }),
 });
 
