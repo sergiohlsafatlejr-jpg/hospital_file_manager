@@ -130,11 +130,13 @@ for (const path of paths) {
       expect(compiled.params).toContain(10);
       expect(compiled.sql).not.toMatch(/\bDISTINCT\b|\bLIMIT\s+1\b/i);
       expect(compiled.sql).toMatch(/d\.estabelecimentoId = ca\.estabelecimentoId[\s\S]*d\.convenio_id = ca\.convenioId/);
-      expect(compiled.sql).toMatch(/d\.id = ca\.recebimentoId/);
+      expect(compiled.sql).toMatch(/WHEN ca\.recebimentoOrigem = 'demonstrativo' AND ca\.recebimentoId IS NOT NULL\s+THEN ca\.recebimentoId/);
+      expect(compiled.sql).toMatch(/LEFT JOIN demonstrativo d\s+ON d\.id = ca\.demonstrativoVinculadoId/);
       expect(compiled.sql).toMatch(/ca\.recebimentoId IS NULL[\s\S]*SELECT MIN\(candidato\.id\)[\s\S]*HAVING COUNT\(\*\) = 1/);
       expect(compiled.sql).toContain("candidato.sequencial_item = ft.sequencial_item");
       expect(compiled.sql).toContain("candidato.protocolo = TRIM(fu.protocolo)");
       expect(compiled.sql).toContain("ft.convenioId = ca.convenioId");
+      expectSemSubqueryEmOn(compiled.sql);
     });
     it("dois snapshots candidatos não multiplicam nem alteram valores/motivo próprios", async () => {
       const db = await run({ demonstrativo: [demo(), demo({ id: 102, protocolo: "OUTRO-PROTO", erro_tiss: "Outro erro" })] });
@@ -198,6 +200,12 @@ function captureDb(rows: unknown[][] = [[]]) {
   return execute;
 }
 
+/** TiDB rejeita subquery em condição ON ("ON condition doesn't support subqueries yet"). */
+function expectSemSubqueryEmOn(sqlText: string) {
+  const trechosOn = sqlText.split(/\bON\b/).slice(1)
+    .map(trecho => trecho.split(/\b(?:LEFT JOIN|INNER JOIN|JOIN|WHERE|ORDER BY|GROUP BY)\b|\)\s*ca\b/)[0]);
+  for (const trecho of trechosOn) expect(trecho).not.toMatch(/\bSELECT\b/i);
+}
 describe("Issue163 — parâmetros e nomes físicos", () => {
   it.each([oddText, "FICTICIO'", "FICTICIO\\", 'FICTICIO"'])("busca manual conserva aspas/backslash nos parâmetros: %s", async termo => {
     const execute = captureDb();
