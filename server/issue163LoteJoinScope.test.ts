@@ -95,6 +95,7 @@ function mockSqlDb(fixtures: Fixtures, exportacao = false) {
       expect(built.sql.trim()).toMatch(/^SELECT\b/i);
       // faturamento_tiss (utf8mb4_unicode_ci) x demais tabelas (utf8mb4_general_ci):
       // sem COLLATE explícito o MySQL falha com ER 1267 (Illegal mix of collations).
+      expectSemSubqueryEmOn(built.sql);
       if (/LEFT JOIN faturamento_tiss ft/.test(built.sql)) {
         expect(built.sql).toMatch(/CAST\(ft\.id AS CHAR\) COLLATE utf8mb4_general_ci = fu\.origemId/);
         expect(built.sql).toMatch(/ft\.numero_guia_prestador = ca\.numeroGuia COLLATE utf8mb4_unicode_ci/);
@@ -145,6 +146,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** TiDB rejeita subquery em condição ON ("ON condition doesn't support subqueries yet"). */
+function expectSemSubqueryEmOn(sqlText: string) {
+  const trechosOn = sqlText.split(/\bON\b/).slice(1)
+    .map(trecho => trecho.split(/\b(?:LEFT JOIN|INNER JOIN|JOIN|WHERE|ORDER BY|GROUP BY)\b|\)\s*ca\b/)[0]);
+  for (const trecho of trechosOn) expect(trecho).not.toMatch(/\bSELECT\b/i);
+}
 describe("Issue163 — vínculo descritivo de lote sem multiplicação", () => {
   it.each([false, true])("usa SQL parametrizada, nomes físicos e unicidade explícita (exportação=%s)", async exportacao => {
     const db = mockSqlDb({ conciliados_automatico: [ca()] }, exportacao);
@@ -157,7 +164,8 @@ describe("Issue163 — vínculo descritivo de lote sem multiplicação", () => {
     }
     const sql = dialect.sqlToQuery(db.execute.mock.calls[1][0] as any).sql;
     expect(sql).toMatch(/d\.estabelecimentoId = ca\.estabelecimentoId[\s\S]*d\.convenio_id = ca\.convenioId/);
-    expect(sql).toMatch(/d\.id = ca\.recebimentoId/);
+    expect(sql).toMatch(/WHEN ca\.recebimentoOrigem = 'demonstrativo' AND ca\.recebimentoId IS NOT NULL\s+THEN ca\.recebimentoId/);
+    expect(sql).toMatch(/LEFT JOIN demonstrativo d\s+ON d\.id = ca\.demonstrativoVinculadoId/);
     expect(sql).toMatch(/ca\.recebimentoId IS NULL[\s\S]*SELECT MIN\(candidato\.id\)[\s\S]*HAVING COUNT\(\*\) = 1/);
     expect(sql).toMatch(/candidato\.data_execucao = DATE\(COALESCE\(ca\.dataExecucao, fu\.dataExecucao, ft\.data_execucao\)\)/);
     expect(sql).toMatch(/candidato\.sequencial_item = ft\.sequencial_item/);

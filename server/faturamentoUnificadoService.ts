@@ -36,46 +36,66 @@ export function obterGuiasCandidatas(item: {
   )];
 }
 
-/** Complemento descritivo: um ID exato ou um único candidato legado, nunca desempate. */
-function joinDemonstrativoConciliadoSeguro() {
+/**
+ * Complemento descritivo: um ID exato ou um único candidato legado, nunca desempate.
+ *
+ * TiDB não aceita subquery em condição ON ("ON condition doesn't support
+ * subqueries yet"). Por isso o vínculo é resolvido como coluna
+ * (demonstrativoVinculadoId) de uma tabela derivada com alias `ca`, e o
+ * demonstrativo é ligado somente por PK + escopo. Use como fonte do FROM:
+ * `FROM ${...}`; as colunas de conciliados_automatico continuam em `ca.*`.
+ */
+function fromConciliadosDemonstrativoSeguro() {
   return sql`
+    (
+      SELECT
+        ca.*,
+        CASE
+          WHEN ca.recebimentoOrigem = 'demonstrativo' AND ca.recebimentoId IS NOT NULL
+            THEN ca.recebimentoId
+          WHEN ca.recebimentoId IS NULL
+            AND (NULLIF(TRIM(ca.recebimentoOrigem), '') IS NULL OR ca.recebimentoOrigem = 'demonstrativo')
+            THEN (
+              SELECT MIN(candidato.id)
+              FROM demonstrativo candidato
+              WHERE candidato.estabelecimentoId = ca.estabelecimentoId
+                AND candidato.convenio_id = ca.convenioId
+                AND NULLIF(TRIM(ca.numeroGuia), '') IS NOT NULL
+                AND NULLIF(TRIM(ca.codigoItem), '') IS NOT NULL
+                AND candidato.numero_guia = ca.numeroGuia
+                AND candidato.codigo_item = ca.codigoItem
+                AND (COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao) IS NULL
+                  OR candidato.data_execucao = DATE(COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao)))
+                AND (ft.sequencial_item IS NULL OR candidato.sequencial_item = ft.sequencial_item)
+                AND (NULLIF(TRIM(fu.protocolo), '') IS NULL OR candidato.protocolo = TRIM(fu.protocolo))
+              HAVING COUNT(*) = 1
+            )
+        END AS demonstrativoVinculadoId
+      FROM conciliados_automatico ca
+      LEFT JOIN faturamento_unificado fu
+        ON fu.id = ca.faturamentoUnificadoId
+        AND fu.estabelecimentoId = ca.estabelecimentoId
+        AND fu.convenioId = ca.convenioId
+        AND fu.numeroGuia = ca.numeroGuia
+        AND fu.codigoItem = ca.codigoItem
+      LEFT JOIN faturamento_tiss ft
+        ON fu.origemSistema = 'XML_TISS'
+        AND CAST(ft.id AS CHAR) COLLATE utf8mb4_general_ci = fu.origemId
+        AND ft.estabelecimentoId = ca.estabelecimentoId
+        AND ft.convenioId = ca.convenioId
+        AND (ft.numero_guia_prestador = ca.numeroGuia COLLATE utf8mb4_unicode_ci OR ft.numero_guia_operadora = ca.numeroGuia COLLATE utf8mb4_unicode_ci)
+        AND ft.codigo_item = ca.codigoItem COLLATE utf8mb4_unicode_ci
+    ) ca
     LEFT JOIN faturamento_unificado fu
       ON fu.id = ca.faturamentoUnificadoId
       AND fu.estabelecimentoId = ca.estabelecimentoId
       AND fu.convenioId = ca.convenioId
       AND fu.numeroGuia = ca.numeroGuia
       AND fu.codigoItem = ca.codigoItem
-    LEFT JOIN faturamento_tiss ft
-      ON fu.origemSistema = 'XML_TISS'
-      AND CAST(ft.id AS CHAR) COLLATE utf8mb4_general_ci = fu.origemId
-      AND ft.estabelecimentoId = ca.estabelecimentoId
-      AND ft.convenioId = ca.convenioId
-      AND (ft.numero_guia_prestador = ca.numeroGuia COLLATE utf8mb4_unicode_ci OR ft.numero_guia_operadora = ca.numeroGuia COLLATE utf8mb4_unicode_ci)
-      AND ft.codigo_item = ca.codigoItem COLLATE utf8mb4_unicode_ci
     LEFT JOIN demonstrativo d
-      ON d.estabelecimentoId = ca.estabelecimentoId
+      ON d.id = ca.demonstrativoVinculadoId
+      AND d.estabelecimentoId = ca.estabelecimentoId
       AND d.convenio_id = ca.convenioId
-      AND (
-        (ca.recebimentoOrigem = 'demonstrativo' AND d.id = ca.recebimentoId)
-        OR (
-          ca.recebimentoId IS NULL
-          AND (NULLIF(TRIM(ca.recebimentoOrigem), '') IS NULL OR ca.recebimentoOrigem = 'demonstrativo')
-          AND d.id = (
-            SELECT MIN(candidato.id) FROM demonstrativo candidato
-            WHERE candidato.estabelecimentoId = ca.estabelecimentoId
-              AND candidato.convenio_id = ca.convenioId
-              AND NULLIF(TRIM(ca.numeroGuia), '') IS NOT NULL
-              AND NULLIF(TRIM(ca.codigoItem), '') IS NOT NULL
-              AND candidato.numero_guia = ca.numeroGuia
-              AND candidato.codigo_item = ca.codigoItem
-              AND (COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao) IS NULL
-                OR candidato.data_execucao = DATE(COALESCE(ca.dataExecucao, fu.dataExecucao, ft.data_execucao)))
-              AND (ft.sequencial_item IS NULL OR candidato.sequencial_item = ft.sequencial_item)
-              AND (NULLIF(TRIM(fu.protocolo), '') IS NULL OR candidato.protocolo = TRIM(fu.protocolo))
-            HAVING COUNT(*) = 1
-          )
-        )
-      )
   `;
 }
 
@@ -3174,8 +3194,7 @@ export async function itensConciliadosPorGuia(params: {
       COALESCE(ca.percentualDiferenca, 0) as percentualDiferenca,
       ca.toleranciaUsada, ca.competenciaPagamento, ca.criadoEm,
       ca.executadoPor, ca.executadoPorNome
-    FROM conciliados_automatico ca
-    ${joinDemonstrativoConciliadoSeguro()}
+    FROM ${fromConciliadosDemonstrativoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
     WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.codigoItem, ca.id
@@ -4070,8 +4089,7 @@ export async function itensGlosadosDetalheGuia(params: {
       ca.glosaAceitaEm,
       ca.valorRecurso,
       ca.statusRecursoItem
-    FROM conciliados_automatico ca
-    ${joinDemonstrativoConciliadoSeguro()}
+    FROM ${fromConciliadosDemonstrativoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
     LEFT JOIN recebimentos_excel re ON ca.recebimentoId = re.id
       AND (ca.recebimentoOrigem = 'excel' OR ca.recebimentoOrigem IS NULL OR ca.recebimentoOrigem = '')
@@ -4190,8 +4208,7 @@ export async function gerarExcelRecursoConciliacao(params: {
       ca.competencia,
       fu.senha,
       fu.carteiraBeneficiario
-    FROM conciliados_automatico ca
-    ${joinDemonstrativoConciliadoSeguro()}
+    FROM ${fromConciliadosDemonstrativoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
     WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.numeroGuia, ca.dataExecucao, ca.codigoItem
@@ -4804,9 +4821,8 @@ export async function itensGlosadosDetalhePorItem(params: {
       ca.glosaAceitaPor,
       ca.valorRecurso,
       rj.justificativa as justificativaRecurso
-    FROM conciliados_automatico ca
+    FROM ${fromConciliadosDemonstrativoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.pacienteNome, ca.dataExecucao
@@ -4894,9 +4910,8 @@ export async function itensGlosadosDetalhePorMotivo(params: {
       ca.glosaAceitaPor,
       ca.valorRecurso,
       rj.justificativa as justificativaRecurso
-    FROM conciliados_automatico ca
+    FROM ${fromConciliadosDemonstrativoSeguro()}
     LEFT JOIN motivosGlosa mg ON ca.codigoGlosa = mg.codigo AND mg.ativo = 'sim'
-    ${joinDemonstrativoConciliadoSeguro()}
     LEFT JOIN recursos_glosa_justificativas rj ON rj.conciliadoId = ca.id
     WHERE ${sql.join(condicoes, sql` AND `)}
     ORDER BY ca.pacienteNome, ca.dataExecucao
