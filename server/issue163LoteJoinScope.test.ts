@@ -93,6 +93,14 @@ function mockSqlDb(fixtures: Fixtures, exportacao = false) {
     execute: vi.fn(async (query: unknown) => {
       const built = dialect.sqlToQuery(query as any);
       expect(built.sql.trim()).toMatch(/^SELECT\b/i);
+      // faturamento_tiss (utf8mb4_unicode_ci) x demais tabelas (utf8mb4_general_ci):
+      // sem COLLATE explícito o MySQL falha com ER 1267 (Illegal mix of collations).
+      if (/LEFT JOIN faturamento_tiss ft/.test(built.sql)) {
+        expect(built.sql).toMatch(/CAST\(ft\.id AS CHAR\) COLLATE utf8mb4_general_ci = fu\.origemId/);
+        expect(built.sql).toMatch(/ft\.numero_guia_prestador = ca\.numeroGuia COLLATE utf8mb4_unicode_ci/);
+        expect(built.sql).toMatch(/ft\.numero_guia_operadora = ca\.numeroGuia COLLATE utf8mb4_unicode_ci/);
+        expect(built.sql).toMatch(/ft\.codigo_item = ca\.codigoItem COLLATE utf8mb4_unicode_ci/);
+      }
       const params: Array<string | number | bigint | null> = [];
       const ctes = Object.entries(columns).map(([table, names]) => {
         const rows = fixtures[table as keyof Fixtures] ?? [];
@@ -111,7 +119,10 @@ function mockSqlDb(fixtures: Fixtures, exportacao = false) {
       try {
         // SQLite trata CHAR como afinidade numérica; simula o CAST textual MySQL.
         // O SQL original continua verificado estruturalmente acima, sem alterações.
-        const simulatedSql = built.sql.replace(/CAST\(ft\.id AS CHAR\)/g, "CAST(ft.id AS TEXT)");
+        // COLLATE utf8mb4_* (MySQL) não existe no SQLite e é removido apenas na simulação.
+        const simulatedSql = built.sql
+          .replace(/CAST\(ft\.id AS CHAR\)/g, "CAST(ft.id AS TEXT)")
+          .replace(/\s+COLLATE\s+utf8mb4_\w+/g, "");
         const rows = memory.prepare(`WITH ${ctes.join(",")} ${simulatedSql}`).all(...params, ...built.params);
         return [rows];
       } finally {
@@ -151,7 +162,7 @@ describe("Issue163 — vínculo descritivo de lote sem multiplicação", () => {
     expect(sql).toMatch(/candidato\.data_execucao = DATE\(COALESCE\(ca\.dataExecucao, fu\.dataExecucao, ft\.data_execucao\)\)/);
     expect(sql).toMatch(/candidato\.sequencial_item = ft\.sequencial_item/);
     expect(sql).toMatch(/candidato\.protocolo = TRIM\(fu\.protocolo\)/);
-    expect(sql).toMatch(/CAST\(ft\.id AS CHAR\) = fu\.origemId/);
+    expect(sql).toMatch(/CAST\(ft\.id AS CHAR\) COLLATE utf8mb4_general_ci = fu\.origemId/);
   });
 
   it("prioriza ID exato sobre candidatos com mesma guia/código, sem reaplicar filtros legados", async () => {

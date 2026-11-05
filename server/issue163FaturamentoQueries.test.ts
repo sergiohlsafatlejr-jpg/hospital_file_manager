@@ -81,7 +81,10 @@ function memoryDb(fixtures: Fixtures) {
     const db = new DatabaseSync(":memory:");
     try {
       // SQLite CHAR tem afinidade numérica. Só este CAST textual é adaptado.
-      const querySql = compiled.sql.replace(/CAST\(ft\.id AS CHAR\)/g, "CAST(ft.id AS TEXT)");
+      // COLLATE utf8mb4_* (MySQL) não existe no SQLite e é removido apenas na simulação.
+      const querySql = compiled.sql
+        .replace(/CAST\(ft\.id AS CHAR\)/g, "CAST(ft.id AS TEXT)")
+        .replace(/\s+COLLATE\s+utf8mb4_\w+/g, "");
       lastRows = db.prepare(`WITH ${ctes.join(",")} ${querySql}`).all(...bindings, ...compiled.params) as Row[];
       return [lastRows];
     } finally {

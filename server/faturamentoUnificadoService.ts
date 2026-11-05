@@ -47,11 +47,11 @@ function joinDemonstrativoConciliadoSeguro() {
       AND fu.codigoItem = ca.codigoItem
     LEFT JOIN faturamento_tiss ft
       ON fu.origemSistema = 'XML_TISS'
-      AND CAST(ft.id AS CHAR) = fu.origemId
+      AND CAST(ft.id AS CHAR) COLLATE utf8mb4_general_ci = fu.origemId
       AND ft.estabelecimentoId = ca.estabelecimentoId
       AND ft.convenioId = ca.convenioId
-      AND (ft.numero_guia_prestador = ca.numeroGuia OR ft.numero_guia_operadora = ca.numeroGuia)
-      AND ft.codigo_item = ca.codigoItem
+      AND (ft.numero_guia_prestador = ca.numeroGuia COLLATE utf8mb4_unicode_ci OR ft.numero_guia_operadora = ca.numeroGuia COLLATE utf8mb4_unicode_ci)
+      AND ft.codigo_item = ca.codigoItem COLLATE utf8mb4_unicode_ci
     LEFT JOIN demonstrativo d
       ON d.estabelecimentoId = ca.estabelecimentoId
       AND d.convenio_id = ca.convenioId
@@ -684,7 +684,7 @@ export async function popularDeXmlTissArquivoRestrito(
     SELECT COUNT(*) as total
     FROM faturamento_unificado fu
     INNER JOIN faturamento_tiss ft
-      ON CAST(ft.id AS CHAR) = fu.origemId
+      ON CAST(ft.id AS CHAR) COLLATE utf8mb4_general_ci = fu.origemId
       AND ft.estabelecimentoId = fu.estabelecimentoId
     WHERE fu.origemSistema = 'XML_TISS'
       AND fu.estabelecimentoId = ${estabelecimentoId}
